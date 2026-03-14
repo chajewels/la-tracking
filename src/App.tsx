@@ -3,8 +3,17 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import Index from "./pages/Index.tsx";
-import NotFound from "./pages/NotFound.tsx";
+import Dashboard from "./pages/Dashboard";
+import AccountList from "./pages/AccountList";
+import AccountDetail from "./pages/AccountDetail";
+import NewAccount from "./pages/NewAccount";
+import Customers from "./pages/Customers";
+import Monitoring from "./pages/Monitoring";
+import Collections from "./pages/Collections";
+import Finance from "./pages/Finance";
+import Analytics from "./pages/Analytics";
+import SettingsPage from "./pages/SettingsPage";
+import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
@@ -15,8 +24,16 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Index />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/accounts" element={<AccountList />} />
+          <Route path="/accounts/new" element={<NewAccount />} />
+          <Route path="/accounts/:id" element={<AccountDetail />} />
+          <Route path="/customers" element={<Customers />} />
+          <Route path="/monitoring" element={<Monitoring />} />
+          <Route path="/collections" element={<Collections />} />
+          <Route path="/finance" element={<Finance />} />
+          <Route path="/analytics" element={<Analytics />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
