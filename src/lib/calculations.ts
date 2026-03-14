@@ -114,7 +114,8 @@ export function generateCustomerMessage(
   const unpaidItems = schedule.filter(s => !s.is_paid);
   const remainingMonths = unpaidItems.length;
 
-  let message = `Inv # ${invoiceNumber}\n`;
+  let message = `✨ Cha Jewels Layaway Payment Summary\n\n`;
+  message += `Inv # ${invoiceNumber}\n`;
   
   if (totalPenalty > 0) {
     message += `Total Layaway Amount: ${formatCurrency(totalAmount, currency)} + ${formatCurrency(totalPenalty, currency)} (Penalty)\n`;
@@ -140,7 +141,8 @@ export function generateCustomerMessage(
 
   if (unpaidItems.length > 0) {
     const nextDate = new Date(unpaidItems[0].due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
-    message += `\nPlease note your next monthly payment is on ${nextDate}. Please expect another payment reminder from us.`;
+    message += `\nPlease note your next monthly payment is on ${nextDate}. Please expect another payment reminder from us.\n\n`;
+    message += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
   }
 
   return message;
