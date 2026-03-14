@@ -43,21 +43,8 @@ export default function AccountDetail() {
     );
   }
 
-  const payments = localPayments.filter(p => p.account_id === account.id);
-  const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
-  const remainingBalance = account.total_amount - totalPaid;
-  const paidInstallments = Math.min(payments.length, account.payment_plan);
 
-  const penalties = account.id === 'a2' ? [
-    { monthNumber: 3, amount: 2000 },
-    { monthNumber: 4, amount: 2000 },
-    { monthNumber: 5, amount: 1000 },
-  ] : [];
 
-  const schedule = useMemo(() => buildSchedule(
-    account.id, account.total_amount, totalPaid,
-    account.order_date, account.payment_plan, paidInstallments, penalties
-  ), [account, totalPaid, paidInstallments]);
 
   const totalPenalty = penalties.reduce((s, p) => s + p.amount, 0);
   const message = generateCustomerMessage(
