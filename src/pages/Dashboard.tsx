@@ -15,8 +15,9 @@ export default function Dashboard() {
       <div className="animate-fade-in space-y-6">
         {/* Header */}
         <div>
+          <p className="text-xs font-semibold text-primary uppercase tracking-widest mb-1">Overview</p>
           <h1 className="text-2xl font-bold text-foreground font-display">Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-1">Cha Jewels Layaway Payment Overview</p>
+          <p className="text-sm text-muted-foreground mt-1">Cha Jewels · Layaway Payment Management</p>
         </div>
 
         {/* Stats Grid */}
