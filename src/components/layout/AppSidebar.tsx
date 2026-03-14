@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, FileText, Users, Bell, DollarSign, BarChart3, Activity, Settings,
+  LayoutDashboard, FileText, Users, Bell, DollarSign, BarChart3, Activity, Settings, Send,
 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import {
@@ -15,6 +15,7 @@ const navItems = [
   { icon: FileText, label: 'Layaway Accounts', path: '/accounts' },
   { icon: Users, label: 'Customers', path: '/customers' },
   { icon: Bell, label: 'CSR Monitoring', path: '/monitoring' },
+  { icon: Send, label: 'Reminders', path: '/reminders' },
   { icon: Activity, label: 'Collections', path: '/collections' },
   { icon: DollarSign, label: 'Finance', path: '/finance' },
   { icon: BarChart3, label: 'Analytics', path: '/analytics' },
