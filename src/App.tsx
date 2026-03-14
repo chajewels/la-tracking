@@ -14,6 +14,7 @@ import Finance from "./pages/Finance";
 import Analytics from "./pages/Analytics";
 import SettingsPage from "./pages/SettingsPage";
 import Login from "./pages/Login";
+import Reminders from "./pages/Reminders";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -35,6 +36,7 @@ const App = () => (
           <Route path="/collections" element={<Collections />} />
           <Route path="/finance" element={<Finance />} />
           <Route path="/analytics" element={<Analytics />} />
+          <Route path="/reminders" element={<Reminders />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
