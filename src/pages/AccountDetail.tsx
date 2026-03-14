@@ -17,6 +17,22 @@ export default function AccountDetail() {
   const [copied, setCopied] = useState(false);
   const [localPayments, setLocalPayments] = useState<Payment[]>(initialPayments);
 
+  const payments = localPayments.filter(p => p.account_id === id);
+  const totalPaid = account ? payments.reduce((s, p) => s + p.amount, 0) : 0;
+  const remainingBalance = account ? account.total_amount - totalPaid : 0;
+  const paidInstallments = account ? Math.min(payments.length, account.payment_plan) : 0;
+
+  const penalties = id === 'a2' ? [
+    { monthNumber: 3, amount: 2000 },
+    { monthNumber: 4, amount: 2000 },
+    { monthNumber: 5, amount: 1000 },
+  ] : [];
+
+  const schedule = useMemo(() => account ? buildSchedule(
+    account.id, account.total_amount, totalPaid,
+    account.order_date, account.payment_plan, paidInstallments, penalties
+  ) : [], [id, totalPaid, paidInstallments]);
+
   if (!account) {
     return (
       <AppLayout>
