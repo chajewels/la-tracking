@@ -13,6 +13,7 @@ import Collections from "./pages/Collections";
 import Finance from "./pages/Finance";
 import Analytics from "./pages/Analytics";
 import SettingsPage from "./pages/SettingsPage";
+import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -24,6 +25,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
+          <Route path="/login" element={<Login />} />
           <Route path="/" element={<Dashboard />} />
           <Route path="/accounts" element={<AccountList />} />
           <Route path="/accounts/new" element={<NewAccount />} />
