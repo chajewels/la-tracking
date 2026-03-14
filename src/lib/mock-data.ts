@@ -56,17 +56,17 @@ export const mockAccounts: LayawayAccount[] = [
 ];
 
 export const mockPayments: Payment[] = [
-  { id: 'p1', account_id: 'a1', amount: 24993, currency: 'PHP', payment_date: '2025-01-13', recorded_by: 'CSR Alice' },
-  { id: 'p2', account_id: 'a1', amount: 9723, currency: 'PHP', payment_date: '2025-02-13', recorded_by: 'CSR Alice' },
-  { id: 'p3', account_id: 'a2', amount: 12000, currency: 'JPY', payment_date: '2025-01-02', recorded_by: 'CSR Bob' },
-  { id: 'p4', account_id: 'a2', amount: 10134, currency: 'JPY', payment_date: '2025-02-02', recorded_by: 'CSR Bob' },
-  { id: 'p5', account_id: 'a3', amount: 15000, currency: 'JPY', payment_date: '2025-02-10', recorded_by: 'CSR Alice' },
-  { id: 'p6', account_id: 'a5', amount: 20000, currency: 'JPY', payment_date: '2024-12-15', recorded_by: 'CSR Bob' },
-  { id: 'p7', account_id: 'a5', amount: 20000, currency: 'JPY', payment_date: '2025-01-15', recorded_by: 'CSR Bob' },
-  { id: 'p8', account_id: 'a5', amount: 20000, currency: 'JPY', payment_date: '2025-02-15', recorded_by: 'CSR Alice' },
-  { id: 'p9', account_id: 'a6', amount: 18334, currency: 'PHP', payment_date: '2024-11-01', recorded_by: 'CSR Alice' },
-  { id: 'p10', account_id: 'a6', amount: 18333, currency: 'PHP', payment_date: '2024-12-01', recorded_by: 'CSR Alice' },
-  { id: 'p11', account_id: 'a6', amount: 18333, currency: 'PHP', payment_date: '2025-01-01', recorded_by: 'CSR Bob' },
+  { id: 'p1', account_id: 'a1', amount: 24993, currency: 'PHP', payment_date: monthsAgo(2, 13), recorded_by: 'CSR Alice' },
+  { id: 'p2', account_id: 'a1', amount: 9723, currency: 'PHP', payment_date: monthsAgo(1, 13), recorded_by: 'CSR Alice' },
+  { id: 'p3', account_id: 'a2', amount: 12000, currency: 'JPY', payment_date: monthsAgo(2, 2), recorded_by: 'CSR Bob' },
+  { id: 'p4', account_id: 'a2', amount: 10134, currency: 'JPY', payment_date: monthsAgo(1, 2), recorded_by: 'CSR Bob' },
+  { id: 'p5', account_id: 'a3', amount: 15000, currency: 'JPY', payment_date: monthsAgo(1, 10), recorded_by: 'CSR Alice' },
+  { id: 'p6', account_id: 'a5', amount: 20000, currency: 'JPY', payment_date: monthsAgo(3, 15), recorded_by: 'CSR Bob' },
+  { id: 'p7', account_id: 'a5', amount: 20000, currency: 'JPY', payment_date: monthsAgo(2, 15), recorded_by: 'CSR Bob' },
+  { id: 'p8', account_id: 'a5', amount: 20000, currency: 'JPY', payment_date: monthsAgo(1, 15), recorded_by: 'CSR Alice' },
+  { id: 'p9', account_id: 'a6', amount: 18334, currency: 'PHP', payment_date: monthsAgo(4, 1), recorded_by: 'CSR Alice' },
+  { id: 'p10', account_id: 'a6', amount: 18333, currency: 'PHP', payment_date: monthsAgo(3, 1), recorded_by: 'CSR Alice' },
+  { id: 'p11', account_id: 'a6', amount: 18333, currency: 'PHP', payment_date: monthsAgo(2, 1), recorded_by: 'CSR Bob' },
 ];
 
 export function getDashboardStats(currency?: Currency) {
