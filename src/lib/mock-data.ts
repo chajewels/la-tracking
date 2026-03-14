@@ -8,36 +8,50 @@ export const mockCustomers: Customer[] = [
   { id: 'c5', name: 'Ken Watanabe', facebook_name: 'ken.wat', messenger_link: 'https://m.me/ken.wat', clv_score: 'medium', created_at: '2024-11-20' },
 ];
 
+// Helper to get dates relative to today for realistic demo data
+function daysFromNow(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split('T')[0];
+}
+
+function monthsAgo(months: number, day?: number): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - months);
+  if (day) d.setDate(day);
+  return d.toISOString().split('T')[0];
+}
+
 export const mockAccounts: LayawayAccount[] = [
   {
     id: 'a1', invoice_number: '18351', customer_id: 'c1', customer: mockCustomers[0],
-    currency: 'PHP', total_amount: 83311, payment_plan: 6, order_date: '2025-01-13',
-    status: 'active', total_paid: 34716, remaining_balance: 48595, created_at: '2025-01-13',
+    currency: 'PHP', total_amount: 83311, payment_plan: 6, order_date: monthsAgo(2, 13),
+    status: 'active', total_paid: 34716, remaining_balance: 48595, created_at: monthsAgo(2, 13),
   },
   {
     id: 'a2', invoice_number: '17833', customer_id: 'c2', customer: mockCustomers[1],
-    currency: 'JPY', total_amount: 73780, payment_plan: 6, order_date: '2025-01-02',
-    status: 'active', total_paid: 22134, remaining_balance: 51646, created_at: '2025-01-02',
+    currency: 'JPY', total_amount: 73780, payment_plan: 6, order_date: monthsAgo(2, 2),
+    status: 'active', total_paid: 22134, remaining_balance: 51646, created_at: monthsAgo(2, 2),
   },
   {
     id: 'a3', invoice_number: '19001', customer_id: 'c3', customer: mockCustomers[2],
-    currency: 'JPY', total_amount: 45000, payment_plan: 3, order_date: '2025-02-10',
-    status: 'active', total_paid: 15000, remaining_balance: 30000, created_at: '2025-02-10',
+    currency: 'JPY', total_amount: 45000, payment_plan: 3, order_date: monthsAgo(1, 10),
+    status: 'active', total_paid: 15000, remaining_balance: 30000, created_at: monthsAgo(1, 10),
   },
   {
     id: 'a4', invoice_number: '19102', customer_id: 'c4', customer: mockCustomers[3],
-    currency: 'PHP', total_amount: 29638, payment_plan: 3, order_date: '2025-02-20',
-    status: 'active', total_paid: 0, remaining_balance: 29638, created_at: '2025-02-20',
+    currency: 'PHP', total_amount: 29638, payment_plan: 3, order_date: monthsAgo(1, 20),
+    status: 'active', total_paid: 0, remaining_balance: 29638, created_at: monthsAgo(1, 20),
   },
   {
     id: 'a5', invoice_number: '18900', customer_id: 'c5', customer: mockCustomers[4],
-    currency: 'JPY', total_amount: 120000, payment_plan: 6, order_date: '2024-12-15',
-    status: 'active', total_paid: 60000, remaining_balance: 60000, created_at: '2024-12-15',
+    currency: 'JPY', total_amount: 120000, payment_plan: 6, order_date: monthsAgo(3, 15),
+    status: 'active', total_paid: 60000, remaining_balance: 60000, created_at: monthsAgo(3, 15),
   },
   {
     id: 'a6', invoice_number: '17500', customer_id: 'c1', customer: mockCustomers[0],
-    currency: 'PHP', total_amount: 55000, payment_plan: 3, order_date: '2024-11-01',
-    status: 'completed', total_paid: 55000, remaining_balance: 0, created_at: '2024-11-01',
+    currency: 'PHP', total_amount: 55000, payment_plan: 3, order_date: monthsAgo(4, 1),
+    status: 'completed', total_paid: 55000, remaining_balance: 0, created_at: monthsAgo(4, 1),
   },
 ];
 
