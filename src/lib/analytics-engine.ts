@@ -266,9 +266,10 @@ export function generateCashflowForecast(currency?: Currency, months: number = 6
   return forecast;
 }
 
-export function getExpectedNextMonthCollection(currency?: Currency): { amount: number; adjusted: number; currency: Currency } {
-  const forecast = generateCashflowForecast(currency, 1);
-  if (forecast.length === 0) return { amount: 0, adjusted: 0, currency: currency || 'PHP' };
+export function getExpectedNextMonthCollection(currency?: Currency, convertToJpy: boolean = false): { amount: number; adjusted: number; currency: Currency } {
+  const forecast = generateCashflowForecast(currency, 1, convertToJpy);
+  const displayCurrency: Currency = (convertToJpy && !currency) ? 'JPY' : (currency || 'PHP');
+  if (forecast.length === 0) return { amount: 0, adjusted: 0, currency: displayCurrency };
   return { amount: forecast[0].expected, adjusted: forecast[0].adjusted, currency: forecast[0].currency };
 }
 
