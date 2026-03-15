@@ -1,8 +1,10 @@
-import { Bell, MessageCircle, Eye, Clock, AlertTriangle, CalendarCheck } from 'lucide-react';
+import { Bell, MessageCircle, Eye, Clock, AlertTriangle, CalendarCheck, ShieldAlert } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import RiskBadge from '@/components/dashboard/RiskBadge';
 import { formatCurrency } from '@/lib/calculations';
+import { assessAccountRisk, riskStyles } from '@/lib/analytics-engine';
 import { Link } from 'react-router-dom';
 
 const alerts = [
@@ -27,7 +29,7 @@ export default function Monitoring() {
           <Bell className="h-5 w-5 text-primary" />
           <div>
             <h1 className="text-2xl font-bold text-foreground font-display">CSR Monitoring Center</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Payment alerts and reminders</p>
+            <p className="text-sm text-muted-foreground mt-0.5">Payment alerts, risk predictions & reminders</p>
           </div>
         </div>
 
@@ -50,6 +52,7 @@ export default function Monitoring() {
           {alerts.map((alert) => {
             const config = typeConfig[alert.type as keyof typeof typeConfig];
             const Icon = config.icon;
+            const risk = assessAccountRisk(alert.accountId);
             return (
               <div key={alert.invoice} className={`rounded-xl border bg-card p-4 ${config.borderClass}`}>
                 <div className="flex items-center justify-between">
@@ -62,14 +65,20 @@ export default function Monitoring() {
                       }`} />
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <p className="text-sm font-semibold text-card-foreground">{alert.customer}</p>
                         <Badge variant="outline" className={`text-[10px] ${config.badgeClass}`}>{config.label}</Badge>
+                        <RiskBadge level={risk.riskLevel} />
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5">
                         INV #{alert.invoice} · Due {new Date(alert.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         {alert.daysOverdue > 0 && ` · ${alert.daysOverdue} days overdue`}
                       </p>
+                      {/* CSR Recommendation */}
+                      <div className={`mt-1.5 inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium ${riskStyles[risk.riskLevel].bg} ${riskStyles[risk.riskLevel].text}`}>
+                        <ShieldAlert className="h-3 w-3" />
+                        {risk.recommendation}
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
