@@ -11,14 +11,16 @@ import { getDashboardStats, mockAccounts } from '@/lib/mock-data';
 import { formatCurrency } from '@/lib/calculations';
 import { getAllRiskAssessments, getExpectedNextMonthCollection, getPredictedRevenue } from '@/lib/analytics-engine';
 import { Currency } from '@/lib/types';
+import { getDisplayCurrencyForFilter } from '@/lib/currency-converter';
 import { Link } from 'react-router-dom';
 
 export default function Dashboard() {
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
   const currency = currencyFilter === 'ALL' ? undefined : currencyFilter;
-  const displayCurrency: Currency = currency || 'PHP';
+  const isAllMode = currencyFilter === 'ALL';
+  const displayCurrency: Currency = getDisplayCurrencyForFilter(currencyFilter);
 
-  const stats = getDashboardStats(currency);
+  const stats = getDashboardStats(currency, isAllMode);
   const riskAssessments = getAllRiskAssessments();
   const highRiskCount = riskAssessments.filter(r => {
     if (r.riskLevel !== 'high') return false;
@@ -27,8 +29,8 @@ export default function Dashboard() {
     return acct?.currency === currency;
   }).length;
 
-  const nextMonth = getExpectedNextMonthCollection(currency);
-  const predicted30 = getPredictedRevenue(30, currency);
+  const nextMonth = getExpectedNextMonthCollection(currency, isAllMode);
+  const predicted30 = getPredictedRevenue(30, currency, isAllMode);
 
   return (
     <AppLayout>
@@ -54,7 +56,7 @@ export default function Dashboard() {
           <StatCard
             title="Active Accounts"
             value={stats.activeAccounts.toString()}
-            subtitle={currencyFilter === 'ALL' ? 'Across PHP & JPY' : `${currencyFilter} only`}
+            subtitle={isAllMode ? 'PHP & JPY (in ¥)' : `${currencyFilter} only`}
             icon={FileText}
           />
           <StatCard
@@ -120,7 +122,7 @@ export default function Dashboard() {
         {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
-            <RecentPayments />
+            <RecentPayments currencyFilter={currencyFilter} />
           </div>
           <div className="space-y-6">
             <AgingBuckets currency={displayCurrency} />

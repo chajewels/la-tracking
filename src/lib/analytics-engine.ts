@@ -1,6 +1,7 @@
 import { mockAccounts, mockPayments, mockCustomers } from './mock-data';
 import { Currency, RiskLevel, CLVTier, CompletionProbability } from './types';
 import { formatCurrency } from './calculations';
+import { toJpy } from './currency-converter';
 
 // ──────────────────────────────────────────────────────
 // 1. LATE PAYMENT RISK PREDICTION
@@ -221,13 +222,14 @@ export interface ForecastMonth {
   currency: Currency;
 }
 
-export function generateCashflowForecast(currency?: Currency, months: number = 6): ForecastMonth[] {
+export function generateCashflowForecast(currency?: Currency, months: number = 6, convertToJpy: boolean = false): ForecastMonth[] {
   const activeAccounts = mockAccounts.filter(
     a => a.status === 'active' && (!currency || a.currency === currency)
   );
 
   const now = new Date();
   const forecast: ForecastMonth[] = [];
+  const displayCurrency: Currency = (convertToJpy && !currency) ? 'JPY' : (currency || 'PHP');
 
   for (let i = 0; i < months; i++) {
     const forecastDate = new Date(now.getFullYear(), now.getMonth() + i + 1, 1);
@@ -241,7 +243,11 @@ export function generateCashflowForecast(currency?: Currency, months: number = 6
         (Date.now() - new Date(account.order_date).getTime()) / (30 * 24 * 60 * 60 * 1000)
       );
       if (remainingMonths > i) {
-        const monthlyPayment = account.remaining_balance / Math.max(1, remainingMonths);
+        let monthlyPayment = account.remaining_balance / Math.max(1, remainingMonths);
+        // Convert to JPY in ALL mode
+        if (convertToJpy && !currency) {
+          monthlyPayment = toJpy(monthlyPayment, account.currency);
+        }
         const completion = predictCompletion(account.id);
         const completionFactor = completion.score / 100;
         expected += monthlyPayment;
@@ -249,21 +255,21 @@ export function generateCashflowForecast(currency?: Currency, months: number = 6
       }
     });
 
-    const cur = currency || 'PHP';
     forecast.push({
       month: monthLabel,
       expected: Math.round(expected),
       adjusted: Math.round(adjusted),
-      currency: cur,
+      currency: displayCurrency,
     });
   }
 
   return forecast;
 }
 
-export function getExpectedNextMonthCollection(currency?: Currency): { amount: number; adjusted: number; currency: Currency } {
-  const forecast = generateCashflowForecast(currency, 1);
-  if (forecast.length === 0) return { amount: 0, adjusted: 0, currency: currency || 'PHP' };
+export function getExpectedNextMonthCollection(currency?: Currency, convertToJpy: boolean = false): { amount: number; adjusted: number; currency: Currency } {
+  const forecast = generateCashflowForecast(currency, 1, convertToJpy);
+  const displayCurrency: Currency = (convertToJpy && !currency) ? 'JPY' : (currency || 'PHP');
+  if (forecast.length === 0) return { amount: 0, adjusted: 0, currency: displayCurrency };
   return { amount: forecast[0].expected, adjusted: forecast[0].adjusted, currency: forecast[0].currency };
 }
 
@@ -271,7 +277,7 @@ export function getExpectedNextMonthCollection(currency?: Currency): { amount: n
 // 5. CURRENCY-FILTERED DASHBOARD STATS
 // ──────────────────────────────────────────────────────
 
-export function getPredictedRevenue(days: number, currency?: Currency): number {
+export function getPredictedRevenue(days: number, currency?: Currency, convertToJpy: boolean = false): number {
   const activeAccounts = mockAccounts.filter(
     a => a.status === 'active' && (!currency || a.currency === currency)
   );
@@ -280,7 +286,10 @@ export function getPredictedRevenue(days: number, currency?: Currency): number {
     const remainingMonths = Math.max(1, account.payment_plan - Math.floor(
       (Date.now() - new Date(account.order_date).getTime()) / (30 * 24 * 60 * 60 * 1000)
     ));
-    const monthlyPayment = account.remaining_balance / remainingMonths;
+    let monthlyPayment = account.remaining_balance / remainingMonths;
+    if (convertToJpy && !currency) {
+      monthlyPayment = toJpy(monthlyPayment, account.currency);
+    }
     const monthsInPeriod = days / 30;
     const completion = predictCompletion(account.id);
     total += monthlyPayment * Math.min(monthsInPeriod, remainingMonths) * (completion.score / 100);

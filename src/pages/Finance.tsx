@@ -8,17 +8,19 @@ import { formatCurrency } from '@/lib/calculations';
 import { generateCashflowForecast, getExpectedNextMonthCollection, getPredictedRevenue } from '@/lib/analytics-engine';
 import { Currency } from '@/lib/types';
 import { getDashboardStats } from '@/lib/mock-data';
+import { getDisplayCurrencyForFilter } from '@/lib/currency-converter';
 
 export default function Finance() {
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
   const currency = currencyFilter === 'ALL' ? undefined : currencyFilter;
-  const displayCurrency: Currency = currency || 'PHP';
+  const isAllMode = currencyFilter === 'ALL';
+  const displayCurrency: Currency = getDisplayCurrencyForFilter(currencyFilter);
 
-  const stats = getDashboardStats(currency);
-  const forecastData = generateCashflowForecast(currency, 6);
-  const nextMonth = getExpectedNextMonthCollection(currency);
-  const predicted30 = getPredictedRevenue(30, currency);
-  const predicted90 = getPredictedRevenue(90, currency);
+  const stats = getDashboardStats(currency, isAllMode);
+  const forecastData = generateCashflowForecast(currency, 6, isAllMode);
+  const nextMonth = getExpectedNextMonthCollection(currency, isAllMode);
+  const predicted30 = getPredictedRevenue(30, currency, isAllMode);
+  const predicted90 = getPredictedRevenue(90, currency, isAllMode);
   const maxForecast = Math.max(...forecastData.map(d => d.expected), 1);
 
   return (

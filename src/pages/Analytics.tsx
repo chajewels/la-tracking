@@ -14,6 +14,7 @@ import {
 } from '@/lib/analytics-engine';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
+import { getDisplayCurrencyForFilter } from '@/lib/currency-converter';
 import { Link } from 'react-router-dom';
 
 const csrPerformance = [
@@ -24,14 +25,15 @@ const csrPerformance = [
 export default function Analytics() {
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
   const currency = currencyFilter === 'ALL' ? undefined : currencyFilter;
-  const displayCurrency: Currency = currency || 'PHP';
+  const isAllMode = currencyFilter === 'ALL';
+  const displayCurrency: Currency = getDisplayCurrencyForFilter(currencyFilter);
 
   const risks = getAllRiskAssessments();
   const clvs = getAllCLVAssessments();
   const completions = getAllCompletionPredictions();
 
-  const predicted30 = getPredictedRevenue(30, currency);
-  const predicted90 = getPredictedRevenue(90, currency);
+  const predicted30 = getPredictedRevenue(30, currency, isAllMode);
+  const predicted90 = getPredictedRevenue(90, currency, isAllMode);
 
   const highRisk = risks.filter(r => r.riskLevel === 'high').length;
   const avgCompletionRate = completions.length > 0
