@@ -1,4 +1,5 @@
 import { Customer, LayawayAccount, Payment, Currency } from './types';
+import { toJpy } from './currency-converter';
 
 export const mockCustomers: Customer[] = [
   { id: 'c1', name: 'Maria Santos', facebook_name: 'maria.santos', messenger_link: 'https://m.me/maria.santos', phone: '+63 917 123 4567', clv_score: 'high', created_at: '2024-06-01' },
@@ -69,9 +70,20 @@ export const mockPayments: Payment[] = [
   { id: 'p11', account_id: 'a6', amount: 18333, currency: 'PHP', payment_date: monthsAgo(2, 1), recorded_by: 'CSR Bob' },
 ];
 
-export function getDashboardStats(currency?: Currency) {
+/**
+ * Dashboard stats with ALL mode currency conversion support.
+ * When currency is undefined (ALL mode), convertToJpy=true converts PHP→JPY and sums all.
+ */
+export function getDashboardStats(currency?: Currency, convertToJpy: boolean = false) {
   const activeAccounts = mockAccounts.filter(a => a.status === 'active' && (!currency || a.currency === currency));
-  const totalReceivables = activeAccounts.reduce((sum, a) => sum + a.remaining_balance, 0);
+
+  let totalReceivables: number;
+  if (convertToJpy && !currency) {
+    // ALL mode: convert PHP balances to JPY and sum
+    totalReceivables = activeAccounts.reduce((sum, a) => sum + toJpy(a.remaining_balance, a.currency), 0);
+  } else {
+    totalReceivables = activeAccounts.reduce((sum, a) => sum + a.remaining_balance, 0);
+  }
 
   const now = new Date();
   const todayPayments = mockPayments.filter(p => {
@@ -84,11 +96,21 @@ export function getDashboardStats(currency?: Currency) {
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() && (!currency || p.currency === currency);
   });
 
+  let collectionsToday: number;
+  let collectionsThisMonth: number;
+  if (convertToJpy && !currency) {
+    collectionsToday = todayPayments.reduce((s, p) => s + toJpy(p.amount, p.currency), 0);
+    collectionsThisMonth = thisMonthPayments.reduce((s, p) => s + toJpy(p.amount, p.currency), 0);
+  } else {
+    collectionsToday = todayPayments.reduce((s, p) => s + p.amount, 0);
+    collectionsThisMonth = thisMonthPayments.reduce((s, p) => s + p.amount, 0);
+  }
+
   return {
     totalReceivables,
     activeAccounts: activeAccounts.length,
-    collectionsToday: todayPayments.reduce((s, p) => s + p.amount, 0),
-    collectionsThisMonth: thisMonthPayments.reduce((s, p) => s + p.amount, 0),
+    collectionsToday,
+    collectionsThisMonth,
     overdueCount: 2,
     completedThisMonth: 1,
   };
