@@ -15,7 +15,7 @@ export interface Customer {
   messenger_link?: string;
   phone?: string;
   email?: string;
-  clv_score?: CLVTier;
+  clv_score?: CLVTier | 'high' | 'medium' | 'low';
   created_at: string;
 }
 
