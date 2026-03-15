@@ -1,6 +1,7 @@
 import { mockAccounts, mockPayments, mockCustomers } from './mock-data';
 import { Currency, RiskLevel, CLVTier, CompletionProbability } from './types';
 import { formatCurrency } from './calculations';
+import { toJpy } from './currency-converter';
 
 // ──────────────────────────────────────────────────────
 // 1. LATE PAYMENT RISK PREDICTION
