@@ -1,8 +1,12 @@
-# Welcome to your Lovable project
+# CHA Jewels LA Tracking
+
+## Deployment Status
+[![Firebase Hosting](https://img.shields.io/badge/Hosted_on-Firebase-blue?logo=firebase)](https://cha-jewels-la-tracking.web.app)
 
 ## Project info
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+**Lovable URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+**Live URL**: https://cha-jewels-la-tracking.web.app
 
 ## How can I edit this code?
 
