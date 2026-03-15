@@ -277,7 +277,7 @@ export function getExpectedNextMonthCollection(currency?: Currency, convertToJpy
 // 5. CURRENCY-FILTERED DASHBOARD STATS
 // ──────────────────────────────────────────────────────
 
-export function getPredictedRevenue(days: number, currency?: Currency): number {
+export function getPredictedRevenue(days: number, currency?: Currency, convertToJpy: boolean = false): number {
   const activeAccounts = mockAccounts.filter(
     a => a.status === 'active' && (!currency || a.currency === currency)
   );
@@ -286,7 +286,10 @@ export function getPredictedRevenue(days: number, currency?: Currency): number {
     const remainingMonths = Math.max(1, account.payment_plan - Math.floor(
       (Date.now() - new Date(account.order_date).getTime()) / (30 * 24 * 60 * 60 * 1000)
     ));
-    const monthlyPayment = account.remaining_balance / remainingMonths;
+    let monthlyPayment = account.remaining_balance / remainingMonths;
+    if (convertToJpy && !currency) {
+      monthlyPayment = toJpy(monthlyPayment, account.currency);
+    }
     const monthsInPeriod = days / 30;
     const completion = predictCompletion(account.id);
     total += monthlyPayment * Math.min(monthsInPeriod, remainingMonths) * (completion.score / 100);
