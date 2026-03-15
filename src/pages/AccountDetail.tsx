@@ -4,10 +4,14 @@ import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar } from '
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import RiskBadge from '@/components/dashboard/RiskBadge';
+import CLVBadge from '@/components/dashboard/CLVBadge';
+import CompletionBadge from '@/components/dashboard/CompletionBadge';
 import RecordPaymentDialog from '@/components/payments/RecordPaymentDialog';
 import PenaltyWaiverPanel from '@/components/penalties/PenaltyWaiverPanel';
 import { mockAccounts, mockPayments as initialPayments } from '@/lib/mock-data';
 import { formatCurrency, buildSchedule, generateCustomerMessage } from '@/lib/calculations';
+import { assessAccountRisk, assessCustomerCLV, predictCompletion, riskStyles } from '@/lib/analytics-engine';
 import { Payment } from '@/lib/types';
 import { toast } from 'sonner';
 
@@ -33,6 +37,10 @@ export default function AccountDetail() {
     account.order_date, account.payment_plan, paidInstallments, penalties
   ) : [], [id, totalPaid, paidInstallments]);
 
+  const risk = id ? assessAccountRisk(id) : null;
+  const clv = account ? assessCustomerCLV(account.customer_id) : null;
+  const completion = id ? predictCompletion(id) : null;
+
   if (!account) {
     return (
       <AppLayout>
@@ -42,9 +50,6 @@ export default function AccountDetail() {
       </AppLayout>
     );
   }
-
-
-
 
   const totalPenalty = penalties.reduce((s, p) => s + p.amount, 0);
   const message = generateCustomerMessage(
@@ -76,11 +81,14 @@ export default function AccountDetail() {
             </Button>
           </Link>
           <div className="flex-1">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">INV #{account.invoice_number}</h1>
               <Badge variant="outline" className="bg-success/10 text-success border-success/20 text-xs">
                 {account.status}
               </Badge>
+              {risk && <RiskBadge level={risk.riskLevel} />}
+              {clv && <CLVBadge tier={clv.tier} />}
+              {completion && <CompletionBadge probability={completion.probability} />}
             </div>
             <p className="text-sm text-muted-foreground mt-0.5">{account.customer.name} · {account.payment_plan}-Month Plan · {account.currency}</p>
           </div>
@@ -102,6 +110,26 @@ export default function AccountDetail() {
             )}
           </div>
         </div>
+
+        {/* AI Insights Panel */}
+        {risk && risk.riskLevel !== 'low' && (
+          <div className={`rounded-xl border p-4 ${riskStyles[risk.riskLevel].border} ${riskStyles[risk.riskLevel].bg}`}>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-sm">{riskStyles[risk.riskLevel].emoji}</span>
+              <p className={`text-sm font-semibold ${riskStyles[risk.riskLevel].text}`}>
+                AI Risk Assessment — {riskStyles[risk.riskLevel].label}
+              </p>
+            </div>
+            <ul className="space-y-1 ml-6">
+              {risk.factors.map((f, i) => (
+                <li key={i} className="text-xs text-muted-foreground list-disc">{f}</li>
+              ))}
+            </ul>
+            <p className={`text-xs font-medium mt-2 ${riskStyles[risk.riskLevel].text}`}>
+              ↳ Recommendation: {risk.recommendation}
+            </p>
+          </div>
+        )}
 
         {/* Summary Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">

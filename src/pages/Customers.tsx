@@ -1,14 +1,11 @@
-import { Users, MessageCircle, ExternalLink } from 'lucide-react';
+import { Users, MessageCircle } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import CLVBadge from '@/components/dashboard/CLVBadge';
+import RiskBadge from '@/components/dashboard/RiskBadge';
 import { mockCustomers, mockAccounts } from '@/lib/mock-data';
-
-const clvStyles = {
-  high: 'bg-success/10 text-success border-success/20',
-  medium: 'bg-warning/10 text-warning border-warning/20',
-  low: 'bg-muted text-muted-foreground border-border',
-};
+import { assessCustomerCLV, assessAccountRisk } from '@/lib/analytics-engine';
+import { Link } from 'react-router-dom';
 
 export default function Customers() {
   return (
@@ -29,34 +26,37 @@ export default function Customers() {
                 <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Customer</th>
                 <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Contact</th>
                 <th className="text-center px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Accounts</th>
-                <th className="text-center px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">CLV</th>
+                <th className="text-center px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">CLV Tier</th>
+                <th className="text-center px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Risk</th>
                 <th className="text-center px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Actions</th>
               </tr>
             </thead>
             <tbody>
               {mockCustomers.map(c => {
                 const accountCount = mockAccounts.filter(a => a.customer_id === c.id).length;
+                const clv = assessCustomerCLV(c.id);
+                const activeAccount = mockAccounts.find(a => a.customer_id === c.id && a.status === 'active');
+                const risk = activeAccount ? assessAccountRisk(activeAccount.id) : null;
                 return (
                   <tr key={c.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
                     <td className="px-5 py-3">
-                      <div className="flex items-center gap-3">
+                      <Link to={activeAccount ? `/accounts/${activeAccount.id}` : '#'} className="flex items-center gap-3 group">
                         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-bold">
                           {c.name.charAt(0)}
                         </div>
                         <div>
-                          <p className="text-sm font-medium text-card-foreground">{c.name}</p>
+                          <p className="text-sm font-medium text-card-foreground group-hover:text-primary transition-colors">{c.name}</p>
                           {c.facebook_name && <p className="text-xs text-muted-foreground">@{c.facebook_name}</p>}
                         </div>
-                      </div>
+                      </Link>
                     </td>
                     <td className="px-5 py-3 text-sm text-muted-foreground">{c.phone || '—'}</td>
                     <td className="px-5 py-3 text-center text-sm text-card-foreground">{accountCount}</td>
                     <td className="px-5 py-3 text-center">
-                      {c.clv_score && (
-                        <Badge variant="outline" className={`text-[10px] ${clvStyles[c.clv_score]}`}>
-                          {c.clv_score} value
-                        </Badge>
-                      )}
+                      <CLVBadge tier={clv.tier} />
+                    </td>
+                    <td className="px-5 py-3 text-center">
+                      {risk ? <RiskBadge level={risk.riskLevel} /> : <span className="text-xs text-muted-foreground">—</span>}
                     </td>
                     <td className="px-5 py-3 text-center">
                       {c.messenger_link && (
