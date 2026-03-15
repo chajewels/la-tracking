@@ -222,13 +222,14 @@ export interface ForecastMonth {
   currency: Currency;
 }
 
-export function generateCashflowForecast(currency?: Currency, months: number = 6): ForecastMonth[] {
+export function generateCashflowForecast(currency?: Currency, months: number = 6, convertToJpy: boolean = false): ForecastMonth[] {
   const activeAccounts = mockAccounts.filter(
     a => a.status === 'active' && (!currency || a.currency === currency)
   );
 
   const now = new Date();
   const forecast: ForecastMonth[] = [];
+  const displayCurrency: Currency = (convertToJpy && !currency) ? 'JPY' : (currency || 'PHP');
 
   for (let i = 0; i < months; i++) {
     const forecastDate = new Date(now.getFullYear(), now.getMonth() + i + 1, 1);
@@ -242,7 +243,11 @@ export function generateCashflowForecast(currency?: Currency, months: number = 6
         (Date.now() - new Date(account.order_date).getTime()) / (30 * 24 * 60 * 60 * 1000)
       );
       if (remainingMonths > i) {
-        const monthlyPayment = account.remaining_balance / Math.max(1, remainingMonths);
+        let monthlyPayment = account.remaining_balance / Math.max(1, remainingMonths);
+        // Convert to JPY in ALL mode
+        if (convertToJpy && !currency) {
+          monthlyPayment = toJpy(monthlyPayment, account.currency);
+        }
         const completion = predictCompletion(account.id);
         const completionFactor = completion.score / 100;
         expected += monthlyPayment;
@@ -250,12 +255,11 @@ export function generateCashflowForecast(currency?: Currency, months: number = 6
       }
     });
 
-    const cur = currency || 'PHP';
     forecast.push({
       month: monthLabel,
       expected: Math.round(expected),
       adjusted: Math.round(adjusted),
-      currency: cur,
+      currency: displayCurrency,
     });
   }
 
