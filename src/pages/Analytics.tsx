@@ -166,7 +166,7 @@ export default function Analytics() {
             <h3 className="text-sm font-semibold text-card-foreground mb-4">Customer Lifetime Value</h3>
             <div className="space-y-3">
               {clvs.map(clv => {
-                const customer = require('@/lib/mock-data').mockCustomers.find((c: any) => c.id === clv.customerId);
+                const customer = mockCustomers.find(c => c.id === clv.customerId);
                 if (!customer) return null;
                 return (
                   <div key={clv.customerId} className="flex items-center justify-between p-3 rounded-lg border border-border">

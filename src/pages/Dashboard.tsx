@@ -97,8 +97,8 @@ export default function Dashboard() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {riskAssessments.slice(0, 6).map(risk => {
-              const { mockAccounts } = require('@/lib/mock-data');
-              const account = mockAccounts.find((a: any) => a.id === risk.accountId);
+              const account = mockAccounts.find(a => a.id === risk.accountId);
+
               if (!account) return null;
               if (currency && account.currency !== currency) return null;
               return (
