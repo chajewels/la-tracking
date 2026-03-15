@@ -7,7 +7,7 @@ import RecentPayments from '@/components/dashboard/RecentPayments';
 import OverdueAlerts from '@/components/dashboard/OverdueAlerts';
 import CurrencyToggle, { CurrencyFilter } from '@/components/dashboard/CurrencyToggle';
 import RiskBadge from '@/components/dashboard/RiskBadge';
-import { getDashboardStats } from '@/lib/mock-data';
+import { getDashboardStats, mockAccounts } from '@/lib/mock-data';
 import { formatCurrency } from '@/lib/calculations';
 import { getAllRiskAssessments, getExpectedNextMonthCollection, getPredictedRevenue } from '@/lib/analytics-engine';
 import { Currency } from '@/lib/types';
