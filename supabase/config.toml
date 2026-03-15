@@ -1,1 +1,13 @@
 project_id = "pfoicalpzdcmyxzvwyhz"
+
+[functions.create-layaway-account]
+verify_jwt = false
+
+[functions.record-payment]
+verify_jwt = false
+
+[functions.penalty-engine]
+verify_jwt = false
+
+[functions.dashboard-summary]
+verify_jwt = false
