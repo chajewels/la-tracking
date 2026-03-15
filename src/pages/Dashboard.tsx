@@ -20,11 +20,12 @@ export default function Dashboard() {
 
   const stats = getDashboardStats(currency);
   const riskAssessments = getAllRiskAssessments();
-  const highRiskCount = riskAssessments.filter(r => r.riskLevel === 'high' && (!currency || (() => {
-    const { mockAccounts } = require('@/lib/mock-data');
-    const acct = mockAccounts.find((a: any) => a.id === r.accountId);
+  const highRiskCount = riskAssessments.filter(r => {
+    if (r.riskLevel !== 'high') return false;
+    if (!currency) return true;
+    const acct = mockAccounts.find(a => a.id === r.accountId);
     return acct?.currency === currency;
-  })())).length;
+  }).length;
 
   const nextMonth = getExpectedNextMonthCollection(currency);
   const predicted30 = getPredictedRevenue(30, currency);
