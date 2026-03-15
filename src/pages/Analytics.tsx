@@ -7,7 +7,7 @@ import RiskBadge from '@/components/dashboard/RiskBadge';
 import CLVBadge from '@/components/dashboard/CLVBadge';
 import CompletionBadge from '@/components/dashboard/CompletionBadge';
 import { Badge } from '@/components/ui/badge';
-import { mockAccounts } from '@/lib/mock-data';
+import { mockAccounts, mockCustomers } from '@/lib/mock-data';
 import {
   getAllRiskAssessments, getAllCLVAssessments, getAllCompletionPredictions,
   getPredictedRevenue, riskStyles
