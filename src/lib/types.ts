@@ -4,7 +4,9 @@ export type AccountStatus = 'active' | 'completed' | 'defaulted' | 'cancelled';
 export type PenaltyStatus = 'pending' | 'paid' | 'waived';
 export type WaiverStatus = 'pending' | 'approved' | 'rejected';
 export type RiskLevel = 'low' | 'medium' | 'high';
-export type CLVTier = 'high' | 'medium' | 'low';
+export type CLVTier = 'bronze' | 'silver' | 'gold' | 'vip';
+export type LegacyCLVScore = 'high' | 'medium' | 'low';
+export type CompletionProbability = 'high' | 'medium' | 'low';
 
 export interface Customer {
   id: string;
