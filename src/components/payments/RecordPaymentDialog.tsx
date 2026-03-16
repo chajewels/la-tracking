@@ -8,45 +8,46 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog';
 import { formatCurrency } from '@/lib/calculations';
-import { Currency, Payment } from '@/lib/types';
+import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
+import { useRecordPayment } from '@/hooks/use-supabase-data';
 
 interface RecordPaymentDialogProps {
   accountId: string;
   currency: Currency;
   remainingBalance: number;
-  onPaymentRecorded: (payment: Payment) => void;
 }
 
-export default function RecordPaymentDialog({ accountId, currency, remainingBalance, onPaymentRecorded }: RecordPaymentDialogProps) {
+export default function RecordPaymentDialog({ accountId, currency, remainingBalance }: RecordPaymentDialogProps) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
+  const recordPayment = useRecordPayment();
 
   const parsedAmount = parseInt(amount) || 0;
   const isValid = parsedAmount > 0 && parsedAmount <= remainingBalance && paymentDate;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isValid) return;
 
-    const payment: Payment = {
-      id: `p-${Date.now()}`,
-      account_id: accountId,
-      amount: parsedAmount,
-      currency,
-      payment_date: paymentDate,
-      recorded_by: 'CSR Alice',
-      notes: notes || undefined,
-    };
-
-    onPaymentRecorded(payment);
-    toast.success(`Payment of ${formatCurrency(parsedAmount, currency)} recorded successfully`);
-    setAmount('');
-    setNotes('');
-    setPaymentDate(new Date().toISOString().split('T')[0]);
-    setOpen(false);
+    try {
+      await recordPayment.mutateAsync({
+        account_id: accountId,
+        amount: parsedAmount,
+        currency,
+        date_paid: paymentDate,
+        remarks: notes || undefined,
+      });
+      toast.success(`Payment of ${formatCurrency(parsedAmount, currency)} recorded successfully`);
+      setAmount('');
+      setNotes('');
+      setPaymentDate(new Date().toISOString().split('T')[0]);
+      setOpen(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to record payment');
+    }
   };
 
   return (
@@ -100,8 +101,8 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={!isValid} className="gold-gradient text-primary-foreground">
-              Confirm Payment
+            <Button type="submit" disabled={!isValid || recordPayment.isPending} className="gold-gradient text-primary-foreground">
+              {recordPayment.isPending ? 'Processing…' : 'Confirm Payment'}
             </Button>
           </DialogFooter>
         </form>

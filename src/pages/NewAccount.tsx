@@ -7,12 +7,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { generateScheduleDates, calculateInstallments, formatCurrency } from '@/lib/calculations';
-import { mockCustomers } from '@/lib/mock-data';
 import { Currency, PaymentPlan } from '@/lib/types';
 import { toast } from 'sonner';
+import { useCustomers, useCreateAccount } from '@/hooks/use-supabase-data';
 
 export default function NewAccount() {
   const navigate = useNavigate();
+  const { data: customers } = useCustomers();
+  const createAccount = useCreateAccount();
+
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [customerId, setCustomerId] = useState('');
   const [currency, setCurrency] = useState<Currency>('PHP');
@@ -24,14 +27,26 @@ export default function NewAccount() {
   const previewDates = orderDate ? generateScheduleDates(orderDate, paymentPlan) : [];
   const previewInstallments = amount > 0 ? calculateInstallments(amount, paymentPlan) : [];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!invoiceNumber || !customerId || !totalAmount || !orderDate) {
       toast.error('Please fill in all required fields');
       return;
     }
-    toast.success(`Layaway account #${invoiceNumber} created successfully`);
-    navigate('/accounts');
+    try {
+      await createAccount.mutateAsync({
+        customer_id: customerId,
+        invoice_number: invoiceNumber,
+        currency,
+        total_amount: amount,
+        order_date: orderDate,
+        payment_plan_months: paymentPlan,
+      });
+      toast.success(`Layaway account #${invoiceNumber} created successfully`);
+      navigate('/accounts');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create account');
+    }
   };
 
   return (
@@ -68,8 +83,8 @@ export default function NewAccount() {
                     <SelectValue placeholder="Select customer" />
                   </SelectTrigger>
                   <SelectContent>
-                    {mockCustomers.map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    {(customers || []).map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.full_name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -161,8 +176,12 @@ export default function NewAccount() {
             <Link to="/accounts">
               <Button variant="outline">Cancel</Button>
             </Link>
-            <Button type="submit" className="gold-gradient text-primary-foreground font-medium">
-              Create Account
+            <Button
+              type="submit"
+              disabled={createAccount.isPending}
+              className="gold-gradient text-primary-foreground font-medium"
+            >
+              {createAccount.isPending ? 'Creating…' : 'Create Account'}
             </Button>
           </div>
         </form>

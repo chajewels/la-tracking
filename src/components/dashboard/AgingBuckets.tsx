@@ -1,5 +1,8 @@
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
+import { useAccounts } from '@/hooks/use-supabase-data';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 
 interface Bucket {
   label: string;
@@ -8,14 +11,50 @@ interface Bucket {
   color: string;
 }
 
-const buckets: Bucket[] = [
-  { label: 'Current', count: 3, amount: 108233, color: 'bg-success' },
-  { label: '1–7 days', count: 1, amount: 29638, color: 'bg-warning' },
-  { label: '8–30 days', count: 1, amount: 20000, color: 'bg-primary' },
-  { label: '31+ days', count: 0, amount: 0, color: 'bg-destructive' },
-];
-
 export default function AgingBuckets({ currency = 'PHP' }: { currency?: Currency }) {
+  const { data: scheduleData } = useQuery({
+    queryKey: ['aging-buckets'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('layaway_schedule')
+        .select('*, layaway_accounts!inner(status)')
+        .in('status', ['pending', 'overdue', 'partially_paid'])
+        .eq('layaway_accounts.status', 'active');
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const items = scheduleData || [];
+  const today = new Date();
+
+  const buckets: Bucket[] = [
+    { label: 'Current', count: 0, amount: 0, color: 'bg-success' },
+    { label: '1–7 days', count: 0, amount: 0, color: 'bg-warning' },
+    { label: '8–30 days', count: 0, amount: 0, color: 'bg-primary' },
+    { label: '31+ days', count: 0, amount: 0, color: 'bg-destructive' },
+  ];
+
+  items.forEach(item => {
+    const dueDate = new Date(item.due_date);
+    const daysOverdue = Math.floor((today.getTime() - dueDate.getTime()) / 86400000);
+    const amount = Number(item.total_due_amount) - Number(item.paid_amount);
+
+    if (daysOverdue <= 0) {
+      buckets[0].count++;
+      buckets[0].amount += amount;
+    } else if (daysOverdue <= 7) {
+      buckets[1].count++;
+      buckets[1].amount += amount;
+    } else if (daysOverdue <= 30) {
+      buckets[2].count++;
+      buckets[2].amount += amount;
+    } else {
+      buckets[3].count++;
+      buckets[3].amount += amount;
+    }
+  });
+
   const total = buckets.reduce((s, b) => s + b.amount, 0);
 
   return (
@@ -44,7 +83,7 @@ export default function AgingBuckets({ currency = 'PHP' }: { currency?: Currency
             <div className="flex items-center gap-3">
               <span className="text-xs text-muted-foreground">{b.count} accts</span>
               <span className="font-medium text-card-foreground tabular-nums">
-                {formatCurrency(b.amount, currency)}
+                {formatCurrency(Math.round(b.amount), currency)}
               </span>
             </div>
           </div>
