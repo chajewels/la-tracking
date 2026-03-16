@@ -6,6 +6,12 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function AppLayout({ children }: { children: ReactNode }) {
+  const { profile, roles, signOut } = useAuth();
+  const initials = profile?.full_name
+    ? profile.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+    : '??';
+  const roleLabel = roles.length > 0 ? roles[0].charAt(0).toUpperCase() + roles[0].slice(1) : 'User';
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full dark">
