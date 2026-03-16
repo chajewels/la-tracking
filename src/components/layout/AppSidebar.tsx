@@ -28,6 +28,12 @@ export default function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === 'collapsed';
   const location = useLocation();
+  const { profile, roles, signOut } = useAuth();
+
+  const initials = profile?.full_name
+    ? profile.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+    : '??';
+  const roleLabel = roles.length > 0 ? roles.map(r => r.charAt(0).toUpperCase() + r.slice(1)).join(', ') : 'No role';
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
