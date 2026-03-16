@@ -1,10 +1,17 @@
 import { ReactNode } from 'react';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import AppSidebar from './AppSidebar';
-import { Bell } from 'lucide-react';
+import { Bell, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function AppLayout({ children }: { children: ReactNode }) {
+  const { profile, roles, signOut } = useAuth();
+  const initials = profile?.full_name
+    ? profile.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+    : '??';
+  const roleLabel = roles.length > 0 ? roles[0].charAt(0).toUpperCase() + roles[0].slice(1) : 'User';
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full dark">
@@ -19,13 +26,16 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
               </Button>
               <div className="flex items-center gap-2">
-                <div className="flex h-7 w-7 items-center justify-center rounded-full gold-gradient text-[10px] font-bold text-primary-foreground">
-                  CA
+              <div className="flex h-7 w-7 items-center justify-center rounded-full gold-gradient text-[10px] font-bold text-primary-foreground">
+                  {initials}
                 </div>
                 <div className="hidden sm:block">
-                  <p className="text-xs font-medium text-foreground leading-none">CSR Alice</p>
-                  <p className="text-[10px] text-muted-foreground">Staff</p>
+                  <p className="text-xs font-medium text-foreground leading-none">{profile?.full_name ?? 'User'}</p>
+                  <p className="text-[10px] text-muted-foreground">{roleLabel}</p>
                 </div>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={signOut}>
+                  <LogOut className="h-4 w-4" />
+                </Button>
               </div>
             </div>
           </header>

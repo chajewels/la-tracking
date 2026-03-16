@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, FileText, Users, Bell, DollarSign, BarChart3, Activity, Settings, Send,
+  LayoutDashboard, FileText, Users, Bell, DollarSign, BarChart3, Activity, Settings, Send, LogOut,
 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import {
@@ -8,6 +8,8 @@ import {
   SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarFooter, SidebarHeader,
   useSidebar,
 } from '@/components/ui/sidebar';
+import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/AuthContext';
 import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
 
 const navItems = [
@@ -26,6 +28,12 @@ export default function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === 'collapsed';
   const location = useLocation();
+  const { profile, roles, signOut } = useAuth();
+
+  const initials = profile?.full_name
+    ? profile.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+    : '??';
+  const roleLabel = roles.length > 0 ? roles.map(r => r.charAt(0).toUpperCase() + r.slice(1)).join(', ') : 'No role';
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
@@ -84,13 +92,18 @@ export default function AppSidebar() {
       <SidebarFooter className="border-t border-sidebar-border p-3">
         <div className="flex items-center gap-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full gold-gradient text-xs font-bold text-primary-foreground">
-            CA
+            {initials}
           </div>
           {!collapsed && (
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-sidebar-accent-foreground truncate">CSR Alice</p>
-              <p className="text-[10px] text-sidebar-foreground/50">Staff · Online</p>
+              <p className="text-xs font-medium text-sidebar-accent-foreground truncate">{profile?.full_name ?? 'User'}</p>
+              <p className="text-[10px] text-sidebar-foreground/50">{roleLabel}</p>
             </div>
+          )}
+          {!collapsed && (
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-sidebar-foreground/50 hover:text-destructive" onClick={signOut}>
+              <LogOut className="h-3.5 w-3.5" />
+            </Button>
           )}
         </div>
       </SidebarFooter>
