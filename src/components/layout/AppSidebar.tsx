@@ -92,13 +92,18 @@ export default function AppSidebar() {
       <SidebarFooter className="border-t border-sidebar-border p-3">
         <div className="flex items-center gap-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full gold-gradient text-xs font-bold text-primary-foreground">
-            CA
+            {initials}
           </div>
           {!collapsed && (
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-sidebar-accent-foreground truncate">CSR Alice</p>
-              <p className="text-[10px] text-sidebar-foreground/50">Staff · Online</p>
+              <p className="text-xs font-medium text-sidebar-accent-foreground truncate">{profile?.full_name ?? 'User'}</p>
+              <p className="text-[10px] text-sidebar-foreground/50">{roleLabel}</p>
             </div>
+          )}
+          {!collapsed && (
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-sidebar-foreground/50 hover:text-destructive" onClick={signOut}>
+              <LogOut className="h-3.5 w-3.5" />
+            </Button>
           )}
         </div>
       </SidebarFooter>
