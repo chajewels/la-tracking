@@ -26,13 +26,16 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
               </Button>
               <div className="flex items-center gap-2">
-                <div className="flex h-7 w-7 items-center justify-center rounded-full gold-gradient text-[10px] font-bold text-primary-foreground">
-                  CA
+              <div className="flex h-7 w-7 items-center justify-center rounded-full gold-gradient text-[10px] font-bold text-primary-foreground">
+                  {initials}
                 </div>
                 <div className="hidden sm:block">
-                  <p className="text-xs font-medium text-foreground leading-none">CSR Alice</p>
-                  <p className="text-[10px] text-muted-foreground">Staff</p>
+                  <p className="text-xs font-medium text-foreground leading-none">{profile?.full_name ?? 'User'}</p>
+                  <p className="text-[10px] text-muted-foreground">{roleLabel}</p>
                 </div>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={signOut}>
+                  <LogOut className="h-4 w-4" />
+                </Button>
               </div>
             </div>
           </header>
