@@ -16,7 +16,7 @@ import Finance from "./pages/Finance";
 import Analytics from "./pages/Analytics";
 import SettingsPage from "./pages/SettingsPage";
 import Login from "./pages/Login";
-import Signup from "./pages/Signup";
+
 import Reminders from "./pages/Reminders";
 import NotFound from "./pages/NotFound";
 
@@ -35,7 +35,7 @@ const App = () => (
         <AuthProvider>
           <Routes>
             <Route path="/login" element={<Login />} />
-            <Route path="/signup" element={<Signup />} />
+            
             <Route path="/" element={<Protected><Dashboard /></Protected>} />
             <Route path="/accounts" element={<Protected><AccountList /></Protected>} />
             <Route path="/accounts/new" element={<Protected><NewAccount /></Protected>} />
