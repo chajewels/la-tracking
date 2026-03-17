@@ -16,7 +16,7 @@ import Finance from "./pages/Finance";
 import Analytics from "./pages/Analytics";
 import SettingsPage from "./pages/SettingsPage";
 import Login from "./pages/Login";
-import Signup from "./pages/Signup";
+
 import Reminders from "./pages/Reminders";
 import NotFound from "./pages/NotFound";
 
