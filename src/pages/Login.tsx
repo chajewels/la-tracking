@@ -79,8 +79,7 @@ export default function Login() {
             {loading ? 'Signing in…' : 'Sign In'}
           </Button>
           <p className="text-center text-[10px] text-muted-foreground">
-            Don't have an account?{' '}
-            <Link to="/signup" className="text-primary hover:underline">Sign up</Link>
+            Contact your admin for access.
           </p>
         </form>
 
