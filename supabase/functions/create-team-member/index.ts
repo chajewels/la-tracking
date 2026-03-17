@@ -31,7 +31,22 @@ Deno.serve(async (req) => {
       }
     }
 
-    const { email, password, full_name, role } = await req.json();
+    const body = await req.json();
+    const { action } = body;
+
+    // Password reset action
+    if (action === "reset_password") {
+      const { user_id, password } = body;
+      if (!user_id || !password) {
+        return new Response(JSON.stringify({ error: "Missing user_id or password" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const { error } = await supabaseAdmin.auth.admin.updateUserById(user_id, { password });
+      if (error) throw error;
+      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // Default: create team member
+    const { email, password, full_name, role } = body;
     if (!email || !password || !full_name || !role) {
       return new Response(JSON.stringify({ error: "Missing fields" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
