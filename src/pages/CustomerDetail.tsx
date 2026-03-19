@@ -19,6 +19,10 @@ export default function CustomerDetail() {
   const { customerId } = useParams();
   const { data, isLoading } = useCustomerAccounts(customerId);
   const [copied, setCopied] = useState(false);
+  const [editingLocation, setEditingLocation] = useState(false);
+  const [locationType, setLocationType] = useState<'japan' | 'international'>('japan');
+  const [country, setCountry] = useState('');
+  const queryClient = useQueryClient();
 
   if (isLoading) {
     return (
