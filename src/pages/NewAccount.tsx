@@ -130,14 +130,12 @@ export default function NewAccount() {
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-card-foreground">Downpayment % *</Label>
+                <Label className="text-card-foreground">30% Downpayment *</Label>
                 <Input
                   type="number"
-                  value={downpaymentPct}
-                  onChange={(e) => setDownpaymentPct(e.target.value)}
-                  placeholder="30"
-                  min="0"
-                  max="100"
+                  value={downpaymentInput}
+                  onChange={(e) => setDownpaymentInput(e.target.value)}
+                  placeholder={amount > 0 ? `e.g. ${Math.round(amount * 0.3)}` : 'e.g. 24993'}
                   className="bg-background border-border"
                 />
               </div>
