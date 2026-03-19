@@ -138,7 +138,7 @@ export default function Monitoring() {
               const config = typeConfig[alert.type];
               const Icon = config.icon;
               return (
-                <div key={`${alert.accountId}-${alert.dueDate}-${idx}`} className={`rounded-xl border bg-card p-4 ${config.borderClass}`}>
+                <Link key={`${alert.accountId}-${alert.dueDate}-${idx}`} to={`/accounts/${alert.accountId}`} className={`block rounded-xl border bg-card p-4 ${config.borderClass} hover:bg-muted/30 transition-colors cursor-pointer`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
                       <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${
@@ -163,23 +163,18 @@ export default function Monitoring() {
                       <span className="text-sm font-bold text-card-foreground tabular-nums">
                         {formatCurrency(alert.amount, alert.currency)}
                       </span>
-                      <div className="flex gap-1">
+                      <div className="flex gap-1" onClick={e => e.stopPropagation()}>
                         {alert.messengerLink && (
-                          <a href={alert.messengerLink} target="_blank" rel="noopener noreferrer">
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-info">
+                          <a href={alert.messengerLink} target="_blank" rel="noopener noreferrer" onClick={e => e.preventDefault()}>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-info" onClick={(e) => { e.stopPropagation(); window.open(alert.messengerLink!, '_blank'); }}>
                               <MessageCircle className="h-4 w-4" />
                             </Button>
                           </a>
                         )}
-                        <Link to={`/accounts/${alert.accountId}`}>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary">
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </Link>
                       </div>
                     </div>
                   </div>
-                </div>
+                </Link>
               );
             })}
           </div>
