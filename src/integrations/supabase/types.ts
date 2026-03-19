@@ -181,6 +181,7 @@ export type Database = {
           created_by_user_id: string | null
           currency: Database["public"]["Enums"]["account_currency"]
           customer_id: string
+          downpayment_amount: number
           end_date: string | null
           id: string
           invoice_number: string
@@ -201,6 +202,7 @@ export type Database = {
           created_by_user_id?: string | null
           currency: Database["public"]["Enums"]["account_currency"]
           customer_id: string
+          downpayment_amount?: number
           end_date?: string | null
           id?: string
           invoice_number: string
@@ -221,6 +223,7 @@ export type Database = {
           created_by_user_id?: string | null
           currency?: Database["public"]["Enums"]["account_currency"]
           customer_id?: string
+          downpayment_amount?: number
           end_date?: string | null
           id?: string
           invoice_number?: string

@@ -25,8 +25,10 @@ export default function NewAccount() {
   const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>(3);
 
   const amount = parseInt(totalAmount) || 0;
+  const downpaymentAmount = Math.round(amount * 0.3);
+  const remainingAfterDown = amount - downpaymentAmount;
   const previewDates = orderDate ? generateScheduleDates(orderDate, paymentPlan) : [];
-  const previewInstallments = amount > 0 ? calculateInstallments(amount, paymentPlan) : [];
+  const previewInstallments = remainingAfterDown > 0 ? calculateInstallments(remainingAfterDown, paymentPlan) : [];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -159,10 +161,28 @@ export default function NewAccount() {
             </div>
           </div>
 
-          {/* Preview */}
-          {previewDates.length > 0 && amount > 0 && (
+          {amount > 0 && (
             <div className="rounded-xl border border-primary/20 bg-card p-6">
-              <h3 className="text-sm font-semibold text-card-foreground mb-3">Schedule Preview</h3>
+              <h3 className="text-sm font-semibold text-card-foreground mb-3">30% Downpayment</h3>
+              <div className="flex items-center justify-between py-2 border-b border-border">
+                <span className="text-sm text-card-foreground">Downpayment (30%)</span>
+                <span className="text-sm font-semibold text-card-foreground tabular-nums">
+                  {formatCurrency(downpaymentAmount, currency)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <span className="text-sm text-muted-foreground">Remaining for Installments</span>
+                <span className="text-sm font-semibold text-card-foreground tabular-nums">
+                  {formatCurrency(remainingAfterDown, currency)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Schedule Preview */}
+          {previewDates.length > 0 && remainingAfterDown > 0 && (
+            <div className="rounded-xl border border-primary/20 bg-card p-6">
+              <h3 className="text-sm font-semibold text-card-foreground mb-3">Schedule Preview ({paymentPlan} months)</h3>
               <div className="space-y-2">
                 {previewDates.map((date, i) => (
                   <div key={i} className="flex items-center justify-between py-2 border-b border-border last:border-0">

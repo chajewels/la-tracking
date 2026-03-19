@@ -63,6 +63,7 @@ export default function AccountDetail() {
   const totalAmount = Number(account.total_amount);
   const totalPaid = Number(account.total_paid);
   const remainingBalance = Number(account.remaining_balance);
+  const downpaymentAmount = Number((account as any).downpayment_amount || 0);
   const progress = totalAmount > 0 ? (totalPaid / totalAmount) * 100 : 0;
 
   const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
@@ -81,9 +82,12 @@ export default function AccountDetail() {
   const paymentBreakdownText = activePayments.length > 0
     ? `${activePayments.map(payment => formatCurrency(Number(payment.amount_paid), payment.currency as Currency)).join(' + ')} = ${formatCurrency(totalPaid, currency)}`
     : formatCurrency(totalPaid, currency);
-  const paymentDetails = activePayments.map((payment, index) => {
+  let paymentCounter = 0;
+  const paymentDetails = activePayments.map((payment) => {
     const dateStr = new Date(payment.date_paid).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
-    const label = payment.remarks?.toLowerCase().includes('downpayment') ? 'Downpayment' : `Payment ${index + 1}`;
+    const isDownpayment = payment.remarks?.toLowerCase().includes('downpayment') ||
+      (downpaymentAmount > 0 && Math.abs(Number(payment.amount_paid) - downpaymentAmount) < 1);
+    const label = isDownpayment ? '30% Downpayment' : `Payment ${++paymentCounter}`;
     return `${label} ${dateStr}: ${formatCurrency(Number(payment.amount_paid), payment.currency as Currency)}`;
   });
   const ordinals = ['1st', '2nd', '3rd', '4th', '5th', '6th'];
@@ -97,8 +101,13 @@ export default function AccountDetail() {
   } else {
     message += `Total Layaway Amount: ${formatCurrency(totalAmount, currency)}\n`;
   }
+  if (downpaymentAmount > 0) {
+    message += `30% Downpayment: ${formatCurrency(downpaymentAmount, currency)}\n`;
+  }
   message += `Amount Paid: ${paymentBreakdownText}\n`;
-  message += `Remaining Balance: ${formatCurrency(remainingBalance, currency)}\n\n`;
+  const laRemainingText = `LA ${new Date(account.end_date || account.order_date).toLocaleDateString('en-US', { month: 'short' }).toUpperCase()} remaining balance`;
+  message += `================\n`;
+  message += `${laRemainingText} - ${formatCurrency(remainingBalance, currency)} to pay in ${account.payment_plan_months} months\n\n`;
   message += `================\n\n`;
 
   if (paymentDetails.length > 0) {

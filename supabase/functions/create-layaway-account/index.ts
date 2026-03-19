@@ -75,6 +75,11 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Calculate downpayment (30%) and installment base
+    const totalAmountNum = Number(total_amount);
+    const downpaymentAmount = Math.round(totalAmountNum * 0.3);
+    const remainingAfterDown = totalAmountNum - downpaymentAmount;
+
     // Calculate end date
     const startDate = new Date(order_date);
     const endDate = new Date(startDate.getFullYear(), startDate.getMonth() + payment_plan_months, startDate.getDate());
@@ -86,11 +91,12 @@ Deno.serve(async (req) => {
         customer_id,
         invoice_number,
         currency,
-        total_amount,
+        total_amount: totalAmountNum,
+        downpayment_amount: downpaymentAmount,
         payment_plan_months,
         order_date,
         end_date: endDate.toISOString().split("T")[0],
-        remaining_balance: total_amount,
+        remaining_balance: totalAmountNum,
         notes,
         created_by_user_id: user.id,
       })
@@ -104,10 +110,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Generate schedule
-    const totalAmountNum = Number(total_amount);
-    const baseInstallment = Math.floor(totalAmountNum / payment_plan_months);
-    const remainder = totalAmountNum - baseInstallment * payment_plan_months;
+    // Generate schedule based on remaining amount after 30% downpayment
+    const baseInstallment = Math.floor(remainingAfterDown / payment_plan_months);
+    const remainder = remainingAfterDown - baseInstallment * payment_plan_months;
     const dayOfMonth = startDate.getDate();
 
     const scheduleRows = [];
