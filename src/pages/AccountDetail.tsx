@@ -16,7 +16,7 @@ import PenaltyWaiverPanel from '@/components/penalties/PenaltyWaiverPanel';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
-import { Skeleton } from '@/components/ui/skeleton';
+import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment } from '@/hooks/use-supabase-data';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export default function AccountDetail() {
