@@ -241,6 +241,7 @@ export default function AccountDetail() {
                   </div>
                 </div>
               )}
+              {scheduleItems.map((item) => {
                 const isPaid = item.status === 'paid';
                 const isPartial = item.status === 'partially_paid';
                 const penaltyAmt = Number(item.penalty_amount);
