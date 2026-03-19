@@ -42,25 +42,27 @@ export default function OperationsPanel({ summary, displayCurrency }: Operations
   const upcomingItems = items.filter(i => i.due_date > today);
 
   const cards = [
-    { label: 'Due in 3 Days', count: summary?.due_3_days_count ?? 0, icon: CalendarCheck, color: 'text-info', bg: 'bg-info/10' },
-    { label: 'Due Today', count: summary?.due_today_count ?? 0, icon: Clock, color: 'text-warning', bg: 'bg-warning/10' },
-    { label: 'Overdue', count: summary?.overdue_accounts ?? 0, icon: AlertTriangle, color: 'text-destructive', bg: 'bg-destructive/10' },
-    { label: 'Penalties Today', count: summary?.penalties_today_count ?? 0, icon: Gavel, color: 'text-primary', bg: 'bg-primary/10' },
-    { label: 'Waivers Pending', count: summary?.pending_waivers_count ?? 0, icon: Scale, color: 'text-warning', bg: 'bg-warning/10' },
+    { label: 'Due in 3 Days', count: summary?.due_3_days_count ?? 0, icon: CalendarCheck, color: 'text-info', bg: 'bg-info/10', link: '/monitoring' },
+    { label: 'Due Today', count: summary?.due_today_count ?? 0, icon: Clock, color: 'text-warning', bg: 'bg-warning/10', link: '/monitoring' },
+    { label: 'Overdue', count: summary?.overdue_accounts ?? 0, icon: AlertTriangle, color: 'text-destructive', bg: 'bg-destructive/10', link: '/monitoring' },
+    { label: 'Penalties Today', count: summary?.penalties_today_count ?? 0, icon: Gavel, color: 'text-primary', bg: 'bg-primary/10', link: '/accounts' },
+    { label: 'Waivers Pending', count: summary?.pending_waivers_count ?? 0, icon: Scale, color: 'text-warning', bg: 'bg-warning/10', link: '/accounts' },
   ];
 
   return (
     <div className="rounded-xl border border-border bg-card p-5 space-y-4">
       <h3 className="text-sm font-semibold text-card-foreground">Operations Center</h3>
 
-      {/* Quick stat pills */}
+      {/* Quick stat pills — all clickable */}
       <div className="flex flex-wrap gap-2">
         {cards.map(c => (
-          <div key={c.label} className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${c.bg}`}>
-            <c.icon className={`h-3.5 w-3.5 ${c.color}`} />
-            <span className={`text-xs font-semibold ${c.color}`}>{c.count}</span>
-            <span className="text-xs text-muted-foreground">{c.label}</span>
-          </div>
+          <Link key={c.label} to={c.link}>
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${c.bg}`}>
+              <c.icon className={`h-3.5 w-3.5 ${c.color}`} />
+              <span className={`text-xs font-semibold ${c.color}`}>{c.count}</span>
+              <span className="text-xs text-muted-foreground">{c.label}</span>
+            </div>
+          </Link>
         ))}
       </div>
 
