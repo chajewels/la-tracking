@@ -101,8 +101,13 @@ export default function AccountDetail() {
   } else {
     message += `Total Layaway Amount: ${formatCurrency(totalAmount, currency)}\n`;
   }
+  if (downpaymentAmount > 0) {
+    message += `30% Downpayment: ${formatCurrency(downpaymentAmount, currency)}\n`;
+  }
   message += `Amount Paid: ${paymentBreakdownText}\n`;
-  message += `Remaining Balance: ${formatCurrency(remainingBalance, currency)}\n\n`;
+  const laRemainingText = `LA ${new Date(account.end_date || account.order_date).toLocaleDateString('en-US', { month: 'short' }).toUpperCase()} remaining balance`;
+  message += `================\n`;
+  message += `${laRemainingText} - ${formatCurrency(remainingBalance, currency)} to pay in ${account.payment_plan_months} months\n\n`;
   message += `================\n\n`;
 
   if (paymentDetails.length > 0) {
