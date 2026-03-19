@@ -20,6 +20,7 @@ const statusStyles: Record<string, string> = {
 export default function AccountList() {
   const [search, setSearch] = useState('');
   const [filterCurrency, setFilterCurrency] = useState<Currency | 'all'>('all');
+  const navigate = useNavigate();
   const { data: accounts, isLoading } = useAccounts();
 
   const filtered = (accounts || []).filter(a => {
