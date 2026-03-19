@@ -234,11 +234,13 @@ export function useDashboardSummary(currencyMode: 'PHP' | 'JPY' | 'ALL') {
       if (error) throw error;
       return data as {
         total_receivables: number;
-        active_accounts: number;
-        collections_today: number;
+        active_layaways: number;
+        payments_today: number;
         collections_this_month: number;
-        overdue_count: number;
-        display_currency: string;
+        overdue_accounts: number;
+        currency: string;
+        currency_filter: string;
+        conversion_rate: number;
       };
     },
   });
