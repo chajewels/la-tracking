@@ -336,6 +336,53 @@ export default function Analytics() {
               {clvs.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No customers</p>}
             </div>
           </div>
+
+          {/* CSR Performance */}
+          <div className="rounded-xl border border-border bg-card p-5 lg:col-span-2">
+            <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2">
+              <UserCheck className="h-4 w-4 text-primary" /> CSR Performance
+            </h3>
+            {csrPerformance.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No team members yet</p>
+            ) : (
+              <div className="space-y-4">
+                {csrPerformance.map((csr, i) => (
+                  <div key={csr.userId} className="p-4 rounded-lg border border-border">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${
+                          i === 0 ? 'gold-gradient text-primary-foreground' : 'bg-muted text-muted-foreground'
+                        }`}>
+                          #{i + 1}
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-card-foreground">{csr.name}</p>
+                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{csr.role}</p>
+                        </div>
+                      </div>
+                      {i === 0 && (
+                        <Badge className="gold-gradient text-primary-foreground text-[10px] border-0">Top Collector</Badge>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
+                      {[
+                        { label: 'Total Collected', value: `¥ ${Math.round(csr.totalCollected).toLocaleString()}` },
+                        { label: 'Payments', value: csr.paymentCount },
+                        { label: 'Accounts Handled', value: csr.accountsHandled },
+                        { label: 'Accounts Created', value: csr.accountsCreated },
+                        { label: 'Recoveries', value: csr.recoveries },
+                      ].map(m => (
+                        <div key={m.label} className="p-2 rounded-lg bg-muted/30">
+                          <p className="text-[10px] text-muted-foreground">{m.label}</p>
+                          <p className="text-sm font-bold text-card-foreground">{m.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </AppLayout>
