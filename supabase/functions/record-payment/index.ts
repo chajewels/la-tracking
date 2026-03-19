@@ -211,34 +211,43 @@ Deno.serve(async (req) => {
 
     // Recalculate remaining installments if there's still balance
     if (newRemainingBalance > 0) {
-      const unpaidSchedule = schedule.filter(
-        (s) => !scheduleUpdates.find((u) => u.id === s.id && u.status === "paid") && s.status !== "paid"
-      );
-      
-      // Filter to truly unpaid ones after this payment
-      const stillUnpaid = unpaidSchedule.filter((s) => {
-        const update = scheduleUpdates.find((u) => u.id === s.id);
-        if (update) return update.status !== "paid";
-        return true;
-      });
+      // Re-fetch schedule to get updated state after this payment
+      const { data: updatedSchedule } = await supabase
+        .from("layaway_schedule")
+        .select("*")
+        .eq("account_id", account_id)
+        .order("installment_number", { ascending: true });
 
-      if (stillUnpaid.length > 0) {
-        // Calculate remaining principal (excluding penalties)
-        const totalPenalties = (unpaidPenalties || [])
-          .filter((p) => !penaltyUpdates.find((u) => u.id === p.id && u.status === "paid"))
-          .reduce((sum, p) => sum + Number(p.penalty_amount), 0);
-        
-        const remainingPrincipal = Math.max(0, newRemainingBalance - totalPenalties);
-        const perMonth = Math.floor(remainingPrincipal / stillUnpaid.length);
-        const rem = remainingPrincipal - perMonth * stillUnpaid.length;
+      if (updatedSchedule) {
+        const stillUnpaid = updatedSchedule.filter((s) => s.status !== "paid");
 
-        for (let i = 0; i < stillUnpaid.length; i++) {
-          const newBase = i === 0 ? perMonth + rem : perMonth;
-          const penAmt = Number(stillUnpaid[i].penalty_amount);
-          await supabase.from("layaway_schedule").update({
-            base_installment_amount: newBase,
-            total_due_amount: newBase + penAmt,
-          }).eq("id", stillUnpaid[i].id);
+        if (stillUnpaid.length > 0) {
+          // Fetch remaining unpaid penalties
+          const { data: remainingPenalties } = await supabase
+            .from("penalty_fees")
+            .select("*")
+            .eq("account_id", account_id)
+            .eq("status", "unpaid");
+
+          const totalUnpaidPenalties = (remainingPenalties || [])
+            .reduce((sum, p) => sum + Number(p.penalty_amount), 0);
+
+          const alreadyPartiallyPaid = stillUnpaid
+            .reduce((sum, s) => sum + Number(s.paid_amount), 0);
+          const remainingPrincipal = Math.max(0, newRemainingBalance - totalUnpaidPenalties);
+          const principalToDistribute = remainingPrincipal - alreadyPartiallyPaid;
+
+          const perMonth = Math.floor(principalToDistribute / stillUnpaid.length);
+          const rem = principalToDistribute - perMonth * stillUnpaid.length;
+
+          for (let i = 0; i < stillUnpaid.length; i++) {
+            const newBase = Number(stillUnpaid[i].paid_amount) + (i === 0 ? perMonth + rem : perMonth);
+            const penAmt = Number(stillUnpaid[i].penalty_amount);
+            await supabase.from("layaway_schedule").update({
+              base_installment_amount: newBase,
+              total_due_amount: newBase + penAmt,
+            }).eq("id", stillUnpaid[i].id);
+          }
         }
       }
     }
