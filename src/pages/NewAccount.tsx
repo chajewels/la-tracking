@@ -25,8 +25,10 @@ export default function NewAccount() {
   const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>(3);
 
   const amount = parseInt(totalAmount) || 0;
+  const downpaymentAmount = Math.round(amount * 0.3);
+  const remainingAfterDown = amount - downpaymentAmount;
   const previewDates = orderDate ? generateScheduleDates(orderDate, paymentPlan) : [];
-  const previewInstallments = amount > 0 ? calculateInstallments(amount, paymentPlan) : [];
+  const previewInstallments = remainingAfterDown > 0 ? calculateInstallments(remainingAfterDown, paymentPlan) : [];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
