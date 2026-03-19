@@ -285,25 +285,139 @@ export default function AccountDetail() {
             <p className="text-sm text-muted-foreground">No payments recorded yet</p>
           ) : (
             <div className="space-y-2">
-              {payments.map((p) => (
-                <div key={p.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                  <div>
-                    <p className="text-xs sm:text-sm text-card-foreground">
-                      {new Date(p.date_paid).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-                    </p>
-                    <p className="text-[10px] sm:text-xs text-muted-foreground">
-                      {p.payment_method || 'Cash'}
-                      {p.remarks && ` · ${p.remarks}`}
-                    </p>
+              {payments.map((p) => {
+                const isVoided = !!(p as any).voided_at;
+                const isEditing = editingId === p.id;
+
+                if (isEditing) {
+                  return (
+                    <div key={p.id} className="p-3 rounded-lg border border-primary/30 bg-muted/30 space-y-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-[10px] text-muted-foreground uppercase">Date</label>
+                          <Input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} className="h-8 text-xs bg-background" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-muted-foreground uppercase">Method</label>
+                          <Select value={editMethod} onValueChange={setEditMethod}>
+                            <SelectTrigger className="h-8 text-xs bg-background"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="cash">Cash</SelectItem>
+                              <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                              <SelectItem value="gcash">GCash</SelectItem>
+                              <SelectItem value="other">Other</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-muted-foreground uppercase">Amount (read-only)</label>
+                          <Input disabled value={formatCurrency(Number(p.amount_paid), p.currency as Currency)} className="h-8 text-xs bg-muted" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-muted-foreground uppercase">Notes</label>
+                        <Textarea value={editRemarks} onChange={(e) => setEditRemarks(e.target.value)} rows={1} className="text-xs bg-background resize-none" />
+                      </div>
+                      <div className="flex gap-2 justify-end">
+                        <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>
+                          <X className="h-3 w-3 mr-1" /> Cancel
+                        </Button>
+                        <Button size="sm" className="gold-gradient text-primary-foreground" disabled={editPayment.isPending}
+                          onClick={async () => {
+                            try {
+                              await editPayment.mutateAsync({
+                                id: p.id,
+                                date_paid: editDate,
+                                payment_method: editMethod,
+                                remarks: editRemarks || undefined,
+                              });
+                              toast.success('Payment updated');
+                              setEditingId(null);
+                            } catch (err: any) {
+                              toast.error(err.message || 'Failed to update');
+                            }
+                          }}>
+                          <Save className="h-3 w-3 mr-1" /> Save
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div key={p.id} className={`flex items-center justify-between py-2 px-2 rounded-lg border-b border-border last:border-0 ${isVoided ? 'opacity-50 line-through' : ''}`}>
+                    <div className="flex-1">
+                      <p className="text-xs sm:text-sm text-card-foreground">
+                        {new Date(p.date_paid).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                      </p>
+                      <p className="text-[10px] sm:text-xs text-muted-foreground">
+                        {p.payment_method || 'Cash'}
+                        {p.remarks && ` · ${p.remarks}`}
+                        {isVoided && ` · VOIDED${(p as any).void_reason ? `: ${(p as any).void_reason}` : ''}`}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isVoided ? 'text-muted-foreground' : 'text-success'}`}>
+                        {isVoided ? '' : '+'}{formatCurrency(Number(p.amount_paid), p.currency as Currency)}
+                      </p>
+                      {!isVoided && (
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                            onClick={() => {
+                              setEditingId(p.id);
+                              setEditDate(p.date_paid);
+                              setEditMethod(p.payment_method || 'cash');
+                              setEditRemarks(p.remarks || '');
+                            }}>
+                            <Pencil className="h-3 w-3" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            onClick={() => { setVoidTarget(p.id); setVoidReason(''); }}>
+                            <Ban className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <p className="text-xs sm:text-sm font-semibold text-success tabular-nums">
-                    +{formatCurrency(Number(p.amount_paid), p.currency as Currency)}
-                  </p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
+
+        {/* Void Confirmation Dialog */}
+        <AlertDialog open={!!voidTarget} onOpenChange={(open) => { if (!open) setVoidTarget(null); }}>
+          <AlertDialogContent className="bg-card border-border">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-card-foreground">Void Payment</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will reverse the payment and restore the balance. The payment record will be kept for audit purposes. Amount changes require voiding and re-entering.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="space-y-2">
+              <label className="text-xs text-muted-foreground">Reason (optional)</label>
+              <Textarea value={voidReason} onChange={(e) => setVoidReason(e.target.value)} rows={2} placeholder="e.g. Recorded wrong amount" className="bg-background border-border text-sm resize-none" />
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={voidPayment.isPending}
+                onClick={async () => {
+                  if (!voidTarget) return;
+                  try {
+                    await voidPayment.mutateAsync({ payment_id: voidTarget, reason: voidReason || undefined });
+                    toast.success('Payment voided successfully');
+                    setVoidTarget(null);
+                  } catch (err: any) {
+                    toast.error(err.message || 'Failed to void payment');
+                  }
+                }}>
+                {voidPayment.isPending ? 'Voiding…' : 'Void Payment'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </AppLayout>
   );
