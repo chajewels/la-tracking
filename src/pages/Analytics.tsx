@@ -184,6 +184,41 @@ export default function Analytics() {
     return { day30: Math.round(total30), day90: Math.round(total90) };
   }, [activeAccounts, allSchedules, allPayments, isAllMode]);
 
+  // CSR Performance from real data
+  const csrPerformance = useMemo(() => {
+    const staff = profilesWithRoles || [];
+    const payments = (allPayments || []).filter(p => !p.voided_at);
+    const accts = accounts || [];
+
+    return staff.map(s => {
+      const userPayments = payments.filter(p => p.entered_by_user_id === s.user_id);
+      const totalCollected = userPayments.reduce((sum, p) => sum + Number(p.amount_paid), 0);
+      const accountIds = new Set(userPayments.map(p => p.account_id));
+
+      // Accounts created by this user
+      const createdAccounts = accts.filter(a => a.created_by_user_id === s.user_id);
+
+      // Recovery: overdue accounts that received a payment from this user
+      const overdueAccountIds = new Set(
+        (allSchedules || [])
+          .filter(sc => sc.due_date < new Date().toISOString().split('T')[0] && ['pending', 'partially_paid'].includes(sc.status))
+          .map(sc => sc.account_id)
+      );
+      const recoveries = userPayments.filter(p => overdueAccountIds.has(p.account_id)).length;
+
+      return {
+        userId: s.user_id,
+        name: s.full_name,
+        role: s.role,
+        totalCollected,
+        paymentCount: userPayments.length,
+        accountsHandled: accountIds.size,
+        accountsCreated: createdAccounts.length,
+        recoveries,
+      };
+    }).sort((a, b) => b.totalCollected - a.totalCollected);
+  }, [profilesWithRoles, allPayments, accounts, allSchedules]);
+
   const highRisk = risks.filter(r => r.riskLevel === 'high').length;
   const avgCompletion = completions.length > 0
     ? Math.round(completions.reduce((s, c) => s + c.score, 0) / completions.length) : 0;
