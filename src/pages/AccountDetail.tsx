@@ -28,6 +28,7 @@ export default function AccountDetail() {
   const [copied, setCopied] = useState(false);
   const voidPayment = useVoidPayment();
   const editPayment = useEditPayment();
+  const restorePayment = useRestorePayment();
   const [voidTarget, setVoidTarget] = useState<string | null>(null);
   const [voidReason, setVoidReason] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
