@@ -222,7 +222,25 @@ export default function AccountDetail() {
               <Calendar className="h-4 w-4 text-primary" /> Payment Schedule
             </h3>
             <div className="space-y-2">
-              {scheduleItems.map((item) => {
+              {/* 30% Downpayment row */}
+              {downpaymentAmount > 0 && (
+                <div className="flex items-center justify-between p-2.5 sm:p-3 rounded-lg border bg-primary/5 border-primary/10">
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <div className="flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-full text-[10px] sm:text-xs font-bold bg-primary/20 text-primary">
+                      DP
+                    </div>
+                    <div>
+                      <p className="text-xs sm:text-sm font-medium text-card-foreground">30% Downpayment</p>
+                      <p className="text-[10px] sm:text-xs text-muted-foreground">Due on order date</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs sm:text-sm font-semibold tabular-nums text-primary">
+                      {formatCurrency(downpaymentAmount, currency)}
+                    </p>
+                  </div>
+                </div>
+              )}
                 const isPaid = item.status === 'paid';
                 const isPartial = item.status === 'partially_paid';
                 const penaltyAmt = Number(item.penalty_amount);
