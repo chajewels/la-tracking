@@ -34,8 +34,17 @@ Deno.serve(async (req) => {
       });
     }
 
-    const url = new URL(req.url);
-    const currencyFilter = url.searchParams.get("currency") || "ALL"; // PHP, JPY, or ALL
+    // Read currency filter from body (POST) or URL params (GET)
+    let currencyFilter = "ALL";
+    if (req.method === "POST") {
+      try {
+        const body = await req.json();
+        currencyFilter = body.currency_mode || body.currency || "ALL";
+      } catch { /* empty body, default ALL */ }
+    } else {
+      const url = new URL(req.url);
+      currencyFilter = url.searchParams.get("currency") || "ALL";
+    }
 
     // Get conversion rate
     const { data: rateSetting } = await supabase
