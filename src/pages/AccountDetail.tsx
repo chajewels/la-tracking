@@ -378,6 +378,23 @@ export default function AccountDetail() {
                           </Button>
                         </div>
                       )}
+                      {isVoided && (
+                        <Button variant="ghost" size="sm"
+                          className="h-7 text-xs text-muted-foreground hover:text-success"
+                          style={{ textDecoration: 'none' }}
+                          disabled={restorePayment.isPending}
+                          onClick={async () => {
+                            try {
+                              await restorePayment.mutateAsync({ payment_id: p.id });
+                              toast.success('Payment restored successfully');
+                            } catch (err: any) {
+                              toast.error(err.message || 'Failed to restore payment');
+                            }
+                          }}>
+                          <RotateCcw className="h-3 w-3 mr-1" />
+                          {restorePayment.isPending ? 'Restoring…' : 'Restore'}
+                        </Button>
+                      )}
                     </div>
                   </div>
                 );
