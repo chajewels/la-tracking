@@ -63,6 +63,7 @@ export default function AccountDetail() {
   const totalAmount = Number(account.total_amount);
   const totalPaid = Number(account.total_paid);
   const remainingBalance = Number(account.remaining_balance);
+  const downpaymentAmount = Number((account as any).downpayment_amount || 0);
   const progress = totalAmount > 0 ? (totalPaid / totalAmount) * 100 : 0;
 
   const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
