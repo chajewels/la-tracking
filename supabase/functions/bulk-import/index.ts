@@ -240,7 +240,7 @@ Deno.serve(async (req) => {
 
             // Calculate totals from schedule
             const paidInstallments = a.schedule.filter(s => s.is_paid);
-            const totalPaidFromSchedule = paidInstallments.reduce((sum, s) => sum + s.amount, 0);
+            const totalPaidFromSchedule = paidInstallments.reduce((sum, s) => sum + s.amount + (s.penalty_amount || 0), 0);
             const totalPaidWithDownpayment = (a.downpayment || 0) + totalPaidFromSchedule;
             const remainingBalance = a.total_amount - totalPaidWithDownpayment;
 
