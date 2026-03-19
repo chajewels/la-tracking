@@ -110,10 +110,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Generate schedule
-    const totalAmountNum = Number(total_amount);
-    const baseInstallment = Math.floor(totalAmountNum / payment_plan_months);
-    const remainder = totalAmountNum - baseInstallment * payment_plan_months;
+    // Generate schedule based on remaining amount after 30% downpayment
+    const baseInstallment = Math.floor(remainingAfterDown / payment_plan_months);
+    const remainder = remainingAfterDown - baseInstallment * payment_plan_months;
     const dayOfMonth = startDate.getDate();
 
     const scheduleRows = [];
