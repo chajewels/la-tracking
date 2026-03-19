@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.void-payment]
 verify_jwt = false
+
+[functions.restore-payment]
+verify_jwt = false

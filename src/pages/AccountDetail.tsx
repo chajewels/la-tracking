@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save } from 'lucide-react';
+import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -16,7 +16,7 @@ import PenaltyWaiverPanel from '@/components/penalties/PenaltyWaiverPanel';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
-import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment } from '@/hooks/use-supabase-data';
+import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useRestorePayment } from '@/hooks/use-supabase-data';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export default function AccountDetail() {
@@ -28,6 +28,7 @@ export default function AccountDetail() {
   const [copied, setCopied] = useState(false);
   const voidPayment = useVoidPayment();
   const editPayment = useEditPayment();
+  const restorePayment = useRestorePayment();
   const [voidTarget, setVoidTarget] = useState<string | null>(null);
   const [voidReason, setVoidReason] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -376,6 +377,23 @@ export default function AccountDetail() {
                             <Ban className="h-3 w-3" />
                           </Button>
                         </div>
+                      )}
+                      {isVoided && (
+                        <Button variant="ghost" size="sm"
+                          className="h-7 text-xs text-muted-foreground hover:text-success"
+                          style={{ textDecoration: 'none' }}
+                          disabled={restorePayment.isPending}
+                          onClick={async () => {
+                            try {
+                              await restorePayment.mutateAsync({ payment_id: p.id });
+                              toast.success('Payment restored successfully');
+                            } catch (err: any) {
+                              toast.error(err.message || 'Failed to restore payment');
+                            }
+                          }}>
+                          <RotateCcw className="h-3 w-3 mr-1" />
+                          {restorePayment.isPending ? 'Restoring…' : 'Restore'}
+                        </Button>
                       )}
                     </div>
                   </div>
