@@ -82,9 +82,12 @@ export default function AccountDetail() {
   const paymentBreakdownText = activePayments.length > 0
     ? `${activePayments.map(payment => formatCurrency(Number(payment.amount_paid), payment.currency as Currency)).join(' + ')} = ${formatCurrency(totalPaid, currency)}`
     : formatCurrency(totalPaid, currency);
-  const paymentDetails = activePayments.map((payment, index) => {
+  let paymentCounter = 0;
+  const paymentDetails = activePayments.map((payment) => {
     const dateStr = new Date(payment.date_paid).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
-    const label = payment.remarks?.toLowerCase().includes('downpayment') ? 'Downpayment' : `Payment ${index + 1}`;
+    const isDownpayment = payment.remarks?.toLowerCase().includes('downpayment') ||
+      (downpaymentAmount > 0 && Math.abs(Number(payment.amount_paid) - downpaymentAmount) < 1);
+    const label = isDownpayment ? '30% Downpayment' : `Payment ${++paymentCounter}`;
     return `${label} ${dateStr}: ${formatCurrency(Number(payment.amount_paid), payment.currency as Currency)}`;
   });
   const ordinals = ['1st', '2nd', '3rd', '4th', '5th', '6th'];
