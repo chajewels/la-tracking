@@ -91,12 +91,13 @@ Deno.serve(async (req) => {
       if (acc.status === "overdue") overdueCount++;
     }
 
-    // Today's payments
+    // Today's payments (exclude voided)
     const today = new Date().toISOString().split("T")[0];
     let paymentsQuery = supabase
       .from("payments")
       .select("*")
-      .eq("date_paid", today);
+      .eq("date_paid", today)
+      .is("voided_at", null);
 
     if (currencyWhere) {
       paymentsQuery = paymentsQuery.eq("currency", currencyWhere);
