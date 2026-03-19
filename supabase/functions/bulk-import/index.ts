@@ -308,6 +308,41 @@ Deno.serve(async (req) => {
 
             results.schedule_rows_created += scheduleRows.length;
 
+            // Create penalty_fees for unpaid schedule items with penalties
+            const scheduleIdMap = new Map(
+              (insertedSchedule || []).map(s => [s.installment_number, s.id])
+            );
+            for (const s of a.schedule) {
+              if (!s.is_paid && s.penalty_amount && s.penalty_amount > 0) {
+                const schedId = scheduleIdMap.get(s.installment_number);
+                if (schedId) {
+                  const penaltyTotal = s.penalty_amount;
+                  const week1Amt = Math.min(penaltyTotal, a.currency === 'JPY' ? 1000 : 500);
+                  const penaltyRows: any[] = [{
+                    account_id: account.id,
+                    schedule_id: schedId,
+                    currency: a.currency,
+                    penalty_amount: week1Amt,
+                    penalty_stage: 'week1',
+                    penalty_cycle: 1,
+                    status: 'unpaid',
+                  }];
+                  if (penaltyTotal > week1Amt) {
+                    penaltyRows.push({
+                      account_id: account.id,
+                      schedule_id: schedId,
+                      currency: a.currency,
+                      penalty_amount: penaltyTotal - week1Amt,
+                      penalty_stage: 'week2',
+                      penalty_cycle: 1,
+                      status: 'unpaid',
+                    });
+                  }
+                  await supabase.from("penalty_fees").insert(penaltyRows);
+                }
+              }
+            }
+
             // Record downpayment as a payment if > 0
             if (a.downpayment > 0) {
               const { error: dpErr } = await supabase
