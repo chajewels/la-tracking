@@ -44,7 +44,7 @@ Deno.serve(async (req) => {
       payment_plan_months,
       order_date,
       notes,
-      downpayment_percent,
+      downpayment_amount: dpAmountInput,
     } = body;
 
     // Validation
