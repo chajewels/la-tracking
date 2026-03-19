@@ -320,6 +320,7 @@ export function useCreateCustomer() {
       messenger_link?: string;
       preferred_contact_method?: string;
       notes?: string;
+      location?: string;
     }) => {
       const { data, error } = await supabase
         .from('customers')
