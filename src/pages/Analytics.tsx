@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { BarChart3, Users, Target, TrendingUp, ShieldAlert, Sparkles, Crown } from 'lucide-react';
+import { BarChart3, Users, Target, TrendingUp, ShieldAlert, Sparkles, Crown, UserCheck } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import StatCard from '@/components/dashboard/StatCard';
 import CurrencyToggle, { CurrencyFilter } from '@/components/dashboard/CurrencyToggle';
@@ -95,6 +95,27 @@ export default function Analytics() {
     },
   });
 
+  // Fetch profiles + roles for CSR performance
+  const { data: profilesWithRoles } = useQuery({
+    queryKey: ['csr-profiles'],
+    queryFn: async () => {
+      const { data: profiles, error: pErr } = await supabase
+        .from('profiles')
+        .select('*');
+      if (pErr) throw pErr;
+
+      const { data: roles, error: rErr } = await supabase
+        .from('user_roles')
+        .select('*');
+      if (rErr) throw rErr;
+
+      return (profiles || []).map(p => ({
+        ...p,
+        role: (roles || []).find(r => r.user_id === p.user_id)?.role || 'staff',
+      }));
+    },
+  });
+
   const isLoading = acctLoading || custLoading || payLoading;
 
   const activeAccounts = useMemo(() =>
@@ -162,6 +183,41 @@ export default function Analytics() {
     });
     return { day30: Math.round(total30), day90: Math.round(total90) };
   }, [activeAccounts, allSchedules, allPayments, isAllMode]);
+
+  // CSR Performance from real data
+  const csrPerformance = useMemo(() => {
+    const staff = profilesWithRoles || [];
+    const payments = (allPayments || []).filter(p => !p.voided_at);
+    const accts = accounts || [];
+
+    return staff.map(s => {
+      const userPayments = payments.filter(p => p.entered_by_user_id === s.user_id);
+      const totalCollected = userPayments.reduce((sum, p) => sum + Number(p.amount_paid), 0);
+      const accountIds = new Set(userPayments.map(p => p.account_id));
+
+      // Accounts created by this user
+      const createdAccounts = accts.filter(a => a.created_by_user_id === s.user_id);
+
+      // Recovery: overdue accounts that received a payment from this user
+      const overdueAccountIds = new Set(
+        (allSchedules || [])
+          .filter(sc => sc.due_date < new Date().toISOString().split('T')[0] && ['pending', 'partially_paid'].includes(sc.status))
+          .map(sc => sc.account_id)
+      );
+      const recoveries = userPayments.filter(p => overdueAccountIds.has(p.account_id)).length;
+
+      return {
+        userId: s.user_id,
+        name: s.full_name,
+        role: s.role,
+        totalCollected,
+        paymentCount: userPayments.length,
+        accountsHandled: accountIds.size,
+        accountsCreated: createdAccounts.length,
+        recoveries,
+      };
+    }).sort((a, b) => b.totalCollected - a.totalCollected);
+  }, [profilesWithRoles, allPayments, accounts, allSchedules]);
 
   const highRisk = risks.filter(r => r.riskLevel === 'high').length;
   const avgCompletion = completions.length > 0
@@ -279,6 +335,53 @@ export default function Analytics() {
               ))}
               {clvs.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No customers</p>}
             </div>
+          </div>
+
+          {/* CSR Performance */}
+          <div className="rounded-xl border border-border bg-card p-5 lg:col-span-2">
+            <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2">
+              <UserCheck className="h-4 w-4 text-primary" /> CSR Performance
+            </h3>
+            {csrPerformance.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No team members yet</p>
+            ) : (
+              <div className="space-y-4">
+                {csrPerformance.map((csr, i) => (
+                  <div key={csr.userId} className="p-4 rounded-lg border border-border">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${
+                          i === 0 ? 'gold-gradient text-primary-foreground' : 'bg-muted text-muted-foreground'
+                        }`}>
+                          #{i + 1}
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-card-foreground">{csr.name}</p>
+                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{csr.role}</p>
+                        </div>
+                      </div>
+                      {i === 0 && (
+                        <Badge className="gold-gradient text-primary-foreground text-[10px] border-0">Top Collector</Badge>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
+                      {[
+                        { label: 'Total Collected', value: `¥ ${Math.round(csr.totalCollected).toLocaleString()}` },
+                        { label: 'Payments', value: csr.paymentCount },
+                        { label: 'Accounts Handled', value: csr.accountsHandled },
+                        { label: 'Accounts Created', value: csr.accountsCreated },
+                        { label: 'Recoveries', value: csr.recoveries },
+                      ].map(m => (
+                        <div key={m.label} className="p-2 rounded-lg bg-muted/30">
+                          <p className="text-[10px] text-muted-foreground">{m.label}</p>
+                          <p className="text-sm font-bold text-card-foreground">{m.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
