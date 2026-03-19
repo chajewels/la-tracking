@@ -42,7 +42,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Fetch the payment
     const { data: payment, error: payErr } = await supabase
       .from("payments")
       .select("*")
@@ -57,16 +56,13 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Fetch allocations for this payment
     const { data: allocations } = await supabase
       .from("payment_allocations")
       .select("*")
       .eq("payment_id", payment_id);
 
-    // Reverse each allocation
     for (const alloc of (allocations || [])) {
       if (alloc.allocation_type === "installment") {
-        // Reverse schedule paid_amount
         const { data: sched } = await supabase
           .from("layaway_schedule")
           .select("*")
@@ -82,8 +78,6 @@ Deno.serve(async (req) => {
           }).eq("id", alloc.schedule_id);
         }
       } else if (alloc.allocation_type === "penalty") {
-        // Find the penalty_fee linked via payment_allocations and revert to unpaid
-        // We need to find the penalty that was paid by this allocation
         const { data: penaltyFees } = await supabase
           .from("penalty_fees")
           .select("*")
@@ -92,14 +86,11 @@ Deno.serve(async (req) => {
           .eq("account_id", payment.account_id);
 
         if (penaltyFees && penaltyFees.length > 0) {
-          // Revert the first matching paid penalty
           await supabase.from("penalty_fees").update({ status: "unpaid" }).eq("id", penaltyFees[0].id);
         }
       }
     }
 
-
-    // Update account totals
     const { data: account } = await supabase
       .from("layaway_accounts")
       .select("*")
@@ -116,59 +107,14 @@ Deno.serve(async (req) => {
         remaining_balance: Math.max(0, newRemaining),
         status: newStatus,
       }).eq("id", payment.account_id);
-
-      // Recalculate remaining installment amounts
-      if (newRemaining > 0) {
-        const { data: schedule } = await supabase
-          .from("layaway_schedule")
-          .select("*")
-          .eq("account_id", payment.account_id)
-          .order("installment_number", { ascending: true });
-
-        if (schedule) {
-          const unpaidInstallments = schedule.filter(
-            (s) => s.status !== "paid"
-          );
-
-          if (unpaidInstallments.length > 0) {
-            const { data: unpaidPenalties } = await supabase
-              .from("penalty_fees")
-              .select("*")
-              .eq("account_id", payment.account_id)
-              .eq("status", "unpaid");
-
-            const totalUnpaidPenalties = (unpaidPenalties || [])
-              .reduce((sum, p) => sum + Number(p.penalty_amount), 0);
-
-            const remainingPrincipal = Math.max(0, newRemaining - totalUnpaidPenalties);
-            const perMonth = Math.floor(remainingPrincipal / unpaidInstallments.length);
-            const rem = remainingPrincipal - perMonth * unpaidInstallments.length;
-
-            for (let i = 0; i < unpaidInstallments.length; i++) {
-              const isLast = i === unpaidInstallments.length - 1;
-              const newBase = isLast ? perMonth + rem : perMonth;
-              const penAmt = Number(unpaidInstallments[i].penalty_amount);
-              const paid = Number(unpaidInstallments[i].paid_amount);
-              const newStatus = paid >= newBase ? "paid" : (paid > 0 ? "partially_paid" : unpaidInstallments[i].status);
-              await supabase.from("layaway_schedule").update({
-                base_installment_amount: newBase,
-                total_due_amount: newBase + penAmt,
-                status: newStatus,
-              }).eq("id", unpaidInstallments[i].id);
-            }
-          }
-        }
-      }
     }
 
-    // Mark payment as voided
     await supabase.from("payments").update({
       voided_at: new Date().toISOString(),
       voided_by_user_id: user.id,
       void_reason: reason || "Voided by user",
     }).eq("id", payment_id);
 
-    // Audit log
     await supabase.from("audit_logs").insert({
       entity_type: "payment",
       entity_id: payment_id,

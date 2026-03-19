@@ -69,10 +69,11 @@ export default function AccountDetail() {
   const totalPenalty = unpaidPenalties.reduce((s, p) => s + Number(p.penalty_amount), 0);
 
   // Build message from schedule data
-  // Build message from schedule data — include ALL items, mark paid ones
   const scheduleItems = schedule || [];
   const unpaidSchedule = scheduleItems.filter(s => s.status !== 'paid');
   const ordinals = ['1st', '2nd', '3rd', '4th', '5th', '6th'];
+  const getRemainingDue = (item: { total_due_amount: number | string; paid_amount: number | string }) =>
+    Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
 
   let message = `✨ Cha Jewels Layaway Payment Summary\n\n`;
   message += `Inv # ${account.invoice_number}\n`;
@@ -87,15 +88,21 @@ export default function AccountDetail() {
   message += `Payment Schedule:\n\n`;
   scheduleItems.forEach((item, idx) => {
     const isPaid = item.status === 'paid';
+    const isPartial = item.status === 'partially_paid';
     const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
     const penalty = Number(item.penalty_amount);
-    const base = Number(item.base_installment_amount);
+    const totalDue = Number(item.total_due_amount);
+    const paid = Number(item.paid_amount);
+    const remainingDue = getRemainingDue(item);
+
     if (isPaid) {
-      message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(base, currency)} — PAID\n`;
+      message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)} — PAID\n`;
+    } else if (isPartial) {
+      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(remainingDue, currency)} remaining (${formatCurrency(paid, currency)} paid of ${formatCurrency(totalDue, currency)})${penalty > 0 ? `, includes ${formatCurrency(penalty, currency)} penalty` : ''} — PARTIAL\n`;
     } else if (penalty > 0) {
-      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(base, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(Number(item.total_due_amount), currency)}\n`;
+      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)} due (includes ${formatCurrency(penalty, currency)} penalty)\n`;
     } else {
-      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(base, currency)}\n`;
+      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(remainingDue, currency)}\n`;
     }
   });
   if (unpaidSchedule.length > 0) {
@@ -188,18 +195,20 @@ export default function AccountDetail() {
             <div className="space-y-2">
               {scheduleItems.map((item) => {
                 const isPaid = item.status === 'paid';
+                const isPartial = item.status === 'partially_paid';
                 const penaltyAmt = Number(item.penalty_amount);
-                const baseAmt = Number(item.base_installment_amount);
                 const paidAmt = Number(item.paid_amount);
+                const totalDue = Number(item.total_due_amount);
+                const remainingDue = getRemainingDue(item);
                 return (
                   <div key={item.id}
                     className={`flex items-center justify-between p-2.5 sm:p-3 rounded-lg border ${
-                      isPaid ? 'bg-success/5 border-success/10' : 'bg-card border-border'
+                      isPaid ? 'bg-success/5 border-success/10' : isPartial ? 'bg-primary/5 border-primary/10' : 'bg-card border-border'
                     }`}
                   >
                     <div className="flex items-center gap-2 sm:gap-3">
                       <div className={`flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-full text-[10px] sm:text-xs font-bold ${
-                        isPaid ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'
+                        isPaid ? 'bg-success/20 text-success' : isPartial ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground'
                       }`}>
                         {isPaid ? <Check className="h-3 w-3" /> : item.installment_number}
                       </div>
@@ -208,26 +217,24 @@ export default function AccountDetail() {
                           {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                         </p>
                         <p className="text-[10px] sm:text-xs text-muted-foreground">
-                          {isPaid ? 'Paid' : `Month ${item.installment_number}`}
+                          {isPaid ? 'Paid' : isPartial ? 'Partially Paid' : `Month ${item.installment_number}`}
                         </p>
                       </div>
                     </div>
                     <div className="text-right">
-                      {penaltyAmt > 0 ? (
-                        <div>
-                          <p className="text-xs sm:text-sm font-semibold text-card-foreground tabular-nums">
-                            {formatCurrency(Number(item.total_due_amount), currency)}
-                          </p>
-                          <p className="text-[10px] text-destructive flex items-center gap-1 justify-end">
-                            <AlertTriangle className="h-2.5 w-2.5" />
-                            +{formatCurrency(penaltyAmt, currency)}
-                          </p>
-                        </div>
-                      ) : (
-                        <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isPaid ? 'text-success' : 'text-card-foreground'}`}>
-                          {isPaid ? formatCurrency(paidAmt, currency) : formatCurrency(baseAmt, currency)}
+                      <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isPaid ? 'text-success' : isPartial ? 'text-primary' : 'text-card-foreground'}`}>
+                        {formatCurrency(isPaid ? paidAmt : remainingDue, currency)}
+                      </p>
+                      {isPartial ? (
+                        <p className="text-[10px] text-muted-foreground tabular-nums">
+                          Paid {formatCurrency(paidAmt, currency)} of {formatCurrency(totalDue, currency)}
                         </p>
-                      )}
+                      ) : penaltyAmt > 0 && !isPaid ? (
+                        <p className="text-[10px] text-destructive flex items-center gap-1 justify-end">
+                          <AlertTriangle className="h-2.5 w-2.5" />
+                          Includes {formatCurrency(penaltyAmt, currency)} penalty
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                 );
