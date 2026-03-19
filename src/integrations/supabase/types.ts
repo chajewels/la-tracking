@@ -105,6 +105,7 @@ export type Database = {
           facebook_name: string | null
           full_name: string
           id: string
+          location: string | null
           messenger_link: string | null
           mobile_number: string | null
           notes: string | null
@@ -118,6 +119,7 @@ export type Database = {
           facebook_name?: string | null
           full_name: string
           id?: string
+          location?: string | null
           messenger_link?: string | null
           mobile_number?: string | null
           notes?: string | null
@@ -131,6 +133,7 @@ export type Database = {
           facebook_name?: string | null
           full_name?: string
           id?: string
+          location?: string | null
           messenger_link?: string | null
           mobile_number?: string | null
           notes?: string | null
