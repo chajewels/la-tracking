@@ -66,6 +66,57 @@ export function useAccount(id: string | undefined) {
 }
 
 // ──────────────────────────────────────────────
+// CUSTOMER DETAIL (all accounts + schedules + penalties)
+// ──────────────────────────────────────────────
+export function useCustomerAccounts(customerId: string | undefined) {
+  return useQuery({
+    queryKey: ['customer-detail', customerId],
+    enabled: !!customerId,
+    queryFn: async () => {
+      // Get customer
+      const { data: customer, error: custErr } = await supabase
+        .from('customers')
+        .select('*')
+        .eq('id', customerId!)
+        .single();
+      if (custErr) throw custErr;
+
+      // Get all accounts for this customer
+      const { data: accts, error: acctErr } = await supabase
+        .from('layaway_accounts')
+        .select('*')
+        .eq('customer_id', customerId!)
+        .order('created_at', { ascending: false });
+      if (acctErr) throw acctErr;
+
+      const accountIds = (accts || []).map(a => a.id);
+
+      // Fetch schedules and penalties for all accounts in parallel
+      const [schedRes, penRes] = await Promise.all([
+        accountIds.length > 0
+          ? supabase.from('layaway_schedule').select('*').in('account_id', accountIds).order('installment_number', { ascending: true })
+          : Promise.resolve({ data: [] as DbSchedule[], error: null }),
+        accountIds.length > 0
+          ? supabase.from('penalty_fees').select('*').in('account_id', accountIds)
+          : Promise.resolve({ data: [] as DbPenalty[], error: null }),
+      ]);
+
+      const schedules = (schedRes.data || []) as DbSchedule[];
+      const penalties = (penRes.data || []) as DbPenalty[];
+
+      const accounts = (accts || []).map(acct => ({
+        account: acct,
+        schedule: schedules.filter(s => s.account_id === acct.id),
+        penalties: penalties.filter(p => p.account_id === acct.id),
+      }));
+
+      return { customer: customer as DbCustomer, accounts };
+    },
+  });
+}
+
+
+// ──────────────────────────────────────────────
 // SCHEDULE
 // ──────────────────────────────────────────────
 export function useSchedule(accountId: string | undefined) {

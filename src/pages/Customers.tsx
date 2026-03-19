@@ -44,7 +44,7 @@ export default function Customers() {
                   return (
                     <tr key={c.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
                       <td className="px-5 py-3">
-                        <Link to={activeAccount ? `/accounts/${activeAccount.id}` : '#'} className="flex items-center gap-3 group">
+                        <Link to={`/customers/${c.id}`} className="flex items-center gap-3 group">
                           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-bold">
                             {c.full_name.charAt(0)}
                           </div>

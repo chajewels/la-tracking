@@ -10,6 +10,7 @@ import AccountList from "./pages/AccountList";
 import AccountDetail from "./pages/AccountDetail";
 import NewAccount from "./pages/NewAccount";
 import Customers from "./pages/Customers";
+import CustomerDetail from "./pages/CustomerDetail";
 import Monitoring from "./pages/Monitoring";
 import Collections from "./pages/Collections";
 import Finance from "./pages/Finance";
@@ -41,6 +42,7 @@ const App = () => (
             <Route path="/accounts/new" element={<Protected><NewAccount /></Protected>} />
             <Route path="/accounts/:id" element={<Protected><AccountDetail /></Protected>} />
             <Route path="/customers" element={<Protected><Customers /></Protected>} />
+            <Route path="/customers/:customerId" element={<Protected><CustomerDetail /></Protected>} />
             <Route path="/monitoring" element={<Protected><Monitoring /></Protected>} />
             <Route path="/collections" element={<Protected><Collections /></Protected>} />
             <Route path="/finance" element={<Protected><Finance /></Protected>} />
