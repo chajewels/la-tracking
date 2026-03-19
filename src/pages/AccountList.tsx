@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Plus, Search, Eye, MessageCircle } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,7 @@ const statusStyles: Record<string, string> = {
 export default function AccountList() {
   const [search, setSearch] = useState('');
   const [filterCurrency, setFilterCurrency] = useState<Currency | 'all'>('all');
+  const navigate = useNavigate();
   const { data: accounts, isLoading } = useAccounts();
 
   const filtered = (accounts || []).filter(a => {
@@ -96,7 +97,7 @@ export default function AccountList() {
                 {filtered.length === 0 ? (
                   <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">No accounts found</td></tr>
                 ) : filtered.map((account) => (
-                  <tr key={account.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+                  <tr key={account.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => navigate(`/accounts/${account.id}`)}>
                     <td className="px-4 py-3">
                       <span className="text-sm font-semibold text-card-foreground">#{account.invoice_number}</span>
                     </td>
@@ -127,7 +128,7 @@ export default function AccountList() {
                       </Badge>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center gap-1">
+                      <div className="flex items-center justify-center gap-1" onClick={(e) => e.stopPropagation()}>
                         <Link to={`/accounts/${account.id}`}>
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary">
                             <Eye className="h-4 w-4" />
