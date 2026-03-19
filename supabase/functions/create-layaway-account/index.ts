@@ -44,7 +44,7 @@ Deno.serve(async (req) => {
       payment_plan_months,
       order_date,
       notes,
-      downpayment_percent,
+      downpayment_amount: dpAmountInput,
     } = body;
 
     // Validation
@@ -78,8 +78,7 @@ Deno.serve(async (req) => {
 
     // Calculate downpayment and installment base
     const totalAmountNum = Number(total_amount);
-    const dpPct = Math.min(100, Math.max(0, Number(downpayment_percent) || 30));
-    const downpaymentAmount = Math.round(totalAmountNum * (dpPct / 100));
+    const downpaymentAmount = dpAmountInput ? Math.round(Number(dpAmountInput)) : Math.round(totalAmountNum * 0.3);
     const remainingAfterDown = totalAmountNum - downpaymentAmount;
 
     // Calculate end date
