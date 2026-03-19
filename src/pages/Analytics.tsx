@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { BarChart3, Users, Target, TrendingUp, ShieldAlert, Sparkles, Crown } from 'lucide-react';
+import { BarChart3, Users, Target, TrendingUp, ShieldAlert, Sparkles, Crown, UserCheck } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import StatCard from '@/components/dashboard/StatCard';
 import CurrencyToggle, { CurrencyFilter } from '@/components/dashboard/CurrencyToggle';
