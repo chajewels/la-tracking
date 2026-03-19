@@ -281,8 +281,9 @@ export function useRecordPayment() {
       remarks?: string;
       preview_only?: boolean;
     }) => {
+      const { amount, ...rest } = payload;
       const { data, error } = await supabase.functions.invoke('record-payment', {
-        body: payload,
+        body: { ...rest, amount_paid: amount },
       });
       if (error) throw error;
       return data;
