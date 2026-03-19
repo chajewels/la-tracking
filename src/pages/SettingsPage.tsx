@@ -272,43 +272,67 @@ export default function SettingsPage() {
                 <Percent className="h-4 w-4 text-primary" />
                 <h3 className="text-sm font-semibold text-card-foreground">Penalty Configuration</h3>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-lg">
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">Week 1 Penalty</Label>
-                  <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
-                    <span className="text-sm text-foreground font-medium">5%</span>
-                    <span className="text-[10px] text-muted-foreground">of installment</span>
+              <div className="space-y-4 max-w-lg">
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-2 block">PHP Accounts</Label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
+                      <div>
+                        <span className="text-sm text-foreground font-medium">₱ 500</span>
+                        <span className="text-[10px] text-muted-foreground ml-1">Week 1</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+                      <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
+                      <div>
+                        <span className="text-sm text-foreground font-medium">₱ 1,000</span>
+                        <span className="text-[10px] text-muted-foreground ml-1">Week 2</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">Week 2 Penalty</Label>
-                  <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
-                    <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
-                    <span className="text-sm text-foreground font-medium">10%</span>
-                    <span className="text-[10px] text-muted-foreground">of installment</span>
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-2 block">JPY Accounts</Label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
+                      <div>
+                        <span className="text-sm text-foreground font-medium">¥ 1,000</span>
+                        <span className="text-[10px] text-muted-foreground ml-1">Week 1</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+                      <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
+                      <div>
+                        <span className="text-sm text-foreground font-medium">¥ 2,000</span>
+                        <span className="text-[10px] text-muted-foreground ml-1">Week 2</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">Grace Period</Label>
-                  <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
-                    <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span className="text-sm text-foreground font-medium">7 days</span>
-                    <span className="text-[10px] text-muted-foreground">after due date</span>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Trigger</Label>
+                    <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+                      <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-sm text-foreground font-medium">7 / 14 days</span>
+                      <span className="text-[10px] text-muted-foreground">overdue</span>
+                    </div>
                   </div>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">Penalty Cycle</Label>
-                  <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
-                    <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span className="text-sm text-foreground font-medium">Weekly</span>
-                    <span className="text-[10px] text-muted-foreground">recurring</span>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Penalty Cycle</Label>
+                    <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+                      <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-sm text-foreground font-medium">Every 30 days</span>
+                      <span className="text-[10px] text-muted-foreground">repeats</span>
+                    </div>
                   </div>
                 </div>
               </div>
               <p className="text-[10px] text-muted-foreground mt-3 flex items-center gap-1">
                 <Info className="h-3 w-3" />
-                Penalty rates are configured in the backend. Contact admin to adjust.
+                Fixed penalty amounts per currency. Penalties repeat each 30-day cycle if unpaid.
               </p>
             </div>
 
