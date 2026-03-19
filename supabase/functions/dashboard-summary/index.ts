@@ -122,7 +122,8 @@ Deno.serve(async (req) => {
     let monthQuery = supabase
       .from("payments")
       .select("*")
-      .gte("date_paid", monthStartStr);
+      .gte("date_paid", monthStartStr)
+      .is("voided_at", null);
 
     if (currencyWhere) {
       monthQuery = monthQuery.eq("currency", currencyWhere);
