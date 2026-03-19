@@ -117,7 +117,8 @@ Deno.serve(async (req) => {
       if (dueDate.getDate() !== dayOfMonth) {
         dueDate.setDate(0);
       }
-      const amount = i === 0 ? baseInstallment + remainder : baseInstallment;
+      const isLast = i === payment_plan_months - 1;
+      const amount = isLast ? baseInstallment + remainder : baseInstallment;
 
       scheduleRows.push({
         account_id: account.id,
