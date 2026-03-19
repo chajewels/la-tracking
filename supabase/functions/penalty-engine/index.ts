@@ -52,6 +52,7 @@ Deno.serve(async (req) => {
     }
 
     let penaltiesCreated = 0;
+    const restructuredAccounts: string[] = [];
 
     for (const item of overdueItems) {
       const dueDate = new Date(item.due_date);
@@ -131,6 +132,110 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ── 6-Month Overdue Restructuring Check ──
+    // Find accounts that are 6+ months past their end_date and haven't been restructured yet
+    const { data: overdueAccounts } = await supabase
+      .from("layaway_accounts")
+      .select("id, end_date, payment_plan_months, notes")
+      .eq("status", "overdue")
+      .not("end_date", "is", null);
+
+    if (overdueAccounts) {
+      for (const acct of overdueAccounts) {
+        if (!acct.end_date) continue;
+        const endDate = new Date(acct.end_date);
+        const monthsPast = (now.getFullYear() - endDate.getFullYear()) * 12 +
+          (now.getMonth() - endDate.getMonth());
+
+        // Only restructure if 6+ months past due and hasn't already been extended beyond original
+        // We check if the plan is still at its original length (3 or 6)
+        if (monthsPast >= 6 && (acct.payment_plan_months === 3 || acct.payment_plan_months === 6)) {
+          // Auto-restructure: cancel unpaid installments, generate new ones
+          const { data: schedule } = await supabase
+            .from("layaway_schedule")
+            .select("*")
+            .eq("account_id", acct.id)
+            .order("installment_number", { ascending: true });
+
+          if (!schedule) continue;
+
+          const paidItems = schedule.filter(s => s.status === "paid");
+          const unpaidItems = schedule.filter(s => s.status !== "paid" && s.status !== "cancelled");
+
+          const newMonths = acct.payment_plan_months + 2;
+          const unpaidMonthsCount = newMonths - paidItems.length;
+          if (unpaidMonthsCount <= 0) continue;
+
+          // Get remaining balance from account
+          const { data: freshAcct } = await supabase
+            .from("layaway_accounts")
+            .select("remaining_balance, order_date, currency")
+            .eq("id", acct.id)
+            .single();
+          if (!freshAcct) continue;
+
+          const remainingBal = Number(freshAcct.remaining_balance);
+          const orderDay = new Date(freshAcct.order_date).getDate();
+          const perMonth = Math.floor(remainingBal / unpaidMonthsCount);
+          const rem = remainingBal - perMonth * unpaidMonthsCount;
+
+          // Cancel unpaid installments
+          for (const item of unpaidItems) {
+            await supabase.from("layaway_schedule")
+              .update({ status: "cancelled" })
+              .eq("id", item.id);
+          }
+
+          // Find the last due date for scheduling
+          const lastDate = paidItems.length > 0
+            ? new Date(paidItems[paidItems.length - 1].due_date)
+            : new Date(freshAcct.order_date);
+
+          let newEndDate = "";
+          for (let i = 0; i < unpaidMonthsCount; i++) {
+            const isLast = i === unpaidMonthsCount - 1;
+            const amount = isLast ? perMonth + rem : perMonth;
+            const dueDate = new Date(lastDate);
+            dueDate.setMonth(dueDate.getMonth() + i + 1);
+            dueDate.setDate(Math.min(orderDay, new Date(dueDate.getFullYear(), dueDate.getMonth() + 1, 0).getDate()));
+            const dueDateStr = dueDate.toISOString().split("T")[0];
+            newEndDate = dueDateStr;
+
+            await supabase.from("layaway_schedule").insert({
+              account_id: acct.id,
+              installment_number: paidItems.length + 1 + i,
+              due_date: dueDateStr,
+              base_installment_amount: amount,
+              total_due_amount: amount,
+              paid_amount: 0,
+              currency: freshAcct.currency,
+              status: "pending",
+            });
+          }
+
+          // Update account
+          await supabase.from("layaway_accounts").update({
+            payment_plan_months: newMonths,
+            end_date: newEndDate,
+          }).eq("id", acct.id);
+
+          // Audit
+          await supabase.from("audit_logs").insert({
+            entity_type: "account",
+            entity_id: acct.id,
+            action: "auto_restructure",
+            new_value_json: {
+              old_months: acct.payment_plan_months,
+              new_months: newMonths,
+              new_end_date: newEndDate,
+              reason: "6_month_overdue_auto_extension",
+            },
+          });
+
+          restructuredAccounts.push(acct.id);
+        }
+      }
+    }
     return new Response(JSON.stringify({
       message: "Penalty engine completed",
       penalties_created: penaltiesCreated,
