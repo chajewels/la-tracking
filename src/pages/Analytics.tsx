@@ -19,32 +19,55 @@ import { riskStyles } from '@/lib/analytics-engine';
 
 // ── Live risk assessment from real data ──
 function assessRisk(account: AccountWithCustomer, payments: any[], schedules: any[]): { riskLevel: RiskLevel; score: number; recommendation: string } {
-  const acctPayments = payments.filter(p => p.account_id === account.id && !p.voided_at);
+function assessRisk(account: AccountWithCustomer, payments: any[], schedules: any[]): { riskLevel: RiskLevel; score: number; recommendation: string; maxOverdueDays: number } {
   const acctSchedules = schedules.filter(s => s.account_id === account.id);
-  let score = 0;
+  const today = new Date().toISOString().split('T')[0];
 
-  const progressRatio = Number(account.total_paid) / Number(account.total_amount);
-  if (progressRatio === 0) score += 35;
-  else if (progressRatio < 0.25) score += 20;
-  else if (progressRatio >= 0.5) score -= 10;
-
+  // Find the oldest overdue installment to determine days overdue
   const overdueItems = acctSchedules.filter(s =>
-    s.due_date < new Date().toISOString().split('T')[0] && ['pending', 'partially_paid'].includes(s.status)
+    s.due_date < today && ['pending', 'partially_paid'].includes(s.status)
   );
-  if (overdueItems.length > 3) score += 25;
-  else if (overdueItems.length > 0) score += 15;
 
-  const balanceRatio = Number(account.remaining_balance) / Number(account.total_amount);
-  if (balanceRatio > 0.8) score += 15;
+  if (overdueItems.length === 0) {
+    return { riskLevel: 'low', score: 0, recommendation: 'On track — no overdue', maxOverdueDays: 0 };
+  }
 
-  score = Math.max(0, Math.min(100, score));
+  // Calculate max days overdue from the oldest unpaid installment
+  const oldestDueDate = overdueItems.reduce((oldest, s) => s.due_date < oldest ? s.due_date : oldest, overdueItems[0].due_date);
+  const maxOverdueDays = Math.floor((new Date(today).getTime() - new Date(oldestDueDate).getTime()) / 86400000);
 
+  // Risk levels based on overdue duration:
+  // 7–30 days → Low Risk
+  // 37–60 days → Medium Risk (1 month 1 week to 2 months)
+  // 67+ days → High Risk (2 months 1 week+)
   let riskLevel: RiskLevel = 'low';
   let recommendation = 'Monitor normally';
-  if (score >= 50) { riskLevel = 'high'; recommendation = 'Send reminder now'; }
-  else if (score >= 25) { riskLevel = 'medium'; recommendation = 'Send reminder before due'; }
+  let score = 0;
 
-  return { riskLevel, score, recommendation };
+  if (maxOverdueDays < 7) {
+    // Less than 1 week — not yet risk-flagged
+    riskLevel = 'low';
+    score = Math.round((maxOverdueDays / 7) * 15);
+    recommendation = 'Recently overdue — monitor';
+  } else if (maxOverdueDays <= 30) {
+    // 1 week to 1 month — Low Risk
+    riskLevel = 'low';
+    score = 15 + Math.round(((maxOverdueDays - 7) / 23) * 18); // 15–33
+    recommendation = 'Send payment reminder';
+  } else if (maxOverdueDays <= 60) {
+    // 1 month 1 week to 2 months — Medium Risk
+    riskLevel = 'medium';
+    score = 34 + Math.round(((maxOverdueDays - 30) / 30) * 32); // 34–66
+    recommendation = 'Urgent follow-up needed';
+  } else {
+    // 2 months 1 week+ — High Risk
+    riskLevel = 'high';
+    score = 67 + Math.min(33, Math.round(((maxOverdueDays - 60) / 30) * 33)); // 67–100
+    recommendation = 'Escalate — restructure or collect';
+  }
+
+  score = Math.max(0, Math.min(100, score));
+  return { riskLevel, score, recommendation, maxOverdueDays };
 }
 
 // ── Live CLV from real data ──
