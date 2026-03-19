@@ -240,6 +240,7 @@ Deno.serve(async (req) => {
       message: "Penalty engine completed",
       penalties_created: penaltiesCreated,
       items_checked: overdueItems.length,
+      accounts_restructured: restructuredAccounts,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
