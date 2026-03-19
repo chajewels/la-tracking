@@ -10,6 +10,7 @@ import AccountList from "./pages/AccountList";
 import AccountDetail from "./pages/AccountDetail";
 import NewAccount from "./pages/NewAccount";
 import Customers from "./pages/Customers";
+import CustomerDetail from "./pages/CustomerDetail";
 import Monitoring from "./pages/Monitoring";
 import Collections from "./pages/Collections";
 import Finance from "./pages/Finance";
