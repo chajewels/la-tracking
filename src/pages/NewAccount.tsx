@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, UserPlus } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { generateScheduleDates, calculateInstallments, formatCurrency } from '@/lib/calculations';
 import { Currency, PaymentPlan } from '@/lib/types';
 import { toast } from 'sonner';
-import { useCustomers, useCreateAccount } from '@/hooks/use-supabase-data';
+import { useCustomers, useCreateAccount, DbCustomer } from '@/hooks/use-supabase-data';
+import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
 
 export default function NewAccount() {
   const navigate = useNavigate();
