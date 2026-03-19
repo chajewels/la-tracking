@@ -1,30 +1,100 @@
+import { useMemo } from 'react';
 import { ShieldAlert, TrendingUp, Crown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Link } from 'react-router-dom';
-import { formatCurrency } from '@/lib/calculations';
-import { Currency } from '@/lib/types';
+import { useAccounts, useCustomers, usePayments, AccountWithCustomer, DbCustomer } from '@/hooks/use-supabase-data';
+import { Currency, RiskLevel, CLVTier, CompletionProbability } from '@/lib/types';
 
-export function LatePaymentRiskPanel() {
-  const { data, isLoading } = useQuery({
-    queryKey: ['risk-panel'],
+// ── Risk assessment (same logic as Analytics) ──
+function assessRisk(account: AccountWithCustomer, payments: any[], schedules: any[]): { riskLevel: RiskLevel; score: number; maxOverdueDays: number } {
+  const acctSchedules = schedules.filter(s => s.account_id === account.id);
+  const today = new Date().toISOString().split('T')[0];
+  const overdueItems = acctSchedules.filter(s => s.due_date < today && ['pending', 'partially_paid'].includes(s.status));
+
+  if (overdueItems.length === 0) return { riskLevel: 'low', score: 0, maxOverdueDays: 0 };
+
+  const oldestDueDate = overdueItems.reduce((o, s) => s.due_date < o ? s.due_date : o, overdueItems[0].due_date);
+  const maxOverdueDays = Math.floor((new Date(today).getTime() - new Date(oldestDueDate).getTime()) / 86400000);
+
+  let riskLevel: RiskLevel = 'low';
+  let score = 0;
+
+  if (maxOverdueDays < 7) {
+    riskLevel = 'low'; score = Math.round((maxOverdueDays / 7) * 15);
+  } else if (maxOverdueDays <= 30) {
+    riskLevel = 'low'; score = 15 + Math.round(((maxOverdueDays - 7) / 23) * 18);
+  } else if (maxOverdueDays <= 60) {
+    riskLevel = 'medium'; score = 34 + Math.round(((maxOverdueDays - 30) / 30) * 32);
+  } else {
+    riskLevel = 'high'; score = 67 + Math.min(33, Math.round(((maxOverdueDays - 60) / 30) * 33));
+  }
+
+  return { riskLevel, score: Math.max(0, Math.min(100, score)), maxOverdueDays };
+}
+
+// ── CLV assessment (same logic as Analytics) ──
+function assessCLV(customer: DbCustomer, accounts: AccountWithCustomer[], payments: any[]): { tier: CLVTier; score: number } {
+  const custAccounts = accounts.filter(a => a.customer_id === customer.id);
+  const custPayments = payments.filter(p => custAccounts.some(a => a.id === p.account_id) && !p.voided_at);
+
+  const totalPurchaseValue = custAccounts.reduce((s, a) => s + Number(a.total_amount), 0);
+  const completedContracts = custAccounts.filter(a => a.status === 'completed').length;
+  const activeAccts = custAccounts.filter(a => a.status === 'active' || a.status === 'overdue');
+  const reliabilityScore = activeAccts.length > 0
+    ? (activeAccts.reduce((s, a) => s + Number(a.total_paid) / Number(a.total_amount), 0) / activeAccts.length) * 100
+    : completedContracts > 0 ? 100 : 0;
+
+  let score = 0;
+  score += Math.min(30, totalPurchaseValue / 5000);
+  score += Math.min(25, completedContracts * 12.5);
+  score += reliabilityScore * 0.25;
+  score += Math.min(20, custAccounts.length * 10);
+  score = Math.min(100, Math.round(score));
+
+  let tier: CLVTier = 'bronze';
+  if (score >= 75) tier = 'vip';
+  else if (score >= 50) tier = 'gold';
+  else if (score >= 25) tier = 'silver';
+
+  return { tier, score };
+}
+
+// Shared hook for all panels
+function useAIData() {
+  const { data: accounts, isLoading: aL } = useAccounts();
+  const { data: customers, isLoading: cL } = useCustomers();
+  const { data: payments, isLoading: pL } = usePayments();
+  const { data: schedules, isLoading: sL } = useQuery({
+    queryKey: ['ai-panel-schedules'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('customer_analytics')
-        .select('*, customers(*)')
-        .order('late_payment_risk_score', { ascending: false })
-        .limit(20);
+      const { data, error } = await supabase.from('layaway_schedule').select('*');
       if (error) throw error;
       return data;
     },
   });
+  return { accounts: accounts || [], customers: customers || [], payments: payments || [], schedules: schedules || [], isLoading: aL || cL || pL || sL };
+}
 
-  const items = data || [];
-  const high = items.filter(i => i.late_payment_risk_level === 'high');
-  const medium = items.filter(i => i.late_payment_risk_level === 'medium');
-  const low = items.filter(i => i.late_payment_risk_level === 'low');
+export function LatePaymentRiskPanel() {
+  const { accounts, payments, schedules, isLoading } = useAIData();
+
+  const risks = useMemo(() => {
+    const active = accounts.filter(a => a.status === 'active' || a.status === 'overdue');
+    return active.map(a => ({
+      accountId: a.id,
+      customerId: a.customer_id,
+      customerName: a.customers?.full_name || 'Unknown',
+      invoice: a.invoice_number,
+      ...assessRisk(a, payments, schedules),
+    })).sort((a, b) => b.score - a.score);
+  }, [accounts, payments, schedules]);
+
+  const high = risks.filter(r => r.riskLevel === 'high');
+  const medium = risks.filter(r => r.riskLevel === 'medium');
+  const low = risks.filter(r => r.riskLevel === 'low');
 
   if (isLoading) return <Skeleton className="h-48 rounded-xl" />;
 
@@ -50,12 +120,15 @@ export function LatePaymentRiskPanel() {
       </div>
       {high.length > 0 && (
         <div className="space-y-1.5">
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">High Risk Customers</p>
-          {high.slice(0, 5).map((c: any) => (
-            <Link key={c.id} to={`/customers/${c.customer_id}`} className="flex items-center justify-between text-xs p-2 rounded-lg hover:bg-muted/50">
-              <span className="text-card-foreground font-medium">{c.customers?.full_name || 'Unknown'}</span>
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">High Risk Accounts</p>
+          {high.slice(0, 5).map(c => (
+            <Link key={c.accountId} to={`/accounts/${c.accountId}`} className="flex items-center justify-between text-xs p-2 rounded-lg hover:bg-muted/50 transition-colors">
+              <div>
+                <span className="text-card-foreground font-medium">{c.customerName}</span>
+                <span className="text-muted-foreground ml-1.5">#{c.invoice}</span>
+              </div>
               <Badge variant="outline" className="text-[10px] text-destructive border-destructive/20">
-                {Math.round(c.late_payment_risk_score ?? 0)}% risk
+                {c.maxOverdueDays}d · {c.score}/100
               </Badge>
             </Link>
           ))}
@@ -66,22 +139,24 @@ export function LatePaymentRiskPanel() {
 }
 
 export function CompletionProbabilityPanel() {
-  const { data, isLoading } = useQuery({
-    queryKey: ['completion-panel'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('customer_analytics')
-        .select('*, customers(*)')
-        .order('completion_probability_score', { ascending: true })
-        .limit(20);
-      if (error) throw error;
-      return data;
-    },
-  });
+  const { accounts, payments, schedules, isLoading } = useAIData();
 
-  const items = data || [];
-  const likelyComplete = items.filter(i => (i.completion_probability_score ?? 0) >= 70);
-  const likelyCancel = items.filter(i => (i.completion_probability_score ?? 0) < 40);
+  const completions = useMemo(() => {
+    const active = accounts.filter(a => a.status === 'active' || a.status === 'overdue');
+    return active.map(a => {
+      const progressPercent = Math.round((Number(a.total_paid) / Number(a.total_amount)) * 100);
+      const risk = assessRisk(a, payments, schedules);
+      let score = Math.round((100 - risk.score) * 0.6 + progressPercent * 0.4);
+      score = Math.max(0, Math.min(100, score));
+      let probability: CompletionProbability = 'low';
+      if (score >= 65) probability = 'high';
+      else if (score >= 35) probability = 'medium';
+      return { accountId: a.id, customerName: a.customers?.full_name || 'Unknown', invoice: a.invoice_number, probability, score, progressPercent };
+    }).sort((a, b) => a.score - b.score);
+  }, [accounts, payments, schedules]);
+
+  const likelyComplete = completions.filter(c => c.probability === 'high');
+  const atRisk = completions.filter(c => c.probability === 'low');
 
   if (isLoading) return <Skeleton className="h-48 rounded-xl" />;
 
@@ -97,18 +172,21 @@ export function CompletionProbabilityPanel() {
           <p className="text-[10px] text-muted-foreground">Likely Complete</p>
         </div>
         <div className="text-center p-2 rounded-lg bg-destructive/5">
-          <p className="text-xl font-bold text-destructive">{likelyCancel.length}</p>
+          <p className="text-xl font-bold text-destructive">{atRisk.length}</p>
           <p className="text-[10px] text-muted-foreground">At Risk</p>
         </div>
       </div>
-      {likelyCancel.length > 0 && (
+      {atRisk.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">At-Risk Accounts</p>
-          {likelyCancel.slice(0, 5).map((c: any) => (
-            <Link key={c.id} to={`/customers/${c.customer_id}`} className="flex items-center justify-between text-xs p-2 rounded-lg hover:bg-muted/50">
-              <span className="text-card-foreground font-medium">{c.customers?.full_name || 'Unknown'}</span>
+          {atRisk.slice(0, 5).map(c => (
+            <Link key={c.accountId} to={`/accounts/${c.accountId}`} className="flex items-center justify-between text-xs p-2 rounded-lg hover:bg-muted/50 transition-colors">
+              <div>
+                <span className="text-card-foreground font-medium">{c.customerName}</span>
+                <span className="text-muted-foreground ml-1.5">#{c.invoice}</span>
+              </div>
               <Badge variant="outline" className="text-[10px] text-warning border-warning/20">
-                {Math.round(c.completion_probability_score ?? 0)}%
+                {c.score}% · {c.progressPercent}% paid
               </Badge>
             </Link>
           ))}
@@ -119,22 +197,19 @@ export function CompletionProbabilityPanel() {
 }
 
 export function CLVPanel() {
-  const { data, isLoading } = useQuery({
-    queryKey: ['clv-panel'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('customer_analytics')
-        .select('*, customers(*)')
-        .order('lifetime_value_amount', { ascending: false })
-        .limit(20);
-      if (error) throw error;
-      return data;
-    },
-  });
+  const { accounts, customers, payments, isLoading } = useAIData();
 
-  const items = data || [];
-  const vip = items.filter(i => i.lifetime_value_tier === 'vip');
-  const gold = items.filter(i => i.lifetime_value_tier === 'gold');
+  const clvs = useMemo(() =>
+    customers.map(c => ({
+      customerId: c.id,
+      customerName: c.full_name,
+      ...assessCLV(c, accounts, payments),
+    })).sort((a, b) => b.score - a.score),
+    [customers, accounts, payments]
+  );
+
+  const vip = clvs.filter(c => c.tier === 'vip');
+  const gold = clvs.filter(c => c.tier === 'gold');
 
   if (isLoading) return <Skeleton className="h-48 rounded-xl" />;
 
@@ -157,13 +232,13 @@ export function CLVPanel() {
       {[...vip, ...gold].slice(0, 5).length > 0 && (
         <div className="space-y-1.5">
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Top Customers</p>
-          {[...vip, ...gold].slice(0, 5).map((c: any) => (
-            <Link key={c.id} to={`/customers/${c.customer_id}`} className="flex items-center justify-between text-xs p-2 rounded-lg hover:bg-muted/50">
-              <span className="text-card-foreground font-medium">{c.customers?.full_name || 'Unknown'}</span>
+          {[...vip, ...gold].slice(0, 5).map(c => (
+            <Link key={c.customerId} to={`/customers/${c.customerId}`} className="flex items-center justify-between text-xs p-2 rounded-lg hover:bg-muted/50 transition-colors">
+              <span className="text-card-foreground font-medium">{c.customerName}</span>
               <Badge variant="outline" className={`text-[10px] ${
-                c.lifetime_value_tier === 'vip' ? 'text-primary border-primary/20' : 'text-warning border-warning/20'
+                c.tier === 'vip' ? 'text-primary border-primary/20' : 'text-warning border-warning/20'
               }`}>
-                {(c.lifetime_value_tier || 'bronze').toUpperCase()}
+                {c.tier.toUpperCase()} · {c.score}/100
               </Badge>
             </Link>
           ))}
