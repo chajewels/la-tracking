@@ -258,7 +258,7 @@ export function useCreateAccount() {
       order_date: string;
       payment_plan_months: number;
       notes?: string;
-      downpayment_percent?: number;
+      downpayment_amount?: number;
     }) => {
       const { data, error } = await supabase.functions.invoke('create-layaway-account', {
         body: payload,
