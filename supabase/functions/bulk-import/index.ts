@@ -331,12 +331,13 @@ Deno.serve(async (req) => {
 
             for (const s of paidInstallments) {
               const datePaid = s.date_paid || s.due_date;
+              const paidTotal = s.amount + (s.penalty_amount || 0);
 
               const { data: payment, error: payErr } = await supabase
                 .from("payments")
                 .insert({
                   account_id: account.id,
-                  amount_paid: s.amount,
+                  amount_paid: paidTotal,
                   currency: a.currency,
                   date_paid: datePaid,
                   payment_method: "cash",
@@ -349,15 +350,16 @@ Deno.serve(async (req) => {
               if (!payErr && payment) {
                 results.payments_recorded++;
 
-                // Create payment allocation
+                // Create payment allocation(s)
                 const scheduleId = scheduleMap.get(s.installment_number);
                 if (scheduleId) {
-                  await supabase.from("payment_allocations").insert({
-                    payment_id: payment.id,
-                    schedule_id: scheduleId,
-                    allocation_type: "installment",
-                    allocated_amount: s.amount,
-                  });
+                  const allocations: any[] = [
+                    { payment_id: payment.id, schedule_id: scheduleId, allocation_type: "installment", allocated_amount: s.amount },
+                  ];
+                  if (s.penalty_amount && s.penalty_amount > 0) {
+                    allocations.push({ payment_id: payment.id, schedule_id: scheduleId, allocation_type: "penalty", allocated_amount: s.penalty_amount });
+                  }
+                  await supabase.from("payment_allocations").insert(allocations);
                 }
               }
             }
