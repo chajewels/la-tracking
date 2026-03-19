@@ -1,15 +1,22 @@
-import { useMemo } from 'react';
-import { Bell, MessageCircle, Eye, Clock, AlertTriangle, CalendarCheck } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Bell, MessageCircle, Clock, AlertTriangle, CalendarCheck, Send, Copy, Check, Mail, Loader2 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/calculations';
 import { Link } from 'react-router-dom';
-import { useAccounts, useSchedule } from '@/hooks/use-supabase-data';
+import { useAccounts } from '@/hooks/use-supabase-data';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Currency } from '@/lib/types';
+import { toast } from 'sonner';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 const typeConfig = {
   overdue: { icon: AlertTriangle, label: 'Overdue', badgeClass: 'bg-destructive/10 text-destructive border-destructive/20', borderClass: 'border-destructive/20' },
@@ -29,10 +36,25 @@ interface AlertItem {
   messengerLink?: string | null;
 }
 
+function generateMessengerMessage(alert: AlertItem): string {
+  const dueStr = new Date(alert.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const amtStr = formatCurrency(alert.amount, alert.currency);
+
+  if (alert.type === 'overdue') {
+    return `Hi ${alert.customer}! 👋\n\nThis is a friendly reminder from Cha Jewels that your layaway payment for INV #${alert.invoice} was due on ${dueStr} (${alert.daysOverdue} days ago).\n\nRemaining amount due: ${amtStr}\n\nPlease settle at your earliest convenience to avoid additional penalties. Thank you! 💎`;
+  } else if (alert.type === 'due_today') {
+    return `Hi ${alert.customer}! 👋\n\nJust a reminder from Cha Jewels — your layaway payment for INV #${alert.invoice} is due today!\n\nAmount due: ${amtStr}\n\nThank you for your prompt payment! 💎`;
+  } else {
+    return `Hi ${alert.customer}! 👋\n\nThis is a friendly heads-up from Cha Jewels — your next layaway payment for INV #${alert.invoice} is coming up on ${dueStr}.\n\nAmount due: ${amtStr}\n\nThank you for staying on track! 💎`;
+  }
+}
+
 export default function Monitoring() {
   const { data: accounts, isLoading: acctLoading } = useAccounts();
+  const [sending, setSending] = useState(false);
+  const [messengerDialog, setMessengerDialog] = useState<{ alert: AlertItem; message: string } | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  // Get all upcoming/overdue schedule items for active accounts
   const activeAccountIds = useMemo(() =>
     (accounts || []).filter(a => a.status === 'active' || a.status === 'overdue').map(a => a.id),
     [accounts]
@@ -47,7 +69,6 @@ export default function Monitoring() {
       next7.setDate(next7.getDate() + 7);
       const next7Str = next7.toISOString().split('T')[0];
 
-      // Get overdue + upcoming 7 days
       const { data, error } = await supabase
         .from('layaway_schedule')
         .select('*')
@@ -90,7 +111,6 @@ export default function Monitoring() {
     }).filter(Boolean) as AlertItem[];
   }, [scheduleItems, accounts]);
 
-  // Sort: overdue first, then due_today, then upcoming
   const sortedAlerts = useMemo(() => {
     const order = { overdue: 0, due_today: 1, upcoming: 2 };
     return [...alerts].sort((a, b) => order[a.type] - order[b.type] || b.daysOverdue - a.daysOverdue);
@@ -98,15 +118,78 @@ export default function Monitoring() {
 
   const isLoading = acctLoading || schedLoading;
 
+  const handleSendReminders = async () => {
+    setSending(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-reminders');
+      if (error) throw error;
+      const result = data;
+      if (result?.success) {
+        toast.success(
+          `Reminders sent! ${result.summary.totalAlerts} alerts processed. ${result.summary.emailsSent} emails sent to ${result.summary.staffNotified} staff.`,
+          { duration: 5000 }
+        );
+      } else {
+        throw new Error(result?.error || 'Unknown error');
+      }
+    } catch (err: any) {
+      toast.error(`Failed to send reminders: ${err.message}`);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleOpenMessenger = (alert: AlertItem) => {
+    const message = generateMessengerMessage(alert);
+    setMessengerDialog({ alert, message });
+    setCopied(false);
+  };
+
+  const handleCopyMessage = async () => {
+    if (!messengerDialog) return;
+    try {
+      await navigator.clipboard.writeText(messengerDialog.message);
+      setCopied(true);
+      toast.success('Message copied to clipboard!');
+      setTimeout(() => setCopied(false), 3000);
+    } catch {
+      toast.error('Failed to copy message');
+    }
+  };
+
+  const handleCopyAndOpenMessenger = async () => {
+    if (!messengerDialog) return;
+    try {
+      await navigator.clipboard.writeText(messengerDialog.message);
+      setCopied(true);
+      toast.success('Message copied! Opening Messenger...');
+      if (messengerDialog.alert.messengerLink) {
+        window.open(messengerDialog.alert.messengerLink, '_blank');
+      }
+    } catch {
+      toast.error('Failed to copy message');
+    }
+  };
+
   return (
     <AppLayout>
       <div className="animate-fade-in space-y-6">
-        <div className="flex items-center gap-3">
-          <Bell className="h-5 w-5 text-primary" />
-          <div>
-            <h1 className="text-2xl font-bold text-foreground font-display">CSR Monitoring Center</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Payment alerts & reminders</p>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Bell className="h-5 w-5 text-primary" />
+            <div>
+              <h1 className="text-2xl font-bold text-foreground font-display">CSR Monitoring Center</h1>
+              <p className="text-sm text-muted-foreground mt-0.5">Payment alerts & reminders</p>
+            </div>
           </div>
+          <Button
+            onClick={handleSendReminders}
+            disabled={sending || sortedAlerts.length === 0}
+            className="gap-2"
+          >
+            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {sending ? 'Sending...' : 'Send All Reminders'}
+          </Button>
         </div>
 
         {/* Summary */}
@@ -138,9 +221,9 @@ export default function Monitoring() {
               const config = typeConfig[alert.type];
               const Icon = config.icon;
               return (
-                <Link key={`${alert.accountId}-${alert.dueDate}-${idx}`} to={`/accounts/${alert.accountId}`} className={`block rounded-xl border bg-card p-4 ${config.borderClass} hover:bg-muted/30 transition-colors cursor-pointer`}>
+                <div key={`${alert.accountId}-${alert.dueDate}-${idx}`} className={`rounded-xl border bg-card p-4 ${config.borderClass} hover:bg-muted/30 transition-colors`}>
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
+                    <Link to={`/accounts/${alert.accountId}`} className="flex items-center gap-4 flex-1 cursor-pointer">
                       <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${
                         alert.type === 'overdue' ? 'bg-destructive/10' : alert.type === 'due_today' ? 'bg-warning/10' : 'bg-info/10'
                       }`}>
@@ -158,28 +241,67 @@ export default function Monitoring() {
                           {alert.daysOverdue > 0 && ` · ${alert.daysOverdue} days overdue`}
                         </p>
                       </div>
-                    </div>
+                    </Link>
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-bold text-card-foreground tabular-nums">
                         {formatCurrency(alert.amount, alert.currency)}
                       </span>
-                      <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                        {alert.messengerLink && (
-                          <a href={alert.messengerLink} target="_blank" rel="noopener noreferrer" onClick={e => e.preventDefault()}>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-info" onClick={(e) => { e.stopPropagation(); window.open(alert.messengerLink!, '_blank'); }}>
-                              <MessageCircle className="h-4 w-4" />
-                            </Button>
-                          </a>
-                        )}
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-info"
+                          title="Generate Messenger message"
+                          onClick={() => handleOpenMessenger(alert)}
+                        >
+                          <MessageCircle className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
                   </div>
-                </Link>
+                </div>
               );
             })}
           </div>
         )}
       </div>
+
+      {/* Messenger Message Dialog */}
+      <Dialog open={!!messengerDialog} onOpenChange={(open) => !open && setMessengerDialog(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageCircle className="h-5 w-5 text-info" />
+              Messenger Reminder — {messengerDialog?.alert.customer}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className={`text-[10px] ${messengerDialog?.alert.type === 'overdue' ? 'text-destructive border-destructive/20' : messengerDialog?.alert.type === 'due_today' ? 'text-warning border-warning/20' : 'text-info border-info/20'}`}>
+                {messengerDialog?.alert.type === 'overdue' ? 'Overdue' : messengerDialog?.alert.type === 'due_today' ? 'Due Today' : 'Upcoming'}
+              </Badge>
+              <span className="text-xs text-muted-foreground">INV #{messengerDialog?.alert.invoice}</span>
+            </div>
+            <div className="rounded-lg border border-border bg-muted/30 p-4">
+              <pre className="text-sm text-card-foreground whitespace-pre-wrap font-sans leading-relaxed">
+                {messengerDialog?.message}
+              </pre>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1 gap-2" onClick={handleCopyMessage}>
+                {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
+                {copied ? 'Copied!' : 'Copy Message'}
+              </Button>
+              {messengerDialog?.alert.messengerLink && (
+                <Button className="flex-1 gap-2" onClick={handleCopyAndOpenMessenger}>
+                  <MessageCircle className="h-4 w-4" />
+                  Copy & Open Messenger
+                </Button>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }
