@@ -23,12 +23,11 @@ export default function NewAccount() {
   const [totalAmount, setTotalAmount] = useState('');
   const [orderDate, setOrderDate] = useState('');
   const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>(3);
-  const [downpaymentPct, setDownpaymentPct] = useState('30');
+  const [downpaymentInput, setDownpaymentInput] = useState('');
 
   const amount = parseInt(totalAmount) || 0;
-  const pct = Math.min(100, Math.max(0, parseInt(downpaymentPct) || 30));
-  const downpaymentAmount = Math.round(amount * (pct / 100));
-  const remainingAfterDown = amount - downpaymentAmount;
+  const downpaymentAmount = parseInt(downpaymentInput) || 0;
+  const remainingAfterDown = Math.max(0, amount - downpaymentAmount);
   const previewDates = orderDate ? generateScheduleDates(orderDate, paymentPlan) : [];
   const previewInstallments = remainingAfterDown > 0 ? calculateInstallments(remainingAfterDown, paymentPlan) : [];
 
