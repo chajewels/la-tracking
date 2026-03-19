@@ -128,7 +128,7 @@ export default function AccountList() {
                       </Badge>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center gap-1">
+                      <div className="flex items-center justify-center gap-1" onClick={(e) => e.stopPropagation()}>
                         <Link to={`/accounts/${account.id}`}>
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary">
                             <Eye className="h-4 w-4" />
