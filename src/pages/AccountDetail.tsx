@@ -26,6 +26,14 @@ export default function AccountDetail() {
   const { data: payments } = usePayments(id);
   const { data: penalties } = usePenalties(id);
   const [copied, setCopied] = useState(false);
+  const voidPayment = useVoidPayment();
+  const editPayment = useEditPayment();
+  const [voidTarget, setVoidTarget] = useState<string | null>(null);
+  const [voidReason, setVoidReason] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDate, setEditDate] = useState('');
+  const [editMethod, setEditMethod] = useState('');
+  const [editRemarks, setEditRemarks] = useState('');
 
   if (accountLoading) {
     return (
