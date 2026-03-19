@@ -1,5 +1,6 @@
 import { ReactNode } from 'react';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
+import { Link } from 'react-router-dom';
 import AppSidebar from './AppSidebar';
 import { Bell, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -21,10 +22,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           <header className="h-12 flex items-center justify-between border-b border-border px-4 shrink-0 bg-card/80 backdrop-blur-sm sticky top-0 z-30">
             <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
             <div className="flex items-center gap-3">
-              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground relative">
-                <Bell className="h-4 w-4" />
-                <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
-              </Button>
+              <Link to="/monitoring">
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground relative">
+                  <Bell className="h-4 w-4" />
+                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
+                </Button>
+              </Link>
               <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 items-center justify-center rounded-full gold-gradient text-[10px] font-bold text-primary-foreground">
                   {initials}
