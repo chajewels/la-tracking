@@ -68,9 +68,24 @@ export default function AccountDetail() {
   const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
   const totalPenalty = unpaidPenalties.reduce((s, p) => s + Number(p.penalty_amount), 0);
 
-  // Build message from schedule data
+  // Build message from schedule + active payment data
   const scheduleItems = schedule || [];
   const unpaidSchedule = scheduleItems.filter(s => s.status !== 'paid');
+  const activePayments = [...(payments || [])]
+    .filter(payment => !payment.voided_at)
+    .sort((a, b) => {
+      const dateDiff = new Date(a.date_paid).getTime() - new Date(b.date_paid).getTime();
+      if (dateDiff !== 0) return dateDiff;
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    });
+  const paymentBreakdownText = activePayments.length > 0
+    ? `${activePayments.map(payment => formatCurrency(Number(payment.amount_paid), payment.currency as Currency)).join(' + ')} = ${formatCurrency(totalPaid, currency)}`
+    : formatCurrency(totalPaid, currency);
+  const paymentDetails = activePayments.map((payment, index) => {
+    const dateStr = new Date(payment.date_paid).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+    const label = payment.remarks?.toLowerCase().includes('downpayment') ? 'Downpayment' : `Payment ${index + 1}`;
+    return `${label} ${dateStr}: ${formatCurrency(Number(payment.amount_paid), payment.currency as Currency)}`;
+  });
   const ordinals = ['1st', '2nd', '3rd', '4th', '5th', '6th'];
   const getRemainingDue = (item: { total_due_amount: number | string; paid_amount: number | string }) =>
     Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
@@ -82,9 +97,18 @@ export default function AccountDetail() {
   } else {
     message += `Total Layaway Amount: ${formatCurrency(totalAmount, currency)}\n`;
   }
-  message += `Amount Paid: ${formatCurrency(totalPaid, currency)}\n`;
+  message += `Amount Paid: ${paymentBreakdownText}\n`;
   message += `Remaining Balance: ${formatCurrency(remainingBalance, currency)}\n\n`;
   message += `================\n\n`;
+
+  if (paymentDetails.length > 0) {
+    message += `Payment Details:\n`;
+    paymentDetails.forEach((line) => {
+      message += `${line}\n`;
+    });
+    message += `\n`;
+  }
+
   message += `Payment Schedule:\n\n`;
   scheduleItems.forEach((item, idx) => {
     const isPaid = item.status === 'paid';
