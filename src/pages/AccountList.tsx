@@ -97,7 +97,7 @@ export default function AccountList() {
                 {filtered.length === 0 ? (
                   <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">No accounts found</td></tr>
                 ) : filtered.map((account) => (
-                  <tr key={account.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+                  <tr key={account.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => navigate(`/accounts/${account.id}`)}>
                     <td className="px-4 py-3">
                       <span className="text-sm font-semibold text-card-foreground">#{account.invoice_number}</span>
                     </td>
