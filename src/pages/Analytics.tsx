@@ -288,7 +288,7 @@ export default function Analytics() {
                         <p className="text-sm font-medium text-card-foreground">{risk.customerName}</p>
                         <RiskBadge level={risk.riskLevel} />
                       </div>
-                      <p className="text-xs text-muted-foreground">INV #{risk.invoiceNumber} · Score: {risk.score}/100</p>
+                      <p className="text-xs text-muted-foreground">INV #{risk.invoiceNumber} · {risk.maxOverdueDays > 0 ? `${risk.maxOverdueDays} days overdue` : 'Current'} · Score: {risk.score}/100</p>
                     </div>
                     <div className="text-right">
                       <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] ${riskStyles[risk.riskLevel].bg} ${riskStyles[risk.riskLevel].text}`}>
