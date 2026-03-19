@@ -98,6 +98,7 @@ Deno.serve(async (req) => {
       }
     }
 
+
     // Update account totals
     const { data: account } = await supabase
       .from("layaway_accounts")
@@ -115,6 +116,51 @@ Deno.serve(async (req) => {
         remaining_balance: Math.max(0, newRemaining),
         status: newStatus,
       }).eq("id", payment.account_id);
+
+      // Recalculate remaining installment amounts
+      if (newRemaining > 0) {
+        const { data: schedule } = await supabase
+          .from("layaway_schedule")
+          .select("*")
+          .eq("account_id", payment.account_id)
+          .order("installment_number", { ascending: true });
+
+        if (schedule) {
+          const unpaidInstallments = schedule.filter(
+            (s) => s.status !== "paid"
+          );
+
+          if (unpaidInstallments.length > 0) {
+            // Calculate remaining principal: remaining balance minus any unpaid penalty fees
+            const { data: unpaidPenalties } = await supabase
+              .from("penalty_fees")
+              .select("*")
+              .eq("account_id", payment.account_id)
+              .eq("status", "unpaid");
+
+            const totalUnpaidPenalties = (unpaidPenalties || [])
+              .reduce((sum, p) => sum + Number(p.penalty_amount), 0);
+
+            // Remaining principal = what's owed minus what's already partially paid on unpaid installments
+            const alreadyPartiallyPaid = unpaidInstallments
+              .reduce((sum, s) => sum + Number(s.paid_amount), 0);
+            const remainingPrincipal = Math.max(0, newRemaining - totalUnpaidPenalties);
+            const principalToDistribute = remainingPrincipal - alreadyPartiallyPaid;
+
+            const perMonth = Math.floor(principalToDistribute / unpaidInstallments.length);
+            const rem = principalToDistribute - perMonth * unpaidInstallments.length;
+
+            for (let i = 0; i < unpaidInstallments.length; i++) {
+              const newBase = Number(unpaidInstallments[i].paid_amount) + (i === 0 ? perMonth + rem : perMonth);
+              const penAmt = Number(unpaidInstallments[i].penalty_amount);
+              await supabase.from("layaway_schedule").update({
+                base_installment_amount: newBase,
+                total_due_amount: newBase + penAmt,
+              }).eq("id", unpaidInstallments[i].id);
+            }
+          }
+        }
+      }
     }
 
     // Mark payment as voided
