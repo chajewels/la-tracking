@@ -63,9 +63,6 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-8 text-center">
-          <p className="text-muted-foreground">More settings coming soon. Connect Lovable Cloud to enable authentication, roles, and database.</p>
-        </div>
       </div>
     </AppLayout>
   );
