@@ -131,7 +131,6 @@ Deno.serve(async (req) => {
           );
 
           if (unpaidInstallments.length > 0) {
-            // Calculate remaining principal: remaining balance minus any unpaid penalty fees
             const { data: unpaidPenalties } = await supabase
               .from("penalty_fees")
               .select("*")
@@ -141,22 +140,20 @@ Deno.serve(async (req) => {
             const totalUnpaidPenalties = (unpaidPenalties || [])
               .reduce((sum, p) => sum + Number(p.penalty_amount), 0);
 
-            // Remaining principal = what's owed minus what's already partially paid on unpaid installments
-            const alreadyPartiallyPaid = unpaidInstallments
-              .reduce((sum, s) => sum + Number(s.paid_amount), 0);
             const remainingPrincipal = Math.max(0, newRemaining - totalUnpaidPenalties);
-            const principalToDistribute = remainingPrincipal - alreadyPartiallyPaid;
-
-            const perMonth = Math.floor(principalToDistribute / unpaidInstallments.length);
-            const rem = principalToDistribute - perMonth * unpaidInstallments.length;
+            const perMonth = Math.floor(remainingPrincipal / unpaidInstallments.length);
+            const rem = remainingPrincipal - perMonth * unpaidInstallments.length;
 
             for (let i = 0; i < unpaidInstallments.length; i++) {
               const isLast = i === unpaidInstallments.length - 1;
-              const newBase = Number(unpaidInstallments[i].paid_amount) + (isLast ? perMonth + rem : perMonth);
+              const newBase = isLast ? perMonth + rem : perMonth;
               const penAmt = Number(unpaidInstallments[i].penalty_amount);
+              const paid = Number(unpaidInstallments[i].paid_amount);
+              const newStatus = paid >= newBase ? "paid" : (paid > 0 ? "partially_paid" : unpaidInstallments[i].status);
               await supabase.from("layaway_schedule").update({
                 base_installment_amount: newBase,
                 total_due_amount: newBase + penAmt,
+                status: newStatus,
               }).eq("id", unpaidInstallments[i].id);
             }
           }

@@ -232,21 +232,20 @@ Deno.serve(async (req) => {
           const totalUnpaidPenalties = (remainingPenalties || [])
             .reduce((sum, p) => sum + Number(p.penalty_amount), 0);
 
-          const alreadyPartiallyPaid = stillUnpaid
-            .reduce((sum, s) => sum + Number(s.paid_amount), 0);
           const remainingPrincipal = Math.max(0, newRemainingBalance - totalUnpaidPenalties);
-          const principalToDistribute = remainingPrincipal - alreadyPartiallyPaid;
-
-          const perMonth = Math.floor(principalToDistribute / stillUnpaid.length);
-          const rem = principalToDistribute - perMonth * stillUnpaid.length;
+          const perMonth = Math.floor(remainingPrincipal / stillUnpaid.length);
+          const rem = remainingPrincipal - perMonth * stillUnpaid.length;
 
           for (let i = 0; i < stillUnpaid.length; i++) {
             const isLast = i === stillUnpaid.length - 1;
-            const newBase = Number(stillUnpaid[i].paid_amount) + (isLast ? perMonth + rem : perMonth);
+            const newBase = isLast ? perMonth + rem : perMonth;
             const penAmt = Number(stillUnpaid[i].penalty_amount);
+            const paid = Number(stillUnpaid[i].paid_amount);
+            const newStatus = paid >= newBase ? "paid" : (paid > 0 ? "partially_paid" : stillUnpaid[i].status);
             await supabase.from("layaway_schedule").update({
               base_installment_amount: newBase,
               total_due_amount: newBase + penAmt,
+              status: newStatus,
             }).eq("id", stillUnpaid[i].id);
           }
         }
