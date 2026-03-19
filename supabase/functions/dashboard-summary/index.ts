@@ -34,8 +34,17 @@ Deno.serve(async (req) => {
       });
     }
 
-    const url = new URL(req.url);
-    const currencyFilter = url.searchParams.get("currency") || "ALL"; // PHP, JPY, or ALL
+    // Read currency filter from body (POST) or URL params (GET)
+    let currencyFilter = "ALL";
+    if (req.method === "POST") {
+      try {
+        const body = await req.json();
+        currencyFilter = body.currency_mode || body.currency || "ALL";
+      } catch { /* empty body, default ALL */ }
+    } else {
+      const url = new URL(req.url);
+      currencyFilter = url.searchParams.get("currency") || "ALL";
+    }
 
     // Get conversion rate
     const { data: rateSetting } = await supabase
@@ -82,12 +91,13 @@ Deno.serve(async (req) => {
       if (acc.status === "overdue") overdueCount++;
     }
 
-    // Today's payments
+    // Today's payments (exclude voided)
     const today = new Date().toISOString().split("T")[0];
     let paymentsQuery = supabase
       .from("payments")
       .select("*")
-      .eq("date_paid", today);
+      .eq("date_paid", today)
+      .is("voided_at", null);
 
     if (currencyWhere) {
       paymentsQuery = paymentsQuery.eq("currency", currencyWhere);
@@ -112,7 +122,8 @@ Deno.serve(async (req) => {
     let monthQuery = supabase
       .from("payments")
       .select("*")
-      .gte("date_paid", monthStartStr);
+      .gte("date_paid", monthStartStr)
+      .is("voided_at", null);
 
     if (currencyWhere) {
       monthQuery = monthQuery.eq("currency", currencyWhere);
