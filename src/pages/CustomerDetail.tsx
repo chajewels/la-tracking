@@ -148,6 +148,53 @@ export default function CustomerDetail() {
               {customer.customer_code} · {accounts.length} account{accounts.length !== 1 ? 's' : ''}
               {customer.facebook_name && ` · @${customer.facebook_name}`}
             </p>
+            {/* Location */}
+            <div className="flex items-center gap-2 mt-1">
+              <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
+              {editingLocation ? (
+                <div className="flex items-center gap-2">
+                  <Select value={locationType} onValueChange={(v) => setLocationType(v as 'japan' | 'international')}>
+                    <SelectTrigger className="h-7 text-xs w-28">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="japan">Japan</SelectItem>
+                      <SelectItem value="international">International</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {locationType === 'international' && (
+                    <Input
+                      value={country}
+                      onChange={e => setCountry(e.target.value)}
+                      placeholder="Country"
+                      className="h-7 text-xs w-32"
+                      autoFocus
+                    />
+                  )}
+                  <Button variant="ghost" size="icon" className="h-6 w-6 text-emerald-500" onClick={async () => {
+                    const loc = locationType === 'japan' ? 'Japan' : country.trim();
+                    if (locationType === 'international' && !loc) { toast.error('Enter a country'); return; }
+                    const { error } = await supabase.from('customers').update({ location: loc } as any).eq('id', customer.id);
+                    if (error) { toast.error(error.message); return; }
+                    toast.success('Location updated');
+                    queryClient.invalidateQueries({ queryKey: ['customer-detail', customerId] });
+                    queryClient.invalidateQueries({ queryKey: ['customers'] });
+                    setEditingLocation(false);
+                  }}><Check className="h-3.5 w-3.5" /></Button>
+                  <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => setEditingLocation(false)}><X className="h-3.5 w-3.5" /></Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 group">
+                  <span className="text-xs text-muted-foreground">{(customer as any).location || 'Not set'}</span>
+                  <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" onClick={() => {
+                    const loc = (customer as any).location || '';
+                    if (loc === 'Japan' || !loc) { setLocationType('japan'); setCountry(''); }
+                    else { setLocationType('international'); setCountry(loc); }
+                    setEditingLocation(true);
+                  }}><Pencil className="h-3 w-3" /></Button>
+                </div>
+              )}
+            </div>
           </div>
           <div className="flex gap-2 flex-wrap">
             {customer.messenger_link && (
