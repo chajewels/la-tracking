@@ -350,6 +350,9 @@ export type Database = {
           payment_method: string | null
           reference_number: string | null
           remarks: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by_user_id: string | null
         }
         Insert: {
           account_id: string
@@ -362,6 +365,9 @@ export type Database = {
           payment_method?: string | null
           reference_number?: string | null
           remarks?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by_user_id?: string | null
         }
         Update: {
           account_id?: string
@@ -374,6 +380,9 @@ export type Database = {
           payment_method?: string | null
           reference_number?: string | null
           remarks?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by_user_id?: string | null
         }
         Relationships: [
           {
