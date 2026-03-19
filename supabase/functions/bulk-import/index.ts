@@ -259,6 +259,7 @@ Deno.serve(async (req) => {
                 invoice_number: a.invoice_number,
                 currency: a.currency,
                 total_amount: a.total_amount,
+                downpayment_amount: a.downpayment || 0,
                 payment_plan_months: a.payment_plan_months,
                 order_date: a.order_date,
                 end_date: lastScheduleDate || null,
