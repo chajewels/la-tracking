@@ -79,16 +79,26 @@ export default function NewAccount() {
               </div>
               <div className="space-y-2">
                 <Label className="text-card-foreground">Customer *</Label>
-                <Select value={customerId} onValueChange={setCustomerId}>
-                  <SelectTrigger className="bg-background border-border">
-                    <SelectValue placeholder="Select customer" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(customers || []).map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.full_name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex gap-2">
+                  <Select value={customerId} onValueChange={setCustomerId}>
+                    <SelectTrigger className="bg-background border-border flex-1">
+                      <SelectValue placeholder="Select customer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(customers || []).map(c => (
+                        <SelectItem key={c.id} value={c.id}>{c.full_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <NewCustomerDialog
+                    onCreated={(c) => setCustomerId(c.id)}
+                    trigger={
+                      <Button type="button" variant="outline" size="icon" className="shrink-0" title="Add new customer">
+                        <UserPlus className="h-4 w-4" />
+                      </Button>
+                    }
+                  />
+                </div>
               </div>
             </div>
 
