@@ -53,6 +53,7 @@ export default function AccountDetail() {
   const totalPenalty = unpaidPenalties.reduce((s, p) => s + Number(p.penalty_amount), 0);
 
   // Build message from schedule data
+  // Build message from schedule data — include ALL items, mark paid ones
   const scheduleItems = schedule || [];
   const unpaidSchedule = scheduleItems.filter(s => s.status !== 'paid');
   const ordinals = ['1st', '2nd', '3rd', '4th', '5th', '6th'];
@@ -64,15 +65,18 @@ export default function AccountDetail() {
   } else {
     message += `Total Layaway Amount: ${formatCurrency(totalAmount, currency)}\n`;
   }
-  message += `Amount Paid: ${formatCurrency(totalPaid, currency)}\n\n`;
+  message += `Amount Paid: ${formatCurrency(totalPaid, currency)}\n`;
+  message += `Remaining Balance: ${formatCurrency(remainingBalance, currency)}\n\n`;
   message += `================\n\n`;
-  message += `${account.customers?.full_name} remaining balance - ${formatCurrency(remainingBalance, currency)} to pay in ${unpaidSchedule.length} months\n\n`;
-  message += `Monthly Payment:\n\n`;
-  unpaidSchedule.forEach((item, idx) => {
+  message += `Payment Schedule:\n\n`;
+  scheduleItems.forEach((item, idx) => {
+    const isPaid = item.status === 'paid';
     const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
     const penalty = Number(item.penalty_amount);
     const base = Number(item.base_installment_amount);
-    if (penalty > 0) {
+    if (isPaid) {
+      message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(base, currency)} — PAID\n`;
+    } else if (penalty > 0) {
       message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(base, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(Number(item.total_due_amount), currency)}\n`;
     } else {
       message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(base, currency)}\n`;
