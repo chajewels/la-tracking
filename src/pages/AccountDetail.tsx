@@ -179,13 +179,21 @@ export default function AccountDetail() {
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
           <div className="rounded-xl border border-border bg-card p-3 sm:p-4">
             <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Total Amount</p>
             <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
               {formatCurrency(totalAmount, currency)}
             </p>
           </div>
+          {downpaymentAmount > 0 && (
+            <div className="rounded-xl border border-primary/20 bg-card p-3 sm:p-4">
+              <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">30% Downpayment</p>
+              <p className="text-lg sm:text-xl font-bold text-primary font-display tabular-nums">
+                {formatCurrency(downpaymentAmount, currency)}
+              </p>
+            </div>
+          )}
           <div className="rounded-xl border border-success/20 bg-card p-3 sm:p-4">
             <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Total Paid</p>
             <p className="text-lg sm:text-xl font-bold text-success font-display tabular-nums">
