@@ -1,16 +1,18 @@
-import { useState, useMemo } from 'react';
-import { DollarSign, FileText, AlertTriangle, TrendingUp, Sparkles, ShieldAlert, Globe, MapPin } from 'lucide-react';
+import { useState } from 'react';
+import { DollarSign, FileText, AlertTriangle, TrendingUp, CheckCircle2, Banknote } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import StatCard from '@/components/dashboard/StatCard';
 import AgingBuckets from '@/components/dashboard/AgingBuckets';
-import RecentPayments from '@/components/dashboard/RecentPayments';
 import OverdueAlerts from '@/components/dashboard/OverdueAlerts';
 import CurrencyToggle, { CurrencyFilter } from '@/components/dashboard/CurrencyToggle';
-import RiskBadge from '@/components/dashboard/RiskBadge';
+import GeoBreakdown from '@/components/dashboard/GeoBreakdown';
+import OperationsPanel from '@/components/dashboard/OperationsPanel';
+import LiveCollectionTracker from '@/components/dashboard/LiveCollectionTracker';
+import { LatePaymentRiskPanel, CompletionProbabilityPanel, CLVPanel } from '@/components/dashboard/AIRiskPanel';
+import SystemHealthPanel from '@/components/dashboard/SystemHealthPanel';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { getDisplayCurrencyForFilter } from '@/lib/currency-converter';
-import { Link } from 'react-router-dom';
 import { useAccounts, useCustomers, useDashboardSummary } from '@/hooks/use-supabase-data';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -21,41 +23,6 @@ export default function Dashboard() {
   const { data: summary, isLoading: summaryLoading } = useDashboardSummary(currencyFilter);
   const { data: accounts } = useAccounts();
   const { data: customers } = useCustomers();
-
-  const activeAccounts = (accounts || []).filter(a => a.status === 'active' || a.status === 'overdue');
-
-  // Build geo breakdown: Japan vs International (by country)
-  const geoBreakdown = useMemo(() => {
-    const customerMap = new Map((customers || []).map(c => [c.id, c]));
-    const active = (accounts || []).filter(a => a.status === 'active' || a.status === 'overdue');
-
-    let japanCount = 0, japanAmount = 0;
-    const intlMap: Record<string, { count: number; amount: number }> = {};
-
-    for (const acc of active) {
-      const cust = customerMap.get(acc.customer_id);
-      const loc = (cust?.location || '').trim();
-      const balance = Number(acc.remaining_balance);
-
-      if (!loc || loc.toLowerCase() === 'japan') {
-        japanCount++;
-        japanAmount += balance;
-      } else {
-        const country = loc;
-        if (!intlMap[country]) intlMap[country] = { count: 0, amount: 0 };
-        intlMap[country].count++;
-        intlMap[country].amount += balance;
-      }
-    }
-
-    const international = Object.entries(intlMap)
-      .map(([country, data]) => ({ country, ...data }))
-      .sort((a, b) => b.amount - a.amount);
-
-    const intlTotal = international.reduce((s, i) => ({ count: s.count + i.count, amount: s.amount + i.amount }), { count: 0, amount: 0 });
-
-    return { japan: { count: japanCount, amount: japanAmount }, international, intlTotal };
-  }, [accounts, customers]);
 
   return (
     <AppLayout>
@@ -70,14 +37,10 @@ export default function Dashboard() {
           <CurrencyToggle value={currencyFilter} onChange={setCurrencyFilter} />
         </div>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        {/* ROW 1 — Executive Summary KPIs */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           {summaryLoading ? (
-            <>
-              {[...Array(4)].map((_, i) => (
-                <Skeleton key={i} className="h-24 rounded-xl" />
-              ))}
-            </>
+            [...Array(6)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
           ) : (
             <>
               <StatCard
@@ -99,110 +62,53 @@ export default function Dashboard() {
                 variant="success"
               />
               <StatCard
+                title="Collections This Month"
+                value={formatCurrency(summary?.collections_this_month ?? 0, displayCurrency)}
+                icon={Banknote}
+                variant="success"
+              />
+              <StatCard
                 title="Overdue"
                 value={(summary?.overdue_accounts ?? 0).toString()}
-                subtitle="Requires attention"
+                subtitle={formatCurrency(summary?.overdue_amount ?? 0, displayCurrency)}
                 icon={AlertTriangle}
                 variant="danger"
+              />
+              <StatCard
+                title="Completed This Month"
+                value={(summary?.completed_this_month ?? 0).toString()}
+                subtitle="Closed deals"
+                icon={CheckCircle2}
+                variant="success"
               />
             </>
           )}
         </div>
 
-        {/* Geo Breakdown Widget */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Japan */}
-          <div className="rounded-xl border border-border bg-card p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <MapPin className="h-4 w-4 text-primary" />
-              <h3 className="text-sm font-semibold text-card-foreground">Japan</h3>
-            </div>
-            <div className="flex items-baseline justify-between">
-              <div>
-                <p className="text-2xl font-bold text-card-foreground font-display">{geoBreakdown.japan.count}</p>
-                <p className="text-xs text-muted-foreground">active accounts</p>
-              </div>
-              <div className="text-right">
-                <p className="text-sm font-semibold text-card-foreground tabular-nums">
-                  {formatCurrency(geoBreakdown.japan.amount, 'JPY')}
-                </p>
-                <p className="text-xs text-muted-foreground">outstanding</p>
-              </div>
-            </div>
-          </div>
+        {/* ROW 2 — Geo Breakdown */}
+        <GeoBreakdown accounts={accounts || []} customers={customers || []} />
 
-          {/* International */}
-          <div className="rounded-xl border border-border bg-card p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <Globe className="h-4 w-4 text-info" />
-              <h3 className="text-sm font-semibold text-card-foreground">International</h3>
-              <span className="ml-auto text-xs text-muted-foreground">{geoBreakdown.international.length} countries</span>
-            </div>
-            <div className="flex items-baseline justify-between mb-3">
-              <div>
-                <p className="text-2xl font-bold text-card-foreground font-display">{geoBreakdown.intlTotal.count}</p>
-                <p className="text-xs text-muted-foreground">active accounts</p>
-              </div>
-              <div className="text-right">
-                <p className="text-sm font-semibold text-card-foreground tabular-nums">
-                  {formatCurrency(geoBreakdown.intlTotal.amount, 'PHP')}
-                </p>
-                <p className="text-xs text-muted-foreground">outstanding</p>
-              </div>
-            </div>
-            {geoBreakdown.international.length > 0 && (
-              <div className="space-y-1.5 border-t border-border pt-3">
-                {geoBreakdown.international.map(item => (
-                  <div key={item.country} className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">{item.country}</span>
-                    <span className="text-card-foreground font-medium tabular-nums">{item.count} acct · {formatCurrency(item.amount, 'PHP')}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+        {/* ROW 3 — Operations + Live Collection */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <OperationsPanel summary={summary} displayCurrency={displayCurrency} />
+          <LiveCollectionTracker currencyFilter={currencyFilter} displayCurrency={displayCurrency} />
+        </div>
+
+        {/* ROW 4 — AI & Predictions */}
+        <div>
+          <p className="text-xs font-semibold text-primary uppercase tracking-widest mb-3">AI & Predictions</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <LatePaymentRiskPanel />
+            <CompletionProbabilityPanel />
+            <CLVPanel />
           </div>
         </div>
 
-        {/* Active Accounts Quick View */}
-        {activeAccounts.length > 0 && (
-          <div className="rounded-xl border border-border bg-card p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
-                <ShieldAlert className="h-4 w-4 text-primary" />
-                Active Layaway Accounts
-              </h3>
-              <Link to="/accounts" className="text-xs text-primary hover:underline">View all →</Link>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {activeAccounts.slice(0, 6).map(account => {
-                if (currencyFilter !== 'ALL' && account.currency !== currencyFilter) return null;
-                return (
-                  <Link key={account.id} to={`/accounts/${account.id}`}>
-                    <div className="p-3 rounded-lg border border-border hover:border-primary/30 transition-colors">
-                      <div className="flex items-center justify-between mb-2">
-                        <p className="text-sm font-medium text-card-foreground">{account.customers?.full_name}</p>
-                      </div>
-                      <p className="text-xs text-muted-foreground">INV #{account.invoice_number}</p>
-                      <p className="text-xs font-semibold text-card-foreground mt-1">
-                        {formatCurrency(Number(account.remaining_balance), account.currency as Currency)}
-                      </p>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Main Grid */}
+        {/* ROW 5 — Aging + Overdue + System Health */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-6">
-            <RecentPayments currencyFilter={currencyFilter} />
-          </div>
-          <div className="space-y-6">
-            <AgingBuckets currency={displayCurrency} />
-            <OverdueAlerts />
-          </div>
+          <AgingBuckets currency={displayCurrency} />
+          <OverdueAlerts />
+          <SystemHealthPanel summary={summary} />
         </div>
       </div>
     </AppLayout>
