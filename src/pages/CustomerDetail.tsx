@@ -54,6 +54,22 @@ export default function CustomerDetail() {
       const remainingBalance = Number(acct.account.remaining_balance);
       const unpaidPenalties = (acct.penalties || []).filter(p => p.status === 'unpaid');
       const totalPenalty = unpaidPenalties.reduce((s, p) => s + Number(p.penalty_amount), 0);
+      const activePayments = [...(acct.payments || [])]
+        .filter((p: any) => !p.voided_at)
+        .sort((a: any, b: any) => {
+          const dateDiff = new Date(a.date_paid).getTime() - new Date(b.date_paid).getTime();
+          if (dateDiff !== 0) return dateDiff;
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        });
+      const paymentBreakdownText = activePayments.length > 0
+        ? `${activePayments.map((p: any) => formatCurrency(Number(p.amount_paid), currency)).join(' + ')} = ${formatCurrency(totalPaid, currency)}`
+        : formatCurrency(totalPaid, currency);
+
+      const scheduleItems = acct.schedule || [];
+      const unpaidSchedule = scheduleItems.filter(s => s.status !== 'paid');
+
+      const getRemainingDue = (item: { total_due_amount: number | string; paid_amount: number | string }) =>
+        Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
 
       msg += `━━━━━━━━━━━━━━━━━━\n`;
       msg += `📋 Inv # ${acct.account.invoice_number}\n`;
@@ -62,36 +78,39 @@ export default function CustomerDetail() {
       } else {
         msg += `Total Layaway Amount: ${formatCurrency(totalAmount, currency)}\n`;
       }
-      msg += `Amount Paid: ${formatCurrency(totalPaid, currency)}\n`;
-      msg += `Remaining Balance: ${formatCurrency(remainingBalance, currency)}\n\n`;
+      msg += `Amount Paid: ${paymentBreakdownText}\n`;
+      const laMonth = new Date(acct.account.end_date || acct.account.order_date).toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+      msg += `================\n`;
+      msg += `LA ${laMonth} remaining balance - ${formatCurrency(remainingBalance, currency)} to pay in ${acct.account.payment_plan_months} months\n\n`;
 
-      msg += `Payment Schedule:\n`;
-      acct.schedule.forEach((item, idx) => {
+      msg += `Monthly Payment:\n`;
+      scheduleItems.forEach((item, idx) => {
         const isPaid = item.status === 'paid';
+        const isPartial = item.status === 'partially_paid';
         const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
         const penalty = Number(item.penalty_amount);
-        const base = Number(item.base_installment_amount);
+        const totalDue = Number(item.total_due_amount);
+        const paid = Number(item.paid_amount);
+        const remainingDue = getRemainingDue(item);
 
         if (isPaid) {
-          msg += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(base, currency)} — PAID\n`;
+          msg += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)} (PAID)\n`;
+        } else if (isPartial) {
+          msg += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(remainingDue, currency)} remaining (${formatCurrency(paid, currency)} paid of ${formatCurrency(totalDue, currency)})${penalty > 0 ? `, includes ${formatCurrency(penalty, currency)} penalty` : ''} — PARTIAL\n`;
         } else if (penalty > 0) {
-          msg += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(base, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(Number(item.total_due_amount), currency)}\n`;
+          msg += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(Number(item.base_installment_amount), currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
         } else {
-          msg += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(base, currency)}\n`;
+          msg += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(remainingDue, currency)}\n`;
         }
       });
+
+      if (unpaidSchedule.length > 0) {
+        const nextDate = new Date(unpaidSchedule[0].due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+        msg += `\nPlease note your next monthly payment is on ${nextDate}. Please expect another payment reminder from us.\n`;
+      }
       msg += `\n`;
     }
 
-    // Find next due date across all accounts
-    const allUnpaid = accounts.flatMap(a =>
-      a.schedule.filter(s => s.status !== 'paid').map(s => s.due_date)
-    );
-    if (allUnpaid.length > 0) {
-      allUnpaid.sort();
-      const nextDate = new Date(allUnpaid[0]).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
-      msg += `Please note your next monthly payment is on ${nextDate}. Please expect another payment reminder from us.\n\n`;
-    }
     msg += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
     return msg;
   };
