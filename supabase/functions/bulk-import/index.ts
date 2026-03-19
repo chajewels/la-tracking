@@ -49,6 +49,7 @@ interface ScheduleInput {
   installment_number: number;
   due_date: string;
   amount: number;
+  penalty_amount?: number;
   is_paid: boolean;
   date_paid?: string;
 }
@@ -239,7 +240,7 @@ Deno.serve(async (req) => {
 
             // Calculate totals from schedule
             const paidInstallments = a.schedule.filter(s => s.is_paid);
-            const totalPaidFromSchedule = paidInstallments.reduce((sum, s) => sum + s.amount, 0);
+            const totalPaidFromSchedule = paidInstallments.reduce((sum, s) => sum + s.amount + (s.penalty_amount || 0), 0);
             const totalPaidWithDownpayment = (a.downpayment || 0) + totalPaidFromSchedule;
             const remainingBalance = a.total_amount - totalPaidWithDownpayment;
 
@@ -258,6 +259,7 @@ Deno.serve(async (req) => {
                 invoice_number: a.invoice_number,
                 currency: a.currency,
                 total_amount: a.total_amount,
+                downpayment_amount: a.downpayment || 0,
                 payment_plan_months: a.payment_plan_months,
                 order_date: a.order_date,
                 end_date: lastScheduleDate || null,
@@ -278,17 +280,21 @@ Deno.serve(async (req) => {
             results.accounts_created++;
 
             // Create schedule rows
-            const scheduleRows = a.schedule.map(s => ({
-              account_id: account.id,
-              installment_number: s.installment_number,
-              due_date: s.due_date,
-              base_installment_amount: s.amount,
-              penalty_amount: 0,
-              total_due_amount: s.amount,
-              paid_amount: s.is_paid ? s.amount : 0,
-              currency: a.currency,
-              status: s.is_paid ? "paid" : "pending",
-            }));
+            const scheduleRows = a.schedule.map(s => {
+              const penaltyAmt = s.penalty_amount || 0;
+              const totalDue = s.amount + penaltyAmt;
+              return {
+                account_id: account.id,
+                installment_number: s.installment_number,
+                due_date: s.due_date,
+                base_installment_amount: s.amount,
+                penalty_amount: penaltyAmt,
+                total_due_amount: totalDue,
+                paid_amount: s.is_paid ? totalDue : 0,
+                currency: a.currency,
+                status: s.is_paid ? "paid" : "pending",
+              };
+            });
 
             const { data: insertedSchedule, error: schedErr } = await supabase
               .from("layaway_schedule")
@@ -301,6 +307,41 @@ Deno.serve(async (req) => {
             }
 
             results.schedule_rows_created += scheduleRows.length;
+
+            // Create penalty_fees for unpaid schedule items with penalties
+            const scheduleIdMap = new Map(
+              (insertedSchedule || []).map(s => [s.installment_number, s.id])
+            );
+            for (const s of a.schedule) {
+              if (!s.is_paid && s.penalty_amount && s.penalty_amount > 0) {
+                const schedId = scheduleIdMap.get(s.installment_number);
+                if (schedId) {
+                  const penaltyTotal = s.penalty_amount;
+                  const week1Amt = Math.min(penaltyTotal, a.currency === 'JPY' ? 1000 : 500);
+                  const penaltyRows: any[] = [{
+                    account_id: account.id,
+                    schedule_id: schedId,
+                    currency: a.currency,
+                    penalty_amount: week1Amt,
+                    penalty_stage: 'week1',
+                    penalty_cycle: 1,
+                    status: 'unpaid',
+                  }];
+                  if (penaltyTotal > week1Amt) {
+                    penaltyRows.push({
+                      account_id: account.id,
+                      schedule_id: schedId,
+                      currency: a.currency,
+                      penalty_amount: penaltyTotal - week1Amt,
+                      penalty_stage: 'week2',
+                      penalty_cycle: 1,
+                      status: 'unpaid',
+                    });
+                  }
+                  await supabase.from("penalty_fees").insert(penaltyRows);
+                }
+              }
+            }
 
             // Record downpayment as a payment if > 0
             if (a.downpayment > 0) {
@@ -326,12 +367,13 @@ Deno.serve(async (req) => {
 
             for (const s of paidInstallments) {
               const datePaid = s.date_paid || s.due_date;
+              const paidTotal = s.amount + (s.penalty_amount || 0);
 
               const { data: payment, error: payErr } = await supabase
                 .from("payments")
                 .insert({
                   account_id: account.id,
-                  amount_paid: s.amount,
+                  amount_paid: paidTotal,
                   currency: a.currency,
                   date_paid: datePaid,
                   payment_method: "cash",
@@ -344,15 +386,16 @@ Deno.serve(async (req) => {
               if (!payErr && payment) {
                 results.payments_recorded++;
 
-                // Create payment allocation
+                // Create payment allocation(s)
                 const scheduleId = scheduleMap.get(s.installment_number);
                 if (scheduleId) {
-                  await supabase.from("payment_allocations").insert({
-                    payment_id: payment.id,
-                    schedule_id: scheduleId,
-                    allocation_type: "installment",
-                    allocated_amount: s.amount,
-                  });
+                  const allocations: any[] = [
+                    { payment_id: payment.id, schedule_id: scheduleId, allocation_type: "installment", allocated_amount: s.amount },
+                  ];
+                  if (s.penalty_amount && s.penalty_amount > 0) {
+                    allocations.push({ payment_id: payment.id, schedule_id: scheduleId, allocation_type: "penalty", allocated_amount: s.penalty_amount });
+                  }
+                  await supabase.from("payment_allocations").insert(allocations);
                 }
               }
             }

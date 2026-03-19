@@ -91,23 +91,28 @@ export function useCustomerAccounts(customerId: string | undefined) {
 
       const accountIds = (accts || []).map(a => a.id);
 
-      // Fetch schedules and penalties for all accounts in parallel
-      const [schedRes, penRes] = await Promise.all([
+      // Fetch schedules, penalties, and payments for all accounts in parallel
+      const [schedRes, penRes, payRes] = await Promise.all([
         accountIds.length > 0
           ? supabase.from('layaway_schedule').select('*').in('account_id', accountIds).order('installment_number', { ascending: true })
           : Promise.resolve({ data: [] as DbSchedule[], error: null }),
         accountIds.length > 0
           ? supabase.from('penalty_fees').select('*').in('account_id', accountIds)
           : Promise.resolve({ data: [] as DbPenalty[], error: null }),
+        accountIds.length > 0
+          ? supabase.from('payments').select('*').in('account_id', accountIds).order('date_paid', { ascending: true })
+          : Promise.resolve({ data: [] as any[], error: null }),
       ]);
 
       const schedules = (schedRes.data || []) as DbSchedule[];
       const penalties = (penRes.data || []) as DbPenalty[];
+      const allPayments = (payRes.data || []) as any[];
 
       const accounts = (accts || []).map(acct => ({
         account: acct,
         schedule: schedules.filter(s => s.account_id === acct.id),
         penalties: penalties.filter(p => p.account_id === acct.id),
+        payments: allPayments.filter(p => p.account_id === acct.id),
       }));
 
       return { customer: customer as DbCustomer, accounts };
