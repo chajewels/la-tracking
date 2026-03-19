@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { UserPlus } from 'lucide-react';
 import { useCreateCustomer, DbCustomer } from '@/hooks/use-supabase-data';
 import { toast } from 'sonner';
@@ -24,6 +25,8 @@ export default function NewCustomerDialog({ onCreated, trigger }: NewCustomerDia
   const [mobileNumber, setMobileNumber] = useState('');
   const [email, setEmail] = useState('');
   const [notes, setNotes] = useState('');
+  const [locationType, setLocationType] = useState<'japan' | 'international'>('japan');
+  const [country, setCountry] = useState('');
 
   const resetForm = () => {
     setFullName('');
@@ -33,6 +36,8 @@ export default function NewCustomerDialog({ onCreated, trigger }: NewCustomerDia
     setMobileNumber('');
     setEmail('');
     setNotes('');
+    setLocationType('japan');
+    setCountry('');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -41,6 +46,7 @@ export default function NewCustomerDialog({ onCreated, trigger }: NewCustomerDia
       toast.error('Full name and customer code are required');
       return;
     }
+    const location = locationType === 'japan' ? 'Japan' : country.trim() || undefined;
     try {
       const customer = await createCustomer.mutateAsync({
         full_name: fullName.trim(),
@@ -50,6 +56,7 @@ export default function NewCustomerDialog({ onCreated, trigger }: NewCustomerDia
         mobile_number: mobileNumber.trim() || undefined,
         email: email.trim() || undefined,
         notes: notes.trim() || undefined,
+        location,
       });
       toast.success(`Customer "${fullName}" created`);
       onCreated?.(customer as DbCustomer);
@@ -84,6 +91,26 @@ export default function NewCustomerDialog({ onCreated, trigger }: NewCustomerDia
               <Label>Customer Code *</Label>
               <Input value={customerCode} onChange={(e) => setCustomerCode(e.target.value)} placeholder="e.g. CUST-001" />
             </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Location</Label>
+              <Select value={locationType} onValueChange={(v) => setLocationType(v as 'japan' | 'international')}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="japan">Japan</SelectItem>
+                  <SelectItem value="international">International</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {locationType === 'international' && (
+              <div className="space-y-2">
+                <Label>Country</Label>
+                <Input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="e.g. Philippines" />
+              </div>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">

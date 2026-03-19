@@ -23,9 +23,11 @@ export default function NewAccount() {
   const [totalAmount, setTotalAmount] = useState('');
   const [orderDate, setOrderDate] = useState('');
   const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>(3);
+  const [downpaymentPct, setDownpaymentPct] = useState('30');
 
   const amount = parseInt(totalAmount) || 0;
-  const downpaymentAmount = Math.round(amount * 0.3);
+  const pct = Math.min(100, Math.max(0, parseInt(downpaymentPct) || 30));
+  const downpaymentAmount = Math.round(amount * (pct / 100));
   const remainingAfterDown = amount - downpaymentAmount;
   const previewDates = orderDate ? generateScheduleDates(orderDate, paymentPlan) : [];
   const previewInstallments = remainingAfterDown > 0 ? calculateInstallments(remainingAfterDown, paymentPlan) : [];
@@ -44,6 +46,7 @@ export default function NewAccount() {
         total_amount: amount,
         order_date: orderDate,
         payment_plan_months: paymentPlan,
+        downpayment_percent: pct,
       });
       toast.success(`Layaway account #${invoiceNumber} created successfully`);
       navigate('/accounts');
@@ -127,6 +130,18 @@ export default function NewAccount() {
                   className="bg-background border-border"
                 />
               </div>
+              <div className="space-y-2">
+                <Label className="text-card-foreground">Downpayment % *</Label>
+                <Input
+                  type="number"
+                  value={downpaymentPct}
+                  onChange={(e) => setDownpaymentPct(e.target.value)}
+                  placeholder="30"
+                  min="0"
+                  max="100"
+                  className="bg-background border-border"
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -163,9 +178,9 @@ export default function NewAccount() {
 
           {amount > 0 && (
             <div className="rounded-xl border border-primary/20 bg-card p-6">
-              <h3 className="text-sm font-semibold text-card-foreground mb-3">30% Downpayment</h3>
+              <h3 className="text-sm font-semibold text-card-foreground mb-3">{pct}% Downpayment</h3>
               <div className="flex items-center justify-between py-2 border-b border-border">
-                <span className="text-sm text-card-foreground">Downpayment (30%)</span>
+                <span className="text-sm text-card-foreground">Downpayment ({pct}%)</span>
                 <span className="text-sm font-semibold text-card-foreground tabular-nums">
                   {formatCurrency(downpaymentAmount, currency)}
                 </span>
