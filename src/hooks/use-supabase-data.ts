@@ -240,35 +240,6 @@ export function useDashboardSummary(currencyMode: 'PHP' | 'JPY' | 'ALL') {
 }
 
 // ──────────────────────────────────────────────
-// CREATE CUSTOMER
-// ──────────────────────────────────────────────
-export function useCreateCustomer() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (payload: {
-      full_name: string;
-      customer_code: string;
-      facebook_name?: string;
-      messenger_link?: string;
-      mobile_number?: string;
-      email?: string;
-      notes?: string;
-    }) => {
-      const { data, error } = await supabase
-        .from('customers')
-        .insert(payload)
-        .select()
-        .single();
-      if (error) throw error;
-      return data as DbCustomer;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['customers'] });
-    },
-  });
-}
-
-// ──────────────────────────────────────────────
 // CREATE ACCOUNT (via edge function)
 // ──────────────────────────────────────────────
 export function useCreateAccount() {
