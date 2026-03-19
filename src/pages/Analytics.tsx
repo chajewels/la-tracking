@@ -95,6 +95,27 @@ export default function Analytics() {
     },
   });
 
+  // Fetch profiles + roles for CSR performance
+  const { data: profilesWithRoles } = useQuery({
+    queryKey: ['csr-profiles'],
+    queryFn: async () => {
+      const { data: profiles, error: pErr } = await supabase
+        .from('profiles')
+        .select('*');
+      if (pErr) throw pErr;
+
+      const { data: roles, error: rErr } = await supabase
+        .from('user_roles')
+        .select('*');
+      if (rErr) throw rErr;
+
+      return (profiles || []).map(p => ({
+        ...p,
+        role: (roles || []).find(r => r.user_id === p.user_id)?.role || 'staff',
+      }));
+    },
+  });
+
   const isLoading = acctLoading || custLoading || payLoading;
 
   const activeAccounts = useMemo(() =>
