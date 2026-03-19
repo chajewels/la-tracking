@@ -177,9 +177,9 @@ export default function NewAccount() {
 
           {amount > 0 && (
             <div className="rounded-xl border border-primary/20 bg-card p-6">
-              <h3 className="text-sm font-semibold text-card-foreground mb-3">30% Downpayment</h3>
+              <h3 className="text-sm font-semibold text-card-foreground mb-3">{pct}% Downpayment</h3>
               <div className="flex items-center justify-between py-2 border-b border-border">
-                <span className="text-sm text-card-foreground">Downpayment (30%)</span>
+                <span className="text-sm text-card-foreground">Downpayment ({pct}%)</span>
                 <span className="text-sm font-semibold text-card-foreground tabular-nums">
                   {formatCurrency(downpaymentAmount, currency)}
                 </span>
