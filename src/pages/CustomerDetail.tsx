@@ -1,15 +1,19 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Copy, Check, MessageCircle, Calendar, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Copy, Check, MessageCircle, Calendar, AlertTriangle, MapPin, Pencil, X } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import RecordPaymentDialog from '@/components/payments/RecordPaymentDialog';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
 import { useCustomerAccounts } from '@/hooks/use-supabase-data';
+import { supabase } from '@/integrations/supabase/client';
+import { useQueryClient } from '@tanstack/react-query';
 
 export default function CustomerDetail() {
   const { customerId } = useParams();
