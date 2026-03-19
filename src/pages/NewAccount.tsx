@@ -129,6 +129,18 @@ export default function NewAccount() {
                   className="bg-background border-border"
                 />
               </div>
+              <div className="space-y-2">
+                <Label className="text-card-foreground">Downpayment % *</Label>
+                <Input
+                  type="number"
+                  value={downpaymentPct}
+                  onChange={(e) => setDownpaymentPct(e.target.value)}
+                  placeholder="30"
+                  min="0"
+                  max="100"
+                  className="bg-background border-border"
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
