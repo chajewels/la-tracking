@@ -54,19 +54,19 @@ export default function Dashboard() {
               />
               <StatCard
                 title="Active Accounts"
-                value={(summary?.active_accounts ?? 0).toString()}
+                value={(summary?.active_layaways ?? 0).toString()}
                 subtitle={currencyFilter === 'ALL' ? 'PHP & JPY (in ¥)' : `${currencyFilter} only`}
                 icon={FileText}
               />
               <StatCard
                 title="Collections Today"
-                value={formatCurrency(summary?.collections_today ?? 0, displayCurrency)}
+                value={formatCurrency(summary?.payments_today ?? 0, displayCurrency)}
                 icon={TrendingUp}
                 variant="success"
               />
               <StatCard
                 title="Overdue"
-                value={(summary?.overdue_count ?? 0).toString()}
+                value={(summary?.overdue_accounts ?? 0).toString()}
                 subtitle="Requires attention"
                 icon={AlertTriangle}
                 variant="danger"
