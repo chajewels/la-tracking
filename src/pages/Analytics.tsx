@@ -18,7 +18,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { riskStyles } from '@/lib/analytics-engine';
 
 // ── Live risk assessment from real data ──
-function assessRisk(account: AccountWithCustomer, payments: any[], schedules: any[]): { riskLevel: RiskLevel; score: number; recommendation: string } {
 function assessRisk(account: AccountWithCustomer, payments: any[], schedules: any[]): { riskLevel: RiskLevel; score: number; recommendation: string; maxOverdueDays: number } {
   const acctSchedules = schedules.filter(s => s.account_id === account.id);
   const today = new Date().toISOString().split('T')[0];
