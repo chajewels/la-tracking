@@ -49,6 +49,7 @@ interface ScheduleInput {
   installment_number: number;
   due_date: string;
   amount: number;
+  penalty_amount?: number;
   is_paid: boolean;
   date_paid?: string;
 }
