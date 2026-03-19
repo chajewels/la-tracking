@@ -383,3 +383,26 @@ export function useEditPayment() {
     },
   });
 }
+
+// ──────────────────────────────────────────────
+// RESTORE VOIDED PAYMENT (via edge function)
+// ──────────────────────────────────────────────
+export function useRestorePayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { payment_id: string }) => {
+      const { data, error } = await supabase.functions.invoke('restore-payment', {
+        body: payload,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['payments'] });
+      qc.invalidateQueries({ queryKey: ['schedule'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      qc.invalidateQueries({ queryKey: ['payments-with-accounts'] });
+    },
+  });
+}
