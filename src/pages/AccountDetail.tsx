@@ -69,10 +69,11 @@ export default function AccountDetail() {
   const totalPenalty = unpaidPenalties.reduce((s, p) => s + Number(p.penalty_amount), 0);
 
   // Build message from schedule data
-  // Build message from schedule data — include ALL items, mark paid ones
   const scheduleItems = schedule || [];
   const unpaidSchedule = scheduleItems.filter(s => s.status !== 'paid');
   const ordinals = ['1st', '2nd', '3rd', '4th', '5th', '6th'];
+  const getRemainingDue = (item: { total_due_amount: number | string; paid_amount: number | string }) =>
+    Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
 
   let message = `✨ Cha Jewels Layaway Payment Summary\n\n`;
   message += `Inv # ${account.invoice_number}\n`;
@@ -87,15 +88,21 @@ export default function AccountDetail() {
   message += `Payment Schedule:\n\n`;
   scheduleItems.forEach((item, idx) => {
     const isPaid = item.status === 'paid';
+    const isPartial = item.status === 'partially_paid';
     const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
     const penalty = Number(item.penalty_amount);
-    const base = Number(item.base_installment_amount);
+    const totalDue = Number(item.total_due_amount);
+    const paid = Number(item.paid_amount);
+    const remainingDue = getRemainingDue(item);
+
     if (isPaid) {
-      message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(base, currency)} — PAID\n`;
+      message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)} — PAID\n`;
+    } else if (isPartial) {
+      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(remainingDue, currency)} remaining (${formatCurrency(paid, currency)} paid of ${formatCurrency(totalDue, currency)})${penalty > 0 ? `, includes ${formatCurrency(penalty, currency)} penalty` : ''} — PARTIAL\n`;
     } else if (penalty > 0) {
-      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(base, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(Number(item.total_due_amount), currency)}\n`;
+      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)} due (includes ${formatCurrency(penalty, currency)} penalty)\n`;
     } else {
-      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(base, currency)}\n`;
+      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(remainingDue, currency)}\n`;
     }
   });
   if (unpaidSchedule.length > 0) {
