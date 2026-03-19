@@ -209,49 +209,6 @@ Deno.serve(async (req) => {
       }).eq("id", item.id);
     }
 
-    // Recalculate remaining installments if there's still balance
-    if (newRemainingBalance > 0) {
-      // Re-fetch schedule to get updated state after this payment
-      const { data: updatedSchedule } = await supabase
-        .from("layaway_schedule")
-        .select("*")
-        .eq("account_id", account_id)
-        .order("installment_number", { ascending: true });
-
-      if (updatedSchedule) {
-        const stillUnpaid = updatedSchedule.filter((s) => s.status !== "paid");
-
-        if (stillUnpaid.length > 0) {
-          // Fetch remaining unpaid penalties
-          const { data: remainingPenalties } = await supabase
-            .from("penalty_fees")
-            .select("*")
-            .eq("account_id", account_id)
-            .eq("status", "unpaid");
-
-          const totalUnpaidPenalties = (remainingPenalties || [])
-            .reduce((sum, p) => sum + Number(p.penalty_amount), 0);
-
-          const remainingPrincipal = Math.max(0, newRemainingBalance - totalUnpaidPenalties);
-          const perMonth = Math.floor(remainingPrincipal / stillUnpaid.length);
-          const rem = remainingPrincipal - perMonth * stillUnpaid.length;
-
-          for (let i = 0; i < stillUnpaid.length; i++) {
-            const isLast = i === stillUnpaid.length - 1;
-            const newBase = isLast ? perMonth + rem : perMonth;
-            const penAmt = Number(stillUnpaid[i].penalty_amount);
-            const paid = Number(stillUnpaid[i].paid_amount);
-            const newStatus = paid >= newBase ? "paid" : (paid > 0 ? "partially_paid" : stillUnpaid[i].status);
-            await supabase.from("layaway_schedule").update({
-              base_installment_amount: newBase,
-              total_due_amount: newBase + penAmt,
-              status: newStatus,
-            }).eq("id", stillUnpaid[i].id);
-          }
-        }
-      }
-    }
-
     // Update account
     await supabase.from("layaway_accounts").update({
       total_paid: newTotalPaid,
