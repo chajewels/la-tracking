@@ -279,17 +279,21 @@ Deno.serve(async (req) => {
             results.accounts_created++;
 
             // Create schedule rows
-            const scheduleRows = a.schedule.map(s => ({
-              account_id: account.id,
-              installment_number: s.installment_number,
-              due_date: s.due_date,
-              base_installment_amount: s.amount,
-              penalty_amount: 0,
-              total_due_amount: s.amount,
-              paid_amount: s.is_paid ? s.amount : 0,
-              currency: a.currency,
-              status: s.is_paid ? "paid" : "pending",
-            }));
+            const scheduleRows = a.schedule.map(s => {
+              const penaltyAmt = s.penalty_amount || 0;
+              const totalDue = s.amount + penaltyAmt;
+              return {
+                account_id: account.id,
+                installment_number: s.installment_number,
+                due_date: s.due_date,
+                base_installment_amount: s.amount,
+                penalty_amount: penaltyAmt,
+                total_due_amount: totalDue,
+                paid_amount: s.is_paid ? totalDue : 0,
+                currency: a.currency,
+                status: s.is_paid ? "paid" : "pending",
+              };
+            });
 
             const { data: insertedSchedule, error: schedErr } = await supabase
               .from("layaway_schedule")
