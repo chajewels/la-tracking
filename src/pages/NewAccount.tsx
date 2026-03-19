@@ -46,6 +46,7 @@ export default function NewAccount() {
         total_amount: amount,
         order_date: orderDate,
         payment_plan_months: paymentPlan,
+        downpayment_percent: pct,
       });
       toast.success(`Layaway account #${invoiceNumber} created successfully`);
       navigate('/accounts');
