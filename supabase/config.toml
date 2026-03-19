@@ -23,3 +23,9 @@ verify_jwt = false
 
 [functions.restore-payment]
 verify_jwt = false
+
+[functions.restructure-account]
+verify_jwt = false
+
+[functions.create-team-member]
+verify_jwt = false
