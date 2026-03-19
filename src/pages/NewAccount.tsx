@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, UserPlus } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { generateScheduleDates, calculateInstallments, formatCurrency } from '@/lib/calculations';
 import { Currency, PaymentPlan } from '@/lib/types';
 import { toast } from 'sonner';
-import { useCustomers, useCreateAccount } from '@/hooks/use-supabase-data';
+import { useCustomers, useCreateAccount, DbCustomer } from '@/hooks/use-supabase-data';
+import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
 
 export default function NewAccount() {
   const navigate = useNavigate();
@@ -78,16 +79,26 @@ export default function NewAccount() {
               </div>
               <div className="space-y-2">
                 <Label className="text-card-foreground">Customer *</Label>
-                <Select value={customerId} onValueChange={setCustomerId}>
-                  <SelectTrigger className="bg-background border-border">
-                    <SelectValue placeholder="Select customer" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(customers || []).map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.full_name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex gap-2">
+                  <Select value={customerId} onValueChange={setCustomerId}>
+                    <SelectTrigger className="bg-background border-border flex-1">
+                      <SelectValue placeholder="Select customer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(customers || []).map(c => (
+                        <SelectItem key={c.id} value={c.id}>{c.full_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <NewCustomerDialog
+                    onCreated={(c) => setCustomerId(c.id)}
+                    trigger={
+                      <Button type="button" variant="outline" size="icon" className="shrink-0" title="Add new customer">
+                        <UserPlus className="h-4 w-4" />
+                      </Button>
+                    }
+                  />
+                </div>
               </div>
             </div>
 

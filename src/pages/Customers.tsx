@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { useCustomers, useAccounts } from '@/hooks/use-supabase-data';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Link } from 'react-router-dom';
+import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
 
 export default function Customers() {
   const { data: customers, isLoading } = useCustomers();
@@ -12,12 +13,15 @@ export default function Customers() {
   return (
     <AppLayout>
       <div className="animate-fade-in space-y-6">
-        <div className="flex items-center gap-3">
-          <Users className="h-5 w-5 text-primary" />
-          <div>
-            <h1 className="text-2xl font-bold text-foreground font-display">Customers</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">{(customers || []).length} registered customers</p>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Users className="h-5 w-5 text-primary" />
+            <div>
+              <h1 className="text-2xl font-bold text-foreground font-display">Customers</h1>
+              <p className="text-sm text-muted-foreground mt-0.5">{(customers || []).length} registered customers</p>
+            </div>
           </div>
+          <NewCustomerDialog />
         </div>
 
         <div className="rounded-xl border border-border bg-card overflow-hidden">
