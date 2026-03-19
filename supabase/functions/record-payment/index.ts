@@ -241,7 +241,8 @@ Deno.serve(async (req) => {
           const rem = principalToDistribute - perMonth * stillUnpaid.length;
 
           for (let i = 0; i < stillUnpaid.length; i++) {
-            const newBase = Number(stillUnpaid[i].paid_amount) + (i === 0 ? perMonth + rem : perMonth);
+            const isLast = i === stillUnpaid.length - 1;
+            const newBase = Number(stillUnpaid[i].paid_amount) + (isLast ? perMonth + rem : perMonth);
             const penAmt = Number(stillUnpaid[i].penalty_amount);
             await supabase.from("layaway_schedule").update({
               base_installment_amount: newBase,
