@@ -329,3 +329,57 @@ export function useCreateCustomer() {
     },
   });
 }
+
+// ──────────────────────────────────────────────
+// VOID PAYMENT (via edge function)
+// ──────────────────────────────────────────────
+export function useVoidPayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { payment_id: string; reason?: string }) => {
+      const { data, error } = await supabase.functions.invoke('void-payment', {
+        body: payload,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['payments'] });
+      qc.invalidateQueries({ queryKey: ['schedule'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      qc.invalidateQueries({ queryKey: ['payments-with-accounts'] });
+    },
+  });
+}
+
+// ──────────────────────────────────────────────
+// EDIT PAYMENT (date, notes, method — not amount)
+// ──────────────────────────────────────────────
+export function useEditPayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      id: string;
+      date_paid?: string;
+      remarks?: string;
+      payment_method?: string;
+      reference_number?: string;
+    }) => {
+      const { id, ...updates } = payload;
+      const { data, error } = await supabase
+        .from('payments')
+        .update(updates)
+        .eq('id', id)
+        .is('voided_at', null)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['payments'] });
+      qc.invalidateQueries({ queryKey: ['payments-with-accounts'] });
+    },
+  });
+}

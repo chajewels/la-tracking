@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.parse-import-docs]
 verify_jwt = false
+
+[functions.void-payment]
+verify_jwt = false
