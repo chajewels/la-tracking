@@ -273,8 +273,8 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
               </div>
             </div>
 
-            {/* Installment statuses */}
-            {preview.schedule_updates.length > 0 && (
+            {/* Installment statuses - only for partial payments */}
+            {!payFullBalance && preview.schedule_updates.length > 0 && (
               <div className="text-xs text-muted-foreground">
                 {preview.schedule_updates.map((su) => (
                   <span key={su.id} className="inline-flex items-center mr-2">
