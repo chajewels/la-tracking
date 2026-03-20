@@ -450,3 +450,25 @@ export function useRestorePayment() {
     },
   });
 }
+
+// ──────────────────────────────────────────────
+// DELETE ACCOUNT (via edge function)
+// ──────────────────────────────────────────────
+export function useDeleteAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (account_id: string) => {
+      const { data, error } = await supabase.functions.invoke('delete-account', {
+        body: { account_id },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      qc.invalidateQueries({ queryKey: ['customer-detail'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-summary'] });
+    },
+  });
+}
