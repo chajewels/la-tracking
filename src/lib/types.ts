@@ -1,6 +1,6 @@
 export type Currency = 'PHP' | 'JPY';
 export type PaymentPlan = 3 | 6;
-export type AccountStatus = 'active' | 'completed' | 'defaulted' | 'cancelled';
+export type AccountStatus = 'active' | 'completed' | 'defaulted' | 'cancelled' | 'forfeited';
 export type PenaltyStatus = 'pending' | 'paid' | 'waived';
 export type WaiverStatus = 'pending' | 'approved' | 'rejected';
 export type RiskLevel = 'low' | 'medium' | 'high';
