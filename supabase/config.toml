@@ -35,3 +35,6 @@ verify_jwt = false
 
 [functions.record-multi-payment]
 verify_jwt = false
+
+[functions.add-penalty]
+verify_jwt = false
