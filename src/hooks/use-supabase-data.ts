@@ -261,6 +261,7 @@ export function useDashboardSummary(currencyMode: 'PHP' | 'JPY' | 'ALL', enabled
         overdue_accounts: number;
         overdue_amount: number;
         completed_this_month: number;
+        forfeited_accounts: number;
         due_today_count: number;
         due_3_days_count: number;
         due_7_days_count: number;
