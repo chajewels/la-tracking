@@ -110,8 +110,8 @@ Deno.serve(async (req) => {
     } catch (_) {}
 
     if (isServiceRole) {
-      // Service role calls use a system user ID
-      userId = "00000000-0000-0000-0000-000000000000";
+      // Service role calls - no user ID (will be null)
+      userId = null;
     } else {
       const { data: { user }, error: authError } = await supabase.auth.getUser(token);
       if (authError || !user) {
