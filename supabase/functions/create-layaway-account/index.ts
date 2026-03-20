@@ -89,6 +89,7 @@ Deno.serve(async (req) => {
 
     // Calculate end date
     const startDate = new Date(order_date);
+    // End date = last installment due date (order month + plan months)
     const endDate = new Date(startDate.getFullYear(), startDate.getMonth() + payment_plan_months, startDate.getDate());
 
     // Create account — remaining_balance = total minus what was actually paid as DP
