@@ -1,126 +1,96 @@
 import { useState, useMemo } from 'react';
-import { Bell, Send, Clock, AlertTriangle, CheckCircle, MessageCircle, RefreshCw } from 'lucide-react';
+import { Bell, Send, Clock, AlertTriangle, CheckCircle, MessageCircle, RefreshCw, Calendar } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { mockAccounts } from '@/lib/mock-data';
-import { formatCurrency, generateScheduleDates } from '@/lib/calculations';
+import { formatCurrency } from '@/lib/calculations';
+import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
-
-interface Reminder {
-  id: string;
-  accountId: string;
-  invoiceNumber: string;
-  customerName: string;
-  messengerLink?: string;
-  type: 'upcoming' | 'due_today' | 'overdue';
-  dueDate: string;
-  amount: number;
-  currency: 'PHP' | 'JPY';
-  daysUntilDue: number;
-  status: 'queued' | 'sent' | 'failed';
-  message: string;
-  queuedAt: string;
-  sentAt?: string;
-}
-
-function generateReminderMessage(
-  type: 'upcoming' | 'due_today' | 'overdue',
-  customerName: string,
-  invoiceNumber: string,
-  amount: number,
-  currency: 'PHP' | 'JPY',
-  dueDate: string
-): string {
-  const symbol = currency === 'PHP' ? '₱' : '¥';
-  const formattedAmount = `${symbol} ${Math.round(amount).toLocaleString()}`;
-  const formattedDate = new Date(dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-  const firstName = customerName.split(' ')[0];
-
-  if (type === 'upcoming') {
-    return `Hi ${firstName}! 👋\n\nThis is a friendly reminder from Cha Jewels that your layaway payment of ${formattedAmount} for Invoice #${invoiceNumber} is due on ${formattedDate}.\n\nPlease prepare your payment to keep your layaway on track.\n\nThank you for your continued trust in Cha Jewels! 💛`;
-  } else if (type === 'due_today') {
-    return `Hi ${firstName}! 👋\n\nYour Cha Jewels layaway payment of ${formattedAmount} for Invoice #${invoiceNumber} is due today, ${formattedDate}.\n\nPlease send your payment at your earliest convenience.\n\nWe appreciate your business! 💛\n\n— Cha Jewels Team`;
-  } else {
-    return `Hi ${firstName},\n\nWe noticed your layaway payment of ${formattedAmount} for Invoice #${invoiceNumber} was due on ${formattedDate} and has not yet been received.\n\nPlease send your payment as soon as possible to avoid additional penalties.\n\nIf you have any questions, please don't hesitate to reach out.\n\nThank you for your attention.\n\n— Cha Jewels Team`;
-  }
-}
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Link } from 'react-router-dom';
 
 export default function Reminders() {
-  const [reminders, setReminders] = useState<Reminder[]>([]);
   const [generating, setGenerating] = useState(false);
+  const queryClient = useQueryClient();
 
-  const generateReminders = () => {
-    setGenerating(true);
+  // Fetch reminder logs from DB
+  const { data: reminderLogs, isLoading: logsLoading } = useQuery({
+    queryKey: ['reminder-logs'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('reminder_logs')
+        .select('*, customers(full_name, messenger_link), layaway_accounts(invoice_number, currency, remaining_balance)')
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      return data;
+    },
+  });
 
-    const now = new Date();
-    const newReminders: Reminder[] = [];
+  // Fetch upcoming/overdue schedule items for generating reminders
+  const { data: actionableItems } = useQuery({
+    queryKey: ['reminder-actionable'],
+    queryFn: async () => {
+      const today = new Date().toISOString().split('T')[0];
+      const in7days = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
 
-    mockAccounts.filter(a => a.status === 'active').forEach(account => {
-      const dates = generateScheduleDates(account.order_date, account.payment_plan);
-      
-      dates.forEach((dateStr, idx) => {
-        const dueDate = new Date(dateStr);
-        const diffDays = Math.floor((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      // Upcoming (next 7 days) + overdue (past 30 days)
+      const past30 = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
 
-        let type: 'upcoming' | 'due_today' | 'overdue' | null = null;
-        if (diffDays >= 1 && diffDays <= 3) type = 'upcoming';
-        else if (diffDays === 0) type = 'due_today';
-        else if (diffDays < 0 && diffDays >= -30) type = 'overdue';
+      const { data, error } = await supabase
+        .from('layaway_schedule')
+        .select('*, layaway_accounts!inner(id, status, currency, invoice_number, customer_id, customers(full_name, messenger_link))')
+        .in('layaway_accounts.status', ['active', 'overdue'])
+        .in('status', ['pending', 'partially_paid', 'overdue'])
+        .gte('due_date', past30)
+        .lte('due_date', in7days)
+        .order('due_date', { ascending: true });
+      if (error) throw error;
+      return data;
+    },
+  });
 
-        if (!type) return;
+  // Stats
+  const totalLogs = reminderLogs?.length || 0;
+  const sentCount = reminderLogs?.filter(r => r.delivery_status === 'sent').length || 0;
+  const failedCount = reminderLogs?.filter(r => r.delivery_status === 'failed').length || 0;
 
-        // Skip already-paid installments
-        if (idx < Math.floor(account.total_paid / (account.total_amount / account.payment_plan))) return;
+  // Categorize actionable items
+  const categorized = useMemo(() => {
+    if (!actionableItems) return { overdue: [], dueToday: [], upcoming: [] };
+    const today = new Date().toISOString().split('T')[0];
+    const overdue: typeof actionableItems = [];
+    const dueToday: typeof actionableItems = [];
+    const upcoming: typeof actionableItems = [];
 
-        const installmentAmount = Math.round(account.remaining_balance / (account.payment_plan - idx));
-
-        const reminder: Reminder = {
-          id: `rem-${account.id}-${idx}-${Date.now()}`,
-          accountId: account.id,
-          invoiceNumber: account.invoice_number,
-          customerName: account.customer.name,
-          messengerLink: account.customer.messenger_link,
-          type,
-          dueDate: dateStr,
-          amount: installmentAmount > 0 ? installmentAmount : account.remaining_balance,
-          currency: account.currency,
-          daysUntilDue: diffDays,
-          status: 'queued',
-          message: generateReminderMessage(type, account.customer.name, account.invoice_number, installmentAmount, account.currency, dateStr),
-          queuedAt: now.toISOString(),
-        };
-
-        // Avoid duplicates
-        if (!newReminders.find(r => r.accountId === account.id && r.dueDate === dateStr)) {
-          newReminders.push(reminder);
-        }
-      });
+    actionableItems.forEach(item => {
+      const remaining = Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
+      if (remaining <= 0) return;
+      if (item.due_date < today) overdue.push(item);
+      else if (item.due_date === today) dueToday.push(item);
+      else upcoming.push(item);
     });
 
-    // Sort: overdue first, then due today, then upcoming
-    newReminders.sort((a, b) => a.daysUntilDue - b.daysUntilDue);
+    return { overdue, dueToday, upcoming };
+  }, [actionableItems]);
 
-    setTimeout(() => {
-      setReminders(newReminders);
+  const handleGenerate = async () => {
+    setGenerating(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-reminders', {
+        body: { dry_run: false },
+      });
+      if (error) throw error;
+      toast.success(`Reminders processed: ${data?.sent || 0} sent`);
+      queryClient.invalidateQueries({ queryKey: ['reminder-logs'] });
+      queryClient.invalidateQueries({ queryKey: ['reminder-actionable'] });
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to generate reminders');
+    } finally {
       setGenerating(false);
-      toast.success(`Generated ${newReminders.length} reminder(s)`);
-    }, 600);
-  };
-
-  const sendReminder = (id: string) => {
-    setReminders(prev => prev.map(r =>
-      r.id === id ? { ...r, status: 'sent' as const, sentAt: new Date().toISOString() } : r
-    ));
-    toast.success('Reminder sent via Messenger');
-  };
-
-  const sendAllQueued = () => {
-    const queued = reminders.filter(r => r.status === 'queued');
-    setReminders(prev => prev.map(r =>
-      r.status === 'queued' ? { ...r, status: 'sent' as const, sentAt: new Date().toISOString() } : r
-    ));
-    toast.success(`Sent ${queued.length} reminder(s)`);
+    }
   };
 
   const typeConfig = {
@@ -129,8 +99,65 @@ export default function Reminders() {
     upcoming: { icon: Bell, label: 'Upcoming', badgeClass: 'bg-info/10 text-info border-info/20', color: 'text-info' },
   };
 
-  const queuedCount = reminders.filter(r => r.status === 'queued').length;
-  const sentCount = reminders.filter(r => r.status === 'sent').length;
+  const renderScheduleGroup = (items: any[], type: 'overdue' | 'due_today' | 'upcoming') => {
+    if (items.length === 0) return null;
+    const config = typeConfig[type];
+    const Icon = config.icon;
+    const today = new Date().toISOString().split('T')[0];
+
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 mb-2">
+          <Icon className={`h-4 w-4 ${config.color}`} />
+          <h4 className="text-xs font-semibold text-card-foreground uppercase tracking-wider">{config.label}</h4>
+          <Badge variant="outline" className={`text-[10px] ${config.badgeClass}`}>{items.length}</Badge>
+        </div>
+        {items.map(item => {
+          const acct = (item as any).layaway_accounts;
+          const customer = acct?.customers;
+          const currency = acct?.currency as Currency;
+          const remaining = Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
+          const daysFromDue = Math.floor((new Date(today).getTime() - new Date(item.due_date).getTime()) / 86400000);
+
+          return (
+            <div key={item.id} className="flex items-center justify-between p-3 rounded-lg border border-border hover:border-primary/30 transition-colors">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                  type === 'overdue' ? 'bg-destructive/10' : type === 'due_today' ? 'bg-warning/10' : 'bg-info/10'
+                }`}>
+                  <Icon className={`h-3.5 w-3.5 ${config.color}`} />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Link to={`/accounts/${acct?.id}`} className="text-sm font-medium text-card-foreground hover:text-primary transition-colors truncate">
+                      {customer?.full_name || 'Unknown'}
+                    </Link>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    INV #{acct?.invoice_number} · Due {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    {daysFromDue > 0 && ` · ${daysFromDue}d overdue`}
+                    {daysFromDue < 0 && ` · in ${Math.abs(daysFromDue)}d`}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs font-semibold text-card-foreground tabular-nums">
+                  {formatCurrency(remaining, currency)}
+                </span>
+                {customer?.messenger_link && (
+                  <a href={customer.messenger_link} target="_blank" rel="noopener noreferrer">
+                    <Button size="sm" variant="outline" className="border-info/30 text-info hover:bg-info/10 text-xs h-7 px-2">
+                      <MessageCircle className="h-3 w-3" />
+                    </Button>
+                  </a>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <AppLayout>
@@ -140,124 +167,119 @@ export default function Reminders() {
             <Send className="h-5 w-5 text-primary" />
             <div>
               <h1 className="text-2xl font-bold text-foreground font-display">Reminder Automation</h1>
-              <p className="text-sm text-muted-foreground mt-0.5">Generate & send Messenger payment reminders</p>
+              <p className="text-sm text-muted-foreground mt-0.5">Automated daily at 8:00 AM PHT · Live data</p>
             </div>
           </div>
-          <div className="flex gap-2">
-            <Button
-              onClick={generateReminders}
-              variant="outline"
-              disabled={generating}
-              className="border-primary/30 text-primary hover:bg-primary/10"
-            >
-              <RefreshCw className={`h-4 w-4 mr-1.5 ${generating ? 'animate-spin' : ''}`} />
-              {generating ? 'Generating...' : 'Generate Reminders'}
-            </Button>
-            {queuedCount > 0 && (
-              <Button onClick={sendAllQueued} className="gold-gradient text-primary-foreground font-medium">
-                <Send className="h-4 w-4 mr-1.5" /> Send All ({queuedCount})
-              </Button>
-            )}
-          </div>
+          <Button
+            onClick={handleGenerate}
+            variant="outline"
+            disabled={generating}
+            className="border-primary/30 text-primary hover:bg-primary/10"
+          >
+            <RefreshCw className={`h-4 w-4 mr-1.5 ${generating ? 'animate-spin' : ''}`} />
+            {generating ? 'Sending...' : 'Send Reminders Now'}
+          </Button>
         </div>
 
-        {/* Summary */}
-        <div className="grid grid-cols-3 gap-4">
-          <div className="rounded-xl border border-border bg-card p-4 text-center">
-            <p className="text-2xl font-bold text-foreground font-display">{reminders.length}</p>
-            <p className="text-xs text-muted-foreground mt-1">Total Reminders</p>
+        {/* Stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="rounded-xl border border-destructive/20 bg-card p-4 text-center">
+            <p className="text-2xl font-bold text-destructive font-display">{categorized.overdue.length}</p>
+            <p className="text-xs text-muted-foreground mt-1">Overdue</p>
           </div>
-          <div className="rounded-xl border border-primary/20 bg-card p-4 text-center">
-            <p className="text-2xl font-bold text-primary font-display">{queuedCount}</p>
-            <p className="text-xs text-muted-foreground mt-1">Queued</p>
+          <div className="rounded-xl border border-warning/20 bg-card p-4 text-center">
+            <p className="text-2xl font-bold text-warning font-display">{categorized.dueToday.length}</p>
+            <p className="text-xs text-muted-foreground mt-1">Due Today</p>
+          </div>
+          <div className="rounded-xl border border-info/20 bg-card p-4 text-center">
+            <p className="text-2xl font-bold text-info font-display">{categorized.upcoming.length}</p>
+            <p className="text-xs text-muted-foreground mt-1">Upcoming (7d)</p>
           </div>
           <div className="rounded-xl border border-success/20 bg-card p-4 text-center">
             <p className="text-2xl font-bold text-success font-display">{sentCount}</p>
-            <p className="text-xs text-muted-foreground mt-1">Sent</p>
+            <p className="text-xs text-muted-foreground mt-1">Sent (total)</p>
           </div>
         </div>
 
-        {/* Reminder List */}
-        {reminders.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card p-12 text-center">
-            <Send className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
-            <p className="text-sm text-muted-foreground">No reminders generated yet</p>
-            <p className="text-xs text-muted-foreground/60 mt-1">Click "Generate Reminders" to scan active accounts for upcoming and overdue payments</p>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Action Items */}
+          <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+            <h3 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-primary" /> Action Items
+            </h3>
+            {!actionableItems ? (
+              <div className="space-y-2">
+                {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
+              </div>
+            ) : (
+              <div className="space-y-4 max-h-[600px] overflow-y-auto">
+                {renderScheduleGroup(categorized.overdue, 'overdue')}
+                {renderScheduleGroup(categorized.dueToday, 'due_today')}
+                {renderScheduleGroup(categorized.upcoming, 'upcoming')}
+                {categorized.overdue.length === 0 && categorized.dueToday.length === 0 && categorized.upcoming.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-6">No pending reminders</p>
+                )}
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="space-y-3">
-            {reminders.map(reminder => {
-              const config = typeConfig[reminder.type];
-              const Icon = config.icon;
-              return (
-                <div key={reminder.id} className="rounded-xl border border-border bg-card p-4">
-                  <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-                    {/* Left: Info */}
-                    <div className="flex items-start gap-3 flex-1 min-w-0">
-                      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-                        reminder.type === 'overdue' ? 'bg-destructive/10' : reminder.type === 'due_today' ? 'bg-warning/10' : 'bg-info/10'
-                      }`}>
-                        <Icon className={`h-4 w-4 ${config.color}`} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-semibold text-card-foreground">{reminder.customerName}</p>
-                          <Badge variant="outline" className={`text-[10px] ${config.badgeClass}`}>{config.label}</Badge>
-                          {reminder.status === 'sent' && (
-                            <Badge variant="outline" className="text-[10px] bg-success/10 text-success border-success/20">
-                              <CheckCircle className="h-2.5 w-2.5 mr-0.5" /> Sent
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          INV #{reminder.invoiceNumber} · Due {new Date(reminder.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                          {reminder.daysUntilDue < 0 && ` · ${Math.abs(reminder.daysUntilDue)} days overdue`}
-                          {reminder.daysUntilDue > 0 && ` · in ${reminder.daysUntilDue} days`}
-                        </p>
-                        {/* Message preview */}
-                        <div className="mt-2 rounded-lg bg-muted/50 p-3 border border-border">
-                          <pre className="text-[10px] text-card-foreground whitespace-pre-wrap font-body leading-relaxed line-clamp-4">
-                            {reminder.message}
-                          </pre>
-                        </div>
-                      </div>
-                    </div>
 
-                    {/* Right: Actions */}
-                    <div className="flex items-center gap-2 sm:flex-col sm:items-end shrink-0">
-                      <span className="text-sm font-bold text-card-foreground tabular-nums">
-                        {formatCurrency(reminder.amount, reminder.currency)}
-                      </span>
-                      <div className="flex gap-1.5">
-                        {reminder.status === 'queued' && (
-                          <Button
-                            size="sm"
-                            onClick={() => sendReminder(reminder.id)}
-                            className="gold-gradient text-primary-foreground text-xs h-7"
-                          >
-                            <Send className="h-3 w-3 mr-1" /> Send
-                          </Button>
-                        )}
-                        {reminder.messengerLink && (
-                          <a href={reminder.messengerLink} target="_blank" rel="noopener noreferrer">
-                            <Button size="sm" variant="outline" className="border-info/30 text-info hover:bg-info/10 text-xs h-7">
-                              <MessageCircle className="h-3 w-3 mr-1" /> Open
-                            </Button>
-                          </a>
-                        )}
+          {/* Reminder History */}
+          <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+            <h3 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
+              <Bell className="h-4 w-4 text-primary" /> Reminder History
+            </h3>
+            {logsLoading ? (
+              <div className="space-y-2">
+                {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+              </div>
+            ) : (!reminderLogs || reminderLogs.length === 0) ? (
+              <div className="text-center py-12">
+                <Send className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
+                <p className="text-sm text-muted-foreground">No reminder history yet</p>
+                <p className="text-xs text-muted-foreground/60 mt-1">Reminders are sent automatically at 8:00 AM PHT daily</p>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                {reminderLogs.map(log => {
+                  const customer = (log as any).customers;
+                  const account = (log as any).layaway_accounts;
+                  const isSent = log.delivery_status === 'sent';
+                  const isFailed = log.delivery_status === 'failed';
+
+                  return (
+                    <div key={log.id} className="flex items-center justify-between p-2.5 rounded-lg border border-border">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] ${
+                          isSent ? 'bg-success/10 text-success' : isFailed ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground'
+                        }`}>
+                          {isSent ? <CheckCircle className="h-3 w-3" /> : isFailed ? <AlertTriangle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-card-foreground truncate">{customer?.full_name || '—'}</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            INV #{account?.invoice_number || '—'} · {log.channel} · {log.template_type || 'reminder'}
+                          </p>
+                        </div>
                       </div>
-                      {reminder.sentAt && (
-                        <p className="text-[10px] text-muted-foreground">
-                          Sent {new Date(reminder.sentAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                      <div className="text-right shrink-0">
+                        <Badge variant="outline" className={`text-[10px] ${
+                          isSent ? 'bg-success/10 text-success border-success/20' :
+                          isFailed ? 'bg-destructive/10 text-destructive border-destructive/20' :
+                          'bg-muted text-muted-foreground border-border'
+                        }`}>
+                          {log.delivery_status || 'pending'}
+                        </Badge>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          {log.sent_at ? new Date(log.sent_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
                         </p>
-                      )}
+                      </div>
                     </div>
-                  </div>
-                </div>
-              );
-            })}
+                  );
+                })}
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </AppLayout>
   );
