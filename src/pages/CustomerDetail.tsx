@@ -53,8 +53,21 @@ export default function CustomerDetail() {
 
   // Build consolidated message across all accounts
   const buildConsolidatedMessage = () => {
+    // Calculate total paid across all accounts for the thank-you line
+    const totalPaidAllAccounts: Record<Currency, number> = { PHP: 0, JPY: 0 };
+    for (const acct of accounts) {
+      const cur = acct.account.currency as Currency;
+      totalPaidAllAccounts[cur] += Number(acct.account.total_paid);
+    }
+    const thankYouParts = (Object.entries(totalPaidAllAccounts) as [Currency, number][])
+      .filter(([, amt]) => amt > 0)
+      .map(([cur, amt]) => formatCurrency(amt, cur));
+
     let msg = `✨ Cha Jewels Layaway Payment Summary\n\n`;
     msg += `Dear ${customer.full_name},\n\n`;
+    if (thankYouParts.length > 0) {
+      msg += `Thank you for your payment. ${thankYouParts.join(' and ')} has been received.\n\n`;
+    }
 
     for (const acct of accounts) {
       const currency = acct.account.currency as Currency;
