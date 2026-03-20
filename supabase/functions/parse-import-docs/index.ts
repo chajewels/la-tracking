@@ -8,73 +8,50 @@ const corsHeaders = {
 /**
  * Parse Import Docs Edge Function
  * 
- * Takes markdown text from parsed Word documents and uses AI to extract
- * structured customer/account data, then passes it to the bulk-import logic.
+ * Accepts markdown text and uses AI to extract structured customer/account data.
+ * Supports batch mode: splits large text into customer chunks and processes sequentially.
  * 
- * Payload: { "markdown_text": "...", "dry_run": false }
+ * Payload: { "markdown_text": "...", "dry_run": false, "batch_size": 5 }
  */
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+function splitIntoCustomerChunks(markdown: string): string[] {
+  // Split by customer headings - typically bold names or ## headings
+  // Common patterns: "**Name**", "## Name", or lines that look like customer names
+  const lines = markdown.split("\n");
+  const chunks: string[] = [];
+  let current: string[] = [];
+
+  for (const line of lines) {
+    // Detect customer boundary: bold name pattern or heading
+    const isCustomerHeading =
+      /^\*\*[A-Z][a-zA-Z\s\-'.,]+\*\*/.test(line.trim()) ||
+      /^#{1,3}\s+[A-Z][a-zA-Z\s\-'.,]+/.test(line.trim());
+
+    if (isCustomerHeading && current.length > 5) {
+      chunks.push(current.join("\n"));
+      current = [line];
+    } else {
+      current.push(line);
+    }
   }
+  if (current.length > 0) {
+    chunks.push(current.join("\n"));
+  }
+  return chunks;
+}
 
-  try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+function groupChunks(chunks: string[], batchSize: number): string[] {
+  const batches: string[] = [];
+  for (let i = 0; i < chunks.length; i += batchSize) {
+    batches.push(chunks.slice(i, i + batchSize).join("\n\n---\n\n"));
+  }
+  return batches;
+}
 
-    // Verify auth - accept service role key or user token
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const token = authHeader.replace("Bearer ", "");
-    
-    // Check if caller is using service role key by verifying the JWT role claim
-    let isServiceRole = false;
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      isServiceRole = payload.role === 'service_role';
-    } catch (_) { /* not a valid JWT or not service role */ }
-
-    if (!isServiceRole) {
-      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-      if (authError || !user) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-    }
-
-    const { markdown_text, dry_run = false } = await req.json();
-
-    if (!markdown_text) {
-      return new Response(JSON.stringify({ error: "No markdown_text provided" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      return new Response(JSON.stringify({ error: "AI service not configured" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Use AI to extract structured data
-    const systemPrompt = `You are a data extraction specialist. You extract layaway customer account data from parsed Word document text.
+const systemPrompt = `You are a data extraction specialist. You extract layaway customer account data from parsed Word document text.
 
 RULES:
-- Each customer has a name that appears as a heading before their account details
+- Each customer has a name that appears as a heading (bold or ## heading) before their account details
 - Each customer can have multiple invoices/accounts
 - For each account, extract: invoice_number, currency (PHP or JPY based on ₱/PHP or ¥/JPY), total_amount, payment_plan_months (usually 3 or 6), downpayment, order_date, schedule details
 - The "LA XXX" label tells you the end month (e.g. "LA JUL" = July, "LA SEPT" = September, etc.)
@@ -113,85 +90,130 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
   ]
 }`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-pro",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: `Extract all customer and account data from this parsed document:\n\n${markdown_text}` },
-        ],
-        temperature: 0.1,
-      }),
-    });
+async function extractWithAI(text: string, apiKey: string): Promise<any> {
+  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `Extract all customer and account data from this parsed document:\n\n${text}` },
+      ],
+      temperature: 0.1,
+    }),
+  });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again in a moment." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "AI credits exhausted." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      return new Response(JSON.stringify({ error: "AI extraction failed", details: errorText }), {
-        status: 500,
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`AI error ${response.status}: ${errorText}`);
+  }
+
+  const aiResult = await response.json();
+  const aiContent = aiResult.choices?.[0]?.message?.content;
+  if (!aiContent) throw new Error("AI returned empty response");
+
+  let jsonStr = aiContent.trim();
+  if (jsonStr.startsWith("```")) {
+    jsonStr = jsonStr.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
+  }
+  return JSON.parse(jsonStr);
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const aiResult = await response.json();
-    const aiContent = aiResult.choices?.[0]?.message?.content;
-    
-    if (!aiContent) {
-      return new Response(JSON.stringify({ error: "AI returned empty response" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Parse the JSON from AI response (strip markdown code fences if present)
-    let extractedData;
+    const token = authHeader.replace("Bearer ", "");
+    let isServiceRole = false;
     try {
-      let jsonStr = aiContent.trim();
-      if (jsonStr.startsWith("```")) {
-        jsonStr = jsonStr.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      isServiceRole = payload.role === 'service_role';
+    } catch (_) {}
+
+    if (!isServiceRole) {
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
-      extractedData = JSON.parse(jsonStr);
-    } catch (parseError) {
-      console.error("Failed to parse AI output:", aiContent.substring(0, 500));
-      return new Response(JSON.stringify({ 
-        error: "Failed to parse AI extraction result",
-        raw_preview: aiContent.substring(0, 1000),
-      }), {
+    }
+
+    const { markdown_text, dry_run = false, batch_size = 3 } = await req.json();
+
+    if (!markdown_text) {
+      return new Response(JSON.stringify({ error: "No markdown_text provided" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) {
+      return new Response(JSON.stringify({ error: "AI service not configured" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // Split into customer chunks and group into batches
+    const customerChunks = splitIntoCustomerChunks(markdown_text);
+    const batches = groupChunks(customerChunks, batch_size);
+
+    console.log(`Processing ${customerChunks.length} customer chunks in ${batches.length} batches`);
+
+    const allCustomers: any[] = [];
+    const batchResults: any[] = [];
+
+    for (let i = 0; i < batches.length; i++) {
+      console.log(`Processing batch ${i + 1}/${batches.length} (${batches[i].length} chars)`);
+      try {
+        const result = await extractWithAI(batches[i], LOVABLE_API_KEY);
+        const customers = result.customers || [];
+        allCustomers.push(...customers);
+        batchResults.push({ batch: i + 1, customers: customers.length, status: "ok" });
+      } catch (err) {
+        console.error(`Batch ${i + 1} failed:`, (err as Error).message);
+        batchResults.push({ batch: i + 1, status: "error", error: (err as Error).message });
+      }
+      // Small delay between batches to avoid rate limits
+      if (i < batches.length - 1) {
+        await new Promise(r => setTimeout(r, 2000));
+      }
     }
 
     if (dry_run) {
-      // Return the extracted data for review without importing
-      const customerCount = extractedData.customers?.length || 0;
-      const accountCount = extractedData.customers?.reduce(
+      const accountCount = allCustomers.reduce(
         (sum: number, c: any) => sum + (c.accounts?.length || 0), 0
-      ) || 0;
+      );
       return new Response(JSON.stringify({
         dry_run: true,
         summary: {
-          customers_extracted: customerCount,
+          customers_extracted: allCustomers.length,
           accounts_extracted: accountCount,
+          batches_processed: batchResults,
         },
-        data: extractedData,
+        data: { customers: allCustomers },
       }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -208,7 +230,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
         apikey: Deno.env.get("SUPABASE_ANON_KEY")!,
       },
       body: JSON.stringify({
-        customers: extractedData.customers,
+        customers: allCustomers,
         dry_run: false,
       }),
     });
@@ -218,10 +240,11 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
     return new Response(JSON.stringify({
       success: true,
       extraction: {
-        customers_extracted: extractedData.customers?.length || 0,
-        accounts_extracted: extractedData.customers?.reduce(
+        customers_extracted: allCustomers.length,
+        accounts_extracted: allCustomers.reduce(
           (sum: number, c: any) => sum + (c.accounts?.length || 0), 0
-        ) || 0,
+        ),
+        batches: batchResults,
       },
       import_result: importResult,
     }), {
