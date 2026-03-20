@@ -212,13 +212,26 @@ export default function AccountDetail() {
               </a>
             )}
             {(account.status === 'active' || account.status === 'overdue') && (
-              <Button
-                variant="outline"
-                className="border-orange-500/30 text-orange-500 hover:bg-orange-500/10"
-                onClick={() => setForfeitConfirmOpen(true)}
-              >
-                <AlertTriangle className="h-4 w-4 mr-2" /> Forfeit
-              </Button>
+              <>
+                <AddPenaltyDialog
+                  accountId={account.id}
+                  currency={currency}
+                  scheduleItems={(schedule || []).map(s => ({
+                    id: s.id,
+                    installment_number: s.installment_number,
+                    due_date: s.due_date,
+                    base_installment_amount: Number(s.base_installment_amount),
+                    status: s.status,
+                  }))}
+                />
+                <Button
+                  variant="outline"
+                  className="border-orange-500/30 text-orange-500 hover:bg-orange-500/10"
+                  onClick={() => setForfeitConfirmOpen(true)}
+                >
+                  <AlertTriangle className="h-4 w-4 mr-2" /> Forfeit
+                </Button>
+              </>
             )}
             <Button
               variant="outline"
