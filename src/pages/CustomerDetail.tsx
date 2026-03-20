@@ -281,7 +281,7 @@ export default function CustomerDetail() {
                     <Badge variant="outline" className="text-[10px] bg-success/10 text-success border-success/20 ml-1">Paid in Full</Badge>
                   )}
                 </h3>
-                {schedule.map((item) => {
+                {schedule.filter(item => item.status !== 'cancelled').map((item) => {
                   const isPaid = item.status === 'paid';
                   const penaltyAmt = Number(item.penalty_amount);
                   const baseAmt = Number(item.base_installment_amount);
