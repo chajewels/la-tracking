@@ -139,7 +139,9 @@ Deno.serve(async (req) => {
     }
 
     for (let i = 0; i < payment_plan_months; i++) {
-      const dueDate = new Date(startDate.getFullYear(), startDate.getMonth() + i, dayOfMonth);
+      // First installment is 1 month after order date, so +i+1
+      const dueDate = new Date(startDate.getFullYear(), startDate.getMonth() + i + 1, dayOfMonth);
+      // If the day overflowed (e.g. 31st in a 30-day month), clamp to last day
       if (dueDate.getDate() !== dayOfMonth) {
         dueDate.setDate(0);
       }
