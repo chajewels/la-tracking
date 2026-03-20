@@ -225,6 +225,12 @@ export default function AccountDetail() {
             </p>
           </div>
           <div className="flex gap-2 flex-wrap">
+            <ReassignOwnerDialog
+              accountId={account.id}
+              currentCustomerId={account.customer_id}
+              currentCustomerName={account.customers?.full_name || 'Unknown'}
+              invoiceNumber={account.invoice_number}
+            />
             {remainingBalance > 0 && account.status !== 'forfeited' && account.status !== 'cancelled' && (
               <>
                 <RecordPaymentDialog
