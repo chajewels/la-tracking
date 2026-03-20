@@ -71,14 +71,20 @@ Deno.serve(async (req) => {
     const oldBase = Number(schedItem.base_installment_amount);
     const penaltyAmount = Number(schedItem.penalty_amount);
     const newTotalDue = new_base_amount + penaltyAmount;
+    const isPaid = schedItem.status === "paid";
 
-    // Update the schedule item
+    // Update the schedule item — also sync paid_amount if already paid
+    const updatePayload: Record<string, unknown> = {
+      base_installment_amount: new_base_amount,
+      total_due_amount: newTotalDue,
+    };
+    if (isPaid) {
+      updatePayload.paid_amount = newTotalDue;
+    }
+
     const { error: updateErr } = await supabase
       .from("layaway_schedule")
-      .update({
-        base_installment_amount: new_base_amount,
-        total_due_amount: newTotalDue,
-      })
+      .update(updatePayload)
       .eq("id", schedule_id);
 
     if (updateErr) {
@@ -86,6 +92,21 @@ Deno.serve(async (req) => {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // If item is paid, also update account total_paid to reflect the change
+    if (isPaid) {
+      const { data: allSchedule2 } = await supabase
+        .from("layaway_schedule")
+        .select("paid_amount, status")
+        .eq("account_id", schedItem.account_id);
+      if (allSchedule2) {
+        const newTotalPaid = allSchedule2.reduce((sum, s) => sum + Number(s.paid_amount), 0);
+        await supabase
+          .from("layaway_accounts")
+          .update({ total_paid: newTotalPaid })
+          .eq("id", schedItem.account_id);
+      }
     }
 
     // Recalculate account remaining_balance

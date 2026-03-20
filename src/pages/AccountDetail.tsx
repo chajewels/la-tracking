@@ -174,7 +174,7 @@ export default function AccountDetail() {
       if (penalty > 0) {
         message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(Number(item.base_installment_amount), currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)} (PAID)\n`;
       } else {
-        message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(paid, currency)} (PAID)\n`;
+        message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)} (PAID)\n`;
       }
     } else if (isPartial) {
       message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(remainingDue, currency)} remaining (${formatCurrency(paid, currency)} paid of ${formatCurrency(totalDue, currency)})${penalty > 0 ? `, includes ${formatCurrency(penalty, currency)} penalty` : ''} — PARTIAL\n`;
