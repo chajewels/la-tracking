@@ -508,6 +508,35 @@ export default function AccountDetail() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Delete Account Confirmation */}
+        <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+          <AlertDialogContent className="bg-card border-border">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-card-foreground">Delete Account?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete INV #{account.invoice_number} and all associated payments, schedule, and penalties. This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deleteAccount.isPending}
+                onClick={async () => {
+                  try {
+                    await deleteAccount.mutateAsync(account.id);
+                    toast.success(`Account INV #${account.invoice_number} deleted`);
+                    navigate('/accounts');
+                  } catch (err: any) {
+                    toast.error(err.message || 'Failed to delete account');
+                  }
+                }}>
+                {deleteAccount.isPending ? 'Deleting…' : 'Delete Account'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </AppLayout>
   );
