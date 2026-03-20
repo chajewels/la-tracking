@@ -133,22 +133,32 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
 
         {step === 'input' && (
           <form onSubmit={(e) => { e.preventDefault(); handlePreview(); }} className="space-y-4">
-            <div className="space-y-2">
-              <Label className="text-card-foreground">Amount ({currency}) *</Label>
-              <Input
-                type="number"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder={`Max ${remainingBalance.toLocaleString()}`}
-                className="bg-background border-border"
-                min={1}
-                max={remainingBalance}
-                step="any"
-              />
-              {parsedAmount > remainingBalance && (
-                <p className="text-xs text-destructive">Amount exceeds remaining balance</p>
-              )}
-            </div>
+            {payFullBalance ? (
+              <div className="space-y-2">
+                <Label className="text-card-foreground">Amount ({currency})</Label>
+                <div className="text-2xl font-bold text-card-foreground">
+                  {formatCurrency(remainingBalance, currency)}
+                </div>
+                <p className="text-xs text-muted-foreground">Full remaining balance</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label className="text-card-foreground">Amount ({currency}) *</Label>
+                <Input
+                  type="number"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder={`Max ${remainingBalance.toLocaleString()}`}
+                  className="bg-background border-border"
+                  min={1}
+                  max={remainingBalance}
+                  step="any"
+                />
+                {parsedAmount > remainingBalance && (
+                  <p className="text-xs text-destructive">Amount exceeds remaining balance</p>
+                )}
+              </div>
+            )}
             <div className="space-y-2">
               <Label className="text-card-foreground">Payment Date *</Label>
               <Input
