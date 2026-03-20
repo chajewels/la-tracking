@@ -195,7 +195,8 @@ export default function CustomerDetail() {
 
       const laMonth = new Date(acct.account.end_date || acct.account.order_date).toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
       msg += `================\n`;
-      msg += `LA ${laMonth} remaining balance - ${formatCurrency(remainingBalance, currency)} to pay in ${acct.account.payment_plan_months} months\n\n`;
+      const unpaidCount = scheduleItems.filter(s => s.status !== 'paid' && s.status !== 'cancelled').length;
+      msg += `LA ${laMonth} remaining balance - ${formatCurrency(remainingBalance, currency)} to pay in ${unpaidCount} months\n\n`;
 
       msg += `Monthly Payment:\n`;
       scheduleItems.forEach((item, idx) => {
