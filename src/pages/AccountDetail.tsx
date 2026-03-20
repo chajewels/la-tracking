@@ -188,7 +188,7 @@ export default function AccountDetail() {
             </p>
           </div>
           <div className="flex gap-2 flex-wrap">
-            {remainingBalance > 0 && (
+            {remainingBalance > 0 && account.status !== 'forfeited' && account.status !== 'cancelled' && (
               <>
                 <RecordPaymentDialog
                   accountId={account.id}
@@ -209,6 +209,15 @@ export default function AccountDetail() {
                   <MessageCircle className="h-4 w-4 mr-2" /> Messenger
                 </Button>
               </a>
+            )}
+            {(account.status === 'active' || account.status === 'overdue') && (
+              <Button
+                variant="outline"
+                className="border-orange-500/30 text-orange-500 hover:bg-orange-500/10"
+                onClick={() => setForfeitConfirmOpen(true)}
+              >
+                <AlertTriangle className="h-4 w-4 mr-2" /> Forfeit
+              </Button>
             )}
             <Button
               variant="outline"
