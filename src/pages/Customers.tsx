@@ -258,15 +258,48 @@ export default function Customers() {
               <Label>Notes</Label>
               <Textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} rows={2} />
             </div>
-            <div className="flex justify-end gap-3 pt-2">
-              <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={saving} className="gold-gradient text-primary-foreground font-medium">
-                {saving ? 'Saving…' : 'Save Changes'}
+            <div className="flex justify-between pt-2">
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  setDeleteTarget({ id: editId!, name: editForm.full_name });
+                  setDeleteConfirmOpen(true);
+                }}
+                disabled={saving}
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                Delete
               </Button>
+              <div className="flex gap-3">
+                <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+                <Button type="submit" disabled={saving} className="gold-gradient text-primary-foreground font-medium">
+                  {saving ? 'Saving…' : 'Save Changes'}
+                </Button>
+              </div>
             </div>
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Customer</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete <strong>{deleteTarget?.name}</strong>? This cannot be undone. Customers with linked accounts cannot be deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} disabled={deleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {deleting ? 'Deleting…' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }
