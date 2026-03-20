@@ -189,22 +189,53 @@ export default function Analytics() {
     [activeAccounts, allPayments, allSchedules]
   );
 
-  // Predicted revenue
+  // Predicted revenue from REAL upcoming receivables
   const predictedRevenue = useMemo(() => {
-    let total30 = 0, total90 = 0;
-    activeAccounts.forEach(a => {
-      const schedules = (allSchedules || []).filter(s => s.account_id === a.id && ['pending', 'partially_paid'].includes(s.status));
-      const remaining = schedules.length;
-      if (remaining === 0) return;
-      let monthly = Number(a.remaining_balance) / Math.max(1, remaining);
-      if (isAllMode) monthly = toJpy(monthly, a.currency as Currency);
-      const risk = assessRisk(a, allPayments || [], allSchedules || []);
+    if (!allSchedules) return { day30: 0, day90: 0 };
+    const now = new Date();
+    const in30 = new Date(now.getTime() + 30 * 86400000);
+    const in90 = new Date(now.getTime() + 90 * 86400000);
+
+    let sum30 = 0, sum90 = 0;
+
+    // Filter to active/overdue unpaid schedule items
+    const unpaidItems = allSchedules.filter(s =>
+      ['pending', 'partially_paid', 'overdue'].includes(s.status)
+    );
+
+    // Get account currency map
+    const acctCurrencyMap = new Map(
+      (accounts || []).map(a => [a.id, a.currency as Currency])
+    );
+
+    unpaidItems.forEach(s => {
+      const dueDate = new Date(s.due_date);
+      const remaining = Math.max(0, Number(s.total_due_amount) - Number(s.paid_amount));
+      if (remaining <= 0) return;
+
+      const acctCurrency = acctCurrencyMap.get(s.account_id);
+      if (!acctCurrency) return;
+      if (!isAllMode && acctCurrency !== currency) return;
+
+      // Only active/overdue accounts
+      const acct = (accounts || []).find(a => a.id === s.account_id);
+      if (!acct || (acct.status !== 'active' && acct.status !== 'overdue')) return;
+
+      let amount = remaining;
+      if (isAllMode && acctCurrency === 'PHP') {
+        amount = toJpy(amount, 'PHP');
+      }
+
+      // Risk-adjusted
+      const risk = assessRisk(acct, allPayments || [], allSchedules || []);
       const factor = (100 - risk.score) / 100;
-      total30 += monthly * factor;
-      total90 += monthly * Math.min(3, remaining) * factor;
+
+      if (dueDate >= now && dueDate <= in30) sum30 += amount * factor;
+      if (dueDate >= now && dueDate <= in90) sum90 += amount * factor;
     });
-    return { day30: Math.round(total30), day90: Math.round(total90) };
-  }, [activeAccounts, allSchedules, allPayments, isAllMode]);
+
+    return { day30: Math.round(sum30), day90: Math.round(sum90) };
+  }, [accounts, allSchedules, allPayments, isAllMode, currency]);
 
   // CSR Performance from real data
   const csrPerformance = useMemo(() => {
