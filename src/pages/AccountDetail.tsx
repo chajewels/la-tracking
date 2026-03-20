@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2 } from 'lucide-react';
+import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign } from 'lucide-react';
 import AddPenaltyDialog from '@/components/penalties/AddPenaltyDialog';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,8 @@ import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
 import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useRestorePayment, useDeleteAccount, useForfeitAccount } from '@/hooks/use-supabase-data';
+import { supabase } from '@/integrations/supabase/client';
+import { useQueryClient } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export default function AccountDetail() {
@@ -41,6 +43,35 @@ export default function AccountDetail() {
   const [editRemarks, setEditRemarks] = useState('');
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [forfeitConfirmOpen, setForfeitConfirmOpen] = useState(false);
+  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
+  const [editScheduleAmount, setEditScheduleAmount] = useState('');
+  const [editScheduleLoading, setEditScheduleLoading] = useState(false);
+  const queryClient = useQueryClient();
+
+  const handleEditScheduleSubmit = useCallback(async (scheduleId: string) => {
+    const amount = parseFloat(editScheduleAmount);
+    if (isNaN(amount) || amount < 0) {
+      toast.error('Enter a valid amount');
+      return;
+    }
+    setEditScheduleLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('edit-schedule-item', {
+        body: { schedule_id: scheduleId, new_base_amount: amount },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      toast.success('Installment amount updated');
+      queryClient.invalidateQueries({ queryKey: ['schedule', id] });
+      queryClient.invalidateQueries({ queryKey: ['accounts', id] });
+      setEditingScheduleId(null);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update');
+    } finally {
+      setEditScheduleLoading(false);
+    }
+  }, [editScheduleAmount, id, queryClient]);
+
   if (accountLoading) {
     return (
       <AppLayout>
@@ -139,12 +170,15 @@ export default function AccountDetail() {
     const overpaymentCredit = getOverpaymentCredit(item);
 
     if (isPaid) {
-      message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(paid, currency)} — PAID`;
-      message += `\n`;
+      if (penalty > 0) {
+        message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(Number(item.base_installment_amount), currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)} (PAID)\n`;
+      } else {
+        message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(paid, currency)} (PAID)\n`;
+      }
     } else if (isPartial) {
       message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(remainingDue, currency)} remaining (${formatCurrency(paid, currency)} paid of ${formatCurrency(totalDue, currency)})${penalty > 0 ? `, includes ${formatCurrency(penalty, currency)} penalty` : ''} — PARTIAL\n`;
     } else if (penalty > 0) {
-      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)} due (includes ${formatCurrency(penalty, currency)} penalty)\n`;
+      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(Number(item.base_installment_amount), currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
     } else {
       message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(remainingDue, currency)}\n`;
     }
@@ -312,11 +346,14 @@ export default function AccountDetail() {
                 const penaltyAmt = Number(item.penalty_amount);
                 const paidAmt = Number(item.paid_amount);
                 const totalDue = Number(item.total_due_amount);
+                const baseAmt = Number(item.base_installment_amount);
                 const remainingDue = getRemainingDue(item);
                 const overpaymentCredit = getOverpaymentCredit(item);
+                const isEditingThis = editingScheduleId === item.id;
+                const canEdit = account.status !== 'forfeited' && account.status !== 'cancelled' && item.status !== 'cancelled';
                 return (
                   <div key={item.id}
-                    className={`flex items-center justify-between p-2.5 sm:p-3 rounded-lg border ${
+                    className={`group flex items-center justify-between p-2.5 sm:p-3 rounded-lg border ${
                       isPaid ? 'bg-success/5 border-success/10' : isPartial ? 'bg-primary/5 border-primary/10' : 'bg-card border-border'
                     }`}
                   >
@@ -335,20 +372,58 @@ export default function AccountDetail() {
                         </p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isPaid ? 'text-success' : isPartial ? 'text-primary' : 'text-card-foreground'}`}>
-                      {formatCurrency(isPaid ? paidAmt : remainingDue, currency)}
-                      </p>
-                      {isPartial ? (
-                        <p className="text-[10px] text-muted-foreground tabular-nums">
-                          Paid {formatCurrency(paidAmt, currency)} of {formatCurrency(totalDue, currency)}
-                        </p>
-                      ) : penaltyAmt > 0 && !isPaid ? (
-                        <p className="text-[10px] text-destructive flex items-center gap-1 justify-end">
-                          <AlertTriangle className="h-2.5 w-2.5" />
-                          Includes {formatCurrency(penaltyAmt, currency)} penalty
-                        </p>
-                      ) : null}
+                    <div className="flex items-center gap-1.5">
+                      {isEditingThis ? (
+                        <div className="flex items-center gap-1.5">
+                          <Input
+                            type="number"
+                            value={editScheduleAmount}
+                            onChange={(e) => setEditScheduleAmount(e.target.value)}
+                            className="h-7 w-24 text-xs bg-background tabular-nums"
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleEditScheduleSubmit(item.id);
+                              if (e.key === 'Escape') setEditingScheduleId(null);
+                            }}
+                          />
+                          <Button variant="ghost" size="icon" className="h-6 w-6 text-success" disabled={editScheduleLoading}
+                            onClick={() => handleEditScheduleSubmit(item.id)}>
+                            <Save className="h-3 w-3" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground"
+                            onClick={() => setEditingScheduleId(null)}>
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="text-right">
+                            <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isPaid ? 'text-success' : isPartial ? 'text-primary' : 'text-card-foreground'}`}>
+                              {formatCurrency(isPaid ? paidAmt : remainingDue, currency)}
+                            </p>
+                            {isPartial ? (
+                              <p className="text-[10px] text-muted-foreground tabular-nums">
+                                Paid {formatCurrency(paidAmt, currency)} of {formatCurrency(totalDue, currency)}
+                              </p>
+                            ) : penaltyAmt > 0 ? (
+                              <p className="text-[10px] text-destructive flex items-center gap-1 justify-end">
+                                <AlertTriangle className="h-2.5 w-2.5" />
+                                {isPaid ? 'Incl.' : 'Includes'} {formatCurrency(penaltyAmt, currency)} penalty
+                              </p>
+                            ) : null}
+                          </div>
+                          {canEdit && (
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="Edit installment amount"
+                              onClick={() => {
+                                setEditingScheduleId(item.id);
+                                setEditScheduleAmount(String(baseAmt));
+                              }}>
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                          )}
+                        </>
+                      )}
                     </div>
                   </div>
                 );
