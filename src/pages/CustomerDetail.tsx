@@ -128,6 +128,17 @@ export default function CustomerDetail() {
         msg += `Total Layaway Amount: ${formatCurrency(totalAmount, currency)}\n`;
       }
       msg += `Amount Paid: ${paymentBreakdownText}\n`;
+
+      // Show split payment allocation details
+      if (batchSiblings.length > 0) {
+        for (const batch of batchSiblings) {
+          msg += `💳 Split payment (${batch.date}): ${formatCurrency(batch.totalBatch, currency)} total\n`;
+          for (const inv of batch.invoices) {
+            msg += `   ${inv}\n`;
+          }
+        }
+      }
+
       const laMonth = new Date(acct.account.end_date || acct.account.order_date).toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
       msg += `================\n`;
       msg += `LA ${laMonth} remaining balance - ${formatCurrency(remainingBalance, currency)} to pay in ${acct.account.payment_plan_months} months\n\n`;
