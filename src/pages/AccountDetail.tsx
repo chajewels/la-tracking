@@ -64,7 +64,11 @@ export default function AccountDetail() {
   const currency = account.currency as Currency;
   const totalAmount = Number(account.total_amount);
   const totalPaid = Number(account.total_paid);
-  const remainingBalance = Number(account.remaining_balance);
+  // Compute remaining balance from schedule to account for overpayment reductions
+  const remainingBalance = (schedule || []).reduce((sum, item) => {
+    if (item.status === 'paid' || item.status === 'cancelled') return sum;
+    return sum + Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
+  }, 0);
   const downpaymentAmount = Number((account as any).downpayment_amount || 0);
   const progress = totalAmount > 0 ? (totalPaid / totalAmount) * 100 : 0;
 
