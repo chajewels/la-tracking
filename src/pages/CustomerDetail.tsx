@@ -208,7 +208,7 @@ export default function CustomerDetail() {
         </div>
 
         {/* All Accounts */}
-        {accounts.map(({ account, schedule, penalties }) => {
+        {accounts.map(({ account, schedule, penalties, schedulePaymentDates }) => {
           const currency = account.currency as Currency;
           const totalAmount = Number(account.total_amount);
           const totalPaid = Number(account.total_paid);
@@ -273,70 +273,65 @@ export default function CustomerDetail() {
                 </div>
               </div>
 
-              {/* Completed: show simple paid summary. Active: show schedule */}
-              {account.status === 'completed' ? (
-                <div className="rounded-lg border border-success/20 bg-success/5 p-4 flex items-center gap-3">
-                  <CheckCircle2 className="h-5 w-5 text-success flex-shrink-0" />
-                  <div>
-                    <p className="text-sm font-semibold text-success">Paid in Full</p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatCurrency(totalAmount, currency)} · {account.payment_plan_months}-month plan completed
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  <h3 className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
-                    <Calendar className="h-3.5 w-3.5 text-primary" /> Schedule
-                  </h3>
-                  {schedule.map((item) => {
-                    const isPaid = item.status === 'paid';
-                    const penaltyAmt = Number(item.penalty_amount);
-                    const baseAmt = Number(item.base_installment_amount);
-                    const paidAmt = Number(item.paid_amount);
-                    return (
-                      <div key={item.id}
-                        className={`flex items-center justify-between p-2.5 rounded-lg border ${
-                          isPaid ? 'bg-success/5 border-success/10' : 'bg-card border-border'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold ${
-                            isPaid ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'
-                          }`}>
-                            {isPaid ? <Check className="h-3 w-3" /> : item.installment_number}
-                          </div>
-                          <div>
-                            <p className="text-xs font-medium text-card-foreground">
-                              {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                            </p>
-                            <p className="text-[10px] text-muted-foreground">
-                              {isPaid ? 'Paid' : `Month ${item.installment_number}`}
-                            </p>
-                          </div>
+              {/* Schedule */}
+              <div className="space-y-1.5">
+                <h3 className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                  <Calendar className="h-3.5 w-3.5 text-primary" /> Schedule
+                  {account.status === 'completed' && (
+                    <Badge variant="outline" className="text-[10px] bg-success/10 text-success border-success/20 ml-1">Paid in Full</Badge>
+                  )}
+                </h3>
+                {schedule.map((item) => {
+                  const isPaid = item.status === 'paid';
+                  const penaltyAmt = Number(item.penalty_amount);
+                  const baseAmt = Number(item.base_installment_amount);
+                  const paidAmt = Number(item.paid_amount);
+                  const actualPayDate = schedulePaymentDates?.[item.id];
+                  const displayDate = isPaid && actualPayDate
+                    ? new Date(actualPayDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                    : new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                  return (
+                    <div key={item.id}
+                      className={`flex items-center justify-between p-2.5 rounded-lg border ${
+                        isPaid ? 'bg-success/5 border-success/10' : 'bg-card border-border'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold ${
+                          isPaid ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'
+                        }`}>
+                          {isPaid ? <Check className="h-3 w-3" /> : item.installment_number}
                         </div>
-                        <div className="text-right">
-                          {penaltyAmt > 0 ? (
-                            <div>
-                              <p className="text-xs font-semibold text-card-foreground tabular-nums">
-                                {formatCurrency(Number(item.total_due_amount), currency)}
-                              </p>
-                              <p className="text-[10px] text-destructive flex items-center gap-1 justify-end">
-                                <AlertTriangle className="h-2.5 w-2.5" />
-                                +{formatCurrency(penaltyAmt, currency)}
-                              </p>
-                            </div>
-                          ) : (
-                            <p className={`text-xs font-semibold tabular-nums ${isPaid ? 'text-success' : 'text-card-foreground'}`}>
-                              {isPaid ? formatCurrency(paidAmt, currency) : formatCurrency(baseAmt, currency)}
-                            </p>
-                          )}
+                        <div>
+                          <p className="text-xs font-medium text-card-foreground">
+                            {displayDate}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {isPaid ? `Paid${actualPayDate ? '' : ''}` : `Due · Month ${item.installment_number}`}
+                          </p>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
+                      <div className="text-right">
+                        {penaltyAmt > 0 && !isPaid ? (
+                          <div>
+                            <p className="text-xs font-semibold text-card-foreground tabular-nums">
+                              {formatCurrency(Number(item.total_due_amount), currency)}
+                            </p>
+                            <p className="text-[10px] text-destructive flex items-center gap-1 justify-end">
+                              <AlertTriangle className="h-2.5 w-2.5" />
+                              +{formatCurrency(penaltyAmt, currency)}
+                            </p>
+                          </div>
+                        ) : (
+                          <p className={`text-xs font-semibold tabular-nums ${isPaid ? 'text-success' : 'text-card-foreground'}`}>
+                            {isPaid ? formatCurrency(paidAmt, currency) : formatCurrency(baseAmt, currency)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           );
         })}

@@ -108,11 +108,30 @@ export function useCustomerAccounts(customerId: string | undefined) {
       const penalties = (penRes.data || []) as DbPenalty[];
       const allPayments = (payRes.data || []) as any[];
 
+      // Fetch allocations for schedule items to get actual payment dates
+      const scheduleIds = schedules.map(s => s.id);
+      const allocations = scheduleIds.length > 0
+        ? (await supabase.from('payment_allocations').select('*').in('schedule_id', scheduleIds)).data || []
+        : [];
+
+      // Build a map: schedule_id -> latest payment date
+      const schedulePaymentDateMap: Record<string, string> = {};
+      for (const alloc of allocations as any[]) {
+        const payment = allPayments.find(p => p.id === alloc.payment_id && !p.voided_at);
+        if (payment) {
+          const existing = schedulePaymentDateMap[alloc.schedule_id];
+          if (!existing || payment.date_paid > existing) {
+            schedulePaymentDateMap[alloc.schedule_id] = payment.date_paid;
+          }
+        }
+      }
+
       const accounts = (accts || []).map(acct => ({
         account: acct,
         schedule: schedules.filter(s => s.account_id === acct.id),
         penalties: penalties.filter(p => p.account_id === acct.id),
         payments: allPayments.filter(p => p.account_id === acct.id),
+        schedulePaymentDates: schedulePaymentDateMap,
       }));
 
       return { customer: customer as DbCustomer, accounts };
