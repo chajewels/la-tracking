@@ -251,7 +251,7 @@ export default function CustomerDetail() {
           <div className="flex-1">
             <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">{customer.full_name}</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              {customer.customer_code} · {accounts.length} account{accounts.length !== 1 ? 's' : ''}
+              {customer.customer_code} · {accounts.filter(a => a.account.status !== 'forfeited' && a.account.status !== 'cancelled').length} active account{accounts.filter(a => a.account.status !== 'forfeited' && a.account.status !== 'cancelled').length !== 1 ? 's' : ''}
               {customer.facebook_name && ` · @${customer.facebook_name}`}
             </p>
             {/* Location */}
