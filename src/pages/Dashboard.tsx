@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { DollarSign, FileText, AlertTriangle, TrendingUp, CheckCircle2, Banknote } from 'lucide-react';
+import { DollarSign, FileText, AlertTriangle, TrendingUp, CheckCircle2, Banknote, Users } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import StatCard from '@/components/dashboard/StatCard';
 import AgingBuckets from '@/components/dashboard/AgingBuckets';
