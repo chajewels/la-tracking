@@ -37,6 +37,30 @@ export default function Customers() {
     country: '',
   });
   const [saving, setSaving] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const resp = await supabase.functions.invoke('delete-customer', {
+        body: { customer_id: deleteTarget.id },
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      if (resp.error || resp.data?.error) throw new Error(resp.data?.error || resp.error?.message);
+      toast.success(`Customer "${deleteTarget.name}" deleted`);
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      setDeleteConfirmOpen(false);
+      setEditOpen(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const filtered = (customers || [])
     .filter(c =>
