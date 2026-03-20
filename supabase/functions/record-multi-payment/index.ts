@@ -208,15 +208,22 @@ Deno.serve(async (req) => {
           scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: newStatus });
         }
 
-        // Excess reduces LAST future installment's due amount
+        // Excess: reflect on last paid installment's paid_amount AND reduce last future installment's base
         if (remaining > 0 && futureItems.length > 0) {
+          const lastPaidIdx = scheduleUpdates.findLastIndex(u => u.status === "paid");
+          if (lastPaidIdx >= 0 && scheduleUpdates[lastPaidIdx].paid_amount !== undefined) {
+            scheduleUpdates[lastPaidIdx].paid_amount! += remaining;
+            const lastAllocIdx = paymentAllocations.findLastIndex(a => a.schedule_id === scheduleUpdates[lastPaidIdx].id && a.allocation_type === "installment");
+            if (lastAllocIdx >= 0) {
+              paymentAllocations[lastAllocIdx].allocated_amount += remaining;
+            }
+          }
+
           for (const item of [...futureItems].reverse()) {
             if (remaining <= 0) break;
             const baseAmount = Number(item.base_installment_amount);
             const reduction = Math.min(remaining, baseAmount);
             remaining -= reduction;
-
-            paymentAllocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: reduction });
 
             if (reduction >= baseAmount) {
               scheduleUpdates.push({ id: item.id, paid_amount: baseAmount, status: "paid" });
