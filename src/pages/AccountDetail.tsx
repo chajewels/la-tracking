@@ -29,13 +29,15 @@ export default function AccountDetail() {
   const voidPayment = useVoidPayment();
   const editPayment = useEditPayment();
   const restorePayment = useRestorePayment();
+  const deleteAccount = useDeleteAccount();
+  const navigate = useNavigate();
   const [voidTarget, setVoidTarget] = useState<string | null>(null);
   const [voidReason, setVoidReason] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDate, setEditDate] = useState('');
   const [editMethod, setEditMethod] = useState('');
   const [editRemarks, setEditRemarks] = useState('');
-
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   if (accountLoading) {
     return (
       <AppLayout>
