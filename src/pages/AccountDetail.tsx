@@ -544,6 +544,35 @@ export default function AccountDetail() {
           </AlertDialogContent>
         </AlertDialog>
 
+        {/* Forfeit Account Confirmation */}
+        <AlertDialog open={forfeitConfirmOpen} onOpenChange={setForfeitConfirmOpen}>
+          <AlertDialogContent className="bg-card border-border">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-card-foreground">Forfeit Account?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will mark INV #{account.invoice_number} as forfeited. The customer will be flagged as a high-risk payer. Payments can no longer be recorded on this account.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-orange-600 text-white hover:bg-orange-700"
+                disabled={forfeitAccount.isPending}
+                onClick={async () => {
+                  try {
+                    await forfeitAccount.mutateAsync(account.id);
+                    toast.success(`Account INV #${account.invoice_number} forfeited`);
+                    setForfeitConfirmOpen(false);
+                  } catch (err: any) {
+                    toast.error(err.message || 'Failed to forfeit account');
+                  }
+                }}>
+                {forfeitAccount.isPending ? 'Forfeiting…' : 'Forfeit Account'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         {/* Delete Account Confirmation */}
         <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
           <AlertDialogContent className="bg-card border-border">
