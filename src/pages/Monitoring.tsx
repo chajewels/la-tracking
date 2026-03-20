@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/calculations';
 import { Link } from 'react-router-dom';
-import { useAccounts } from '@/hooks/use-supabase-data';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -55,14 +54,9 @@ export default function Monitoring() {
   const [messengerDialog, setMessengerDialog] = useState<{ alert: AlertItem; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const activeAccountIds = useMemo(() =>
-    (accounts || []).filter(a => a.status === 'active' || a.status === 'overdue').map(a => a.id),
-    [accounts]
-  );
-
+  // Fetch schedule items directly without filtering by account IDs (avoids .in() limit issues)
   const { data: scheduleItems, isLoading: schedLoading } = useQuery({
-    queryKey: ['monitoring-schedules', activeAccountIds],
-    enabled: activeAccountIds.length > 0,
+    queryKey: ['monitoring-schedules'],
     queryFn: async () => {
       const today = new Date().toISOString().split('T')[0];
       const next7 = new Date();
@@ -71,23 +65,23 @@ export default function Monitoring() {
 
       const { data, error } = await supabase
         .from('layaway_schedule')
-        .select('*')
-        .in('account_id', activeAccountIds)
+        .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customers(full_name, messenger_link))')
         .in('status', ['pending', 'overdue', 'partially_paid'])
+        .in('layaway_accounts.status', ['active', 'overdue'])
         .lte('due_date', next7Str)
-        .order('due_date', { ascending: true });
+        .order('due_date', { ascending: true })
+        .limit(500);
       if (error) throw error;
       return data;
     },
   });
 
   const alerts: AlertItem[] = useMemo(() => {
-    if (!scheduleItems || !accounts) return [];
-    const accountMap = new Map((accounts || []).map(a => [a.id, a]));
+    if (!scheduleItems) return [];
     const today = new Date().toISOString().split('T')[0];
 
-    return scheduleItems.map(s => {
-      const acc = accountMap.get(s.account_id);
+    return scheduleItems.map((s: any) => {
+      const acc = s.layaway_accounts;
       if (!acc) return null;
       const dueDate = s.due_date;
       const diffMs = new Date(today).getTime() - new Date(dueDate).getTime();
@@ -109,14 +103,14 @@ export default function Monitoring() {
         messengerLink: acc.customers?.messenger_link,
       } as AlertItem;
     }).filter(Boolean) as AlertItem[];
-  }, [scheduleItems, accounts]);
+  }, [scheduleItems]);
 
   const sortedAlerts = useMemo(() => {
     const order = { overdue: 0, due_today: 1, upcoming: 2 };
     return [...alerts].sort((a, b) => order[a.type] - order[b.type] || b.daysOverdue - a.daysOverdue);
   }, [alerts]);
 
-  const isLoading = acctLoading || schedLoading;
+  const isLoading = schedLoading;
 
   const handleSendReminders = async () => {
     setSending(true);

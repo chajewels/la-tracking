@@ -120,6 +120,17 @@ Deno.serve(async (req) => {
       .lte("due_date", next3Str)
       .in("status", ["pending", "partially_paid"]);
 
+    // Due in 7 days
+    const next7 = new Date();
+    next7.setDate(next7.getDate() + 7);
+    const next7Str = next7.toISOString().split("T")[0];
+    const due7DaysQ = supabase
+      .from("layaway_schedule")
+      .select("account_id")
+      .gt("due_date", today)
+      .lte("due_date", next7Str)
+      .in("status", ["pending", "partially_paid"]);
+
     // Total penalties & waivers (system health)
     const totalPenaltiesQ = supabase.from("penalty_fees").select("id, status, penalty_amount, currency");
     const reminderLogsQ = supabase.from("reminder_logs").select("id, delivery_status").order("created_at", { ascending: false }).limit(200);
@@ -134,11 +145,12 @@ Deno.serve(async (req) => {
       { data: pendingWaivers },
       { data: dueTodayScheds },
       { data: due3DaysScheds },
+      { data: due7DaysScheds },
       { data: allPenalties },
       { data: reminderLogs },
     ] = await Promise.all([
       accountsQ, todayPayQ, monthPayQ, overdueSchedQ, completedQ,
-      penaltiesTodayQ, pendingWaiversQ, dueTodaySchedQ, due3DaysQ,
+      penaltiesTodayQ, pendingWaiversQ, dueTodaySchedQ, due3DaysQ, due7DaysQ,
       totalPenaltiesQ, reminderLogsQ,
     ]);
 
@@ -216,6 +228,7 @@ Deno.serve(async (req) => {
       // Operations
       due_today_count: new Set((dueTodayScheds || []).map((s: any) => s.account_id)).size,
       due_3_days_count: new Set((due3DaysScheds || []).map((s: any) => s.account_id)).size,
+      due_7_days_count: new Set((due7DaysScheds || []).map((s: any) => s.account_id)).size,
       penalties_today_count: penaltiesTodayCount,
       penalties_today_amount: penaltiesTodayAmount,
       pending_waivers_count: (pendingWaivers || []).length,
