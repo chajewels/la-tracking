@@ -92,6 +92,13 @@ export default function Dashboard() {
                 icon={CheckCircle2}
                 variant="success"
               />
+              <StatCard
+                title="Forfeited"
+                value={(summary?.forfeited_accounts ?? 0).toString()}
+                subtitle="Inactive accounts"
+                icon={ShieldAlert}
+                variant="danger"
+              />
             </>
           )}
         </div>
