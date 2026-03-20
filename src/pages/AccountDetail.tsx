@@ -30,6 +30,7 @@ export default function AccountDetail() {
   const editPayment = useEditPayment();
   const restorePayment = useRestorePayment();
   const deleteAccount = useDeleteAccount();
+  const forfeitAccount = useForfeitAccount();
   const navigate = useNavigate();
   const [voidTarget, setVoidTarget] = useState<string | null>(null);
   const [voidReason, setVoidReason] = useState('');
