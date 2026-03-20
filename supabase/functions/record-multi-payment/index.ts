@@ -186,20 +186,31 @@ Deno.serve(async (req) => {
       }
 
       if (schedule) {
-        for (const item of schedule) {
+        const unpaidItems = schedule.filter(item => item.status !== "paid" && Number(item.base_installment_amount) - Number(item.paid_amount) > 0);
+        const dueItems = unpaidItems.filter(item => item.due_date <= effectiveDate);
+        const futureItems = unpaidItems.filter(item => item.due_date > effectiveDate);
+
+        // Pay due/overdue in ascending order
+        for (const item of dueItems) {
           if (remaining <= 0) break;
-          if (item.status === "paid") continue;
           const owed = Number(item.base_installment_amount) - Number(item.paid_amount);
-          if (owed <= 0) continue;
           const toPay = Math.min(remaining, owed);
           remaining -= toPay;
           const newPaid = Number(item.paid_amount) + toPay;
           const newStatus = newPaid >= Number(item.base_installment_amount) ? "paid" : "partially_paid";
-          paymentAllocations.push({
-            schedule_id: item.id,
-            allocation_type: "installment",
-            allocated_amount: toPay,
-          });
+          paymentAllocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toPay });
+          scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: newStatus });
+        }
+
+        // Pay future installments from LAST to first (reduce end of plan)
+        for (const item of [...futureItems].reverse()) {
+          if (remaining <= 0) break;
+          const owed = Number(item.base_installment_amount) - Number(item.paid_amount);
+          const toPay = Math.min(remaining, owed);
+          remaining -= toPay;
+          const newPaid = Number(item.paid_amount) + toPay;
+          const newStatus = newPaid >= Number(item.base_installment_amount) ? "paid" : "partially_paid";
+          paymentAllocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toPay });
           scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: newStatus });
         }
       }
