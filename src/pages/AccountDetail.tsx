@@ -398,11 +398,11 @@ export default function AccountDetail() {
                         </div>
                       ) : (
                         <>
-                          <div className="text-right">
-                            <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isPaid ? 'text-success' : isPartial ? 'text-primary' : 'text-card-foreground'}`}>
-                              {formatCurrency(isPaid ? totalDue : remainingDue, currency)}
+                           <div className="text-right">
+                            <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isPaid ? 'text-success' : 'text-card-foreground'}`}>
+                              {formatCurrency(isPaid ? totalDue : totalDue, currency)}
                             </p>
-                            {isPartial ? (
+                            {paidAmt > 0 && !isPaid ? (
                               <p className="text-[10px] text-muted-foreground tabular-nums">
                                 Paid {formatCurrency(paidAmt, currency)} of {formatCurrency(totalDue, currency)}
                               </p>
