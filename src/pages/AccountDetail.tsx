@@ -174,7 +174,12 @@ export default function AccountDetail() {
           <div className="flex-1">
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">INV #{account.invoice_number}</h1>
-              <Badge variant="outline" className="bg-success/10 text-success border-success/20 text-xs">
+              <Badge variant="outline" className={
+                account.status === 'forfeited' ? 'bg-orange-500/10 text-orange-500 border-orange-500/20 text-xs' :
+                account.status === 'overdue' ? 'bg-destructive/10 text-destructive border-destructive/20 text-xs' :
+                account.status === 'completed' ? 'bg-primary/10 text-primary border-primary/20 text-xs' :
+                'bg-success/10 text-success border-success/20 text-xs'
+              }>
                 {account.status}
               </Badge>
             </div>
