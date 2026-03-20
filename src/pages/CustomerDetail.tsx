@@ -70,9 +70,49 @@ export default function CustomerDetail() {
           if (dateDiff !== 0) return dateDiff;
           return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
         });
+
+      // Build payment breakdown with split-payment annotations
+      const paymentParts = activePayments.map((p: any) => {
+        const amt = formatCurrency(Number(p.amount_paid), currency);
+        const isSplit = p.remarks && typeof p.remarks === 'string' && p.remarks.startsWith('[Multi-invoice]');
+        return isSplit ? `${amt} (split)` : amt;
+      });
       const paymentBreakdownText = activePayments.length > 0
-        ? `${activePayments.map((p: any) => formatCurrency(Number(p.amount_paid), currency)).join(' + ')} = ${formatCurrency(totalPaid, currency)}`
+        ? `${paymentParts.join(' + ')} = ${formatCurrency(totalPaid, currency)}`
         : formatCurrency(totalPaid, currency);
+
+      // Collect split payment batches for this account
+      const splitPayments = activePayments.filter(
+        (p: any) => p.remarks && typeof p.remarks === 'string' && p.remarks.startsWith('[Multi-invoice]') && p.reference_number
+      );
+      // Group by batch reference_number to find sibling invoices
+      const batchRefs = [...new Set(splitPayments.map((p: any) => p.reference_number as string))];
+      // Find sibling payments in other accounts that share the same batch ref
+      const batchSiblings: Array<{ date: string; totalBatch: number; invoices: string[] }> = [];
+      for (const ref of batchRefs) {
+        const allBatchPayments: Array<{ invoice: string; amount: number; date: string }> = [];
+        for (const otherAcct of accounts) {
+          const match = (otherAcct.payments || []).find(
+            (op: any) => !op.voided_at && op.reference_number === ref
+          );
+          if (match) {
+            allBatchPayments.push({
+              invoice: otherAcct.account.invoice_number,
+              amount: Number((match as any).amount_paid),
+              date: (match as any).date_paid,
+            });
+          }
+        }
+        if (allBatchPayments.length > 1) {
+          batchSiblings.push({
+            date: new Date(allBatchPayments[0].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            totalBatch: allBatchPayments.reduce((s, b) => s + b.amount, 0),
+            invoices: allBatchPayments.map(
+              (b) => `#${b.invoice} → ${formatCurrency(b.amount, currency)}`
+            ),
+          });
+        }
+      }
 
       const scheduleItems = acct.schedule || [];
       const unpaidSchedule = scheduleItems.filter(s => s.status !== 'paid');
