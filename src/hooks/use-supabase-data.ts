@@ -275,6 +275,8 @@ export function useCreateAccount() {
       payment_plan_months: number;
       notes?: string;
       downpayment_amount?: number;
+      downpayment_paid?: number;
+      remaining_dp_option?: 'split' | 'add_to_installments';
     }) => {
       const { data, error } = await supabase.functions.invoke('create-layaway-account', {
         body: payload,
