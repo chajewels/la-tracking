@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, MessageCircle, Search, Pencil } from 'lucide-react';
+import { Users, MessageCircle, Search, Pencil, Trash2 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useCustomers, useAccounts } from '@/hooks/use-supabase-data';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Link } from 'react-router-dom';
@@ -36,6 +37,30 @@ export default function Customers() {
     country: '',
   });
   const [saving, setSaving] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const resp = await supabase.functions.invoke('delete-customer', {
+        body: { customer_id: deleteTarget.id },
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      if (resp.error || resp.data?.error) throw new Error(resp.data?.error || resp.error?.message);
+      toast.success(`Customer "${deleteTarget.name}" deleted`);
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      setDeleteConfirmOpen(false);
+      setEditOpen(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const filtered = (customers || [])
     .filter(c =>
@@ -233,15 +258,48 @@ export default function Customers() {
               <Label>Notes</Label>
               <Textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} rows={2} />
             </div>
-            <div className="flex justify-end gap-3 pt-2">
-              <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={saving} className="gold-gradient text-primary-foreground font-medium">
-                {saving ? 'Saving…' : 'Save Changes'}
+            <div className="flex justify-between pt-2">
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  setDeleteTarget({ id: editId!, name: editForm.full_name });
+                  setDeleteConfirmOpen(true);
+                }}
+                disabled={saving}
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                Delete
               </Button>
+              <div className="flex gap-3">
+                <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+                <Button type="submit" disabled={saving} className="gold-gradient text-primary-foreground font-medium">
+                  {saving ? 'Saving…' : 'Save Changes'}
+                </Button>
+              </div>
             </div>
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Customer</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete <strong>{deleteTarget?.name}</strong>? This cannot be undone. Customers with linked accounts cannot be deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} disabled={deleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {deleting ? 'Deleting…' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }
