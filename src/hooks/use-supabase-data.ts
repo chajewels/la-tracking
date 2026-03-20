@@ -91,8 +91,8 @@ export function useCustomerAccounts(customerId: string | undefined) {
 
       const accountIds = (accts || []).map(a => a.id);
 
-      // Fetch schedules, penalties, payments, and allocations for all accounts in parallel
-      const [schedRes, penRes, payRes, allocRes] = await Promise.all([
+      // Fetch schedules, penalties, and payments for all accounts in parallel
+      const [schedRes, penRes, payRes] = await Promise.all([
         accountIds.length > 0
           ? supabase.from('layaway_schedule').select('*').in('account_id', accountIds).order('installment_number', { ascending: true })
           : Promise.resolve({ data: [] as DbSchedule[], error: null }),
@@ -102,21 +102,21 @@ export function useCustomerAccounts(customerId: string | undefined) {
         accountIds.length > 0
           ? supabase.from('payments').select('*').in('account_id', accountIds).order('date_paid', { ascending: true })
           : Promise.resolve({ data: [] as any[], error: null }),
-        accountIds.length > 0
-          ? supabase.from('payment_allocations').select('*').in('schedule_id', 
-              (await supabase.from('layaway_schedule').select('id').in('account_id', accountIds)).data?.map(s => s.id) || []
-            )
-          : Promise.resolve({ data: [] as any[], error: null }),
       ]);
 
       const schedules = (schedRes.data || []) as DbSchedule[];
       const penalties = (penRes.data || []) as DbPenalty[];
       const allPayments = (payRes.data || []) as any[];
-      const allAllocations = (allocRes.data || []) as any[];
+
+      // Fetch allocations for schedule items to get actual payment dates
+      const scheduleIds = schedules.map(s => s.id);
+      const allocations = scheduleIds.length > 0
+        ? (await supabase.from('payment_allocations').select('*').in('schedule_id', scheduleIds)).data || []
+        : [];
 
       // Build a map: schedule_id -> latest payment date
       const schedulePaymentDateMap: Record<string, string> = {};
-      for (const alloc of allAllocations) {
+      for (const alloc of allocations as any[]) {
         const payment = allPayments.find(p => p.id === alloc.payment_id && !p.voided_at);
         if (payment) {
           const existing = schedulePaymentDateMap[alloc.schedule_id];
