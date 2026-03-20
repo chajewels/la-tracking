@@ -66,12 +66,13 @@ Deno.serve(async (req) => {
     };
 
     const currencyWhere = currencyFilter !== "ALL" ? currencyFilter : null;
+    const isAllMode = currencyFilter === "ALL";
     const today = new Date().toISOString().split("T")[0];
     const monthStart = new Date();
     monthStart.setDate(1);
     const monthStartStr = monthStart.toISOString().split("T")[0];
 
-    // Fetch all data in parallel
+    // ── Build all queries in parallel ──
     let accountsQ = supabase.from("layaway_accounts").select("*").in("status", ["active", "overdue"]);
     if (currencyWhere) accountsQ = accountsQ.eq("currency", currencyWhere);
 
@@ -81,44 +82,37 @@ Deno.serve(async (req) => {
     let monthPayQ = supabase.from("payments").select("*").gte("date_paid", monthStartStr).is("voided_at", null);
     if (currencyWhere) monthPayQ = monthPayQ.eq("currency", currencyWhere);
 
-    // Overdue schedule items (past due, not fully paid) — determines real overdue count
     const overdueSchedQ = supabase
       .from("layaway_schedule")
       .select("account_id, total_due_amount, paid_amount, currency")
       .lt("due_date", today)
       .in("status", ["pending", "partially_paid"]);
 
-    // Completed this month
     const completedQ = supabase
       .from("layaway_accounts")
       .select("id")
       .eq("status", "completed")
       .gte("updated_at", monthStartStr);
 
-    // Forfeited accounts
     let forfeitedQ = supabase.from("layaway_accounts").select("id").eq("status", "forfeited");
     if (currencyWhere) forfeitedQ = forfeitedQ.eq("currency", currencyWhere);
 
-    // Penalties applied today
     const penaltiesTodayQ = supabase
       .from("penalty_fees")
       .select("id, penalty_amount, currency")
       .eq("penalty_date", today);
 
-    // Pending waivers
     const pendingWaiversQ = supabase
       .from("penalty_waiver_requests")
       .select("id")
       .eq("status", "pending");
 
-    // Due today schedule items
     const dueTodaySchedQ = supabase
       .from("layaway_schedule")
       .select("account_id")
       .eq("due_date", today)
       .in("status", ["pending", "partially_paid"]);
 
-    // Due in 3 days
     const next3 = new Date();
     next3.setDate(next3.getDate() + 3);
     const next3Str = next3.toISOString().split("T")[0];
@@ -129,7 +123,6 @@ Deno.serve(async (req) => {
       .lte("due_date", next3Str)
       .in("status", ["pending", "partially_paid"]);
 
-    // Due in 7 days
     const next7 = new Date();
     next7.setDate(next7.getDate() + 7);
     const next7Str = next7.toISOString().split("T")[0];
@@ -140,9 +133,29 @@ Deno.serve(async (req) => {
       .lte("due_date", next7Str)
       .in("status", ["pending", "partially_paid"]);
 
-    // Total penalties & waivers (system health)
     const totalPenaltiesQ = supabase.from("penalty_fees").select("id, status, penalty_amount, currency");
     const reminderLogsQ = supabase.from("reminder_logs").select("id, delivery_status").order("created_at", { ascending: false }).limit(200);
+
+    // ── Fetch ALL unpaid schedule items for predictions (no 1000-row limit) ──
+    // Use pagination to get all rows
+    const fetchAllScheduleItems = async () => {
+      const allItems: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from("layaway_schedule")
+          .select("account_id, due_date, total_due_amount, paid_amount, currency, status")
+          .in("status", ["pending", "partially_paid", "overdue"])
+          .range(from, from + pageSize - 1);
+        if (error) break;
+        if (!data || data.length === 0) break;
+        allItems.push(...data);
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+      return allItems;
+    };
 
     const [
       { data: accounts },
@@ -158,49 +171,55 @@ Deno.serve(async (req) => {
       { data: due7DaysScheds },
       { data: allPenalties },
       { data: reminderLogs },
+      allUnpaidScheduleItems,
     ] = await Promise.all([
       accountsQ, todayPayQ, monthPayQ, overdueSchedQ, completedQ, forfeitedQ,
       penaltiesTodayQ, pendingWaiversQ, dueTodaySchedQ, due3DaysQ, due7DaysQ,
-      totalPenaltiesQ, reminderLogsQ,
+      totalPenaltiesQ, reminderLogsQ, fetchAllScheduleItems(),
     ]);
 
-    // Calculate totals
+    // ── Build account currency map for predictions ──
+    const accountCurrencyMap = new Map<string, string>();
+    const activeAccountIds = new Set<string>();
+    for (const acc of accounts || []) {
+      accountCurrencyMap.set(acc.id, acc.currency);
+      activeAccountIds.add(acc.id);
+    }
+
+    // ── Calculate KPI totals ──
     let totalReceivables = 0;
     let activeCount = 0;
-
     for (const acc of accounts || []) {
       const balance = Number(acc.remaining_balance);
-      totalReceivables += currencyFilter === "ALL" ? toJpy(balance, acc.currency) : balance;
+      totalReceivables += isAllMode ? toJpy(balance, acc.currency) : balance;
       activeCount++;
     }
 
-    // Overdue: count distinct accounts that have past-due unpaid schedule items
     const overdueAccountIds = new Set<string>();
     let overdueAmount = 0;
     for (const s of overdueScheds || []) {
       if (currencyWhere && s.currency !== currencyWhere) continue;
       overdueAccountIds.add(s.account_id);
       const amt = Number(s.total_due_amount) - Number(s.paid_amount);
-      overdueAmount += currencyFilter === "ALL" ? toJpy(amt, s.currency) : amt;
+      overdueAmount += isAllMode ? toJpy(amt, s.currency) : amt;
     }
 
     let paymentsToday = 0;
     for (const p of todayPayments || []) {
-      paymentsToday += currencyFilter === "ALL" ? toJpy(Number(p.amount_paid), p.currency) : Number(p.amount_paid);
+      paymentsToday += isAllMode ? toJpy(Number(p.amount_paid), p.currency) : Number(p.amount_paid);
     }
 
     let collectionsThisMonth = 0;
     for (const p of monthPayments || []) {
-      collectionsThisMonth += currencyFilter === "ALL" ? toJpy(Number(p.amount_paid), p.currency) : Number(p.amount_paid);
+      collectionsThisMonth += isAllMode ? toJpy(Number(p.amount_paid), p.currency) : Number(p.amount_paid);
     }
 
-    // Penalties today count & amount
     let penaltiesTodayCount = 0;
     let penaltiesTodayAmount = 0;
     for (const p of penaltiesToday || []) {
       if (currencyWhere && p.currency !== currencyWhere) continue;
       penaltiesTodayCount++;
-      penaltiesTodayAmount += currencyFilter === "ALL" ? toJpy(Number(p.penalty_amount), p.currency) : Number(p.penalty_amount);
+      penaltiesTodayAmount += isAllMode ? toJpy(Number(p.penalty_amount), p.currency) : Number(p.penalty_amount);
     }
 
     // System health
@@ -220,6 +239,68 @@ Deno.serve(async (req) => {
     const totalReminders = (reminderLogs || []).length;
     const successReminders = (reminderLogs || []).filter((r: any) => r.delivery_status === "sent" || r.delivery_status === "delivered").length;
     const failedReminders = (reminderLogs || []).filter((r: any) => r.delivery_status === "failed").length;
+
+    // ── Predictions: 30d, 90d, next month, 6-month forecast ──
+    const now = new Date();
+    const in30 = new Date(now.getTime() + 30 * 86400000);
+    const in90 = new Date(now.getTime() + 90 * 86400000);
+    const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const nextMonthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+
+    let predicted30Raw = 0, predicted90Raw = 0, nextMonthRaw = 0;
+
+    // 6-month forecast buckets
+    const forecastMonths: { month: string; expected: number; adjusted: number }[] = [];
+    const monthBuckets: { start: Date; end: Date; label: string; total: number }[] = [];
+    for (let i = 0; i < 6; i++) {
+      const fStart = new Date(now.getFullYear(), now.getMonth() + i + 1, 1);
+      const fEnd = new Date(now.getFullYear(), now.getMonth() + i + 2, 0);
+      const label = fStart.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+      monthBuckets.push({ start: fStart, end: fEnd, label, total: 0 });
+    }
+
+    for (const item of allUnpaidScheduleItems) {
+      const remaining = Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
+      if (remaining <= 0) continue;
+
+      // Only count items from active/overdue accounts
+      if (!activeAccountIds.has(item.account_id)) continue;
+
+      const acctCurrency = accountCurrencyMap.get(item.account_id) || item.currency;
+      if (currencyWhere && acctCurrency !== currencyWhere) continue;
+
+      let amount = remaining;
+      if (isAllMode && acctCurrency === "PHP") {
+        amount = toJpy(amount, "PHP");
+      }
+
+      const dueDate = new Date(item.due_date);
+
+      // 30d & 90d predictions
+      if (dueDate >= now && dueDate <= in30) predicted30Raw += amount;
+      if (dueDate >= now && dueDate <= in90) predicted90Raw += amount;
+
+      // Next month
+      if (dueDate >= nextMonthStart && dueDate <= nextMonthEnd) nextMonthRaw += amount;
+
+      // 6-month forecast
+      for (const bucket of monthBuckets) {
+        if (dueDate >= bucket.start && dueDate <= bucket.end) {
+          bucket.total += amount;
+          break;
+        }
+      }
+    }
+
+    // Risk-adjusted factor: 85%
+    const riskFactor = 0.85;
+    for (const bucket of monthBuckets) {
+      forecastMonths.push({
+        month: bucket.label,
+        expected: Math.round(bucket.total),
+        adjusted: Math.round(bucket.total * riskFactor),
+      });
+    }
 
     const displayCurrency = currencyFilter === "ALL" ? "JPY" : currencyFilter;
 
@@ -251,6 +332,14 @@ Deno.serve(async (req) => {
       reminder_total: totalReminders,
       reminder_success: successReminders,
       reminder_failed: failedReminders,
+      // Predictions (NEW)
+      predicted_30d: Math.round(predicted30Raw * riskFactor),
+      predicted_30d_raw: Math.round(predicted30Raw),
+      predicted_90d: Math.round(predicted90Raw * riskFactor),
+      predicted_90d_raw: Math.round(predicted90Raw),
+      next_month_expected: Math.round(nextMonthRaw),
+      next_month_adjusted: Math.round(nextMonthRaw * riskFactor),
+      forecast_6_months: forecastMonths,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

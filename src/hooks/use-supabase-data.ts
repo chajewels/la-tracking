@@ -278,6 +278,14 @@ export function useDashboardSummary(currencyMode: 'PHP' | 'JPY' | 'ALL', enabled
         currency: string;
         currency_filter: string;
         conversion_rate: number;
+        // Predictions
+        predicted_30d: number;
+        predicted_30d_raw: number;
+        predicted_90d: number;
+        predicted_90d_raw: number;
+        next_month_expected: number;
+        next_month_adjusted: number;
+        forecast_6_months: { month: string; expected: number; adjusted: number }[];
       };
     },
   });

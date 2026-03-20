@@ -11,11 +11,12 @@ import { formatCurrency } from '@/lib/calculations';
 import { Currency, RiskLevel, CLVTier, CompletionProbability } from '@/lib/types';
 import { getDisplayCurrencyForFilter, toJpy } from '@/lib/currency-converter';
 import { Link } from 'react-router-dom';
-import { useAccounts, useCustomers, usePayments, AccountWithCustomer, DbCustomer } from '@/hooks/use-supabase-data';
+import { useAccounts, useCustomers, usePayments, useDashboardSummary, AccountWithCustomer, DbCustomer } from '@/hooks/use-supabase-data';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
 import { riskStyles } from '@/lib/analytics-engine';
+import { useAuth } from '@/contexts/AuthContext';
 
 // ── Live risk assessment from real data ──
 function assessRisk(account: AccountWithCustomer, payments: any[], schedules: any[]): { riskLevel: RiskLevel; score: number; recommendation: string; maxOverdueDays: number } {
@@ -101,19 +102,37 @@ export default function Analytics() {
   const currency = currencyFilter === 'ALL' ? undefined : currencyFilter;
   const isAllMode = currencyFilter === 'ALL';
   const displayCurrency: Currency = getDisplayCurrencyForFilter(currencyFilter);
+  const { session, loading: authLoading } = useAuth();
 
   const { data: accounts, isLoading: acctLoading } = useAccounts();
   const { data: customers, isLoading: custLoading } = useCustomers();
   const { data: allPayments, isLoading: payLoading } = usePayments();
 
+  // Use dashboard-summary for predictions (handles pagination server-side)
+  const { data: summary, isLoading: summaryLoading } = useDashboardSummary(
+    currencyFilter,
+    Boolean(session) && !authLoading,
+  );
+
+  // Paginated schedule fetch to get ALL rows (not capped at 1000)
   const { data: allSchedules } = useQuery({
     queryKey: ['all-schedules-analytics'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('layaway_schedule')
-        .select('*');
-      if (error) throw error;
-      return data;
+      const allItems: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from('layaway_schedule')
+          .select('*')
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        allItems.push(...data);
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+      return allItems;
     },
   });
 
@@ -189,53 +208,11 @@ export default function Analytics() {
     [activeAccounts, allPayments, allSchedules]
   );
 
-  // Predicted revenue from REAL upcoming receivables
-  const predictedRevenue = useMemo(() => {
-    if (!allSchedules) return { day30: 0, day90: 0 };
-    const now = new Date();
-    const in30 = new Date(now.getTime() + 30 * 86400000);
-    const in90 = new Date(now.getTime() + 90 * 86400000);
-
-    let sum30 = 0, sum90 = 0;
-
-    // Filter to active/overdue unpaid schedule items
-    const unpaidItems = allSchedules.filter(s =>
-      ['pending', 'partially_paid', 'overdue'].includes(s.status)
-    );
-
-    // Get account currency map
-    const acctCurrencyMap = new Map(
-      (accounts || []).map(a => [a.id, a.currency as Currency])
-    );
-
-    unpaidItems.forEach(s => {
-      const dueDate = new Date(s.due_date);
-      const remaining = Math.max(0, Number(s.total_due_amount) - Number(s.paid_amount));
-      if (remaining <= 0) return;
-
-      const acctCurrency = acctCurrencyMap.get(s.account_id);
-      if (!acctCurrency) return;
-      if (!isAllMode && acctCurrency !== currency) return;
-
-      // Only active/overdue accounts
-      const acct = (accounts || []).find(a => a.id === s.account_id);
-      if (!acct || (acct.status !== 'active' && acct.status !== 'overdue')) return;
-
-      let amount = remaining;
-      if (isAllMode && acctCurrency === 'PHP') {
-        amount = toJpy(amount, 'PHP');
-      }
-
-      // Risk-adjusted
-      const risk = assessRisk(acct, allPayments || [], allSchedules || []);
-      const factor = (100 - risk.score) / 100;
-
-      if (dueDate >= now && dueDate <= in30) sum30 += amount * factor;
-      if (dueDate >= now && dueDate <= in90) sum90 += amount * factor;
-    });
-
-    return { day30: Math.round(sum30), day90: Math.round(sum90) };
-  }, [accounts, allSchedules, allPayments, isAllMode, currency]);
+  // Use server-side predictions from dashboard-summary (handles all rows, no 1000-row cap)
+  const predictedRevenue = {
+    day30: summary?.predicted_30d ?? 0,
+    day90: summary?.predicted_90d ?? 0,
+  };
 
   // CSR Performance from real data
   const csrPerformance = useMemo(() => {
