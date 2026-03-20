@@ -78,12 +78,11 @@ export default function Monitoring() {
   });
 
   const alerts: AlertItem[] = useMemo(() => {
-    if (!scheduleItems || !accounts) return [];
-    const accountMap = new Map((accounts || []).map(a => [a.id, a]));
+    if (!scheduleItems) return [];
     const today = new Date().toISOString().split('T')[0];
 
-    return scheduleItems.map(s => {
-      const acc = accountMap.get(s.account_id);
+    return scheduleItems.map((s: any) => {
+      const acc = s.layaway_accounts;
       if (!acc) return null;
       const dueDate = s.due_date;
       const diffMs = new Date(today).getTime() - new Date(dueDate).getTime();
@@ -105,14 +104,14 @@ export default function Monitoring() {
         messengerLink: acc.customers?.messenger_link,
       } as AlertItem;
     }).filter(Boolean) as AlertItem[];
-  }, [scheduleItems, accounts]);
+  }, [scheduleItems]);
 
   const sortedAlerts = useMemo(() => {
     const order = { overdue: 0, due_today: 1, upcoming: 2 };
     return [...alerts].sort((a, b) => order[a.type] - order[b.type] || b.daysOverdue - a.daysOverdue);
   }, [alerts]);
 
-  const isLoading = acctLoading || schedLoading;
+  const isLoading = schedLoading;
 
   const handleSendReminders = async () => {
     setSending(true);
