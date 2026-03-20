@@ -145,11 +145,12 @@ Deno.serve(async (req) => {
       { data: pendingWaivers },
       { data: dueTodayScheds },
       { data: due3DaysScheds },
+      { data: due7DaysScheds },
       { data: allPenalties },
       { data: reminderLogs },
     ] = await Promise.all([
       accountsQ, todayPayQ, monthPayQ, overdueSchedQ, completedQ,
-      penaltiesTodayQ, pendingWaiversQ, dueTodaySchedQ, due3DaysQ,
+      penaltiesTodayQ, pendingWaiversQ, dueTodaySchedQ, due3DaysQ, due7DaysQ,
       totalPenaltiesQ, reminderLogsQ,
     ]);
 
