@@ -208,7 +208,7 @@ export default function CustomerDetail() {
         </div>
 
         {/* All Accounts */}
-        {accounts.map(({ account, schedule, penalties }) => {
+        {accounts.map(({ account, schedule, penalties, schedulePaymentDates }) => {
           const currency = account.currency as Currency;
           const totalAmount = Number(account.total_amount);
           const totalPaid = Number(account.total_paid);
