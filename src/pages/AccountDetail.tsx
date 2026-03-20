@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign } from 'lucide-react';
+import ReassignOwnerDialog from '@/components/accounts/ReassignOwnerDialog';
 import AddPenaltyDialog from '@/components/penalties/AddPenaltyDialog';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
