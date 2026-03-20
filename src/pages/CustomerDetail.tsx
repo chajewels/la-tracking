@@ -51,29 +51,46 @@ export default function CustomerDetail() {
   const { customer, accounts } = data;
   const ordinals = ['1st', '2nd', '3rd', '4th', '5th', '6th'];
 
+  const sortPaymentsNewestFirst = (a: any, b: any) => {
+    const createdDiff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    if (createdDiff !== 0) return createdDiff;
+    return new Date(b.date_paid).getTime() - new Date(a.date_paid).getTime();
+  };
+
   // Build consolidated message across all accounts
   const buildConsolidatedMessage = () => {
-    // Find the most recent payment across all accounts for the thank-you line
-    const allRecentPayments: Array<{ amount: number; currency: Currency; date: string }> = [];
-    for (const acct of accounts) {
-      const cur = acct.account.currency as Currency;
-      const activePayments = (acct.payments || []).filter((p: any) => !p.voided_at);
-      if (activePayments.length > 0) {
-        const sorted = [...activePayments].sort((a: any, b: any) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        );
-        allRecentPayments.push({
-          amount: Number((sorted[0] as any).amount_paid),
-          currency: cur,
-          date: (sorted[0] as any).date_paid,
-        });
-      }
-    }
-    // Sum most recent payments per currency
-    const recentByCurrency: Record<Currency, number> = { PHP: 0, JPY: 0 };
-    for (const p of allRecentPayments) {
-      recentByCurrency[p.currency] += p.amount;
-    }
+    const allActivePayments = accounts.flatMap((acct) =>
+      (acct.payments || [])
+        .filter((p: any) => !p.voided_at)
+        .map((p: any) => ({
+          ...p,
+          invoice_number: acct.account.invoice_number,
+          currency: acct.account.currency as Currency,
+        }))
+    );
+
+    const latestPayment = [...allActivePayments].sort(sortPaymentsNewestFirst)[0];
+    const latestPaymentIsSplitBatch =
+      !!latestPayment?.reference_number &&
+      typeof latestPayment?.remarks === 'string' &&
+      latestPayment.remarks.startsWith('[Multi-invoice]');
+
+    const latestPaymentEvent = latestPayment
+      ? latestPaymentIsSplitBatch
+        ? allActivePayments
+            .filter((p: any) => p.reference_number === latestPayment.reference_number)
+            .sort(sortPaymentsNewestFirst)
+        : [latestPayment]
+      : [];
+
+    const recentByCurrency = latestPaymentEvent.reduce<Record<Currency, number>>(
+      (totals, payment: any) => {
+        totals[payment.currency] += Number(payment.amount_paid);
+        return totals;
+      },
+      { PHP: 0, JPY: 0 }
+    );
+
     const thankYouParts = (Object.entries(recentByCurrency) as [Currency, number][])
       .filter(([, amt]) => amt > 0)
       .map(([cur, amt]) => formatCurrency(amt, cur));
@@ -82,6 +99,13 @@ export default function CustomerDetail() {
     msg += `Dear ${customer.full_name},\n\n`;
     if (thankYouParts.length > 0) {
       msg += `Thank you for your payment. ${thankYouParts.join(' and ')} has been received.\n\n`;
+
+      if (latestPaymentEvent.length > 1) {
+        latestPaymentEvent.forEach((payment: any) => {
+          msg += `Inv # ${payment.invoice_number} - ${formatCurrency(Number(payment.amount_paid), payment.currency)}\n`;
+        });
+        msg += `\n`;
+      }
     }
 
     for (const acct of accounts) {
