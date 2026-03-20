@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, MessageCircle, Search, Pencil } from 'lucide-react';
+import { Users, MessageCircle, Search, Pencil, Trash2 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useCustomers, useAccounts } from '@/hooks/use-supabase-data';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Link } from 'react-router-dom';
