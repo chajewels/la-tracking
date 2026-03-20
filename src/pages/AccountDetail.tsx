@@ -162,11 +162,19 @@ export default function AccountDetail() {
           </div>
           <div className="flex gap-2 flex-wrap">
             {remainingBalance > 0 && (
-              <RecordPaymentDialog
-                accountId={account.id}
-                currency={currency}
-                remainingBalance={remainingBalance}
-              />
+              <>
+                <RecordPaymentDialog
+                  accountId={account.id}
+                  currency={currency}
+                  remainingBalance={remainingBalance}
+                />
+                <RecordPaymentDialog
+                  accountId={account.id}
+                  currency={currency}
+                  remainingBalance={remainingBalance}
+                  payFullBalance
+                />
+              </>
             )}
             {account.customers?.messenger_link && (
               <a href={account.customers.messenger_link} target="_blank" rel="noopener noreferrer">
