@@ -34,7 +34,7 @@ export default function AddPenaltyDialog({ accountId, currency, scheduleItems }:
   const [loading, setLoading] = useState(false);
   const queryClient = useQueryClient();
 
-  const unpaidItems = scheduleItems.filter(s => s.status !== 'paid' && s.status !== 'cancelled');
+  const eligibleItems = scheduleItems.filter(s => s.status !== 'cancelled');
 
   const handleSubmit = async () => {
     if (!selectedSchedule || !selectedAmount) {
@@ -93,9 +93,9 @@ export default function AddPenaltyDialog({ accountId, currency, scheduleItems }:
                 <SelectValue placeholder="Select installment" />
               </SelectTrigger>
               <SelectContent>
-                {unpaidItems.map((item) => (
+                {eligibleItems.map((item) => (
                   <SelectItem key={item.id} value={item.id}>
-                    Month {item.installment_number} — {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    Month {item.installment_number} — {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{item.status === 'paid' ? ' (Paid)' : ''}
                   </SelectItem>
                 ))}
               </SelectContent>

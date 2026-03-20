@@ -208,7 +208,11 @@ export default function CustomerDetail() {
         const remainingDue = getRemainingDue(item);
 
         if (isPaid) {
-          msg += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)} (PAID)\n`;
+          if (penalty > 0) {
+            msg += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(Number(item.base_installment_amount), currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)} (PAID)\n`;
+          } else {
+            msg += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)} (PAID)\n`;
+          }
         } else if (isPartial) {
           msg += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(remainingDue, currency)} remaining (${formatCurrency(paid, currency)} paid of ${formatCurrency(totalDue, currency)})${penalty > 0 ? `, includes ${formatCurrency(penalty, currency)} penalty` : ''} — PARTIAL\n`;
         } else if (penalty > 0) {
@@ -468,14 +472,14 @@ export default function CustomerDetail() {
                         </div>
                       </div>
                       <div className="text-right">
-                        {penaltyAmt > 0 && !isPaid ? (
+                        {penaltyAmt > 0 ? (
                           <div>
-                            <p className="text-xs font-semibold text-card-foreground tabular-nums">
+                            <p className={`text-xs font-semibold tabular-nums ${isPaid ? 'text-success' : 'text-card-foreground'}`}>
                               {formatCurrency(Number(item.total_due_amount), currency)}
                             </p>
                             <p className="text-[10px] text-destructive flex items-center gap-1 justify-end">
                               <AlertTriangle className="h-2.5 w-2.5" />
-                              +{formatCurrency(penaltyAmt, currency)}
+                              {isPaid ? 'Incl.' : '+'}{formatCurrency(penaltyAmt, currency)}
                             </p>
                           </div>
                         ) : (
