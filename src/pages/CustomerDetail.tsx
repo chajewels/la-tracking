@@ -1,18 +1,19 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Copy, Check, CheckCircle2, MessageCircle, Calendar, AlertTriangle, MapPin, Pencil, X } from 'lucide-react';
+import { ArrowLeft, Copy, Check, CheckCircle2, MessageCircle, Calendar, AlertTriangle, MapPin, Pencil, X, Ban } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import RecordPaymentDialog from '@/components/payments/RecordPaymentDialog';
 import MultiInvoicePaymentDialog from '@/components/payments/MultiInvoicePaymentDialog';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
-import { useCustomerAccounts } from '@/hooks/use-supabase-data';
+import { useCustomerAccounts, useForfeitAccount } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -24,6 +25,7 @@ export default function CustomerDetail() {
   const [locationType, setLocationType] = useState<'japan' | 'international'>('japan');
   const [country, setCountry] = useState('');
   const queryClient = useQueryClient();
+  const forfeitAccount = useForfeitAccount();
 
   if (isLoading) {
     return (
@@ -344,27 +346,64 @@ export default function CustomerDetail() {
                   <Badge variant="outline" className={`text-xs ${
                     account.status === 'completed' ? 'bg-success/10 text-success border-success/20' :
                     account.status === 'overdue' ? 'bg-destructive/10 text-destructive border-destructive/20' :
+                    account.status === 'forfeited' ? 'bg-muted text-muted-foreground border-border' :
                     'bg-primary/10 text-primary border-primary/20'
                   }`}>
                     {account.status}
                   </Badge>
                   <Badge variant="outline" className="text-xs">{currency}</Badge>
                 </div>
-                {remainingBalance > 0 && (
-                  <div className="flex gap-2">
-                    <RecordPaymentDialog
-                      accountId={account.id}
-                      currency={currency}
-                      remainingBalance={remainingBalance}
-                    />
-                    <RecordPaymentDialog
-                      accountId={account.id}
-                      currency={currency}
-                      remainingBalance={remainingBalance}
-                      payFullBalance
-                    />
-                  </div>
-                )}
+                <div className="flex gap-2 items-center">
+                  {account.status !== 'completed' && account.status !== 'forfeited' && remainingBalance > 0 && (
+                    <>
+                      <RecordPaymentDialog
+                        accountId={account.id}
+                        currency={currency}
+                        remainingBalance={remainingBalance}
+                      />
+                      <RecordPaymentDialog
+                        accountId={account.id}
+                        currency={currency}
+                        remainingBalance={remainingBalance}
+                        payFullBalance
+                      />
+                    </>
+                  )}
+                  {account.status !== 'completed' && account.status !== 'forfeited' && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="outline" size="sm" className="text-xs border-destructive/30 text-destructive hover:bg-destructive/10">
+                          <Ban className="h-3 w-3 mr-1" /> Forfeit
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Forfeit INV #{account.invoice_number}?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will mark the account as forfeited. The remaining balance of {formatCurrency(remainingBalance, currency)} will be written off. This action cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            onClick={() => {
+                              forfeitAccount.mutate(account.id, {
+                                onSuccess: () => {
+                                  toast.success(`INV #${account.invoice_number} forfeited`);
+                                  queryClient.invalidateQueries({ queryKey: ['customer-detail', customerId] });
+                                },
+                                onError: (err) => toast.error(err.message),
+                              });
+                            }}
+                          >
+                            Forfeit
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
+                </div>
               </div>
 
               {/* Summary row */}
