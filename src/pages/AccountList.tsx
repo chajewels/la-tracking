@@ -15,6 +15,7 @@ const statusStyles: Record<string, string> = {
   completed: 'bg-primary/10 text-primary border-primary/20',
   overdue: 'bg-destructive/10 text-destructive border-destructive/20',
   cancelled: 'bg-muted text-muted-foreground border-border',
+  forfeited: 'bg-orange-500/10 text-orange-500 border-orange-500/20',
 };
 
 export default function AccountList() {

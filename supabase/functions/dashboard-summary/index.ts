@@ -95,6 +95,10 @@ Deno.serve(async (req) => {
       .eq("status", "completed")
       .gte("updated_at", monthStartStr);
 
+    // Forfeited accounts
+    let forfeitedQ = supabase.from("layaway_accounts").select("id").eq("status", "forfeited");
+    if (currencyWhere) forfeitedQ = forfeitedQ.eq("currency", currencyWhere);
+
     // Penalties applied today
     const penaltiesTodayQ = supabase
       .from("penalty_fees")
@@ -146,6 +150,7 @@ Deno.serve(async (req) => {
       { data: monthPayments },
       { data: overdueScheds },
       { data: completedAccounts },
+      { data: forfeitedAccounts },
       { data: penaltiesToday },
       { data: pendingWaivers },
       { data: dueTodayScheds },
@@ -154,7 +159,7 @@ Deno.serve(async (req) => {
       { data: allPenalties },
       { data: reminderLogs },
     ] = await Promise.all([
-      accountsQ, todayPayQ, monthPayQ, overdueSchedQ, completedQ,
+      accountsQ, todayPayQ, monthPayQ, overdueSchedQ, completedQ, forfeitedQ,
       penaltiesTodayQ, pendingWaiversQ, dueTodaySchedQ, due3DaysQ, due7DaysQ,
       totalPenaltiesQ, reminderLogsQ,
     ]);
@@ -230,6 +235,7 @@ Deno.serve(async (req) => {
       overdue_accounts: overdueAccountIds.size,
       overdue_amount: overdueAmount,
       completed_this_month: (completedAccounts || []).length,
+      forfeited_accounts: (forfeitedAccounts || []).length,
       // Operations
       due_today_count: new Set((dueTodayScheds || []).map((s: any) => s.account_id)).size,
       due_3_days_count: new Set((due3DaysScheds || []).map((s: any) => s.account_id)).size,

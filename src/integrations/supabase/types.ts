@@ -694,7 +694,12 @@ export type Database = {
     }
     Enums: {
       account_currency: "PHP" | "JPY"
-      account_status: "active" | "completed" | "cancelled" | "overdue"
+      account_status:
+        | "active"
+        | "completed"
+        | "cancelled"
+        | "overdue"
+        | "forfeited"
       allocation_type: "penalty" | "installment"
       app_role: "admin" | "staff" | "finance" | "csr"
       clv_tier: "bronze" | "silver" | "gold" | "vip"
@@ -837,7 +842,13 @@ export const Constants = {
   public: {
     Enums: {
       account_currency: ["PHP", "JPY"],
-      account_status: ["active", "completed", "cancelled", "overdue"],
+      account_status: [
+        "active",
+        "completed",
+        "cancelled",
+        "overdue",
+        "forfeited",
+      ],
       allocation_type: ["penalty", "installment"],
       app_role: ["admin", "staff", "finance", "csr"],
       clv_tier: ["bronze", "silver", "gold", "vip"],

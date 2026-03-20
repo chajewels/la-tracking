@@ -16,7 +16,7 @@ import PenaltyWaiverPanel from '@/components/penalties/PenaltyWaiverPanel';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
-import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useRestorePayment, useDeleteAccount } from '@/hooks/use-supabase-data';
+import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useRestorePayment, useDeleteAccount, useForfeitAccount } from '@/hooks/use-supabase-data';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export default function AccountDetail() {
@@ -30,6 +30,7 @@ export default function AccountDetail() {
   const editPayment = useEditPayment();
   const restorePayment = useRestorePayment();
   const deleteAccount = useDeleteAccount();
+  const forfeitAccount = useForfeitAccount();
   const navigate = useNavigate();
   const [voidTarget, setVoidTarget] = useState<string | null>(null);
   const [voidReason, setVoidReason] = useState('');
@@ -38,6 +39,7 @@ export default function AccountDetail() {
   const [editMethod, setEditMethod] = useState('');
   const [editRemarks, setEditRemarks] = useState('');
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [forfeitConfirmOpen, setForfeitConfirmOpen] = useState(false);
   if (accountLoading) {
     return (
       <AppLayout>
@@ -172,7 +174,12 @@ export default function AccountDetail() {
           <div className="flex-1">
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">INV #{account.invoice_number}</h1>
-              <Badge variant="outline" className="bg-success/10 text-success border-success/20 text-xs">
+              <Badge variant="outline" className={
+                account.status === 'forfeited' ? 'bg-orange-500/10 text-orange-500 border-orange-500/20 text-xs' :
+                account.status === 'overdue' ? 'bg-destructive/10 text-destructive border-destructive/20 text-xs' :
+                account.status === 'completed' ? 'bg-primary/10 text-primary border-primary/20 text-xs' :
+                'bg-success/10 text-success border-success/20 text-xs'
+              }>
                 {account.status}
               </Badge>
             </div>
@@ -181,7 +188,7 @@ export default function AccountDetail() {
             </p>
           </div>
           <div className="flex gap-2 flex-wrap">
-            {remainingBalance > 0 && (
+            {remainingBalance > 0 && account.status !== 'forfeited' && account.status !== 'cancelled' && (
               <>
                 <RecordPaymentDialog
                   accountId={account.id}
@@ -202,6 +209,15 @@ export default function AccountDetail() {
                   <MessageCircle className="h-4 w-4 mr-2" /> Messenger
                 </Button>
               </a>
+            )}
+            {(account.status === 'active' || account.status === 'overdue') && (
+              <Button
+                variant="outline"
+                className="border-orange-500/30 text-orange-500 hover:bg-orange-500/10"
+                onClick={() => setForfeitConfirmOpen(true)}
+              >
+                <AlertTriangle className="h-4 w-4 mr-2" /> Forfeit
+              </Button>
             )}
             <Button
               variant="outline"
@@ -523,6 +539,35 @@ export default function AccountDetail() {
                   }
                 }}>
                 {voidPayment.isPending ? 'Voiding…' : 'Void Payment'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Forfeit Account Confirmation */}
+        <AlertDialog open={forfeitConfirmOpen} onOpenChange={setForfeitConfirmOpen}>
+          <AlertDialogContent className="bg-card border-border">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-card-foreground">Forfeit Account?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will mark INV #{account.invoice_number} as forfeited. The customer will be flagged as a high-risk payer. Payments can no longer be recorded on this account.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-orange-600 text-white hover:bg-orange-700"
+                disabled={forfeitAccount.isPending}
+                onClick={async () => {
+                  try {
+                    await forfeitAccount.mutateAsync(account.id);
+                    toast.success(`Account INV #${account.invoice_number} forfeited`);
+                    setForfeitConfirmOpen(false);
+                  } catch (err: any) {
+                    toast.error(err.message || 'Failed to forfeit account');
+                  }
+                }}>
+                {forfeitAccount.isPending ? 'Forfeiting…' : 'Forfeit Account'}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

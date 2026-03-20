@@ -261,6 +261,7 @@ export function useDashboardSummary(currencyMode: 'PHP' | 'JPY' | 'ALL', enabled
         overdue_accounts: number;
         overdue_amount: number;
         completed_this_month: number;
+        forfeited_accounts: number;
         due_today_count: number;
         due_3_days_count: number;
         due_7_days_count: number;
@@ -466,6 +467,28 @@ export function useDeleteAccount() {
       });
       if (error) throw error;
       return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      qc.invalidateQueries({ queryKey: ['customer-detail'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-summary'] });
+    },
+  });
+}
+
+// ──────────────────────────────────────────────
+// FORFEIT ACCOUNT (direct update)
+// ──────────────────────────────────────────────
+export function useForfeitAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (account_id: string) => {
+      const { error } = await supabase
+        .from('layaway_accounts')
+        .update({ status: 'forfeited' as any })
+        .eq('id', account_id);
+      if (error) throw error;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['accounts'] });
