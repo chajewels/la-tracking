@@ -95,6 +95,10 @@ Deno.serve(async (req) => {
       .eq("status", "completed")
       .gte("updated_at", monthStartStr);
 
+    // Forfeited accounts
+    let forfeitedQ = supabase.from("layaway_accounts").select("id").eq("status", "forfeited");
+    if (currencyWhere) forfeitedQ = forfeitedQ.eq("currency", currencyWhere);
+
     // Penalties applied today
     const penaltiesTodayQ = supabase
       .from("penalty_fees")
