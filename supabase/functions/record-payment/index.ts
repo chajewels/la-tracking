@@ -181,7 +181,22 @@ Deno.serve(async (req) => {
     }
 
     const newTotalPaid = Number(account.total_paid) + Number(amount_paid);
-    const newRemainingBalance = Number(account.total_amount) - newTotalPaid;
+
+    // Calculate remaining balance from actual schedule amounts (accounts for overpayment reductions)
+    let newRemainingBalance = 0;
+    if (schedule) {
+      for (const item of schedule) {
+        // Check if this item has a schedule update pending
+        const update = scheduleUpdates.find(u => u.id === item.id);
+        const base = update?.base_installment_amount !== undefined ? update.base_installment_amount : Number(item.base_installment_amount);
+        const penAmt = Number(item.penalty_amount || 0);
+        const paid = update?.paid_amount !== undefined ? update.paid_amount : Number(item.paid_amount);
+        const itemStatus = update?.status !== undefined ? update.status : item.status;
+        if (itemStatus !== 'paid' && itemStatus !== 'cancelled') {
+          newRemainingBalance += Math.max(0, base + penAmt - paid);
+        }
+      }
+    }
     const newStatus = newRemainingBalance <= 0 ? "completed" : account.status;
 
     // Preview mode - return allocation plan without saving
