@@ -185,6 +185,13 @@ export default function AccountDetail() {
                 </Button>
               </a>
             )}
+            <Button
+              variant="outline"
+              className="border-destructive/30 text-destructive hover:bg-destructive/10"
+              onClick={() => setDeleteConfirmOpen(true)}
+            >
+              <Trash2 className="h-4 w-4 mr-2" /> Delete Account
+            </Button>
           </div>
         </div>
 
