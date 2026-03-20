@@ -39,6 +39,7 @@ export default function AccountDetail() {
   const [editMethod, setEditMethod] = useState('');
   const [editRemarks, setEditRemarks] = useState('');
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [forfeitConfirmOpen, setForfeitConfirmOpen] = useState(false);
   if (accountLoading) {
     return (
       <AppLayout>

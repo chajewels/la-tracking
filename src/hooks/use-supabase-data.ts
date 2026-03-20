@@ -475,3 +475,25 @@ export function useDeleteAccount() {
     },
   });
 }
+
+// ──────────────────────────────────────────────
+// FORFEIT ACCOUNT (direct update)
+// ──────────────────────────────────────────────
+export function useForfeitAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (account_id: string) => {
+      const { error } = await supabase
+        .from('layaway_accounts')
+        .update({ status: 'forfeited' as any })
+        .eq('id', account_id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      qc.invalidateQueries({ queryKey: ['customer-detail'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-summary'] });
+    },
+  });
+}
