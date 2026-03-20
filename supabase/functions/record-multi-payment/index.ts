@@ -283,10 +283,12 @@ Deno.serve(async (req) => {
 
         // Update schedule
         for (const item of scheduleUpdates) {
-          await supabase
-            .from("layaway_schedule")
-            .update({ paid_amount: item.paid_amount, status: item.status })
-            .eq("id", item.id);
+          const updateData: Record<string, unknown> = {};
+          if (item.paid_amount !== undefined) updateData.paid_amount = item.paid_amount;
+          if (item.status !== undefined) updateData.status = item.status;
+          if (item.base_installment_amount !== undefined) updateData.base_installment_amount = item.base_installment_amount;
+          if (item.total_due_amount !== undefined) updateData.total_due_amount = item.total_due_amount;
+          await supabase.from("layaway_schedule").update(updateData).eq("id", item.id);
         }
 
         // Update account
