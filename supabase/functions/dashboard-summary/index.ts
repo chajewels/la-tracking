@@ -235,6 +235,7 @@ Deno.serve(async (req) => {
       overdue_accounts: overdueAccountIds.size,
       overdue_amount: overdueAmount,
       completed_this_month: (completedAccounts || []).length,
+      forfeited_accounts: (forfeitedAccounts || []).length,
       // Operations
       due_today_count: new Set((dueTodayScheds || []).map((s: any) => s.account_id)).size,
       due_3_days_count: new Set((due3DaysScheds || []).map((s: any) => s.account_id)).size,
