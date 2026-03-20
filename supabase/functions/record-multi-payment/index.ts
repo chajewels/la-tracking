@@ -164,7 +164,13 @@ Deno.serve(async (req) => {
         penalty_fee_id?: string;
       }> = [];
       const penaltyUpdates: Array<{ id: string; status: string }> = [];
-      const scheduleUpdates: Array<{ id: string; paid_amount: number; status: string }> = [];
+      const scheduleUpdates: Array<{
+        id: string;
+        paid_amount?: number;
+        status?: string;
+        base_installment_amount?: number;
+        total_due_amount?: number;
+      }> = [];
 
       if (unpaidPenalties) {
         for (const pen of unpaidPenalties) {
@@ -202,16 +208,27 @@ Deno.serve(async (req) => {
           scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: newStatus });
         }
 
-        // Pay future installments from LAST to first (reduce end of plan)
-        for (const item of [...futureItems].reverse()) {
-          if (remaining <= 0) break;
-          const owed = Number(item.base_installment_amount) - Number(item.paid_amount);
-          const toPay = Math.min(remaining, owed);
-          remaining -= toPay;
-          const newPaid = Number(item.paid_amount) + toPay;
-          const newStatus = newPaid >= Number(item.base_installment_amount) ? "paid" : "partially_paid";
-          paymentAllocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toPay });
-          scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: newStatus });
+        // Excess reduces LAST future installment's due amount
+        if (remaining > 0 && futureItems.length > 0) {
+          for (const item of [...futureItems].reverse()) {
+            if (remaining <= 0) break;
+            const baseAmount = Number(item.base_installment_amount);
+            const reduction = Math.min(remaining, baseAmount);
+            remaining -= reduction;
+
+            paymentAllocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: reduction });
+
+            if (reduction >= baseAmount) {
+              scheduleUpdates.push({ id: item.id, paid_amount: baseAmount, status: "paid" });
+            } else {
+              const newBase = baseAmount - reduction;
+              scheduleUpdates.push({
+                id: item.id,
+                base_installment_amount: newBase,
+                total_due_amount: newBase + Number(item.penalty_amount || 0),
+              });
+            }
+          }
         }
       }
 
@@ -266,10 +283,12 @@ Deno.serve(async (req) => {
 
         // Update schedule
         for (const item of scheduleUpdates) {
-          await supabase
-            .from("layaway_schedule")
-            .update({ paid_amount: item.paid_amount, status: item.status })
-            .eq("id", item.id);
+          const updateData: Record<string, unknown> = {};
+          if (item.paid_amount !== undefined) updateData.paid_amount = item.paid_amount;
+          if (item.status !== undefined) updateData.status = item.status;
+          if (item.base_installment_amount !== undefined) updateData.base_installment_amount = item.base_installment_amount;
+          if (item.total_due_amount !== undefined) updateData.total_due_amount = item.total_due_amount;
+          await supabase.from("layaway_schedule").update(updateData).eq("id", item.id);
         }
 
         // Update account
