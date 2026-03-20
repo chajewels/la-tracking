@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import RecordPaymentDialog from '@/components/payments/RecordPaymentDialog';
+import MultiInvoicePaymentDialog from '@/components/payments/MultiInvoicePaymentDialog';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
@@ -197,6 +198,19 @@ export default function CustomerDetail() {
             </div>
           </div>
           <div className="flex gap-2 flex-wrap">
+            <MultiInvoicePaymentDialog
+              customerId={customer.id}
+              customerName={customer.full_name}
+              accounts={accounts.map(({ account }) => ({
+                id: account.id,
+                invoice_number: account.invoice_number,
+                currency: account.currency,
+                remaining_balance: Number(account.remaining_balance),
+                total_amount: Number(account.total_amount),
+                total_paid: Number(account.total_paid),
+                status: account.status,
+              }))}
+            />
             {customer.messenger_link && (
               <a href={customer.messenger_link} target="_blank" rel="noopener noreferrer">
                 <Button variant="outline" className="border-info/30 text-info hover:bg-info/10">
