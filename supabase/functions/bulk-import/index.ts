@@ -280,7 +280,7 @@ Deno.serve(async (req) => {
                 remaining_balance: Math.max(0, remainingBalance),
                 notes: a.notes || null,
                 status,
-                created_by_user_id: user.id,
+                created_by_user_id: userId,
               })
               .select("id")
               .single();
@@ -367,7 +367,7 @@ Deno.serve(async (req) => {
                   date_paid: a.order_date,
                   payment_method: "cash",
                   remarks: "Downpayment (bulk import)",
-                  entered_by_user_id: user.id,
+                  entered_by_user_id: userId,
                 });
 
               if (!dpErr) results.payments_recorded++;
@@ -391,7 +391,7 @@ Deno.serve(async (req) => {
                   date_paid: datePaid,
                   payment_method: "cash",
                   remarks: `Installment ${s.installment_number} (bulk import)`,
-                  entered_by_user_id: user.id,
+                  entered_by_user_id: userId,
                 })
                 .select("id")
                 .single();
@@ -419,7 +419,7 @@ Deno.serve(async (req) => {
               entity_id: account.id,
               action: "bulk_import",
               new_value_json: { invoice_number: a.invoice_number, customer: c.full_name },
-              performed_by_user_id: user.id,
+              performed_by_user_id: userId,
             });
 
           } catch (acctError) {
