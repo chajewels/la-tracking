@@ -37,6 +37,7 @@ Deno.serve(async (req) => {
     const token = authHeader.replace("Bearer ", "");
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const isServiceRole = token === serviceRoleKey;
+    console.log("Auth check - isServiceRole:", isServiceRole, "token length:", token.length, "srk length:", serviceRoleKey.length);
 
     if (!isServiceRole) {
       const { data: { user }, error: authError } = await supabase.auth.getUser(token);
