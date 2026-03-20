@@ -53,13 +53,28 @@ export default function CustomerDetail() {
 
   // Build consolidated message across all accounts
   const buildConsolidatedMessage = () => {
-    // Calculate total paid across all accounts for the thank-you line
-    const totalPaidAllAccounts: Record<Currency, number> = { PHP: 0, JPY: 0 };
+    // Find the most recent payment across all accounts for the thank-you line
+    const allRecentPayments: Array<{ amount: number; currency: Currency; date: string }> = [];
     for (const acct of accounts) {
       const cur = acct.account.currency as Currency;
-      totalPaidAllAccounts[cur] += Number(acct.account.total_paid);
+      const activePayments = (acct.payments || []).filter((p: any) => !p.voided_at);
+      if (activePayments.length > 0) {
+        const sorted = [...activePayments].sort((a: any, b: any) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+        allRecentPayments.push({
+          amount: Number((sorted[0] as any).amount_paid),
+          currency: cur,
+          date: (sorted[0] as any).date_paid,
+        });
+      }
     }
-    const thankYouParts = (Object.entries(totalPaidAllAccounts) as [Currency, number][])
+    // Sum most recent payments per currency
+    const recentByCurrency: Record<Currency, number> = { PHP: 0, JPY: 0 };
+    for (const p of allRecentPayments) {
+      recentByCurrency[p.currency] += p.amount;
+    }
+    const thankYouParts = (Object.entries(recentByCurrency) as [Currency, number][])
       .filter(([, amt]) => amt > 0)
       .map(([cur, amt]) => formatCurrency(amt, cur));
 

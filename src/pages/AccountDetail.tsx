@@ -96,7 +96,15 @@ export default function AccountDetail() {
   const getRemainingDue = (item: { total_due_amount: number | string; paid_amount: number | string }) =>
     Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
 
+  // Find the most recent payment for the thank-you line
+  const mostRecentPayment = activePayments.length > 0
+    ? [...activePayments].sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
+    : null;
+
   let message = `✨ Cha Jewels Layaway Payment Summary\n\n`;
+  if (mostRecentPayment) {
+    message += `Thank you for your payment. ${formatCurrency(Number((mostRecentPayment as any).amount_paid), currency)} has been received.\n\n`;
+  }
   message += `Inv # ${account.invoice_number}\n`;
   if (totalPenalty > 0) {
     message += `Total Layaway Amount: ${formatCurrency(totalAmount, currency)} + ${formatCurrency(totalPenalty, currency)} (Penalty)\n`;
