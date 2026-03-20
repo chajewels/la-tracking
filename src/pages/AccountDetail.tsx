@@ -156,7 +156,8 @@ export default function AccountDetail() {
   message += `Amount Paid: ${paymentBreakdownText}\n`;
   const laRemainingText = `LA ${new Date(account.end_date || account.order_date).toLocaleDateString('en-US', { month: 'short' }).toUpperCase()} remaining balance`;
   message += `================\n`;
-  message += `${laRemainingText} - ${formatCurrency(remainingBalance, currency)} to pay in ${account.payment_plan_months} months\n\n`;
+  const unpaidCount = scheduleItems.filter(s => s.status !== 'paid' && s.status !== 'cancelled').length;
+  message += `${laRemainingText} - ${formatCurrency(remainingBalance, currency)} to pay in ${unpaidCount} months\n\n`;
 
   message += `Payment Schedule:\n\n`;
   scheduleItems.forEach((item, idx) => {
@@ -173,7 +174,7 @@ export default function AccountDetail() {
       if (penalty > 0) {
         message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(Number(item.base_installment_amount), currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)} (PAID)\n`;
       } else {
-        message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(paid, currency)} (PAID)\n`;
+        message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)} (PAID)\n`;
       }
     } else if (isPartial) {
       message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(remainingDue, currency)} remaining (${formatCurrency(paid, currency)} paid of ${formatCurrency(totalDue, currency)})${penalty > 0 ? `, includes ${formatCurrency(penalty, currency)} penalty` : ''} — PARTIAL\n`;
@@ -399,7 +400,7 @@ export default function AccountDetail() {
                         <>
                           <div className="text-right">
                             <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isPaid ? 'text-success' : isPartial ? 'text-primary' : 'text-card-foreground'}`}>
-                              {formatCurrency(isPaid ? paidAmt : remainingDue, currency)}
+                              {formatCurrency(isPaid ? totalDue : remainingDue, currency)}
                             </p>
                             {isPartial ? (
                               <p className="text-[10px] text-muted-foreground tabular-nums">
