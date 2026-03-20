@@ -30,6 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [profile, setProfile] = useState<{ full_name: string; email: string | null } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
 
   const clearAuthState = () => {
     setSession(null);
@@ -53,11 +54,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let isMounted = true;
 
-    const syncSession = async (nextSession: Session | null) => {
+    const syncSession = async (nextSession: Session | null, isInitial: boolean) => {
       if (!nextSession?.access_token) {
         if (!isMounted) return;
         clearAuthState();
-        setLoading(false);
+        if (isInitial) { setLoading(false); setInitialLoadDone(true); }
         return;
       }
 
@@ -67,7 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await supabase.auth.signOut({ scope: 'local' });
         if (!isMounted) return;
         clearAuthState();
-        setLoading(false);
+        if (isInitial) { setLoading(false); setInitialLoadDone(true); }
         return;
       }
 
@@ -78,26 +79,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(data.user);
       setRoles(nextRoles);
       setProfile(nextProfile);
-      setLoading(false);
+      if (isInitial) { setLoading(false); setInitialLoadDone(true); }
     };
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!isMounted) return;
-      setLoading(true);
+
+      // On SIGNED_OUT, clear immediately without showing spinner
+      if (event === 'SIGNED_OUT') {
+        clearAuthState();
+        return;
+      }
+
+      // On SIGNED_IN, show loading only if we haven't loaded yet
+      if (event === 'SIGNED_IN' && !initialLoadDone) {
+        setLoading(true);
+      }
+
+      // For TOKEN_REFRESHED and other events, update session silently (no spinner)
       globalThis.setTimeout(() => {
-        void syncSession(nextSession);
+        void syncSession(nextSession, !initialLoadDone);
       }, 0);
     });
 
     void supabase.auth.getSession().then(({ data: { session } }) => {
-      void syncSession(session);
+      void syncSession(session, true);
     });
 
     return () => {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [initialLoadDone]);
 
   const signOut = async () => {
     await supabase.auth.signOut();
