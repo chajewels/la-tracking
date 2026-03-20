@@ -38,7 +38,7 @@ interface RecordPaymentDialogProps {
   payFullBalance?: boolean;
 }
 
-export default function RecordPaymentDialog({ accountId, currency, remainingBalance }: RecordPaymentDialogProps) {
+export default function RecordPaymentDialog({ accountId, currency, remainingBalance, payFullBalance }: RecordPaymentDialogProps) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
@@ -49,7 +49,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   const [loadingPreview, setLoadingPreview] = useState(false);
   const recordPayment = useRecordPayment();
 
-  const parsedAmount = parseFloat(amount) || 0;
+  const parsedAmount = payFullBalance ? remainingBalance : (parseFloat(amount) || 0);
   const isValid = parsedAmount > 0 && parsedAmount <= remainingBalance && paymentDate;
 
   const handlePreview = async () => {
