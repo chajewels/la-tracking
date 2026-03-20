@@ -132,9 +132,9 @@ export default function AccountDetail() {
     const overpaymentCredit = getOverpaymentCredit(item);
 
     if (isPaid) {
-      message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)} — PAID`;
+      message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(paid, currency)} — PAID`;
       if (overpaymentCredit > 0) {
-        message += ` (${formatCurrency(paid, currency)} received; final month reduced by ${formatCurrency(overpaymentCredit, currency)})`;
+        message += ` (final month reduced by ${formatCurrency(overpaymentCredit, currency)})`;
       }
       message += `\n`;
     } else if (isPartial) {
@@ -306,7 +306,7 @@ export default function AccountDetail() {
                     </div>
                     <div className="text-right">
                       <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isPaid ? 'text-success' : isPartial ? 'text-primary' : 'text-card-foreground'}`}>
-                        {formatCurrency(isPaid ? totalDue : remainingDue, currency)}
+                      {formatCurrency(isPaid ? paidAmt : remainingDue, currency)}
                       </p>
                       {isPaid && overpaymentCredit > 0 ? (
                         <p className="text-[10px] text-muted-foreground tabular-nums">
