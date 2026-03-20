@@ -95,6 +95,10 @@ export default function AccountDetail() {
   const ordinals = ['1st', '2nd', '3rd', '4th', '5th', '6th'];
   const getRemainingDue = (item: { total_due_amount: number | string; paid_amount: number | string }) =>
     Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
+  const getOverpaymentCredit = (item: { total_due_amount: number | string; paid_amount: number | string; status: string }) =>
+    item.status === 'paid'
+      ? Math.max(0, Number(item.paid_amount) - Number(item.total_due_amount))
+      : 0;
 
   // Find the most recent payment for the thank-you line
   const mostRecentPayment = activePayments.length > 0
@@ -125,9 +129,14 @@ export default function AccountDetail() {
     const totalDue = Number(item.total_due_amount);
     const paid = Number(item.paid_amount);
     const remainingDue = getRemainingDue(item);
+    const overpaymentCredit = getOverpaymentCredit(item);
 
     if (isPaid) {
-      message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)} — PAID\n`;
+      message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)} — PAID`;
+      if (overpaymentCredit > 0) {
+        message += ` (${formatCurrency(paid, currency)} received; final month reduced by ${formatCurrency(overpaymentCredit, currency)})`;
+      }
+      message += `\n`;
     } else if (isPartial) {
       message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(remainingDue, currency)} remaining (${formatCurrency(paid, currency)} paid of ${formatCurrency(totalDue, currency)})${penalty > 0 ? `, includes ${formatCurrency(penalty, currency)} penalty` : ''} — PARTIAL\n`;
     } else if (penalty > 0) {
@@ -273,6 +282,7 @@ export default function AccountDetail() {
                 const paidAmt = Number(item.paid_amount);
                 const totalDue = Number(item.total_due_amount);
                 const remainingDue = getRemainingDue(item);
+                const overpaymentCredit = getOverpaymentCredit(item);
                 return (
                   <div key={item.id}
                     className={`flex items-center justify-between p-2.5 sm:p-3 rounded-lg border ${
@@ -296,9 +306,13 @@ export default function AccountDetail() {
                     </div>
                     <div className="text-right">
                       <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isPaid ? 'text-success' : isPartial ? 'text-primary' : 'text-card-foreground'}`}>
-                        {formatCurrency(isPaid ? paidAmt : remainingDue, currency)}
+                        {formatCurrency(isPaid ? totalDue : remainingDue, currency)}
                       </p>
-                      {isPartial ? (
+                      {isPaid && overpaymentCredit > 0 ? (
+                        <p className="text-[10px] text-muted-foreground tabular-nums">
+                          Received {formatCurrency(paidAmt, currency)} · Final month reduced by {formatCurrency(overpaymentCredit, currency)}
+                        </p>
+                      ) : isPartial ? (
                         <p className="text-[10px] text-muted-foreground tabular-nums">
                           Paid {formatCurrency(paidAmt, currency)} of {formatCurrency(totalDue, currency)}
                         </p>
