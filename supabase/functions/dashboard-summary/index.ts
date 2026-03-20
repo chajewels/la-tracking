@@ -228,6 +228,7 @@ Deno.serve(async (req) => {
       // Operations
       due_today_count: new Set((dueTodayScheds || []).map((s: any) => s.account_id)).size,
       due_3_days_count: new Set((due3DaysScheds || []).map((s: any) => s.account_id)).size,
+      due_7_days_count: new Set((due7DaysScheds || []).map((s: any) => s.account_id)).size,
       penalties_today_count: penaltiesTodayCount,
       penalties_today_amount: penaltiesTodayAmount,
       pending_waivers_count: (pendingWaivers || []).length,
