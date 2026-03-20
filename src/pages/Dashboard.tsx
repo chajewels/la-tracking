@@ -43,7 +43,7 @@ export default function Dashboard() {
         </div>
 
         {/* ROW 1 — Executive Summary KPIs */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 gap-4">
           {summaryLoading ? (
             [...Array(7)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
           ) : (
