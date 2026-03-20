@@ -91,7 +91,7 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Verify auth
+    // Verify auth - support both user tokens and service_role
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -100,14 +100,27 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser(
-      authHeader.replace("Bearer ", "")
-    );
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const token = authHeader.replace("Bearer ", "");
+    let userId: string | null = null;
+    let isServiceRole = false;
+
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      isServiceRole = payload.role === 'service_role';
+    } catch (_) {}
+
+    if (isServiceRole) {
+      // Service role calls use a system user ID
+      userId = "00000000-0000-0000-0000-000000000000";
+    } else {
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      userId = user.id;
     }
 
     const body: ImportPayload = await req.json();
@@ -267,7 +280,7 @@ Deno.serve(async (req) => {
                 remaining_balance: Math.max(0, remainingBalance),
                 notes: a.notes || null,
                 status,
-                created_by_user_id: user.id,
+                created_by_user_id: userId,
               })
               .select("id")
               .single();
@@ -354,7 +367,7 @@ Deno.serve(async (req) => {
                   date_paid: a.order_date,
                   payment_method: "cash",
                   remarks: "Downpayment (bulk import)",
-                  entered_by_user_id: user.id,
+                  entered_by_user_id: userId,
                 });
 
               if (!dpErr) results.payments_recorded++;
@@ -378,7 +391,7 @@ Deno.serve(async (req) => {
                   date_paid: datePaid,
                   payment_method: "cash",
                   remarks: `Installment ${s.installment_number} (bulk import)`,
-                  entered_by_user_id: user.id,
+                  entered_by_user_id: userId,
                 })
                 .select("id")
                 .single();
@@ -406,7 +419,7 @@ Deno.serve(async (req) => {
               entity_id: account.id,
               action: "bulk_import",
               new_value_json: { invoice_number: a.invoice_number, customer: c.full_name },
-              performed_by_user_id: user.id,
+              performed_by_user_id: userId,
             });
 
           } catch (acctError) {
