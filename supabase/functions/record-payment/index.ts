@@ -96,7 +96,13 @@ Deno.serve(async (req) => {
       penalty_fee_id?: string;
     }> = [];
     const penaltyUpdates: Array<{ id: string; status: string; paid_amount: number }> = [];
-    const scheduleUpdates: Array<{ id: string; paid_amount: number; status: string }> = [];
+    const scheduleUpdates: Array<{
+      id: string;
+      paid_amount?: number;
+      status?: string;
+      base_installment_amount?: number;
+      total_due_amount?: number;
+    }> = [];
 
     // 1. Pay unpaid penalties first
     if (unpaidPenalties) {
@@ -119,13 +125,12 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 2. Pay installments: due/overdue ascending, then future from LAST to first
+    // 2. Pay due/overdue installments in ascending order
     const effectiveDate = date_paid || new Date().toISOString().split("T")[0];
     const unpaidItems = schedule.filter(item => item.status !== "paid" && Number(item.base_installment_amount) - Number(item.paid_amount) > 0);
     const dueItems = unpaidItems.filter(item => item.due_date <= effectiveDate);
     const futureItems = unpaidItems.filter(item => item.due_date > effectiveDate);
 
-    // Pay due/overdue in ascending order
     for (const item of dueItems) {
       if (remaining <= 0) break;
       const owed = Number(item.base_installment_amount) - Number(item.paid_amount);
@@ -137,16 +142,29 @@ Deno.serve(async (req) => {
       scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: newStatus });
     }
 
-    // Pay future installments from LAST to first (reduce end of plan)
-    for (const item of [...futureItems].reverse()) {
-      if (remaining <= 0) break;
-      const owed = Number(item.base_installment_amount) - Number(item.paid_amount);
-      const toPay = Math.min(remaining, owed);
-      remaining -= toPay;
-      const newPaid = Number(item.paid_amount) + toPay;
-      const newStatus = newPaid >= Number(item.base_installment_amount) ? "paid" : "partially_paid";
-      allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toPay });
-      scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: newStatus });
+    // 3. Excess reduces the LAST future installment's due amount (no partial payments on future months)
+    if (remaining > 0 && futureItems.length > 0) {
+      for (const item of [...futureItems].reverse()) {
+        if (remaining <= 0) break;
+        const baseAmount = Number(item.base_installment_amount);
+        const reduction = Math.min(remaining, baseAmount);
+        remaining -= reduction;
+
+        allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: reduction });
+
+        if (reduction >= baseAmount) {
+          // Fully covers this installment — mark as paid
+          scheduleUpdates.push({ id: item.id, paid_amount: baseAmount, status: "paid" });
+        } else {
+          // Reduce the due amount, keep status pending
+          const newBase = baseAmount - reduction;
+          scheduleUpdates.push({
+            id: item.id,
+            base_installment_amount: newBase,
+            total_due_amount: newBase + Number(item.penalty_amount || 0),
+          });
+        }
+      }
     }
 
     const newTotalPaid = Number(account.total_paid) + Number(amount_paid);
