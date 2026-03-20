@@ -217,36 +217,42 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
             <div className="rounded-lg border border-border bg-background p-4 space-y-3">
               <h4 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
                 <CheckCircle2 className="h-4 w-4 text-primary" />
-                Payment Breakdown
+                {payFullBalance ? 'Full Balance Payment' : 'Payment Breakdown'}
               </h4>
               <div className="text-2xl font-bold text-card-foreground">
                 {formatCurrency(parsedAmount, currency)}
               </div>
 
-              <div className="space-y-2 text-sm">
-                {totalPenaltyAlloc > 0 && (
-                  <div className="flex items-center justify-between py-1.5 border-b border-border">
-                    <span className="flex items-center gap-2 text-muted-foreground">
-                      <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
-                      Penalty Fees
-                    </span>
-                    <span className="font-medium text-destructive">
-                      {formatCurrency(totalPenaltyAlloc, currency)}
-                    </span>
-                  </div>
-                )}
+              {payFullBalance ? (
+                <p className="text-sm text-muted-foreground">
+                  This will settle all remaining installments{totalPenaltyAlloc > 0 ? ` and ${formatCurrency(totalPenaltyAlloc, currency)} in penalties` : ''} in one payment.
+                </p>
+              ) : (
+                <div className="space-y-2 text-sm">
+                  {totalPenaltyAlloc > 0 && (
+                    <div className="flex items-center justify-between py-1.5 border-b border-border">
+                      <span className="flex items-center gap-2 text-muted-foreground">
+                        <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
+                        Penalty Fees
+                      </span>
+                      <span className="font-medium text-destructive">
+                        {formatCurrency(totalPenaltyAlloc, currency)}
+                      </span>
+                    </div>
+                  )}
 
-                {installmentAllocs.map((alloc, idx) => (
-                  <div key={alloc.schedule_id} className="flex items-center justify-between py-1.5 border-b border-border last:border-0">
-                    <span className="text-muted-foreground">
-                      Installment #{idx + 1}
-                    </span>
-                    <span className="font-medium text-card-foreground">
-                      {formatCurrency(alloc.allocated_amount, currency)}
-                    </span>
-                  </div>
-                ))}
-              </div>
+                  {installmentAllocs.map((alloc, idx) => (
+                    <div key={alloc.schedule_id} className="flex items-center justify-between py-1.5 border-b border-border last:border-0">
+                      <span className="text-muted-foreground">
+                        Installment #{idx + 1}
+                      </span>
+                      <span className="font-medium text-card-foreground">
+                        {formatCurrency(alloc.allocated_amount, currency)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Result Summary */}
