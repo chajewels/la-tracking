@@ -113,9 +113,15 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose(); else setOpen(true); }}>
       <DialogTrigger asChild>
-        <Button className="gold-gradient text-primary-foreground font-medium">
-          <Plus className="h-4 w-4 mr-1" /> Record Payment
-        </Button>
+        {payFullBalance ? (
+          <Button variant="outline" className="border-primary/30 text-primary hover:bg-primary/10 font-medium">
+            <CheckCircle2 className="h-4 w-4 mr-1" /> Pay in Full
+          </Button>
+        ) : (
+          <Button className="gold-gradient text-primary-foreground font-medium">
+            <Plus className="h-4 w-4 mr-1" /> Record Payment
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="bg-card border-border max-w-md">
         <DialogHeader>
