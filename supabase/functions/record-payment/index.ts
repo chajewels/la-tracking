@@ -142,35 +142,55 @@ Deno.serve(async (req) => {
       scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: newStatus });
     }
 
-    // 3. Excess: reflect on the last paid installment's paid_amount AND reduce last future installment's base
+    // 3. Excess handling: reflect full payment on the current installment, reduce last future installment's base
     if (remaining > 0 && futureItems.length > 0) {
-      // Add excess to the last fully-paid due item so paid_amount reflects total received on that date
+      // Pay the first future item as the "current" installment (ascending order)
+      const firstFuture = futureItems[0];
+      const owed = Number(firstFuture.base_installment_amount) - Number(firstFuture.paid_amount);
+      const toPay = Math.min(remaining, owed);
+      remaining -= toPay;
+      const newPaid = Number(firstFuture.paid_amount) + toPay;
+      const newStatus = newPaid >= Number(firstFuture.base_installment_amount) ? "paid" : "partially_paid";
+
+      // If fully paid and there's still excess, add excess to this item's paid_amount
+      const totalForThisItem = newStatus === "paid" ? newPaid + remaining : newPaid;
+      allocations.push({ schedule_id: firstFuture.id, allocation_type: "installment", allocated_amount: toPay + (newStatus === "paid" ? remaining : 0) });
+      scheduleUpdates.push({ id: firstFuture.id, paid_amount: totalForThisItem, status: newStatus });
+
+      // If there was no due item paid but the first future item is now paid, check for excess
+      // Also handle due items that were paid — add excess to last paid item instead
+      const lastPaidIdx = scheduleUpdates.findLastIndex(u => u.status === "paid");
+      if (lastPaidIdx >= 0 && remaining > 0) {
+        // Excess already added to firstFuture above if it was paid
+        // Now reduce last future installment(s) base_installment_amount
+        const remainingFuture = futureItems.slice(1); // exclude firstFuture already processed
+        for (const item of [...remainingFuture].reverse()) {
+          if (remaining <= 0) break;
+          const baseAmount = Number(item.base_installment_amount);
+          const reduction = Math.min(remaining, baseAmount);
+          remaining -= reduction;
+
+          if (reduction >= baseAmount) {
+            scheduleUpdates.push({ id: item.id, paid_amount: baseAmount, status: "paid" });
+          } else {
+            const newBase = baseAmount - reduction;
+            scheduleUpdates.push({
+              id: item.id,
+              base_installment_amount: newBase,
+              total_due_amount: newBase + Number(item.penalty_amount || 0),
+            });
+          }
+        }
+      }
+    } else if (remaining > 0 && futureItems.length === 0) {
+      // No future items — excess was already applied to due items
+      // Add excess to the last paid due item's paid_amount
       const lastPaidIdx = scheduleUpdates.findLastIndex(u => u.status === "paid");
       if (lastPaidIdx >= 0 && scheduleUpdates[lastPaidIdx].paid_amount !== undefined) {
         scheduleUpdates[lastPaidIdx].paid_amount! += remaining;
-        // Update the corresponding allocation to match
         const lastAllocIdx = allocations.findLastIndex(a => a.schedule_id === scheduleUpdates[lastPaidIdx].id && a.allocation_type === "installment");
         if (lastAllocIdx >= 0) {
           allocations[lastAllocIdx].allocated_amount += remaining;
-        }
-      }
-
-      // Reduce last future installment(s) base_installment_amount (no separate allocation)
-      for (const item of [...futureItems].reverse()) {
-        if (remaining <= 0) break;
-        const baseAmount = Number(item.base_installment_amount);
-        const reduction = Math.min(remaining, baseAmount);
-        remaining -= reduction;
-
-        if (reduction >= baseAmount) {
-          scheduleUpdates.push({ id: item.id, paid_amount: baseAmount, status: "paid" });
-        } else {
-          const newBase = baseAmount - reduction;
-          scheduleUpdates.push({
-            id: item.id,
-            base_installment_amount: newBase,
-            total_due_amount: newBase + Number(item.penalty_amount || 0),
-          });
         }
       }
     }
