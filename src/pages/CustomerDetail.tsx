@@ -234,11 +234,19 @@ export default function CustomerDetail() {
                   <Badge variant="outline" className="text-xs">{currency}</Badge>
                 </div>
                 {remainingBalance > 0 && (
-                  <RecordPaymentDialog
-                    accountId={account.id}
-                    currency={currency}
-                    remainingBalance={remainingBalance}
-                  />
+                  <div className="flex gap-2">
+                    <RecordPaymentDialog
+                      accountId={account.id}
+                      currency={currency}
+                      remainingBalance={remainingBalance}
+                    />
+                    <RecordPaymentDialog
+                      accountId={account.id}
+                      currency={currency}
+                      remainingBalance={remainingBalance}
+                      payFullBalance
+                    />
+                  </div>
                 )}
               </div>
 
