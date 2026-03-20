@@ -25,6 +25,7 @@ export default function CustomerDetail() {
   const [locationType, setLocationType] = useState<'japan' | 'international'>('japan');
   const [country, setCountry] = useState('');
   const queryClient = useQueryClient();
+  const forfeitAccount = useForfeitAccount();
 
   if (isLoading) {
     return (
