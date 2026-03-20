@@ -134,7 +134,7 @@ export default function Customers() {
                 {filtered.length === 0 ? (
                   <tr><td colSpan={5} className="px-5 py-8 text-center text-sm text-muted-foreground">No customers found</td></tr>
                 ) : filtered.map(c => {
-                  const accountCount = (accounts || []).filter(a => a.customer_id === c.id).length;
+                  const accountCount = (accounts || []).filter(a => a.customer_id === c.id && a.status !== 'forfeited' && a.status !== 'cancelled').length;
                   return (
                     <tr key={c.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
                       <td className="px-5 py-3">
