@@ -261,6 +261,7 @@ export function useDashboardSummary(currencyMode: 'PHP' | 'JPY' | 'ALL') {
         completed_this_month: number;
         due_today_count: number;
         due_3_days_count: number;
+        due_7_days_count: number;
         penalties_today_count: number;
         penalties_today_amount: number;
         pending_waivers_count: number;

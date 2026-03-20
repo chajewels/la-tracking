@@ -1,4 +1,4 @@
-import { Clock, CalendarCheck, AlertTriangle, Gavel, Scale, MessageCircle, Bell, Eye } from 'lucide-react';
+import { Clock, CalendarCheck, AlertTriangle, Gavel, Scale, MessageCircle, Eye, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/calculations';
@@ -13,20 +13,19 @@ interface OperationsPanelProps {
 }
 
 export default function OperationsPanel({ summary, displayCurrency }: OperationsPanelProps) {
-  // Fetch overdue schedule items with account + customer info for action buttons
   const { data: actionItems } = useQuery({
     queryKey: ['operations-action-items'],
     queryFn: async () => {
       const today = new Date().toISOString().split('T')[0];
-      const next3 = new Date();
-      next3.setDate(next3.getDate() + 3);
-      const next3Str = next3.toISOString().split('T')[0];
+      const next7 = new Date();
+      next7.setDate(next7.getDate() + 7);
+      const next7Str = next7.toISOString().split('T')[0];
 
       const { data, error } = await supabase
         .from('layaway_schedule')
         .select('*, layaway_accounts(*, customers(*))')
         .in('status', ['pending', 'overdue', 'partially_paid'])
-        .lte('due_date', next3Str)
+        .lte('due_date', next7Str)
         .order('due_date', { ascending: true })
         .limit(10);
       if (error) throw error;
@@ -42,6 +41,7 @@ export default function OperationsPanel({ summary, displayCurrency }: Operations
   const upcomingItems = items.filter(i => i.due_date > today);
 
   const cards = [
+    { label: 'Due in 7 Days', count: summary?.due_7_days_count ?? 0, icon: Calendar, color: 'text-primary', bg: 'bg-primary/10', link: '/monitoring' },
     { label: 'Due in 3 Days', count: summary?.due_3_days_count ?? 0, icon: CalendarCheck, color: 'text-info', bg: 'bg-info/10', link: '/monitoring' },
     { label: 'Due Today', count: summary?.due_today_count ?? 0, icon: Clock, color: 'text-warning', bg: 'bg-warning/10', link: '/monitoring' },
     { label: 'Overdue', count: summary?.overdue_accounts ?? 0, icon: AlertTriangle, color: 'text-destructive', bg: 'bg-destructive/10', link: '/monitoring' },

@@ -55,14 +55,9 @@ export default function Monitoring() {
   const [messengerDialog, setMessengerDialog] = useState<{ alert: AlertItem; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const activeAccountIds = useMemo(() =>
-    (accounts || []).filter(a => a.status === 'active' || a.status === 'overdue').map(a => a.id),
-    [accounts]
-  );
-
+  // Fetch schedule items directly without filtering by account IDs (avoids .in() limit issues)
   const { data: scheduleItems, isLoading: schedLoading } = useQuery({
-    queryKey: ['monitoring-schedules', activeAccountIds],
-    enabled: activeAccountIds.length > 0,
+    queryKey: ['monitoring-schedules'],
     queryFn: async () => {
       const today = new Date().toISOString().split('T')[0];
       const next7 = new Date();
@@ -71,11 +66,12 @@ export default function Monitoring() {
 
       const { data, error } = await supabase
         .from('layaway_schedule')
-        .select('*')
-        .in('account_id', activeAccountIds)
+        .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customers(full_name, messenger_link))')
         .in('status', ['pending', 'overdue', 'partially_paid'])
+        .in('layaway_accounts.status', ['active', 'overdue'])
         .lte('due_date', next7Str)
-        .order('due_date', { ascending: true });
+        .order('due_date', { ascending: true })
+        .limit(500);
       if (error) throw error;
       return data;
     },
