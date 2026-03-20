@@ -91,8 +91,8 @@ export function useCustomerAccounts(customerId: string | undefined) {
 
       const accountIds = (accts || []).map(a => a.id);
 
-      // Fetch schedules, penalties, and payments for all accounts in parallel
-      const [schedRes, penRes, payRes] = await Promise.all([
+      // Fetch schedules, penalties, payments, and allocations for all accounts in parallel
+      const [schedRes, penRes, payRes, allocRes] = await Promise.all([
         accountIds.length > 0
           ? supabase.from('layaway_schedule').select('*').in('account_id', accountIds).order('installment_number', { ascending: true })
           : Promise.resolve({ data: [] as DbSchedule[], error: null }),
@@ -102,17 +102,36 @@ export function useCustomerAccounts(customerId: string | undefined) {
         accountIds.length > 0
           ? supabase.from('payments').select('*').in('account_id', accountIds).order('date_paid', { ascending: true })
           : Promise.resolve({ data: [] as any[], error: null }),
+        accountIds.length > 0
+          ? supabase.from('payment_allocations').select('*').in('schedule_id', 
+              (await supabase.from('layaway_schedule').select('id').in('account_id', accountIds)).data?.map(s => s.id) || []
+            )
+          : Promise.resolve({ data: [] as any[], error: null }),
       ]);
 
       const schedules = (schedRes.data || []) as DbSchedule[];
       const penalties = (penRes.data || []) as DbPenalty[];
       const allPayments = (payRes.data || []) as any[];
+      const allAllocations = (allocRes.data || []) as any[];
+
+      // Build a map: schedule_id -> latest payment date
+      const schedulePaymentDateMap: Record<string, string> = {};
+      for (const alloc of allAllocations) {
+        const payment = allPayments.find(p => p.id === alloc.payment_id && !p.voided_at);
+        if (payment) {
+          const existing = schedulePaymentDateMap[alloc.schedule_id];
+          if (!existing || payment.date_paid > existing) {
+            schedulePaymentDateMap[alloc.schedule_id] = payment.date_paid;
+          }
+        }
+      }
 
       const accounts = (accts || []).map(acct => ({
         account: acct,
         schedule: schedules.filter(s => s.account_id === acct.id),
         penalties: penalties.filter(p => p.account_id === acct.id),
         payments: allPayments.filter(p => p.account_id === acct.id),
+        schedulePaymentDates: schedulePaymentDateMap,
       }));
 
       return { customer: customer as DbCustomer, accounts };
