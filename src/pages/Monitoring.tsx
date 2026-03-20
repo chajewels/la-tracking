@@ -49,7 +49,7 @@ function generateMessengerMessage(alert: AlertItem): string {
 }
 
 export default function Monitoring() {
-  const { data: accounts, isLoading: acctLoading } = useAccounts();
+  const accounts: any[] = []; // accounts loaded via joined query below
   const [sending, setSending] = useState(false);
   const [messengerDialog, setMessengerDialog] = useState<{ alert: AlertItem; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
