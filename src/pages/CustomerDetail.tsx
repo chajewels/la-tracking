@@ -485,7 +485,7 @@ export default function CustomerDetail() {
                           </div>
                         ) : (
                           <p className={`text-xs font-semibold tabular-nums ${isPaid ? 'text-success' : 'text-card-foreground'}`}>
-                            {isPaid ? formatCurrency(paidAmt, currency) : formatCurrency(baseAmt, currency)}
+                            {isPaid ? formatCurrency(Number(item.total_due_amount), currency) : formatCurrency(baseAmt, currency)}
                           </p>
                         )}
                       </div>
