@@ -35,9 +35,13 @@ Deno.serve(async (req) => {
     }
 
     const token = authHeader.replace("Bearer ", "");
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const isServiceRole = token === serviceRoleKey;
-    console.log("Auth check - isServiceRole:", isServiceRole, "token length:", token.length, "srk length:", serviceRoleKey.length);
+    
+    // Check if caller is using service role key by verifying the JWT role claim
+    let isServiceRole = false;
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      isServiceRole = payload.role === 'service_role';
+    } catch (_) { /* not a valid JWT or not service role */ }
 
     if (!isServiceRole) {
       const { data: { user }, error: authError } = await supabase.auth.getUser(token);
