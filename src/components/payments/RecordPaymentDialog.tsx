@@ -255,7 +255,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
                     </div>
                   )}
 
-                  {installmentAllocs.map((alloc, idx) => (
+                  {displayAllocs.map((alloc, idx) => (
                     <div key={alloc.schedule_id} className="flex items-center justify-between py-1.5 border-b border-border last:border-0">
                       <span className="text-muted-foreground">
                         Installment #{idx + 1}
