@@ -261,8 +261,8 @@ export default function NewAccount() {
 
               {/* Remaining DP distribution option */}
               {hasShortDp && (
-                <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
-                  <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-4 space-y-3">
+                  <p className="text-sm font-medium text-destructive">
                     Short downpayment: {formatCurrency(remainingDp, currency)} remaining. How should this be handled?
                   </p>
                   <RadioGroup
