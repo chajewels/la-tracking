@@ -45,6 +45,8 @@ Deno.serve(async (req) => {
       order_date,
       notes,
       downpayment_amount: dpAmountInput,
+      downpayment_paid: dpPaidInput,
+      remaining_dp_option, // 'split' | 'add_to_installments'
     } = body;
 
     // Validation
@@ -76,16 +78,20 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Calculate downpayment and installment base
     const totalAmountNum = Number(total_amount);
-    const downpaymentAmount = dpAmountInput ? Math.round(Number(dpAmountInput)) : Math.round(totalAmountNum * 0.3);
-    const remainingAfterDown = totalAmountNum - downpaymentAmount;
+    const downpaymentTarget = dpAmountInput ? Math.round(Number(dpAmountInput)) : Math.round(totalAmountNum * 0.3);
+    const downpaymentPaid = dpPaidInput ? Math.round(Number(dpPaidInput)) : downpaymentTarget;
+    const remainingDp = Math.max(0, downpaymentTarget - downpaymentPaid);
+    const hasShortDp = remainingDp > 0;
+
+    // Base amount for installments (total minus full DP target)
+    const baseForInstallments = totalAmountNum - downpaymentTarget;
 
     // Calculate end date
     const startDate = new Date(order_date);
     const endDate = new Date(startDate.getFullYear(), startDate.getMonth() + payment_plan_months, startDate.getDate());
 
-    // Create account
+    // Create account — remaining_balance = total minus what was actually paid as DP
     const { data: account, error: accountError } = await supabase
       .from("layaway_accounts")
       .insert({
@@ -93,12 +99,15 @@ Deno.serve(async (req) => {
         invoice_number,
         currency,
         total_amount: totalAmountNum,
-        downpayment_amount: downpaymentAmount,
+        downpayment_amount: downpaymentTarget,
         payment_plan_months,
         order_date,
         end_date: endDate.toISOString().split("T")[0],
-        remaining_balance: totalAmountNum,
-        notes,
+        total_paid: downpaymentPaid,
+        remaining_balance: totalAmountNum - downpaymentPaid,
+        notes: hasShortDp
+          ? `${notes || ''}${notes ? ' | ' : ''}Short DP: paid ${downpaymentPaid}, target ${downpaymentTarget}, remaining ${remainingDp} (${remaining_dp_option || 'split'})`.trim()
+          : notes,
         created_by_user_id: user.id,
       })
       .select()
@@ -111,20 +120,42 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Generate schedule based on remaining amount after 30% downpayment
-    const baseInstallment = Math.floor(remainingAfterDown / payment_plan_months);
-    const remainder = remainingAfterDown - baseInstallment * payment_plan_months;
+    // Generate schedule with remaining DP distributed per option
     const dayOfMonth = startDate.getDate();
-
     const scheduleRows = [];
+
+    // Calculate base installment from the portion after full DP target
+    const baseInstallment = Math.floor(baseForInstallments / payment_plan_months);
+    const baseRemainder = baseForInstallments - baseInstallment * payment_plan_months;
+
+    // Calculate remaining DP distribution
+    let dpPerMonth = 0;
+    let dpDistRemainder = 0;
+    const option = remaining_dp_option || 'split';
+
+    if (hasShortDp && option === 'split') {
+      dpPerMonth = Math.floor(remainingDp / payment_plan_months);
+      dpDistRemainder = remainingDp - dpPerMonth * payment_plan_months;
+    }
+
     for (let i = 0; i < payment_plan_months; i++) {
       const dueDate = new Date(startDate.getFullYear(), startDate.getMonth() + i, dayOfMonth);
-      // Handle months with fewer days
       if (dueDate.getDate() !== dayOfMonth) {
         dueDate.setDate(0);
       }
+
       const isLast = i === payment_plan_months - 1;
-      const amount = isLast ? baseInstallment + remainder : baseInstallment;
+      let amount = isLast ? baseInstallment + baseRemainder : baseInstallment;
+
+      // Add remaining DP based on option
+      if (hasShortDp) {
+        if (option === 'split') {
+          amount += dpPerMonth;
+          if (isLast) amount += dpDistRemainder;
+        } else if (option === 'add_to_installments' && i === 0) {
+          amount += remainingDp;
+        }
+      }
 
       scheduleRows.push({
         account_id: account.id,
@@ -153,7 +184,12 @@ Deno.serve(async (req) => {
       entity_type: "layaway_account",
       entity_id: account.id,
       action: "create",
-      new_value_json: account,
+      new_value_json: {
+        ...account,
+        downpayment_paid: downpaymentPaid,
+        remaining_dp: remainingDp,
+        remaining_dp_option: option,
+      },
       performed_by_user_id: user.id,
     });
 
