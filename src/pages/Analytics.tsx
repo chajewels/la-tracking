@@ -102,19 +102,37 @@ export default function Analytics() {
   const currency = currencyFilter === 'ALL' ? undefined : currencyFilter;
   const isAllMode = currencyFilter === 'ALL';
   const displayCurrency: Currency = getDisplayCurrencyForFilter(currencyFilter);
+  const { session, loading: authLoading } = useAuth();
 
   const { data: accounts, isLoading: acctLoading } = useAccounts();
   const { data: customers, isLoading: custLoading } = useCustomers();
   const { data: allPayments, isLoading: payLoading } = usePayments();
 
+  // Use dashboard-summary for predictions (handles pagination server-side)
+  const { data: summary, isLoading: summaryLoading } = useDashboardSummary(
+    currencyFilter,
+    Boolean(session) && !authLoading,
+  );
+
+  // Paginated schedule fetch to get ALL rows (not capped at 1000)
   const { data: allSchedules } = useQuery({
     queryKey: ['all-schedules-analytics'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('layaway_schedule')
-        .select('*');
-      if (error) throw error;
-      return data;
+      const allItems: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from('layaway_schedule')
+          .select('*')
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        allItems.push(...data);
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+      return allItems;
     },
   });
 
