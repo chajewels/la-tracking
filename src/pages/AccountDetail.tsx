@@ -133,9 +133,6 @@ export default function AccountDetail() {
 
     if (isPaid) {
       message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(paid, currency)} — PAID`;
-      if (overpaymentCredit > 0) {
-        message += ` (final month reduced by ${formatCurrency(overpaymentCredit, currency)})`;
-      }
       message += `\n`;
     } else if (isPartial) {
       message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(remainingDue, currency)} remaining (${formatCurrency(paid, currency)} paid of ${formatCurrency(totalDue, currency)})${penalty > 0 ? `, includes ${formatCurrency(penalty, currency)} penalty` : ''} — PARTIAL\n`;
@@ -308,11 +305,7 @@ export default function AccountDetail() {
                       <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isPaid ? 'text-success' : isPartial ? 'text-primary' : 'text-card-foreground'}`}>
                       {formatCurrency(isPaid ? paidAmt : remainingDue, currency)}
                       </p>
-                      {isPaid && overpaymentCredit > 0 ? (
-                        <p className="text-[10px] text-muted-foreground tabular-nums">
-                          Received {formatCurrency(paidAmt, currency)} · Final month reduced by {formatCurrency(overpaymentCredit, currency)}
-                        </p>
-                      ) : isPartial ? (
+                      {isPartial ? (
                         <p className="text-[10px] text-muted-foreground tabular-nums">
                           Paid {formatCurrency(paidAmt, currency)} of {formatCurrency(totalDue, currency)}
                         </p>
