@@ -35,6 +35,7 @@ interface RecordPaymentDialogProps {
   accountId: string;
   currency: Currency;
   remainingBalance: number;
+  payFullBalance?: boolean;
 }
 
 export default function RecordPaymentDialog({ accountId, currency, remainingBalance }: RecordPaymentDialogProps) {
