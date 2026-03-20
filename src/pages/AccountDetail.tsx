@@ -355,12 +355,12 @@ export default function AccountDetail() {
                 return (
                   <div key={item.id}
                     className={`group flex items-center justify-between p-2.5 sm:p-3 rounded-lg border ${
-                      isPaid ? 'bg-success/5 border-success/10' : isPartial ? 'bg-primary/5 border-primary/10' : 'bg-card border-border'
+                      isPaid ? 'bg-success/5 border-success/10' : 'bg-card border-border'
                     }`}
                   >
                     <div className="flex items-center gap-2 sm:gap-3">
                       <div className={`flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-full text-[10px] sm:text-xs font-bold ${
-                        isPaid ? 'bg-success/20 text-success' : isPartial ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground'
+                        isPaid ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'
                       }`}>
                         {isPaid ? <Check className="h-3 w-3" /> : item.installment_number}
                       </div>
@@ -369,7 +369,7 @@ export default function AccountDetail() {
                           {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                         </p>
                         <p className="text-[10px] sm:text-xs text-muted-foreground">
-                          {isPaid ? 'Paid' : isPartial ? 'Partially Paid' : `Month ${item.installment_number}`}
+                          {isPaid ? 'Paid' : `Month ${item.installment_number}`}
                         </p>
                       </div>
                     </div>
