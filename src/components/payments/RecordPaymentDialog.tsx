@@ -107,8 +107,22 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     .filter(a => a.allocation_type === 'penalty')
     .reduce((s, a) => s + a.allocated_amount, 0) ?? 0;
 
-  const installmentAllocs = preview?.allocations.filter(a => a.allocation_type === 'installment') ?? [];
-  const totalInstallmentAlloc = installmentAllocs.reduce((s, a) => s + a.allocated_amount, 0);
+  // Consolidate installment allocations: group by schedule_id so overpayments show as one line
+  const rawInstallmentAllocs = preview?.allocations.filter(a => a.allocation_type === 'installment') ?? [];
+  const installmentAllocsMap = new Map<string, number>();
+  for (const a of rawInstallmentAllocs) {
+    installmentAllocsMap.set(a.schedule_id, (installmentAllocsMap.get(a.schedule_id) || 0) + a.allocated_amount);
+  }
+  const installmentAllocs = Array.from(installmentAllocsMap.entries()).map(([schedule_id, allocated_amount]) => ({
+    schedule_id,
+    allocation_type: 'installment' as const,
+    allocated_amount,
+  }));
+  // For single-invoice: if all allocations go to one installment, show as one line
+  const displayAllocs = installmentAllocs.length <= 1
+    ? installmentAllocs
+    : installmentAllocs.filter(a => a.allocated_amount > 0);
+  const totalInstallmentAlloc = displayAllocs.reduce((s, a) => s + a.allocated_amount, 0);
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose(); else setOpen(true); }}>
@@ -241,7 +255,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
                     </div>
                   )}
 
-                  {installmentAllocs.map((alloc, idx) => (
+                  {displayAllocs.map((alloc, idx) => (
                     <div key={alloc.schedule_id} className="flex items-center justify-between py-1.5 border-b border-border last:border-0">
                       <span className="text-muted-foreground">
                         Installment #{idx + 1}
