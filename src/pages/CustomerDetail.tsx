@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import RecordPaymentDialog from '@/components/payments/RecordPaymentDialog';
+import MultiInvoicePaymentDialog from '@/components/payments/MultiInvoicePaymentDialog';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
