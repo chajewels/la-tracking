@@ -177,7 +177,7 @@ export default function AccountDetail() {
         message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)} (PAID)\n`;
       }
     } else if (isPartial) {
-      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(remainingDue, currency)} remaining (${formatCurrency(paid, currency)} paid of ${formatCurrency(totalDue, currency)})${penalty > 0 ? `, includes ${formatCurrency(penalty, currency)} penalty` : ''} — PARTIAL\n`;
+      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)}${penalty > 0 ? ` (includes ${formatCurrency(penalty, currency)} penalty)` : ''}\n`;
     } else if (penalty > 0) {
       message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(Number(item.base_installment_amount), currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
     } else {
@@ -355,12 +355,12 @@ export default function AccountDetail() {
                 return (
                   <div key={item.id}
                     className={`group flex items-center justify-between p-2.5 sm:p-3 rounded-lg border ${
-                      isPaid ? 'bg-success/5 border-success/10' : isPartial ? 'bg-primary/5 border-primary/10' : 'bg-card border-border'
+                      isPaid ? 'bg-success/5 border-success/10' : 'bg-card border-border'
                     }`}
                   >
                     <div className="flex items-center gap-2 sm:gap-3">
                       <div className={`flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-full text-[10px] sm:text-xs font-bold ${
-                        isPaid ? 'bg-success/20 text-success' : isPartial ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground'
+                        isPaid ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'
                       }`}>
                         {isPaid ? <Check className="h-3 w-3" /> : item.installment_number}
                       </div>
@@ -369,7 +369,7 @@ export default function AccountDetail() {
                           {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                         </p>
                         <p className="text-[10px] sm:text-xs text-muted-foreground">
-                          {isPaid ? 'Paid' : isPartial ? 'Partially Paid' : `Month ${item.installment_number}`}
+                          {isPaid ? 'Paid' : `Month ${item.installment_number}`}
                         </p>
                       </div>
                     </div>
@@ -398,11 +398,11 @@ export default function AccountDetail() {
                         </div>
                       ) : (
                         <>
-                          <div className="text-right">
-                            <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isPaid ? 'text-success' : isPartial ? 'text-primary' : 'text-card-foreground'}`}>
-                              {formatCurrency(isPaid ? totalDue : remainingDue, currency)}
+                           <div className="text-right">
+                            <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isPaid ? 'text-success' : 'text-card-foreground'}`}>
+                              {formatCurrency(isPaid ? totalDue : totalDue, currency)}
                             </p>
-                            {isPartial ? (
+                            {paidAmt > 0 && !isPaid ? (
                               <p className="text-[10px] text-muted-foreground tabular-nums">
                                 Paid {formatCurrency(paidAmt, currency)} of {formatCurrency(totalDue, currency)}
                               </p>

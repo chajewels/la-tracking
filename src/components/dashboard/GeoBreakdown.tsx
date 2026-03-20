@@ -16,31 +16,50 @@ export default function GeoBreakdown({ accounts, customers }: GeoBreakdownProps)
     const active = accounts.filter(a => a.status === 'active' || a.status === 'overdue');
 
     let japanCount = 0, japanAmount = 0;
-    const intlMap: Record<string, { count: number; amount: number }> = {};
+    const intlMap: Record<string, { count: number; amountPHP: number; amountJPY: number }> = {};
 
     for (const acc of active) {
       const cust = customerMap.get(acc.customer_id);
       const loc = (cust?.location || '').trim();
       const balance = Number(acc.remaining_balance);
+      const cur = acc.currency as Currency;
 
       if (!loc || loc.toLowerCase() === 'japan') {
         japanCount++;
         japanAmount += balance;
       } else {
-        if (!intlMap[loc]) intlMap[loc] = { count: 0, amount: 0 };
+        if (!intlMap[loc]) intlMap[loc] = { count: 0, amountPHP: 0, amountJPY: 0 };
         intlMap[loc].count++;
-        intlMap[loc].amount += balance;
+        if (cur === 'JPY') {
+          intlMap[loc].amountJPY += balance;
+        } else {
+          intlMap[loc].amountPHP += balance;
+        }
       }
     }
 
     const international = Object.entries(intlMap)
       .map(([country, data]) => ({ country, ...data }))
-      .sort((a, b) => b.amount - a.amount);
+      .sort((a, b) => (b.amountPHP + b.amountJPY) - (a.amountPHP + a.amountJPY));
 
-    const intlTotal = international.reduce((s, i) => ({ count: s.count + i.count, amount: s.amount + i.amount }), { count: 0, amount: 0 });
+    const intlTotal = international.reduce(
+      (s, i) => ({
+        count: s.count + i.count,
+        amountPHP: s.amountPHP + i.amountPHP,
+        amountJPY: s.amountJPY + i.amountJPY,
+      }),
+      { count: 0, amountPHP: 0, amountJPY: 0 }
+    );
 
     return { japan: { count: japanCount, amount: japanAmount }, international, intlTotal };
   }, [accounts, customers]);
+
+  const formatIntlAmount = (php: number, jpy: number) => {
+    const parts: string[] = [];
+    if (php > 0) parts.push(formatCurrency(php, 'PHP'));
+    if (jpy > 0) parts.push(formatCurrency(jpy, 'JPY'));
+    return parts.length > 0 ? parts.join(' · ') : '₱ 0';
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -74,10 +93,20 @@ export default function GeoBreakdown({ accounts, customers }: GeoBreakdownProps)
             <p className="text-2xl font-bold text-card-foreground font-display">{geo.intlTotal.count}</p>
             <p className="text-xs text-muted-foreground">active accounts</p>
           </div>
-          <div className="text-right">
-            <p className="text-sm font-semibold text-card-foreground tabular-nums">
-              {formatCurrency(geo.intlTotal.amount, 'PHP')}
-            </p>
+          <div className="text-right space-y-0.5">
+            {geo.intlTotal.amountPHP > 0 && (
+              <p className="text-sm font-semibold text-card-foreground tabular-nums">
+                {formatCurrency(geo.intlTotal.amountPHP, 'PHP')}
+              </p>
+            )}
+            {geo.intlTotal.amountJPY > 0 && (
+              <p className="text-sm font-semibold text-card-foreground tabular-nums">
+                {formatCurrency(geo.intlTotal.amountJPY, 'JPY')}
+              </p>
+            )}
+            {geo.intlTotal.amountPHP === 0 && geo.intlTotal.amountJPY === 0 && (
+              <p className="text-sm font-semibold text-card-foreground tabular-nums">₱ 0</p>
+            )}
             <p className="text-xs text-muted-foreground">outstanding</p>
           </div>
         </div>
@@ -86,7 +115,9 @@ export default function GeoBreakdown({ accounts, customers }: GeoBreakdownProps)
             {geo.international.map(item => (
               <div key={item.country} className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">{item.country}</span>
-                <span className="text-card-foreground font-medium tabular-nums">{item.count} acct · {formatCurrency(item.amount, 'PHP')}</span>
+                <span className="text-card-foreground font-medium tabular-nums">
+                  {item.count} acct · {formatIntlAmount(item.amountPHP, item.amountJPY)}
+                </span>
               </div>
             ))}
           </div>
