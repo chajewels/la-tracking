@@ -38,11 +38,17 @@ export default function Dashboard() {
         </div>
 
         {/* ROW 1 — Executive Summary KPIs */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
           {summaryLoading ? (
-            [...Array(6)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+            [...Array(7)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
           ) : (
             <>
+              <StatCard
+                title="Total Customers"
+                value={(customers?.length ?? 0).toString()}
+                subtitle="All registered"
+                icon={Users}
+              />
               <StatCard
                 title="Total Receivables"
                 value={formatCurrency(summary?.total_receivables ?? 0, displayCurrency)}
