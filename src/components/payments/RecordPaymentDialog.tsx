@@ -175,10 +175,18 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
                 onChange={(e) => setPaymentMethod(e.target.value)}
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
               >
-                <option value="cash">Cash</option>
-                <option value="bank_transfer">Bank Transfer</option>
+                <option value="cash">Cash Payment</option>
+                <option value="bdo">BDO</option>
+                <option value="bpi">BPI</option>
+                <option value="metrobank">METROBANK</option>
                 <option value="gcash">GCash</option>
-                <option value="other">Other</option>
+                <option value="cash_pickup">Cash Pick Up</option>
+                <option value="rakuten">Rakuten</option>
+                <option value="sumitomo">Sumitomo</option>
+                <option value="genkin_kaketome">Genkin Kaketome</option>
+                <option value="credit_card">Credit Card</option>
+                <option value="paypay">PayPay</option>
+                <option value="jp_bank">JP Bank</option>
               </select>
             </div>
             <div className="space-y-2">
