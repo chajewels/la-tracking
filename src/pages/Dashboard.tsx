@@ -15,12 +15,17 @@ import { Currency } from '@/lib/types';
 import { getDisplayCurrencyForFilter } from '@/lib/currency-converter';
 import { useAccounts, useCustomers, useDashboardSummary } from '@/hooks/use-supabase-data';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function Dashboard() {
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
+  const { session, loading: authLoading } = useAuth();
   const displayCurrency: Currency = getDisplayCurrencyForFilter(currencyFilter);
 
-  const { data: summary, isLoading: summaryLoading } = useDashboardSummary(currencyFilter);
+  const { data: summary, isLoading: summaryLoading } = useDashboardSummary(
+    currencyFilter,
+    Boolean(session) && !authLoading,
+  );
   const { data: accounts } = useAccounts();
   const { data: customers } = useCustomers();
 

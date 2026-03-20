@@ -243,9 +243,11 @@ export function useWaiverRequests(accountId?: string) {
 // ──────────────────────────────────────────────
 // DASHBOARD SUMMARY (from edge function)
 // ──────────────────────────────────────────────
-export function useDashboardSummary(currencyMode: 'PHP' | 'JPY' | 'ALL') {
+export function useDashboardSummary(currencyMode: 'PHP' | 'JPY' | 'ALL', enabled = true) {
   return useQuery({
     queryKey: ['dashboard-summary', currencyMode],
+    enabled,
+    retry: false,
     queryFn: async () => {
       const { data, error } = await supabase.functions.invoke('dashboard-summary', {
         body: { currency_mode: currencyMode },
