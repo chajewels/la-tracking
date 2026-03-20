@@ -156,7 +156,8 @@ export default function AccountDetail() {
   message += `Amount Paid: ${paymentBreakdownText}\n`;
   const laRemainingText = `LA ${new Date(account.end_date || account.order_date).toLocaleDateString('en-US', { month: 'short' }).toUpperCase()} remaining balance`;
   message += `================\n`;
-  message += `${laRemainingText} - ${formatCurrency(remainingBalance, currency)} to pay in ${account.payment_plan_months} months\n\n`;
+  const unpaidCount = scheduleItems.filter(s => s.status !== 'paid' && s.status !== 'cancelled').length;
+  message += `${laRemainingText} - ${formatCurrency(remainingBalance, currency)} to pay in ${unpaidCount} months\n\n`;
 
   message += `Payment Schedule:\n\n`;
   scheduleItems.forEach((item, idx) => {
