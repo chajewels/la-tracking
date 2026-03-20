@@ -208,18 +208,33 @@ Deno.serve(async (req) => {
           scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: newStatus });
         }
 
-        // Excess: reflect on last paid installment's paid_amount AND reduce last future installment's base
+        // Pay first future item if excess remains
         if (remaining > 0 && futureItems.length > 0) {
+          const firstFuture = futureItems[0];
+          const owed = Number(firstFuture.base_installment_amount) - Number(firstFuture.paid_amount);
+          const toPay = Math.min(remaining, owed);
+          remaining -= toPay;
+          const newPaid = Number(firstFuture.paid_amount) + toPay;
+          const newStatus = newPaid >= Number(firstFuture.base_installment_amount) ? "paid" : "partially_paid";
+          paymentAllocations.push({ schedule_id: firstFuture.id, allocation_type: "installment", allocated_amount: toPay });
+          scheduleUpdates.push({ id: firstFuture.id, paid_amount: newPaid, status: newStatus });
+        }
+
+        // If STILL excess, add to last paid item's paid_amount and reduce last future installment's base
+        if (remaining > 0) {
+          const excessAmount = remaining;
           const lastPaidIdx = scheduleUpdates.findLastIndex(u => u.status === "paid");
           if (lastPaidIdx >= 0 && scheduleUpdates[lastPaidIdx].paid_amount !== undefined) {
-            scheduleUpdates[lastPaidIdx].paid_amount! += remaining;
+            scheduleUpdates[lastPaidIdx].paid_amount! += excessAmount;
             const lastAllocIdx = paymentAllocations.findLastIndex(a => a.schedule_id === scheduleUpdates[lastPaidIdx].id && a.allocation_type === "installment");
             if (lastAllocIdx >= 0) {
-              paymentAllocations[lastAllocIdx].allocated_amount += remaining;
+              paymentAllocations[lastAllocIdx].allocated_amount += excessAmount;
             }
           }
 
-          for (const item of [...futureItems].reverse()) {
+          const alreadyPaidIds = new Set(scheduleUpdates.filter(u => u.status === "paid").map(u => u.id));
+          const unpaidFuture = futureItems.filter(fi => !alreadyPaidIds.has(fi.id));
+          for (const item of [...unpaidFuture].reverse()) {
             if (remaining <= 0) break;
             const baseAmount = Number(item.base_installment_amount);
             const reduction = Math.min(remaining, baseAmount);
