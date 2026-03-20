@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw } from 'lucide-react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -16,7 +16,7 @@ import PenaltyWaiverPanel from '@/components/penalties/PenaltyWaiverPanel';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
-import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useRestorePayment } from '@/hooks/use-supabase-data';
+import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useRestorePayment, useDeleteAccount } from '@/hooks/use-supabase-data';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export default function AccountDetail() {
@@ -29,13 +29,15 @@ export default function AccountDetail() {
   const voidPayment = useVoidPayment();
   const editPayment = useEditPayment();
   const restorePayment = useRestorePayment();
+  const deleteAccount = useDeleteAccount();
+  const navigate = useNavigate();
   const [voidTarget, setVoidTarget] = useState<string | null>(null);
   const [voidReason, setVoidReason] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDate, setEditDate] = useState('');
   const [editMethod, setEditMethod] = useState('');
   const [editRemarks, setEditRemarks] = useState('');
-
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   if (accountLoading) {
     return (
       <AppLayout>
@@ -183,6 +185,13 @@ export default function AccountDetail() {
                 </Button>
               </a>
             )}
+            <Button
+              variant="outline"
+              className="border-destructive/30 text-destructive hover:bg-destructive/10"
+              onClick={() => setDeleteConfirmOpen(true)}
+            >
+              <Trash2 className="h-4 w-4 mr-2" /> Delete Account
+            </Button>
           </div>
         </div>
 
@@ -495,6 +504,35 @@ export default function AccountDetail() {
                   }
                 }}>
                 {voidPayment.isPending ? 'Voiding…' : 'Void Payment'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Delete Account Confirmation */}
+        <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+          <AlertDialogContent className="bg-card border-border">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-card-foreground">Delete Account?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete INV #{account.invoice_number} and all associated payments, schedule, and penalties. This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deleteAccount.isPending}
+                onClick={async () => {
+                  try {
+                    await deleteAccount.mutateAsync(account.id);
+                    toast.success(`Account INV #${account.invoice_number} deleted`);
+                    navigate('/accounts');
+                  } catch (err: any) {
+                    toast.error(err.message || 'Failed to delete account');
+                  }
+                }}>
+                {deleteAccount.isPending ? 'Deleting…' : 'Delete Account'}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
