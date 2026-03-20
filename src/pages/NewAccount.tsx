@@ -238,7 +238,7 @@ export default function NewAccount() {
                 <>
                   <div className="flex items-center justify-between py-2 border-b border-border">
                     <span className="text-sm text-card-foreground">Downpayment Paid</span>
-                    <span className="text-sm font-semibold text-emerald-600 tabular-nums">
+                    <span className="text-sm font-semibold text-primary tabular-nums">
                       {formatCurrency(dpPaid, currency)}
                     </span>
                   </div>
