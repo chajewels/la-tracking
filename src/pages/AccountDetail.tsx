@@ -159,14 +159,21 @@ export default function AccountDetail() {
   }
 
   const currency = account.currency as Currency;
-  const totalAmount = Number(account.total_amount);
   const totalPaid = Number(account.total_paid);
   const scheduleItems = schedule || [];
   const remainingBalance = computeRemainingBalance(scheduleItems);
   const downpaymentAmount = Number((account as any).downpayment_amount || 0);
   const accountServices = ((services || []) as AccountService[]);
   const totalServicesAmount = accountServices.reduce((s, svc) => s + Number(svc.amount), 0);
-  const totalLayawayAmount = totalAmount + totalServicesAmount;
+
+  // Derive totals from schedule data so everything reconciles:
+  // originalPrincipal = downpayment + sum(base_installment_amounts)
+  // schedulePenaltySum = sum(penalty_amounts in schedule)
+  // totalLayawayAmount = originalPrincipal + services + schedulePenalties
+  const scheduleBaseSum = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
+  const schedulePenaltySum = scheduleItems.reduce((s, i) => s + Number(i.penalty_amount), 0);
+  const originalPrincipal = downpaymentAmount + scheduleBaseSum;
+  const totalLayawayAmount = originalPrincipal + totalServicesAmount + schedulePenaltySum;
   const progress = accountProgress(totalPaid, totalLayawayAmount);
 
   const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
