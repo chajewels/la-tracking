@@ -367,22 +367,17 @@ export default function AccountDetail() {
                 </Button>
               </>
             )}
-            <Button
-              variant="outline"
-              className="border-primary/30 text-primary hover:bg-primary/10"
-              onClick={handleGenerateStatement}
-              disabled={statementLoading}
-            >
-              <FileText className="h-4 w-4 mr-2" />
-              {statementLoading ? 'Generating...' : 'Customer Statement'}
-            </Button>
-            {statementLink && (
-              <a href={statementLink} target="_blank" rel="noopener noreferrer">
-                <Button variant="ghost" size="icon" className="h-10 w-10 text-primary">
-                  <ExternalLink className="h-4 w-4" />
-                </Button>
-              </a>
-            )}
+            <StatementShareMenu
+              accountId={account.id}
+              invoiceNumber={account.invoice_number}
+              customerName={account.customers?.full_name || 'Customer'}
+              currency={currency}
+              remainingBalance={remainingBalance}
+              totalPaid={totalPaid}
+              totalAmount={totalLayawayAmount}
+              scheduleItems={scheduleItems}
+              messengerLink={account.customers?.messenger_link}
+            />
             <Button
               variant="outline"
               className="border-destructive/30 text-destructive hover:bg-destructive/10"

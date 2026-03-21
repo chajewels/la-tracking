@@ -419,13 +419,20 @@ export default function CustomerStatement() {
           </Card>
         )}
 
-        {/* Footer */}
-        <div className="text-center mt-8 pb-8">
-          <p className="text-xs text-muted-foreground">
+        {/* Footer with quick actions */}
+        <div className="text-center mt-8 pb-8 print:pb-4">
+          <p className="text-xs text-muted-foreground mb-4">
             Thank you for your continued trust in Cha Jewels. 💛
           </p>
-          <p className="text-[10px] text-muted-foreground mt-1">
-            For questions, please contact us via Messenger.
+          <div className="print:hidden flex flex-wrap justify-center gap-2 mb-4">
+            <a href="https://m.me/chajewels" target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" size="sm" className="text-xs">
+                <MessageCircle className="h-3.5 w-3.5 mr-1.5" /> Contact Cha Jewels
+              </Button>
+            </a>
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            For questions about your layaway, please contact us via Messenger.
           </p>
         </div>
       </div>
