@@ -44,6 +44,8 @@ export default function NewAccount() {
   const [lumpSumInput, setLumpSumInput] = useState('');
   const [splitAllocations, setSplitAllocations] = useState<SplitAllocation[]>([]);
   const [splitExpanded, setSplitExpanded] = useState(true);
+  const [splitMessageDialog, setSplitMessageDialog] = useState<string | null>(null);
+  const [splitMsgCopied, setSplitMsgCopied] = useState(false);
 
   const amount = parseInt(totalAmount) || 0;
   const downpaymentAmount = parseInt(downpaymentInput) || 0;
