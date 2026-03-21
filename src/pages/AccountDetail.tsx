@@ -340,12 +340,14 @@ export default function AccountDetail() {
                   accountId={account.id}
                   currency={currency}
                   remainingBalance={remainingBalance}
+                  schedule={scheduleItems}
                 />
                 <RecordPaymentDialog
                   accountId={account.id}
                   currency={currency}
                   remainingBalance={remainingBalance}
                   payFullBalance
+                  schedule={scheduleItems}
                 />
               </>
             )}

@@ -31,14 +31,25 @@ interface PreviewResult {
   penalty_updates: Array<{ id: string; status: string; paid_amount: number }>;
 }
 
+interface ScheduleItem {
+  id: string;
+  installment_number: number;
+  base_installment_amount: number;
+  penalty_amount: number;
+  total_due_amount: number;
+  paid_amount: number;
+  status: string;
+}
+
 interface RecordPaymentDialogProps {
   accountId: string;
   currency: Currency;
   remainingBalance: number;
   payFullBalance?: boolean;
+  schedule?: ScheduleItem[];
 }
 
-export default function RecordPaymentDialog({ accountId, currency, remainingBalance, payFullBalance }: RecordPaymentDialogProps) {
+export default function RecordPaymentDialog({ accountId, currency, remainingBalance, payFullBalance, schedule }: RecordPaymentDialogProps) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
@@ -48,6 +59,23 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const recordPayment = useRecordPayment();
+
+  // Calculate multi-month quick-fill amounts from unpaid schedule items
+  const unpaidItems = (schedule || [])
+    .filter(s => s.status !== 'paid' && s.status !== 'cancelled')
+    .sort((a, b) => a.installment_number - b.installment_number);
+
+  const monthOptions: { months: number; amount: number }[] = [];
+  if (!payFullBalance && unpaidItems.length > 0) {
+    let cumulative = 0;
+    for (let i = 0; i < Math.min(5, unpaidItems.length); i++) {
+      const due = Math.max(0, Number(unpaidItems[i].total_due_amount) - Number(unpaidItems[i].paid_amount));
+      cumulative += due;
+      if (cumulative > 0) {
+        monthOptions.push({ months: i + 1, amount: cumulative });
+      }
+    }
+  }
 
   const parsedAmount = payFullBalance ? remainingBalance : (parseFloat(amount) || 0);
   const isValid = parsedAmount > 0 && parsedAmount <= remainingBalance && paymentDate;
@@ -170,6 +198,25 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
                 />
                 {parsedAmount > remainingBalance && (
                   <p className="text-xs text-destructive">Amount exceeds remaining balance</p>
+                )}
+                {monthOptions.length > 1 && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    <span className="text-xs text-muted-foreground mr-1 self-center">Quick fill:</span>
+                    {monthOptions.map(opt => (
+                      <button
+                        key={opt.months}
+                        type="button"
+                        onClick={() => setAmount(String(opt.amount))}
+                        className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors border ${
+                          parsedAmount === opt.amount
+                            ? 'bg-primary/15 border-primary/30 text-primary'
+                            : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted hover:text-card-foreground'
+                        }`}
+                      >
+                        {opt.months} {opt.months === 1 ? 'month' : 'months'}
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
             )}
