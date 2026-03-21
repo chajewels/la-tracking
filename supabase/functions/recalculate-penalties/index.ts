@@ -6,23 +6,20 @@ const corsHeaders = {
 };
 
 /**
- * One-time system-wide penalty recalculation.
+ * FULL system-wide penalty recalculation.
  *
- * For every unpaid/overdue schedule item whose due_date < today:
- *   1. Compute penalty checkpoints using the alternating pattern
- *   2. Apply cap (inst 1-5: PHP 1000, JPY 2000; inst 6+: uncapped)
- *   3. Update schedule row penalty_amount and total_due_amount
- *   4. Sync penalty_fees entries
- *   5. Recalculate account totals
+ * Cha Jewels Alternating 14-day Rule:
+ *   Due+7  → week1:1   (first penalty, grace period)
+ *   Due+14 → week2:1
+ *   Due+1mo → week1:2
+ *   Due+1mo+14d → week2:2
+ *   Due+2mo → week1:3
+ *   Due+2mo+14d → week2:3
+ *   ... repeat until paid
  *
- * Alternating pattern (example due Jan 21):
- *   Jan 28 → week1:1 (due+7)
- *   Feb  4 → week2:1 (due+14)
- *   Feb 21 → week1:2 (due+1mo)
- *   Mar  7 → week2:2 (due+1mo+14d)
- *   Mar 21 → week1:3 (due+2mo)
- *   Apr  4 → week2:3 (due+2mo+14d)
- *   ...
+ * Each penalty = PHP 500 / JPY 1,000
+ * Cap per installment months 1-5: PHP 1,000 / JPY 2,000
+ * Month 6+: uncapped
  */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -51,7 +48,8 @@ Deno.serve(async (req) => {
 
     const getAmount = (currency: string, stage: string): number => {
       const key = `penalty_${currency.toLowerCase()}_${stage}`;
-      return config[key] || (currency === "PHP" ? (stage === "week1" ? 500 : 1000) : (stage === "week1" ? 1000 : 2000));
+      // Both week1 and week2 are the same amount: PHP 500, JPY 1000
+      return config[key] || (currency === "PHP" ? 500 : 1000);
     };
 
     const getCap = (currency: string, instNum: number): number => {
@@ -94,7 +92,7 @@ Deno.serve(async (req) => {
       accountSchedules.get(accId)!.push(item);
     }
 
-    // ── Fetch existing penalty_fees for these accounts ──
+    // ── Fetch ALL existing penalty_fees ──
     const accountIds = [...accountSchedules.keys()];
     let allPenaltyFees: any[] = [];
     for (let i = 0; i < accountIds.length; i += 200) {
@@ -116,7 +114,7 @@ Deno.serve(async (req) => {
     const report: any[] = [];
     const scheduleUpdates: Array<{ id: string; penalty_amount: number; total_due_amount: number; status: string }> = [];
     const penaltyFeesToInsert: any[] = [];
-    const penaltyFeeIdsToDelete: string[] = [];
+    const penaltyFeeIdsToWaive: string[] = [];
     const accountUpdates = new Map<string, { total_amount: number; remaining_balance: number; status: string }>();
 
     // ── Process each account ──
@@ -135,53 +133,49 @@ Deno.serve(async (req) => {
         const oldPenalty = Number(item.penalty_amount);
         totalSchedulePenaltyBefore += oldPenalty;
         const baseAmount = Number(item.base_installment_amount);
-        const paidAmount = Number(item.paid_amount);
         const instNum = item.installment_number;
         const dueDate = new Date(item.due_date + "T00:00:00Z");
 
-        // For paid or cancelled items, keep penalty as-is
-        if (item.status === "paid" || item.status === "cancelled") {
+        // Cancelled items: skip
+        if (item.status === "cancelled") {
           totalSchedulePenaltyAfter += oldPenalty;
           continue;
         }
 
-        // For items not yet due, no penalty
+        // Items not yet due: no penalty
         if (item.due_date >= today) {
           if (oldPenalty !== 0) {
             scheduleUpdates.push({
-              id: item.id,
-              penalty_amount: 0,
-              total_due_amount: baseAmount,
-              status: item.status,
+              id: item.id, penalty_amount: 0,
+              total_due_amount: baseAmount, status: item.status,
             });
             anyChange = true;
           }
-          // Remove any penalty_fees for this non-overdue item
+          // Remove unpaid/waived penalty_fees
           const existingPFs = penaltyFeesBySchedule.get(item.id) || [];
           for (const pf of existingPFs) {
-            if (pf.status === "unpaid") penaltyFeeIdsToDelete.push(pf.id);
+            if (pf.status !== "paid") penaltyFeeIdsToWaive.push(pf.id);
           }
           continue;
         }
 
-        // OVERDUE: compute correct penalty using alternating pattern
-        hasOverdue = true;
+        // OVERDUE (or paid but was overdue): compute correct penalty
         const dueDayOfMonth = dueDate.getUTCDate();
 
-        // Build trigger dates
+        // Build trigger dates using the alternating pattern
         const triggerDates: Array<{ date: Date; stage: "week1" | "week2"; cycle: number }> = [];
 
-        // Phase 1: +7 days
+        // Phase 1: due + 7 → week1:1
         const p1 = new Date(dueDate);
         p1.setUTCDate(p1.getUTCDate() + 7);
         triggerDates.push({ date: p1, stage: "week1", cycle: 1 });
 
-        // Phase 2: +14 days
+        // Phase 2: due + 14 → week2:1
         const p2 = new Date(dueDate);
         p2.setUTCDate(p2.getUTCDate() + 14);
         triggerDates.push({ date: p2, stage: "week2", cycle: 1 });
 
-        // Phase 3+: alternating monthly + 14 days
+        // Phase 3+: alternating monthly checkpoint + 14 days
         for (let m = 1; m <= 12; m++) {
           const monthlyDate = new Date(Date.UTC(
             dueDate.getUTCFullYear(),
@@ -195,14 +189,14 @@ Deno.serve(async (req) => {
           triggerDates.push({ date: plus14, stage: "week2", cycle: m + 1 });
         }
 
-        // Compute correct penalty
+        // Compute correct penalty with cap
         const overrideCap = overrideMap.get(accountId);
         const cap = overrideCap !== undefined
           ? (instNum >= 6 ? Infinity : overrideCap)
           : getCap(currency, instNum);
 
         let correctPenalty = 0;
-        const correctPenaltyEntries: Array<{ stage: string; cycle: number; amount: number; date: string }> = [];
+        const correctEntries: Array<{ stage: string; cycle: number; amount: number; date: string }> = [];
 
         for (const trigger of triggerDates) {
           if (now < trigger.date) break;
@@ -215,7 +209,7 @@ Deno.serve(async (req) => {
           }
 
           correctPenalty += penAmt;
-          correctPenaltyEntries.push({
+          correctEntries.push({
             stage: trigger.stage,
             cycle: trigger.cycle,
             amount: penAmt,
@@ -225,10 +219,18 @@ Deno.serve(async (req) => {
 
         totalSchedulePenaltyAfter += correctPenalty;
 
-        // Update schedule if different
-        if (Math.abs(correctPenalty - oldPenalty) > 0.001) {
+        // Determine correct status for the schedule item
+        const isPaidItem = item.status === "paid";
+        const isEffectivelyPaid = Number(item.paid_amount) >= (baseAmount + correctPenalty);
+        const newStatus = isPaidItem || isEffectivelyPaid ? "paid" : (correctPenalty > 0 ? "overdue" : item.status);
+        
+        if (!isPaidItem && !isEffectivelyPaid && item.due_date < today) {
+          hasOverdue = true;
+        }
+
+        // Update schedule if penalty changed
+        if (Math.abs(correctPenalty - oldPenalty) > 0.001 || (item.status !== newStatus && newStatus === "overdue")) {
           anyChange = true;
-          const newStatus = "overdue";
           scheduleUpdates.push({
             id: item.id,
             penalty_amount: correctPenalty,
@@ -237,28 +239,50 @@ Deno.serve(async (req) => {
           });
         }
 
-        // Sync penalty_fees: remove old unpaid ones, add correct ones
+        // ── Sync penalty_fees ──
         const existingPFs = penaltyFeesBySchedule.get(item.id) || [];
 
-        // Build lookup of existing paid penalty_fees (don't touch these)
-        const paidPFKeys = new Set<string>();
+        // Remove ALL non-paid penalty_fees (we'll recreate the correct ones)
+        for (const pf of existingPFs) {
+          if (pf.status !== "paid") {
+            penaltyFeeIdsToWaive.push(pf.id);
+          }
+        }
+
+        // Check which entries already have a "paid" penalty_fee
+        const paidKeys = new Map<string, number>();
         for (const pf of existingPFs) {
           if (pf.status === "paid") {
-            paidPFKeys.add(`${pf.penalty_stage}:${pf.penalty_cycle}`);
+            const key = `${pf.penalty_stage}:${pf.penalty_cycle}`;
+            paidKeys.set(key, Number(pf.penalty_amount));
           }
         }
 
-        // Remove unpaid/waived penalty_fees for this schedule item
-        for (const pf of existingPFs) {
-          if (pf.status === "unpaid" || pf.status === "waived") {
-            penaltyFeeIdsToDelete.push(pf.id);
-          }
-        }
-
-        // Re-insert correct unpaid penalty entries (skip ones already paid)
-        for (const entry of correctPenaltyEntries) {
+        // Insert correct penalty entries (skip already-paid ones)
+        for (const entry of correctEntries) {
           const key = `${entry.stage}:${entry.cycle}`;
-          if (paidPFKeys.has(key)) continue; // already paid, skip
+          if (paidKeys.has(key)) {
+            // Already paid - check if amount matches
+            const paidAmt = paidKeys.get(key)!;
+            if (Math.abs(paidAmt - entry.amount) > 0.001) {
+              // Amount mismatch on paid penalty - we need to fix it
+              // Find the paid penalty_fee and update its amount
+              const paidPF = existingPFs.find(pf => 
+                pf.status === "paid" && pf.penalty_stage === entry.stage && pf.penalty_cycle === entry.cycle
+              );
+              if (paidPF) {
+                // Update the paid penalty amount
+                await supabase.from("penalty_fees").update({
+                  penalty_amount: entry.amount,
+                  updated_at: new Date().toISOString(),
+                }).eq("id", paidPF.id);
+              }
+            }
+            continue;
+          }
+
+          // Determine status: if installment is paid, penalty should be paid too
+          const penaltyStatus = isPaidItem ? "paid" : "unpaid";
 
           penaltyFeesToInsert.push({
             account_id: accountId,
@@ -268,46 +292,34 @@ Deno.serve(async (req) => {
             penalty_stage: entry.stage,
             penalty_cycle: entry.cycle,
             penalty_date: entry.date,
-            status: "unpaid",
+            status: penaltyStatus,
           });
         }
       }
 
-      // Recalculate account totals
-      // total_amount = downpayment + sum(base_installment_amount) + sum(penalty for all schedule items) + services
-      // But we should derive it from schedule to match the "no phantom penalty" rule
+      // Recalculate account totals from schedule
       const downpayment = Number(acct.downpayment_amount);
-
-      // Get total base from all schedule items
       let totalBase = 0;
       let totalPenaltyAll = 0;
       let unpaidDue = 0;
+
       for (const item of schedItems) {
+        if (item.status === "cancelled") continue;
         totalBase += Number(item.base_installment_amount);
-        const instPaid = Number(item.paid_amount);
 
-        // Use the corrected penalty if we updated it, otherwise the existing one
         const updatedEntry = scheduleUpdates.find(u => u.id === item.id);
-        let itemPenalty: number;
-        let itemTotalDue: number;
-
-        if (updatedEntry) {
-          itemPenalty = updatedEntry.penalty_amount;
-          itemTotalDue = updatedEntry.total_due_amount;
-        } else {
-          itemPenalty = Number(item.penalty_amount);
-          itemTotalDue = Number(item.total_due_amount);
-        }
+        const itemPenalty = updatedEntry ? updatedEntry.penalty_amount : Number(item.penalty_amount);
+        const itemTotalDue = updatedEntry ? updatedEntry.total_due_amount : Number(item.total_due_amount);
+        const itemStatus = updatedEntry ? updatedEntry.status : item.status;
 
         totalPenaltyAll += itemPenalty;
 
-        if (item.status !== "paid" && item.status !== "cancelled") {
-          unpaidDue += Math.max(0, itemTotalDue - instPaid);
+        if (itemStatus !== "paid" && itemStatus !== "cancelled") {
+          unpaidDue += Math.max(0, itemTotalDue - Number(item.paid_amount));
         }
       }
 
       const newTotalAmount = downpayment + totalBase + totalPenaltyAll;
-      const newRemaining = Math.max(0, newTotalAmount - totalPaid);
 
       if (anyChange || Math.abs(Number(acct.total_amount) - newTotalAmount) > 0.001) {
         accountUpdates.set(accountId, {
@@ -346,18 +358,17 @@ Deno.serve(async (req) => {
       else console.error("Schedule update error:", upd.id, error);
     }
 
-    // 2. Delete incorrect penalty_fees (mark as waived to preserve audit trail - actually update status)
+    // 2. Waive incorrect penalty_fees
     let penaltiesRemoved = 0;
-    for (let i = 0; i < penaltyFeeIdsToDelete.length; i += 100) {
-      const chunk = penaltyFeeIdsToDelete.slice(i, i + 100);
-      // We can't delete due to RLS, so update status to indicate they were recalculated away
+    for (let i = 0; i < penaltyFeeIdsToWaive.length; i += 100) {
+      const chunk = penaltyFeeIdsToWaive.slice(i, i + 100);
       const { error } = await supabase.from("penalty_fees").update({
         status: "waived",
         waived_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }).in("id", chunk);
       if (!error) penaltiesRemoved += chunk.length;
-      else console.error("Penalty fees waive error:", error);
+      else console.error("Penalty waive error:", error);
     }
 
     // 3. Insert correct penalty_fees
@@ -366,7 +377,7 @@ Deno.serve(async (req) => {
       const chunk = penaltyFeesToInsert.slice(i, i + 100);
       const { error } = await supabase.from("penalty_fees").insert(chunk);
       if (!error) penaltiesInserted += chunk.length;
-      else console.error("Penalty fees insert error:", error);
+      else console.error("Penalty insert error:", error);
     }
 
     // 4. Update account totals
@@ -382,29 +393,20 @@ Deno.serve(async (req) => {
       else console.error("Account update error:", accId, error);
     }
 
-    // 5. Audit log (skip individual re-reads to avoid timeout)
+    // 5. Audit log
     if (report.length > 0) {
-      const auditEntries = report.map(r => ({
+      const auditEntries = report.slice(0, 50).map(r => ({
         entity_type: "layaway_account",
         entity_id: accountIds[0] || "00000000-0000-0000-0000-000000000000",
-        action: "system_penalty_recalculation",
-        old_value_json: {
-          invoice: r.invoice_number,
-          total_penalty: r.penalty_before,
-          total_amount: r.total_amount_before,
-          remaining_balance: r.remaining_before,
-        },
+        action: "system_penalty_recalculation_v2",
         new_value_json: {
           invoice: r.invoice_number,
-          total_penalty: r.penalty_after,
-          total_amount: r.total_amount_after,
-          remaining_balance: r.remaining_after,
-          rule: "alternating_week1_week2_pattern",
+          penalty_before: r.penalty_before,
+          penalty_after: r.penalty_after,
+          rule: "alternating_14day_pattern",
         },
       }));
-      for (let i = 0; i < auditEntries.length; i += 100) {
-        await supabase.from("audit_logs").insert(auditEntries.slice(i, i + 100));
-      }
+      await supabase.from("audit_logs").insert(auditEntries);
     }
 
     return new Response(JSON.stringify({
@@ -414,6 +416,7 @@ Deno.serve(async (req) => {
       penalty_fees_created: penaltiesInserted,
       accounts_updated: accountsUpdated,
       invoices_changed: report.length,
+      total_accounts_checked: accountSchedules.size,
       changes: report,
       confirmation: "All penalties are now derived from schedule only and fully synchronized",
     }, null, 2), {
