@@ -17,6 +17,24 @@ export type DbAccount = Tables<'layaway_accounts'>;
 export type DbPayment = Tables<'payments'>;
 export type DbPenalty = Tables<'penalty_fees'>;
 
+// ── Penalty Cap Constants ──
+export const PENALTY_CAP = {
+  PHP: { months1to5: 1000, month6: Infinity },
+  JPY: { months1to5: 2000, month6: Infinity },
+} as const;
+
+/** Get the max penalty allowed for a given installment number and currency. */
+export function getPenaltyCap(currency: 'PHP' | 'JPY', installmentNumber: number): number {
+  if (installmentNumber >= 6) return Infinity;
+  return currency === 'PHP' ? PENALTY_CAP.PHP.months1to5 : PENALTY_CAP.JPY.months1to5;
+}
+
+/** Check if a penalty amount exceeds the cap for a given installment. */
+export function isPenaltyOverCap(currency: 'PHP' | 'JPY', installmentNumber: number, totalPenalty: number): boolean {
+  const cap = getPenaltyCap(currency, installmentNumber);
+  return totalPenalty > cap;
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 1. DATE UTILITIES (timezone-safe, string-based)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
