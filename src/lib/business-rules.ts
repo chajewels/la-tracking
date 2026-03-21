@@ -468,6 +468,8 @@ export const MUTATION_INVALIDATION_KEYS = [
   'reminder-actionable',
   'weekly-collections',
   'all-schedules-analytics',
+  'waivers',
+  'waivers-page',
 ] as const;
 
 /** Service labels for account services display. */

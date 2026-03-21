@@ -16,6 +16,7 @@ import Collections from "./pages/Collections";
 import Finance from "./pages/Finance";
 import Analytics from "./pages/Analytics";
 import SettingsPage from "./pages/SettingsPage";
+import Waivers from "./pages/Waivers";
 import Login from "./pages/Login";
 
 import Reminders from "./pages/Reminders";
@@ -48,6 +49,7 @@ const App = () => (
             <Route path="/finance" element={<Protected><Finance /></Protected>} />
             <Route path="/analytics" element={<Protected><Analytics /></Protected>} />
             <Route path="/reminders" element={<Protected><Reminders /></Protected>} />
+            <Route path="/waivers" element={<Protected><Waivers /></Protected>} />
             <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
