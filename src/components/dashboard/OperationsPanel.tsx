@@ -46,7 +46,7 @@ export default function OperationsPanel({ summary, displayCurrency }: Operations
     { label: 'Due Today', count: summary?.due_today_count ?? 0, icon: Clock, color: 'text-warning', bg: 'bg-warning/10', link: '/monitoring?filter=due_today' },
     { label: 'Overdue', count: summary?.overdue_accounts ?? 0, icon: AlertTriangle, color: 'text-destructive', bg: 'bg-destructive/10', link: '/monitoring?filter=overdue' },
     { label: 'Penalties Today', count: summary?.penalties_today_count ?? 0, icon: Gavel, color: 'text-primary', bg: 'bg-primary/10', link: '/monitoring?filter=overdue' },
-    { label: 'Waivers Pending', count: summary?.pending_waivers_count ?? 0, icon: Scale, color: 'text-warning', bg: 'bg-warning/10', link: '/accounts' },
+    { label: 'Waivers Pending', count: summary?.pending_waivers_count ?? 0, icon: Scale, color: 'text-warning', bg: 'bg-warning/10', link: '/waivers' },
   ];
 
   return (
