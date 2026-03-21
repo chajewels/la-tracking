@@ -43,6 +43,18 @@ Deno.serve(async (req) => {
       return currency === "PHP" ? 1000 : 2000;
     };
 
+    // ── Fetch penalty cap overrides ──
+    const { data: overrides } = await supabase
+      .from("penalty_cap_overrides")
+      .select("account_id, penalty_cap_amount, is_active")
+      .eq("is_active", true);
+    const overrideMap = new Map<string, number>();
+    if (overrides) {
+      for (const o of overrides) {
+        overrideMap.set(o.account_id, Number(o.penalty_cap_amount));
+      }
+    }
+
     // ── Step 1: Fetch ALL overdue unpaid schedule items in one query ──
     // Paginate to handle >1000 rows
     let allOverdueItems: any[] = [];
