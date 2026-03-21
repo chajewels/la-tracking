@@ -18,7 +18,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   isEffectivelyPaid, remainingDue, getUnpaidScheduleItems,
-  ordinal, SERVICE_LABELS, accountProgress,
+  ordinal, SERVICE_LABELS, accountProgress, getNextPaymentStatementDate,
 } from '@/lib/business-rules';
 
 export default function CustomerDetail() {
