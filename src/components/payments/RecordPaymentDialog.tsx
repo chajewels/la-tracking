@@ -199,6 +199,25 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
                 {parsedAmount > remainingBalance && (
                   <p className="text-xs text-destructive">Amount exceeds remaining balance</p>
                 )}
+                {monthOptions.length > 1 && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    <span className="text-xs text-muted-foreground mr-1 self-center">Quick fill:</span>
+                    {monthOptions.map(opt => (
+                      <button
+                        key={opt.months}
+                        type="button"
+                        onClick={() => setAmount(String(opt.amount))}
+                        className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors border ${
+                          parsedAmount === opt.amount
+                            ? 'bg-primary/15 border-primary/30 text-primary'
+                            : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted hover:text-card-foreground'
+                        }`}
+                      >
+                        {opt.months} {opt.months === 1 ? 'month' : 'months'}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
             <div className="space-y-2">
