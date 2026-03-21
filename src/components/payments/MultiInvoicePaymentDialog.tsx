@@ -481,6 +481,41 @@ export default function MultiInvoicePaymentDialog({
             </DialogFooter>
           </div>
         )}
+
+        {/* Message Step */}
+        {step === 'message' && (
+          <div className="space-y-4">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-card-foreground">
+                <MessageCircle className="h-5 w-5 text-primary" />
+                Payment Confirmation Message
+              </DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">Copy this message to send to the customer via Messenger:</p>
+            <div className="rounded-lg border border-border bg-muted/30 p-4 max-h-[350px] overflow-y-auto">
+              <pre className="text-sm text-card-foreground whitespace-pre-wrap font-sans leading-relaxed">
+                {consolidatedMessage}
+              </pre>
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={resetAndClose}>
+                Close
+              </Button>
+              <Button
+                onClick={() => {
+                  navigator.clipboard.writeText(consolidatedMessage);
+                  setMsgCopied(true);
+                  toast.success('Message copied to clipboard');
+                  setTimeout(() => setMsgCopied(false), 2000);
+                }}
+                className="gap-2"
+              >
+                {msgCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                {msgCopied ? 'Copied!' : 'Copy Message'}
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
