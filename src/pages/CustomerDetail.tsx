@@ -186,17 +186,17 @@ export default function CustomerDetail() {
 
       msg += `━━━━━━━━━━━━━━━━━━\n`;
       msg += `📋 Inv # ${acct.account.invoice_number}\n`;
-      if (totalPenalty > 0) {
-        msg += `Total Layaway Amount: ${formatCurrency(totalAmount, currency)} + ${formatCurrency(totalPenalty, currency)} (Penalty)\n`;
-      } else {
-        msg += `Total Layaway Amount: ${formatCurrency(totalAmount, currency)}\n`;
-      }
+      // Build Total Layaway Amount line from schedule
+      const amountParts: string[] = [formatCurrency(originalPrincipal, currency)];
+      if (totalSvcAmt > 0) amountParts.push(`${formatCurrency(totalSvcAmt, currency)} (Services)`);
+      if (schedPenaltySum > 0) amountParts.push(`${formatCurrency(schedPenaltySum, currency)} (Penalty)`);
+      msg += `Total Layaway Amount: ${amountParts.join(' + ')}`;
+      if (amountParts.length > 1) msg += ` = ${formatCurrency(totalAmount, currency)}`;
+      msg += `\n`;
       msg += `Amount Paid: ${paymentBreakdownText}\n`;
 
       // Services in message
-      const acctServicesList = (acct as any).services || [];
       if (acctServicesList.length > 0) {
-        const totalSvcAmt = acctServicesList.reduce((s: number, svc: any) => s + Number(svc.amount), 0);
         msg += `\n🔧 Additional Services:\n`;
         acctServicesList.forEach((svc: any) => {
           const label = SERVICE_LABELS[svc.service_type] || svc.service_type;
