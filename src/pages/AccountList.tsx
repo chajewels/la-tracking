@@ -57,7 +57,7 @@ export default function AccountList() {
         </div>
 
         {/* Filters */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -66,6 +66,26 @@ export default function AccountList() {
               onChange={(e) => setSearch(e.target.value)}
               className="pl-9 bg-card border-border"
             />
+          </div>
+          <div className="flex gap-1 rounded-lg border border-border p-1 bg-card">
+            {statusOptions.map((s) => (
+              <button
+                key={s}
+                onClick={() => {
+                  setFilterStatus(s);
+                  if (s === 'all') searchParams.delete('status');
+                  else searchParams.set('status', s);
+                  setSearchParams(searchParams, { replace: true });
+                }}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-colors ${
+                  filterStatus === s
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {s === 'all' ? 'All' : s}
+              </button>
+            ))}
           </div>
           <div className="flex gap-1 rounded-lg border border-border p-1 bg-card">
             {(['all', 'PHP', 'JPY'] as const).map((c) => (
