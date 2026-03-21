@@ -75,6 +75,9 @@ Deno.serve(async (req) => {
       });
     }
 
+    // If the schedule item is already paid, the penalty is a correction — mark it paid immediately
+    const isPaidItem = schedItem.status === "paid";
+
     // Insert penalty_fees record
     const { data: penaltyFee, error: penErr } = await supabase
       .from("penalty_fees")
@@ -85,7 +88,7 @@ Deno.serve(async (req) => {
         penalty_amount,
         penalty_stage,
         penalty_cycle: 1,
-        status: "unpaid",
+        status: isPaidItem ? "paid" : "unpaid",
       })
       .select()
       .single();
