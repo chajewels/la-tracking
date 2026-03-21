@@ -8,15 +8,22 @@ import CLVBadge from '@/components/dashboard/CLVBadge';
 import CompletionBadge from '@/components/dashboard/CompletionBadge';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/calculations';
-import { Currency, RiskLevel, CLVTier, CompletionProbability } from '@/lib/types';
-import { getDisplayCurrencyForFilter, toJpy } from '@/lib/currency-converter';
+import { Currency } from '@/lib/types';
+import { getDisplayCurrencyForFilter } from '@/lib/currency-converter';
 import { Link } from 'react-router-dom';
 import { useAccounts, useCustomers, usePayments, useDashboardSummary, AccountWithCustomer, DbCustomer } from '@/hooks/use-supabase-data';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
-import { riskStyles } from '@/lib/analytics-engine';
 import { useAuth } from '@/contexts/AuthContext';
+import {
+  assessRisk,
+  predictCompletion,
+  assessCLV,
+  isAccountActive,
+  riskStyles,
+  todayStr,
+} from '@/lib/business-rules';
 
 // ── Live risk assessment from real data ──
 function assessRisk(account: AccountWithCustomer, payments: any[], schedules: any[]): { riskLevel: RiskLevel; score: number; recommendation: string; maxOverdueDays: number } {
