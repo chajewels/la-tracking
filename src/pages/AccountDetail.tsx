@@ -62,6 +62,8 @@ export default function AccountDetail() {
   const [invoiceInput, setInvoiceInput] = useState('');
   const [invoiceSaving, setInvoiceSaving] = useState(false);
   const queryClient = useQueryClient();
+  const [statementLoading, setStatementLoading] = useState(false);
+  const [statementLink, setStatementLink] = useState<string | null>(null);
 
   const handleInvoiceSave = useCallback(async () => {
     const trimmed = invoiceInput.trim();
