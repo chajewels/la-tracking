@@ -155,41 +155,20 @@ export default function AccountDetail() {
   const currency = account.currency as Currency;
   const totalAmount = Number(account.total_amount);
   const totalPaid = Number(account.total_paid);
-  // Compute remaining balance from schedule to account for overpayment reductions
-  const effPaidCheck = (item: { status: string; paid_amount: number | string; total_due_amount: number | string }) =>
-    item.status === 'paid' || (Number(item.paid_amount) > 0 && Number(item.paid_amount) >= Number(item.total_due_amount));
-  const remainingBalance = (schedule || []).reduce((sum, item) => {
-    if (effPaidCheck(item) || item.status === 'cancelled') return sum;
-    return sum + Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
-  }, 0);
+  const scheduleItems = schedule || [];
+  const remainingBalance = computeRemainingBalance(scheduleItems);
   const downpaymentAmount = Number((account as any).downpayment_amount || 0);
   const accountServices = ((services || []) as AccountService[]);
   const totalServicesAmount = accountServices.reduce((s, svc) => s + Number(svc.amount), 0);
   const totalLayawayAmount = totalAmount + totalServicesAmount;
-  const progress = totalLayawayAmount > 0 ? (totalPaid / totalLayawayAmount) * 100 : 0;
+  const progress = accountProgress(totalPaid, totalLayawayAmount);
 
   const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
   const totalPenalty = unpaidPenalties.reduce((s, p) => s + Number(p.penalty_amount), 0);
   const totalPenaltyAll = (penalties || []).reduce((s, p) => s + Number(p.penalty_amount), 0);
 
-  const SERVICE_LABELS: Record<string, string> = {
-    resize: 'Resize', certificate: 'Certificate', polish: 'Polish',
-    change_color: 'Change Color', engraving: 'Engraving', repair: 'Repair', other: 'Other',
-  };
-
-  // Build message from schedule + active payment data
-  const scheduleItems = schedule || [];
-  const getRemainingDue = (item: { total_due_amount: number | string; paid_amount: number | string }) =>
-    Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
-  const isEffectivelyPaid = (item: { status: string; paid_amount: number | string; total_due_amount: number | string }) =>
-    item.status === 'paid' || (Number(item.paid_amount) > 0 && Number(item.paid_amount) >= Number(item.total_due_amount));
-  const getOverpaymentCredit = (item: { total_due_amount: number | string; paid_amount: number | string; status: string }) =>
-    isEffectivelyPaid(item)
-      ? Math.max(0, Number(item.paid_amount) - Number(item.total_due_amount))
-      : 0;
-  const unpaidSchedule = scheduleItems.filter(s => !isEffectivelyPaid(s) && s.status !== 'cancelled');
-  const activePayments = [...(payments || [])]
-    .filter(payment => !payment.voided_at)
+  const unpaidSchedule = getUnpaidScheduleItems(scheduleItems);
+  const activePayments = getActivePayments(payments || [])
     .sort((a, b) => {
       const dateDiff = new Date(a.date_paid).getTime() - new Date(b.date_paid).getTime();
       if (dateDiff !== 0) return dateDiff;
@@ -198,15 +177,6 @@ export default function AccountDetail() {
   const paymentBreakdownText = activePayments.length > 0
     ? `${activePayments.map(payment => formatCurrency(Number(payment.amount_paid), payment.currency as Currency)).join(' + ')} = ${formatCurrency(totalPaid, currency)}`
     : formatCurrency(totalPaid, currency);
-  let paymentCounter = 0;
-  const paymentDetails = activePayments.map((payment) => {
-    const dateStr = new Date(payment.date_paid).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
-    const isDownpayment = payment.remarks?.toLowerCase().includes('downpayment') ||
-      (downpaymentAmount > 0 && Math.abs(Number(payment.amount_paid) - downpaymentAmount) < 1);
-    const label = isDownpayment ? '30% Downpayment' : `Payment ${++paymentCounter}`;
-    return `${label} ${dateStr}: ${formatCurrency(Number(payment.amount_paid), payment.currency as Currency)}`;
-  });
-  const ordinals = ['1st', '2nd', '3rd', '4th', '5th', '6th'];
 
   // Find the most recent payment for the thank-you line
   const mostRecentPayment = activePayments.length > 0
