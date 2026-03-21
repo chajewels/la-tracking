@@ -6,19 +6,20 @@ const corsHeaders = {
 };
 
 /**
- * Penalty Engine – Cha Jewels Business Rule
+ * Penalty Engine – Cha Jewels Alternating 14-Day Rule
  *
- * Penalty applies in 3 phases:
- *   1) First penalty:  7 days after due date  (week1, cycle 1)
- *   2) Second penalty: 14 days after due date (week2, cycle 1)
- *   3) Subsequent:     every month on the same due-date day (week1, cycle 2, 3, 4…)
+ * Penalty follows an alternating pattern from the due date:
+ *   Due+7  → week1:1   (first penalty after 7-day grace)
+ *   Due+14 → week2:1
+ *   Due+1mo → week1:2
+ *   Due+1mo+14d → week2:2
+ *   Due+2mo → week1:3
+ *   Due+2mo+14d → week2:3
+ *   ... repeat until paid
  *
- * The 7-day and 14-day thresholds happen only once at the start.
- * After that, penalty is monthly (not every 14 days).
- * Stop once the installment is paid.
- *
- * Cap: months 1-5 → PHP 1,000 / JPY 2,000 (unless overridden per-invoice).
- * Month 6+ → uncapped.
+ * Each penalty event = PHP 500 / JPY 1,000
+ * Cap per installment months 1-5: PHP 1,000 / JPY 2,000
+ * Month 6+: uncapped (continues accumulating)
  */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -47,6 +48,7 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Both week1 and week2 use the same amount: PHP 500, JPY 1000
     const getAmount = (currency: string, stage: string): number => {
       const key = `penalty_${currency.toLowerCase()}_${stage}`;
       return config[key] || (currency === "PHP" ? 500 : 1000);
@@ -118,7 +120,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── Step 3: Determine which penalties to create using 3-phase rule ──
+    // ── Step 3: Determine which penalties to create ──
     const penaltiesToInsert: any[] = [];
     const scheduleUpdates = new Map<string, { totalPenalty: number; baseAmount: number; accountId: string }>();
     const accountsToMarkOverdue = new Set<string>();
@@ -139,30 +141,21 @@ Deno.serve(async (req) => {
 
       if (currentTotal >= cap) continue;
 
-      // Build the list of penalty trigger dates for this schedule item
-      // Phase 1: due_date + 7 days  → week1:1
-      // Phase 2: due_date + 14 days → week2:1
-      // Phase 3+: alternating pattern:
-      //   due_date + 1 month (same day) → week1:2
-      //   due_date + 1 month + 14 days  → week2:2
-      //   due_date + 2 months (same day) → week1:3
-      //   due_date + 2 months + 14 days  → week2:3
-      //   ... and so on
+      // Build trigger dates using the alternating pattern
       const triggerDates: Array<{ date: Date; stage: "week1" | "week2"; cycle: number }> = [];
 
-      // Phase 1: 7 days after due
+      // Phase 1: due + 7 → week1:1
       const phase1Date = new Date(dueDate);
       phase1Date.setUTCDate(phase1Date.getUTCDate() + 7);
       triggerDates.push({ date: phase1Date, stage: "week1", cycle: 1 });
 
-      // Phase 2: 14 days after due
+      // Phase 2: due + 14 → week2:1
       const phase2Date = new Date(dueDate);
       phase2Date.setUTCDate(phase2Date.getUTCDate() + 14);
       triggerDates.push({ date: phase2Date, stage: "week2", cycle: 1 });
 
-      // Phase 3+: alternating monthly due-date checkpoint + 14 days after
+      // Phase 3+: alternating monthly checkpoint + 14 days
       for (let m = 1; m <= 12; m++) {
-        // Monthly checkpoint on the same day-of-month as original due date
         const monthlyDate = new Date(Date.UTC(
           dueDate.getUTCFullYear(),
           dueDate.getUTCMonth() + m,
@@ -170,7 +163,6 @@ Deno.serve(async (req) => {
         ));
         triggerDates.push({ date: monthlyDate, stage: "week1", cycle: m + 1 });
 
-        // 14 days after the monthly checkpoint
         const plus14Date = new Date(monthlyDate);
         plus14Date.setUTCDate(plus14Date.getUTCDate() + 14);
         triggerDates.push({ date: plus14Date, stage: "week2", cycle: m + 1 });
@@ -179,20 +171,18 @@ Deno.serve(async (req) => {
       let newPenaltyForItem = 0;
 
       for (const trigger of triggerDates) {
-        // Only apply if today is on or past the trigger date
-        if (now < trigger.date) break; // sorted chronologically, no need to check further
+        if (now < trigger.date) break;
 
         const key = `${trigger.stage}:${trigger.cycle}`;
         if (existingKeys.has(key)) continue;
 
-        // Determine penalty amount based on stage
         let penaltyAmount = getAmount(currency, trigger.stage);
 
         // Enforce cap
         const projectedTotal = currentTotal + newPenaltyForItem + penaltyAmount;
         if (projectedTotal > cap) {
           penaltyAmount = Math.max(0, cap - currentTotal - newPenaltyForItem);
-          if (penaltyAmount <= 0) break; // cap reached
+          if (penaltyAmount <= 0) break;
         }
 
         const penaltyDate = trigger.date.toISOString().split("T")[0];
@@ -232,7 +222,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── Step 5: Update schedule items with new penalty totals ──
+    // ── Step 5: Update schedule items ──
     for (const [schedId, info] of scheduleUpdates) {
       await supabase.from("layaway_schedule").update({
         penalty_amount: info.totalPenalty,
@@ -304,6 +294,5 @@ Deno.serve(async (req) => {
 
 /** Helper: days in a given month (0-indexed month, handles year rollover) */
 function daysInMonth(year: number, month: number): number {
-  // JS Date handles month overflow (e.g., month=13 → Feb next year)
   return new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
 }
