@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, FileText, Users, Bell, DollarSign, BarChart3, Activity, Settings, Send, LogOut, Scale,
+  LayoutDashboard, FileText, Users, Bell, DollarSign, BarChart3, Activity, Settings, Send, LogOut, Scale, Shield,
 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import {
