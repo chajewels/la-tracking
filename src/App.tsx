@@ -17,6 +17,7 @@ import Finance from "./pages/Finance";
 import Analytics from "./pages/Analytics";
 import SettingsPage from "./pages/SettingsPage";
 import Waivers from "./pages/Waivers";
+import AdminAudit from "./pages/AdminAudit";
 import Login from "./pages/Login";
 
 import Reminders from "./pages/Reminders";
