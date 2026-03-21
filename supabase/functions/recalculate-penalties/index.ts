@@ -140,6 +140,7 @@ Deno.serve(async (req) => {
     const scheduleUpdates: Array<{ id: string; penalty_amount: number; total_due_amount: number; status: string }> = [];
     const penaltyFeesToInsert: any[] = [];
     const penaltyFeeIdsToWaive: string[] = [];
+    const penaltyFeesToUpdate: Array<{ id: string; penalty_amount: number; penalty_date: string; status: string }> = [];
     const accountUpdates = new Map<string, { total_amount: number; remaining_balance: number; status: string }>();
 
     // ── Process each account ──
@@ -267,58 +268,55 @@ Deno.serve(async (req) => {
         // ── Sync penalty_fees ──
         const existingPFs = penaltyFeesBySchedule.get(item.id) || [];
 
-        // Remove ALL non-paid penalty_fees (we'll recreate the correct ones)
+        // Build a map of existing penalty_fees by stage:cycle
+        const existingByKey = new Map<string, any>();
         for (const pf of existingPFs) {
-          if (pf.status !== "paid") {
-            penaltyFeeIdsToWaive.push(pf.id);
-          }
+          const key = `${pf.penalty_stage}:${pf.penalty_cycle}`;
+          existingByKey.set(key, pf);
         }
 
-        // Check which entries already have a "paid" penalty_fee
-        const paidKeys = new Map<string, number>();
-        for (const pf of existingPFs) {
-          if (pf.status === "paid") {
-            const key = `${pf.penalty_stage}:${pf.penalty_cycle}`;
-            paidKeys.set(key, Number(pf.penalty_amount));
-          }
-        }
+        // Build set of correct keys
+        const correctKeys = new Set(correctEntries.map(e => `${e.stage}:${e.cycle}`));
 
-        // Insert correct penalty entries (skip already-paid ones)
+        // For each correct entry, either update existing or insert new
         for (const entry of correctEntries) {
           const key = `${entry.stage}:${entry.cycle}`;
-          if (paidKeys.has(key)) {
-            // Already paid - check if amount matches
-            const paidAmt = paidKeys.get(key)!;
-            if (Math.abs(paidAmt - entry.amount) > 0.001) {
-              // Amount mismatch on paid penalty - we need to fix it
-              // Find the paid penalty_fee and update its amount
-              const paidPF = existingPFs.find(pf => 
-                pf.status === "paid" && pf.penalty_stage === entry.stage && pf.penalty_cycle === entry.cycle
-              );
-              if (paidPF) {
-                // Update the paid penalty amount
-                await supabase.from("penalty_fees").update({
-                  penalty_amount: entry.amount,
-                  updated_at: new Date().toISOString(),
-                }).eq("id", paidPF.id);
-              }
-            }
-            continue;
-          }
-
-          // Determine status: if installment is paid, penalty should be paid too
+          const existing = existingByKey.get(key);
           const penaltyStatus = isPaidItem ? "paid" : "unpaid";
 
-          penaltyFeesToInsert.push({
-            account_id: accountId,
-            schedule_id: item.id,
-            currency,
-            penalty_amount: entry.amount,
-            penalty_stage: entry.stage,
-            penalty_cycle: entry.cycle,
-            penalty_date: entry.date,
-            status: penaltyStatus,
-          });
+          if (existing) {
+            // Record exists — update it if needed (amount, status, date)
+            if (Math.abs(Number(existing.penalty_amount) - entry.amount) > 0.001 ||
+                existing.status === "waived" || existing.penalty_date !== entry.date ||
+                (isPaidItem && existing.status !== "paid")) {
+              penaltyFeesToUpdate.push({
+                id: existing.id,
+                penalty_amount: entry.amount,
+                penalty_date: entry.date,
+                status: penaltyStatus,
+              });
+            }
+          } else {
+            // No existing record — insert
+            penaltyFeesToInsert.push({
+              account_id: accountId,
+              schedule_id: item.id,
+              currency,
+              penalty_amount: entry.amount,
+              penalty_stage: entry.stage,
+              penalty_cycle: entry.cycle,
+              penalty_date: entry.date,
+              status: penaltyStatus,
+            });
+          }
+        }
+
+        // Waive penalty_fees that shouldn't exist (not in correctKeys and not paid)
+        for (const pf of existingPFs) {
+          const key = `${pf.penalty_stage}:${pf.penalty_cycle}`;
+          if (!correctKeys.has(key) && pf.status !== "paid") {
+            penaltyFeeIdsToWaive.push(pf.id);
+          }
         }
       }
 
@@ -396,7 +394,21 @@ Deno.serve(async (req) => {
       else console.error("Penalty waive error:", error);
     }
 
-    // 3. Insert correct penalty_fees
+    // 3. Update existing penalty_fees
+    let penaltiesUpdated = 0;
+    for (const upd of penaltyFeesToUpdate) {
+      const { error } = await supabase.from("penalty_fees").update({
+        penalty_amount: upd.penalty_amount,
+        penalty_date: upd.penalty_date,
+        status: upd.status,
+        waived_at: null,
+        updated_at: new Date().toISOString(),
+      }).eq("id", upd.id);
+      if (!error) penaltiesUpdated++;
+      else console.error("Penalty update error:", upd.id, error);
+    }
+
+    // 4. Insert new penalty_fees
     let penaltiesInserted = 0;
     for (let i = 0; i < penaltyFeesToInsert.length; i += 100) {
       const chunk = penaltyFeesToInsert.slice(i, i + 100);
@@ -438,6 +450,7 @@ Deno.serve(async (req) => {
       message: "System-wide penalty recalculation completed",
       schedule_items_updated: schedUpdated,
       penalty_fees_removed: penaltiesRemoved,
+      penalty_fees_updated: penaltiesUpdated,
       penalty_fees_created: penaltiesInserted,
       accounts_updated: accountsUpdated,
       invoices_changed: report.length,
