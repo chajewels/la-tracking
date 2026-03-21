@@ -112,6 +112,13 @@ export default function AccountDetail() {
 
   const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
   const totalPenalty = unpaidPenalties.reduce((s, p) => s + Number(p.penalty_amount), 0);
+  const accountServices = (services || []) as AccountService[];
+  const totalServicesAmount = accountServices.reduce((s, svc) => s + Number(svc.amount), 0);
+
+  const SERVICE_LABELS: Record<string, string> = {
+    resize: 'Resize', certificate: 'Certificate', polish: 'Polish',
+    change_color: 'Change Color', engraving: 'Engraving', repair: 'Repair', other: 'Other',
+  };
 
   // Build message from schedule + active payment data
   const scheduleItems = schedule || [];
