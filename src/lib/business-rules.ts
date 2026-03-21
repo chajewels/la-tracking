@@ -381,6 +381,34 @@ export function getNextUnpaidDueDate(
 }
 
 /**
+ * Get the "next monthly payment" statement date.
+ * Rule: If auto-penalty has been applied to the next unpaid installment,
+ * the statement date shifts to due_date + 14 days.
+ */
+export function getNextPaymentStatementDate(
+  scheduleItems: Array<{ due_date: string; status: string; paid_amount: number | string; total_due_amount: number | string; penalty_amount: number | string }>
+): { date: string; isAdjusted: boolean } | null {
+  const unpaid = scheduleItems
+    .filter(s => !isEffectivelyPaid(s) && s.status !== 'cancelled')
+    .sort((a, b) => a.due_date.localeCompare(b.due_date));
+  if (unpaid.length === 0) return null;
+
+  const next = unpaid[0];
+  const hasPenalty = Number(next.penalty_amount) > 0;
+  const today = todayStr();
+  const isOverdue = next.due_date < today;
+
+  if (hasPenalty && isOverdue) {
+    // Shift to due_date + 14 days
+    const d = new Date(next.due_date);
+    d.setDate(d.getDate() + 14);
+    return { date: d.toISOString().split('T')[0], isAdjusted: true };
+  }
+
+  return { date: next.due_date, isAdjusted: false };
+}
+
+/**
  * Classify an account into a single bucket based on its NEXT unpaid due date.
  * Each account goes into exactly ONE bucket (most urgent wins).
  */
