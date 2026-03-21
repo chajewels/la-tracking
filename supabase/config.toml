@@ -38,3 +38,6 @@ verify_jwt = false
 
 [functions.add-penalty]
 verify_jwt = false
+
+[functions.finance-reconciliation]
+verify_jwt = false
