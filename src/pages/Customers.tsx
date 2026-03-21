@@ -186,7 +186,7 @@ export default function Customers() {
                        <td className="px-5 py-3 text-center text-sm text-card-foreground">{activeCount || '—'}</td>
                        <td className="px-5 py-3 text-center text-sm">
                          {completedCount > 0 ? (
-                           <span className="text-emerald-400 font-medium">{completedCount}</span>
+                           <span className="text-accent font-medium">{completedCount}</span>
                          ) : '—'}
                        </td>
                        <td className="px-5 py-3 text-center">
