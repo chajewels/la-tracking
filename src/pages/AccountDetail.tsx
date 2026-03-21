@@ -415,6 +415,16 @@ export default function AccountDetail() {
           </div>
         </div>
 
+        {/* Reconciliation Warning */}
+        {!reconciliationValid && (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0" />
+            <p className="text-xs text-destructive font-medium">
+              Reconciliation Error: Total ({formatCurrency(totalLayawayAmount, currency)}) − Paid ({formatCurrency(totalPaid, currency)}) = {formatCurrency(totalLayawayAmount - totalPaid, currency)} ≠ Remaining ({formatCurrency(remainingBalance, currency)})
+            </p>
+          </div>
+        )}
+
         {/* Summary Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
           <div className="rounded-xl border border-border bg-card p-3 sm:p-4">
