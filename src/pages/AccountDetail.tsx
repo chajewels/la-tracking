@@ -464,6 +464,13 @@ export default function AccountDetail() {
             </div>
           </div>
 
+          {/* Additional Services */}
+          {accountServices.length > 0 && (
+            <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
+              <ServicesList services={accountServices} currency={currency} accountId={account.id} />
+            </div>
+          )}
+
           {/* Customer Message */}
           <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
             <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2">
