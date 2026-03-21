@@ -69,19 +69,45 @@ const SERVICE_LABELS: Record<string, string> = {
 
 function getNextPaymentInfo(schedule: StatementData['schedule']): { date: string; amount: number; isAdjusted: boolean } | null {
   const today = new Date().toISOString().split('T')[0];
+  const todayDate = new Date(today + 'T00:00:00Z');
   const unpaid = schedule
     .filter(s => s.status !== 'paid' && s.status !== 'cancelled' && s.paid_amount < s.total_due)
     .sort((a, b) => a.due_date.localeCompare(b.due_date));
   if (unpaid.length === 0) return null;
 
-  // Find next upcoming checkpoint (due_date >= today)
+  // If there's an upcoming (not yet overdue) installment, return its due_date
   const upcoming = unpaid.find(s => s.due_date >= today);
   if (upcoming) {
     return { date: upcoming.due_date, amount: upcoming.total_due - upcoming.paid_amount, isAdjusted: false };
   }
 
-  // All overdue — return earliest
-  return { date: unpaid[0].due_date, amount: unpaid[0].total_due - unpaid[0].paid_amount, isAdjusted: false };
+  // All overdue — compute next penalty checkpoint for the earliest overdue
+  const overdueItem = unpaid[0];
+  const dueDate = new Date(overdueItem.due_date + 'T00:00:00Z');
+  const dueDayOfMonth = dueDate.getUTCDate();
+  const checkpoints: Date[] = [];
+
+  // due+7, due+14
+  const p1 = new Date(dueDate); p1.setUTCDate(p1.getUTCDate() + 7); checkpoints.push(p1);
+  const p2 = new Date(dueDate); p2.setUTCDate(p2.getUTCDate() + 14); checkpoints.push(p2);
+
+  // monthly + 14 alternating
+  for (let m = 1; m <= 12; m++) {
+    const year = dueDate.getUTCFullYear();
+    const month = dueDate.getUTCMonth() + m;
+    const maxDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    const monthly = new Date(Date.UTC(year, month, Math.min(dueDayOfMonth, maxDay)));
+    checkpoints.push(monthly);
+    const plus14 = new Date(monthly); plus14.setUTCDate(plus14.getUTCDate() + 14);
+    checkpoints.push(plus14);
+  }
+
+  const nextCp = checkpoints.find(cp => cp > todayDate);
+  if (nextCp) {
+    return { date: nextCp.toISOString().split('T')[0], amount: overdueItem.total_due - overdueItem.paid_amount, isAdjusted: true };
+  }
+
+  return { date: overdueItem.due_date, amount: overdueItem.total_due - overdueItem.paid_amount, isAdjusted: false };
 }
 
 export default function CustomerStatement() {

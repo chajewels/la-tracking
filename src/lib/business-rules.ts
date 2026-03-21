@@ -382,13 +382,11 @@ export function getNextUnpaidDueDate(
 
 /**
  * Get the "next payment" statement date.
- * 
- * Returns the due_date of the next upcoming unpaid schedule checkpoint.
- * Since the corrected penalty engine creates explicit schedule entries at
- * every checkpoint (due+7, due+14, monthly, monthly+14), the next payment
- * date is simply the earliest unpaid schedule row whose due_date >= today.
- * If all unpaid rows are already overdue, return the earliest overdue one
- * (customer still needs to pay it).
+ *
+ * For unpaid installments that are NOT yet overdue, returns the due_date.
+ * For overdue installments, computes the next penalty checkpoint using
+ * the alternating pattern (due+7, due+14, monthly, monthly+14, …)
+ * and returns the first checkpoint >= today.
  */
 export function getNextPaymentStatementDate(
   scheduleItems: Array<{ due_date: string; status: string; paid_amount: number | string; total_due_amount: number | string; penalty_amount: number | string }>
@@ -400,14 +398,52 @@ export function getNextPaymentStatementDate(
 
   const today = todayStr();
 
-  // Find next upcoming (due_date >= today)
+  // If there's an upcoming (not yet overdue) installment, return its due_date
   const upcoming = unpaid.find(s => s.due_date >= today);
   if (upcoming) {
     return { date: upcoming.due_date, isAdjusted: false };
   }
 
-  // All unpaid are overdue — return earliest overdue (still needs payment)
-  return { date: unpaid[0].due_date, isAdjusted: false };
+  // All unpaid are overdue — compute the next penalty checkpoint for the earliest one
+  const overdueItem = unpaid[0];
+  const dueDate = new Date(overdueItem.due_date + 'T00:00:00Z');
+  const todayDate = new Date(today + 'T00:00:00Z');
+  const dueDayOfMonth = dueDate.getUTCDate();
+
+  // Build penalty checkpoint dates in the alternating pattern
+  const checkpoints: Date[] = [];
+
+  // Phase 1: due + 7
+  const p1 = new Date(dueDate);
+  p1.setUTCDate(p1.getUTCDate() + 7);
+  checkpoints.push(p1);
+
+  // Phase 2: due + 14
+  const p2 = new Date(dueDate);
+  p2.setUTCDate(p2.getUTCDate() + 14);
+  checkpoints.push(p2);
+
+  // Phase 3+: monthly checkpoint + 14 days alternating
+  for (let m = 1; m <= 12; m++) {
+    const year = dueDate.getUTCFullYear();
+    const month = dueDate.getUTCMonth() + m;
+    const maxDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    const monthly = new Date(Date.UTC(year, month, Math.min(dueDayOfMonth, maxDay)));
+    checkpoints.push(monthly);
+
+    const plus14 = new Date(monthly);
+    plus14.setUTCDate(plus14.getUTCDate() + 14);
+    checkpoints.push(plus14);
+  }
+
+  // Find the next checkpoint that is > today (the next one the customer should pay by)
+  const nextCheckpoint = checkpoints.find(cp => cp > todayDate);
+  if (nextCheckpoint) {
+    return { date: nextCheckpoint.toISOString().split('T')[0], isAdjusted: true };
+  }
+
+  // Fallback: return the due date itself
+  return { date: overdueItem.due_date, isAdjusted: false };
 }
 
 /**
