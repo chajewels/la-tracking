@@ -94,6 +94,19 @@ Deno.serve(async (req) => {
     // If the schedule item is already paid, the penalty is a correction — mark it paid immediately
     const isPaidItem = schedItem.status === "paid";
 
+    // Find the next available penalty_cycle for this schedule+stage combo
+    const { data: existingPenalties } = await supabase
+      .from("penalty_fees")
+      .select("penalty_cycle")
+      .eq("schedule_id", schedule_id)
+      .eq("penalty_stage", penalty_stage)
+      .order("penalty_cycle", { ascending: false })
+      .limit(1);
+
+    const nextCycle = existingPenalties && existingPenalties.length > 0
+      ? existingPenalties[0].penalty_cycle + 1
+      : 1;
+
     // Insert penalty_fees record
     const { data: penaltyFee, error: penErr } = await supabase
       .from("penalty_fees")
@@ -103,7 +116,7 @@ Deno.serve(async (req) => {
         currency,
         penalty_amount,
         penalty_stage,
-        penalty_cycle: 1,
+        penalty_cycle: nextCycle,
         status: isPaidItem ? "paid" : "unpaid",
       })
       .select()
