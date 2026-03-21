@@ -75,9 +75,21 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Enforce penalty cap for months 1-5
+    // Check for per-invoice penalty cap override
     const installmentNumber = schedItem.installment_number;
-    const cap = installmentNumber >= 6 ? Infinity : (currency === "PHP" ? 1000 : 2000);
+    let cap = installmentNumber >= 6 ? Infinity : (currency === "PHP" ? 1000 : 2000);
+
+    const { data: overrideRow } = await supabase
+      .from("penalty_cap_overrides")
+      .select("penalty_cap_amount")
+      .eq("account_id", account_id)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (overrideRow && installmentNumber < 6) {
+      cap = Number(overrideRow.penalty_cap_amount);
+    }
+
+    // Enforce penalty cap for months 1-5
     const currentPenalty = Number(schedItem.penalty_amount);
     if (currentPenalty + penalty_amount > cap) {
       const allowed = Math.max(0, cap - currentPenalty);

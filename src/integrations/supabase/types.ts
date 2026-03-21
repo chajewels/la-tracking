@@ -444,6 +444,56 @@ export type Database = {
           },
         ]
       }
+      penalty_cap_overrides: {
+        Row: {
+          account_id: string
+          applied_at: string
+          applied_by_user_id: string | null
+          created_at: string
+          currency: string
+          id: string
+          is_active: boolean
+          notes: string | null
+          penalty_cap_amount: number
+          penalty_cap_scope: string
+          updated_at: string
+        }
+        Insert: {
+          account_id: string
+          applied_at?: string
+          applied_by_user_id?: string | null
+          created_at?: string
+          currency: string
+          id?: string
+          is_active?: boolean
+          notes?: string | null
+          penalty_cap_amount: number
+          penalty_cap_scope?: string
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string
+          applied_at?: string
+          applied_by_user_id?: string | null
+          created_at?: string
+          currency?: string
+          id?: string
+          is_active?: boolean
+          notes?: string | null
+          penalty_cap_amount?: number
+          penalty_cap_scope?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "penalty_cap_overrides_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: true
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       penalty_fees: {
         Row: {
           account_id: string

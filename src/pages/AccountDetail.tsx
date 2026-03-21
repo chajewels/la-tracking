@@ -1,12 +1,13 @@
 import { useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench } from 'lucide-react';
+import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck } from 'lucide-react';
 import StatementShareMenu from '@/components/statement/StatementShareMenu';
 import RestorePaymentDialog from '@/components/payments/RestorePaymentDialog';
 import ReassignOwnerDialog from '@/components/accounts/ReassignOwnerDialog';
 import AddServiceDialog from '@/components/services/AddServiceDialog';
 import ServicesList, { AccountService } from '@/components/services/ServicesList';
 import AddPenaltyDialog from '@/components/penalties/AddPenaltyDialog';
+import ApplyPenaltyCapDialog from '@/components/penalties/ApplyPenaltyCapDialog';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -22,7 +23,7 @@ import PenaltyWaiverPanel from '@/components/penalties/PenaltyWaiverPanel';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
-import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useRestorePayment, useDeleteAccount, useForfeitAccount, useAccountServices } from '@/hooks/use-supabase-data';
+import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useRestorePayment, useDeleteAccount, useForfeitAccount, useAccountServices, usePenaltyCapOverride } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -40,6 +41,7 @@ export default function AccountDetail() {
   const { data: payments } = usePayments(id);
   const { data: penalties } = usePenalties(id);
   const { data: services } = useAccountServices(id);
+  const { data: penaltyCapOverride } = usePenaltyCapOverride(id);
   const [copied, setCopied] = useState(false);
   const voidPayment = useVoidPayment();
   const editPayment = useEditPayment();
@@ -306,10 +308,22 @@ export default function AccountDetail() {
               }>
                 {account.status}
               </Badge>
+              {penaltyCapOverride && (
+                <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-xs">
+                  <ShieldCheck className="h-3 w-3 mr-1" /> Penalty Override Active ✅
+                </Badge>
+              )}
             </div>
             <p className="text-sm text-muted-foreground mt-0.5">
               {account.customers?.full_name} · {account.payment_plan_months}-Month Plan · {currency}
             </p>
+            {penaltyCapOverride && (
+              <div className="mt-1 flex items-center gap-2">
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
+                  Manual Override Active — Penalty capped at {currency === 'PHP' ? '₱1,000' : '¥2,000'}
+                </span>
+              </div>
+            )}
           </div>
           <div className="flex gap-2 flex-wrap">
             <ReassignOwnerDialog
@@ -357,6 +371,12 @@ export default function AccountDetail() {
                     base_installment_amount: Number(s.base_installment_amount),
                     status: s.status,
                   }))}
+                />
+                <ApplyPenaltyCapDialog
+                  accountId={account.id}
+                  invoiceNumber={account.invoice_number}
+                  currency={currency}
+                  hasOverride={!!penaltyCapOverride}
                 />
                 <Button
                   variant="outline"

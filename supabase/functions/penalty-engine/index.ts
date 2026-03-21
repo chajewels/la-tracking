@@ -43,6 +43,18 @@ Deno.serve(async (req) => {
       return currency === "PHP" ? 1000 : 2000;
     };
 
+    // ── Fetch penalty cap overrides ──
+    const { data: overrides } = await supabase
+      .from("penalty_cap_overrides")
+      .select("account_id, penalty_cap_amount, is_active")
+      .eq("is_active", true);
+    const overrideMap = new Map<string, number>();
+    if (overrides) {
+      for (const o of overrides) {
+        overrideMap.set(o.account_id, Number(o.penalty_cap_amount));
+      }
+    }
+
     // ── Step 1: Fetch ALL overdue unpaid schedule items in one query ──
     // Paginate to handle >1000 rows
     let allOverdueItems: any[] = [];
@@ -109,7 +121,11 @@ Deno.serve(async (req) => {
 
       // Calculate current active penalty total for this schedule item
       const currentPenaltyTotal = unpaidPenaltyTotals.get(item.id) || 0;
-      const cap = getPenaltyCap(currency, installmentNumber);
+      // Use per-invoice override cap if present, else standard cap
+      const overrideCap = overrideMap.get(accountId);
+      const cap = overrideCap !== undefined
+        ? (installmentNumber >= 6 ? Infinity : overrideCap)
+        : getPenaltyCap(currency, installmentNumber);
 
       // Skip if already at or over cap for months 1-5
       if (currentPenaltyTotal >= cap) continue;
