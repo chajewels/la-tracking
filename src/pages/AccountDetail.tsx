@@ -365,6 +365,12 @@ export default function AccountDetail() {
                     status: s.status,
                   }))}
                 />
+                <ApplyPenaltyCapDialog
+                  accountId={account.id}
+                  invoiceNumber={account.invoice_number}
+                  currency={currency}
+                  hasOverride={!!penaltyCapOverride}
+                />
                 <Button
                   variant="outline"
                   className="border-orange-500/30 text-orange-500 hover:bg-orange-500/10"
