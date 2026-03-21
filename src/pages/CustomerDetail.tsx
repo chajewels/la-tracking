@@ -183,6 +183,22 @@ export default function CustomerDetail() {
       }
       msg += `Amount Paid: ${paymentBreakdownText}\n`;
 
+      // Services in message
+      const acctServices = (acct as any).services || [];
+      const SERVICE_LABELS: Record<string, string> = {
+        resize: 'Resize', certificate: 'Certificate', polish: 'Polish',
+        change_color: 'Change Color', engraving: 'Engraving', repair: 'Repair', other: 'Other',
+      };
+      if (acctServices.length > 0) {
+        const totalSvcAmt = acctServices.reduce((s: number, svc: any) => s + Number(svc.amount), 0);
+        msg += `\n🔧 Additional Services:\n`;
+        acctServices.forEach((svc: any) => {
+          const label = SERVICE_LABELS[svc.service_type] || svc.service_type;
+          msg += `  • ${label}${svc.description ? ` - ${svc.description}` : ''}: ${formatCurrency(Number(svc.amount), currency)}\n`;
+        });
+        msg += `  Services Total: ${formatCurrency(totalSvcAmt, currency)}\n`;
+      }
+
       // Show split payment allocation details
       if (batchSiblings.length > 0) {
         for (const batch of batchSiblings) {
