@@ -190,10 +190,10 @@ export default function Customers() {
                        <td className="px-5 py-3 text-sm text-muted-foreground">{c.location || '—'}</td>
                        <td className="px-5 py-3 text-sm text-muted-foreground">{c.mobile_number || '—'}</td>
                        <td className="px-5 py-3 text-center text-sm text-card-foreground">{activeCount || '—'}</td>
-                       <td className="px-5 py-3 text-center text-sm">
-                         {completedCount > 0 ? (
-                           <span className="text-accent font-medium">{completedCount}</span>
-                         ) : '—'}
+                        <td className="px-5 py-3 text-center text-sm">
+                          {completedCount > 0 ? (
+                            <span className="inline-flex min-w-8 items-center justify-center rounded-full bg-primary/15 px-2.5 py-1 text-xs font-semibold tabular-nums text-primary">{completedCount}</span>
+                          ) : '—'}
                        </td>
                        <td className="px-5 py-3 text-center">
                         {c.messenger_link && (
