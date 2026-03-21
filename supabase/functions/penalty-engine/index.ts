@@ -5,6 +5,21 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+/**
+ * Penalty Engine – Cha Jewels Business Rule
+ *
+ * Penalty applies in 3 phases:
+ *   1) First penalty:  7 days after due date  (week1, cycle 1)
+ *   2) Second penalty: 14 days after due date (week2, cycle 1)
+ *   3) Subsequent:     every month on the same due-date day (week1, cycle 2, 3, 4…)
+ *
+ * The 7-day and 14-day thresholds happen only once at the start.
+ * After that, penalty is monthly (not every 14 days).
+ * Stop once the installment is paid.
+ *
+ * Cap: months 1-5 → PHP 1,000 / JPY 2,000 (unless overridden per-invoice).
+ * Month 6+ → uncapped.
+ */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -19,7 +34,7 @@ Deno.serve(async (req) => {
     const now = new Date();
     const today = now.toISOString().split("T")[0];
 
-    // Get penalty configuration
+    // ── Penalty amount configuration ──
     const { data: settings } = await supabase
       .from("system_settings")
       .select("key, value")
@@ -37,7 +52,6 @@ Deno.serve(async (req) => {
       return config[key] || (currency === "PHP" ? (stage === "week1" ? 500 : 1000) : (stage === "week1" ? 1000 : 2000));
     };
 
-    // Penalty cap: months 1-5 max PHP 1000 / JPY 2000
     const getPenaltyCap = (currency: string, installmentNumber: number): number => {
       if (installmentNumber >= 6) return Infinity;
       return currency === "PHP" ? 1000 : 2000;
@@ -55,8 +69,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── Step 1: Fetch ALL overdue unpaid schedule items in one query ──
-    // Paginate to handle >1000 rows
+    // ── Step 1: Fetch ALL overdue unpaid schedule items (paginated) ──
     let allOverdueItems: any[] = [];
     let page = 0;
     const pageSize = 500;
@@ -81,10 +94,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ── Step 2: Batch-fetch ALL existing penalties for these schedule items ──
+    // ── Step 2: Batch-fetch existing penalties ──
     const scheduleIds = allOverdueItems.map(i => i.id);
     let allExistingPenalties: any[] = [];
-    // Fetch in chunks of 200 to avoid URL length limits
     for (let i = 0; i < scheduleIds.length; i += 200) {
       const chunk = scheduleIds.slice(i, i + 200);
       const { data: penBatch } = await supabase
@@ -96,80 +108,100 @@ Deno.serve(async (req) => {
 
     // Build lookup: schedule_id -> Set of "stage:cycle" keys
     const existingPenaltyMap = new Map<string, Set<string>>();
-    const unpaidPenaltyTotals = new Map<string, number>();
+    const currentPenaltyTotals = new Map<string, number>();
     for (const p of allExistingPenalties) {
       const key = `${p.penalty_stage}:${p.penalty_cycle}`;
       if (!existingPenaltyMap.has(p.schedule_id)) existingPenaltyMap.set(p.schedule_id, new Set());
       existingPenaltyMap.get(p.schedule_id)!.add(key);
-      if (p.status === "unpaid") {
-        unpaidPenaltyTotals.set(p.schedule_id, (unpaidPenaltyTotals.get(p.schedule_id) || 0) + Number(p.penalty_amount));
+      if (p.status === "unpaid" || p.status === "paid") {
+        currentPenaltyTotals.set(p.schedule_id, (currentPenaltyTotals.get(p.schedule_id) || 0) + Number(p.penalty_amount));
       }
     }
 
-    // ── Step 3: Determine which penalties to create ──
+    // ── Step 3: Determine which penalties to create using 3-phase rule ──
     const penaltiesToInsert: any[] = [];
     const scheduleUpdates = new Map<string, { totalPenalty: number; baseAmount: number; accountId: string }>();
     const accountsToMarkOverdue = new Set<string>();
 
     for (const item of allOverdueItems) {
       const dueDate = new Date(item.due_date + "T00:00:00Z");
-      const diffDays = Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
       const currency = (item as any).layaway_accounts.currency;
       const accountId = (item as any).layaway_accounts.id;
       const installmentNumber = item.installment_number;
       const existingKeys = existingPenaltyMap.get(item.id) || new Set();
+      const dueDayOfMonth = dueDate.getUTCDate();
 
-      // Calculate current active penalty total for this schedule item
-      const currentPenaltyTotal = unpaidPenaltyTotals.get(item.id) || 0;
-      // Use per-invoice override cap if present, else standard cap
+      const currentTotal = currentPenaltyTotals.get(item.id) || 0;
       const overrideCap = overrideMap.get(accountId);
       const cap = overrideCap !== undefined
         ? (installmentNumber >= 6 ? Infinity : overrideCap)
         : getPenaltyCap(currency, installmentNumber);
 
-      // Skip if already at or over cap for months 1-5
-      if (currentPenaltyTotal >= cap) continue;
+      if (currentTotal >= cap) continue;
 
-      const cycle = Math.floor(diffDays / 30) + 1;
-      const stages: Array<{ stage: "week1" | "week2"; triggerDays: number }> = [
-        { stage: "week1", triggerDays: 7 },
-        { stage: "week2", triggerDays: 14 },
-      ];
+      // Build the list of penalty trigger dates for this schedule item
+      // Phase 1: due_date + 7 days  → week1:1
+      // Phase 2: due_date + 14 days → week2:1
+      // Phase 3: due_date + 1 month → week1:2, due_date + 2 months → week1:3, etc.
+      const triggerDates: Array<{ date: Date; stage: "week1" | "week2"; cycle: number }> = [];
+
+      // Phase 1: 7 days after due
+      const phase1Date = new Date(dueDate);
+      phase1Date.setUTCDate(phase1Date.getUTCDate() + 7);
+      triggerDates.push({ date: phase1Date, stage: "week1", cycle: 1 });
+
+      // Phase 2: 14 days after due
+      const phase2Date = new Date(dueDate);
+      phase2Date.setUTCDate(phase2Date.getUTCDate() + 14);
+      triggerDates.push({ date: phase2Date, stage: "week2", cycle: 1 });
+
+      // Phase 3: monthly on the same day-of-month as due date
+      // Start from month+1 relative to due date, up to reasonable max (12 months)
+      for (let m = 1; m <= 12; m++) {
+        const monthlyDate = new Date(Date.UTC(
+          dueDate.getUTCFullYear(),
+          dueDate.getUTCMonth() + m,
+          Math.min(dueDayOfMonth, daysInMonth(dueDate.getUTCFullYear(), dueDate.getUTCMonth() + m))
+        ));
+        triggerDates.push({ date: monthlyDate, stage: "week1", cycle: m + 1 });
+      }
 
       let newPenaltyForItem = 0;
 
-      for (const { stage, triggerDays } of stages) {
-        const cycleStartDay = (cycle - 1) * 30;
-        if (diffDays >= cycleStartDay + triggerDays) {
-          const key = `${stage}:${cycle}`;
-          if (!existingKeys.has(key)) {
-            let penaltyAmount = getAmount(currency, stage);
+      for (const trigger of triggerDates) {
+        // Only apply if today is on or past the trigger date
+        if (now < trigger.date) break; // sorted chronologically, no need to check further
 
-            // Enforce cap: reduce penalty if it would exceed limit
-            const projectedTotal = currentPenaltyTotal + newPenaltyForItem + penaltyAmount;
-            if (projectedTotal > cap) {
-              penaltyAmount = Math.max(0, cap - currentPenaltyTotal - newPenaltyForItem);
-              if (penaltyAmount <= 0) continue; // Skip - would exceed cap
-            }
+        const key = `${trigger.stage}:${trigger.cycle}`;
+        if (existingKeys.has(key)) continue;
 
-            penaltiesToInsert.push({
-              account_id: accountId,
-              schedule_id: item.id,
-              currency,
-              penalty_amount: penaltyAmount,
-              penalty_stage: stage,
-              penalty_cycle: cycle,
-              penalty_date: today,
-            });
-            existingKeys.add(key);
-            newPenaltyForItem += penaltyAmount;
-          }
+        // Determine penalty amount based on stage
+        let penaltyAmount = getAmount(currency, trigger.stage);
+
+        // Enforce cap
+        const projectedTotal = currentTotal + newPenaltyForItem + penaltyAmount;
+        if (projectedTotal > cap) {
+          penaltyAmount = Math.max(0, cap - currentTotal - newPenaltyForItem);
+          if (penaltyAmount <= 0) break; // cap reached
         }
+
+        const penaltyDate = trigger.date.toISOString().split("T")[0];
+
+        penaltiesToInsert.push({
+          account_id: accountId,
+          schedule_id: item.id,
+          currency,
+          penalty_amount: penaltyAmount,
+          penalty_stage: trigger.stage,
+          penalty_cycle: trigger.cycle,
+          penalty_date: penaltyDate,
+        });
+        existingKeys.add(key);
+        newPenaltyForItem += penaltyAmount;
       }
 
       if (newPenaltyForItem > 0) {
-        const existingUnpaid = unpaidPenaltyTotals.get(item.id) || 0;
-        const totalPenalty = existingUnpaid + newPenaltyForItem;
+        const totalPenalty = currentTotal + newPenaltyForItem;
         scheduleUpdates.set(item.id, {
           totalPenalty,
           baseAmount: Number(item.base_installment_amount),
@@ -182,7 +214,6 @@ Deno.serve(async (req) => {
     // ── Step 4: Batch insert penalties ──
     let penaltiesCreated = 0;
     if (penaltiesToInsert.length > 0) {
-      // Insert in chunks of 100
       for (let i = 0; i < penaltiesToInsert.length; i += 100) {
         const chunk = penaltiesToInsert.slice(i, i + 100);
         const { error } = await supabase.from("penalty_fees").insert(chunk);
@@ -218,6 +249,7 @@ Deno.serve(async (req) => {
           cycle: p.penalty_cycle,
           amount: p.penalty_amount,
           currency: p.currency,
+          penalty_date: p.penalty_date,
         },
       }));
       for (let i = 0; i < auditEntries.length; i += 100) {
@@ -259,3 +291,9 @@ Deno.serve(async (req) => {
     });
   }
 });
+
+/** Helper: days in a given month (0-indexed month, handles year rollover) */
+function daysInMonth(year: number, month: number): number {
+  // JS Date handles month overflow (e.g., month=13 → Feb next year)
+  return new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+}
