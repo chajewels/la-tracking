@@ -22,6 +22,7 @@ const navItems = [
   { icon: DollarSign, label: 'Finance', path: '/finance' },
   { icon: Scale, label: 'Waivers', path: '/waivers' },
   { icon: BarChart3, label: 'Analytics', path: '/analytics' },
+  { icon: Shield, label: 'Admin Audit', path: '/admin-audit' },
   { icon: Settings, label: 'Settings', path: '/settings' },
 ];
 
