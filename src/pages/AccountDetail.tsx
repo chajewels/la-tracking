@@ -86,6 +86,7 @@ export default function AccountDetail() {
       });
       queryClient.invalidateQueries({ queryKey: ['account', account.id] });
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       toast.success(`Invoice number updated to ${trimmed}`);
       setEditingInvoice(false);
     } catch (err: any) {
