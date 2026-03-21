@@ -55,7 +55,7 @@ export default function CustomerDetail() {
   }
 
   const { customer, accounts } = data;
-  const ordinals_legacy = ['1st', '2nd', '3rd', '4th', '5th', '6th'];
+  
 
   const sortPaymentsNewestFirst = (a: any, b: any) => {
     const createdDiff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
