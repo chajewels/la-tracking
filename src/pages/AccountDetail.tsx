@@ -209,7 +209,7 @@ export default function AccountDetail() {
   }
   const laRemainingText = `LA ${new Date(account.end_date || account.order_date).toLocaleDateString('en-US', { month: 'short' }).toUpperCase()} remaining balance`;
   message += `================\n`;
-  const unpaidCount = scheduleItems.filter(s => !isEffectivelyPaid(s) && s.status !== 'cancelled').length;
+  const unpaidCount = unpaidSchedule.length;
   message += `${laRemainingText} - ${formatCurrency(remainingBalance, currency)} to pay in ${unpaidCount} month${unpaidCount !== 1 ? 's' : ''}\n\n`;
 
   message += `Monthly Payment:\n`;
@@ -221,18 +221,18 @@ export default function AccountDetail() {
     const paidAmt = Number(item.paid_amount);
     const totalDue = Number(item.total_due_amount);
     const displayAmt = effPaid ? Math.max(paidAmt, totalDue) : totalDue;
-    const remainingDue = getRemainingDue(item);
+    const itemRemaining = remainingDue(item);
 
     if (effPaid) {
       if (penalty > 0) {
-        message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(displayAmt, currency)} (PAID)\n`;
+        message += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(displayAmt, currency)} (PAID)\n`;
       } else {
-        message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(displayAmt, currency)} (PAID)\n`;
+        message += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(displayAmt, currency)} (PAID)\n`;
       }
     } else if (penalty > 0) {
-      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
+      message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
     } else {
-      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(remainingDue, currency)}\n`;
+      message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(itemRemaining, currency)}\n`;
     }
   });
   if (unpaidSchedule.length > 0) {
