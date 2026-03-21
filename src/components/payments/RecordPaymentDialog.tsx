@@ -49,7 +49,7 @@ interface RecordPaymentDialogProps {
   schedule?: ScheduleItem[];
 }
 
-export default function RecordPaymentDialog({ accountId, currency, remainingBalance, payFullBalance }: RecordPaymentDialogProps) {
+export default function RecordPaymentDialog({ accountId, currency, remainingBalance, payFullBalance, schedule }: RecordPaymentDialogProps) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
