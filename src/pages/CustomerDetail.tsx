@@ -196,7 +196,7 @@ export default function CustomerDetail() {
         });
         msg += `  Services Total: ${formatCurrency(totalSvcAmt, currency)}\n`;
       }
-      if (acctServices.length > 0) {
+      if (acctServicesList.length > 0) {
         const totalSvcAmt = acctServices.reduce((s: number, svc: any) => s + Number(svc.amount), 0);
         msg += `\n🔧 Additional Services:\n`;
         acctServices.forEach((svc: any) => {
