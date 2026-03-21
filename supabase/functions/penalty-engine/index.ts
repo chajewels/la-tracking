@@ -55,6 +55,7 @@ Deno.serve(async (req) => {
         .in("status", ["pending", "overdue", "partially_paid"])
         .lt("due_date", today)
         .in("layaway_accounts.status", ["active", "overdue"])
+        .order("installment_number", { ascending: true })
         .range(page * pageSize, (page + 1) * pageSize - 1);
       if (!batch || batch.length === 0) break;
       allOverdueItems = allOverdueItems.concat(batch);
