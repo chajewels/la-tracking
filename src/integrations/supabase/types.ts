@@ -14,6 +14,50 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_services: {
+        Row: {
+          account_id: string
+          amount: number
+          created_at: string
+          created_by_user_id: string | null
+          currency: string
+          description: string | null
+          id: string
+          service_type: string
+          updated_at: string
+        }
+        Insert: {
+          account_id: string
+          amount?: number
+          created_at?: string
+          created_by_user_id?: string | null
+          currency?: string
+          description?: string | null
+          id?: string
+          service_type: string
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string
+          amount?: number
+          created_at?: string
+          created_by_user_id?: string | null
+          currency?: string
+          description?: string | null
+          id?: string
+          service_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_services_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_logs: {
         Row: {
           action: string
