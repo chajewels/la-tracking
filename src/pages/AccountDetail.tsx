@@ -201,13 +201,13 @@ export default function AccountDetail() {
     message += `Thank you for your payment. ${formatCurrency(Number((mostRecentPayment as any).amount_paid), currency)} has been received.\n\n`;
   }
   message += `Inv # ${account.invoice_number}\n`;
-  // Build Total Layaway Amount line: base + services + penalties
-  const amountParts: string[] = [formatCurrency(totalAmount, currency)];
+  // Build Total Layaway Amount line: principal + services + schedule penalties
+  const amountParts: string[] = [formatCurrency(originalPrincipal, currency)];
   if (totalServicesAmount > 0) amountParts.push(`${formatCurrency(totalServicesAmount, currency)} (Services)`);
-  if (totalPenaltyAll > 0) amountParts.push(`${formatCurrency(totalPenaltyAll, currency)} (Penalty)`);
+  if (schedulePenaltySum > 0) amountParts.push(`${formatCurrency(schedulePenaltySum, currency)} (Penalty)`);
   message += `Total Layaway Amount: ${amountParts.join(' + ')}`;
   if (amountParts.length > 1) {
-    message += ` = ${formatCurrency(totalAmount + totalServicesAmount + totalPenaltyAll, currency)}`;
+    message += ` = ${formatCurrency(totalLayawayAmount, currency)}`;
   }
   message += `\n`;
   message += `Amount Paid: ${paymentBreakdownText}\n`;
