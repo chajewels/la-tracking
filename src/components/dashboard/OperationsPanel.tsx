@@ -41,11 +41,11 @@ export default function OperationsPanel({ summary, displayCurrency }: Operations
   const upcomingItems = items.filter(i => i.due_date > today);
 
   const cards = [
-    { label: 'Due in 7 Days', count: summary?.due_7_days_count ?? 0, icon: Calendar, color: 'text-primary', bg: 'bg-primary/10', link: '/monitoring' },
-    { label: 'Due in 3 Days', count: summary?.due_3_days_count ?? 0, icon: CalendarCheck, color: 'text-info', bg: 'bg-info/10', link: '/monitoring' },
-    { label: 'Due Today', count: summary?.due_today_count ?? 0, icon: Clock, color: 'text-warning', bg: 'bg-warning/10', link: '/monitoring' },
-    { label: 'Overdue', count: summary?.overdue_accounts ?? 0, icon: AlertTriangle, color: 'text-destructive', bg: 'bg-destructive/10', link: '/monitoring' },
-    { label: 'Penalties Today', count: summary?.penalties_today_count ?? 0, icon: Gavel, color: 'text-primary', bg: 'bg-primary/10', link: '/accounts' },
+    { label: 'Due in 7 Days', count: summary?.due_7_days_count ?? 0, icon: Calendar, color: 'text-primary', bg: 'bg-primary/10', link: '/monitoring?filter=due_7_days' },
+    { label: 'Due in 3 Days', count: summary?.due_3_days_count ?? 0, icon: CalendarCheck, color: 'text-info', bg: 'bg-info/10', link: '/monitoring?filter=due_3_days' },
+    { label: 'Due Today', count: summary?.due_today_count ?? 0, icon: Clock, color: 'text-warning', bg: 'bg-warning/10', link: '/monitoring?filter=due_today' },
+    { label: 'Overdue', count: summary?.overdue_accounts ?? 0, icon: AlertTriangle, color: 'text-destructive', bg: 'bg-destructive/10', link: '/monitoring?filter=overdue' },
+    { label: 'Penalties Today', count: summary?.penalties_today_count ?? 0, icon: Gavel, color: 'text-primary', bg: 'bg-primary/10', link: '/monitoring?filter=overdue' },
     { label: 'Waivers Pending', count: summary?.pending_waivers_count ?? 0, icon: Scale, color: 'text-warning', bg: 'bg-warning/10', link: '/accounts' },
   ];
 

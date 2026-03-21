@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Bell, MessageCircle, Clock, AlertTriangle, CalendarCheck, Send, Copy, Check, Loader2 } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -16,10 +17,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { categorizeByDueDate, daysOverdueFromToday, remainingDue, alertTypeConfig, type AlertType } from '@/lib/business-rules';
+import { categorizeByDueDate, daysOverdueFromToday, remainingDue, alertTypeConfig, isEffectivelyPaid, getNextUnpaidDueDate, classifyAccountBucket, type AlertType, type AccountBucket } from '@/lib/business-rules';
 
 interface AlertItem {
   type: AlertType;
+  bucket: AccountBucket;
   customer: string;
   invoice: string;
   dueDate: string;
@@ -36,6 +38,16 @@ const iconMap = {
   upcoming: CalendarCheck,
 };
 
+type FilterTab = 'all' | 'overdue' | 'due_today' | 'due_3_days' | 'due_7_days';
+
+const filterTabs: { key: FilterTab; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'overdue', label: 'Overdue' },
+  { key: 'due_today', label: 'Due Today' },
+  { key: 'due_3_days', label: 'Due in 3 Days' },
+  { key: 'due_7_days', label: 'Due in 7 Days' },
+];
+
 function generateMessengerMessage(alert: AlertItem): string {
   const dueStr = new Date(alert.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   const amtStr = formatCurrency(alert.amount, alert.currency);
@@ -50,10 +62,14 @@ function generateMessengerMessage(alert: AlertItem): string {
 }
 
 export default function Monitoring() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialFilter = (searchParams.get('filter') as FilterTab) || 'all';
+  const [activeFilter, setActiveFilter] = useState<FilterTab>(initialFilter);
   const [sending, setSending] = useState(false);
   const [messengerDialog, setMessengerDialog] = useState<{ alert: AlertItem; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // Fetch ALL unpaid schedule items for active/overdue accounts (no date limit for overdue)
   const { data: scheduleItems, isLoading: schedLoading } = useQuery({
     queryKey: ['monitoring-schedules'],
     queryFn: async () => {
@@ -61,47 +77,123 @@ export default function Monitoring() {
       next7.setDate(next7.getDate() + 7);
       const next7Str = next7.toISOString().split('T')[0];
 
-      const { data, error } = await supabase
-        .from('layaway_schedule')
-        .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customers(full_name, messenger_link))')
-        .in('status', ['pending', 'overdue', 'partially_paid'])
-        .in('layaway_accounts.status', ['active', 'overdue'])
-        .lte('due_date', next7Str)
-        .order('due_date', { ascending: true })
-        .limit(500);
-      if (error) throw error;
-      return data;
+      // Fetch overdue items (no date limit) + upcoming items (up to 7 days)
+      const [overdueRes, upcomingRes] = await Promise.all([
+        supabase
+          .from('layaway_schedule')
+          .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customers(full_name, messenger_link))')
+          .in('status', ['pending', 'overdue', 'partially_paid'])
+          .in('layaway_accounts.status', ['active', 'overdue'])
+          .lt('due_date', new Date().toISOString().split('T')[0])
+          .order('due_date', { ascending: true })
+          .limit(500),
+        supabase
+          .from('layaway_schedule')
+          .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customers(full_name, messenger_link))')
+          .in('status', ['pending', 'overdue', 'partially_paid'])
+          .in('layaway_accounts.status', ['active', 'overdue'])
+          .gte('due_date', new Date().toISOString().split('T')[0])
+          .lte('due_date', next7Str)
+          .order('due_date', { ascending: true })
+          .limit(500),
+      ]);
+
+      if (overdueRes.error) throw overdueRes.error;
+      if (upcomingRes.error) throw upcomingRes.error;
+
+      // Merge and dedupe by id
+      const map = new Map<string, any>();
+      for (const item of [...(overdueRes.data || []), ...(upcomingRes.data || [])]) {
+        map.set(item.id, item);
+      }
+      return [...map.values()];
     },
   });
 
+  // Group schedule items by account to determine NEXT due date per account
   const alerts: AlertItem[] = useMemo(() => {
     if (!scheduleItems) return [];
-    return scheduleItems.map((s: any) => {
-      const acc = s.layaway_accounts;
-      if (!acc) return null;
-      const type = categorizeByDueDate(s.due_date);
-      const overdueDays = daysOverdueFromToday(s.due_date);
 
-      return {
+    // Group by account
+    const byAccount = new Map<string, any[]>();
+    for (const s of scheduleItems) {
+      const acc = (s as any).layaway_accounts;
+      if (!acc) continue;
+      const list = byAccount.get(acc.id) || [];
+      list.push(s);
+      byAccount.set(acc.id, list);
+    }
+
+    const result: AlertItem[] = [];
+    for (const [accountId, items] of byAccount.entries()) {
+      const acc = (items[0] as any).layaway_accounts;
+      const nextDue = getNextUnpaidDueDate(items);
+      if (!nextDue) continue;
+
+      const bucket = classifyAccountBucket(nextDue);
+      if (bucket === 'fully_paid' || bucket === 'future') continue;
+
+      // Find the next unpaid item to show
+      const nextItem = items
+        .filter((s: any) => !isEffectivelyPaid(s) && s.status !== 'cancelled')
+        .sort((a: any, b: any) => a.due_date.localeCompare(b.due_date))[0];
+
+      if (!nextItem) continue;
+
+      const type = categorizeByDueDate(nextItem.due_date);
+      const overdueDays = daysOverdueFromToday(nextItem.due_date);
+
+      result.push({
         type,
+        bucket,
         customer: acc.customers?.full_name || 'Unknown',
         invoice: acc.invoice_number,
-        dueDate: s.due_date,
-        amount: remainingDue(s),
+        dueDate: nextItem.due_date,
+        amount: remainingDue(nextItem),
         currency: acc.currency as Currency,
         daysOverdue: overdueDays,
         accountId: acc.id,
         messengerLink: acc.customers?.messenger_link,
-      } as AlertItem;
-    }).filter(Boolean) as AlertItem[];
+      });
+    }
+
+    return result;
   }, [scheduleItems]);
 
+  // Apply filter
+  const filteredAlerts = useMemo(() => {
+    if (activeFilter === 'all') return alerts;
+    if (activeFilter === 'overdue') return alerts.filter(a => a.bucket === 'overdue');
+    if (activeFilter === 'due_today') return alerts.filter(a => a.bucket === 'due_today');
+    if (activeFilter === 'due_3_days') return alerts.filter(a => a.bucket === 'due_3_days');
+    if (activeFilter === 'due_7_days') return alerts.filter(a => ['due_3_days', 'due_7_days'].includes(a.bucket));
+    return alerts;
+  }, [alerts, activeFilter]);
+
   const sortedAlerts = useMemo(() => {
-    const order = { overdue: 0, due_today: 1, upcoming: 2 };
-    return [...alerts].sort((a, b) => order[a.type] - order[b.type] || b.daysOverdue - a.daysOverdue);
-  }, [alerts]);
+    const order: Record<string, number> = { overdue: 0, due_today: 1, due_3_days: 2, due_7_days: 3 };
+    return [...filteredAlerts].sort((a, b) => (order[a.bucket] ?? 9) - (order[b.bucket] ?? 9) || b.daysOverdue - a.daysOverdue);
+  }, [filteredAlerts]);
+
+  // Counts per bucket (from ALL alerts, not filtered)
+  const counts = useMemo(() => ({
+    overdue: alerts.filter(a => a.bucket === 'overdue').length,
+    due_today: alerts.filter(a => a.bucket === 'due_today').length,
+    due_3_days: alerts.filter(a => a.bucket === 'due_3_days').length,
+    due_7_days: alerts.filter(a => ['due_3_days', 'due_7_days'].includes(a.bucket)).length,
+  }), [alerts]);
 
   const isLoading = schedLoading;
+
+  const handleFilterChange = (filter: FilterTab) => {
+    setActiveFilter(filter);
+    if (filter === 'all') {
+      searchParams.delete('filter');
+    } else {
+      searchParams.set('filter', filter);
+    }
+    setSearchParams(searchParams, { replace: true });
+  };
 
   const handleSendReminders = async () => {
     setSending(true);
@@ -176,17 +268,39 @@ export default function Monitoring() {
           </Button>
         </div>
 
-        {/* Summary */}
-        <div className="grid grid-cols-3 gap-4">
+        {/* Summary Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
-            { label: 'Overdue', count: sortedAlerts.filter(a => a.type === 'overdue').length, color: 'text-destructive' },
-            { label: 'Due Today', count: sortedAlerts.filter(a => a.type === 'due_today').length, color: 'text-warning' },
-            { label: 'Upcoming (7 days)', count: sortedAlerts.filter(a => a.type === 'upcoming').length, color: 'text-info' },
+            { label: 'Overdue', count: counts.overdue, color: 'text-destructive', filter: 'overdue' as FilterTab },
+            { label: 'Due Today', count: counts.due_today, color: 'text-warning', filter: 'due_today' as FilterTab },
+            { label: 'Due in 3 Days', count: counts.due_3_days, color: 'text-info', filter: 'due_3_days' as FilterTab },
+            { label: 'Due in 7 Days', count: counts.due_7_days, color: 'text-primary', filter: 'due_7_days' as FilterTab },
           ].map(s => (
-            <div key={s.label} className="rounded-xl border border-border bg-card p-4 text-center">
+            <button
+              key={s.label}
+              onClick={() => handleFilterChange(s.filter)}
+              className={`rounded-xl border bg-card p-4 text-center transition-colors hover:bg-muted/30 ${activeFilter === s.filter ? 'border-primary ring-1 ring-primary/30' : 'border-border'}`}
+            >
               <p className={`text-3xl font-bold font-display ${s.color}`}>{isLoading ? '—' : s.count}</p>
               <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
-            </div>
+            </button>
+          ))}
+        </div>
+
+        {/* Filter Tabs */}
+        <div className="flex gap-1 rounded-lg border border-border p-1 bg-card w-fit">
+          {filterTabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => handleFilterChange(tab.key)}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                activeFilter === tab.key
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {tab.label}
+            </button>
           ))}
         </div>
 
@@ -197,10 +311,15 @@ export default function Monitoring() {
           </div>
         ) : sortedAlerts.length === 0 ? (
           <div className="rounded-xl border border-border bg-card p-8 text-center">
-            <p className="text-sm text-muted-foreground">No upcoming or overdue payments in the next 7 days.</p>
+            <p className="text-sm text-muted-foreground">
+              {activeFilter === 'all'
+                ? 'No upcoming or overdue payments in the next 7 days.'
+                : `No accounts matching "${filterTabs.find(t => t.key === activeFilter)?.label}" filter.`}
+            </p>
           </div>
         ) : (
           <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">{sortedAlerts.length} account{sortedAlerts.length !== 1 ? 's' : ''}</p>
             {sortedAlerts.map((alert, idx) => {
               const config = alertTypeConfig[alert.type];
               const Icon = iconMap[alert.type];

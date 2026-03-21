@@ -82,12 +82,6 @@ Deno.serve(async (req) => {
     let monthPayQ = supabase.from("payments").select("*").gte("date_paid", monthStartStr).is("voided_at", null);
     if (currencyWhere) monthPayQ = monthPayQ.eq("currency", currencyWhere);
 
-    const overdueSchedQ = supabase
-      .from("layaway_schedule")
-      .select("account_id, total_due_amount, paid_amount, currency")
-      .lt("due_date", today)
-      .in("status", ["pending", "partially_paid"]);
-
     const completedQ = supabase
       .from("layaway_accounts")
       .select("id")
@@ -99,7 +93,7 @@ Deno.serve(async (req) => {
 
     const penaltiesTodayQ = supabase
       .from("penalty_fees")
-      .select("id, penalty_amount, currency")
+      .select("id, penalty_amount, currency, account_id")
       .eq("penalty_date", today);
 
     const pendingWaiversQ = supabase
@@ -107,37 +101,10 @@ Deno.serve(async (req) => {
       .select("id")
       .eq("status", "pending");
 
-    const dueTodaySchedQ = supabase
-      .from("layaway_schedule")
-      .select("account_id")
-      .eq("due_date", today)
-      .in("status", ["pending", "partially_paid"]);
-
-    const next3 = new Date();
-    next3.setDate(next3.getDate() + 3);
-    const next3Str = next3.toISOString().split("T")[0];
-    const due3DaysQ = supabase
-      .from("layaway_schedule")
-      .select("account_id")
-      .gt("due_date", today)
-      .lte("due_date", next3Str)
-      .in("status", ["pending", "partially_paid"]);
-
-    const next7 = new Date();
-    next7.setDate(next7.getDate() + 7);
-    const next7Str = next7.toISOString().split("T")[0];
-    const due7DaysQ = supabase
-      .from("layaway_schedule")
-      .select("account_id")
-      .gt("due_date", today)
-      .lte("due_date", next7Str)
-      .in("status", ["pending", "partially_paid"]);
-
     const totalPenaltiesQ = supabase.from("penalty_fees").select("id, status, penalty_amount, currency");
     const reminderLogsQ = supabase.from("reminder_logs").select("id, delivery_status").order("created_at", { ascending: false }).limit(200);
 
-    // ── Fetch ALL unpaid schedule items for predictions (no 1000-row limit) ──
-    // Use pagination to get all rows
+    // ── Fetch ALL unpaid schedule items (paginated to bypass 1000-row limit) ──
     const fetchAllScheduleItems = async () => {
       const allItems: any[] = [];
       let from = 0;
@@ -161,30 +128,97 @@ Deno.serve(async (req) => {
       { data: accounts },
       { data: todayPayments },
       { data: monthPayments },
-      { data: overdueScheds },
       { data: completedAccounts },
       { data: forfeitedAccounts },
       { data: penaltiesToday },
       { data: pendingWaivers },
-      { data: dueTodayScheds },
-      { data: due3DaysScheds },
-      { data: due7DaysScheds },
       { data: allPenalties },
       { data: reminderLogs },
       allUnpaidScheduleItems,
     ] = await Promise.all([
-      accountsQ, todayPayQ, monthPayQ, overdueSchedQ, completedQ, forfeitedQ,
-      penaltiesTodayQ, pendingWaiversQ, dueTodaySchedQ, due3DaysQ, due7DaysQ,
+      accountsQ, todayPayQ, monthPayQ, completedQ, forfeitedQ,
+      penaltiesTodayQ, pendingWaiversQ,
       totalPenaltiesQ, reminderLogsQ, fetchAllScheduleItems(),
     ]);
 
-    // ── Build account currency map for predictions ──
+    // ── Build account currency map ──
     const accountCurrencyMap = new Map<string, string>();
     const activeAccountIds = new Set<string>();
     for (const acc of accounts || []) {
       accountCurrencyMap.set(acc.id, acc.currency);
       activeAccountIds.add(acc.id);
     }
+
+    // ══════════════════════════════════════════════════════════
+    // CORE FIX: Classify each account by its NEXT unpaid due date
+    // Each account goes into exactly ONE bucket.
+    // ══════════════════════════════════════════════════════════
+    const accountScheduleMap = new Map<string, any[]>();
+    for (const item of allUnpaidScheduleItems) {
+      if (!activeAccountIds.has(item.account_id)) continue;
+      const list = accountScheduleMap.get(item.account_id) || [];
+      list.push(item);
+      accountScheduleMap.set(item.account_id, list);
+    }
+
+    const in3 = new Date();
+    in3.setDate(in3.getDate() + 3);
+    const in3Str = in3.toISOString().split("T")[0];
+    const in7 = new Date();
+    in7.setDate(in7.getDate() + 7);
+    const in7Str = in7.toISOString().split("T")[0];
+
+    const overdueAccountIds = new Set<string>();
+    const dueTodayAccountIds = new Set<string>();
+    const due3DaysAccountIds = new Set<string>();
+    const due7DaysAccountIds = new Set<string>();
+    let overdueAmount = 0;
+
+    for (const [accountId, items] of accountScheduleMap.entries()) {
+      const acctCurrency = accountCurrencyMap.get(accountId) || "PHP";
+      if (currencyWhere && acctCurrency !== currencyWhere) continue;
+
+      // Find next unpaid due date (earliest)
+      const unpaidSorted = items
+        .filter((s: any) => {
+          const paid = Number(s.paid_amount);
+          const due = Number(s.total_due_amount);
+          if (s.status === "paid") return false;
+          if (paid > 0 && paid >= due) return false;
+          return true;
+        })
+        .sort((a: any, b: any) => a.due_date.localeCompare(b.due_date));
+
+      if (unpaidSorted.length === 0) continue;
+
+      const nextDueDate = unpaidSorted[0].due_date;
+
+      // Classify based on next due date
+      if (nextDueDate < today) {
+        overdueAccountIds.add(accountId);
+        // Sum ALL overdue amounts for this account (not just next due)
+        for (const s of items) {
+          if (s.due_date < today) {
+            const paid = Number(s.paid_amount);
+            const due = Number(s.total_due_amount);
+            if (s.status !== "paid" && !(paid > 0 && paid >= due)) {
+              const amt = due - paid;
+              overdueAmount += isAllMode ? toJpy(amt, acctCurrency) : amt;
+            }
+          }
+        }
+      } else if (nextDueDate === today) {
+        dueTodayAccountIds.add(accountId);
+      } else if (nextDueDate <= in3Str) {
+        due3DaysAccountIds.add(accountId);
+      } else if (nextDueDate <= in7Str) {
+        due7DaysAccountIds.add(accountId);
+      }
+    }
+
+    // Note: due_3 and due_7 are EXCLUSIVE of overdue and due_today
+    // due_7 includes due_3 accounts (cumulative for the 7-day window)
+    const due7Total = new Set([...due3DaysAccountIds, ...due7DaysAccountIds]);
 
     // ── Calculate KPI totals ──
     let totalReceivables = 0;
@@ -193,15 +227,6 @@ Deno.serve(async (req) => {
       const balance = Number(acc.remaining_balance);
       totalReceivables += isAllMode ? toJpy(balance, acc.currency) : balance;
       activeCount++;
-    }
-
-    const overdueAccountIds = new Set<string>();
-    let overdueAmount = 0;
-    for (const s of overdueScheds || []) {
-      if (currencyWhere && s.currency !== currencyWhere) continue;
-      overdueAccountIds.add(s.account_id);
-      const amt = Number(s.total_due_amount) - Number(s.paid_amount);
-      overdueAmount += isAllMode ? toJpy(amt, s.currency) : amt;
     }
 
     let paymentsToday = 0;
@@ -216,10 +241,12 @@ Deno.serve(async (req) => {
 
     let penaltiesTodayCount = 0;
     let penaltiesTodayAmount = 0;
+    const penaltiesTodayAccountIds = new Set<string>();
     for (const p of penaltiesToday || []) {
       if (currencyWhere && p.currency !== currencyWhere) continue;
       penaltiesTodayCount++;
       penaltiesTodayAmount += isAllMode ? toJpy(Number(p.penalty_amount), p.currency) : Number(p.penalty_amount);
+      if (p.account_id) penaltiesTodayAccountIds.add(p.account_id);
     }
 
     // System health
@@ -249,7 +276,6 @@ Deno.serve(async (req) => {
 
     let predicted30Raw = 0, predicted90Raw = 0, nextMonthRaw = 0;
 
-    // 6-month forecast buckets
     const forecastMonths: { month: string; expected: number; adjusted: number }[] = [];
     const monthBuckets: { start: Date; end: Date; label: string; total: number }[] = [];
     for (let i = 0; i < 6; i++) {
@@ -262,8 +288,6 @@ Deno.serve(async (req) => {
     for (const item of allUnpaidScheduleItems) {
       const remaining = Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
       if (remaining <= 0) continue;
-
-      // Only count items from active/overdue accounts
       if (!activeAccountIds.has(item.account_id)) continue;
 
       const acctCurrency = accountCurrencyMap.get(item.account_id) || item.currency;
@@ -275,15 +299,10 @@ Deno.serve(async (req) => {
       }
 
       const dueDate = new Date(item.due_date);
-
-      // 30d & 90d predictions
       if (dueDate >= now && dueDate <= in30) predicted30Raw += amount;
       if (dueDate >= now && dueDate <= in90) predicted90Raw += amount;
-
-      // Next month
       if (dueDate >= nextMonthStart && dueDate <= nextMonthEnd) nextMonthRaw += amount;
 
-      // 6-month forecast
       for (const bucket of monthBuckets) {
         if (dueDate >= bucket.start && dueDate <= bucket.end) {
           bucket.total += amount;
@@ -292,7 +311,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Risk-adjusted factor: 85%
     const riskFactor = 0.85;
     for (const bucket of monthBuckets) {
       forecastMonths.push({
@@ -317,12 +335,13 @@ Deno.serve(async (req) => {
       overdue_amount: overdueAmount,
       completed_this_month: (completedAccounts || []).length,
       forfeited_accounts: (forfeitedAccounts || []).length,
-      // Operations
-      due_today_count: new Set((dueTodayScheds || []).map((s: any) => s.account_id)).size,
-      due_3_days_count: new Set((due3DaysScheds || []).map((s: any) => s.account_id)).size,
-      due_7_days_count: new Set((due7DaysScheds || []).map((s: any) => s.account_id)).size,
+      // Operations — based on NEXT due date per account (single bucket)
+      due_today_count: dueTodayAccountIds.size,
+      due_3_days_count: due3DaysAccountIds.size,
+      due_7_days_count: due7Total.size,
       penalties_today_count: penaltiesTodayCount,
       penalties_today_amount: penaltiesTodayAmount,
+      penalties_today_account_ids: [...penaltiesTodayAccountIds],
       pending_waivers_count: (pendingWaivers || []).length,
       // System health
       total_penalties_applied: totalPenaltiesApplied,
@@ -332,7 +351,7 @@ Deno.serve(async (req) => {
       reminder_total: totalReminders,
       reminder_success: successReminders,
       reminder_failed: failedReminders,
-      // Predictions (NEW)
+      // Predictions
       predicted_30d: Math.round(predicted30Raw * riskFactor),
       predicted_30d_raw: Math.round(predicted30Raw),
       predicted_90d: Math.round(predicted90Raw * riskFactor),
@@ -340,6 +359,11 @@ Deno.serve(async (req) => {
       next_month_expected: Math.round(nextMonthRaw),
       next_month_adjusted: Math.round(nextMonthRaw * riskFactor),
       forecast_6_months: forecastMonths,
+      // Debug: account IDs per bucket for drill-down verification
+      _debug_overdue_ids: [...overdueAccountIds],
+      _debug_due_today_ids: [...dueTodayAccountIds],
+      _debug_due_3_ids: [...due3DaysAccountIds],
+      _debug_due_7_ids: [...due7Total],
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
