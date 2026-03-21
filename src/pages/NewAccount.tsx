@@ -172,7 +172,7 @@ export default function NewAccount() {
       if (validAllocations && validAllocations.length > 0 && result?.split_payments?.length > 0) {
         const customerName = selectedCustomer?.full_name || 'Customer';
         const totalReceived = lumpSum;
-        const splitPayments: Array<{ invoice_number: string; amount: number; completed: boolean }> = result.split_payments;
+        const splitPayments: Array<{ account_id: string; invoice_number: string; amount: number; completed: boolean }> = result.split_payments;
         
         // Build the new account line (downpayment)
         const newAcctCompleted = dpPaid >= amount; // unlikely but handle
