@@ -17,6 +17,7 @@ import Finance from "./pages/Finance";
 import Analytics from "./pages/Analytics";
 import SettingsPage from "./pages/SettingsPage";
 import Waivers from "./pages/Waivers";
+import AdminAudit from "./pages/AdminAudit";
 import Login from "./pages/Login";
 
 import Reminders from "./pages/Reminders";
@@ -50,6 +51,7 @@ const App = () => (
             <Route path="/analytics" element={<Protected><Analytics /></Protected>} />
             <Route path="/reminders" element={<Protected><Reminders /></Protected>} />
             <Route path="/waivers" element={<Protected><Waivers /></Protected>} />
+            <Route path="/admin-audit" element={<Protected><AdminAudit /></Protected>} />
             <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
             <Route path="*" element={<NotFound />} />
           </Routes>

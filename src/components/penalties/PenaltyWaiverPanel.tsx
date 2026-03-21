@@ -4,11 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog';
 import { formatCurrency } from '@/lib/calculations';
-import { Currency, WaiverStatus } from '@/lib/types';
+import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
 import { useWaiverRequests } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
@@ -42,19 +43,46 @@ export default function PenaltyWaiverPanel({ accountId, invoiceNumber, currency,
   const [requestOpen, setRequestOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // Filter out penalties that already have pending/approved waivers
+  const existingWaiverPenaltyIds = new Set(
+    (waivers || []).filter(w => w.status === 'pending' || w.status === 'approved').map(w => w.penalty_fee_id)
+  );
+  const eligiblePenalties = penalties.filter(p => !existingWaiverPenaltyIds.has(p.id));
+
+  const selectedTotal = penalties.filter(p => selectedIds.has(p.id)).reduce((s, p) => s + p.amount, 0);
   const totalPenalty = penalties.reduce((s, p) => s + p.amount, 0);
+
+  const toggleSelection = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllEligible = () => setSelectedIds(new Set(eligiblePenalties.map(p => p.id)));
+  const deselectAll = () => setSelectedIds(new Set());
+
+  const handleOpenDialog = () => {
+    selectAllEligible();
+    setRequestOpen(true);
+  };
 
   const handleRequestWaiver = async () => {
     if (!reason.trim()) {
       toast.error('Please provide a reason for the waiver request');
       return;
     }
-    if (!user) return;
+    if (!user || selectedIds.size === 0) {
+      toast.error('Please select at least one penalty');
+      return;
+    }
 
     setSubmitting(true);
-    // Create waiver request for each penalty
-    for (const p of penalties) {
+    const selected = penalties.filter(p => selectedIds.has(p.id));
+    for (const p of selected) {
       const { error } = await supabase.from('penalty_waiver_requests').insert({
         account_id: accountId,
         schedule_id: p.scheduleId,
@@ -70,8 +98,10 @@ export default function PenaltyWaiverPanel({ accountId, invoiceNumber, currency,
       }
     }
     qc.invalidateQueries({ queryKey: ['waivers', accountId] });
-    toast.success('Penalty waiver request submitted');
+    qc.invalidateQueries({ queryKey: ['waivers-page'] });
+    toast.success(`Waiver request submitted for ${selected.length} penalt${selected.length === 1 ? 'y' : 'ies'}`);
     setReason('');
+    setSelectedIds(new Set());
     setRequestOpen(false);
     setSubmitting(false);
   };
@@ -84,52 +114,80 @@ export default function PenaltyWaiverPanel({ accountId, invoiceNumber, currency,
         <h3 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
           <Shield className="h-4 w-4 text-destructive" /> Penalties & Waivers
         </h3>
-        <Dialog open={requestOpen} onOpenChange={setRequestOpen}>
-          <DialogTrigger asChild>
-            <Button variant="outline" size="sm" className="border-destructive/30 text-destructive hover:bg-destructive/10">
-              Request Waiver
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="bg-card border-border">
-            <DialogHeader>
-              <DialogTitle className="font-display text-card-foreground">Request Penalty Waiver</DialogTitle>
-              <DialogDescription>
-                Total penalties: {formatCurrency(totalPenalty, currency)} on INV #{invoiceNumber}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <Label className="text-card-foreground">Reason for waiver *</Label>
-                <Textarea
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  placeholder="Explain why the penalty should be waived..."
-                  className="bg-background border-border resize-none"
-                  rows={3}
-                />
-              </div>
-              <div className="rounded-lg bg-muted/50 p-3 space-y-1.5">
-                <p className="text-xs font-medium text-muted-foreground uppercase">Penalty Breakdown</p>
-                {penalties.map(p => (
-                  <div key={p.id} className="flex justify-between text-xs text-card-foreground">
-                    <span>{p.stage}</span>
-                    <span className="font-medium text-destructive">{formatCurrency(p.amount, currency)}</span>
+        {eligiblePenalties.length > 0 && (
+          <Dialog open={requestOpen} onOpenChange={setRequestOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" className="border-destructive/30 text-destructive hover:bg-destructive/10" onClick={handleOpenDialog}>
+                Request Waiver
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="bg-card border-border">
+              <DialogHeader>
+                <DialogTitle className="font-display text-card-foreground">Request Penalty Waiver</DialogTitle>
+                <DialogDescription>
+                  Select penalties to waive on INV #{invoiceNumber}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">{selectedIds.size} of {eligiblePenalties.length} selected</span>
+                  <div className="flex gap-2">
+                    <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={selectAllEligible}>Select All</Button>
+                    <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={deselectAll}>Deselect All</Button>
                   </div>
-                ))}
-                <div className="border-t border-border pt-1.5 flex justify-between text-xs font-bold text-card-foreground">
-                  <span>Total</span>
-                  <span>{formatCurrency(totalPenalty, currency)}</span>
+                </div>
+
+                {/* Penalty checkboxes */}
+                <div className="rounded-lg border border-border divide-y divide-border max-h-48 overflow-y-auto">
+                  {penalties.map(p => {
+                    const isEligible = eligiblePenalties.some(e => e.id === p.id);
+                    const isSelected = selectedIds.has(p.id);
+                    const hasWaiver = existingWaiverPenaltyIds.has(p.id);
+                    return (
+                      <label
+                        key={p.id}
+                        className={`flex items-center gap-3 px-3 py-2.5 transition-colors ${isEligible ? (isSelected ? 'bg-primary/5 cursor-pointer' : 'hover:bg-muted/30 cursor-pointer') : 'opacity-50 cursor-not-allowed'}`}
+                      >
+                        <Checkbox
+                          checked={isSelected}
+                          disabled={!isEligible}
+                          onCheckedChange={() => toggleSelection(p.id)}
+                        />
+                        <div className="flex-1">
+                          <span className="text-xs font-medium text-card-foreground">{p.stage} Penalty</span>
+                          {hasWaiver && <Badge variant="outline" className="ml-2 text-[10px] bg-warning/10 text-warning">Waiver Pending</Badge>}
+                        </div>
+                        <span className="text-xs font-semibold text-destructive tabular-nums">{formatCurrency(p.amount, currency)}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <div className="rounded-lg bg-muted/50 p-3 flex justify-between text-xs">
+                  <span className="text-muted-foreground">Selected total</span>
+                  <span className="font-bold text-card-foreground">{formatCurrency(selectedTotal, currency)}</span>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-card-foreground">Reason for waiver *</Label>
+                  <Textarea
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    placeholder="Explain why the penalty should be waived..."
+                    className="bg-background border-border resize-none"
+                    rows={3}
+                  />
                 </div>
               </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setRequestOpen(false)}>Cancel</Button>
-              <Button onClick={handleRequestWaiver} disabled={submitting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                {submitting ? 'Submitting…' : 'Submit Request'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setRequestOpen(false)}>Cancel</Button>
+                <Button onClick={handleRequestWaiver} disabled={submitting || selectedIds.size === 0} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                  {submitting ? 'Submitting…' : `Submit for ${selectedIds.size} Penalt${selectedIds.size === 1 ? 'y' : 'ies'}`}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       {/* Penalty Items */}
