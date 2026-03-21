@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { Tables } from '@/integrations/supabase/types';
+import { MUTATION_INVALIDATION_KEYS } from '@/lib/business-rules';
 
 // ── Re-export DB row types with short aliases ──
 export type DbCustomer = Tables<'customers'>;
@@ -13,6 +14,13 @@ export type DbWaiverRequest = Tables<'penalty_waiver_requests'>;
 // ── Joined account type for list / detail views ──
 export interface AccountWithCustomer extends DbAccount {
   customers: DbCustomer;
+}
+
+// ── Centralized cache invalidation ──
+function invalidateAll(qc: ReturnType<typeof useQueryClient>) {
+  for (const key of MUTATION_INVALIDATION_KEYS) {
+    qc.invalidateQueries({ queryKey: [key] });
+  }
 }
 
 // ──────────────────────────────────────────────
@@ -73,7 +81,6 @@ export function useCustomerAccounts(customerId: string | undefined) {
     queryKey: ['customer-detail', customerId],
     enabled: !!customerId,
     queryFn: async () => {
-      // Get customer
       const { data: customer, error: custErr } = await supabase
         .from('customers')
         .select('*')
@@ -81,7 +88,6 @@ export function useCustomerAccounts(customerId: string | undefined) {
         .single();
       if (custErr) throw custErr;
 
-      // Get all accounts for this customer
       const { data: accts, error: acctErr } = await supabase
         .from('layaway_accounts')
         .select('*')
@@ -91,7 +97,6 @@ export function useCustomerAccounts(customerId: string | undefined) {
 
       const accountIds = (accts || []).map(a => a.id);
 
-      // Fetch schedules, penalties, payments, and services for all accounts in parallel
       const [schedRes, penRes, payRes, svcRes] = await Promise.all([
         accountIds.length > 0
           ? supabase.from('layaway_schedule').select('*').in('account_id', accountIds).order('installment_number', { ascending: true })
@@ -112,13 +117,11 @@ export function useCustomerAccounts(customerId: string | undefined) {
       const allPayments = (payRes.data || []) as any[];
       const allServices = (svcRes.data || []) as any[];
 
-      // Fetch allocations for schedule items to get actual payment dates
       const scheduleIds = schedules.map(s => s.id);
       const allocations = scheduleIds.length > 0
         ? (await supabase.from('payment_allocations').select('*').in('schedule_id', scheduleIds)).data || []
         : [];
 
-      // Build a map: schedule_id -> latest payment date
       const schedulePaymentDateMap: Record<string, string> = {};
       for (const alloc of allocations as any[]) {
         const payment = allPayments.find(p => p.id === alloc.payment_id && !p.voided_at);
@@ -143,7 +146,6 @@ export function useCustomerAccounts(customerId: string | undefined) {
     },
   });
 }
-
 
 // ──────────────────────────────────────────────
 // SCHEDULE
@@ -213,7 +215,6 @@ export function useRecentPaymentsWithAccount() {
         .limit(10);
       if (pErr) throw pErr;
 
-      // Fetch related accounts + customers
       const accountIds = [...new Set((payments || []).map(p => p.account_id))];
       if (accountIds.length === 0) return [];
 
@@ -302,7 +303,6 @@ export function useDashboardSummary(currencyMode: 'PHP' | 'JPY' | 'ALL', enabled
         currency: string;
         currency_filter: string;
         conversion_rate: number;
-        // Predictions
         predicted_30d: number;
         predicted_30d_raw: number;
         predicted_90d: number;
@@ -339,7 +339,6 @@ export function useCreateAccount() {
         body: payload,
       });
       if (error) throw error;
-      // Edge function may return 400 with error in body
       if (data?.error) {
         const msg = data.error.includes('duplicate key') && data.error.includes('invoice_number')
           ? `Invoice number "${payload.invoice_number}" already exists. Please use a different invoice number.`
@@ -348,13 +347,7 @@ export function useCreateAccount() {
       }
       return data;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['accounts'] });
-      qc.invalidateQueries({ queryKey: ['payments'] });
-      qc.invalidateQueries({ queryKey: ['schedule'] });
-      qc.invalidateQueries({ queryKey: ['customer-detail'] });
-      qc.invalidateQueries({ queryKey: ['dashboard-summary'] });
-    },
+    onSuccess: () => invalidateAll(qc),
   });
 }
 
@@ -381,13 +374,7 @@ export function useRecordPayment() {
       return data;
     },
     onSuccess: (_data, variables) => {
-      if (!variables.preview_only) {
-        qc.invalidateQueries({ queryKey: ['accounts'] });
-        qc.invalidateQueries({ queryKey: ['payments'] });
-        qc.invalidateQueries({ queryKey: ['schedule'] });
-        qc.invalidateQueries({ queryKey: ['dashboard-summary'] });
-        qc.invalidateQueries({ queryKey: ['payments-with-accounts'] });
-      }
+      if (!variables.preview_only) invalidateAll(qc);
     },
   });
 }
@@ -417,9 +404,7 @@ export function useCreateCustomer() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['customers'] });
-    },
+    onSuccess: () => invalidateAll(qc),
   });
 }
 
@@ -436,13 +421,24 @@ export function useVoidPayment() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['accounts'] });
-      qc.invalidateQueries({ queryKey: ['payments'] });
-      qc.invalidateQueries({ queryKey: ['schedule'] });
-      qc.invalidateQueries({ queryKey: ['dashboard-summary'] });
-      qc.invalidateQueries({ queryKey: ['payments-with-accounts'] });
+    onSuccess: () => invalidateAll(qc),
+  });
+}
+
+// ──────────────────────────────────────────────
+// RECORD MULTI-PAYMENT (via edge function)
+// ──────────────────────────────────────────────
+export function useRecordMultiPayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: any) => {
+      const { data, error } = await supabase.functions.invoke('record-multi-payment', {
+        body: payload,
+      });
+      if (error) throw error;
+      return data;
     },
+    onSuccess: () => invalidateAll(qc),
   });
 }
 
@@ -470,10 +466,7 @@ export function useEditPayment() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['payments'] });
-      qc.invalidateQueries({ queryKey: ['payments-with-accounts'] });
-    },
+    onSuccess: () => invalidateAll(qc),
   });
 }
 
@@ -490,13 +483,7 @@ export function useRestorePayment() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['accounts'] });
-      qc.invalidateQueries({ queryKey: ['payments'] });
-      qc.invalidateQueries({ queryKey: ['schedule'] });
-      qc.invalidateQueries({ queryKey: ['dashboard-summary'] });
-      qc.invalidateQueries({ queryKey: ['payments-with-accounts'] });
-    },
+    onSuccess: () => invalidateAll(qc),
   });
 }
 
@@ -513,12 +500,7 @@ export function useDeleteAccount() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['accounts'] });
-      qc.invalidateQueries({ queryKey: ['customers'] });
-      qc.invalidateQueries({ queryKey: ['customer-detail'] });
-      qc.invalidateQueries({ queryKey: ['dashboard-summary'] });
-    },
+    onSuccess: () => invalidateAll(qc),
   });
 }
 
@@ -535,11 +517,6 @@ export function useForfeitAccount() {
         .eq('id', account_id);
       if (error) throw error;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['accounts'] });
-      qc.invalidateQueries({ queryKey: ['customers'] });
-      qc.invalidateQueries({ queryKey: ['customer-detail'] });
-      qc.invalidateQueries({ queryKey: ['dashboard-summary'] });
-    },
+    onSuccess: () => invalidateAll(qc),
   });
 }
