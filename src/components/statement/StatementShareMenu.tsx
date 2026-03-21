@@ -20,6 +20,15 @@ import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { computeRemainingBalance, getNextPaymentStatementDate } from '@/lib/business-rules';
 
+// Production base URL for statement links — ensures correct domain regardless of preview/dev environment
+const STATEMENT_BASE_URL = import.meta.env.PROD
+  ? 'https://chajewelslayaway.web.app'
+  : window.location.origin;
+
+function buildStatementUrl(token: string): string {
+  return `${STATEMENT_BASE_URL}/statement?token=${token}`;
+}
+
 interface TokenInfo {
   token: string;
   created_at: string;
