@@ -241,9 +241,6 @@ export default function CustomerStatement() {
                     <span className="font-medium text-foreground">
                       {new Date(nextPayment.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                     </span>.
-                    {nextPayment.isAdjusted && (
-                      <span className="text-xs text-muted-foreground"> (adjusted due to late payment penalty)</span>
-                    )}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
                     Please expect another payment reminder from us.
