@@ -58,7 +58,9 @@ export default function MultiInvoicePaymentDialog({
 }: MultiInvoicePaymentDialogProps) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [step, setStep] = useState<'select' | 'allocate' | 'preview'>('select');
+  const [step, setStep] = useState<'select' | 'allocate' | 'preview' | 'message'>('select');
+  const [consolidatedMessage, setConsolidatedMessage] = useState('');
+  const [msgCopied, setMsgCopied] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
