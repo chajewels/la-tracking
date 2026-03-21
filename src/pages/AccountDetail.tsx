@@ -518,7 +518,7 @@ export default function AccountDetail() {
                         <>
                            <div className="text-right">
                             <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isPaid ? 'text-success' : 'text-card-foreground'}`}>
-                              {formatCurrency(isPaid ? totalDue : totalDue, currency)}
+                              {formatCurrency(isPaid ? Math.max(paidAmt, totalDue) : totalDue, currency)}
                             </p>
                             {paidAmt > 0 && !isPaid ? (
                               <p className="text-[10px] text-muted-foreground tabular-nums">
