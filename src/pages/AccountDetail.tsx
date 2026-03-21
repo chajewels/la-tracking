@@ -165,6 +165,15 @@ export default function AccountDetail() {
     message += `Total Layaway Amount: ${formatCurrency(totalAmount, currency)}\n`;
   }
   message += `Amount Paid: ${paymentBreakdownText}\n`;
+  // Services in message
+  if (accountServices.length > 0) {
+    message += `\n🔧 Additional Services:\n`;
+    accountServices.forEach(svc => {
+      const label = SERVICE_LABELS[svc.service_type] || svc.service_type;
+      message += `  • ${label}${svc.description ? ` - ${svc.description}` : ''}: ${formatCurrency(Number(svc.amount), currency)}\n`;
+    });
+    message += `  Services Total: ${formatCurrency(totalServicesAmount, currency)}\n`;
+  }
   const laRemainingText = `LA ${new Date(account.end_date || account.order_date).toLocaleDateString('en-US', { month: 'short' }).toUpperCase()} remaining balance`;
   message += `================\n`;
   const unpaidCount = scheduleItems.filter(s => s.status !== 'paid' && s.status !== 'cancelled').length;
