@@ -101,17 +101,39 @@ Deno.serve(async (req) => {
     // Update schedule item: add penalty to penalty_amount and total_due_amount
     const newPenaltyAmount = Number(schedItem.penalty_amount) + penalty_amount;
     const newTotalDue = Number(schedItem.base_installment_amount) + newPenaltyAmount;
+    const isPaid = schedItem.status === "paid";
+
+    // If adding penalty to a paid installment (correction), also update paid_amount
+    const schedUpdatePayload: Record<string, unknown> = {
+      penalty_amount: newPenaltyAmount,
+      total_due_amount: newTotalDue,
+    };
+    if (isPaid) {
+      schedUpdatePayload.paid_amount = newTotalDue;
+    }
 
     const { error: schedUpdateErr } = await supabase
       .from("layaway_schedule")
-      .update({
-        penalty_amount: newPenaltyAmount,
-        total_due_amount: newTotalDue,
-      })
+      .update(schedUpdatePayload)
       .eq("id", schedule_id);
 
     if (schedUpdateErr) {
       console.error("Failed to update schedule:", schedUpdateErr);
+    }
+
+    // If item was paid, also update account total_paid to reflect the correction
+    if (isPaid) {
+      const { data: allSchedulePaid } = await supabase
+        .from("layaway_schedule")
+        .select("paid_amount, status")
+        .eq("account_id", account_id);
+      if (allSchedulePaid) {
+        const newTotalPaid = allSchedulePaid.reduce((sum, s) => sum + Number(s.paid_amount), 0);
+        await supabase
+          .from("layaway_accounts")
+          .update({ total_paid: newTotalPaid })
+          .eq("id", account_id);
+      }
     }
 
     // Update account remaining_balance

@@ -151,12 +151,14 @@ export default function AccountDetail() {
     return sum + Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
   }, 0);
   const downpaymentAmount = Number((account as any).downpayment_amount || 0);
-  const progress = totalAmount > 0 ? (totalPaid / totalAmount) * 100 : 0;
+  const accountServices = ((services || []) as AccountService[]);
+  const totalServicesAmount = accountServices.reduce((s, svc) => s + Number(svc.amount), 0);
+  const totalLayawayAmount = totalAmount + totalServicesAmount;
+  const progress = totalLayawayAmount > 0 ? (totalPaid / totalLayawayAmount) * 100 : 0;
 
   const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
   const totalPenalty = unpaidPenalties.reduce((s, p) => s + Number(p.penalty_amount), 0);
-  const accountServices = (services || []) as AccountService[];
-  const totalServicesAmount = accountServices.reduce((s, svc) => s + Number(svc.amount), 0);
+  const totalPenaltyAll = (penalties || []).reduce((s, p) => s + Number(p.penalty_amount), 0);
 
   const SERVICE_LABELS: Record<string, string> = {
     resize: 'Resize', certificate: 'Certificate', polish: 'Polish',
@@ -202,11 +204,15 @@ export default function AccountDetail() {
     message += `Thank you for your payment. ${formatCurrency(Number((mostRecentPayment as any).amount_paid), currency)} has been received.\n\n`;
   }
   message += `Inv # ${account.invoice_number}\n`;
-  if (totalPenalty > 0) {
-    message += `Total Layaway Amount: ${formatCurrency(totalAmount, currency)} + ${formatCurrency(totalPenalty, currency)} (Penalty)\n`;
-  } else {
-    message += `Total Layaway Amount: ${formatCurrency(totalAmount, currency)}\n`;
+  // Build Total Layaway Amount line: base + services + penalties
+  const amountParts: string[] = [formatCurrency(totalAmount, currency)];
+  if (totalServicesAmount > 0) amountParts.push(`${formatCurrency(totalServicesAmount, currency)} (Services)`);
+  if (totalPenaltyAll > 0) amountParts.push(`${formatCurrency(totalPenaltyAll, currency)} (Penalty)`);
+  message += `Total Layaway Amount: ${amountParts.join(' + ')}`;
+  if (amountParts.length > 1) {
+    message += ` = ${formatCurrency(totalAmount + totalServicesAmount + totalPenaltyAll, currency)}`;
   }
+  message += `\n`;
   message += `Amount Paid: ${paymentBreakdownText}\n`;
   // Services in message
   if (accountServices.length > 0) {
@@ -235,12 +241,12 @@ export default function AccountDetail() {
 
     if (isPaid) {
       if (penalty > 0) {
-        message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(Number(item.base_installment_amount), currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)} (PAID)\n`;
+        message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(Number(item.base_installment_amount), currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(paid, currency)} (PAID)\n`;
       } else {
-        message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)} (PAID)\n`;
+        message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(paid, currency)} (PAID)\n`;
       }
     } else if (isPartial) {
-      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)}${penalty > 0 ? ` (includes ${formatCurrency(penalty, currency)} penalty)` : ''}\n`;
+      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)} (Paid: ${formatCurrency(paid, currency)}, Remaining: ${formatCurrency(remainingDue, currency)})${penalty > 0 ? ` (includes ${formatCurrency(penalty, currency)} penalty)` : ''}\n`;
     } else if (penalty > 0) {
       message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(Number(item.base_installment_amount), currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
     } else {
@@ -385,10 +391,15 @@ export default function AccountDetail() {
         {/* Summary Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
           <div className="rounded-xl border border-border bg-card p-3 sm:p-4">
-            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Total Amount</p>
+            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Total Layaway Amount</p>
             <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
-              {formatCurrency(totalAmount, currency)}
+              {formatCurrency(totalLayawayAmount, currency)}
             </p>
+            {totalServicesAmount > 0 && (
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                Base: {formatCurrency(totalAmount, currency)} + Services: {formatCurrency(totalServicesAmount, currency)}
+              </p>
+            )}
           </div>
           {downpaymentAmount > 0 && (
             <div className="rounded-xl border border-primary/20 bg-card p-3 sm:p-4">
