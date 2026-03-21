@@ -151,7 +151,10 @@ export default function AccountDetail() {
     return sum + Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
   }, 0);
   const downpaymentAmount = Number((account as any).downpayment_amount || 0);
-  const progress = totalAmount > 0 ? (totalPaid / totalAmount) * 100 : 0;
+  const accountServices = ((services || []) as AccountService[]);
+  const totalServicesAmount = accountServices.reduce((s, svc) => s + Number(svc.amount), 0);
+  const totalLayawayAmount = totalAmount + totalServicesAmount;
+  const progress = totalLayawayAmount > 0 ? (totalPaid / totalLayawayAmount) * 100 : 0;
 
   const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
   const totalPenalty = unpaidPenalties.reduce((s, p) => s + Number(p.penalty_amount), 0);
