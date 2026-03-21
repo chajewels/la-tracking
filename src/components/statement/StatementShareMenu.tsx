@@ -84,7 +84,7 @@ export default function StatementShareMenu({
         setTokenStatus('expired');
       } else {
         setTokenStatus('active');
-        setLink(`${window.location.origin}/statement?token=${data.token}`);
+        setLink(buildStatementUrl(data.token));
       }
     };
     fetchToken();
