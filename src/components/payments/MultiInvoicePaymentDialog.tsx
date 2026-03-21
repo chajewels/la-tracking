@@ -200,6 +200,8 @@ export default function MultiInvoicePaymentDialog({
     setPaymentDate(new Date().toISOString().split('T')[0]);
     setStep('select');
     setPreview(null);
+    setConsolidatedMessage('');
+    setMsgCopied(false);
     setOpen(false);
   };
 
