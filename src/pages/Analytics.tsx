@@ -94,46 +94,46 @@ export default function Analytics() {
 
   // Risk assessments
   const risks = useMemo(() =>
-    activeAccounts.map(a => ({
-      accountId: a.id,
-      customerName: a.customers?.full_name || 'Unknown',
-      invoiceNumber: a.invoice_number,
-      currency: a.currency as Currency,
-      ...assessRisk(a, allPayments || [], allSchedules || []),
-    })).sort((a, b) => b.score - a.score),
-    [activeAccounts, allPayments, allSchedules]
+    activeAccounts.map(a => {
+      const acctSchedules = (allSchedules || []).filter(s => s.account_id === a.id);
+      return {
+        accountId: a.id,
+        customerName: a.customers?.full_name || 'Unknown',
+        invoiceNumber: a.invoice_number,
+        currency: a.currency as Currency,
+        ...assessRisk(acctSchedules),
+      };
+    }).sort((a, b) => b.score - a.score),
+    [activeAccounts, allSchedules]
   );
 
   // CLV assessments
   const clvs = useMemo(() =>
-    (customers || []).map(c => ({
-      customerId: c.id,
-      customerName: c.full_name,
-      ...assessCLV(c, accounts || [], allPayments || []),
-    })).sort((a, b) => b.score - a.score),
-    [customers, accounts, allPayments]
+    (customers || []).map(c => {
+      const custAccounts = (accounts || []).filter(a => a.customer_id === c.id);
+      return {
+        customerId: c.id,
+        customerName: c.full_name,
+        ...assessCLV(custAccounts),
+      };
+    }).sort((a, b) => b.score - a.score),
+    [customers, accounts]
   );
 
   // Completion predictions
   const completions = useMemo(() =>
     activeAccounts.map(a => {
-      const progressPercent = Math.round((Number(a.total_paid) / Number(a.total_amount)) * 100);
-      const risk = assessRisk(a, allPayments || [], allSchedules || []);
-      let score = Math.round((100 - risk.score) * 0.6 + progressPercent * 0.4);
-      score = Math.max(0, Math.min(100, score));
-      let probability: CompletionProbability = 'low';
-      if (score >= 65) probability = 'high';
-      else if (score >= 35) probability = 'medium';
+      const acctSchedules = (allSchedules || []).filter(s => s.account_id === a.id);
+      const risk = assessRisk(acctSchedules);
+      const pred = predictCompletion(Number(a.total_paid), Number(a.total_amount), risk.score);
       return {
         accountId: a.id,
         customerName: a.customers?.full_name || 'Unknown',
         invoiceNumber: a.invoice_number,
-        probability,
-        score,
-        progressPercent,
+        ...pred,
       };
     }).sort((a, b) => a.score - b.score),
-    [activeAccounts, allPayments, allSchedules]
+    [activeAccounts, allSchedules]
   );
 
   // Use server-side predictions from dashboard-summary (handles all rows, no 1000-row cap)
