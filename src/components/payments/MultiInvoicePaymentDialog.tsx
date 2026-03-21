@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Layers, ArrowRight, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Layers, ArrowRight, CheckCircle2, AlertTriangle, Copy, Check, MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
