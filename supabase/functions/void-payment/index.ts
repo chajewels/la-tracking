@@ -5,6 +5,38 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+function determineAccountStatus(schedule: any[], currentStatus: string): string {
+  if (currentStatus === "cancelled" || currentStatus === "forfeited") return currentStatus;
+
+  const today = new Date().toISOString().split("T")[0];
+  let allPaid = true;
+  let hasOverdue = false;
+
+  for (const item of schedule) {
+    if (item.status === "cancelled") continue;
+    if (item.status !== "paid") {
+      allPaid = false;
+      if (item.due_date <= today) {
+        hasOverdue = true;
+      }
+    }
+  }
+
+  if (allPaid) return "completed";
+  if (hasOverdue) return "overdue";
+  return "active";
+}
+
+function calcRemainingBalance(schedule: any[]): number {
+  let remaining = 0;
+  for (const item of schedule) {
+    if (item.status !== "paid" && item.status !== "cancelled") {
+      remaining += Math.max(0, Number(item.base_installment_amount) + Number(item.penalty_amount || 0) - Number(item.paid_amount));
+    }
+  }
+  return remaining;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -56,11 +88,13 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Get all allocations for this payment
     const { data: allocations } = await supabase
       .from("payment_allocations")
       .select("*")
       .eq("payment_id", payment_id);
 
+    // Reverse each allocation
     for (const alloc of (allocations || [])) {
       if (alloc.allocation_type === "installment") {
         const { data: sched } = await supabase
@@ -71,25 +105,73 @@ Deno.serve(async (req) => {
 
         if (sched) {
           const newPaid = Math.max(0, Number(sched.paid_amount) - Number(alloc.allocated_amount));
-          const newStatus = newPaid <= 0 ? "pending" : "partially_paid";
+          // Determine proper status based on paid amount and due date
+          const today = new Date().toISOString().split("T")[0];
+          let newStatus: string;
+          if (newPaid >= Number(sched.base_installment_amount)) {
+            newStatus = "paid";
+          } else if (newPaid > 0) {
+            newStatus = "partially_paid";
+          } else if (sched.due_date <= today) {
+            newStatus = "overdue";
+          } else {
+            newStatus = "pending";
+          }
+
           await supabase.from("layaway_schedule").update({
             paid_amount: newPaid,
             status: newStatus,
           }).eq("id", alloc.schedule_id);
         }
       } else if (alloc.allocation_type === "penalty") {
+        // Find matching paid penalty for this schedule item
         const { data: penaltyFees } = await supabase
           .from("penalty_fees")
           .select("*")
           .eq("schedule_id", alloc.schedule_id)
           .eq("status", "paid")
-          .eq("account_id", payment.account_id);
+          .eq("account_id", payment.account_id)
+          .order("created_at", { ascending: true })
+          .limit(1);
 
         if (penaltyFees && penaltyFees.length > 0) {
           await supabase.from("penalty_fees").update({ status: "unpaid" }).eq("id", penaltyFees[0].id);
+
+          // Update the schedule item's penalty_amount to reflect unpaid penalty
+          const { data: allPenalties } = await supabase
+            .from("penalty_fees")
+            .select("penalty_amount, status")
+            .eq("schedule_id", alloc.schedule_id)
+            .eq("account_id", payment.account_id);
+
+          if (allPenalties) {
+            const totalUnpaidPenalty = allPenalties
+              .filter(p => p.status === "unpaid" || p.id === penaltyFees[0].id)
+              .reduce((sum, p) => sum + Number(p.penalty_amount), 0);
+
+            const { data: schedItem } = await supabase
+              .from("layaway_schedule")
+              .select("base_installment_amount")
+              .eq("id", alloc.schedule_id)
+              .single();
+
+            if (schedItem) {
+              await supabase.from("layaway_schedule").update({
+                penalty_amount: totalUnpaidPenalty,
+                total_due_amount: Number(schedItem.base_installment_amount) + totalUnpaidPenalty,
+              }).eq("id", alloc.schedule_id);
+            }
+          }
         }
       }
     }
+
+    // Now recalculate account from the updated schedule
+    const { data: updatedSchedule } = await supabase
+      .from("layaway_schedule")
+      .select("*")
+      .eq("account_id", payment.account_id)
+      .order("installment_number", { ascending: true });
 
     const { data: account } = await supabase
       .from("layaway_accounts")
@@ -97,10 +179,10 @@ Deno.serve(async (req) => {
       .eq("id", payment.account_id)
       .single();
 
-    if (account) {
+    if (account && updatedSchedule) {
       const newTotalPaid = Math.max(0, Number(account.total_paid) - Number(payment.amount_paid));
-      const newRemaining = Number(account.total_amount) - newTotalPaid;
-      const newStatus = account.status === "completed" ? "active" : account.status;
+      const newRemaining = calcRemainingBalance(updatedSchedule);
+      const newStatus = determineAccountStatus(updatedSchedule, account.status);
 
       await supabase.from("layaway_accounts").update({
         total_paid: newTotalPaid,
@@ -109,12 +191,14 @@ Deno.serve(async (req) => {
       }).eq("id", payment.account_id);
     }
 
+    // Mark payment as voided
     await supabase.from("payments").update({
       voided_at: new Date().toISOString(),
       voided_by_user_id: user.id,
       void_reason: reason || "Voided by user",
     }).eq("id", payment_id);
 
+    // Audit log
     await supabase.from("audit_logs").insert({
       entity_type: "payment",
       entity_id: payment_id,
