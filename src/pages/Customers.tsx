@@ -158,7 +158,7 @@ export default function Customers() {
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
-                  <tr><td colSpan={5} className="px-5 py-8 text-center text-sm text-muted-foreground">No customers found</td></tr>
+                  <tr><td colSpan={6} className="px-5 py-8 text-center text-sm text-muted-foreground">No customers found</td></tr>
                 ) : filtered.map(c => {
                   const accountCount = (accounts || []).filter(a => a.customer_id === c.id && a.status !== 'forfeited' && a.status !== 'cancelled').length;
                   return (
