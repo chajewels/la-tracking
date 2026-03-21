@@ -14,6 +14,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { daysOverdueFromToday, isEffectivelyPaid, getNextUnpaidDueDate } from '@/lib/business-rules';
 import { Link } from 'react-router-dom';
+import PenaltyCapAuditPanel from '@/components/dashboard/PenaltyCapAuditPanel';
 
 // ── System Health ──
 function SystemHealthTab() {
