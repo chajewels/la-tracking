@@ -60,6 +60,23 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   const [loadingPreview, setLoadingPreview] = useState(false);
   const recordPayment = useRecordPayment();
 
+  // Calculate multi-month quick-fill amounts from unpaid schedule items
+  const unpaidItems = (schedule || [])
+    .filter(s => s.status !== 'paid' && s.status !== 'cancelled')
+    .sort((a, b) => a.installment_number - b.installment_number);
+
+  const monthOptions: { months: number; amount: number }[] = [];
+  if (!payFullBalance && unpaidItems.length > 0) {
+    let cumulative = 0;
+    for (let i = 0; i < Math.min(5, unpaidItems.length); i++) {
+      const due = Math.max(0, Number(unpaidItems[i].total_due_amount) - Number(unpaidItems[i].paid_amount));
+      cumulative += due;
+      if (cumulative > 0) {
+        monthOptions.push({ months: i + 1, amount: cumulative });
+      }
+    }
+  }
+
   const parsedAmount = payFullBalance ? remainingBalance : (parseFloat(amount) || 0);
   const isValid = parsedAmount > 0 && parsedAmount <= remainingBalance && paymentDate;
 
