@@ -159,14 +159,21 @@ export default function AccountDetail() {
   }
 
   const currency = account.currency as Currency;
-  const totalAmount = Number(account.total_amount);
   const totalPaid = Number(account.total_paid);
   const scheduleItems = schedule || [];
   const remainingBalance = computeRemainingBalance(scheduleItems);
   const downpaymentAmount = Number((account as any).downpayment_amount || 0);
   const accountServices = ((services || []) as AccountService[]);
   const totalServicesAmount = accountServices.reduce((s, svc) => s + Number(svc.amount), 0);
-  const totalLayawayAmount = totalAmount + totalServicesAmount;
+
+  // Derive totals from schedule data so everything reconciles:
+  // originalPrincipal = downpayment + sum(base_installment_amounts)
+  // schedulePenaltySum = sum(penalty_amounts in schedule)
+  // totalLayawayAmount = originalPrincipal + services + schedulePenalties
+  const scheduleBaseSum = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
+  const schedulePenaltySum = scheduleItems.reduce((s, i) => s + Number(i.penalty_amount), 0);
+  const originalPrincipal = downpaymentAmount + scheduleBaseSum;
+  const totalLayawayAmount = originalPrincipal + totalServicesAmount + schedulePenaltySum;
   const progress = accountProgress(totalPaid, totalLayawayAmount);
 
   const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
@@ -194,13 +201,13 @@ export default function AccountDetail() {
     message += `Thank you for your payment. ${formatCurrency(Number((mostRecentPayment as any).amount_paid), currency)} has been received.\n\n`;
   }
   message += `Inv # ${account.invoice_number}\n`;
-  // Build Total Layaway Amount line: base + services + penalties
-  const amountParts: string[] = [formatCurrency(totalAmount, currency)];
+  // Build Total Layaway Amount line: principal + services + schedule penalties
+  const amountParts: string[] = [formatCurrency(originalPrincipal, currency)];
   if (totalServicesAmount > 0) amountParts.push(`${formatCurrency(totalServicesAmount, currency)} (Services)`);
-  if (totalPenaltyAll > 0) amountParts.push(`${formatCurrency(totalPenaltyAll, currency)} (Penalty)`);
+  if (schedulePenaltySum > 0) amountParts.push(`${formatCurrency(schedulePenaltySum, currency)} (Penalty)`);
   message += `Total Layaway Amount: ${amountParts.join(' + ')}`;
   if (amountParts.length > 1) {
-    message += ` = ${formatCurrency(totalAmount + totalServicesAmount + totalPenaltyAll, currency)}`;
+    message += ` = ${formatCurrency(totalLayawayAmount, currency)}`;
   }
   message += `\n`;
   message += `Amount Paid: ${paymentBreakdownText}\n`;
@@ -415,10 +422,16 @@ export default function AccountDetail() {
             <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
               {formatCurrency(totalLayawayAmount, currency)}
             </p>
-            {totalServicesAmount > 0 && (
-              <p className="text-[10px] text-muted-foreground mt-0.5">
-                Base: {formatCurrency(totalAmount, currency)} + Services: {formatCurrency(totalServicesAmount, currency)}
-              </p>
+            {(totalServicesAmount > 0 || schedulePenaltySum > 0) && (
+              <div className="text-[10px] text-muted-foreground mt-0.5 space-y-0.5">
+                <p>Principal: {formatCurrency(originalPrincipal, currency)}</p>
+                {schedulePenaltySum > 0 && (
+                  <p className="text-destructive/80">Penalties: {formatCurrency(schedulePenaltySum, currency)}</p>
+                )}
+                {totalServicesAmount > 0 && (
+                  <p>Services: {formatCurrency(totalServicesAmount, currency)}</p>
+                )}
+              </div>
             )}
           </div>
           {downpaymentAmount > 0 && (
