@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Copy, Check, CheckCircle2, MessageCircle, Calendar, AlertTriangle, MapPin, Pencil, X, Ban } from 'lucide-react';
+import { ArrowLeft, Copy, Check, CheckCircle2, MessageCircle, Calendar, AlertTriangle, MapPin, Pencil, X, Ban, Wrench } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -183,6 +183,22 @@ export default function CustomerDetail() {
       }
       msg += `Amount Paid: ${paymentBreakdownText}\n`;
 
+      // Services in message
+      const acctServices = (acct as any).services || [];
+      const SERVICE_LABELS: Record<string, string> = {
+        resize: 'Resize', certificate: 'Certificate', polish: 'Polish',
+        change_color: 'Change Color', engraving: 'Engraving', repair: 'Repair', other: 'Other',
+      };
+      if (acctServices.length > 0) {
+        const totalSvcAmt = acctServices.reduce((s: number, svc: any) => s + Number(svc.amount), 0);
+        msg += `\n🔧 Additional Services:\n`;
+        acctServices.forEach((svc: any) => {
+          const label = SERVICE_LABELS[svc.service_type] || svc.service_type;
+          msg += `  • ${label}${svc.description ? ` - ${svc.description}` : ''}: ${formatCurrency(Number(svc.amount), currency)}\n`;
+        });
+        msg += `  Services Total: ${formatCurrency(totalSvcAmt, currency)}\n`;
+      }
+
       // Show split payment allocation details
       if (batchSiblings.length > 0) {
         for (const batch of batchSiblings) {
@@ -332,7 +348,7 @@ export default function CustomerDetail() {
         </div>
 
         {/* All Accounts */}
-        {accounts.map(({ account, schedule, penalties, schedulePaymentDates }) => {
+        {accounts.map(({ account, schedule, penalties, schedulePaymentDates, services: acctServices }) => {
           const currency = account.currency as Currency;
           const totalAmount = Number(account.total_amount);
           const totalPaid = Number(account.total_paid);
@@ -493,6 +509,36 @@ export default function CustomerDetail() {
                   );
                 })}
               </div>
+
+              {/* Additional Services */}
+              {(acctServices as any[] || []).length > 0 && (
+                <div className="space-y-1.5">
+                  <h3 className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                    <Wrench className="h-3.5 w-3.5 text-primary" /> Additional Services
+                    <span className="ml-auto text-xs font-bold text-card-foreground tabular-nums">
+                      Total: {formatCurrency((acctServices as any[]).reduce((s: number, svc: any) => s + Number(svc.amount), 0), currency)}
+                    </span>
+                  </h3>
+                  {(acctServices as any[]).map((svc: any) => (
+                    <div key={svc.id} className="flex items-center justify-between p-2 rounded-lg border border-border bg-card">
+                      <div className="flex items-center gap-2">
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary">
+                          <Wrench className="h-2.5 w-2.5" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-card-foreground">
+                            {svc.service_type === 'change_color' ? 'Change Color' : svc.service_type.charAt(0).toUpperCase() + svc.service_type.slice(1)}
+                          </p>
+                          {svc.description && <p className="text-[10px] text-muted-foreground">{svc.description}</p>}
+                        </div>
+                      </div>
+                      <p className="text-xs font-semibold tabular-nums text-card-foreground">
+                        {formatCurrency(Number(svc.amount), currency)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}

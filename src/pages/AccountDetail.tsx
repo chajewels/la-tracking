@@ -1,7 +1,9 @@
 import { useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign } from 'lucide-react';
+import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench } from 'lucide-react';
 import ReassignOwnerDialog from '@/components/accounts/ReassignOwnerDialog';
+import AddServiceDialog from '@/components/services/AddServiceDialog';
+import ServicesList, { AccountService } from '@/components/services/ServicesList';
 import AddPenaltyDialog from '@/components/penalties/AddPenaltyDialog';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -18,7 +20,7 @@ import PenaltyWaiverPanel from '@/components/penalties/PenaltyWaiverPanel';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
-import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useRestorePayment, useDeleteAccount, useForfeitAccount } from '@/hooks/use-supabase-data';
+import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useRestorePayment, useDeleteAccount, useForfeitAccount, useAccountServices } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -29,6 +31,7 @@ export default function AccountDetail() {
   const { data: schedule } = useSchedule(id);
   const { data: payments } = usePayments(id);
   const { data: penalties } = usePenalties(id);
+  const { data: services } = useAccountServices(id);
   const [copied, setCopied] = useState(false);
   const voidPayment = useVoidPayment();
   const editPayment = useEditPayment();
@@ -109,6 +112,13 @@ export default function AccountDetail() {
 
   const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
   const totalPenalty = unpaidPenalties.reduce((s, p) => s + Number(p.penalty_amount), 0);
+  const accountServices = (services || []) as AccountService[];
+  const totalServicesAmount = accountServices.reduce((s, svc) => s + Number(svc.amount), 0);
+
+  const SERVICE_LABELS: Record<string, string> = {
+    resize: 'Resize', certificate: 'Certificate', polish: 'Polish',
+    change_color: 'Change Color', engraving: 'Engraving', repair: 'Repair', other: 'Other',
+  };
 
   // Build message from schedule + active payment data
   const scheduleItems = schedule || [];
@@ -155,6 +165,15 @@ export default function AccountDetail() {
     message += `Total Layaway Amount: ${formatCurrency(totalAmount, currency)}\n`;
   }
   message += `Amount Paid: ${paymentBreakdownText}\n`;
+  // Services in message
+  if (accountServices.length > 0) {
+    message += `\n🔧 Additional Services:\n`;
+    accountServices.forEach(svc => {
+      const label = SERVICE_LABELS[svc.service_type] || svc.service_type;
+      message += `  • ${label}${svc.description ? ` - ${svc.description}` : ''}: ${formatCurrency(Number(svc.amount), currency)}\n`;
+    });
+    message += `  Services Total: ${formatCurrency(totalServicesAmount, currency)}\n`;
+  }
   const laRemainingText = `LA ${new Date(account.end_date || account.order_date).toLocaleDateString('en-US', { month: 'short' }).toUpperCase()} remaining balance`;
   message += `================\n`;
   const unpaidCount = scheduleItems.filter(s => s.status !== 'paid' && s.status !== 'cancelled').length;
@@ -252,6 +271,9 @@ export default function AccountDetail() {
                   <MessageCircle className="h-4 w-4 mr-2" /> Messenger
                 </Button>
               </a>
+            )}
+            {account.status !== 'forfeited' && account.status !== 'cancelled' && (
+              <AddServiceDialog accountId={account.id} currency={currency} />
             )}
             {(account.status === 'active' || account.status === 'overdue') && (
               <>
@@ -441,6 +463,13 @@ export default function AccountDetail() {
               )}
             </div>
           </div>
+
+          {/* Additional Services */}
+          {accountServices.length > 0 && (
+            <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
+              <ServicesList services={accountServices} currency={currency} accountId={account.id} />
+            </div>
+          )}
 
           {/* Customer Message */}
           <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
