@@ -172,7 +172,7 @@ export default function AccountDetail() {
 
   // Build message from schedule + active payment data
   const scheduleItems = schedule || [];
-  const unpaidSchedule = scheduleItems.filter(s => s.status !== 'paid');
+  const unpaidSchedule = scheduleItems.filter(s => !isEffectivelyPaid(s) && s.status !== 'cancelled');
   const activePayments = [...(payments || [])]
     .filter(payment => !payment.voided_at)
     .sort((a, b) => {
