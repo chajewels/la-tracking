@@ -31,11 +31,22 @@ interface PreviewResult {
   penalty_updates: Array<{ id: string; status: string; paid_amount: number }>;
 }
 
+interface ScheduleItem {
+  id: string;
+  installment_number: number;
+  base_installment_amount: number;
+  penalty_amount: number;
+  total_due_amount: number;
+  paid_amount: number;
+  status: string;
+}
+
 interface RecordPaymentDialogProps {
   accountId: string;
   currency: Currency;
   remainingBalance: number;
   payFullBalance?: boolean;
+  schedule?: ScheduleItem[];
 }
 
 export default function RecordPaymentDialog({ accountId, currency, remainingBalance, payFullBalance }: RecordPaymentDialogProps) {
