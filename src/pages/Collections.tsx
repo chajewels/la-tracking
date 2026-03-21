@@ -12,7 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Badge } from '@/components/ui/badge';
+import { computeCollectionStats, daysFromNow, todayStr } from '@/lib/business-rules';
 
 export default function Collections() {
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
@@ -28,8 +28,8 @@ export default function Collections() {
   const { data: upcomingSchedule } = useQuery({
     queryKey: ['collections-upcoming-schedule', currencyFilter],
     queryFn: async () => {
-      const today = new Date().toISOString().split('T')[0];
-      const in90 = new Date(Date.now() + 90 * 86400000).toISOString().split('T')[0];
+      const today = todayStr();
+      const in90 = daysFromNow(90);
       const { data, error } = await supabase
         .from('layaway_schedule')
         .select('*, layaway_accounts!inner(status, currency, invoice_number, customer_id, customers(full_name))')
@@ -62,37 +62,19 @@ export default function Collections() {
       });
   }, [allPayments, currencyFilter, isAllMode]);
 
-  // Compute stats from live payments
+  // Compute stats using centralized logic
   const stats = useMemo(() => {
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
-    const yesterdayDate = new Date(now);
-    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-    const yesterdayStr = yesterdayDate.toISOString().split('T')[0];
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
-
-    let todayTotal = 0, yesterdayTotal = 0, weekTotal = 0, monthTotal = 0, yearTotal = 0;
-
-    filtered.forEach(p => {
-      const amount = isAllMode ? toJpy(Number(p.amount_paid), p.currency as Currency) : Number(p.amount_paid);
-      const pd = new Date(p.date_paid);
-
-      if (p.date_paid === todayStr) todayTotal += amount;
-      if (p.date_paid === yesterdayStr) yesterdayTotal += amount;
-      if (pd >= startOfWeek) weekTotal += amount;
-      if (pd.getMonth() === now.getMonth() && pd.getFullYear() === now.getFullYear()) monthTotal += amount;
-      if (pd.getFullYear() === now.getFullYear()) yearTotal += amount;
-    });
-
-    return { todayTotal, yesterdayTotal, weekTotal, monthTotal, yearTotal };
+    const normalized = filtered.map(p => ({
+      date_paid: p.date_paid,
+      amount: isAllMode ? toJpy(Number(p.amount_paid), p.currency as Currency) : Number(p.amount_paid),
+    }));
+    return computeCollectionStats(normalized);
   }, [filtered, isAllMode]);
 
   // Receivables milestones
   const milestones = useMemo(() => {
     if (!upcomingSchedule) return [];
     const grouped: Record<string, { label: string; amount: number; count: number }> = {};
-    const now = new Date();
 
     upcomingSchedule.forEach(item => {
       const dueDate = new Date(item.due_date);

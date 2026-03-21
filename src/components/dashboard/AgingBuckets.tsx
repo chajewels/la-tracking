@@ -1,6 +1,6 @@
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
-import { useAccounts } from '@/hooks/use-supabase-data';
+import { daysOverdueFromToday } from '@/lib/business-rules';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -26,7 +26,6 @@ export default function AgingBuckets({ currency = 'PHP' }: { currency?: Currency
   });
 
   const items = scheduleData || [];
-  const today = new Date();
 
   const buckets: Bucket[] = [
     { label: 'Current', count: 0, amount: 0, color: 'bg-success' },
@@ -36,17 +35,16 @@ export default function AgingBuckets({ currency = 'PHP' }: { currency?: Currency
   ];
 
   items.forEach(item => {
-    const dueDate = new Date(item.due_date);
-    const daysOverdue = Math.floor((today.getTime() - dueDate.getTime()) / 86400000);
+    const overdueDays = daysOverdueFromToday(item.due_date);
     const amount = Number(item.total_due_amount) - Number(item.paid_amount);
 
-    if (daysOverdue <= 0) {
+    if (overdueDays <= 0) {
       buckets[0].count++;
       buckets[0].amount += amount;
-    } else if (daysOverdue <= 7) {
+    } else if (overdueDays <= 7) {
       buckets[1].count++;
       buckets[1].amount += amount;
-    } else if (daysOverdue <= 30) {
+    } else if (overdueDays <= 30) {
       buckets[2].count++;
       buckets[2].amount += amount;
     } else {

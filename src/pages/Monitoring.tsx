@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Bell, MessageCircle, Clock, AlertTriangle, CalendarCheck, Send, Copy, Check, Mail, Loader2 } from 'lucide-react';
+import { Bell, MessageCircle, Clock, AlertTriangle, CalendarCheck, Send, Copy, Check, Loader2 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -16,15 +16,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-
-const typeConfig = {
-  overdue: { icon: AlertTriangle, label: 'Overdue', badgeClass: 'bg-destructive/10 text-destructive border-destructive/20', borderClass: 'border-destructive/20' },
-  due_today: { icon: Clock, label: 'Due Today', badgeClass: 'bg-warning/10 text-warning border-warning/20', borderClass: 'border-warning/20' },
-  upcoming: { icon: CalendarCheck, label: 'Upcoming', badgeClass: 'bg-info/10 text-info border-info/20', borderClass: 'border-border' },
-};
+import { categorizeByDueDate, daysOverdueFromToday, remainingDue, alertTypeConfig, type AlertType } from '@/lib/business-rules';
 
 interface AlertItem {
-  type: 'overdue' | 'due_today' | 'upcoming';
+  type: AlertType;
   customer: string;
   invoice: string;
   dueDate: string;
@@ -34,6 +29,12 @@ interface AlertItem {
   accountId: string;
   messengerLink?: string | null;
 }
+
+const iconMap = {
+  overdue: AlertTriangle,
+  due_today: Clock,
+  upcoming: CalendarCheck,
+};
 
 function generateMessengerMessage(alert: AlertItem): string {
   const dueStr = new Date(alert.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
@@ -49,16 +50,13 @@ function generateMessengerMessage(alert: AlertItem): string {
 }
 
 export default function Monitoring() {
-  const accounts: any[] = []; // accounts loaded via joined query below
   const [sending, setSending] = useState(false);
   const [messengerDialog, setMessengerDialog] = useState<{ alert: AlertItem; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Fetch schedule items directly without filtering by account IDs (avoids .in() limit issues)
   const { data: scheduleItems, isLoading: schedLoading } = useQuery({
     queryKey: ['monitoring-schedules'],
     queryFn: async () => {
-      const today = new Date().toISOString().split('T')[0];
       const next7 = new Date();
       next7.setDate(next7.getDate() + 7);
       const next7Str = next7.toISOString().split('T')[0];
@@ -78,27 +76,20 @@ export default function Monitoring() {
 
   const alerts: AlertItem[] = useMemo(() => {
     if (!scheduleItems) return [];
-    const today = new Date().toISOString().split('T')[0];
-
     return scheduleItems.map((s: any) => {
       const acc = s.layaway_accounts;
       if (!acc) return null;
-      const dueDate = s.due_date;
-      const diffMs = new Date(today).getTime() - new Date(dueDate).getTime();
-      const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-
-      let type: AlertItem['type'] = 'upcoming';
-      if (diffDays > 0) type = 'overdue';
-      else if (diffDays === 0) type = 'due_today';
+      const type = categorizeByDueDate(s.due_date);
+      const overdueDays = daysOverdueFromToday(s.due_date);
 
       return {
         type,
         customer: acc.customers?.full_name || 'Unknown',
         invoice: acc.invoice_number,
-        dueDate,
-        amount: Number(s.total_due_amount) - Number(s.paid_amount),
+        dueDate: s.due_date,
+        amount: remainingDue(s),
         currency: acc.currency as Currency,
-        daysOverdue: diffDays,
+        daysOverdue: overdueDays,
         accountId: acc.id,
         messengerLink: acc.customers?.messenger_link,
       } as AlertItem;
@@ -117,14 +108,13 @@ export default function Monitoring() {
     try {
       const { data, error } = await supabase.functions.invoke('send-reminders');
       if (error) throw error;
-      const result = data;
-      if (result?.success) {
+      if (data?.success) {
         toast.success(
-          `Reminders sent! ${result.summary.totalAlerts} alerts processed. ${result.summary.emailsSent} emails sent to ${result.summary.staffNotified} staff.`,
+          `Reminders sent! ${data.summary.totalAlerts} alerts processed. ${data.summary.emailsSent} emails sent to ${data.summary.staffNotified} staff.`,
           { duration: 5000 }
         );
       } else {
-        throw new Error(result?.error || 'Unknown error');
+        throw new Error(data?.error || 'Unknown error');
       }
     } catch (err: any) {
       toast.error(`Failed to send reminders: ${err.message}`);
@@ -212,18 +202,14 @@ export default function Monitoring() {
         ) : (
           <div className="space-y-3">
             {sortedAlerts.map((alert, idx) => {
-              const config = typeConfig[alert.type];
-              const Icon = config.icon;
+              const config = alertTypeConfig[alert.type];
+              const Icon = iconMap[alert.type];
               return (
                 <div key={`${alert.accountId}-${alert.dueDate}-${idx}`} className={`rounded-xl border bg-card p-4 ${config.borderClass} hover:bg-muted/30 transition-colors`}>
                   <div className="flex items-center justify-between">
                     <Link to={`/accounts/${alert.accountId}`} className="flex items-center gap-4 flex-1 cursor-pointer">
-                      <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${
-                        alert.type === 'overdue' ? 'bg-destructive/10' : alert.type === 'due_today' ? 'bg-warning/10' : 'bg-info/10'
-                      }`}>
-                        <Icon className={`h-5 w-5 ${
-                          alert.type === 'overdue' ? 'text-destructive' : alert.type === 'due_today' ? 'text-warning' : 'text-info'
-                        }`} />
+                      <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${config.iconBg}`}>
+                        <Icon className={`h-5 w-5 ${config.iconColor}`} />
                       </div>
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">

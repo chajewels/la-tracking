@@ -6,6 +6,7 @@ import { Currency } from '@/lib/types';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { todayStr, categorizeByDueDate, remainingDue, alertTypeConfig } from '@/lib/business-rules';
 
 interface OperationsPanelProps {
   summary: any;
@@ -16,7 +17,6 @@ export default function OperationsPanel({ summary, displayCurrency }: Operations
   const { data: actionItems } = useQuery({
     queryKey: ['operations-action-items'],
     queryFn: async () => {
-      const today = new Date().toISOString().split('T')[0];
       const next7 = new Date();
       next7.setDate(next7.getDate() + 7);
       const next7Str = next7.toISOString().split('T')[0];
@@ -33,7 +33,7 @@ export default function OperationsPanel({ summary, displayCurrency }: Operations
     },
   });
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayStr();
   const items = actionItems || [];
 
   const overdueItems = items.filter(i => i.due_date < today);
@@ -53,7 +53,7 @@ export default function OperationsPanel({ summary, displayCurrency }: Operations
     <div className="rounded-xl border border-border bg-card p-5 space-y-4">
       <h3 className="text-sm font-semibold text-card-foreground">Operations Center</h3>
 
-      {/* Quick stat pills — all clickable */}
+      {/* Quick stat pills */}
       <div className="flex flex-wrap gap-2">
         {cards.map(c => (
           <Link key={c.label} to={c.link}>
@@ -72,21 +72,17 @@ export default function OperationsPanel({ summary, displayCurrency }: Operations
           {[...overdueItems, ...dueTodayItems, ...upcomingItems].slice(0, 8).map((item: any) => {
             const acc = item.layaway_accounts;
             const cust = acc?.customers;
-            const isOverdue = item.due_date < today;
-            const isDueToday = item.due_date === today;
-            const remaining = Number(item.total_due_amount) - Number(item.paid_amount);
+            const type = categorizeByDueDate(item.due_date);
+            const config = alertTypeConfig[type];
+            const remaining = remainingDue(item);
 
             return (
-              <div key={item.id} className={`flex items-center justify-between p-3 rounded-lg border ${
-                isOverdue ? 'border-destructive/20 bg-destructive/5' : isDueToday ? 'border-warning/20 bg-warning/5' : 'border-border'
-              }`}>
+              <div key={item.id} className={`flex items-center justify-between p-3 rounded-lg border ${config.borderClass}`}>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium text-card-foreground truncate">{cust?.full_name || 'Unknown'}</p>
-                    <Badge variant="outline" className={`text-[10px] ${
-                      isOverdue ? 'text-destructive border-destructive/20' : isDueToday ? 'text-warning border-warning/20' : 'text-info border-info/20'
-                    }`}>
-                      {isOverdue ? 'Overdue' : isDueToday ? 'Due Today' : 'Upcoming'}
+                    <Badge variant="outline" className={`text-[10px] ${config.badgeClass}`}>
+                      {config.label}
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground">
