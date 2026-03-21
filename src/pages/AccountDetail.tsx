@@ -178,7 +178,6 @@ export default function AccountDetail() {
 
   const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
   const totalPenalty = unpaidPenalties.reduce((s, p) => s + Number(p.penalty_amount), 0);
-  const totalPenaltyAll = (penalties || []).reduce((s, p) => s + Number(p.penalty_amount), 0);
 
   const unpaidSchedule = getUnpaidScheduleItems(scheduleItems);
   const activePayments = getActivePayments(payments || [])
