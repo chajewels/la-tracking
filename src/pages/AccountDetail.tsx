@@ -176,8 +176,8 @@ export default function AccountDetail() {
   const totalLayawayAmount = originalPrincipal + totalServicesAmount + schedulePenaltySum;
   const progress = accountProgress(totalPaid, totalLayawayAmount);
 
-  const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
-  const totalPenalty = unpaidPenalties.reduce((s, p) => s + Number(p.penalty_amount), 0);
+  // Reconciliation validation: totalLayawayAmount - totalPaid must = remainingBalance
+  const reconciliationValid = Math.abs(totalLayawayAmount - totalPaid - remainingBalance) < 1;
 
   const unpaidSchedule = getUnpaidScheduleItems(scheduleItems);
   const activePayments = getActivePayments(payments || [])
