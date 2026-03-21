@@ -308,6 +308,11 @@ export default function AccountDetail() {
               }>
                 {account.status}
               </Badge>
+              {penaltyCapOverride && (
+                <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-xs">
+                  <ShieldCheck className="h-3 w-3 mr-1" /> Penalty Override Active ✅
+                </Badge>
+              )}
             </div>
             <p className="text-sm text-muted-foreground mt-0.5">
               {account.customers?.full_name} · {account.payment_plan_months}-Month Plan · {currency}
