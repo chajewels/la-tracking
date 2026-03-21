@@ -148,40 +148,48 @@ export default function Customers() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border bg-muted/50">
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Customer</th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Location</th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Contact</th>
-                  <th className="text-center px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Accounts</th>
-                  <th className="text-center px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Actions</th>
+                   <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Customer</th>
+                   <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Location</th>
+                   <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Contact</th>
+                   <th className="text-center px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Active</th>
+                   <th className="text-center px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Completed</th>
+                   <th className="text-center px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
-                  <tr><td colSpan={5} className="px-5 py-8 text-center text-sm text-muted-foreground">No customers found</td></tr>
+                  <tr><td colSpan={6} className="px-5 py-8 text-center text-sm text-muted-foreground">No customers found</td></tr>
                 ) : filtered.map(c => {
-                  const accountCount = (accounts || []).filter(a => a.customer_id === c.id && a.status !== 'forfeited' && a.status !== 'cancelled').length;
-                  return (
-                    <tr key={c.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
-                      <td className="px-5 py-3">
-                        <div className="flex items-center gap-3 group">
-                          <Link to={`/customers/${c.id}`} className="flex items-center gap-3 flex-1">
-                            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-bold">
-                              {c.full_name.charAt(0)}
-                            </div>
-                            <div>
-                              <p className="text-sm font-medium text-card-foreground group-hover:text-primary transition-colors">{c.full_name}</p>
-                              {c.facebook_name && <p className="text-xs text-muted-foreground">@{c.facebook_name}</p>}
-                            </div>
-                          </Link>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" onClick={() => openEdit(c)}>
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3 text-sm text-muted-foreground">{c.location || '—'}</td>
-                      <td className="px-5 py-3 text-sm text-muted-foreground">{c.mobile_number || '—'}</td>
-                      <td className="px-5 py-3 text-center text-sm text-card-foreground">{accountCount}</td>
-                      <td className="px-5 py-3 text-center">
+                   const custAccounts = (accounts || []).filter(a => a.customer_id === c.id && a.status !== 'forfeited' && a.status !== 'cancelled');
+                   const activeCount = custAccounts.filter(a => a.status !== 'completed').length;
+                   const completedCount = custAccounts.filter(a => a.status === 'completed').length;
+                   return (
+                     <tr key={c.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
+                       <td className="px-5 py-3">
+                         <div className="flex items-center gap-3 group">
+                           <Link to={`/customers/${c.id}`} className="flex items-center gap-3 flex-1">
+                             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-bold">
+                               {c.full_name.charAt(0)}
+                             </div>
+                             <div>
+                               <p className="text-sm font-medium text-card-foreground group-hover:text-primary transition-colors">{c.full_name}</p>
+                               {c.facebook_name && <p className="text-xs text-muted-foreground">@{c.facebook_name}</p>}
+                             </div>
+                           </Link>
+                           <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" onClick={() => openEdit(c)}>
+                             <Pencil className="h-3.5 w-3.5" />
+                           </Button>
+                         </div>
+                       </td>
+                       <td className="px-5 py-3 text-sm text-muted-foreground">{c.location || '—'}</td>
+                       <td className="px-5 py-3 text-sm text-muted-foreground">{c.mobile_number || '—'}</td>
+                       <td className="px-5 py-3 text-center text-sm text-card-foreground">{activeCount || '—'}</td>
+                       <td className="px-5 py-3 text-center text-sm">
+                         {completedCount > 0 ? (
+                           <span className="text-accent font-medium">{completedCount}</span>
+                         ) : '—'}
+                       </td>
+                       <td className="px-5 py-3 text-center">
                         {c.messenger_link && (
                           <a href={c.messenger_link} target="_blank" rel="noopener noreferrer">
                             <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-info">
