@@ -7,6 +7,7 @@ import ReassignOwnerDialog from '@/components/accounts/ReassignOwnerDialog';
 import AddServiceDialog from '@/components/services/AddServiceDialog';
 import ServicesList, { AccountService } from '@/components/services/ServicesList';
 import AddPenaltyDialog from '@/components/penalties/AddPenaltyDialog';
+import ApplyPenaltyCapDialog from '@/components/penalties/ApplyPenaltyCapDialog';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
