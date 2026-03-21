@@ -32,6 +32,13 @@ function calcRemainingBalance(schedule: any[]): number {
   return remaining;
 }
 
+function scheduleStatusFor(base: number, paid: number, dueDate: string): string {
+  if (paid >= base) return "paid";
+  if (paid > 0) return "partially_paid";
+  const today = new Date().toISOString().split("T")[0];
+  return dueDate <= today ? "overdue" : "pending";
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -59,7 +66,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { payment_id } = await req.json();
+    const { payment_id, selected_schedule_ids } = await req.json();
     if (!payment_id) {
       return new Response(JSON.stringify({ error: "payment_id is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -91,80 +98,104 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { data: allocations } = await supabase
+    const { data: originalAllocations } = await supabase
       .from("payment_allocations")
       .select("*")
       .eq("payment_id", payment_id);
 
-    // Re-apply each allocation
-    for (const alloc of (allocations || [])) {
-      if (alloc.allocation_type === "installment") {
-        const { data: sched } = await supabase
-          .from("layaway_schedule")
-          .select("*")
-          .eq("id", alloc.schedule_id)
-          .single();
+    const { data: schedule } = await supabase
+      .from("layaway_schedule")
+      .select("*")
+      .eq("account_id", payment.account_id)
+      .order("installment_number", { ascending: true });
 
-        if (sched) {
-          const newPaid = Number(sched.paid_amount) + Number(alloc.allocated_amount);
-          const baseAmt = Number(sched.base_installment_amount);
+    if (!schedule || schedule.length === 0) {
+      return new Response(JSON.stringify({ error: "Schedule not found" }), {
+        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
-          // Handle overpayment: reduce future installments from end
-          let excess = Math.max(0, newPaid - baseAmt);
-          const newStatus = newPaid >= baseAmt ? "paid" : "partially_paid";
+    const selectedIds = Array.isArray(selected_schedule_ids) ? selected_schedule_ids.filter(Boolean) : [];
+    const originalInstallmentAllocations = (originalAllocations || []).filter((alloc) => alloc.allocation_type === "installment");
+    const originalPenaltyAllocations = (originalAllocations || []).filter((alloc) => alloc.allocation_type === "penalty");
 
-          await supabase.from("layaway_schedule").update({
-            paid_amount: newPaid,
-            status: newStatus,
-          }).eq("id", alloc.schedule_id);
+    let remainingInstallmentAmount = originalInstallmentAllocations.reduce((sum, alloc) => sum + Number(alloc.allocated_amount), 0);
 
-          if (excess > 0) {
-            // Reduce future installments from the end (same logic as record-payment)
-            const { data: futureItems } = await supabase
-              .from("layaway_schedule")
-              .select("*")
-              .eq("account_id", payment.account_id)
-              .neq("id", alloc.schedule_id)
-              .gt("installment_number", sched.installment_number)
-              .neq("status", "cancelled")
-              .order("installment_number", { ascending: false });
+    const targetInstallments = (selectedIds.length > 0
+      ? schedule.filter((item) => selectedIds.includes(item.id))
+      : schedule.filter((item) => item.status !== "paid" && item.status !== "cancelled")
+    ).sort((a, b) => a.installment_number - b.installment_number);
 
-            for (const item of (futureItems || [])) {
-              if (excess <= 0) break;
-              const itemBase = Number(item.base_installment_amount);
-              const itemPaid = Number(item.paid_amount);
-              const reduction = Math.min(excess, itemBase);
-              excess -= reduction;
-              const newBase = Math.max(itemPaid, itemBase - reduction);
-              const itemStatus = itemPaid >= newBase && newBase > 0 ? "paid" : 
-                                 itemPaid > 0 ? "partially_paid" :
-                                 newBase === 0 ? "paid" : item.status;
+    if (targetInstallments.length === 0 && remainingInstallmentAmount > 0) {
+      return new Response(JSON.stringify({ error: "No valid monthly dues selected for restore" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
-              await supabase.from("layaway_schedule").update({
-                base_installment_amount: newBase,
-                total_due_amount: newBase + Number(item.penalty_amount || 0),
-                status: itemStatus,
-              }).eq("id", item.id);
-            }
-          }
-        }
-      } else if (alloc.allocation_type === "penalty") {
-        const { data: penaltyFees } = await supabase
-          .from("penalty_fees")
-          .select("*")
-          .eq("schedule_id", alloc.schedule_id)
-          .eq("status", "unpaid")
-          .eq("account_id", payment.account_id)
-          .order("created_at", { ascending: true })
-          .limit(1);
+    const recreatedAllocations: Array<{ schedule_id: string; allocation_type: "penalty" | "installment"; allocated_amount: number }> = [];
 
-        if (penaltyFees && penaltyFees.length > 0) {
-          await supabase.from("penalty_fees").update({ status: "paid" }).eq("id", penaltyFees[0].id);
-        }
+    for (const alloc of originalPenaltyAllocations) {
+      const { data: penaltyFees } = await supabase
+        .from("penalty_fees")
+        .select("*")
+        .eq("schedule_id", alloc.schedule_id)
+        .eq("status", "unpaid")
+        .eq("account_id", payment.account_id)
+        .order("created_at", { ascending: true })
+        .limit(1);
+
+      if (penaltyFees && penaltyFees.length > 0) {
+        await supabase.from("penalty_fees").update({ status: "paid" }).eq("id", penaltyFees[0].id);
+        recreatedAllocations.push({
+          schedule_id: alloc.schedule_id,
+          allocation_type: "penalty",
+          allocated_amount: Number(alloc.allocated_amount),
+        });
       }
     }
 
-    // Recalculate from updated schedule
+    for (const item of targetInstallments) {
+      if (remainingInstallmentAmount <= 0) break;
+
+      const base = Number(item.base_installment_amount);
+      const paid = Number(item.paid_amount);
+      const due = Math.max(0, base - paid);
+      if (due <= 0) continue;
+
+      const toApply = Math.min(remainingInstallmentAmount, due);
+      remainingInstallmentAmount -= toApply;
+
+      const newPaid = paid + toApply;
+      const newStatus = scheduleStatusFor(base, newPaid, item.due_date);
+
+      await supabase.from("layaway_schedule").update({
+        paid_amount: newPaid,
+        status: newStatus,
+      }).eq("id", item.id);
+
+      recreatedAllocations.push({
+        schedule_id: item.id,
+        allocation_type: "installment",
+        allocated_amount: toApply,
+      });
+    }
+
+    if (remainingInstallmentAmount > 0.01) {
+      return new Response(JSON.stringify({ error: "Selected monthly dues do not fully cover this restored payment amount" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    await supabase.from("payment_allocations").delete().eq("payment_id", payment_id);
+    for (const alloc of recreatedAllocations) {
+      await supabase.from("payment_allocations").insert({
+        payment_id,
+        schedule_id: alloc.schedule_id,
+        allocation_type: alloc.allocation_type,
+        allocated_amount: alloc.allocated_amount,
+      });
+    }
+
     const { data: updatedSchedule } = await supabase
       .from("layaway_schedule")
       .select("*")
@@ -183,20 +214,18 @@ Deno.serve(async (req) => {
       }).eq("id", payment.account_id);
     }
 
-    // Clear void fields
     await supabase.from("payments").update({
       voided_at: null,
       voided_by_user_id: null,
       void_reason: null,
     }).eq("id", payment_id);
 
-    // Audit log
     await supabase.from("audit_logs").insert({
       entity_type: "payment",
       entity_id: payment_id,
       action: "restore",
       old_value_json: { voided_at: payment.voided_at, void_reason: payment.void_reason },
-      new_value_json: { restored_by: user.id },
+      new_value_json: { restored_by: user.id, selected_schedule_ids: selectedIds },
       performed_by_user_id: user.id,
     });
 

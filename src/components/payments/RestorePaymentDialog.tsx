@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { RotateCcw, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -27,100 +27,140 @@ interface RestorePaymentDialogProps {
   paymentDate: string;
   currency: Currency;
   schedule?: ScheduleItem[];
-  onRestore: (paymentId: string) => Promise<void>;
+  onRestore: (paymentId: string, selectedScheduleIds: string[]) => Promise<void>;
   isPending: boolean;
 }
 
 export default function RestorePaymentDialog({
-  open, onOpenChange, paymentId, paymentAmount, paymentDate, currency, schedule, onRestore, isPending,
+  open,
+  onOpenChange,
+  paymentId,
+  paymentAmount,
+  paymentDate,
+  currency,
+  schedule,
+  onRestore,
+  isPending,
 }: RestorePaymentDialogProps) {
-  // Calculate which months this payment would cover
-  const unpaidItems = (schedule || [])
-    .filter(s => s.status !== 'paid' && s.status !== 'cancelled')
-    .sort((a, b) => a.installment_number - b.installment_number);
+  const unpaidItems = useMemo(
+    () => (schedule || [])
+      .filter((s) => s.status !== 'paid' && s.status !== 'cancelled')
+      .sort((a, b) => a.installment_number - b.installment_number),
+    [schedule],
+  );
 
-  const monthOptions: { months: number; amount: number; label: string; covered: boolean }[] = [];
-  let cumulative = 0;
-  for (let i = 0; i < Math.min(5, unpaidItems.length); i++) {
-    const item = unpaidItems[i];
-    const due = Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
-    cumulative += due;
-    if (cumulative > 0) {
-      const dateLabel = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      const rangeLabel = i === 0
-        ? dateLabel
-        : `${new Date(unpaidItems[0].due_date).toLocaleDateString('en-US', { month: 'short' })} – ${new Date(item.due_date).toLocaleDateString('en-US', { month: 'short' })}`;
-      monthOptions.push({
-        months: i + 1,
-        amount: cumulative,
-        label: rangeLabel,
-        covered: paymentAmount >= cumulative,
-      });
+  const monthOptions = useMemo(() => {
+    const options: {
+      key: number;
+      months: number;
+      amount: number;
+      label: string;
+      scheduleIds: string[];
+    }[] = [];
+
+    let cumulative = 0;
+    for (let i = 0; i < Math.min(5, unpaidItems.length); i++) {
+      const item = unpaidItems[i];
+      const due = Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
+      cumulative += due;
+
+      if (cumulative > 0) {
+        const start = unpaidItems[0];
+        const dateLabel = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const rangeLabel = i === 0
+          ? dateLabel
+          : `${new Date(start.due_date).toLocaleDateString('en-US', { month: 'short' })} – ${new Date(item.due_date).toLocaleDateString('en-US', { month: 'short' })}`;
+
+        options.push({
+          key: i + 1,
+          months: i + 1,
+          amount: cumulative,
+          label: rangeLabel,
+          scheduleIds: unpaidItems.slice(0, i + 1).map((dueItem) => dueItem.id),
+        });
+      }
     }
-  }
 
-  // Determine which months the payment covers
-  const coveredMonths = monthOptions.filter(o => o.covered).length;
-  const coverageLabel = coveredMonths > 0
-    ? `Covers ${coveredMonths} month${coveredMonths > 1 ? 's' : ''}`
-    : 'Partial payment';
+    return options;
+  }, [unpaidItems]);
+
+  const [selectedKey, setSelectedKey] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const exact = monthOptions.find((option) => Math.abs(option.amount - paymentAmount) < 0.01);
+    const nearest = monthOptions.find((option) => option.amount >= paymentAmount) ?? monthOptions[monthOptions.length - 1] ?? null;
+    setSelectedKey((exact ?? nearest)?.key ?? null);
+  }, [open, paymentId, paymentAmount, monthOptions]);
+
+  const selectedOption = monthOptions.find((option) => option.key === selectedKey) ?? null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-card border-border max-w-md">
+      <DialogContent className="max-w-md border-border bg-card">
         <DialogHeader>
-          <DialogTitle className="font-display text-card-foreground flex items-center gap-2">
+          <DialogTitle className="flex items-center gap-2 font-display text-card-foreground">
             <RotateCcw className="h-5 w-5 text-primary" />
             Restore Payment
           </DialogTitle>
           <DialogDescription>
-            Re-apply this voided payment to the account schedule.
+            Choose which monthly dues this voided payment should restore.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Payment info */}
-          <div className="rounded-lg border border-border bg-background p-4 space-y-2">
-            <div className="flex justify-between items-center">
+          <div className="space-y-2 rounded-lg border border-border bg-background p-4">
+            <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Amount</span>
               <span className="text-xl font-bold text-success">{formatCurrency(paymentAmount, currency)}</span>
             </div>
-            <div className="flex justify-between items-center">
+            <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Date Paid</span>
               <span className="text-sm text-card-foreground">
                 {new Date(paymentDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
               </span>
             </div>
-            {coveredMonths > 0 && (
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">Coverage</span>
-                <Badge variant="secondary" className="text-xs">{coverageLabel}</Badge>
+            {selectedOption && (
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Selected due range</span>
+                <Badge variant="secondary" className="text-xs">
+                  {selectedOption.label}
+                </Badge>
               </div>
             )}
           </div>
 
-          {/* Month breakdown */}
-          {monthOptions.length > 0 && (
+          {monthOptions.length > 0 ? (
             <div className="space-y-2">
-              <span className="text-xs text-muted-foreground font-medium">Payment will be applied to:</span>
+              <span className="text-xs font-medium text-muted-foreground">Select monthly due coverage:</span>
               <div className="flex flex-wrap gap-1.5">
-                {monthOptions.map(opt => (
-                  <div
-                    key={opt.months}
-                    className={`px-2.5 py-1.5 rounded-md text-xs font-medium border flex flex-col items-center min-w-[70px] ${
-                      opt.covered
-                        ? 'bg-primary/15 border-primary/30 text-primary'
-                        : 'bg-muted/30 border-border text-muted-foreground'
-                    }`}
-                  >
-                    <span className="flex items-center gap-1">
-                      {opt.covered && <CheckCircle2 className="h-3 w-3" />}
-                      {opt.label}
-                    </span>
-                    <span className="text-[10px] opacity-75">{formatCurrency(opt.amount, currency)}</span>
-                  </div>
-                ))}
+                {monthOptions.map((option) => {
+                  const isSelected = option.key === selectedKey;
+                  return (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => setSelectedKey(option.key)}
+                      className={`flex min-w-[82px] flex-col items-center rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                        isSelected
+                          ? 'border-primary/30 bg-primary/15 text-primary'
+                          : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted hover:text-card-foreground'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1">
+                        {isSelected && <CheckCircle2 className="h-3 w-3" />}
+                        {option.label}
+                      </span>
+                      <span className="text-[10px] opacity-75">{formatCurrency(option.amount, currency)}</span>
+                    </button>
+                  );
+                })}
               </div>
+            </div>
+          ) : (
+            <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+              No unpaid monthly dues available for this restore.
             </div>
           )}
         </div>
@@ -129,13 +169,13 @@ export default function RestorePaymentDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
             onClick={async () => {
-              await onRestore(paymentId);
+              await onRestore(paymentId, selectedOption?.scheduleIds || []);
               onOpenChange(false);
             }}
-            disabled={isPending}
+            disabled={isPending || monthOptions.length === 0 || !selectedOption}
             className="gold-gradient text-primary-foreground"
           >
-            <RotateCcw className="h-4 w-4 mr-1" />
+            <RotateCcw className="mr-1 h-4 w-4" />
             {isPending ? 'Restoring…' : 'Confirm Restore'}
           </Button>
         </DialogFooter>
