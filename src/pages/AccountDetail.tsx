@@ -177,8 +177,8 @@ export default function AccountDetail() {
   const progress = accountProgress(totalPaid, totalLayawayAmount);
 
   const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
-  const totalPenalty = unpaidPenalties.reduce((s, p) => s + Number(p.penalty_amount), 0);
-  const totalPenaltyAll = (penalties || []).reduce((s, p) => s + Number(p.penalty_amount), 0);
+  // Reconciliation validation: totalLayawayAmount - totalPaid must = remainingBalance
+  const reconciliationValid = Math.abs(totalLayawayAmount - totalPaid - remainingBalance) < 1;
 
   const unpaidSchedule = getUnpaidScheduleItems(scheduleItems);
   const activePayments = getActivePayments(payments || [])
@@ -414,6 +414,16 @@ export default function AccountDetail() {
             </Button>
           </div>
         </div>
+
+        {/* Reconciliation Warning */}
+        {!reconciliationValid && (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0" />
+            <p className="text-xs text-destructive font-medium">
+              Reconciliation Error: Total ({formatCurrency(totalLayawayAmount, currency)}) − Paid ({formatCurrency(totalPaid, currency)}) = {formatCurrency(totalLayawayAmount - totalPaid, currency)} ≠ Remaining ({formatCurrency(remainingBalance, currency)})
+            </p>
+          </div>
+        )}
 
         {/* Summary Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
