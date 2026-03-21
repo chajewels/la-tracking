@@ -27,6 +27,11 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const body = await req.json().catch(() => ({}));
+    const batchOffset = body.offset ?? 0;
+    const batchLimit = body.limit ?? 100;
+    const targetInvoice = body.invoice_number ?? null;
+
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
