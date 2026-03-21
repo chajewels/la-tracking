@@ -7,50 +7,70 @@ const corsHeaders = {
 
 /**
  * Fix account totals after penalty recalculation.
- * total_amount = downpayment + sum(schedule total_due_amount)
- * remaining_balance = sum of unpaid schedule rows (total_due - paid for non-paid/cancelled)
+ * total_amount = downpayment + sum(non-cancelled schedule total_due_amount)
+ * remaining_balance = sum of unpaid schedule rows
+ * Supports ?offset=N&limit=N for chunked execution.
  */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    const url = new URL(req.url);
+    const offset = parseInt(url.searchParams.get("offset") || "0");
+    const limit = parseInt(url.searchParams.get("limit") || "200");
+
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Get all active/overdue accounts
-    let allAccounts: any[] = [];
-    let page = 0;
-    while (true) {
-      const { data } = await supabase
-        .from("layaway_accounts")
-        .select("id, invoice_number, total_amount, remaining_balance, total_paid, downpayment_amount, status")
-        .in("status", ["active", "overdue"])
-        .range(page * 500, (page + 1) * 500 - 1);
-      if (!data || data.length === 0) break;
-      allAccounts = allAccounts.concat(data);
-      if (data.length < 500) break;
-      page++;
+    const { data: accounts } = await supabase
+      .from("layaway_accounts")
+      .select("id, invoice_number, total_amount, remaining_balance, total_paid, downpayment_amount, status")
+      .in("status", ["active", "overdue"])
+      .order("invoice_number")
+      .range(offset, offset + limit - 1);
+
+    if (!accounts || accounts.length === 0) {
+      return new Response(JSON.stringify({ message: "No more accounts", accounts_fixed: 0, fixes: [], offset, done: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Batch fetch all schedules for these accounts
+    const accountIds = accounts.map((a: any) => a.id);
+    let allSchedules: any[] = [];
+    // Fetch in chunks of 50 account IDs to avoid URL length limits
+    for (let i = 0; i < accountIds.length; i += 50) {
+      const chunk = accountIds.slice(i, i + 50);
+      const { data: scheds } = await supabase
+        .from("layaway_schedule")
+        .select("account_id, total_due_amount, paid_amount, status")
+        .in("account_id", chunk)
+        .neq("status", "cancelled")
+        .limit(5000);
+      if (scheds) allSchedules = allSchedules.concat(scheds);
+    }
+
+    // Index by account
+    const schedByAcct: Record<string, any[]> = {};
+    for (const s of allSchedules) {
+      (schedByAcct[s.account_id] ||= []).push(s);
     }
 
     const fixes: any[] = [];
 
-    for (const acct of allAccounts) {
-      const { data: schedule } = await supabase
-        .from("layaway_schedule")
-        .select("total_due_amount, paid_amount, status")
-        .eq("account_id", acct.id);
-
-      if (!schedule) continue;
-
+    for (const acct of accounts) {
+      const schedule = schedByAcct[acct.id] || [];
       const schedTotal = schedule.reduce((s: number, r: any) => s + Number(r.total_due_amount), 0);
       const unpaidDue = schedule
-        .filter((r: any) => r.status !== "paid" && r.status !== "cancelled")
+        .filter((r: any) => r.status !== "paid")
         .reduce((s: number, r: any) => s + Math.max(0, Number(r.total_due_amount) - Number(r.paid_amount)), 0);
 
       const correctTotalAmount = Number(acct.downpayment_amount) + schedTotal;
       const correctRemaining = unpaidDue;
+      // Also fix total_paid to be consistent
+      const correctTotalPaid = correctTotalAmount - correctRemaining;
 
       const needsUpdate =
         Math.abs(Number(acct.total_amount) - correctTotalAmount) > 0.01 ||
@@ -61,6 +81,7 @@ Deno.serve(async (req) => {
         await supabase.from("layaway_accounts").update({
           total_amount: correctTotalAmount,
           remaining_balance: correctRemaining,
+          total_paid: correctTotalPaid,
           status: hasOverdue ? "overdue" : acct.status,
           updated_at: new Date().toISOString(),
         }).eq("id", acct.id);
@@ -77,7 +98,11 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({
       message: "Account totals corrected",
+      accounts_processed: accounts.length,
       accounts_fixed: fixes.length,
+      offset,
+      next_offset: offset + limit,
+      done: accounts.length < limit,
       fixes,
     }, null, 2), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
