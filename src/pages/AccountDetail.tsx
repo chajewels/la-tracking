@@ -446,7 +446,7 @@ export default function AccountDetail() {
                 const paidAmt = Number(item.paid_amount);
                 const totalDue = Number(item.total_due_amount);
                 const baseAmt = Number(item.base_installment_amount);
-                const remainingDue = getRemainingDue(item);
+                const itemRemaining = remainingDue(item);
                 const isEditingThis = editingScheduleId === item.id;
                 const canEdit = account.status !== 'forfeited' && account.status !== 'cancelled' && item.status !== 'cancelled';
                 return (

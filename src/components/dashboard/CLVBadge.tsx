@@ -1,6 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { CLVTier } from '@/lib/types';
-import { clvStyles } from '@/lib/analytics-engine';
+import { clvStyles } from '@/lib/business-rules';
 
 interface CLVBadgeProps {
   tier: CLVTier;
