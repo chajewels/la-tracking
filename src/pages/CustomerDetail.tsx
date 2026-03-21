@@ -169,10 +169,14 @@ export default function CustomerDetail() {
       }
 
       const scheduleItems = acct.schedule || [];
-      const unpaidSchedule = scheduleItems.filter(s => s.status !== 'paid');
 
       const getRemainingDue = (item: { total_due_amount: number | string; paid_amount: number | string }) =>
         Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
+
+      // An item is effectively paid if status is 'paid' OR paid_amount covers total_due
+      const isEffectivelyPaid = (item: any) =>
+        item.status === 'paid' || (Number(item.paid_amount) > 0 && Number(item.paid_amount) >= Number(item.total_due_amount));
+      const unpaidSchedule = scheduleItems.filter(s => !isEffectivelyPaid(s) && s.status !== 'cancelled');
 
       msg += `━━━━━━━━━━━━━━━━━━\n`;
       msg += `📋 Inv # ${acct.account.invoice_number}\n`;
