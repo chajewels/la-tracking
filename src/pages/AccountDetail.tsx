@@ -236,8 +236,9 @@ export default function AccountDetail() {
       message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(itemRemaining, currency)}\n`;
     }
   });
-  if (unpaidSchedule.length > 0) {
-    const nextDate = new Date(unpaidSchedule[0].due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+  const nextStatement = getNextPaymentStatementDate(scheduleItems);
+  if (nextStatement) {
+    const nextDate = new Date(nextStatement.date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
     message += `\nPlease note your next monthly payment is on ${nextDate}. Please expect another payment reminder from us.\n\n`;
     message += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
   }
