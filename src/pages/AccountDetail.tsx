@@ -730,9 +730,12 @@ export default function AccountDetail() {
           paymentDate={restoreTarget?.date || ''}
           currency={account.currency as Currency}
           schedule={scheduleItems}
-          onRestore={async (paymentId) => {
+          onRestore={async (paymentId, selectedScheduleIds) => {
             try {
-              await restorePayment.mutateAsync({ payment_id: paymentId });
+              await restorePayment.mutateAsync({
+                payment_id: paymentId,
+                selected_schedule_ids: selectedScheduleIds,
+              });
               toast.success('Payment restored successfully');
               setRestoreTarget(null);
             } catch (err: any) {
