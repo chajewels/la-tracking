@@ -37,6 +37,12 @@ Deno.serve(async (req) => {
       return config[key] || (currency === "PHP" ? (stage === "week1" ? 500 : 1000) : (stage === "week1" ? 1000 : 2000));
     };
 
+    // Penalty cap: months 1-5 max PHP 1000 / JPY 2000
+    const getPenaltyCap = (currency: string, installmentNumber: number): number => {
+      if (installmentNumber >= 6) return Infinity;
+      return currency === "PHP" ? 1000 : 2000;
+    };
+
     // ── Step 1: Fetch ALL overdue unpaid schedule items in one query ──
     // Paginate to handle >1000 rows
     let allOverdueItems: any[] = [];
