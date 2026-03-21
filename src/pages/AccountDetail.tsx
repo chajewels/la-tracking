@@ -476,6 +476,16 @@ export default function AccountDetail() {
                   </div>
                 </div>
               )}
+              {/* Schedule Header */}
+              <div className="hidden sm:grid grid-cols-[2.5rem_1fr_5.5rem_5.5rem_5.5rem_5.5rem_2rem] gap-1 px-3 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                <span>#</span>
+                <span>Due Date</span>
+                <span className="text-right">Base Amt</span>
+                <span className="text-right">Penalty</span>
+                <span className="text-right">Total Due</span>
+                <span className="text-right">Status</span>
+                <span />
+              </div>
               {scheduleItems.map((item) => {
                 const effPaid = isEffectivelyPaid(item);
                 const penaltyAmt = Number(item.penalty_amount);
@@ -485,79 +495,176 @@ export default function AccountDetail() {
                 const itemRemaining = remainingDue(item);
                 const isEditingThis = editingScheduleId === item.id;
                 const canEdit = account.status !== 'forfeited' && account.status !== 'cancelled' && item.status !== 'cancelled';
+                const overCap = penaltyCapOverride && isPenaltyOverCap(currency as 'PHP' | 'JPY', item.installment_number, penaltyAmt);
                 return (
                   <div key={item.id}
-                    className={`group flex items-center justify-between p-2.5 sm:p-3 rounded-lg border ${
+                    className={`group rounded-lg border p-2.5 sm:p-3 ${
                       effPaid ? 'bg-success/5 border-success/10' : 'bg-card border-border'
                     }`}
                   >
-                    <div className="flex items-center gap-2 sm:gap-3">
-                      <div className={`flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-full text-[10px] sm:text-xs font-bold ${
+                    {/* Mobile layout */}
+                    <div className="sm:hidden flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold ${
+                          effPaid ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'
+                        }`}>
+                          {effPaid ? <Check className="h-3 w-3" /> : item.installment_number}
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-card-foreground">
+                            {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {effPaid ? 'Paid' : `Month ${item.installment_number}`}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-xs font-semibold tabular-nums ${effPaid ? 'text-success' : 'text-card-foreground'}`}>
+                          {formatCurrency(effPaid ? Math.max(paidAmt, totalDue) : totalDue, currency)}
+                        </p>
+                      </div>
+                    </div>
+                    {/* Mobile penalty detail */}
+                    {penaltyAmt > 0 && (
+                      <div className="sm:hidden mt-1.5 ml-8 flex items-center gap-2 text-[10px]">
+                        <span className="text-muted-foreground">Base: {formatCurrency(baseAmt, currency)}</span>
+                        <span className="text-destructive font-medium flex items-center gap-0.5">
+                          <AlertTriangle className="h-2.5 w-2.5" />
+                          Penalty: {formatCurrency(penaltyAmt, currency)}
+                          {effPaid ? ' (Paid)' : ''}
+                        </span>
+                        {penaltyCapOverride && item.installment_number <= 5 && (
+                          <Badge variant="outline" className="text-[9px] h-4 px-1 bg-primary/10 text-primary border-primary/20">
+                            Capped
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                    {penaltyAmt === 0 && !effPaid && (
+                      <div className="sm:hidden mt-1 ml-8 text-[10px] text-muted-foreground">
+                        Penalty: {formatCurrency(0, currency)}
+                      </div>
+                    )}
+
+                    {/* Desktop layout: columnar */}
+                    <div className="hidden sm:grid grid-cols-[2.5rem_1fr_5.5rem_5.5rem_5.5rem_5.5rem_2rem] gap-1 items-center">
+                      <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${
                         effPaid ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'
                       }`}>
                         {effPaid ? <Check className="h-3 w-3" /> : item.installment_number}
                       </div>
                       <div>
-                        <p className="text-xs sm:text-sm font-medium text-card-foreground">
+                        <p className="text-sm font-medium text-card-foreground">
                           {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                         </p>
-                        <p className="text-[10px] sm:text-xs text-muted-foreground">
-                          {effPaid ? 'Paid' : `Month ${item.installment_number}`}
-                        </p>
+                        <p className="text-xs text-muted-foreground">Month {item.installment_number}</p>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      {isEditingThis ? (
-                        <div className="flex items-center gap-1.5">
-                          <Input
-                            type="number"
-                            value={editScheduleAmount}
-                            onChange={(e) => setEditScheduleAmount(e.target.value)}
-                            className="h-7 w-24 text-xs bg-background tabular-nums"
-                            autoFocus
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleEditScheduleSubmit(item.id);
-                              if (e.key === 'Escape') setEditingScheduleId(null);
-                            }}
-                          />
-                          <Button variant="ghost" size="icon" className="h-6 w-6 text-success" disabled={editScheduleLoading}
-                            onClick={() => handleEditScheduleSubmit(item.id)}>
-                            <Save className="h-3 w-3" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground"
-                            onClick={() => setEditingScheduleId(null)}>
-                            <X className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      ) : (
-                        <>
-                           <div className="text-right">
-                            <p className={`text-xs sm:text-sm font-semibold tabular-nums ${effPaid ? 'text-success' : 'text-card-foreground'}`}>
-                              {formatCurrency(effPaid ? Math.max(paidAmt, totalDue) : totalDue, currency)}
+                      {/* Base Amount */}
+                      <p className="text-xs tabular-nums text-right text-card-foreground">
+                        {formatCurrency(baseAmt, currency)}
+                      </p>
+                      {/* Penalty Amount */}
+                      <div className="text-right">
+                        {penaltyAmt > 0 ? (
+                          <div>
+                            <p className="text-xs tabular-nums text-destructive font-medium">
+                              {formatCurrency(penaltyAmt, currency)}
                             </p>
-                            {penaltyAmt > 0 ? (
-                              <p className="text-[10px] text-destructive flex items-center gap-1 justify-end">
-                                <AlertTriangle className="h-2.5 w-2.5" />
-                                {effPaid ? 'Incl.' : 'Includes'} {formatCurrency(penaltyAmt, currency)} penalty
-                              </p>
-                            ) : null}
+                            <p className="text-[9px] text-destructive/70">
+                              {effPaid ? 'Paid' : 'Applied'}
+                            </p>
                           </div>
-                          {canEdit && (
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-                              title="Edit installment amount"
-                              onClick={() => {
-                                setEditingScheduleId(item.id);
-                                setEditScheduleAmount(String(baseAmt));
-                              }}>
-                              <Pencil className="h-3 w-3" />
+                        ) : (
+                          <p className="text-xs tabular-nums text-muted-foreground">—</p>
+                        )}
+                      </div>
+                      {/* Total Due */}
+                      <p className={`text-xs font-semibold tabular-nums text-right ${effPaid ? 'text-success' : 'text-card-foreground'}`}>
+                        {formatCurrency(effPaid ? Math.max(paidAmt, totalDue) : totalDue, currency)}
+                      </p>
+                      {/* Status */}
+                      <div className="text-right">
+                        {effPaid ? (
+                          <Badge variant="outline" className="text-[9px] h-4 px-1 bg-success/10 text-success border-success/20">Paid</Badge>
+                        ) : penaltyCapOverride && item.installment_number <= 5 && penaltyAmt > 0 ? (
+                          <Badge variant="outline" className="text-[9px] h-4 px-1 bg-primary/10 text-primary border-primary/20">Capped</Badge>
+                        ) : item.status === 'overdue' ? (
+                          <Badge variant="outline" className="text-[9px] h-4 px-1 bg-destructive/10 text-destructive border-destructive/20">Overdue</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[9px] h-4 px-1 bg-muted text-muted-foreground border-border">Pending</Badge>
+                        )}
+                      </div>
+                      {/* Edit button */}
+                      <div>
+                        {isEditingThis ? (
+                          <div className="flex items-center gap-1.5">
+                            <Input
+                              type="number"
+                              value={editScheduleAmount}
+                              onChange={(e) => setEditScheduleAmount(e.target.value)}
+                              className="h-7 w-24 text-xs bg-background tabular-nums"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleEditScheduleSubmit(item.id);
+                                if (e.key === 'Escape') setEditingScheduleId(null);
+                              }}
+                            />
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-success" disabled={editScheduleLoading}
+                              onClick={() => handleEditScheduleSubmit(item.id)}>
+                              <Save className="h-3 w-3" />
                             </Button>
-                          )}
-                        </>
-                      )}
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground"
+                              onClick={() => setEditingScheduleId(null)}>
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ) : canEdit ? (
+                          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Edit installment amount"
+                            onClick={() => {
+                              setEditingScheduleId(item.id);
+                              setEditScheduleAmount(String(baseAmt));
+                            }}>
+                            <Pencil className="h-3 w-3" />
+                          </Button>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 );
               })}
+              {/* Schedule Totals Summary */}
+              {scheduleItems.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-border space-y-1.5">
+                  <div className="flex justify-between text-xs text-muted-foreground px-1">
+                    <span>Sum of Base Installments</span>
+                    <span className="tabular-nums font-medium">{formatCurrency(scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0), currency)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs px-1">
+                    <span className="text-destructive/80 flex items-center gap-1">
+                      <AlertTriangle className="h-3 w-3" /> Total Penalties in Schedule
+                    </span>
+                    <span className="tabular-nums font-medium text-destructive">
+                      {formatCurrency(scheduleItems.reduce((s, i) => s + Number(i.penalty_amount), 0), currency)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm font-semibold px-1 pt-1 border-t border-border">
+                    <span className="text-card-foreground">Grand Total (Schedule)</span>
+                    <span className="tabular-nums text-card-foreground">
+                      {formatCurrency(scheduleItems.reduce((s, i) => s + Number(i.total_due_amount), 0), currency)}
+                    </span>
+                  </div>
+                  {penaltyCapOverride && (
+                    <div className="flex items-center gap-1.5 px-1 pt-1">
+                      <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+                      <span className="text-[10px] text-primary font-medium">
+                        Penalty Cap Active: Max {currency === 'PHP' ? '₱1,000' : '¥2,000'} for months 1–5
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
               {scheduleItems.length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-4">No schedule generated yet</p>
               )}
