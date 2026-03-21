@@ -120,13 +120,25 @@ export default function CustomerStatement() {
   }
 
   if (error || !data) {
+    const isExpired = error?.toLowerCase().includes('expired');
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <Card className="max-w-md w-full">
           <CardContent className="pt-8 pb-8 text-center">
+            <div className="text-2xl font-bold text-foreground mb-1">✨ Cha Jewels</div>
+            <p className="text-xs text-muted-foreground mb-6">Layaway Payment Statement</p>
             <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
-            <h2 className="text-lg font-semibold text-foreground mb-2">Access Denied</h2>
-            <p className="text-sm text-muted-foreground">{error || 'This statement link is invalid or has expired.'}</p>
+            <h2 className="text-lg font-semibold text-foreground mb-2">
+              {isExpired ? 'Statement Link Expired' : 'Invalid Statement Link'}
+            </h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              {isExpired
+                ? 'This statement link has expired. Please request a new link from Cha Jewels.'
+                : 'This link is invalid or no longer active. Please contact Cha Jewels to request a new statement link.'}
+            </p>
+            <p className="text-xs text-muted-foreground/70">
+              If you believe this is a mistake, please reach out to your Cha Jewels representative.
+            </p>
           </CardContent>
         </Card>
       </div>
