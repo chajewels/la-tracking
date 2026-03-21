@@ -422,10 +422,16 @@ export default function AccountDetail() {
             <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
               {formatCurrency(totalLayawayAmount, currency)}
             </p>
-            {totalServicesAmount > 0 && (
-              <p className="text-[10px] text-muted-foreground mt-0.5">
-                Base: {formatCurrency(totalAmount, currency)} + Services: {formatCurrency(totalServicesAmount, currency)}
-              </p>
+            {(totalServicesAmount > 0 || schedulePenaltySum > 0) && (
+              <div className="text-[10px] text-muted-foreground mt-0.5 space-y-0.5">
+                <p>Principal: {formatCurrency(originalPrincipal, currency)}</p>
+                {schedulePenaltySum > 0 && (
+                  <p className="text-destructive/80">Penalties: {formatCurrency(schedulePenaltySum, currency)}</p>
+                )}
+                {totalServicesAmount > 0 && (
+                  <p>Services: {formatCurrency(totalServicesAmount, currency)}</p>
+                )}
+              </div>
             )}
           </div>
           {downpaymentAmount > 0 && (
