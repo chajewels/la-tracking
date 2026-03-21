@@ -142,7 +142,12 @@ Deno.serve(async (req) => {
       // Build the list of penalty trigger dates for this schedule item
       // Phase 1: due_date + 7 days  → week1:1
       // Phase 2: due_date + 14 days → week2:1
-      // Phase 3: due_date + 1 month → week1:2, due_date + 2 months → week1:3, etc.
+      // Phase 3+: alternating pattern:
+      //   due_date + 1 month (same day) → week1:2
+      //   due_date + 1 month + 14 days  → week2:2
+      //   due_date + 2 months (same day) → week1:3
+      //   due_date + 2 months + 14 days  → week2:3
+      //   ... and so on
       const triggerDates: Array<{ date: Date; stage: "week1" | "week2"; cycle: number }> = [];
 
       // Phase 1: 7 days after due
@@ -155,15 +160,20 @@ Deno.serve(async (req) => {
       phase2Date.setUTCDate(phase2Date.getUTCDate() + 14);
       triggerDates.push({ date: phase2Date, stage: "week2", cycle: 1 });
 
-      // Phase 3: monthly on the same day-of-month as due date
-      // Start from month+1 relative to due date, up to reasonable max (12 months)
+      // Phase 3+: alternating monthly due-date checkpoint + 14 days after
       for (let m = 1; m <= 12; m++) {
+        // Monthly checkpoint on the same day-of-month as original due date
         const monthlyDate = new Date(Date.UTC(
           dueDate.getUTCFullYear(),
           dueDate.getUTCMonth() + m,
           Math.min(dueDayOfMonth, daysInMonth(dueDate.getUTCFullYear(), dueDate.getUTCMonth() + m))
         ));
         triggerDates.push({ date: monthlyDate, stage: "week1", cycle: m + 1 });
+
+        // 14 days after the monthly checkpoint
+        const plus14Date = new Date(monthlyDate);
+        plus14Date.setUTCDate(plus14Date.getUTCDate() + 14);
+        triggerDates.push({ date: plus14Date, stage: "week2", cycle: m + 1 });
       }
 
       let newPenaltyForItem = 0;
