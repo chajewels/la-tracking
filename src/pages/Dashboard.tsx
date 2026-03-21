@@ -84,6 +84,7 @@ export default function Dashboard() {
                 subtitle={formatCurrency(summary?.overdue_amount ?? 0, displayCurrency)}
                 icon={AlertTriangle}
                 variant="danger"
+                href="/accounts?status=overdue"
               />
               <StatCard
                 title="Completed This Month"
@@ -91,6 +92,7 @@ export default function Dashboard() {
                 subtitle="Closed deals"
                 icon={CheckCircle2}
                 variant="success"
+                href="/accounts?status=completed"
               />
               <StatCard
                 title="Forfeited"
@@ -98,6 +100,7 @@ export default function Dashboard() {
                 subtitle="Inactive accounts"
                 icon={ShieldAlert}
                 variant="danger"
+                href="/accounts?status=forfeited"
               />
             </>
           )}

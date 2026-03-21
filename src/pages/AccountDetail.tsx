@@ -86,6 +86,7 @@ export default function AccountDetail() {
       });
       queryClient.invalidateQueries({ queryKey: ['account', account.id] });
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       toast.success(`Invoice number updated to ${trimmed}`);
       setEditingInvoice(false);
     } catch (err: any) {
@@ -110,7 +111,9 @@ export default function AccountDetail() {
       if (data?.error) throw new Error(data.error);
       toast.success('Installment amount updated');
       queryClient.invalidateQueries({ queryKey: ['schedule', id] });
-      queryClient.invalidateQueries({ queryKey: ['accounts', id] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['account', id] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       setEditingScheduleId(null);
     } catch (err: any) {
       toast.error(err.message || 'Failed to update');

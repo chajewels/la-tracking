@@ -1,5 +1,5 @@
-import { ReactNode } from 'react';
 import { LucideIcon } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 interface StatCardProps {
   title: string;
@@ -8,6 +8,7 @@ interface StatCardProps {
   icon: LucideIcon;
   trend?: { value: string; positive: boolean };
   variant?: 'default' | 'gold' | 'success' | 'warning' | 'danger';
+  href?: string;
 }
 
 const variantStyles = {
@@ -26,9 +27,15 @@ const iconVariantStyles = {
   danger: 'bg-destructive/10 text-destructive',
 };
 
-export default function StatCard({ title, value, subtitle, icon: Icon, trend, variant = 'default' }: StatCardProps) {
+export default function StatCard({ title, value, subtitle, icon: Icon, trend, variant = 'default', href }: StatCardProps) {
+  const navigate = useNavigate();
+
   return (
-    <div className={`rounded-xl border p-5 card-hover ${variantStyles[variant]}`}>
+    <div
+      className={`rounded-xl border p-5 card-hover ${variantStyles[variant]} ${href ? 'cursor-pointer hover:ring-1 hover:ring-primary/40 transition-all' : ''}`}
+      onClick={href ? () => navigate(href) : undefined}
+      role={href ? 'link' : undefined}
+    >
       <div className="flex items-start justify-between">
         <div className="space-y-1">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{title}</p>
