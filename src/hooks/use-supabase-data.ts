@@ -332,6 +332,8 @@ export function useCreateAccount() {
       downpayment_amount?: number;
       downpayment_paid?: number;
       remaining_dp_option?: 'split' | 'add_to_installments';
+      split_allocations?: { account_id: string; amount: number }[];
+      lump_sum_total?: number;
     }) => {
       const { data, error } = await supabase.functions.invoke('create-layaway-account', {
         body: payload,
@@ -348,6 +350,10 @@ export function useCreateAccount() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['payments'] });
+      qc.invalidateQueries({ queryKey: ['schedule'] });
+      qc.invalidateQueries({ queryKey: ['customer-detail'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-summary'] });
     },
   });
 }

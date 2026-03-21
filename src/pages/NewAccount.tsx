@@ -1,23 +1,31 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, UserPlus } from 'lucide-react';
+import { ArrowLeft, UserPlus, ChevronDown, ChevronUp, Banknote } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Checkbox } from '@/components/ui/checkbox';
 import { generateScheduleDates, calculateInstallments, formatCurrency } from '@/lib/calculations';
 import { Currency, PaymentPlan } from '@/lib/types';
 import { toast } from 'sonner';
-import { useCustomers, useCreateAccount, DbCustomer } from '@/hooks/use-supabase-data';
+import { useCustomers, useAccounts, useCreateAccount, DbCustomer } from '@/hooks/use-supabase-data';
 import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
+import { Badge } from '@/components/ui/badge';
 
 type RemainingDpOption = 'split' | 'add_to_installments';
+
+interface SplitAllocation {
+  account_id: string;
+  amount: string; // string for input binding
+}
 
 export default function NewAccount() {
   const navigate = useNavigate();
   const { data: customers } = useCustomers();
+  const { data: allAccounts } = useAccounts();
   const createAccount = useCreateAccount();
 
   const [invoiceNumber, setInvoiceNumber] = useState('');
@@ -30,13 +38,40 @@ export default function NewAccount() {
   const [downpaymentPaid, setDownpaymentPaid] = useState('');
   const [remainingDpOption, setRemainingDpOption] = useState<RemainingDpOption>('split');
 
+  // Split payment state
+  const [enableSplitPayment, setEnableSplitPayment] = useState(false);
+  const [lumpSumInput, setLumpSumInput] = useState('');
+  const [splitAllocations, setSplitAllocations] = useState<SplitAllocation[]>([]);
+  const [splitExpanded, setSplitExpanded] = useState(true);
+
   const amount = parseInt(totalAmount) || 0;
   const downpaymentAmount = parseInt(downpaymentInput) || 0;
-  const dpPaid = parseInt(downpaymentPaid) || 0;
+  const lumpSum = parseInt(lumpSumInput) || 0;
+
+  // Existing active/overdue accounts for selected customer
+  const customerAccounts = useMemo(() => {
+    if (!customerId || !allAccounts) return [];
+    return allAccounts.filter(
+      a => a.customer_id === customerId &&
+        (a.status === 'active' || a.status === 'overdue') &&
+        Number(a.remaining_balance) > 0
+    );
+  }, [customerId, allAccounts]);
+
+  // Calculate split payment amounts
+  const totalAllocatedToExisting = useMemo(() =>
+    splitAllocations.reduce((sum, a) => sum + (parseInt(a.amount) || 0), 0),
+    [splitAllocations]
+  );
+
+  const effectiveDpPaid = enableSplitPayment
+    ? Math.max(0, lumpSum - totalAllocatedToExisting)
+    : parseInt(downpaymentPaid) || 0;
+
+  const dpPaid = effectiveDpPaid;
   const remainingDp = Math.max(0, downpaymentAmount - dpPaid);
   const hasShortDp = downpaymentAmount > 0 && dpPaid > 0 && dpPaid < downpaymentAmount;
 
-  // Calculate installment base: total minus full DP target, then add remaining DP back based on option
   const baseForInstallments = Math.max(0, amount - downpaymentAmount);
   const installmentTotal = hasShortDp
     ? baseForInstallments + remainingDp
@@ -44,17 +79,14 @@ export default function NewAccount() {
 
   const previewDates = orderDate ? generateScheduleDates(orderDate, paymentPlan) : [];
 
-  // Build preview installments based on option
   const previewInstallments = (() => {
     if (installmentTotal <= 0) return [];
     if (hasShortDp && remainingDpOption === 'split') {
-      // Remaining DP split evenly across months, added on top of base installments
       const baseInstallments = calculateInstallments(baseForInstallments, paymentPlan);
       const dpPerMonth = Math.floor(remainingDp / paymentPlan);
       const dpRemainder = remainingDp - dpPerMonth * paymentPlan;
       return baseInstallments.map((base, i) => base + dpPerMonth + (i === paymentPlan - 1 ? dpRemainder : 0));
     }
-    // add_to_installments: remaining DP added to first installment
     if (hasShortDp && remainingDpOption === 'add_to_installments') {
       const installments = calculateInstallments(baseForInstallments, paymentPlan);
       if (installments.length > 0) installments[0] += remainingDp;
@@ -63,17 +95,61 @@ export default function NewAccount() {
     return calculateInstallments(installmentTotal, paymentPlan);
   })();
 
+  // Toggle an existing account in the split allocation list
+  const toggleAccount = (accountId: string) => {
+    setSplitAllocations(prev => {
+      const exists = prev.find(a => a.account_id === accountId);
+      if (exists) return prev.filter(a => a.account_id !== accountId);
+      return [...prev, { account_id: accountId, amount: '' }];
+    });
+  };
+
+  const updateAllocationAmount = (accountId: string, value: string) => {
+    setSplitAllocations(prev =>
+      prev.map(a => a.account_id === accountId ? { ...a, amount: value } : a)
+    );
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!invoiceNumber || !customerId || !totalAmount || !orderDate) {
       toast.error('Please fill in all required fields');
       return;
     }
-    if (downpaymentAmount > 0 && !downpaymentPaid) {
-      toast.error('Please enter the downpayment amount paid');
-      return;
+
+    if (enableSplitPayment) {
+      if (lumpSum <= 0) {
+        toast.error('Please enter the total lump sum amount');
+        return;
+      }
+      if (effectiveDpPaid <= 0) {
+        toast.error('Lump sum must cover at least some downpayment for the new account');
+        return;
+      }
+      // Validate allocations don't exceed account balances
+      for (const alloc of splitAllocations) {
+        const allocAmount = parseInt(alloc.amount) || 0;
+        if (allocAmount <= 0) continue;
+        const acct = customerAccounts.find(a => a.id === alloc.account_id);
+        if (acct && allocAmount > Number(acct.remaining_balance)) {
+          toast.error(`Allocation for ${acct.invoice_number} exceeds remaining balance`);
+          return;
+        }
+      }
+    } else {
+      if (downpaymentAmount > 0 && !downpaymentPaid) {
+        toast.error('Please enter the downpayment amount paid');
+        return;
+      }
     }
+
     try {
+      const validAllocations = enableSplitPayment
+        ? splitAllocations
+            .filter(a => (parseInt(a.amount) || 0) > 0)
+            .map(a => ({ account_id: a.account_id, amount: parseInt(a.amount) || 0 }))
+        : undefined;
+
       await createAccount.mutateAsync({
         customer_id: customerId,
         invoice_number: invoiceNumber,
@@ -84,13 +160,20 @@ export default function NewAccount() {
         downpayment_amount: downpaymentAmount,
         downpayment_paid: dpPaid,
         remaining_dp_option: hasShortDp ? remainingDpOption : undefined,
+        split_allocations: validAllocations,
+        lump_sum_total: enableSplitPayment ? lumpSum : undefined,
       });
       toast.success(`Layaway account #${invoiceNumber} created successfully`);
+      if (validAllocations && validAllocations.length > 0) {
+        toast.success(`Split payment applied to ${validAllocations.length} existing account(s)`);
+      }
       navigate('/accounts');
     } catch (err: any) {
       toast.error(err.message || 'Failed to create account');
     }
   };
+
+  const selectedCustomer = customers?.find(c => c.id === customerId);
 
   return (
     <AppLayout>
@@ -122,7 +205,11 @@ export default function NewAccount() {
               <div className="space-y-2">
                 <Label className="text-card-foreground">Customer *</Label>
                 <div className="flex gap-2">
-                  <Select value={customerId} onValueChange={setCustomerId}>
+                  <Select value={customerId} onValueChange={(v) => {
+                    setCustomerId(v);
+                    setSplitAllocations([]);
+                    setEnableSplitPayment(false);
+                  }}>
                     <SelectTrigger className="bg-background border-border flex-1">
                       <SelectValue placeholder="Select customer" />
                     </SelectTrigger>
@@ -180,16 +267,29 @@ export default function NewAccount() {
                   className="bg-background border-border"
                 />
               </div>
-              <div className="space-y-2">
-                <Label className="text-card-foreground">Downpayment Paid *</Label>
-                <Input
-                  type="number"
-                  value={downpaymentPaid}
-                  onChange={(e) => setDownpaymentPaid(e.target.value)}
-                  placeholder={downpaymentAmount > 0 ? `e.g. ${downpaymentAmount}` : 'Amount actually paid'}
-                  className="bg-background border-border"
-                />
-              </div>
+              {!enableSplitPayment && (
+                <div className="space-y-2">
+                  <Label className="text-card-foreground">Downpayment Paid *</Label>
+                  <Input
+                    type="number"
+                    value={downpaymentPaid}
+                    onChange={(e) => setDownpaymentPaid(e.target.value)}
+                    placeholder={downpaymentAmount > 0 ? `e.g. ${downpaymentAmount}` : 'Amount actually paid'}
+                    className="bg-background border-border"
+                  />
+                </div>
+              )}
+              {enableSplitPayment && (
+                <div className="space-y-2">
+                  <Label className="text-card-foreground">DP from Lump Sum</Label>
+                  <div className="flex h-9 items-center rounded-md border border-border bg-muted/50 px-3">
+                    <span className="text-sm font-semibold text-primary tabular-nums">
+                      {formatCurrency(effectiveDpPaid, currency)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Auto-calculated from lump sum minus allocations</p>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -223,6 +323,166 @@ export default function NewAccount() {
               </div>
             </div>
           </div>
+
+          {/* Split Payment Section — only if customer has existing accounts */}
+          {customerId && customerAccounts.length > 0 && (
+            <div className="rounded-xl border border-accent/40 bg-card p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Banknote className="h-5 w-5 text-primary" />
+                  <div>
+                    <h3 className="text-sm font-semibold text-card-foreground">Split Lump Sum Payment</h3>
+                    <p className="text-xs text-muted-foreground">
+                      {selectedCustomer?.full_name} has {customerAccounts.length} active account{customerAccounts.length > 1 ? 's' : ''} with outstanding balance
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="enable-split"
+                    checked={enableSplitPayment}
+                    onCheckedChange={(checked) => {
+                      setEnableSplitPayment(!!checked);
+                      if (!checked) {
+                        setSplitAllocations([]);
+                        setLumpSumInput('');
+                      }
+                    }}
+                  />
+                  <Label htmlFor="enable-split" className="text-sm cursor-pointer text-card-foreground">Enable</Label>
+                </div>
+              </div>
+
+              {enableSplitPayment && (
+                <div className="space-y-4 pt-2">
+                  {/* Total Lump Sum Input */}
+                  <div className="space-y-2">
+                    <Label className="text-card-foreground">Total Lump Sum from Customer *</Label>
+                    <Input
+                      type="number"
+                      value={lumpSumInput}
+                      onChange={(e) => setLumpSumInput(e.target.value)}
+                      placeholder="Total amount customer is paying"
+                      className="bg-background border-border text-lg font-semibold"
+                    />
+                  </div>
+
+                  {/* Existing accounts list */}
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => setSplitExpanded(!splitExpanded)}
+                      className="flex items-center gap-2 text-sm font-medium text-card-foreground hover:text-primary transition-colors"
+                    >
+                      Allocate to Existing Accounts
+                      {splitExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    </button>
+
+                    {splitExpanded && (
+                      <div className="space-y-2">
+                        {customerAccounts.map(acct => {
+                          const isSelected = splitAllocations.some(a => a.account_id === acct.id);
+                          const alloc = splitAllocations.find(a => a.account_id === acct.id);
+                          return (
+                            <div
+                              key={acct.id}
+                              className={`rounded-lg border p-3 transition-colors ${
+                                isSelected ? 'border-primary/50 bg-primary/5' : 'border-border bg-background'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <Checkbox
+                                  checked={isSelected}
+                                  onCheckedChange={() => toggleAccount(acct.id)}
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-medium text-card-foreground">
+                                      INV #{acct.invoice_number}
+                                    </span>
+                                    <Badge variant="outline" className="text-xs">
+                                      {acct.currency}
+                                    </Badge>
+                                    <Badge
+                                      variant={acct.status === 'overdue' ? 'destructive' : 'secondary'}
+                                      className="text-xs"
+                                    >
+                                      {acct.status}
+                                    </Badge>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground mt-0.5">
+                                    Balance: {formatCurrency(Number(acct.remaining_balance), acct.currency as Currency)}
+                                  </p>
+                                </div>
+                                {isSelected && (
+                                  <div className="w-36">
+                                    <Input
+                                      type="number"
+                                      value={alloc?.amount || ''}
+                                      onChange={(e) => updateAllocationAmount(acct.id, e.target.value)}
+                                      placeholder="Amount"
+                                      className="bg-background border-border text-right text-sm h-8"
+                                      max={Number(acct.remaining_balance)}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Split Summary */}
+                  {lumpSum > 0 && (
+                    <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-2">
+                      <h4 className="text-xs font-semibold text-primary uppercase tracking-wide">Payment Breakdown</h4>
+                      <div className="flex items-center justify-between py-1">
+                        <span className="text-sm text-card-foreground">Total Lump Sum</span>
+                        <span className="text-sm font-bold text-card-foreground tabular-nums">
+                          {formatCurrency(lumpSum, currency)}
+                        </span>
+                      </div>
+                      {splitAllocations.filter(a => (parseInt(a.amount) || 0) > 0).map(alloc => {
+                        const acct = customerAccounts.find(a => a.id === alloc.account_id);
+                        const allocAmt = parseInt(alloc.amount) || 0;
+                        return (
+                          <div key={alloc.account_id} className="flex items-center justify-between py-1">
+                            <span className="text-sm text-muted-foreground">
+                              → INV #{acct?.invoice_number || '?'}
+                              {acct?.currency !== currency && (
+                                <span className="text-xs ml-1">({acct?.currency})</span>
+                              )}
+                            </span>
+                            <span className="text-sm font-medium text-destructive tabular-nums">
+                              - {formatCurrency(allocAmt, (acct?.currency || currency) as Currency)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                      <div className="border-t border-primary/20 pt-2 flex items-center justify-between">
+                        <span className="text-sm font-medium text-card-foreground">→ New Account DP</span>
+                        <span className={`text-sm font-bold tabular-nums ${effectiveDpPaid >= downpaymentAmount ? 'text-primary' : 'text-destructive'}`}>
+                          {formatCurrency(effectiveDpPaid, currency)}
+                        </span>
+                      </div>
+                      {effectiveDpPaid < downpaymentAmount && downpaymentAmount > 0 && (
+                        <p className="text-xs text-destructive">
+                          ⚠ Remaining DP not fully covered. Short by {formatCurrency(downpaymentAmount - effectiveDpPaid, currency)}
+                        </p>
+                      )}
+                      {lumpSum < totalAllocatedToExisting && (
+                        <p className="text-xs text-destructive">
+                          ⚠ Allocations exceed lump sum by {formatCurrency(totalAllocatedToExisting - lumpSum, currency)}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Downpayment Summary */}
           {amount > 0 && downpaymentAmount > 0 && (
