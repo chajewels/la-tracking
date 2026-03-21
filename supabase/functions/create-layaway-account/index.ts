@@ -264,32 +264,54 @@ Deno.serve(async (req) => {
           const currentPaid = Number(targetItem.paid_amount);
           const baseAmt = Number(targetItem.base_installment_amount);
           const newPaid = currentPaid + rem;
-          const newStatus = newPaid >= baseAmt ? "paid" : "partially_paid";
 
           payAllocations.push({ schedule_id: targetItem.id, allocation_type: "installment", allocated_amount: rem });
-          schUpdates.push({ id: targetItem.id, paid_amount: newPaid, status: newStatus });
 
-          // Handle overpayment — reduce future installments from end
-          let excess = Math.max(0, newPaid - baseAmt);
           const laterItems = unpaidItems
             .filter(i => i.id !== targetItem.id && i.installment_number > targetItem.installment_number);
 
-          for (const item of [...laterItems].reverse()) {
-            if (excess <= 0) break;
-            const itemBase = Number(item.base_installment_amount);
-            const itemPaid = Number(item.paid_amount);
-            const remainingDue = Math.max(0, itemBase - itemPaid);
-            const reduction = Math.min(excess, remainingDue);
-            if (reduction <= 0) continue;
-            excess -= reduction;
-            const newBase = Math.max(itemPaid, itemBase - reduction);
-            const nextStatus = itemPaid >= newBase ? "paid" : itemPaid > 0 ? "partially_paid" : item.status;
+          if (newPaid >= baseAmt) {
+            // Full or overpayment
+            schUpdates.push({ id: targetItem.id, paid_amount: newPaid, status: "paid" });
+
+            let excess = Math.max(0, newPaid - baseAmt);
+            for (const item of [...laterItems].reverse()) {
+              if (excess <= 0) break;
+              const itemBase = Number(item.base_installment_amount);
+              const itemPaid = Number(item.paid_amount);
+              const remainingDue = Math.max(0, itemBase - itemPaid);
+              const reduction = Math.min(excess, remainingDue);
+              if (reduction <= 0) continue;
+              excess -= reduction;
+              const newBase = Math.max(itemPaid, itemBase - reduction);
+              const nextStatus = itemPaid >= newBase ? "paid" : itemPaid > 0 ? "partially_paid" : item.status;
+              schUpdates.push({
+                id: item.id,
+                base_installment_amount: newBase,
+                total_due_amount: newBase + Number(item.penalty_amount || 0),
+                status: nextStatus,
+              });
+            }
+          } else {
+            // Short payment — mark paid for actual amount, roll shortfall to next
+            const shortfall = baseAmt - newPaid;
             schUpdates.push({
-              id: item.id,
-              base_installment_amount: newBase,
-              total_due_amount: newBase + Number(item.penalty_amount || 0),
-              status: nextStatus,
+              id: targetItem.id,
+              paid_amount: newPaid,
+              status: "paid",
+              base_installment_amount: newPaid,
+              total_due_amount: newPaid + Number(targetItem.penalty_amount || 0),
             });
+
+            if (laterItems.length > 0) {
+              const nextItem = laterItems[0];
+              const nextBase = Number(nextItem.base_installment_amount) + shortfall;
+              schUpdates.push({
+                id: nextItem.id,
+                base_installment_amount: nextBase,
+                total_due_amount: nextBase + Number(nextItem.penalty_amount || 0),
+              });
+            }
           }
           rem = 0;
         }
