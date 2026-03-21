@@ -1,8 +1,10 @@
-import { useState } from 'react';
-import { Shield, Activity, Gavel, AlertTriangle, CheckCircle, XCircle, Clock, RefreshCw, Loader2 } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Shield, Activity, Gavel, AlertTriangle, CheckCircle, XCircle, Clock, RefreshCw, Loader2, DollarSign, Search, Filter } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatCurrency } from '@/lib/calculations';
@@ -91,7 +93,6 @@ function PenaltyAuditTab() {
     },
   });
 
-  // Check for linked waivers
   const penaltyIds = (penalties || []).map(p => p.id);
   const { data: linkedWaivers } = useQuery({
     queryKey: ['admin-penalty-waivers', penaltyIds.slice(0, 20).join(',')],
@@ -179,7 +180,6 @@ function OverdueDebugTab() {
   const { data, isLoading } = useQuery({
     queryKey: ['admin-overdue-debug'],
     queryFn: async () => {
-      // Get overdue accounts with schedules and penalties
       const { data: accounts, error } = await supabase
         .from('layaway_accounts')
         .select('*, customers(full_name), layaway_schedule(*), penalty_fees(*)')
@@ -240,7 +240,6 @@ function OverdueDebugTab() {
               </div>
             </div>
 
-            {/* Schedule breakdown */}
             <div className="text-[10px] text-muted-foreground space-y-0.5">
               {schedules.slice(0, 8).map((s: any) => {
                 const paid = isEffectivelyPaid(s);
@@ -327,6 +326,241 @@ function WaiverAuditTab() {
   );
 }
 
+// ── Finance Reconciliation ──
+interface ReconcException {
+  account_id: string;
+  invoice_number: string;
+  customer_name: string;
+  currency: string;
+  type: string;
+  detail: string;
+  expected?: number;
+  actual?: number;
+  difference?: number;
+}
+
+interface ReconcData {
+  summary: {
+    total_accounts: number;
+    clean_accounts: number;
+    exception_accounts: number;
+    total_exceptions: number;
+    penalty_exceptions: number;
+    waiver_exceptions: number;
+    balance_exceptions: number;
+    payment_exceptions: number;
+    reference_invoices: Record<string, string>;
+    timestamp: string;
+  };
+  exceptions: ReconcException[];
+}
+
+function ReconciliationTab() {
+  const [running, setRunning] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const { data, isLoading, refetch } = useQuery<ReconcData>({
+    queryKey: ['admin-reconciliation'],
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke('finance-reconciliation');
+      if (error) throw error;
+      return data as ReconcData;
+    },
+  });
+
+  const runReconciliation = async () => {
+    setRunning(true);
+    await refetch();
+    setRunning(false);
+    toast.success('Reconciliation completed');
+  };
+
+  const filteredExceptions = useMemo(() => {
+    if (!data?.exceptions) return [];
+    return data.exceptions.filter(e => {
+      if (typeFilter !== 'all' && e.type !== typeFilter) return false;
+      if (searchTerm) {
+        const q = searchTerm.toLowerCase();
+        return e.invoice_number.toLowerCase().includes(q) || e.customer_name.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }, [data?.exceptions, searchTerm, typeFilter]);
+
+  const exceptionTypes = useMemo(() => {
+    if (!data?.exceptions) return [];
+    return [...new Set(data.exceptions.map(e => e.type))];
+  }, [data?.exceptions]);
+
+  if (isLoading) return <div className="space-y-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>;
+
+  const s = data?.summary;
+  const typeColors: Record<string, string> = {
+    balance_mismatch: 'bg-destructive/10 text-destructive border-destructive/20',
+    negative_balance: 'bg-destructive/10 text-destructive border-destructive/20',
+    overcap_penalty: 'bg-warning/10 text-warning border-warning/20',
+    chronology_break: 'bg-destructive/10 text-destructive border-destructive/20',
+    legacy_year: 'bg-muted text-muted-foreground border-border',
+    paid_marked_unpaid: 'bg-warning/10 text-warning border-warning/20',
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Controls */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          {s && (
+            <Badge variant="outline" className={s.exception_accounts === 0 ? 'bg-success/10 text-success border-success/20' : 'bg-warning/10 text-warning border-warning/20'}>
+              {s.exception_accounts === 0 ? <CheckCircle className="h-3 w-3 mr-1" /> : <AlertTriangle className="h-3 w-3 mr-1" />}
+              {s.exception_accounts === 0 ? 'ALL CLEAR' : `${s.exception_accounts} exceptions`}
+            </Badge>
+          )}
+          {s?.timestamp && <span className="text-[10px] text-muted-foreground">Run: {new Date(s.timestamp).toLocaleString()}</span>}
+        </div>
+        <Button variant="outline" size="sm" onClick={runReconciliation} disabled={running}>
+          {running ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
+          Run Reconciliation
+        </Button>
+      </div>
+
+      {/* Summary Cards */}
+      {s && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
+          <div className="rounded-lg border border-border bg-card p-3">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Accounts Checked</p>
+            <p className="text-lg font-bold text-card-foreground tabular-nums">{s.total_accounts}</p>
+          </div>
+          <div className="rounded-lg border border-success/20 bg-success/5 p-3">
+            <p className="text-[10px] text-success uppercase tracking-wider">Clean</p>
+            <p className="text-lg font-bold text-success tabular-nums">{s.clean_accounts}</p>
+          </div>
+          <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3">
+            <p className="text-[10px] text-destructive uppercase tracking-wider">Exceptions</p>
+            <p className="text-lg font-bold text-destructive tabular-nums">{s.exception_accounts}</p>
+          </div>
+          <div className="rounded-lg border border-border bg-card p-3">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Balance Issues</p>
+            <p className="text-lg font-bold text-card-foreground tabular-nums">{s.balance_exceptions}</p>
+          </div>
+          <div className="rounded-lg border border-border bg-card p-3">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Penalty Issues</p>
+            <p className="text-lg font-bold text-card-foreground tabular-nums">{s.penalty_exceptions}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Reference Invoice Status */}
+      {s?.reference_invoices && (
+        <div className="rounded-lg border border-border bg-card p-4">
+          <p className="text-xs font-semibold text-card-foreground mb-2">Reference Invoice Validation</p>
+          <div className="flex gap-3 flex-wrap">
+            {Object.entries(s.reference_invoices).map(([inv, status]) => (
+              <div key={inv} className="flex items-center gap-1.5">
+                {status === 'CLEAN' ? <CheckCircle className="h-3.5 w-3.5 text-success" /> : status === 'EXCEPTION' ? <XCircle className="h-3.5 w-3.5 text-destructive" /> : <Clock className="h-3.5 w-3.5 text-muted-foreground" />}
+                <span className="text-xs font-mono font-semibold text-card-foreground">#{inv}</span>
+                <Badge variant="outline" className={`text-[10px] ${status === 'CLEAN' ? 'bg-success/10 text-success' : status === 'EXCEPTION' ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground'}`}>
+                  {status}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Filters */}
+      {(data?.exceptions || []).length > 0 && (
+        <>
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="relative flex-1 min-w-[200px] max-w-xs">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Search invoice or customer..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-8 h-8 text-xs"
+              />
+            </div>
+            <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <SelectTrigger className="w-[180px] h-8 text-xs">
+                <Filter className="h-3 w-3 mr-1.5" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Types</SelectItem>
+                {exceptionTypes.map(t => (
+                  <SelectItem key={t} value={t}>{t.replace(/_/g, ' ')}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="text-[10px] text-muted-foreground">{filteredExceptions.length} exception(s)</span>
+          </div>
+
+          {/* Exception List */}
+          <div className="space-y-2">
+            {filteredExceptions.slice(0, 50).map((ex, idx) => (
+              <div
+                key={`${ex.account_id}-${ex.type}-${idx}`}
+                className="rounded-lg border border-border bg-card p-3 cursor-pointer hover:border-primary/30 transition-colors"
+                onClick={() => setExpandedId(expandedId === `${ex.account_id}-${idx}` ? null : `${ex.account_id}-${idx}`)}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Link
+                      to={`/accounts/${ex.account_id}`}
+                      className="font-mono text-xs font-semibold text-primary hover:underline"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      #{ex.invoice_number}
+                    </Link>
+                    <span className="text-xs text-card-foreground">{ex.customer_name}</span>
+                  </div>
+                  <Badge variant="outline" className={`text-[10px] ${typeColors[ex.type] || 'bg-muted text-muted-foreground border-border'}`}>
+                    {ex.type.replace(/_/g, ' ')}
+                  </Badge>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1">{ex.detail}</p>
+
+                {expandedId === `${ex.account_id}-${idx}` && ex.expected !== undefined && (
+                  <div className="mt-2 pt-2 border-t border-border grid grid-cols-3 gap-2 text-xs">
+                    <div>
+                      <p className="text-muted-foreground">Expected</p>
+                      <p className="font-semibold text-card-foreground tabular-nums">
+                        {formatCurrency(ex.expected, ex.currency as Currency)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Stored</p>
+                      <p className="font-semibold text-card-foreground tabular-nums">
+                        {formatCurrency(ex.actual ?? 0, ex.currency as Currency)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Difference</p>
+                      <p className={`font-semibold tabular-nums ${(ex.difference ?? 0) !== 0 ? 'text-destructive' : 'text-success'}`}>
+                        {formatCurrency(ex.difference ?? 0, ex.currency as Currency)}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {(data?.exceptions || []).length === 0 && s && (
+        <div className="rounded-xl border border-success/20 bg-success/5 p-8 text-center">
+          <CheckCircle className="h-8 w-8 text-success mx-auto mb-2" />
+          <p className="text-sm font-semibold text-success">All {s.total_accounts} accounts pass reconciliation</p>
+          <p className="text-xs text-muted-foreground mt-1">No balance mismatches, over-cap penalties, or chronology issues found</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ──
 export default function AdminAudit() {
   return (
@@ -335,17 +569,19 @@ export default function AdminAudit() {
         <div>
           <p className="text-xs font-semibold text-primary uppercase tracking-widest mb-1">Admin</p>
           <h1 className="text-2xl font-bold text-foreground font-display">Audit & Monitoring</h1>
-          <p className="text-sm text-muted-foreground mt-1">System health, penalty audit trail, overdue diagnostics, and waiver history</p>
+          <p className="text-sm text-muted-foreground mt-1">System health, finance reconciliation, penalty audit, overdue diagnostics, and waiver history</p>
         </div>
 
-        <Tabs defaultValue="health" className="space-y-4">
-          <TabsList className="bg-muted/50">
+        <Tabs defaultValue="reconciliation" className="space-y-4">
+          <TabsList className="bg-muted/50 flex-wrap">
+            <TabsTrigger value="reconciliation" className="gap-1.5"><DollarSign className="h-3.5 w-3.5" /> Reconciliation</TabsTrigger>
             <TabsTrigger value="health" className="gap-1.5"><Activity className="h-3.5 w-3.5" /> System Health</TabsTrigger>
             <TabsTrigger value="penalties" className="gap-1.5"><Gavel className="h-3.5 w-3.5" /> Penalty Audit</TabsTrigger>
             <TabsTrigger value="overdue" className="gap-1.5"><AlertTriangle className="h-3.5 w-3.5" /> Overdue Debug</TabsTrigger>
             <TabsTrigger value="waivers" className="gap-1.5"><Shield className="h-3.5 w-3.5" /> Waiver History</TabsTrigger>
           </TabsList>
 
+          <TabsContent value="reconciliation"><ReconciliationTab /></TabsContent>
           <TabsContent value="health"><SystemHealthTab /></TabsContent>
           <TabsContent value="penalties"><PenaltyAuditTab /></TabsContent>
           <TabsContent value="overdue"><OverdueDebugTab /></TabsContent>
