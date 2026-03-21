@@ -215,29 +215,28 @@ export default function CustomerDetail() {
 
       const laMonth = new Date(acct.account.end_date || acct.account.order_date).toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
       msg += `================\n`;
-      const unpaidCount = scheduleItems.filter(s => s.status !== 'paid' && s.status !== 'cancelled').length;
-      msg += `LA ${laMonth} remaining balance - ${formatCurrency(remainingBalance, currency)} to pay in ${unpaidCount} months\n\n`;
+      const unpaidCount = unpaidSchedule.length;
+      msg += `LA ${laMonth} remaining balance - ${formatCurrency(remainingBalance, currency)} to pay in ${unpaidCount} month${unpaidCount !== 1 ? 's' : ''}\n\n`;
 
       msg += `Monthly Payment:\n`;
       scheduleItems.forEach((item, idx) => {
-        const isPaid = item.status === 'paid';
-        const isPartial = item.status === 'partially_paid';
+        const effPaid = isEffectivelyPaid(item);
         const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
         const penalty = Number(item.penalty_amount);
+        const baseAmt = Number(item.base_installment_amount);
+        const paidAmt = Number(item.paid_amount);
         const totalDue = Number(item.total_due_amount);
-        const paid = Number(item.paid_amount);
+        const displayAmt = effPaid ? Math.max(paidAmt, totalDue) : totalDue;
         const remainingDue = getRemainingDue(item);
 
-        if (isPaid) {
+        if (effPaid) {
           if (penalty > 0) {
-            msg += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(Number(item.base_installment_amount), currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)} (PAID)\n`;
+            msg += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(displayAmt, currency)} (PAID)\n`;
           } else {
-            msg += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)} (PAID)\n`;
+            msg += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(displayAmt, currency)} (PAID)\n`;
           }
-        } else if (isPartial) {
-          msg += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)}${penalty > 0 ? ` (includes ${formatCurrency(penalty, currency)} penalty)` : ''}\n`;
         } else if (penalty > 0) {
-          msg += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(Number(item.base_installment_amount), currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
+          msg += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
         } else {
           msg += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(remainingDue, currency)}\n`;
         }
