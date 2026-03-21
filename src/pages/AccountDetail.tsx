@@ -47,6 +47,7 @@ export default function AccountDetail() {
   const [editMethod, setEditMethod] = useState('');
   const [editRemarks, setEditRemarks] = useState('');
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [restoreTarget, setRestoreTarget] = useState<{ id: string; amount: number; date: string } | null>(null);
   const [forfeitConfirmOpen, setForfeitConfirmOpen] = useState(false);
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [editScheduleAmount, setEditScheduleAmount] = useState('');
