@@ -272,6 +272,9 @@ export default function AccountDetail() {
                 </Button>
               </a>
             )}
+            {account.status !== 'forfeited' && account.status !== 'cancelled' && (
+              <AddServiceDialog accountId={account.id} currency={currency} />
+            )}
             {(account.status === 'active' || account.status === 'overdue') && (
               <>
                 <AddPenaltyDialog
