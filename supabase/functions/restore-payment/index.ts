@@ -7,21 +7,16 @@ const corsHeaders = {
 
 function determineAccountStatus(schedule: any[], currentStatus: string): string {
   if (currentStatus === "cancelled" || currentStatus === "forfeited") return currentStatus;
-
   const today = new Date().toISOString().split("T")[0];
   let allPaid = true;
   let hasOverdue = false;
-
   for (const item of schedule) {
     if (item.status === "cancelled") continue;
     if (item.status !== "paid") {
       allPaid = false;
-      if (item.due_date <= today) {
-        hasOverdue = true;
-      }
+      if (item.due_date <= today) hasOverdue = true;
     }
   }
-
   if (allPaid) return "completed";
   if (hasOverdue) return "overdue";
   return "active";
@@ -84,6 +79,18 @@ Deno.serve(async (req) => {
       });
     }
 
+    const { data: account } = await supabase
+      .from("layaway_accounts")
+      .select("*")
+      .eq("id", payment.account_id)
+      .single();
+
+    if (!account) {
+      return new Response(JSON.stringify({ error: "Account not found" }), {
+        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const { data: allocations } = await supabase
       .from("payment_allocations")
       .select("*")
@@ -100,11 +107,46 @@ Deno.serve(async (req) => {
 
         if (sched) {
           const newPaid = Number(sched.paid_amount) + Number(alloc.allocated_amount);
-          const newStatus = newPaid >= Number(sched.base_installment_amount) ? "paid" : "partially_paid";
+          const baseAmt = Number(sched.base_installment_amount);
+
+          // Handle overpayment: reduce future installments from end
+          let excess = Math.max(0, newPaid - baseAmt);
+          const newStatus = newPaid >= baseAmt ? "paid" : "partially_paid";
+
           await supabase.from("layaway_schedule").update({
             paid_amount: newPaid,
             status: newStatus,
           }).eq("id", alloc.schedule_id);
+
+          if (excess > 0) {
+            // Reduce future installments from the end (same logic as record-payment)
+            const { data: futureItems } = await supabase
+              .from("layaway_schedule")
+              .select("*")
+              .eq("account_id", payment.account_id)
+              .neq("id", alloc.schedule_id)
+              .gt("installment_number", sched.installment_number)
+              .neq("status", "cancelled")
+              .order("installment_number", { ascending: false });
+
+            for (const item of (futureItems || [])) {
+              if (excess <= 0) break;
+              const itemBase = Number(item.base_installment_amount);
+              const itemPaid = Number(item.paid_amount);
+              const reduction = Math.min(excess, itemBase);
+              excess -= reduction;
+              const newBase = Math.max(itemPaid, itemBase - reduction);
+              const itemStatus = itemPaid >= newBase && newBase > 0 ? "paid" : 
+                                 itemPaid > 0 ? "partially_paid" :
+                                 newBase === 0 ? "paid" : item.status;
+
+              await supabase.from("layaway_schedule").update({
+                base_installment_amount: newBase,
+                total_due_amount: newBase + Number(item.penalty_amount || 0),
+                status: itemStatus,
+              }).eq("id", item.id);
+            }
+          }
         }
       } else if (alloc.allocation_type === "penalty") {
         const { data: penaltyFees } = await supabase
@@ -122,20 +164,14 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Recalculate account from updated schedule
+    // Recalculate from updated schedule
     const { data: updatedSchedule } = await supabase
       .from("layaway_schedule")
       .select("*")
       .eq("account_id", payment.account_id)
       .order("installment_number", { ascending: true });
 
-    const { data: account } = await supabase
-      .from("layaway_accounts")
-      .select("*")
-      .eq("id", payment.account_id)
-      .single();
-
-    if (account && updatedSchedule) {
+    if (updatedSchedule) {
       const newTotalPaid = Number(account.total_paid) + Number(payment.amount_paid);
       const newRemaining = calcRemainingBalance(updatedSchedule);
       const newStatus = determineAccountStatus(updatedSchedule, account.status);
