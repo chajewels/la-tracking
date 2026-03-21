@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Shield, Activity, Gavel, AlertTriangle, CheckCircle, XCircle, Clock, RefreshCw, Loader2, DollarSign, Search, Filter } from 'lucide-react';
+import { Shield, Activity, Gavel, AlertTriangle, CheckCircle, XCircle, Clock, RefreshCw, Loader2, DollarSign, Search, Filter, ShieldCheck } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
