@@ -194,12 +194,197 @@ Deno.serve(async (req) => {
         downpayment_paid: downpaymentPaid,
         remaining_dp: remainingDp,
         remaining_dp_option: option,
+        split_allocations: split_allocations || null,
+        lump_sum_total: lump_sum_total || null,
       },
       performed_by_user_id: user.id,
     });
 
+    // ── Process split allocations to existing accounts ──
+    const splitResults: Array<{ account_id: string; invoice_number: string; amount: number; payment_id: string }> = [];
+
+    if (Array.isArray(split_allocations) && split_allocations.length > 0) {
+      for (const alloc of split_allocations) {
+        const allocAmount = Math.round(Number(alloc.amount));
+        if (allocAmount <= 0) continue;
+
+        // Fetch the target account
+        const { data: targetAcct, error: targetErr } = await supabase
+          .from("layaway_accounts")
+          .select("*")
+          .eq("id", alloc.account_id)
+          .single();
+
+        if (targetErr || !targetAcct) continue;
+        if (targetAcct.status !== "active" && targetAcct.status !== "overdue") continue;
+
+        // Fetch schedule for this account
+        const { data: targetSchedule } = await supabase
+          .from("layaway_schedule")
+          .select("*")
+          .eq("account_id", alloc.account_id)
+          .order("installment_number", { ascending: true });
+
+        if (!targetSchedule) continue;
+
+        // Fetch unpaid penalties
+        const { data: targetPenalties } = await supabase
+          .from("penalty_fees")
+          .select("*")
+          .eq("account_id", alloc.account_id)
+          .eq("status", "unpaid")
+          .order("penalty_date", { ascending: true });
+
+        // Allocate: penalties first, then installments (same logic as record-payment)
+        let rem = allocAmount;
+        const payAllocations: Array<{ schedule_id: string; allocation_type: "penalty" | "installment"; allocated_amount: number }> = [];
+        const penUpdates: Array<{ id: string; status: string }> = [];
+        const schUpdates: Array<{ id: string; paid_amount?: number; status?: string; base_installment_amount?: number; total_due_amount?: number }> = [];
+
+        // Pay penalties first
+        if (targetPenalties) {
+          for (const pen of targetPenalties) {
+            if (rem <= 0) break;
+            const penAmt = Number(pen.penalty_amount);
+            const toPay = Math.min(rem, penAmt);
+            rem -= toPay;
+            payAllocations.push({ schedule_id: pen.schedule_id, allocation_type: "penalty", allocated_amount: toPay });
+            penUpdates.push({ id: pen.id, status: toPay >= penAmt ? "paid" : "unpaid" });
+          }
+        }
+
+        // Pay installments
+        const unpaidItems = targetSchedule.filter(
+          item => item.status !== "paid" && Number(item.base_installment_amount) - Number(item.paid_amount) > 0
+        );
+        const effectiveDate = order_date || new Date().toISOString().split("T")[0];
+        const targetItem = unpaidItems.find(item => item.due_date <= effectiveDate) ?? unpaidItems[0];
+
+        if (rem > 0 && targetItem) {
+          const currentPaid = Number(targetItem.paid_amount);
+          const baseAmt = Number(targetItem.base_installment_amount);
+          const newPaid = currentPaid + rem;
+          const newStatus = newPaid >= baseAmt ? "paid" : "partially_paid";
+
+          payAllocations.push({ schedule_id: targetItem.id, allocation_type: "installment", allocated_amount: rem });
+          schUpdates.push({ id: targetItem.id, paid_amount: newPaid, status: newStatus });
+
+          // Handle overpayment — reduce future installments from end
+          let excess = Math.max(0, newPaid - baseAmt);
+          const laterItems = unpaidItems
+            .filter(i => i.id !== targetItem.id && i.installment_number > targetItem.installment_number);
+
+          for (const item of [...laterItems].reverse()) {
+            if (excess <= 0) break;
+            const itemBase = Number(item.base_installment_amount);
+            const itemPaid = Number(item.paid_amount);
+            const remainingDue = Math.max(0, itemBase - itemPaid);
+            const reduction = Math.min(excess, remainingDue);
+            if (reduction <= 0) continue;
+            excess -= reduction;
+            const newBase = Math.max(itemPaid, itemBase - reduction);
+            const nextStatus = itemPaid >= newBase ? "paid" : itemPaid > 0 ? "partially_paid" : item.status;
+            schUpdates.push({
+              id: item.id,
+              base_installment_amount: newBase,
+              total_due_amount: newBase + Number(item.penalty_amount || 0),
+              status: nextStatus,
+            });
+          }
+          rem = 0;
+        }
+
+        // Create payment record for existing account
+        const { data: splitPayment, error: splitPayErr } = await supabase
+          .from("payments")
+          .insert({
+            account_id: alloc.account_id,
+            amount_paid: allocAmount,
+            currency: targetAcct.currency,
+            date_paid: order_date || new Date().toISOString().split("T")[0],
+            payment_method: "cash",
+            remarks: `Split payment from new layaway INV #${invoice_number} (lump sum)`,
+            reference_number: `SPLIT-${invoice_number}`,
+            entered_by_user_id: user.id,
+          })
+          .select()
+          .single();
+
+        if (splitPayErr || !splitPayment) continue;
+
+        // Create allocations
+        for (const pa of payAllocations) {
+          await supabase.from("payment_allocations").insert({
+            payment_id: splitPayment.id,
+            schedule_id: pa.schedule_id,
+            allocation_type: pa.allocation_type,
+            allocated_amount: pa.allocated_amount,
+          });
+        }
+
+        // Update penalties
+        for (const pu of penUpdates) {
+          await supabase.from("penalty_fees").update({ status: pu.status }).eq("id", pu.id);
+        }
+
+        // Update schedule items
+        for (const su of schUpdates) {
+          const updateData: Record<string, unknown> = {};
+          if (su.paid_amount !== undefined) updateData.paid_amount = su.paid_amount;
+          if (su.status !== undefined) updateData.status = su.status;
+          if (su.base_installment_amount !== undefined) updateData.base_installment_amount = su.base_installment_amount;
+          if (su.total_due_amount !== undefined) updateData.total_due_amount = su.total_due_amount;
+          await supabase.from("layaway_schedule").update(updateData).eq("id", su.id);
+        }
+
+        // Recalculate remaining balance from schedule
+        let newRemBal = 0;
+        for (const item of targetSchedule) {
+          const su = schUpdates.find(u => u.id === item.id);
+          const base = su?.base_installment_amount !== undefined ? su.base_installment_amount : Number(item.base_installment_amount);
+          const penAmt = Number(item.penalty_amount || 0);
+          const paid = su?.paid_amount !== undefined ? su.paid_amount : Number(item.paid_amount);
+          const itemSt = su?.status !== undefined ? su.status : item.status;
+          if (itemSt !== 'paid' && itemSt !== 'cancelled') {
+            newRemBal += Math.max(0, base + penAmt - paid);
+          }
+        }
+
+        const newTotalPaid = Number(targetAcct.total_paid) + allocAmount;
+        const newAcctStatus = newRemBal <= 0 ? "completed" : targetAcct.status;
+
+        await supabase.from("layaway_accounts").update({
+          total_paid: newTotalPaid,
+          remaining_balance: Math.max(0, newRemBal),
+          status: newAcctStatus,
+        }).eq("id", alloc.account_id);
+
+        // Audit log for split payment
+        await supabase.from("audit_logs").insert({
+          entity_type: "payment",
+          entity_id: splitPayment.id,
+          action: "create_split",
+          new_value_json: {
+            amount_paid: allocAmount,
+            source_invoice: invoice_number,
+            target_account_id: alloc.account_id,
+            target_invoice: targetAcct.invoice_number,
+            lump_sum_total: lump_sum_total,
+          },
+          performed_by_user_id: user.id,
+        });
+
+        splitResults.push({
+          account_id: alloc.account_id,
+          invoice_number: targetAcct.invoice_number,
+          amount: allocAmount,
+          payment_id: splitPayment.id,
+        });
+      }
+    }
+
     return new Response(
-      JSON.stringify({ account, schedule: scheduleRows }),
+      JSON.stringify({ account, schedule: scheduleRows, split_payments: splitResults }),
       { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
