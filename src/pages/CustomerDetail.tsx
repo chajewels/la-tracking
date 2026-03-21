@@ -509,6 +509,36 @@ export default function CustomerDetail() {
                   );
                 })}
               </div>
+
+              {/* Additional Services */}
+              {(acctServices as any[] || []).length > 0 && (
+                <div className="space-y-1.5">
+                  <h3 className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                    <Wrench className="h-3.5 w-3.5 text-primary" /> Additional Services
+                    <span className="ml-auto text-xs font-bold text-card-foreground tabular-nums">
+                      Total: {formatCurrency((acctServices as any[]).reduce((s: number, svc: any) => s + Number(svc.amount), 0), currency)}
+                    </span>
+                  </h3>
+                  {(acctServices as any[]).map((svc: any) => (
+                    <div key={svc.id} className="flex items-center justify-between p-2 rounded-lg border border-border bg-card">
+                      <div className="flex items-center gap-2">
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary">
+                          <Wrench className="h-2.5 w-2.5" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-card-foreground">
+                            {svc.service_type === 'change_color' ? 'Change Color' : svc.service_type.charAt(0).toUpperCase() + svc.service_type.slice(1)}
+                          </p>
+                          {svc.description && <p className="text-[10px] text-muted-foreground">{svc.description}</p>}
+                        </div>
+                      </div>
+                      <p className="text-xs font-semibold tabular-nums text-card-foreground">
+                        {formatCurrency(Number(svc.amount), currency)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
