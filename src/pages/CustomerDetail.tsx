@@ -221,18 +221,18 @@ export default function CustomerDetail() {
         const paidAmt = Number(item.paid_amount);
         const totalDue = Number(item.total_due_amount);
         const displayAmt = effPaid ? Math.max(paidAmt, totalDue) : totalDue;
-        const remainingDue = getRemainingDue(item);
+        const itemRemaining = remainingDue(item);
 
         if (effPaid) {
           if (penalty > 0) {
-            msg += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(displayAmt, currency)} (PAID)\n`;
+            msg += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(displayAmt, currency)} (PAID)\n`;
           } else {
-            msg += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(displayAmt, currency)} (PAID)\n`;
+            msg += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(displayAmt, currency)} (PAID)\n`;
           }
         } else if (penalty > 0) {
-          msg += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
+          msg += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
         } else {
-          msg += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(remainingDue, currency)}\n`;
+          msg += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(itemRemaining, currency)}\n`;
         }
       });
 
