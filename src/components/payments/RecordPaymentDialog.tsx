@@ -34,6 +34,7 @@ interface PreviewResult {
 interface ScheduleItem {
   id: string;
   installment_number: number;
+  due_date: string;
   base_installment_amount: number;
   penalty_amount: number;
   total_due_amount: number;
