@@ -141,7 +141,7 @@ export default function StatementShareMenu({
       if (!isExpired) {
         setTokenInfo(existing);
         setTokenStatus('active');
-        const url = `${window.location.origin}/statement?token=${existing.token}`;
+        const url = buildStatementUrl(existing.token);
         setLink(url);
         return url;
       }
