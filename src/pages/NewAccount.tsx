@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, UserPlus, ChevronDown, ChevronUp, Banknote } from 'lucide-react';
+import { ArrowLeft, UserPlus, ChevronDown, ChevronUp, Banknote, Copy, Check, MessageCircle } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { generateScheduleDates, calculateInstallments, formatCurrency } from '@/lib/calculations';
 import { Currency, PaymentPlan } from '@/lib/types';
 import { toast } from 'sonner';
@@ -43,6 +44,8 @@ export default function NewAccount() {
   const [lumpSumInput, setLumpSumInput] = useState('');
   const [splitAllocations, setSplitAllocations] = useState<SplitAllocation[]>([]);
   const [splitExpanded, setSplitExpanded] = useState(true);
+  const [splitMessageDialog, setSplitMessageDialog] = useState<string | null>(null);
+  const [splitMsgCopied, setSplitMsgCopied] = useState(false);
 
   const amount = parseInt(totalAmount) || 0;
   const downpaymentAmount = parseInt(downpaymentInput) || 0;
@@ -150,7 +153,7 @@ export default function NewAccount() {
             .map(a => ({ account_id: a.account_id, amount: parseInt(a.amount) || 0 }))
         : undefined;
 
-      await createAccount.mutateAsync({
+      const result = await createAccount.mutateAsync({
         customer_id: customerId,
         invoice_number: invoiceNumber,
         currency,
@@ -164,10 +167,43 @@ export default function NewAccount() {
         lump_sum_total: enableSplitPayment ? lumpSum : undefined,
       });
       toast.success(`Layaway account #${invoiceNumber} created successfully`);
-      if (validAllocations && validAllocations.length > 0) {
-        toast.success(`Split payment applied to ${validAllocations.length} existing account(s)`);
+
+      // Generate consolidated split payment message
+      if (validAllocations && validAllocations.length > 0 && result?.split_payments?.length > 0) {
+        const customerName = selectedCustomer?.full_name || 'Customer';
+        const totalReceived = lumpSum;
+        const splitPayments: Array<{ account_id: string; invoice_number: string; amount: number; completed: boolean }> = result.split_payments;
+        
+        // Build the new account line (downpayment)
+        const newAcctCompleted = dpPaid >= amount; // unlikely but handle
+        const allLines: Array<{ inv: string; amt: number; completed: boolean; currency: Currency }> = [];
+        
+        // Add new account first
+        allLines.push({ inv: invoiceNumber, amt: dpPaid, completed: newAcctCompleted, currency });
+        
+        // Add split payment lines
+        for (const sp of splitPayments) {
+          const targetAcct = customerAccounts.find(a => a.id === sp.account_id);
+          const acctCurrency = (targetAcct?.currency as Currency) || currency;
+          allLines.push({ inv: sp.invoice_number, amt: sp.amount, completed: sp.completed, currency: acctCurrency });
+        }
+
+        let msg = `Dear ${customerName},\n\n`;
+        msg += `Thank you for your payment. ${formatCurrency(totalReceived, currency)} has been received.\n\n`;
+        
+        for (const line of allLines) {
+          msg += `Inv # ${line.inv} - ${formatCurrency(line.amt, line.currency)}`;
+          if (line.completed) msg += ` (PAID OFF)`;
+          msg += `\n`;
+        }
+        
+        msg += `\n━━━━━━━━━━━━━━━━━━\n`;
+        msg += `\nThank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
+
+        setSplitMessageDialog(msg);
+      } else {
+        navigate('/accounts');
       }
-      navigate('/accounts');
     } catch (err: any) {
       toast.error(err.message || 'Failed to create account');
     }
@@ -592,6 +628,54 @@ export default function NewAccount() {
           </div>
         </form>
       </div>
+
+      {/* Split Payment Consolidated Message Dialog */}
+      <Dialog open={!!splitMessageDialog} onOpenChange={(open) => {
+        if (!open) {
+          setSplitMessageDialog(null);
+          navigate('/accounts');
+        }
+      }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageCircle className="h-5 w-5 text-primary" />
+              Split Payment Confirmation
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">Copy this message to send to the customer via Messenger:</p>
+          <div className="rounded-lg border border-border bg-muted/30 p-4 max-h-[400px] overflow-y-auto">
+            <pre className="text-sm text-card-foreground whitespace-pre-wrap font-sans leading-relaxed">
+              {splitMessageDialog}
+            </pre>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSplitMessageDialog(null);
+                navigate('/accounts');
+              }}
+            >
+              Close
+            </Button>
+            <Button
+              onClick={() => {
+                if (splitMessageDialog) {
+                  navigator.clipboard.writeText(splitMessageDialog);
+                  setSplitMsgCopied(true);
+                  toast.success('Message copied to clipboard');
+                  setTimeout(() => setSplitMsgCopied(false), 2000);
+                }
+              }}
+              className="gap-2"
+            >
+              {splitMsgCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              {splitMsgCopied ? 'Copied!' : 'Copy Message'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

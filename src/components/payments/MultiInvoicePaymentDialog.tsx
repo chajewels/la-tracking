@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Layers, ArrowRight, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Layers, ArrowRight, CheckCircle2, AlertTriangle, Copy, Check, MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -58,7 +58,9 @@ export default function MultiInvoicePaymentDialog({
 }: MultiInvoicePaymentDialogProps) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [step, setStep] = useState<'select' | 'allocate' | 'preview'>('select');
+  const [step, setStep] = useState<'select' | 'allocate' | 'preview' | 'message'>('select');
+  const [consolidatedMessage, setConsolidatedMessage] = useState('');
+  const [msgCopied, setMsgCopied] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
@@ -161,7 +163,28 @@ export default function MultiInvoicePaymentDialog({
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['payments-with-accounts'] });
       queryClient.invalidateQueries({ queryKey: ['customer-detail', customerId] });
-      resetAndClose();
+
+      // Generate consolidated message
+      const results: AccountResult[] = data?.results || [];
+      const primaryCurrency = (selectedAccounts[0]?.currency || 'PHP') as Currency;
+      let msg = `Dear ${customerName},\n\n`;
+      msg += `Thank you for your payment. ${formatCurrency(totalAllocated, primaryCurrency)} has been received.\n\n`;
+      
+      for (const acct of selectedAccounts) {
+        const amt = parseFloat(amounts[acct.id] || '0') || 0;
+        const result = results.find(r => r.account_id === acct.id);
+        const isCompleted = result?.new_status === 'completed';
+        const acctCurrency = (acct.currency || 'PHP') as Currency;
+        msg += `Inv # ${acct.invoice_number} - ${formatCurrency(amt, acctCurrency)}`;
+        if (isCompleted) msg += ` (PAID OFF)`;
+        msg += `\n`;
+      }
+      
+      msg += `\n━━━━━━━━━━━━━━━━━━\n`;
+      msg += `\nThank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
+      
+      setConsolidatedMessage(msg);
+      setStep('message');
     } catch (err: any) {
       toast.error(err.message || 'Failed to record multi-invoice payment');
     } finally {
@@ -177,6 +200,8 @@ export default function MultiInvoicePaymentDialog({
     setPaymentDate(new Date().toISOString().split('T')[0]);
     setStep('select');
     setPreview(null);
+    setConsolidatedMessage('');
+    setMsgCopied(false);
     setOpen(false);
   };
 
@@ -454,6 +479,41 @@ export default function MultiInvoicePaymentDialog({
               >
                 {submitting ? 'Processing…' : 'Confirm Payment'}
                 <CheckCircle2 className="h-4 w-4 ml-1" />
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+
+        {/* Message Step */}
+        {step === 'message' && (
+          <div className="space-y-4">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-card-foreground">
+                <MessageCircle className="h-5 w-5 text-primary" />
+                Payment Confirmation Message
+              </DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">Copy this message to send to the customer via Messenger:</p>
+            <div className="rounded-lg border border-border bg-muted/30 p-4 max-h-[350px] overflow-y-auto">
+              <pre className="text-sm text-card-foreground whitespace-pre-wrap font-sans leading-relaxed">
+                {consolidatedMessage}
+              </pre>
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={resetAndClose}>
+                Close
+              </Button>
+              <Button
+                onClick={() => {
+                  navigator.clipboard.writeText(consolidatedMessage);
+                  setMsgCopied(true);
+                  toast.success('Message copied to clipboard');
+                  setTimeout(() => setMsgCopied(false), 2000);
+                }}
+                className="gap-2"
+              >
+                {msgCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                {msgCopied ? 'Copied!' : 'Copy Message'}
               </Button>
             </DialogFooter>
           </div>
