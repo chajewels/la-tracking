@@ -520,3 +520,23 @@ export function useForfeitAccount() {
     onSuccess: () => invalidateAll(qc),
   });
 }
+
+// ──────────────────────────────────────────────
+// PENALTY CAP OVERRIDE
+// ──────────────────────────────────────────────
+export function usePenaltyCapOverride(accountId: string | undefined) {
+  return useQuery({
+    queryKey: ['penalty-cap-override', accountId],
+    enabled: !!accountId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('penalty_cap_overrides' as any)
+        .select('*')
+        .eq('account_id', accountId!)
+        .eq('is_active', true)
+        .maybeSingle();
+      if (error) throw error;
+      return data as any;
+    },
+  });
+}
