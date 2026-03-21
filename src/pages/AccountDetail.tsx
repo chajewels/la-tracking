@@ -31,6 +31,7 @@ export default function AccountDetail() {
   const { data: schedule } = useSchedule(id);
   const { data: payments } = usePayments(id);
   const { data: penalties } = usePenalties(id);
+  const { data: services } = useAccountServices(id);
   const [copied, setCopied] = useState(false);
   const voidPayment = useVoidPayment();
   const editPayment = useEditPayment();
