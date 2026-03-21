@@ -450,6 +450,7 @@ Deno.serve(async (req) => {
       message: "System-wide penalty recalculation completed",
       schedule_items_updated: schedUpdated,
       penalty_fees_removed: penaltiesRemoved,
+      penalty_fees_updated: penaltiesUpdated,
       penalty_fees_created: penaltiesInserted,
       accounts_updated: accountsUpdated,
       invoices_changed: report.length,
