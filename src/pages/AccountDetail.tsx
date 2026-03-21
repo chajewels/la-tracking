@@ -391,10 +391,15 @@ export default function AccountDetail() {
         {/* Summary Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
           <div className="rounded-xl border border-border bg-card p-3 sm:p-4">
-            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Total Amount</p>
+            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Total Layaway Amount</p>
             <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
-              {formatCurrency(totalAmount, currency)}
+              {formatCurrency(totalLayawayAmount, currency)}
             </p>
+            {totalServicesAmount > 0 && (
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                Base: {formatCurrency(totalAmount, currency)} + Services: {formatCurrency(totalServicesAmount, currency)}
+              </p>
+            )}
           </div>
           {downpaymentAmount > 0 && (
             <div className="rounded-xl border border-primary/20 bg-card p-3 sm:p-4">
