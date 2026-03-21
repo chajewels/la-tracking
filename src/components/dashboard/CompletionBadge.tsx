@@ -1,6 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { CompletionProbability } from '@/lib/types';
-import { completionStyles } from '@/lib/analytics-engine';
+import { completionStyles } from '@/lib/business-rules';
 
 interface CompletionBadgeProps {
   probability: CompletionProbability;

@@ -10,12 +10,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Link } from 'react-router-dom';
+import { categorizeScheduleItems, remainingDue, daysOverdueFromToday, alertTypeConfig } from '@/lib/business-rules';
 
 export default function Reminders() {
   const [generating, setGenerating] = useState(false);
   const queryClient = useQueryClient();
 
-  // Fetch reminder logs from DB
   const { data: reminderLogs, isLoading: logsLoading } = useQuery({
     queryKey: ['reminder-logs'],
     queryFn: async () => {
@@ -29,14 +29,11 @@ export default function Reminders() {
     },
   });
 
-  // Fetch upcoming/overdue schedule items for generating reminders
   const { data: actionableItems } = useQuery({
     queryKey: ['reminder-actionable'],
     queryFn: async () => {
       const today = new Date().toISOString().split('T')[0];
       const in7days = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
-
-      // Upcoming (next 7 days) + overdue (past 30 days)
       const past30 = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
 
       const { data, error } = await supabase
@@ -52,28 +49,12 @@ export default function Reminders() {
     },
   });
 
-  // Stats
-  const totalLogs = reminderLogs?.length || 0;
   const sentCount = reminderLogs?.filter(r => r.delivery_status === 'sent').length || 0;
-  const failedCount = reminderLogs?.filter(r => r.delivery_status === 'failed').length || 0;
 
-  // Categorize actionable items
+  // Use centralized categorization
   const categorized = useMemo(() => {
     if (!actionableItems) return { overdue: [], dueToday: [], upcoming: [] };
-    const today = new Date().toISOString().split('T')[0];
-    const overdue: typeof actionableItems = [];
-    const dueToday: typeof actionableItems = [];
-    const upcoming: typeof actionableItems = [];
-
-    actionableItems.forEach(item => {
-      const remaining = Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
-      if (remaining <= 0) return;
-      if (item.due_date < today) overdue.push(item);
-      else if (item.due_date === today) dueToday.push(item);
-      else upcoming.push(item);
-    });
-
-    return { overdue, dueToday, upcoming };
+    return categorizeScheduleItems(actionableItems);
   }, [actionableItems]);
 
   const handleGenerate = async () => {
@@ -93,22 +74,21 @@ export default function Reminders() {
     }
   };
 
-  const typeConfig = {
-    overdue: { icon: AlertTriangle, label: 'Overdue', badgeClass: 'bg-destructive/10 text-destructive border-destructive/20', color: 'text-destructive' },
-    due_today: { icon: Clock, label: 'Due Today', badgeClass: 'bg-warning/10 text-warning border-warning/20', color: 'text-warning' },
-    upcoming: { icon: Bell, label: 'Upcoming', badgeClass: 'bg-info/10 text-info border-info/20', color: 'text-info' },
+  const iconMap = {
+    overdue: AlertTriangle,
+    due_today: Clock,
+    upcoming: Bell,
   };
 
   const renderScheduleGroup = (items: any[], type: 'overdue' | 'due_today' | 'upcoming') => {
     if (items.length === 0) return null;
-    const config = typeConfig[type];
-    const Icon = config.icon;
-    const today = new Date().toISOString().split('T')[0];
+    const config = alertTypeConfig[type];
+    const Icon = iconMap[type];
 
     return (
       <div className="space-y-2">
         <div className="flex items-center gap-2 mb-2">
-          <Icon className={`h-4 w-4 ${config.color}`} />
+          <Icon className={`h-4 w-4 ${config.iconColor}`} />
           <h4 className="text-xs font-semibold text-card-foreground uppercase tracking-wider">{config.label}</h4>
           <Badge variant="outline" className={`text-[10px] ${config.badgeClass}`}>{items.length}</Badge>
         </div>
@@ -116,16 +96,14 @@ export default function Reminders() {
           const acct = (item as any).layaway_accounts;
           const customer = acct?.customers;
           const currency = acct?.currency as Currency;
-          const remaining = Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
-          const daysFromDue = Math.floor((new Date(today).getTime() - new Date(item.due_date).getTime()) / 86400000);
+          const remaining = remainingDue(item);
+          const daysFromDue = daysOverdueFromToday(item.due_date);
 
           return (
             <div key={item.id} className="flex items-center justify-between p-3 rounded-lg border border-border hover:border-primary/30 transition-colors">
               <div className="flex items-center gap-3 min-w-0 flex-1">
-                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-                  type === 'overdue' ? 'bg-destructive/10' : type === 'due_today' ? 'bg-warning/10' : 'bg-info/10'
-                }`}>
-                  <Icon className={`h-3.5 w-3.5 ${config.color}`} />
+                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${config.iconBg}`}>
+                  <Icon className={`h-3.5 w-3.5 ${config.iconColor}`} />
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">

@@ -1,6 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { RiskLevel } from '@/lib/types';
-import { riskStyles } from '@/lib/analytics-engine';
+import { riskStyles } from '@/lib/business-rules';
 
 interface RiskBadgeProps {
   level: RiskLevel;

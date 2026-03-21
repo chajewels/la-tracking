@@ -16,6 +16,10 @@ import { toast } from 'sonner';
 import { useCustomerAccounts, useForfeitAccount } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
+import {
+  isEffectivelyPaid, remainingDue, getUnpaidScheduleItems,
+  ordinal, SERVICE_LABELS, accountProgress,
+} from '@/lib/business-rules';
 
 export default function CustomerDetail() {
   const { customerId } = useParams();
@@ -51,7 +55,7 @@ export default function CustomerDetail() {
   }
 
   const { customer, accounts } = data;
-  const ordinals = ['1st', '2nd', '3rd', '4th', '5th', '6th'];
+  
 
   const sortPaymentsNewestFirst = (a: any, b: any) => {
     const createdDiff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
@@ -170,13 +174,7 @@ export default function CustomerDetail() {
 
       const scheduleItems = acct.schedule || [];
 
-      const getRemainingDue = (item: { total_due_amount: number | string; paid_amount: number | string }) =>
-        Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
-
-      // An item is effectively paid if status is 'paid' OR paid_amount covers total_due
-      const isEffectivelyPaid = (item: any) =>
-        item.status === 'paid' || (Number(item.paid_amount) > 0 && Number(item.paid_amount) >= Number(item.total_due_amount));
-      const unpaidSchedule = scheduleItems.filter(s => !isEffectivelyPaid(s) && s.status !== 'cancelled');
+      const unpaidSchedule = getUnpaidScheduleItems(scheduleItems);
 
       msg += `━━━━━━━━━━━━━━━━━━\n`;
       msg += `📋 Inv # ${acct.account.invoice_number}\n`;
@@ -188,15 +186,11 @@ export default function CustomerDetail() {
       msg += `Amount Paid: ${paymentBreakdownText}\n`;
 
       // Services in message
-      const acctServices = (acct as any).services || [];
-      const SERVICE_LABELS: Record<string, string> = {
-        resize: 'Resize', certificate: 'Certificate', polish: 'Polish',
-        change_color: 'Change Color', engraving: 'Engraving', repair: 'Repair', other: 'Other',
-      };
-      if (acctServices.length > 0) {
-        const totalSvcAmt = acctServices.reduce((s: number, svc: any) => s + Number(svc.amount), 0);
+      const acctServicesList = (acct as any).services || [];
+      if (acctServicesList.length > 0) {
+        const totalSvcAmt = acctServicesList.reduce((s: number, svc: any) => s + Number(svc.amount), 0);
         msg += `\n🔧 Additional Services:\n`;
-        acctServices.forEach((svc: any) => {
+        acctServicesList.forEach((svc: any) => {
           const label = SERVICE_LABELS[svc.service_type] || svc.service_type;
           msg += `  • ${label}${svc.description ? ` - ${svc.description}` : ''}: ${formatCurrency(Number(svc.amount), currency)}\n`;
         });
@@ -227,18 +221,18 @@ export default function CustomerDetail() {
         const paidAmt = Number(item.paid_amount);
         const totalDue = Number(item.total_due_amount);
         const displayAmt = effPaid ? Math.max(paidAmt, totalDue) : totalDue;
-        const remainingDue = getRemainingDue(item);
+        const itemRemaining = remainingDue(item);
 
         if (effPaid) {
           if (penalty > 0) {
-            msg += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(displayAmt, currency)} (PAID)\n`;
+            msg += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(displayAmt, currency)} (PAID)\n`;
           } else {
-            msg += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(displayAmt, currency)} (PAID)\n`;
+            msg += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(displayAmt, currency)} (PAID)\n`;
           }
         } else if (penalty > 0) {
-          msg += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
+          msg += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
         } else {
-          msg += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(remainingDue, currency)}\n`;
+          msg += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(itemRemaining, currency)}\n`;
         }
       });
 
