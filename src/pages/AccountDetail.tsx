@@ -132,40 +132,6 @@ export default function AccountDetail() {
     }
   }, [editScheduleAmount, id, queryClient]);
 
-  const handleGenerateStatement = useCallback(async () => {
-    if (!account) return;
-    setStatementLoading(true);
-    try {
-      // Check for existing active token
-      const { data: existing } = await supabase
-        .from('statement_tokens')
-        .select('token')
-        .eq('account_id', account.id)
-        .eq('is_active', true)
-        .gte('expires_at', new Date().toISOString())
-        .maybeSingle();
-
-      let token = existing?.token;
-      if (!token) {
-        const userId = (await supabase.auth.getUser()).data.user?.id;
-        const { data: newToken, error } = await supabase
-          .from('statement_tokens')
-          .insert({ account_id: account.id, created_by_user_id: userId })
-          .select('token')
-          .single();
-        if (error) throw error;
-        token = newToken.token;
-      }
-      const link = `${window.location.origin}/statement?token=${token}`;
-      setStatementLink(link);
-      await navigator.clipboard.writeText(link);
-      toast.success('Statement link copied to clipboard!');
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to generate statement link');
-    } finally {
-      setStatementLoading(false);
-    }
-  }, [account]);
 
   if (accountLoading) {
     return (
