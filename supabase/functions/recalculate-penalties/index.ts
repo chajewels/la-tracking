@@ -72,21 +72,41 @@ Deno.serve(async (req) => {
       for (const o of overrides) overrideMap.set(o.account_id, Number(o.penalty_cap_amount));
     }
 
-    // ── Fetch ALL schedule items for active/overdue accounts (paginated) ──
+    // ── Fetch schedule items (with optional invoice filter and batching) ──
+    // First get the target account IDs
+    let targetAccountIds: string[] = [];
+    if (targetInvoice) {
+      const { data: accts } = await supabase
+        .from("layaway_accounts")
+        .select("id")
+        .eq("invoice_number", targetInvoice);
+      targetAccountIds = (accts || []).map((a: any) => a.id);
+    } else {
+      // Get all active/overdue account IDs with batching
+      const { data: accts } = await supabase
+        .from("layaway_accounts")
+        .select("id")
+        .in("status", ["active", "overdue"])
+        .order("invoice_number")
+        .range(batchOffset, batchOffset + batchLimit - 1);
+      targetAccountIds = (accts || []).map((a: any) => a.id);
+    }
+
+    if (targetAccountIds.length === 0) {
+      return new Response(JSON.stringify({ message: "No accounts to process", changes: [] }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     let allItems: any[] = [];
-    let page = 0;
-    const pageSize = 500;
-    while (true) {
+    for (let i = 0; i < targetAccountIds.length; i += 50) {
+      const chunk = targetAccountIds.slice(i, i + 50);
       const { data: batch } = await supabase
         .from("layaway_schedule")
         .select("*, layaway_accounts!inner(id, currency, status, total_paid, downpayment_amount, total_amount, invoice_number)")
-        .in("layaway_accounts.status", ["active", "overdue"])
-        .order("installment_number", { ascending: true })
-        .range(page * pageSize, (page + 1) * pageSize - 1);
-      if (!batch || batch.length === 0) break;
-      allItems = allItems.concat(batch);
-      if (batch.length < pageSize) break;
-      page++;
+        .in("account_id", chunk)
+        .order("installment_number", { ascending: true });
+      if (batch) allItems = allItems.concat(batch);
     }
 
     // Group by account
