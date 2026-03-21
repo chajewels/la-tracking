@@ -20,6 +20,15 @@ import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { computeRemainingBalance, getNextPaymentStatementDate } from '@/lib/business-rules';
 
+// Production base URL for statement links — ensures correct domain regardless of preview/dev environment
+const STATEMENT_BASE_URL = import.meta.env.PROD
+  ? 'https://chajewelslayaway.web.app'
+  : window.location.origin;
+
+function buildStatementUrl(token: string): string {
+  return `${STATEMENT_BASE_URL}/statement?token=${token}`;
+}
+
 interface TokenInfo {
   token: string;
   created_at: string;
@@ -75,7 +84,7 @@ export default function StatementShareMenu({
         setTokenStatus('expired');
       } else {
         setTokenStatus('active');
-        setLink(`${window.location.origin}/statement?token=${data.token}`);
+        setLink(buildStatementUrl(data.token));
       }
     };
     fetchToken();
@@ -97,7 +106,7 @@ export default function StatementShareMenu({
     if (error) throw error;
     setTokenInfo(newToken);
     setTokenStatus('active');
-    const url = `${window.location.origin}/statement?token=${newToken.token}`;
+    const url = buildStatementUrl(newToken.token);
     setLink(url);
 
     const expiryStr = newToken.expires_at
@@ -132,7 +141,7 @@ export default function StatementShareMenu({
       if (!isExpired) {
         setTokenInfo(existing);
         setTokenStatus('active');
-        const url = `${window.location.origin}/statement?token=${existing.token}`;
+        const url = buildStatementUrl(existing.token);
         setLink(url);
         return url;
       }
