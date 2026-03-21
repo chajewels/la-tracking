@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench } from 'lucide-react';
+import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, FileText, Link2, ExternalLink } from 'lucide-react';
 import RestorePaymentDialog from '@/components/payments/RestorePaymentDialog';
 import ReassignOwnerDialog from '@/components/accounts/ReassignOwnerDialog';
 import AddServiceDialog from '@/components/services/AddServiceDialog';
@@ -62,6 +62,8 @@ export default function AccountDetail() {
   const [invoiceInput, setInvoiceInput] = useState('');
   const [invoiceSaving, setInvoiceSaving] = useState(false);
   const queryClient = useQueryClient();
+  const [statementLoading, setStatementLoading] = useState(false);
+  const [statementLink, setStatementLink] = useState<string | null>(null);
 
   const handleInvoiceSave = useCallback(async () => {
     const trimmed = invoiceInput.trim();
@@ -129,6 +131,41 @@ export default function AccountDetail() {
       setEditScheduleLoading(false);
     }
   }, [editScheduleAmount, id, queryClient]);
+
+  const handleGenerateStatement = useCallback(async () => {
+    if (!account) return;
+    setStatementLoading(true);
+    try {
+      // Check for existing active token
+      const { data: existing } = await supabase
+        .from('statement_tokens')
+        .select('token')
+        .eq('account_id', account.id)
+        .eq('is_active', true)
+        .gte('expires_at', new Date().toISOString())
+        .maybeSingle();
+
+      let token = existing?.token;
+      if (!token) {
+        const userId = (await supabase.auth.getUser()).data.user?.id;
+        const { data: newToken, error } = await supabase
+          .from('statement_tokens')
+          .insert({ account_id: account.id, created_by_user_id: userId })
+          .select('token')
+          .single();
+        if (error) throw error;
+        token = newToken.token;
+      }
+      const link = `${window.location.origin}/statement?token=${token}`;
+      setStatementLink(link);
+      await navigator.clipboard.writeText(link);
+      toast.success('Statement link copied to clipboard!');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to generate statement link');
+    } finally {
+      setStatementLoading(false);
+    }
+  }, [account]);
 
   if (accountLoading) {
     return (
@@ -363,6 +400,22 @@ export default function AccountDetail() {
                   <AlertTriangle className="h-4 w-4 mr-2" /> Forfeit
                 </Button>
               </>
+            )}
+            <Button
+              variant="outline"
+              className="border-primary/30 text-primary hover:bg-primary/10"
+              onClick={handleGenerateStatement}
+              disabled={statementLoading}
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              {statementLoading ? 'Generating...' : 'Customer Statement'}
+            </Button>
+            {statementLink && (
+              <a href={statementLink} target="_blank" rel="noopener noreferrer">
+                <Button variant="ghost" size="icon" className="h-10 w-10 text-primary">
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+              </a>
             )}
             <Button
               variant="outline"
