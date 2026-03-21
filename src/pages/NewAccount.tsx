@@ -153,7 +153,7 @@ export default function NewAccount() {
             .map(a => ({ account_id: a.account_id, amount: parseInt(a.amount) || 0 }))
         : undefined;
 
-      await createAccount.mutateAsync({
+      const result = await createAccount.mutateAsync({
         customer_id: customerId,
         invoice_number: invoiceNumber,
         currency,
@@ -167,10 +167,43 @@ export default function NewAccount() {
         lump_sum_total: enableSplitPayment ? lumpSum : undefined,
       });
       toast.success(`Layaway account #${invoiceNumber} created successfully`);
-      if (validAllocations && validAllocations.length > 0) {
-        toast.success(`Split payment applied to ${validAllocations.length} existing account(s)`);
+
+      // Generate consolidated split payment message
+      if (validAllocations && validAllocations.length > 0 && result?.split_payments?.length > 0) {
+        const customerName = selectedCustomer?.full_name || 'Customer';
+        const totalReceived = lumpSum;
+        const splitPayments: Array<{ invoice_number: string; amount: number; completed: boolean }> = result.split_payments;
+        
+        // Build the new account line (downpayment)
+        const newAcctCompleted = dpPaid >= amount; // unlikely but handle
+        const allLines: Array<{ inv: string; amt: number; completed: boolean; currency: Currency }> = [];
+        
+        // Add new account first
+        allLines.push({ inv: invoiceNumber, amt: dpPaid, completed: newAcctCompleted, currency });
+        
+        // Add split payment lines
+        for (const sp of splitPayments) {
+          const targetAcct = customerAccounts.find(a => a.id === sp.account_id);
+          const acctCurrency = (targetAcct?.currency as Currency) || currency;
+          allLines.push({ inv: sp.invoice_number, amt: sp.amount, completed: sp.completed, currency: acctCurrency });
+        }
+
+        let msg = `Dear ${customerName},\n\n`;
+        msg += `Thank you for your payment. ${formatCurrency(totalReceived, currency)} has been received.\n\n`;
+        
+        for (const line of allLines) {
+          msg += `Inv # ${line.inv} - ${formatCurrency(line.amt, line.currency)}`;
+          if (line.completed) msg += ` (PAID OFF)`;
+          msg += `\n`;
+        }
+        
+        msg += `\n━━━━━━━━━━━━━━━━━━\n`;
+        msg += `\nThank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
+
+        setSplitMessageDialog(msg);
+      } else {
+        navigate('/accounts');
       }
-      navigate('/accounts');
     } catch (err: any) {
       toast.error(err.message || 'Failed to create account');
     }
