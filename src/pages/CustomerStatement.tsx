@@ -73,18 +73,15 @@ function getNextPaymentInfo(schedule: StatementData['schedule']): { date: string
     .filter(s => s.status !== 'paid' && s.status !== 'cancelled' && s.paid_amount < s.total_due)
     .sort((a, b) => a.due_date.localeCompare(b.due_date));
   if (unpaid.length === 0) return null;
-  const next = unpaid[0];
-  const hasPenalty = next.penalty_amount > 0;
-  const isOverdue = next.due_date < today;
-  let date = next.due_date;
-  let isAdjusted = false;
-  if (hasPenalty && isOverdue) {
-    const d = new Date(next.due_date);
-    d.setDate(d.getDate() + 14);
-    date = d.toISOString().split('T')[0];
-    isAdjusted = true;
+
+  // Find next upcoming checkpoint (due_date >= today)
+  const upcoming = unpaid.find(s => s.due_date >= today);
+  if (upcoming) {
+    return { date: upcoming.due_date, amount: upcoming.total_due - upcoming.paid_amount, isAdjusted: false };
   }
-  return { date, amount: next.total_due - next.paid_amount, isAdjusted };
+
+  // All overdue — return earliest
+  return { date: unpaid[0].due_date, amount: unpaid[0].total_due - unpaid[0].paid_amount, isAdjusted: false };
 }
 
 export default function CustomerStatement() {
@@ -244,9 +241,6 @@ export default function CustomerStatement() {
                     <span className="font-medium text-foreground">
                       {new Date(nextPayment.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                     </span>.
-                    {nextPayment.isAdjusted && (
-                      <span className="text-xs text-muted-foreground"> (adjusted due to late payment penalty)</span>
-                    )}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
                     Please expect another payment reminder from us.
