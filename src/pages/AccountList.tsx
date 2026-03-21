@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Search, Eye, MessageCircle } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -18,17 +18,27 @@ const statusStyles: Record<string, string> = {
   forfeited: 'bg-orange-500/10 text-orange-500 border-orange-500/20',
 };
 
+const statusOptions = ['all', 'active', 'overdue', 'completed', 'forfeited', 'cancelled'] as const;
+
 export default function AccountList() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [filterCurrency, setFilterCurrency] = useState<Currency | 'all'>('all');
+  const [filterStatus, setFilterStatus] = useState<string>(searchParams.get('status') || 'all');
   const navigate = useNavigate();
   const { data: accounts, isLoading } = useAccounts();
+
+  useEffect(() => {
+    const s = searchParams.get('status');
+    if (s && statusOptions.includes(s as any)) setFilterStatus(s);
+  }, [searchParams]);
 
   const filtered = (accounts || []).filter(a => {
     const matchesSearch = a.invoice_number.includes(search) ||
       (a.customers?.full_name || '').toLowerCase().includes(search.toLowerCase());
     const matchesCurrency = filterCurrency === 'all' || a.currency === filterCurrency;
-    return matchesSearch && matchesCurrency;
+    const matchesStatus = filterStatus === 'all' || a.status === filterStatus;
+    return matchesSearch && matchesCurrency && matchesStatus;
   });
 
   return (
