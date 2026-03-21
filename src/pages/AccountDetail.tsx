@@ -194,8 +194,10 @@ export default function AccountDetail() {
   const ordinals = ['1st', '2nd', '3rd', '4th', '5th', '6th'];
   const getRemainingDue = (item: { total_due_amount: number | string; paid_amount: number | string }) =>
     Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
+  const isEffectivelyPaid = (item: { status: string; paid_amount: number | string; total_due_amount: number | string }) =>
+    item.status === 'paid' || (Number(item.paid_amount) > 0 && Number(item.paid_amount) >= Number(item.total_due_amount));
   const getOverpaymentCredit = (item: { total_due_amount: number | string; paid_amount: number | string; status: string }) =>
-    item.status === 'paid'
+    isEffectivelyPaid(item)
       ? Math.max(0, Number(item.paid_amount) - Number(item.total_due_amount))
       : 0;
 
