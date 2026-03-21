@@ -236,7 +236,7 @@ export default function CustomerDetail() {
         }
       });
 
-      const nextStatement = getNextPaymentStatementDate(scheduleItemsTyped);
+      const nextStatement = getNextPaymentStatementDate(scheduleItems);
       if (nextStatement) {
         const nextDate = new Date(nextStatement.date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
         msg += `\nPlease note your next monthly payment is on ${nextDate}. Please expect another payment reminder from us.\n`;
