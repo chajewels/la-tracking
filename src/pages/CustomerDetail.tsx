@@ -196,15 +196,6 @@ export default function CustomerDetail() {
         });
         msg += `  Services Total: ${formatCurrency(totalSvcAmt, currency)}\n`;
       }
-      if (acctServicesList.length > 0) {
-        const totalSvcAmt = acctServices.reduce((s: number, svc: any) => s + Number(svc.amount), 0);
-        msg += `\n🔧 Additional Services:\n`;
-        acctServices.forEach((svc: any) => {
-          const label = SERVICE_LABELS[svc.service_type] || svc.service_type;
-          msg += `  • ${label}${svc.description ? ` - ${svc.description}` : ''}: ${formatCurrency(Number(svc.amount), currency)}\n`;
-        });
-        msg += `  Services Total: ${formatCurrency(totalSvcAmt, currency)}\n`;
-      }
 
       // Show split payment allocation details
       if (batchSiblings.length > 0) {
