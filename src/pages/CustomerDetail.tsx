@@ -462,49 +462,49 @@ export default function CustomerDetail() {
                   )}
                 </h3>
                 {schedule.filter(item => item.status !== 'cancelled').map((item) => {
-                  const isPaid = item.status === 'paid';
+                  const effPaid = item.status === 'paid' || (Number(item.paid_amount) > 0 && Number(item.paid_amount) >= Number(item.total_due_amount));
                   const penaltyAmt = Number(item.penalty_amount);
                   const baseAmt = Number(item.base_installment_amount);
                   const paidAmt = Number(item.paid_amount);
                   const actualPayDate = schedulePaymentDates?.[item.id];
-                  const displayDate = isPaid && actualPayDate
+                  const displayDate = effPaid && actualPayDate
                     ? new Date(actualPayDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                     : new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
                   return (
                     <div key={item.id}
                       className={`flex items-center justify-between p-2.5 rounded-lg border ${
-                        isPaid ? 'bg-success/5 border-success/10' : 'bg-card border-border'
+                        effPaid ? 'bg-success/5 border-success/10' : 'bg-card border-border'
                       }`}
                     >
                       <div className="flex items-center gap-2">
                         <div className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold ${
-                          isPaid ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'
+                          effPaid ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'
                         }`}>
-                          {isPaid ? <Check className="h-3 w-3" /> : item.installment_number}
+                          {effPaid ? <Check className="h-3 w-3" /> : item.installment_number}
                         </div>
                         <div>
                           <p className="text-xs font-medium text-card-foreground">
                             {displayDate}
                           </p>
                           <p className="text-[10px] text-muted-foreground">
-                            {isPaid ? `Paid${actualPayDate ? '' : ''}` : `Due · Month ${item.installment_number}`}
+                            {effPaid ? 'Paid' : `Due · Month ${item.installment_number}`}
                           </p>
                         </div>
                       </div>
                       <div className="text-right">
                         {penaltyAmt > 0 ? (
                           <div>
-                            <p className={`text-xs font-semibold tabular-nums ${isPaid ? 'text-success' : 'text-card-foreground'}`}>
+                            <p className={`text-xs font-semibold tabular-nums ${effPaid ? 'text-success' : 'text-card-foreground'}`}>
                               {formatCurrency(Number(item.total_due_amount), currency)}
                             </p>
                             <p className="text-[10px] text-destructive flex items-center gap-1 justify-end">
                               <AlertTriangle className="h-2.5 w-2.5" />
-                              {isPaid ? 'Incl.' : '+'}{formatCurrency(penaltyAmt, currency)}
+                              {effPaid ? 'Incl.' : '+'}{formatCurrency(penaltyAmt, currency)}
                             </p>
                           </div>
                         ) : (
-                          <p className={`text-xs font-semibold tabular-nums ${isPaid ? 'text-success' : 'text-card-foreground'}`}>
-                            {isPaid ? formatCurrency(Number(item.total_due_amount), currency) : formatCurrency(baseAmt, currency)}
+                          <p className={`text-xs font-semibold tabular-nums ${effPaid ? 'text-success' : 'text-card-foreground'}`}>
+                            {effPaid ? formatCurrency(Math.max(paidAmt, Number(item.total_due_amount)), currency) : formatCurrency(baseAmt, currency)}
                           </p>
                         )}
                       </div>

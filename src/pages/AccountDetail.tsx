@@ -151,8 +151,10 @@ export default function AccountDetail() {
   const totalAmount = Number(account.total_amount);
   const totalPaid = Number(account.total_paid);
   // Compute remaining balance from schedule to account for overpayment reductions
+  const effPaidCheck = (item: { status: string; paid_amount: number | string; total_due_amount: number | string }) =>
+    item.status === 'paid' || (Number(item.paid_amount) > 0 && Number(item.paid_amount) >= Number(item.total_due_amount));
   const remainingBalance = (schedule || []).reduce((sum, item) => {
-    if (item.status === 'paid' || item.status === 'cancelled') return sum;
+    if (effPaidCheck(item) || item.status === 'cancelled') return sum;
     return sum + Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
   }, 0);
   const downpaymentAmount = Number((account as any).downpayment_amount || 0);
