@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
 
     const getAmount = (currency: string, stage: string): number => {
       const key = `penalty_${currency.toLowerCase()}_${stage}`;
-      return config[key] || (currency === "PHP" ? (stage === "week1" ? 500 : 1000) : (stage === "week1" ? 1000 : 2000));
+      return config[key] || (currency === "PHP" ? 500 : 1000);
     };
 
     const getPenaltyCap = (currency: string, installmentNumber: number): number => {
