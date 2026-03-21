@@ -16,6 +16,10 @@ import { toast } from 'sonner';
 import { useCustomerAccounts, useForfeitAccount } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
+import {
+  isEffectivelyPaid, remainingDue, getUnpaidScheduleItems,
+  ordinal, SERVICE_LABELS, accountProgress,
+} from '@/lib/business-rules';
 
 export default function CustomerDetail() {
   const { customerId } = useParams();
