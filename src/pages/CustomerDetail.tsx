@@ -18,7 +18,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   isEffectivelyPaid, remainingDue, getUnpaidScheduleItems,
-  ordinal, SERVICE_LABELS, accountProgress,
+  ordinal, SERVICE_LABELS, accountProgress, getNextPaymentStatementDate,
 } from '@/lib/business-rules';
 
 export default function CustomerDetail() {
@@ -236,8 +236,9 @@ export default function CustomerDetail() {
         }
       });
 
-      if (unpaidSchedule.length > 0) {
-        const nextDate = new Date(unpaidSchedule[0].due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+      const nextStatement = getNextPaymentStatementDate(scheduleItems);
+      if (nextStatement) {
+        const nextDate = new Date(nextStatement.date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
         msg += `\nPlease note your next monthly payment is on ${nextDate}. Please expect another payment reminder from us.\n`;
       }
       msg += `\n`;

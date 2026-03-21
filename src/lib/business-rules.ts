@@ -17,6 +17,24 @@ export type DbAccount = Tables<'layaway_accounts'>;
 export type DbPayment = Tables<'payments'>;
 export type DbPenalty = Tables<'penalty_fees'>;
 
+// ── Penalty Cap Constants ──
+export const PENALTY_CAP = {
+  PHP: { months1to5: 1000, month6: Infinity },
+  JPY: { months1to5: 2000, month6: Infinity },
+} as const;
+
+/** Get the max penalty allowed for a given installment number and currency. */
+export function getPenaltyCap(currency: 'PHP' | 'JPY', installmentNumber: number): number {
+  if (installmentNumber >= 6) return Infinity;
+  return currency === 'PHP' ? PENALTY_CAP.PHP.months1to5 : PENALTY_CAP.JPY.months1to5;
+}
+
+/** Check if a penalty amount exceeds the cap for a given installment. */
+export function isPenaltyOverCap(currency: 'PHP' | 'JPY', installmentNumber: number, totalPenalty: number): boolean {
+  const cap = getPenaltyCap(currency, installmentNumber);
+  return totalPenalty > cap;
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 1. DATE UTILITIES (timezone-safe, string-based)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -360,6 +378,34 @@ export function getNextUnpaidDueDate(
     .filter(s => !isEffectivelyPaid(s) && s.status !== 'cancelled')
     .sort((a, b) => a.due_date.localeCompare(b.due_date));
   return unpaid.length > 0 ? unpaid[0].due_date : null;
+}
+
+/**
+ * Get the "next monthly payment" statement date.
+ * Rule: If auto-penalty has been applied to the next unpaid installment,
+ * the statement date shifts to due_date + 14 days.
+ */
+export function getNextPaymentStatementDate(
+  scheduleItems: Array<{ due_date: string; status: string; paid_amount: number | string; total_due_amount: number | string; penalty_amount: number | string }>
+): { date: string; isAdjusted: boolean } | null {
+  const unpaid = scheduleItems
+    .filter(s => !isEffectivelyPaid(s) && s.status !== 'cancelled')
+    .sort((a, b) => a.due_date.localeCompare(b.due_date));
+  if (unpaid.length === 0) return null;
+
+  const next = unpaid[0];
+  const hasPenalty = Number(next.penalty_amount) > 0;
+  const today = todayStr();
+  const isOverdue = next.due_date < today;
+
+  if (hasPenalty && isOverdue) {
+    // Shift to due_date + 14 days
+    const d = new Date(next.due_date);
+    d.setDate(d.getDate() + 14);
+    return { date: d.toISOString().split('T')[0], isAdjusted: true };
+  }
+
+  return { date: next.due_date, isAdjusted: false };
 }
 
 /**

@@ -75,6 +75,22 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Enforce penalty cap for months 1-5
+    const installmentNumber = schedItem.installment_number;
+    const cap = installmentNumber >= 6 ? Infinity : (currency === "PHP" ? 1000 : 2000);
+    const currentPenalty = Number(schedItem.penalty_amount);
+    if (currentPenalty + penalty_amount > cap) {
+      const allowed = Math.max(0, cap - currentPenalty);
+      if (allowed <= 0) {
+        return new Response(JSON.stringify({ 
+          error: `Penalty cap reached for month ${installmentNumber}. Max ${currency === "PHP" ? "₱1,000" : "¥2,000"} for months 1-5.` 
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     // If the schedule item is already paid, the penalty is a correction — mark it paid immediately
     const isPaidItem = schedItem.status === "paid";
 
