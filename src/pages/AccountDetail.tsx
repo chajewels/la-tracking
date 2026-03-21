@@ -50,7 +50,50 @@ export default function AccountDetail() {
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [editScheduleAmount, setEditScheduleAmount] = useState('');
   const [editScheduleLoading, setEditScheduleLoading] = useState(false);
+  const [editingInvoice, setEditingInvoice] = useState(false);
+  const [invoiceInput, setInvoiceInput] = useState('');
+  const [invoiceSaving, setInvoiceSaving] = useState(false);
   const queryClient = useQueryClient();
+
+  const handleInvoiceSave = useCallback(async () => {
+    const trimmed = invoiceInput.trim();
+    if (!trimmed || !account) return;
+    if (trimmed === account.invoice_number) {
+      setEditingInvoice(false);
+      return;
+    }
+    setInvoiceSaving(true);
+    try {
+      const { error } = await supabase
+        .from('layaway_accounts')
+        .update({ invoice_number: trimmed })
+        .eq('id', account.id);
+      if (error) {
+        if (error.message.includes('duplicate key') || error.message.includes('invoice_number')) {
+          toast.error(`Invoice number "${trimmed}" already exists.`);
+        } else {
+          toast.error(error.message);
+        }
+        return;
+      }
+      await supabase.from('audit_logs').insert({
+        entity_type: 'layaway_account',
+        entity_id: account.id,
+        action: 'update_invoice_number',
+        old_value_json: { invoice_number: account.invoice_number },
+        new_value_json: { invoice_number: trimmed },
+        performed_by_user_id: (await supabase.auth.getUser()).data.user?.id,
+      });
+      queryClient.invalidateQueries({ queryKey: ['account', account.id] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      toast.success(`Invoice number updated to ${trimmed}`);
+      setEditingInvoice(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update');
+    } finally {
+      setInvoiceSaving(false);
+    }
+  }, [invoiceInput, account, queryClient]);
 
   const handleEditScheduleSubmit = useCallback(async (scheduleId: string) => {
     const amount = parseFloat(editScheduleAmount);
