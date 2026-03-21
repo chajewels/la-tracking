@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench } from 'lucide-react';
+import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, FileText, Link2, ExternalLink } from 'lucide-react';
 import RestorePaymentDialog from '@/components/payments/RestorePaymentDialog';
 import ReassignOwnerDialog from '@/components/accounts/ReassignOwnerDialog';
 import AddServiceDialog from '@/components/services/AddServiceDialog';
