@@ -394,7 +394,21 @@ Deno.serve(async (req) => {
       else console.error("Penalty waive error:", error);
     }
 
-    // 3. Insert correct penalty_fees
+    // 3. Update existing penalty_fees
+    let penaltiesUpdated = 0;
+    for (const upd of penaltyFeesToUpdate) {
+      const { error } = await supabase.from("penalty_fees").update({
+        penalty_amount: upd.penalty_amount,
+        penalty_date: upd.penalty_date,
+        status: upd.status,
+        waived_at: null,
+        updated_at: new Date().toISOString(),
+      }).eq("id", upd.id);
+      if (!error) penaltiesUpdated++;
+      else console.error("Penalty update error:", upd.id, error);
+    }
+
+    // 4. Insert new penalty_fees
     let penaltiesInserted = 0;
     for (let i = 0; i < penaltyFeesToInsert.length; i += 100) {
       const chunk = penaltyFeesToInsert.slice(i, i + 100);
