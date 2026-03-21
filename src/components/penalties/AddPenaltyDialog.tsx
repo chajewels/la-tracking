@@ -61,6 +61,8 @@ export default function AddPenaltyDialog({ accountId, currency, scheduleItems }:
       queryClient.invalidateQueries({ queryKey: ['schedule', accountId] });
       queryClient.invalidateQueries({ queryKey: ['penalties', accountId] });
       queryClient.invalidateQueries({ queryKey: ['account', accountId] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       setOpen(false);
       setSelectedSchedule('');
       setSelectedAmount('');
