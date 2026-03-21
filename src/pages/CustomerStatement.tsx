@@ -138,10 +138,13 @@ export default function CustomerStatement() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Print button - hidden on print */}
-      <div className="print:hidden fixed top-4 right-4 z-50">
+      {/* Action buttons - hidden on print */}
+      <div className="print:hidden fixed top-4 right-4 z-50 flex gap-2">
         <Button variant="outline" size="sm" onClick={() => window.print()}>
-          <Printer className="h-4 w-4 mr-2" /> Print Statement
+          <Printer className="h-4 w-4 mr-2" /> Print
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => window.print()}>
+          <Download className="h-4 w-4 mr-2" /> Save PDF
         </Button>
       </div>
 
