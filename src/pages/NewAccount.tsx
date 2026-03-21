@@ -628,6 +628,54 @@ export default function NewAccount() {
           </div>
         </form>
       </div>
+
+      {/* Split Payment Consolidated Message Dialog */}
+      <Dialog open={!!splitMessageDialog} onOpenChange={(open) => {
+        if (!open) {
+          setSplitMessageDialog(null);
+          navigate('/accounts');
+        }
+      }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageCircle className="h-5 w-5 text-primary" />
+              Split Payment Confirmation
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">Copy this message to send to the customer via Messenger:</p>
+          <div className="rounded-lg border border-border bg-muted/30 p-4 max-h-[400px] overflow-y-auto">
+            <pre className="text-sm text-card-foreground whitespace-pre-wrap font-sans leading-relaxed">
+              {splitMessageDialog}
+            </pre>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSplitMessageDialog(null);
+                navigate('/accounts');
+              }}
+            >
+              Close
+            </Button>
+            <Button
+              onClick={() => {
+                if (splitMessageDialog) {
+                  navigator.clipboard.writeText(splitMessageDialog);
+                  setSplitMsgCopied(true);
+                  toast.success('Message copied to clipboard');
+                  setTimeout(() => setSplitMsgCopied(false), 2000);
+                }
+              }}
+              className="gap-2"
+            >
+              {splitMsgCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              {splitMsgCopied ? 'Copied!' : 'Copy Message'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }
