@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench } from 'lucide-react';
+import RestorePaymentDialog from '@/components/payments/RestorePaymentDialog';
 import ReassignOwnerDialog from '@/components/accounts/ReassignOwnerDialog';
 import AddServiceDialog from '@/components/services/AddServiceDialog';
 import ServicesList, { AccountService } from '@/components/services/ServicesList';
@@ -46,6 +47,7 @@ export default function AccountDetail() {
   const [editMethod, setEditMethod] = useState('');
   const [editRemarks, setEditRemarks] = useState('');
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [restoreTarget, setRestoreTarget] = useState<{ id: string; amount: number; date: string } | null>(null);
   const [forfeitConfirmOpen, setForfeitConfirmOpen] = useState(false);
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [editScheduleAmount, setEditScheduleAmount] = useState('');
@@ -706,17 +708,9 @@ export default function AccountDetail() {
                         <Button variant="ghost" size="sm"
                           className="h-7 text-xs text-muted-foreground hover:text-success"
                           style={{ textDecoration: 'none' }}
-                          disabled={restorePayment.isPending}
-                          onClick={async () => {
-                            try {
-                              await restorePayment.mutateAsync({ payment_id: p.id });
-                              toast.success('Payment restored successfully');
-                            } catch (err: any) {
-                              toast.error(err.message || 'Failed to restore payment');
-                            }
-                          }}>
+                          onClick={() => setRestoreTarget({ id: p.id, amount: Number(p.amount_paid), date: p.date_paid })}>
                           <RotateCcw className="h-3 w-3 mr-1" />
-                          {restorePayment.isPending ? 'Restoring…' : 'Restore'}
+                          Restore
                         </Button>
                       )}
                     </div>
@@ -726,6 +720,27 @@ export default function AccountDetail() {
             </div>
           )}
         </div>
+
+        {/* Restore Payment Dialog */}
+        <RestorePaymentDialog
+          open={!!restoreTarget}
+          onOpenChange={(open) => { if (!open) setRestoreTarget(null); }}
+          paymentId={restoreTarget?.id || ''}
+          paymentAmount={restoreTarget?.amount || 0}
+          paymentDate={restoreTarget?.date || ''}
+          currency={account.currency as Currency}
+          schedule={scheduleItems}
+          onRestore={async (paymentId) => {
+            try {
+              await restorePayment.mutateAsync({ payment_id: paymentId });
+              toast.success('Payment restored successfully');
+              setRestoreTarget(null);
+            } catch (err: any) {
+              toast.error(err.message || 'Failed to restore payment');
+            }
+          }}
+          isPending={restorePayment.isPending}
+        />
 
         {/* Void Confirmation Dialog */}
         <AlertDialog open={!!voidTarget} onOpenChange={(open) => { if (!open) setVoidTarget(null); }}>
