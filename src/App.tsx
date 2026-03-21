@@ -19,6 +19,7 @@ import SettingsPage from "./pages/SettingsPage";
 import Waivers from "./pages/Waivers";
 import AdminAudit from "./pages/AdminAudit";
 import Login from "./pages/Login";
+import CustomerStatement from "./pages/CustomerStatement";
 
 import Reminders from "./pages/Reminders";
 import NotFound from "./pages/NotFound";
