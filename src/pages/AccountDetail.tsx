@@ -403,6 +403,22 @@ export default function AccountDetail() {
             )}
             <Button
               variant="outline"
+              className="border-primary/30 text-primary hover:bg-primary/10"
+              onClick={handleGenerateStatement}
+              disabled={statementLoading}
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              {statementLoading ? 'Generating...' : 'Customer Statement'}
+            </Button>
+            {statementLink && (
+              <a href={statementLink} target="_blank" rel="noopener noreferrer">
+                <Button variant="ghost" size="icon" className="h-10 w-10 text-primary">
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+              </a>
+            )}
+            <Button
+              variant="outline"
               className="border-destructive/30 text-destructive hover:bg-destructive/10"
               onClick={() => setDeleteConfirmOpen(true)}
             >
