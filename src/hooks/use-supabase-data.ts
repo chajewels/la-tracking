@@ -337,6 +337,13 @@ export function useCreateAccount() {
         body: payload,
       });
       if (error) throw error;
+      // Edge function may return 400 with error in body
+      if (data?.error) {
+        const msg = data.error.includes('duplicate key') && data.error.includes('invoice_number')
+          ? `Invoice number "${payload.invoice_number}" already exists. Please use a different invoice number.`
+          : data.error;
+        throw new Error(msg);
+      }
       return data;
     },
     onSuccess: () => {
