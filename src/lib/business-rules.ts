@@ -340,12 +340,55 @@ export function computeCollectionStats(
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export type AlertType = 'overdue' | 'due_today' | 'upcoming';
+export type AccountBucket = 'overdue' | 'due_today' | 'due_3_days' | 'due_7_days' | 'future' | 'fully_paid';
 
 export function categorizeByDueDate(dueDate: string): AlertType {
   const today = todayStr();
   if (dueDate < today) return 'overdue';
   if (dueDate === today) return 'due_today';
   return 'upcoming';
+}
+
+/**
+ * Get the NEXT unpaid schedule item for an account (earliest due_date with remaining balance).
+ * This is THE canonical way to determine an account's current payment state.
+ */
+export function getNextUnpaidDueDate(
+  scheduleItems: Array<{ due_date: string; status: string; paid_amount: number | string; total_due_amount: number | string }>
+): string | null {
+  const unpaid = scheduleItems
+    .filter(s => !isEffectivelyPaid(s) && s.status !== 'cancelled')
+    .sort((a, b) => a.due_date.localeCompare(b.due_date));
+  return unpaid.length > 0 ? unpaid[0].due_date : null;
+}
+
+/**
+ * Classify an account into a single bucket based on its NEXT unpaid due date.
+ * Each account goes into exactly ONE bucket (most urgent wins).
+ */
+export function classifyAccountBucket(nextDueDate: string | null): AccountBucket {
+  if (!nextDueDate) return 'fully_paid';
+  const today = todayStr();
+  if (nextDueDate < today) return 'overdue';
+  if (nextDueDate === today) return 'due_today';
+  const in3 = daysFromNow(3);
+  if (nextDueDate <= in3) return 'due_3_days';
+  const in7 = daysFromNow(7);
+  if (nextDueDate <= in7) return 'due_7_days';
+  return 'future';
+}
+
+/**
+ * Check if an account is computationally overdue based on its schedule items.
+ * An account is overdue if it has ANY unpaid installment with due_date < today.
+ */
+export function isComputedOverdue(
+  scheduleItems: Array<{ due_date: string; status: string; paid_amount: number | string; total_due_amount: number | string }>
+): boolean {
+  const today = todayStr();
+  return scheduleItems.some(
+    s => !isEffectivelyPaid(s) && s.status !== 'cancelled' && s.due_date < today
+  );
 }
 
 export function categorizeScheduleItems<T extends { due_date: string; total_due_amount: number | string; paid_amount: number | string }>(

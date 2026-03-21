@@ -84,7 +84,7 @@ export default function Dashboard() {
                 subtitle={formatCurrency(summary?.overdue_amount ?? 0, displayCurrency)}
                 icon={AlertTriangle}
                 variant="danger"
-                href="/accounts?status=overdue"
+                href="/monitoring?filter=overdue"
               />
               <StatCard
                 title="Completed This Month"
