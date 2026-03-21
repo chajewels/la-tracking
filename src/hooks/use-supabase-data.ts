@@ -91,8 +91,8 @@ export function useCustomerAccounts(customerId: string | undefined) {
 
       const accountIds = (accts || []).map(a => a.id);
 
-      // Fetch schedules, penalties, and payments for all accounts in parallel
-      const [schedRes, penRes, payRes] = await Promise.all([
+      // Fetch schedules, penalties, payments, and services for all accounts in parallel
+      const [schedRes, penRes, payRes, svcRes] = await Promise.all([
         accountIds.length > 0
           ? supabase.from('layaway_schedule').select('*').in('account_id', accountIds).order('installment_number', { ascending: true })
           : Promise.resolve({ data: [] as DbSchedule[], error: null }),
@@ -102,11 +102,15 @@ export function useCustomerAccounts(customerId: string | undefined) {
         accountIds.length > 0
           ? supabase.from('payments').select('*').in('account_id', accountIds).order('date_paid', { ascending: true })
           : Promise.resolve({ data: [] as any[], error: null }),
+        accountIds.length > 0
+          ? supabase.from('account_services' as any).select('*').in('account_id', accountIds).order('created_at', { ascending: true })
+          : Promise.resolve({ data: [] as any[], error: null }),
       ]);
 
       const schedules = (schedRes.data || []) as DbSchedule[];
       const penalties = (penRes.data || []) as DbPenalty[];
       const allPayments = (payRes.data || []) as any[];
+      const allServices = (svcRes.data || []) as any[];
 
       // Fetch allocations for schedule items to get actual payment dates
       const scheduleIds = schedules.map(s => s.id);
@@ -131,6 +135,7 @@ export function useCustomerAccounts(customerId: string | undefined) {
         schedule: schedules.filter(s => s.account_id === acct.id),
         penalties: penalties.filter(p => p.account_id === acct.id),
         payments: allPayments.filter(p => p.account_id === acct.id),
+        services: allServices.filter((s: any) => s.account_id === acct.id),
         schedulePaymentDates: schedulePaymentDateMap,
       }));
 
