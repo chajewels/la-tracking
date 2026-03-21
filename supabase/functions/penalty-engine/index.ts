@@ -37,54 +37,83 @@ Deno.serve(async (req) => {
       return config[key] || (currency === "PHP" ? (stage === "week1" ? 500 : 1000) : (stage === "week1" ? 1000 : 2000));
     };
 
-    // Find overdue unpaid schedule items
-    const { data: overdueItems } = await supabase
-      .from("layaway_schedule")
-      .select("*, layaway_accounts!inner(id, currency, status)")
-      .in("status", ["pending", "overdue", "partially_paid"])
-      .lt("due_date", today)
-      .in("layaway_accounts.status", ["active", "overdue"]);
+    // ── Step 1: Fetch ALL overdue unpaid schedule items in one query ──
+    // Paginate to handle >1000 rows
+    let allOverdueItems: any[] = [];
+    let page = 0;
+    const pageSize = 500;
+    while (true) {
+      const { data: batch } = await supabase
+        .from("layaway_schedule")
+        .select("*, layaway_accounts!inner(id, currency, status)")
+        .in("status", ["pending", "overdue", "partially_paid"])
+        .lt("due_date", today)
+        .in("layaway_accounts.status", ["active", "overdue"])
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+      if (!batch || batch.length === 0) break;
+      allOverdueItems = allOverdueItems.concat(batch);
+      if (batch.length < pageSize) break;
+      page++;
+    }
 
-    if (!overdueItems || overdueItems.length === 0) {
+    if (allOverdueItems.length === 0) {
       return new Response(JSON.stringify({ message: "No overdue items found", penalties_created: 0 }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    let penaltiesCreated = 0;
-    const restructuredAccounts: string[] = [];
+    // ── Step 2: Batch-fetch ALL existing penalties for these schedule items ──
+    const scheduleIds = allOverdueItems.map(i => i.id);
+    let allExistingPenalties: any[] = [];
+    // Fetch in chunks of 200 to avoid URL length limits
+    for (let i = 0; i < scheduleIds.length; i += 200) {
+      const chunk = scheduleIds.slice(i, i + 200);
+      const { data: penBatch } = await supabase
+        .from("penalty_fees")
+        .select("id, schedule_id, penalty_stage, penalty_cycle, penalty_amount, status")
+        .in("schedule_id", chunk);
+      if (penBatch) allExistingPenalties = allExistingPenalties.concat(penBatch);
+    }
 
-    for (const item of overdueItems) {
-      const dueDate = new Date(item.due_date);
+    // Build lookup: schedule_id -> Set of "stage:cycle" keys
+    const existingPenaltyMap = new Map<string, Set<string>>();
+    const unpaidPenaltyTotals = new Map<string, number>();
+    for (const p of allExistingPenalties) {
+      const key = `${p.penalty_stage}:${p.penalty_cycle}`;
+      if (!existingPenaltyMap.has(p.schedule_id)) existingPenaltyMap.set(p.schedule_id, new Set());
+      existingPenaltyMap.get(p.schedule_id)!.add(key);
+      if (p.status === "unpaid") {
+        unpaidPenaltyTotals.set(p.schedule_id, (unpaidPenaltyTotals.get(p.schedule_id) || 0) + Number(p.penalty_amount));
+      }
+    }
+
+    // ── Step 3: Determine which penalties to create ──
+    const penaltiesToInsert: any[] = [];
+    const scheduleUpdates = new Map<string, { totalPenalty: number; baseAmount: number; accountId: string }>();
+    const accountsToMarkOverdue = new Set<string>();
+
+    for (const item of allOverdueItems) {
+      const dueDate = new Date(item.due_date + "T00:00:00Z");
       const diffDays = Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
       const currency = (item as any).layaway_accounts.currency;
       const accountId = (item as any).layaway_accounts.id;
+      const existingKeys = existingPenaltyMap.get(item.id) || new Set();
 
-      // Calculate penalty cycle (each month is a new cycle)
       const cycle = Math.floor(diffDays / 30) + 1;
-
-      // Check which penalties to create
       const stages: Array<{ stage: "week1" | "week2"; triggerDays: number }> = [
         { stage: "week1", triggerDays: 7 },
         { stage: "week2", triggerDays: 14 },
       ];
 
+      let newPenaltyForItem = 0;
+
       for (const { stage, triggerDays } of stages) {
         const cycleStartDay = (cycle - 1) * 30;
         if (diffDays >= cycleStartDay + triggerDays) {
-          // Check if penalty already exists for this stage+cycle
-          const { data: existing } = await supabase
-            .from("penalty_fees")
-            .select("id")
-            .eq("schedule_id", item.id)
-            .eq("penalty_stage", stage)
-            .eq("penalty_cycle", cycle)
-            .maybeSingle();
-
-          if (!existing) {
+          const key = `${stage}:${cycle}`;
+          if (!existingKeys.has(key)) {
             const penaltyAmount = getAmount(currency, stage);
-
-            const { error: penErr } = await supabase.from("penalty_fees").insert({
+            penaltiesToInsert.push({
               account_id: accountId,
               schedule_id: item.id,
               currency,
@@ -93,159 +122,99 @@ Deno.serve(async (req) => {
               penalty_cycle: cycle,
               penalty_date: today,
             });
-
-            if (!penErr) {
-              penaltiesCreated++;
-
-              // Update schedule penalty_amount and total_due
-              const { data: allPenalties } = await supabase
-                .from("penalty_fees")
-                .select("penalty_amount")
-                .eq("schedule_id", item.id)
-                .eq("status", "unpaid");
-
-              const totalPenalty = (allPenalties || []).reduce(
-                (sum, p) => sum + Number(p.penalty_amount), 0
-              );
-
-              await supabase.from("layaway_schedule").update({
-                penalty_amount: totalPenalty,
-                total_due_amount: Number(item.base_installment_amount) + totalPenalty,
-                status: "overdue",
-              }).eq("id", item.id);
-
-              // Mark account as overdue
-              await supabase.from("layaway_accounts")
-                .update({ status: "overdue" })
-                .eq("id", accountId);
-
-              // Audit log
-              await supabase.from("audit_logs").insert({
-                entity_type: "penalty_fee",
-                entity_id: item.id,
-                action: "auto_penalty",
-                new_value_json: { stage, cycle, amount: penaltyAmount, currency },
-              });
-            }
+            existingKeys.add(key); // prevent duplicates within same run
+            newPenaltyForItem += penaltyAmount;
           }
         }
       }
-    }
 
-    // ── 6-Month Overdue Restructuring Check ──
-    // Find accounts that are 6+ months past their end_date and haven't been restructured yet
-    const { data: overdueAccounts } = await supabase
-      .from("layaway_accounts")
-      .select("id, end_date, payment_plan_months, notes")
-      .eq("status", "overdue")
-      .not("end_date", "is", null);
-
-    if (overdueAccounts) {
-      for (const acct of overdueAccounts) {
-        if (!acct.end_date) continue;
-        const endDate = new Date(acct.end_date);
-        const monthsPast = (now.getFullYear() - endDate.getFullYear()) * 12 +
-          (now.getMonth() - endDate.getMonth());
-
-        // Only restructure if 6+ months past due and hasn't already been extended beyond original
-        // We check if the plan is still at its original length (3 or 6)
-        if (monthsPast >= 6 && (acct.payment_plan_months === 3 || acct.payment_plan_months === 6)) {
-          // Auto-restructure: cancel unpaid installments, generate new ones
-          const { data: schedule } = await supabase
-            .from("layaway_schedule")
-            .select("*")
-            .eq("account_id", acct.id)
-            .order("installment_number", { ascending: true });
-
-          if (!schedule) continue;
-
-          const paidItems = schedule.filter(s => s.status === "paid");
-          const unpaidItems = schedule.filter(s => s.status !== "paid" && s.status !== "cancelled");
-
-          const newMonths = acct.payment_plan_months + 2;
-          const unpaidMonthsCount = newMonths - paidItems.length;
-          if (unpaidMonthsCount <= 0) continue;
-
-          // Get remaining balance from account
-          const { data: freshAcct } = await supabase
-            .from("layaway_accounts")
-            .select("remaining_balance, order_date, currency")
-            .eq("id", acct.id)
-            .single();
-          if (!freshAcct) continue;
-
-          const remainingBal = Number(freshAcct.remaining_balance);
-          const orderDay = new Date(freshAcct.order_date).getDate();
-          const perMonth = Math.floor(remainingBal / unpaidMonthsCount);
-          const rem = remainingBal - perMonth * unpaidMonthsCount;
-
-          // Cancel unpaid installments
-          for (const item of unpaidItems) {
-            await supabase.from("layaway_schedule")
-              .update({ status: "cancelled" })
-              .eq("id", item.id);
-          }
-
-          // Find the last due date for scheduling
-          const lastDate = paidItems.length > 0
-            ? new Date(paidItems[paidItems.length - 1].due_date)
-            : new Date(freshAcct.order_date);
-
-          let newEndDate = "";
-          for (let i = 0; i < unpaidMonthsCount; i++) {
-            const isLast = i === unpaidMonthsCount - 1;
-            const amount = isLast ? perMonth + rem : perMonth;
-            const dueDate = new Date(lastDate);
-            dueDate.setMonth(dueDate.getMonth() + i + 1);
-            dueDate.setDate(Math.min(orderDay, new Date(dueDate.getFullYear(), dueDate.getMonth() + 1, 0).getDate()));
-            const dueDateStr = dueDate.toISOString().split("T")[0];
-            newEndDate = dueDateStr;
-
-            await supabase.from("layaway_schedule").insert({
-              account_id: acct.id,
-              installment_number: paidItems.length + 1 + i,
-              due_date: dueDateStr,
-              base_installment_amount: amount,
-              total_due_amount: amount,
-              paid_amount: 0,
-              currency: freshAcct.currency,
-              status: "pending",
-            });
-          }
-
-          // Update account
-          await supabase.from("layaway_accounts").update({
-            payment_plan_months: newMonths,
-            end_date: newEndDate,
-          }).eq("id", acct.id);
-
-          // Audit
-          await supabase.from("audit_logs").insert({
-            entity_type: "account",
-            entity_id: acct.id,
-            action: "auto_restructure",
-            new_value_json: {
-              old_months: acct.payment_plan_months,
-              new_months: newMonths,
-              new_end_date: newEndDate,
-              reason: "6_month_overdue_auto_extension",
-            },
-          });
-
-          restructuredAccounts.push(acct.id);
-        }
+      if (newPenaltyForItem > 0) {
+        const existingUnpaid = unpaidPenaltyTotals.get(item.id) || 0;
+        const totalPenalty = existingUnpaid + newPenaltyForItem;
+        scheduleUpdates.set(item.id, {
+          totalPenalty,
+          baseAmount: Number(item.base_installment_amount),
+          accountId,
+        });
+        accountsToMarkOverdue.add(accountId);
       }
     }
+
+    // ── Step 4: Batch insert penalties ──
+    let penaltiesCreated = 0;
+    if (penaltiesToInsert.length > 0) {
+      // Insert in chunks of 100
+      for (let i = 0; i < penaltiesToInsert.length; i += 100) {
+        const chunk = penaltiesToInsert.slice(i, i + 100);
+        const { error } = await supabase.from("penalty_fees").insert(chunk);
+        if (!error) penaltiesCreated += chunk.length;
+        else console.error("Penalty insert error:", error);
+      }
+    }
+
+    // ── Step 5: Update schedule items with new penalty totals ──
+    for (const [schedId, info] of scheduleUpdates) {
+      await supabase.from("layaway_schedule").update({
+        penalty_amount: info.totalPenalty,
+        total_due_amount: info.baseAmount + info.totalPenalty,
+        status: "overdue",
+      }).eq("id", schedId);
+    }
+
+    // ── Step 6: Mark accounts as overdue ──
+    for (const accountId of accountsToMarkOverdue) {
+      await supabase.from("layaway_accounts")
+        .update({ status: "overdue" })
+        .eq("id", accountId);
+    }
+
+    // ── Step 7: Batch audit log ──
+    if (penaltiesToInsert.length > 0) {
+      const auditEntries = penaltiesToInsert.map(p => ({
+        entity_type: "penalty_fee",
+        entity_id: p.schedule_id,
+        action: "auto_penalty",
+        new_value_json: {
+          stage: p.penalty_stage,
+          cycle: p.penalty_cycle,
+          amount: p.penalty_amount,
+          currency: p.currency,
+        },
+      }));
+      for (let i = 0; i < auditEntries.length; i += 100) {
+        await supabase.from("audit_logs").insert(auditEntries.slice(i, i + 100));
+      }
+    }
+
+    // ── Step 8: Update remaining_balance for affected accounts ──
+    for (const accountId of accountsToMarkOverdue) {
+      const { data: allSchedule } = await supabase
+        .from("layaway_schedule")
+        .select("total_due_amount, paid_amount, status")
+        .eq("account_id", accountId);
+
+      if (allSchedule) {
+        const newRemaining = allSchedule.reduce((sum, s) => {
+          if (s.status === "paid" || s.status === "cancelled") return sum;
+          return sum + Math.max(0, Number(s.total_due_amount) - Number(s.paid_amount));
+        }, 0);
+        await supabase.from("layaway_accounts")
+          .update({ remaining_balance: newRemaining })
+          .eq("id", accountId);
+      }
+    }
+
     return new Response(JSON.stringify({
       message: "Penalty engine completed",
       penalties_created: penaltiesCreated,
-      items_checked: overdueItems.length,
-      accounts_restructured: restructuredAccounts,
+      items_checked: allOverdueItems.length,
+      accounts_affected: accountsToMarkOverdue.size,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
+    console.error("Penalty engine error:", error);
+    return new Response(JSON.stringify({ error: (error as Error).message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
