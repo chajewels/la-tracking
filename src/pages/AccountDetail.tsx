@@ -721,6 +721,27 @@ export default function AccountDetail() {
           )}
         </div>
 
+        {/* Restore Payment Dialog */}
+        <RestorePaymentDialog
+          open={!!restoreTarget}
+          onOpenChange={(open) => { if (!open) setRestoreTarget(null); }}
+          paymentId={restoreTarget?.id || ''}
+          paymentAmount={restoreTarget?.amount || 0}
+          paymentDate={restoreTarget?.date || ''}
+          currency={account.currency as Currency}
+          schedule={scheduleItems}
+          onRestore={async (paymentId) => {
+            try {
+              await restorePayment.mutateAsync({ payment_id: paymentId });
+              toast.success('Payment restored successfully');
+              setRestoreTarget(null);
+            } catch (err: any) {
+              toast.error(err.message || 'Failed to restore payment');
+            }
+          }}
+          isPending={restorePayment.isPending}
+        />
+
         {/* Void Confirmation Dialog */}
         <AlertDialog open={!!voidTarget} onOpenChange={(open) => { if (!open) setVoidTarget(null); }}>
           <AlertDialogContent className="bg-card border-border">
