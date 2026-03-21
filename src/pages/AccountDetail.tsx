@@ -464,74 +464,48 @@ export default function AccountDetail() {
                 </div>
               )}
               {scheduleItems.map((item) => {
-                const isPaid = item.status === 'paid';
-                const isPartial = item.status === 'partially_paid';
+                const effPaid = isEffectivelyPaid(item);
                 const penaltyAmt = Number(item.penalty_amount);
                 const paidAmt = Number(item.paid_amount);
                 const totalDue = Number(item.total_due_amount);
                 const baseAmt = Number(item.base_installment_amount);
                 const remainingDue = getRemainingDue(item);
-                const overpaymentCredit = getOverpaymentCredit(item);
                 const isEditingThis = editingScheduleId === item.id;
                 const canEdit = account.status !== 'forfeited' && account.status !== 'cancelled' && item.status !== 'cancelled';
                 return (
                   <div key={item.id}
                     className={`group flex items-center justify-between p-2.5 sm:p-3 rounded-lg border ${
-                      isPaid ? 'bg-success/5 border-success/10' : 'bg-card border-border'
+                      effPaid ? 'bg-success/5 border-success/10' : 'bg-card border-border'
                     }`}
                   >
                     <div className="flex items-center gap-2 sm:gap-3">
                       <div className={`flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-full text-[10px] sm:text-xs font-bold ${
-                        isPaid ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'
+                        effPaid ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'
                       }`}>
-                        {isPaid ? <Check className="h-3 w-3" /> : item.installment_number}
+                        {effPaid ? <Check className="h-3 w-3" /> : item.installment_number}
                       </div>
                       <div>
                         <p className="text-xs sm:text-sm font-medium text-card-foreground">
                           {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                         </p>
                         <p className="text-[10px] sm:text-xs text-muted-foreground">
-                          {isPaid ? 'Paid' : `Month ${item.installment_number}`}
+                          {effPaid ? 'Paid' : `Month ${item.installment_number}`}
                         </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5">
                       {isEditingThis ? (
-                        <div className="flex items-center gap-1.5">
-                          <Input
-                            type="number"
-                            value={editScheduleAmount}
-                            onChange={(e) => setEditScheduleAmount(e.target.value)}
-                            className="h-7 w-24 text-xs bg-background tabular-nums"
-                            autoFocus
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleEditScheduleSubmit(item.id);
-                              if (e.key === 'Escape') setEditingScheduleId(null);
-                            }}
-                          />
-                          <Button variant="ghost" size="icon" className="h-6 w-6 text-success" disabled={editScheduleLoading}
-                            onClick={() => handleEditScheduleSubmit(item.id)}>
-                            <Save className="h-3 w-3" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground"
-                            onClick={() => setEditingScheduleId(null)}>
-                            <X className="h-3 w-3" />
-                          </Button>
-                        </div>
+...
                       ) : (
                         <>
                            <div className="text-right">
-                            <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isPaid ? 'text-success' : 'text-card-foreground'}`}>
-                              {formatCurrency(isPaid ? Math.max(paidAmt, totalDue) : totalDue, currency)}
+                            <p className={`text-xs sm:text-sm font-semibold tabular-nums ${effPaid ? 'text-success' : 'text-card-foreground'}`}>
+                              {formatCurrency(effPaid ? Math.max(paidAmt, totalDue) : totalDue, currency)}
                             </p>
-                            {paidAmt > 0 && !isPaid ? (
-                              <p className="text-[10px] text-muted-foreground tabular-nums">
-                                Paid {formatCurrency(paidAmt, currency)} of {formatCurrency(totalDue, currency)}
-                              </p>
-                            ) : penaltyAmt > 0 ? (
+                            {penaltyAmt > 0 ? (
                               <p className="text-[10px] text-destructive flex items-center gap-1 justify-end">
                                 <AlertTriangle className="h-2.5 w-2.5" />
-                                {isPaid ? 'Incl.' : 'Includes'} {formatCurrency(penaltyAmt, currency)} penalty
+                                {effPaid ? 'Incl.' : 'Includes'} {formatCurrency(penaltyAmt, currency)} penalty
                               </p>
                             ) : null}
                           </div>
