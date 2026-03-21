@@ -16,6 +16,7 @@ import Collections from "./pages/Collections";
 import Finance from "./pages/Finance";
 import Analytics from "./pages/Analytics";
 import SettingsPage from "./pages/SettingsPage";
+import Waivers from "./pages/Waivers";
 import Login from "./pages/Login";
 
 import Reminders from "./pages/Reminders";
