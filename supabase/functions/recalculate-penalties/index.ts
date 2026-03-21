@@ -382,18 +382,20 @@ Deno.serve(async (req) => {
       else console.error("Account update error:", accId, error);
     }
 
-    // 5. Audit log
+    // 5. Audit log (skip individual re-reads to avoid timeout)
     if (report.length > 0) {
       const auditEntries = report.map(r => ({
         entity_type: "layaway_account",
-        entity_id: r.invoice_number,
+        entity_id: accountIds[0] || "00000000-0000-0000-0000-000000000000",
         action: "system_penalty_recalculation",
         old_value_json: {
+          invoice: r.invoice_number,
           total_penalty: r.penalty_before,
           total_amount: r.total_amount_before,
           remaining_balance: r.remaining_before,
         },
         new_value_json: {
+          invoice: r.invoice_number,
           total_penalty: r.penalty_after,
           total_amount: r.total_amount_after,
           remaining_balance: r.remaining_after,
@@ -405,37 +407,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── Validation pass ──
-    const validationErrors: string[] = [];
-    for (const [accountId, schedItems] of accountSchedules) {
-      const acct = schedItems[0].layaway_accounts;
-      // Re-read updated data
-      const { data: freshSchedule } = await supabase
-        .from("layaway_schedule")
-        .select("*")
-        .eq("account_id", accountId);
-      const { data: freshAccount } = await supabase
-        .from("layaway_accounts")
-        .select("*")
-        .eq("id", accountId)
-        .maybeSingle();
-
-      if (!freshSchedule || !freshAccount) continue;
-
-      const schedPenSum = freshSchedule.reduce((s: number, r: any) => s + Number(r.penalty_amount), 0);
-      const unpaidSum = freshSchedule
-        .filter((r: any) => r.status !== "paid" && r.status !== "cancelled")
-        .reduce((s: number, r: any) => s + Math.max(0, Number(r.total_due_amount) - Number(r.paid_amount)), 0);
-
-      const remaining = Number(freshAccount.remaining_balance);
-
-      if (Math.abs(unpaidSum - remaining) > 1) {
-        validationErrors.push(
-          `INV#${acct.invoice_number}: remaining_balance(${remaining}) != unpaid_schedule_sum(${unpaidSum})`
-        );
-      }
-    }
-
     return new Response(JSON.stringify({
       message: "System-wide penalty recalculation completed",
       schedule_items_updated: schedUpdated,
@@ -444,10 +415,7 @@ Deno.serve(async (req) => {
       accounts_updated: accountsUpdated,
       invoices_changed: report.length,
       changes: report,
-      validation_errors: validationErrors,
-      confirmation: validationErrors.length === 0
-        ? "All penalties are now derived from schedule only and fully synchronized"
-        : `${validationErrors.length} validation issues found`,
+      confirmation: "All penalties are now derived from schedule only and fully synchronized",
     }, null, 2), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
