@@ -576,6 +576,7 @@ export default function AdminAudit() {
         <Tabs defaultValue="reconciliation" className="space-y-4">
           <TabsList className="bg-muted/50 flex-wrap">
             <TabsTrigger value="reconciliation" className="gap-1.5"><DollarSign className="h-3.5 w-3.5" /> Reconciliation</TabsTrigger>
+            <TabsTrigger value="penalty-cap" className="gap-1.5"><ShieldCheck className="h-3.5 w-3.5" /> Penalty Cap Audit</TabsTrigger>
             <TabsTrigger value="health" className="gap-1.5"><Activity className="h-3.5 w-3.5" /> System Health</TabsTrigger>
             <TabsTrigger value="penalties" className="gap-1.5"><Gavel className="h-3.5 w-3.5" /> Penalty Audit</TabsTrigger>
             <TabsTrigger value="overdue" className="gap-1.5"><AlertTriangle className="h-3.5 w-3.5" /> Overdue Debug</TabsTrigger>
@@ -583,6 +584,7 @@ export default function AdminAudit() {
           </TabsList>
 
           <TabsContent value="reconciliation"><ReconciliationTab /></TabsContent>
+          <TabsContent value="penalty-cap"><PenaltyCapAuditPanel /></TabsContent>
           <TabsContent value="health"><SystemHealthTab /></TabsContent>
           <TabsContent value="penalties"><PenaltyAuditTab /></TabsContent>
           <TabsContent value="overdue"><OverdueDebugTab /></TabsContent>

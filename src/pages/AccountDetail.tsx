@@ -317,6 +317,13 @@ export default function AccountDetail() {
             <p className="text-sm text-muted-foreground mt-0.5">
               {account.customers?.full_name} · {account.payment_plan_months}-Month Plan · {currency}
             </p>
+            {penaltyCapOverride && (
+              <div className="mt-1 flex items-center gap-2">
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
+                  Manual Override Active — Penalty capped at {currency === 'PHP' ? '₱1,000' : '¥2,000'}
+                </span>
+              </div>
+            )}
           </div>
           <div className="flex gap-2 flex-wrap">
             <ReassignOwnerDialog
