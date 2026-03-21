@@ -272,7 +272,39 @@ export default function AccountDetail() {
           </Link>
           <div className="flex-1">
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">INV #{account.invoice_number}</h1>
+              {editingInvoice ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={invoiceInput}
+                    onChange={e => setInvoiceInput(e.target.value)}
+                    className="h-8 w-40 text-sm"
+                    autoFocus
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleInvoiceSave();
+                      if (e.key === 'Escape') setEditingInvoice(false);
+                    }}
+                  />
+                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleInvoiceSave} disabled={invoiceSaving}>
+                    <Check className="h-3.5 w-3.5 text-success" />
+                  </Button>
+                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditingInvoice(false)}>
+                    <X className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">INV #{account.invoice_number}</h1>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                    onClick={() => { setInvoiceInput(account.invoice_number); setEditingInvoice(true); }}
+                    title="Edit invoice number"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
               <Badge variant="outline" className={
                 account.status === 'forfeited' ? 'bg-orange-500/10 text-orange-500 border-orange-500/20 text-xs' :
                 account.status === 'overdue' ? 'bg-destructive/10 text-destructive border-destructive/20 text-xs' :
