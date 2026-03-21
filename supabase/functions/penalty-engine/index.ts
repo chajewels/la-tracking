@@ -103,7 +103,15 @@ Deno.serve(async (req) => {
       const diffDays = Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
       const currency = (item as any).layaway_accounts.currency;
       const accountId = (item as any).layaway_accounts.id;
+      const installmentNumber = item.installment_number;
       const existingKeys = existingPenaltyMap.get(item.id) || new Set();
+
+      // Calculate current active penalty total for this schedule item
+      const currentPenaltyTotal = unpaidPenaltyTotals.get(item.id) || 0;
+      const cap = getPenaltyCap(currency, installmentNumber);
+
+      // Skip if already at or over cap for months 1-5
+      if (currentPenaltyTotal >= cap) continue;
 
       const cycle = Math.floor(diffDays / 30) + 1;
       const stages: Array<{ stage: "week1" | "week2"; triggerDays: number }> = [
@@ -118,7 +126,15 @@ Deno.serve(async (req) => {
         if (diffDays >= cycleStartDay + triggerDays) {
           const key = `${stage}:${cycle}`;
           if (!existingKeys.has(key)) {
-            const penaltyAmount = getAmount(currency, stage);
+            let penaltyAmount = getAmount(currency, stage);
+
+            // Enforce cap: reduce penalty if it would exceed limit
+            const projectedTotal = currentPenaltyTotal + newPenaltyForItem + penaltyAmount;
+            if (projectedTotal > cap) {
+              penaltyAmount = Math.max(0, cap - currentPenaltyTotal - newPenaltyForItem);
+              if (penaltyAmount <= 0) continue; // Skip - would exceed cap
+            }
+
             penaltiesToInsert.push({
               account_id: accountId,
               schedule_id: item.id,
@@ -128,7 +144,7 @@ Deno.serve(async (req) => {
               penalty_cycle: cycle,
               penalty_date: today,
             });
-            existingKeys.add(key); // prevent duplicates within same run
+            existingKeys.add(key);
             newPenaltyForItem += penaltyAmount;
           }
         }
