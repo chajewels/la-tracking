@@ -66,14 +66,19 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     .filter(s => s.status !== 'paid' && s.status !== 'cancelled')
     .sort((a, b) => a.installment_number - b.installment_number);
 
-  const monthOptions: { months: number; amount: number }[] = [];
+  const monthOptions: { months: number; amount: number; label: string; dueDate: string }[] = [];
   if (!payFullBalance && unpaidItems.length > 0) {
     let cumulative = 0;
     for (let i = 0; i < Math.min(5, unpaidItems.length); i++) {
-      const due = Math.max(0, Number(unpaidItems[i].total_due_amount) - Number(unpaidItems[i].paid_amount));
+      const item = unpaidItems[i];
+      const due = Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
       cumulative += due;
       if (cumulative > 0) {
-        monthOptions.push({ months: i + 1, amount: cumulative });
+        const dateLabel = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const rangeLabel = i === 0
+          ? dateLabel
+          : `${new Date(unpaidItems[0].due_date).toLocaleDateString('en-US', { month: 'short' })} – ${new Date(item.due_date).toLocaleDateString('en-US', { month: 'short' })}`;
+        monthOptions.push({ months: i + 1, amount: cumulative, label: rangeLabel, dueDate: item.due_date });
       }
     }
   }
