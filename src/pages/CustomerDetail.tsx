@@ -116,11 +116,21 @@ export default function CustomerDetail() {
 
     for (const acct of accounts) {
       const currency = acct.account.currency as Currency;
-      const totalAmount = Number(acct.account.total_amount);
+      const scheduleItems = acct.schedule || [];
+
+      // Derive totals from schedule (single source of truth)
+      const downpayment = Number((acct.account as any).downpayment_amount || 0);
+      const schedBaseSum = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
+      const schedPenaltySum = scheduleItems.reduce((s, i) => s + Number(i.penalty_amount), 0);
+      const originalPrincipal = downpayment + schedBaseSum;
+      const acctServicesList = (acct as any).services || [];
+      const totalSvcAmt = acctServicesList.reduce((s: number, svc: any) => s + Number(svc.amount), 0);
+      const totalAmount = originalPrincipal + totalSvcAmt + schedPenaltySum;
       const totalPaid = Number(acct.account.total_paid);
-      const remainingBalance = Number(acct.account.remaining_balance);
-      const unpaidPenalties = (acct.penalties || []).filter(p => p.status === 'unpaid');
-      const totalPenalty = unpaidPenalties.reduce((s, p) => s + Number(p.penalty_amount), 0);
+      const remainingBalance = scheduleItems
+        .filter(s => s.status !== 'paid' && s.status !== 'cancelled')
+        .reduce((sum, s) => sum + Math.max(0, Number(s.total_due_amount) - Number(s.paid_amount)), 0);
+
       const activePayments = [...(acct.payments || [])]
         .filter((p: any) => !p.voided_at)
         .sort((a: any, b: any) => {
@@ -171,8 +181,6 @@ export default function CustomerDetail() {
           });
         }
       }
-
-      const scheduleItems = acct.schedule || [];
 
       const unpaidSchedule = getUnpaidScheduleItems(scheduleItems);
 
