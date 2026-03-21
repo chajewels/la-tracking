@@ -172,7 +172,15 @@ export default function AccountDetail() {
 
   // Build message from schedule + active payment data
   const scheduleItems = schedule || [];
-  const unpaidSchedule = scheduleItems.filter(s => s.status !== 'paid');
+  const getRemainingDue = (item: { total_due_amount: number | string; paid_amount: number | string }) =>
+    Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
+  const isEffectivelyPaid = (item: { status: string; paid_amount: number | string; total_due_amount: number | string }) =>
+    item.status === 'paid' || (Number(item.paid_amount) > 0 && Number(item.paid_amount) >= Number(item.total_due_amount));
+  const getOverpaymentCredit = (item: { total_due_amount: number | string; paid_amount: number | string; status: string }) =>
+    isEffectivelyPaid(item)
+      ? Math.max(0, Number(item.paid_amount) - Number(item.total_due_amount))
+      : 0;
+  const unpaidSchedule = scheduleItems.filter(s => !isEffectivelyPaid(s) && s.status !== 'cancelled');
   const activePayments = [...(payments || [])]
     .filter(payment => !payment.voided_at)
     .sort((a, b) => {
@@ -192,12 +200,6 @@ export default function AccountDetail() {
     return `${label} ${dateStr}: ${formatCurrency(Number(payment.amount_paid), payment.currency as Currency)}`;
   });
   const ordinals = ['1st', '2nd', '3rd', '4th', '5th', '6th'];
-  const getRemainingDue = (item: { total_due_amount: number | string; paid_amount: number | string }) =>
-    Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
-  const getOverpaymentCredit = (item: { total_due_amount: number | string; paid_amount: number | string; status: string }) =>
-    item.status === 'paid'
-      ? Math.max(0, Number(item.paid_amount) - Number(item.total_due_amount))
-      : 0;
 
   // Find the most recent payment for the thank-you line
   const mostRecentPayment = activePayments.length > 0
@@ -230,30 +232,28 @@ export default function AccountDetail() {
   }
   const laRemainingText = `LA ${new Date(account.end_date || account.order_date).toLocaleDateString('en-US', { month: 'short' }).toUpperCase()} remaining balance`;
   message += `================\n`;
-  const unpaidCount = scheduleItems.filter(s => s.status !== 'paid' && s.status !== 'cancelled').length;
-  message += `${laRemainingText} - ${formatCurrency(remainingBalance, currency)} to pay in ${unpaidCount} months\n\n`;
+  const unpaidCount = scheduleItems.filter(s => !isEffectivelyPaid(s) && s.status !== 'cancelled').length;
+  message += `${laRemainingText} - ${formatCurrency(remainingBalance, currency)} to pay in ${unpaidCount} month${unpaidCount !== 1 ? 's' : ''}\n\n`;
 
-  message += `Payment Schedule:\n\n`;
+  message += `Monthly Payment:\n`;
   scheduleItems.forEach((item, idx) => {
-    const isPaid = item.status === 'paid';
-    const isPartial = item.status === 'partially_paid';
+    const effPaid = isEffectivelyPaid(item);
     const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
     const penalty = Number(item.penalty_amount);
+    const baseAmt = Number(item.base_installment_amount);
+    const paidAmt = Number(item.paid_amount);
     const totalDue = Number(item.total_due_amount);
-    const paid = Number(item.paid_amount);
+    const displayAmt = effPaid ? Math.max(paidAmt, totalDue) : totalDue;
     const remainingDue = getRemainingDue(item);
-    const overpaymentCredit = getOverpaymentCredit(item);
 
-    if (isPaid) {
+    if (effPaid) {
       if (penalty > 0) {
-        message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(Number(item.base_installment_amount), currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(paid, currency)} (PAID)\n`;
+        message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(displayAmt, currency)} (PAID)\n`;
       } else {
-        message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(paid, currency)} (PAID)\n`;
+        message += `✅ ${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(displayAmt, currency)} (PAID)\n`;
       }
-    } else if (isPartial) {
-      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(totalDue, currency)} (Paid: ${formatCurrency(paid, currency)}, Remaining: ${formatCurrency(remainingDue, currency)})${penalty > 0 ? ` (includes ${formatCurrency(penalty, currency)} penalty)` : ''}\n`;
     } else if (penalty > 0) {
-      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(Number(item.base_installment_amount), currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
+      message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
     } else {
       message += `${ordinals[idx] || `${idx + 1}th`} month ${dateStr}: ${formatCurrency(remainingDue, currency)}\n`;
     }
@@ -464,34 +464,32 @@ export default function AccountDetail() {
                 </div>
               )}
               {scheduleItems.map((item) => {
-                const isPaid = item.status === 'paid';
-                const isPartial = item.status === 'partially_paid';
+                const effPaid = isEffectivelyPaid(item);
                 const penaltyAmt = Number(item.penalty_amount);
                 const paidAmt = Number(item.paid_amount);
                 const totalDue = Number(item.total_due_amount);
                 const baseAmt = Number(item.base_installment_amount);
                 const remainingDue = getRemainingDue(item);
-                const overpaymentCredit = getOverpaymentCredit(item);
                 const isEditingThis = editingScheduleId === item.id;
                 const canEdit = account.status !== 'forfeited' && account.status !== 'cancelled' && item.status !== 'cancelled';
                 return (
                   <div key={item.id}
                     className={`group flex items-center justify-between p-2.5 sm:p-3 rounded-lg border ${
-                      isPaid ? 'bg-success/5 border-success/10' : 'bg-card border-border'
+                      effPaid ? 'bg-success/5 border-success/10' : 'bg-card border-border'
                     }`}
                   >
                     <div className="flex items-center gap-2 sm:gap-3">
                       <div className={`flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-full text-[10px] sm:text-xs font-bold ${
-                        isPaid ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'
+                        effPaid ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'
                       }`}>
-                        {isPaid ? <Check className="h-3 w-3" /> : item.installment_number}
+                        {effPaid ? <Check className="h-3 w-3" /> : item.installment_number}
                       </div>
                       <div>
                         <p className="text-xs sm:text-sm font-medium text-card-foreground">
                           {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                         </p>
                         <p className="text-[10px] sm:text-xs text-muted-foreground">
-                          {isPaid ? 'Paid' : `Month ${item.installment_number}`}
+                          {effPaid ? 'Paid' : `Month ${item.installment_number}`}
                         </p>
                       </div>
                     </div>
@@ -521,17 +519,13 @@ export default function AccountDetail() {
                       ) : (
                         <>
                            <div className="text-right">
-                            <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isPaid ? 'text-success' : 'text-card-foreground'}`}>
-                              {formatCurrency(isPaid ? Math.max(paidAmt, totalDue) : totalDue, currency)}
+                            <p className={`text-xs sm:text-sm font-semibold tabular-nums ${effPaid ? 'text-success' : 'text-card-foreground'}`}>
+                              {formatCurrency(effPaid ? Math.max(paidAmt, totalDue) : totalDue, currency)}
                             </p>
-                            {paidAmt > 0 && !isPaid ? (
-                              <p className="text-[10px] text-muted-foreground tabular-nums">
-                                Paid {formatCurrency(paidAmt, currency)} of {formatCurrency(totalDue, currency)}
-                              </p>
-                            ) : penaltyAmt > 0 ? (
+                            {penaltyAmt > 0 ? (
                               <p className="text-[10px] text-destructive flex items-center gap-1 justify-end">
                                 <AlertTriangle className="h-2.5 w-2.5" />
-                                {isPaid ? 'Incl.' : 'Includes'} {formatCurrency(penaltyAmt, currency)} penalty
+                                {effPaid ? 'Incl.' : 'Includes'} {formatCurrency(penaltyAmt, currency)} penalty
                               </p>
                             ) : null}
                           </div>
