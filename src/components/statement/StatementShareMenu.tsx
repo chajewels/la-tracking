@@ -106,7 +106,7 @@ export default function StatementShareMenu({
     if (error) throw error;
     setTokenInfo(newToken);
     setTokenStatus('active');
-    const url = `${window.location.origin}/statement?token=${newToken.token}`;
+    const url = buildStatementUrl(newToken.token);
     setLink(url);
 
     const expiryStr = newToken.expires_at
