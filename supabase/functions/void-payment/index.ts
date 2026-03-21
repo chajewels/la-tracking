@@ -5,23 +5,26 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+function determineScheduleStatus(item: { paid_amount: number; base_installment_amount: number; due_date: string }): string {
+  const today = new Date().toISOString().split("T")[0];
+  if (item.paid_amount >= item.base_installment_amount && item.base_installment_amount > 0) return "paid";
+  if (item.paid_amount > 0) return "partially_paid";
+  if (item.due_date <= today) return "overdue";
+  return "pending";
+}
+
 function determineAccountStatus(schedule: any[], currentStatus: string): string {
   if (currentStatus === "cancelled" || currentStatus === "forfeited") return currentStatus;
-
   const today = new Date().toISOString().split("T")[0];
   let allPaid = true;
   let hasOverdue = false;
-
   for (const item of schedule) {
     if (item.status === "cancelled") continue;
     if (item.status !== "paid") {
       allPaid = false;
-      if (item.due_date <= today) {
-        hasOverdue = true;
-      }
+      if (item.due_date <= today) hasOverdue = true;
     }
   }
-
   if (allPaid) return "completed";
   if (hasOverdue) return "overdue";
   return "active";
@@ -51,8 +54,7 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -61,16 +63,14 @@ Deno.serve(async (req) => {
     );
     if (authError || !user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const { payment_id, reason } = await req.json();
     if (!payment_id) {
       return new Response(JSON.stringify({ error: "payment_id is required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -83,8 +83,20 @@ Deno.serve(async (req) => {
 
     if (payErr || !payment) {
       return new Response(JSON.stringify({ error: "Payment not found or already voided" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Get account info (need downpayment_amount for recalculation)
+    const { data: account } = await supabase
+      .from("layaway_accounts")
+      .select("*")
+      .eq("id", payment.account_id)
+      .single();
+
+    if (!account) {
+      return new Response(JSON.stringify({ error: "Account not found" }), {
+        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -94,7 +106,7 @@ Deno.serve(async (req) => {
       .select("*")
       .eq("payment_id", payment_id);
 
-    // Reverse each allocation
+    // Step 1: Reverse direct allocation effects on schedule items
     for (const alloc of (allocations || [])) {
       if (alloc.allocation_type === "installment") {
         const { data: sched } = await supabase
@@ -105,26 +117,11 @@ Deno.serve(async (req) => {
 
         if (sched) {
           const newPaid = Math.max(0, Number(sched.paid_amount) - Number(alloc.allocated_amount));
-          // Determine proper status based on paid amount and due date
-          const today = new Date().toISOString().split("T")[0];
-          let newStatus: string;
-          if (newPaid >= Number(sched.base_installment_amount)) {
-            newStatus = "paid";
-          } else if (newPaid > 0) {
-            newStatus = "partially_paid";
-          } else if (sched.due_date <= today) {
-            newStatus = "overdue";
-          } else {
-            newStatus = "pending";
-          }
-
           await supabase.from("layaway_schedule").update({
             paid_amount: newPaid,
-            status: newStatus,
           }).eq("id", alloc.schedule_id);
         }
       } else if (alloc.allocation_type === "penalty") {
-        // Find matching paid penalty for this schedule item
         const { data: penaltyFees } = await supabase
           .from("penalty_fees")
           .select("*")
@@ -136,53 +133,104 @@ Deno.serve(async (req) => {
 
         if (penaltyFees && penaltyFees.length > 0) {
           await supabase.from("penalty_fees").update({ status: "unpaid" }).eq("id", penaltyFees[0].id);
-
-          // Update the schedule item's penalty_amount to reflect unpaid penalty
-          const { data: allPenalties } = await supabase
-            .from("penalty_fees")
-            .select("penalty_amount, status")
-            .eq("schedule_id", alloc.schedule_id)
-            .eq("account_id", payment.account_id);
-
-          if (allPenalties) {
-            const totalUnpaidPenalty = allPenalties
-              .filter(p => p.status === "unpaid" || p.id === penaltyFees[0].id)
-              .reduce((sum, p) => sum + Number(p.penalty_amount), 0);
-
-            const { data: schedItem } = await supabase
-              .from("layaway_schedule")
-              .select("base_installment_amount")
-              .eq("id", alloc.schedule_id)
-              .single();
-
-            if (schedItem) {
-              await supabase.from("layaway_schedule").update({
-                penalty_amount: totalUnpaidPenalty,
-                total_due_amount: Number(schedItem.base_installment_amount) + totalUnpaidPenalty,
-              }).eq("id", alloc.schedule_id);
-            }
-          }
         }
       }
     }
 
-    // Now recalculate account from the updated schedule
-    const { data: updatedSchedule } = await supabase
+    // Step 2: Fix overpayment-reduced installments
+    // When record-payment handles overpayment, it reduces base_installment_amount of
+    // future installments (from the end). We need to restore those.
+    const { data: schedule } = await supabase
       .from("layaway_schedule")
       .select("*")
       .eq("account_id", payment.account_id)
       .order("installment_number", { ascending: true });
 
-    const { data: account } = await supabase
-      .from("layaway_accounts")
-      .select("*")
-      .eq("id", payment.account_id)
-      .single();
+    if (schedule && schedule.length > 0) {
+      const expectedInstallmentTotal = Number(account.total_amount) - Number(account.downpayment_amount);
+      const currentBaseSum = schedule.reduce((sum, s) => sum + Number(s.base_installment_amount), 0);
+      let deficit = Math.round((expectedInstallmentTotal - currentBaseSum) * 100) / 100;
 
-    if (account && updatedSchedule) {
+      if (deficit > 0.5) {
+        // Redistribute deficit to installments with reduced/zero base, from the last backwards
+        const reversedSchedule = [...schedule].reverse();
+        for (const item of reversedSchedule) {
+          if (deficit <= 0) break;
+
+          // Find installments whose base was likely reduced (base is 0 or suspiciously low)
+          // A normal installment base should be roughly expectedTotal / planMonths
+          const normalBase = expectedInstallmentTotal / schedule.length;
+          const currentBase = Number(item.base_installment_amount);
+
+          if (currentBase < normalBase * 0.5) {
+            // This item was likely reduced by overpayment
+            const restore = Math.min(deficit, normalBase - currentBase);
+            const newBase = currentBase + restore;
+            deficit -= restore;
+
+            // If it was marked "paid" with 0 base and 0 paid, reset it
+            const paidAmt = Number(item.paid_amount);
+            const newStatus = determineScheduleStatus({
+              paid_amount: paidAmt,
+              base_installment_amount: newBase,
+              due_date: item.due_date,
+            });
+
+            await supabase.from("layaway_schedule").update({
+              base_installment_amount: newBase,
+              total_due_amount: newBase + Number(item.penalty_amount || 0),
+              status: newStatus,
+            }).eq("id", item.id);
+
+            // Update our local copy for remaining balance calc
+            item.base_installment_amount = newBase;
+            item.total_due_amount = newBase + Number(item.penalty_amount || 0);
+            item.status = newStatus;
+          }
+        }
+
+        // If there's still deficit (edge case), add it to the last non-paid item
+        if (deficit > 0.5) {
+          for (const item of reversedSchedule) {
+            if (item.status !== "paid" && item.status !== "cancelled") {
+              const currentBase = Number(item.base_installment_amount);
+              const newBase = currentBase + deficit;
+              const newStatus = determineScheduleStatus({
+                paid_amount: Number(item.paid_amount),
+                base_installment_amount: newBase,
+                due_date: item.due_date,
+              });
+              await supabase.from("layaway_schedule").update({
+                base_installment_amount: newBase,
+                total_due_amount: newBase + Number(item.penalty_amount || 0),
+                status: newStatus,
+              }).eq("id", item.id);
+              item.base_installment_amount = newBase;
+              item.total_due_amount = newBase + Number(item.penalty_amount || 0);
+              item.status = newStatus;
+              break;
+            }
+          }
+        }
+      }
+
+      // Step 3: Update all schedule statuses based on current paid amounts
+      for (const item of schedule) {
+        const correctStatus = determineScheduleStatus({
+          paid_amount: Number(item.paid_amount),
+          base_installment_amount: Number(item.base_installment_amount),
+          due_date: item.due_date,
+        });
+        if (correctStatus !== item.status) {
+          await supabase.from("layaway_schedule").update({ status: correctStatus }).eq("id", item.id);
+          item.status = correctStatus;
+        }
+      }
+
+      // Step 4: Recalculate account totals from schedule
       const newTotalPaid = Math.max(0, Number(account.total_paid) - Number(payment.amount_paid));
-      const newRemaining = calcRemainingBalance(updatedSchedule);
-      const newStatus = determineAccountStatus(updatedSchedule, account.status);
+      const newRemaining = calcRemainingBalance(schedule);
+      const newStatus = determineAccountStatus(schedule, account.status);
 
       await supabase.from("layaway_accounts").update({
         total_paid: newTotalPaid,
