@@ -148,11 +148,12 @@ export default function Customers() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border bg-muted/50">
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Customer</th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Location</th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Contact</th>
-                  <th className="text-center px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Accounts</th>
-                  <th className="text-center px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Actions</th>
+                   <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Customer</th>
+                   <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Location</th>
+                   <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Contact</th>
+                   <th className="text-center px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Active</th>
+                   <th className="text-center px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Completed</th>
+                   <th className="text-center px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody>
