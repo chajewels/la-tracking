@@ -379,6 +379,7 @@ Deno.serve(async (req) => {
           invoice_number: targetAcct.invoice_number,
           amount: allocAmount,
           payment_id: splitPayment.id,
+          completed: newAcctStatus === "completed",
         });
       }
     }
