@@ -25,6 +25,11 @@ import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, use
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  isEffectivelyPaid, remainingDue, computeRemainingBalance,
+  getUnpaidScheduleItems, getActivePayments, accountProgress,
+  ordinal, SERVICE_LABELS,
+} from '@/lib/business-rules';
 
 export default function AccountDetail() {
   const { id } = useParams();
