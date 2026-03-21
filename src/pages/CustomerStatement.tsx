@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Printer, Check, AlertTriangle, Clock } from 'lucide-react';
+import { Printer, Check, AlertTriangle, Clock, MessageCircle, Download } from 'lucide-react';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -138,10 +138,13 @@ export default function CustomerStatement() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Print button - hidden on print */}
-      <div className="print:hidden fixed top-4 right-4 z-50">
+      {/* Action buttons - hidden on print */}
+      <div className="print:hidden fixed top-4 right-4 z-50 flex gap-2">
         <Button variant="outline" size="sm" onClick={() => window.print()}>
-          <Printer className="h-4 w-4 mr-2" /> Print Statement
+          <Printer className="h-4 w-4 mr-2" /> Print
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => window.print()}>
+          <Download className="h-4 w-4 mr-2" /> Save PDF
         </Button>
       </div>
 
@@ -416,13 +419,20 @@ export default function CustomerStatement() {
           </Card>
         )}
 
-        {/* Footer */}
-        <div className="text-center mt-8 pb-8">
-          <p className="text-xs text-muted-foreground">
+        {/* Footer with quick actions */}
+        <div className="text-center mt-8 pb-8 print:pb-4">
+          <p className="text-xs text-muted-foreground mb-4">
             Thank you for your continued trust in Cha Jewels. 💛
           </p>
-          <p className="text-[10px] text-muted-foreground mt-1">
-            For questions, please contact us via Messenger.
+          <div className="print:hidden flex flex-wrap justify-center gap-2 mb-4">
+            <a href="https://m.me/chajewels" target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" size="sm" className="text-xs">
+                <MessageCircle className="h-3.5 w-3.5 mr-1.5" /> Contact Cha Jewels
+              </Button>
+            </a>
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            For questions about your layaway, please contact us via Messenger.
           </p>
         </div>
       </div>
