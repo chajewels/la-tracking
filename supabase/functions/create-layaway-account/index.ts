@@ -47,6 +47,8 @@ Deno.serve(async (req) => {
       downpayment_amount: dpAmountInput,
       downpayment_paid: dpPaidInput,
       remaining_dp_option, // 'split' | 'add_to_installments'
+      split_allocations, // Array<{ account_id: string; amount: number }> — optional
+      lump_sum_total, // number — optional, total lump sum from customer
     } = body;
 
     // Validation
