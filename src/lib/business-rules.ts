@@ -381,9 +381,14 @@ export function getNextUnpaidDueDate(
 }
 
 /**
- * Get the "next monthly payment" statement date.
- * Rule: If auto-penalty has been applied to the next unpaid installment,
- * the statement date shifts to due_date + 14 days.
+ * Get the "next payment" statement date.
+ * 
+ * Returns the due_date of the next upcoming unpaid schedule checkpoint.
+ * Since the corrected penalty engine creates explicit schedule entries at
+ * every checkpoint (due+7, due+14, monthly, monthly+14), the next payment
+ * date is simply the earliest unpaid schedule row whose due_date >= today.
+ * If all unpaid rows are already overdue, return the earliest overdue one
+ * (customer still needs to pay it).
  */
 export function getNextPaymentStatementDate(
   scheduleItems: Array<{ due_date: string; status: string; paid_amount: number | string; total_due_amount: number | string; penalty_amount: number | string }>
@@ -393,19 +398,16 @@ export function getNextPaymentStatementDate(
     .sort((a, b) => a.due_date.localeCompare(b.due_date));
   if (unpaid.length === 0) return null;
 
-  const next = unpaid[0];
-  const hasPenalty = Number(next.penalty_amount) > 0;
   const today = todayStr();
-  const isOverdue = next.due_date < today;
 
-  if (hasPenalty && isOverdue) {
-    // Shift to due_date + 14 days
-    const d = new Date(next.due_date);
-    d.setDate(d.getDate() + 14);
-    return { date: d.toISOString().split('T')[0], isAdjusted: true };
+  // Find next upcoming (due_date >= today)
+  const upcoming = unpaid.find(s => s.due_date >= today);
+  if (upcoming) {
+    return { date: upcoming.due_date, isAdjusted: false };
   }
 
-  return { date: next.due_date, isAdjusted: false };
+  // All unpaid are overdue — return earliest overdue (still needs payment)
+  return { date: unpaid[0].due_date, isAdjusted: false };
 }
 
 /**
