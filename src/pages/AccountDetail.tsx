@@ -586,6 +586,7 @@ export default function AccountDetail() {
               scheduleItems={scheduleItems}
               messengerLink={account.customers?.messenger_link}
             />
+            {can('delete_account') && (
             <Button
               variant="outline"
               className="border-destructive/30 text-destructive hover:bg-destructive/10"
@@ -593,6 +594,7 @@ export default function AccountDetail() {
             >
               <Trash2 className="h-4 w-4 mr-2" /> Delete Account
             </Button>
+            )}
           </div>
         </div>
 
