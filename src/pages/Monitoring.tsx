@@ -23,6 +23,7 @@ import ReminderCard, { type AlertItem, generateReminderMessage } from '@/compone
 
 type FilterTab = 'all' | 'overdue' | 'due_today' | 'due_3_days' | 'due_7_days';
 type NotifFilter = 'all' | 'not_notified' | 'notified';
+type SummaryFilter = FilterTab | 'notified' | 'not_notified';
 
 const filterTabs: { key: FilterTab; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -44,6 +45,7 @@ export default function Monitoring() {
   const initialFilter = (searchParams.get('filter') as FilterTab) || 'all';
   const [activeFilter, setActiveFilter] = useState<FilterTab>(initialFilter);
   const [notifFilter, setNotifFilter] = useState<NotifFilter>('all');
+  const [activeSummaryCard, setActiveSummaryCard] = useState<SummaryFilter>(initialFilter === 'all' ? 'all' : initialFilter);
   const [sending, setSending] = useState(false);
   const [messengerDialog, setMessengerDialog] = useState<{ alert: AlertItem; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -246,11 +248,21 @@ export default function Monitoring() {
 
   const handleFilterChange = (filter: FilterTab) => {
     setActiveFilter(filter);
+    setNotifFilter('all');
+    setActiveSummaryCard(filter);
     if (filter === 'all') {
       searchParams.delete('filter');
     } else {
       searchParams.set('filter', filter);
     }
+    setSearchParams(searchParams, { replace: true });
+  };
+
+  const handleNotifCardClick = (nf: 'notified' | 'not_notified') => {
+    setActiveFilter('all');
+    setNotifFilter(nf);
+    setActiveSummaryCard(nf);
+    searchParams.delete('filter');
     setSearchParams(searchParams, { replace: true });
   };
 
@@ -335,7 +347,7 @@ export default function Monitoring() {
               <button
                 key={s.label}
                 onClick={() => handleFilterChange(s.filter)}
-                className={`rounded-xl border bg-card p-4 text-center transition-colors hover:bg-muted/30 ${activeFilter === s.filter ? 'border-primary ring-1 ring-primary/30' : s.borderColor}`}
+                className={`rounded-xl border bg-card p-4 text-center transition-colors hover:bg-muted/30 ${activeSummaryCard === s.filter ? 'border-primary ring-1 ring-primary/30' : s.borderColor}`}
               >
                 <p className={`text-3xl font-bold font-display ${s.color}`}>{isLoading ? '—' : s.count}</p>
                 <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
@@ -351,15 +363,15 @@ export default function Monitoring() {
           })}
           {/* Total Notified / Pending */}
           <button
-            onClick={() => setNotifFilter('notified')}
-            className={`rounded-xl border bg-card p-4 text-center transition-colors hover:bg-muted/30 ${notifFilter === 'notified' ? 'border-success ring-1 ring-success/30' : 'border-success/20'}`}
+            onClick={() => handleNotifCardClick('notified')}
+            className={`rounded-xl border bg-card p-4 text-center transition-colors hover:bg-muted/30 ${activeSummaryCard === 'notified' ? 'border-success ring-1 ring-success/30' : 'border-success/20'}`}
           >
             <p className="text-3xl font-bold font-display text-success">{isLoading ? '—' : totalNotified}</p>
             <p className="text-xs text-muted-foreground mt-1">Notified</p>
           </button>
           <button
-            onClick={() => setNotifFilter('not_notified')}
-            className={`rounded-xl border bg-card p-4 text-center transition-colors hover:bg-muted/30 ${notifFilter === 'not_notified' ? 'border-warning ring-1 ring-warning/30' : 'border-warning/20'}`}
+            onClick={() => handleNotifCardClick('not_notified')}
+            className={`rounded-xl border bg-card p-4 text-center transition-colors hover:bg-muted/30 ${activeSummaryCard === 'not_notified' ? 'border-warning ring-1 ring-warning/30' : 'border-warning/20'}`}
           >
             <p className="text-3xl font-bold font-display text-warning">{isLoading ? '—' : totalPending}</p>
             <p className="text-xs text-muted-foreground mt-1">Pending</p>
@@ -391,7 +403,7 @@ export default function Monitoring() {
             ]).map(tab => (
               <button
                 key={tab.key}
-                onClick={() => setNotifFilter(tab.key)}
+                onClick={() => { setNotifFilter(tab.key); setActiveSummaryCard(tab.key === 'all' ? activeFilter : tab.key); }}
                 className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1 ${
                   notifFilter === tab.key
                     ? 'bg-accent text-accent-foreground'
