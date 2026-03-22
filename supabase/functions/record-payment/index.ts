@@ -175,7 +175,7 @@ Deno.serve(async (req) => {
           scheduleUpdates.push({
             id: item.id,
             base_installment_amount: newBase,
-            total_due_amount: newBase + Number(item.penalty_amount || 0),
+            total_due_amount: newBase,
             status: nextStatus,
           });
         }
@@ -189,7 +189,7 @@ Deno.serve(async (req) => {
           paid_amount: newPaid,
           status: "paid",
           base_installment_amount: newPaid,
-          total_due_amount: newPaid + Number(targetInstallment.penalty_amount || 0),
+          total_due_amount: newPaid,
         });
 
         // Add shortfall to the next unpaid installment
@@ -199,7 +199,7 @@ Deno.serve(async (req) => {
           scheduleUpdates.push({
             id: nextItem.id,
             base_installment_amount: nextBase,
-            total_due_amount: nextBase + Number(nextItem.penalty_amount || 0),
+            total_due_amount: nextBase,
           });
         }
       }
@@ -216,11 +216,10 @@ Deno.serve(async (req) => {
         // Check if this item has a schedule update pending
         const update = scheduleUpdates.find(u => u.id === item.id);
         const base = update?.base_installment_amount !== undefined ? update.base_installment_amount : Number(item.base_installment_amount);
-        const penAmt = Number(item.penalty_amount || 0);
         const paid = update?.paid_amount !== undefined ? update.paid_amount : Number(item.paid_amount);
         const itemStatus = update?.status !== undefined ? update.status : item.status;
         if (itemStatus !== 'paid' && itemStatus !== 'cancelled') {
-          newRemainingBalance += Math.max(0, base + penAmt - paid);
+          newRemainingBalance += Math.max(0, base - paid);
         }
       }
     }
