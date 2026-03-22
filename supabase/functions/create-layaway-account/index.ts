@@ -49,6 +49,7 @@ Deno.serve(async (req) => {
       remaining_dp_option, // 'split' | 'add_to_installments'
       split_allocations, // Array<{ account_id: string; amount: number }> — optional
       lump_sum_total, // number — optional, total lump sum from customer
+      custom_installments, // number[] — optional, exact amounts per month
     } = body;
 
     // Validation
