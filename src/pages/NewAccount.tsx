@@ -174,6 +174,18 @@ export default function NewAccount() {
       return;
     }
 
+    // Custom installment validation
+    if (installmentMode === 'custom') {
+      if (customMismatch) {
+        toast.error(`Total installments (${formatCurrency(customTotal, currency)}) must match remaining balance (${formatCurrency(expectedInstallmentTotal, currency)})`);
+        return;
+      }
+      if (customAmounts.some(v => (parseInt(v) || 0) <= 0)) {
+        toast.error('All installment amounts must be greater than zero');
+        return;
+      }
+    }
+
     if (enableSplitPayment) {
       if (lumpSum <= 0) {
         toast.error('Please enter the total lump sum amount');
@@ -183,7 +195,6 @@ export default function NewAccount() {
         toast.error('Lump sum must cover at least some downpayment for the new account');
         return;
       }
-      // Validate allocations don't exceed account balances
       for (const alloc of splitAllocations) {
         const allocAmount = parseInt(alloc.amount) || 0;
         if (allocAmount <= 0) continue;
@@ -219,6 +230,9 @@ export default function NewAccount() {
         remaining_dp_option: hasShortDp ? remainingDpOption : undefined,
         split_allocations: validAllocations,
         lump_sum_total: enableSplitPayment ? lumpSum : undefined,
+        custom_installments: installmentMode === 'custom'
+          ? customAmounts.map(v => parseInt(v) || 0)
+          : undefined,
       });
       toast.success(`Layaway account #${invoiceNumber} created successfully`);
 
