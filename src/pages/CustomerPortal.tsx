@@ -1125,3 +1125,201 @@ function InfoBlock({ label, value, highlight }: { label: string; value: string; 
     </div>
   );
 }
+
+/* ─── Profile Editor ─── */
+function ProfileEditor({ profile, portalToken, onSaved }: {
+  profile: CustomerProfile;
+  portalToken: string;
+  onSaved: (updated: CustomerProfile) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [successMsg, setSuccessMsg] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const parsed = parseLocation(profile.location);
+  const [fullName, setFullName] = useState(profile.full_name);
+  const [locationType, setLocationType] = useState<LocationType>(parsed.locationType);
+  const [country, setCountry] = useState(parsed.country);
+  const [facebookName, setFacebookName] = useState(profile.facebook_name || '');
+  const [messengerLink, setMessengerLink] = useState(profile.messenger_link || '');
+  const [mobileNumber, setMobileNumber] = useState(profile.mobile_number || '');
+  const [email, setEmail] = useState(profile.email || '');
+  const [notes, setNotes] = useState(profile.notes || '');
+
+  const resetForm = () => {
+    const p = parseLocation(profile.location);
+    setFullName(profile.full_name);
+    setLocationType(p.locationType);
+    setCountry(p.country);
+    setFacebookName(profile.facebook_name || '');
+    setMessengerLink(profile.messenger_link || '');
+    setMobileNumber(profile.mobile_number || '');
+    setEmail(profile.email || '');
+    setNotes(profile.notes || '');
+    setFormError(null);
+  };
+
+  const handleLocationChange = (v: string) => {
+    const lt = v as LocationType;
+    setLocationType(lt);
+    if (lt !== 'international') setCountry('');
+  };
+
+  const handleSave = async () => {
+    setFormError(null);
+    if (!fullName.trim()) { setFormError('Full Name is required.'); return; }
+    if (locationType === 'international' && !country.trim()) { setFormError('Please select a country.'); return; }
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setFormError('Please enter a valid email address.'); return; }
+
+    setSaving(true);
+    try {
+      const location = toLocationString(locationType, country);
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/customer-portal`, {
+        method: 'POST',
+        headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: portalToken,
+          action: 'update_profile',
+          profile: {
+            full_name: fullName.trim(),
+            location,
+            facebook_name: facebookName.trim() || null,
+            messenger_link: messengerLink.trim() || null,
+            mobile_number: mobileNumber.trim() || null,
+            email: email.trim() || null,
+            notes: notes.trim() || null,
+          },
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setFormError(json.error || 'Failed to update profile.'); return; }
+      onSaved(json.profile);
+      setEditing(false);
+      setSuccessMsg(true);
+      setTimeout(() => setSuccessMsg(false), 4000);
+    } catch {
+      setFormError('Something went wrong. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const locationLabel = locationType === 'japan' ? 'Japan' : locationType === 'philippines' ? 'Philippines' : country || 'International';
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold font-display text-foreground flex items-center gap-2">
+          <User className="h-5 w-5 text-primary" /> My Profile
+        </h2>
+        {!editing && (
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => { resetForm(); setEditing(true); setSuccessMsg(false); }}>
+            <Pencil className="h-3.5 w-3.5" /> Edit Profile
+          </Button>
+        )}
+      </div>
+
+      {successMsg && (
+        <div className="p-3 rounded-lg bg-success/10 border border-success/20 flex items-center gap-2">
+          <CheckCircle className="h-4 w-4 text-success shrink-0" />
+          <p className="text-xs text-success font-medium">Your profile has been updated successfully.</p>
+        </div>
+      )}
+
+      {!editing ? (
+        <Card className="shadow-sm">
+          <CardContent className="pt-6 space-y-4">
+            <ProfileField label="Full Name" value={profile.full_name} />
+            <ProfileField label="Location" value={locationLabel} />
+            <ProfileField label="Facebook Name" value={profile.facebook_name} />
+            <ProfileField label="Messenger Link" value={profile.messenger_link} />
+            <ProfileField label="Mobile Number" value={profile.mobile_number} />
+            <ProfileField label="Email" value={profile.email} />
+            <ProfileField label="Notes" value={profile.notes} />
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="shadow-sm">
+          <CardContent className="pt-6 space-y-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Full Name <span className="text-destructive">*</span></Label>
+              <Input value={fullName} onChange={(e) => setFullName(e.target.value)} />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Location</Label>
+                <Select value={locationType} onValueChange={handleLocationChange}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="japan">Japan</SelectItem>
+                    <SelectItem value="philippines">Philippines</SelectItem>
+                    <SelectItem value="international">International</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {locationType === 'international' && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Country <span className="text-destructive">*</span></Label>
+                  <CountrySelect value={country} onValueChange={setCountry} />
+                  <p className="text-[10px] text-muted-foreground">Please select your country for delivery and payment coordination.</p>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Facebook Name</Label>
+                <Input value={facebookName} onChange={(e) => setFacebookName(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Messenger Link</Label>
+                <Input value={messengerLink} onChange={(e) => setMessengerLink(e.target.value)} placeholder="m.me/username" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Mobile Number</Label>
+                <Input value={mobileNumber} onChange={(e) => setMobileNumber(e.target.value)} placeholder="+63 or +81" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Email</Label>
+                <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Notes</Label>
+              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Any notes for Cha Jewels…" />
+            </div>
+
+            {formError && (
+              <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+                <p className="text-xs text-destructive">{formError}</p>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="outline" onClick={() => setEditing(false)} disabled={saving}>Cancel</Button>
+              <Button onClick={handleSave} disabled={saving} className="gap-1.5">
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                {saving ? 'Saving…' : 'Save Changes'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function ProfileField({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-4">
+      <p className="text-xs text-muted-foreground w-32 shrink-0">{label}</p>
+      <p className="text-sm text-foreground">{value || <span className="text-muted-foreground/50 italic">Not set</span>}</p>
+    </div>
+  );
+}
