@@ -809,29 +809,7 @@ export default function AccountDetail() {
                       </div>
                       {/* Edit button */}
                       <div>
-                        {isEditingThis ? (
-                          <div className="flex items-center gap-1.5">
-                            <Input
-                              type="number"
-                              value={editScheduleAmount}
-                              onChange={(e) => setEditScheduleAmount(e.target.value)}
-                              className="h-7 w-24 text-xs bg-background tabular-nums"
-                              autoFocus
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleEditScheduleSubmit(item.id);
-                                if (e.key === 'Escape') setEditingScheduleId(null);
-                              }}
-                            />
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-success" disabled={editScheduleLoading}
-                              onClick={() => handleEditScheduleSubmit(item.id)}>
-                              <Save className="h-3 w-3" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground"
-                              onClick={() => setEditingScheduleId(null)}>
-                              <X className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ) : canEdit && can('edit_schedule') ? (
+                        {!isEditingThis && canEdit && can('edit_schedule') ? (
                           <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
                             title="Edit installment amount"
                             onClick={() => {
