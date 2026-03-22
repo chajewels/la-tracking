@@ -168,25 +168,24 @@ export default function AccountDetail() {
 
   const currency = account.currency as Currency;
   const totalPaid = Number(account.total_paid);
+  const principalTotal = Number(account.total_amount);
   const scheduleItems = schedule || [];
-  const remainingBalance = computeRemainingBalance(scheduleItems, Number(account.total_amount), totalPaid);
+  const remainingBalance = computeRemainingBalance(scheduleItems, principalTotal, totalPaid);
   const downpaymentAmount = Number((account as any).downpayment_amount || 0);
   const accountServices = ((services || []) as AccountService[]);
   const totalServicesAmount = accountServices.reduce((s, svc) => s + Number(svc.amount), 0);
+  const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
+  const unpaidPenaltySum = unpaidPenalties.reduce((sum, penalty) => sum + Number(penalty.penalty_amount), 0);
 
-  // Derive totals from schedule data so everything reconciles:
-  // originalPrincipal = downpayment + sum(base_installment_amounts)
-  // schedulePenaltySum = sum(penalty_amounts in schedule)
-  // totalLayawayAmount = originalPrincipal + services + schedulePenalties
+  // Keep principal-based totals as the single source of truth.
+  // Penalties and services are shown separately and must not inflate the layaway principal.
   const scheduleBaseSum = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
   const schedulePenaltySum = scheduleItems.reduce((s, i) => s + Number(i.penalty_amount), 0);
   const originalPrincipal = downpaymentAmount + scheduleBaseSum;
-  const totalLayawayAmount = originalPrincipal + totalServicesAmount + schedulePenaltySum;
-  const progress = accountProgress(totalPaid, totalLayawayAmount);
+  const progress = accountProgress(totalPaid, principalTotal);
 
-  const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
-  // Reconciliation validation: totalLayawayAmount - totalPaid must = remainingBalance
-  const reconciliationValid = Math.abs(totalLayawayAmount - totalPaid - remainingBalance) < 1;
+  // Reconciliation validation: principal total - paid must equal remaining principal balance
+  const reconciliationValid = Math.abs(principalTotal - totalPaid - remainingBalance) < 1;
 
   const unpaidSchedule = getUnpaidScheduleItems(scheduleItems);
   const activePayments = getActivePayments(payments || [])
