@@ -548,7 +548,7 @@ function AccountDetail({ account, paymentMethods, portalToken, onClose, onRefres
 
         <div className="mt-4 grid grid-cols-2 gap-3">
           <InfoBlock label="Total Amount" value={fmt(account.total_amount, currency)} />
-          <InfoBlock label="Remaining Principal" value={fmt(account.remaining_balance, currency)} highlight={isOverdue} />
+          <InfoBlock label="Remaining Balance" value={fmt(account.remaining_balance, currency)} highlight={isOverdue} />
           {(account.outstanding_penalties ?? 0) > 0 && (
             <InfoBlock label="Outstanding Penalties" value={fmt(account.outstanding_penalties, currency)} highlight />
           )}

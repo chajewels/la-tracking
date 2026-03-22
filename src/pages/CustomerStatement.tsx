@@ -227,7 +227,7 @@ export default function CustomerStatement() {
                 <p className="text-sm font-bold text-success font-display tabular-nums">{fmt(data.total_paid, data.currency)}</p>
               </div>
               <div className="rounded-lg bg-primary/5 p-3">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">Remaining Principal</p>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">Remaining Balance</p>
                 <p className="text-sm font-bold text-foreground font-display tabular-nums">{fmt(data.computed_remaining, data.currency)}</p>
               </div>
               {data.total_active_penalties > 0 && (
