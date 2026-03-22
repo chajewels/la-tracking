@@ -181,12 +181,20 @@ export default function AccountDetail() {
   const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
   const unpaidPenaltySum = unpaidPenalties.reduce((sum, penalty) => sum + Number(penalty.penalty_amount), 0);
 
+  // SINGLE SOURCE OF TRUTH: shared summary values used by cards, message, statement, portal
+  const summary = computeAccountSummary({
+    principalTotal,
+    totalPaid,
+    unpaidPenaltySum,
+    totalServicesAmount,
+  });
+
   // Keep principal-based totals as the single source of truth.
   // Penalties and services are shown separately and must not inflate the layaway principal.
   const scheduleBaseSum = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
   const schedulePenaltySum = scheduleItems.reduce((s, i) => s + Number(i.penalty_amount), 0);
   const originalPrincipal = downpaymentAmount + scheduleBaseSum;
-  const progress = accountProgress(totalPaid, principalTotal);
+  const progress = summary.progressPercent;
 
   // Reconciliation validation: principal total - paid must equal remaining principal balance
   const reconciliationValid = Math.abs(principalTotal - totalPaid - remainingBalance) < 1;
