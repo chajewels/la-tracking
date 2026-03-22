@@ -1030,7 +1030,7 @@ export default function AccountDetail() {
                           )}
                         </div>
                       )}
-                      {isVoided && (
+                      {isVoided && can('restore_payment') && (
                         <Button variant="ghost" size="sm"
                           className="h-7 text-xs text-muted-foreground hover:text-success"
                           style={{ textDecoration: 'none' }}
