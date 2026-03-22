@@ -78,7 +78,7 @@ Deno.serve(async (req) => {
     while (true) {
       const { data: batch } = await supabase
         .from("layaway_schedule")
-        .select("*, layaway_accounts!inner(id, currency, status)")
+        .select("*, layaway_accounts!inner(id, currency, status, payment_plan_months)")
         .in("status", ["pending", "overdue", "partially_paid"])
         .lt("due_date", today)
         .in("layaway_accounts.status", ["active", "overdue"])
