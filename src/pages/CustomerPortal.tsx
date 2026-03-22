@@ -257,16 +257,29 @@ export default function CustomerPortal() {
     <div className="min-h-screen bg-[hsl(var(--background))]">
       {/* Header */}
       <div className="bg-[hsl(var(--card))] border-b border-[hsl(var(--border))]">
-        <div className="max-w-3xl mx-auto px-4 py-6 sm:py-8">
-          <div className="flex items-center gap-3 mb-1">
-            <Diamond className="h-6 w-6 text-primary" />
-            <h1 className="text-xl sm:text-2xl font-bold font-display text-foreground tracking-tight">
-              Cha Jewels
-            </h1>
+        <div className="max-w-3xl mx-auto px-4 py-5 sm:py-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <img src={chaJewelsLogo} alt="Cha Jewels" className="h-10 w-10 rounded-lg object-cover shadow-sm" />
+              <div>
+                <h1 className="text-lg sm:text-xl font-bold font-display text-foreground tracking-tight">
+                  Cha Jewels
+                </h1>
+                <p className="text-[11px] text-muted-foreground">
+                  Welcome, <span className="text-foreground font-medium">{data.customer_name}</span>
+                </p>
+              </div>
+            </div>
+            <Button
+              variant={portalView === 'profile' ? 'default' : 'outline'}
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setPortalView(portalView === 'profile' ? 'accounts' : 'profile')}
+            >
+              <User className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">{portalView === 'profile' ? 'My Accounts' : 'My Profile'}</span>
+            </Button>
           </div>
-          <p className="text-sm text-muted-foreground ml-9">
-            Welcome back, <span className="text-foreground font-medium">{data.customer_name}</span>
-          </p>
         </div>
       </div>
 
