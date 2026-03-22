@@ -402,14 +402,29 @@ export default function AccountDetail() {
                 </div>
               )}
               <Badge variant="outline" className={
+                account.status === 'final_forfeited' ? 'bg-destructive/10 text-destructive border-destructive/20 text-xs' :
                 account.status === 'forfeited' ? 'bg-orange-500/10 text-orange-500 border-orange-500/20 text-xs' :
+                account.status === 'extension_active' ? 'bg-info/10 text-info border-info/20 text-xs' :
                 account.status === 'final_settlement' ? 'bg-amber-600/10 text-amber-600 border-amber-600/20 text-xs' :
                 account.status === 'overdue' ? 'bg-destructive/10 text-destructive border-destructive/20 text-xs' :
                 account.status === 'completed' ? 'bg-primary/10 text-primary border-primary/20 text-xs' :
                 'bg-success/10 text-success border-success/20 text-xs'
               }>
-                {account.status === 'final_settlement' ? 'FINAL SETTLEMENT' : account.status}
+                {account.status === 'final_settlement' ? 'FINAL SETTLEMENT' :
+                 account.status === 'extension_active' ? 'EXTENSION ACTIVE' :
+                 account.status === 'final_forfeited' ? 'PERMANENTLY FORFEITED' :
+                 account.status.toUpperCase()}
               </Badge>
+              {(account as any).is_reactivated && (
+                <Badge variant="outline" className="bg-info/10 text-info border-info/20 text-xs">
+                  🔄 Reactivated
+                </Badge>
+              )}
+              {isExtension && (account as any).extension_end_date && (
+                <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20 text-xs">
+                  Extension until {new Date((account as any).extension_end_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })}
+                </Badge>
+              )}
               {penaltyCapOverride && (
                 <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-xs">
                   <ShieldCheck className="h-3 w-3 mr-1" /> Penalty Override Active ✅
