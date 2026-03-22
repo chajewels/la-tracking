@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, MessageCircle, Search, Pencil, Trash2 } from 'lucide-react';
+import { Users, MessageCircle, Search, Pencil, Trash2, ChevronRight, MapPin } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,19 +22,12 @@ export default function Customers() {
   const [search, setSearch] = useState('');
   const queryClient = useQueryClient();
 
-  // Edit dialog state
   const [editOpen, setEditOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
-    full_name: '',
-    customer_code: '',
-    facebook_name: '',
-    messenger_link: '',
-    mobile_number: '',
-    email: '',
-    notes: '',
-    locationType: 'japan' as 'japan' | 'international',
-    country: '',
+    full_name: '', customer_code: '', facebook_name: '', messenger_link: '',
+    mobile_number: '', email: '', notes: '',
+    locationType: 'japan' as 'japan' | 'international', country: '',
   });
   const [saving, setSaving] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -75,15 +68,10 @@ export default function Customers() {
     const isJapan = !loc || loc.toLowerCase() === 'japan';
     setEditId(c.id);
     setEditForm({
-      full_name: c.full_name || '',
-      customer_code: c.customer_code || '',
-      facebook_name: c.facebook_name || '',
-      messenger_link: c.messenger_link || '',
-      mobile_number: c.mobile_number || '',
-      email: c.email || '',
-      notes: c.notes || '',
-      locationType: isJapan ? 'japan' : 'international',
-      country: isJapan ? '' : loc,
+      full_name: c.full_name || '', customer_code: c.customer_code || '',
+      facebook_name: c.facebook_name || '', messenger_link: c.messenger_link || '',
+      mobile_number: c.mobile_number || '', email: c.email || '', notes: c.notes || '',
+      locationType: isJapan ? 'japan' : 'international', country: isJapan ? '' : loc,
     });
     setEditOpen(true);
   };
@@ -95,14 +83,10 @@ export default function Customers() {
     const location = editForm.locationType === 'japan' ? 'Japan' : editForm.country.trim() || null;
     try {
       const { error } = await supabase.from('customers').update({
-        full_name: editForm.full_name.trim(),
-        customer_code: editForm.customer_code.trim(),
-        facebook_name: editForm.facebook_name.trim() || null,
-        messenger_link: editForm.messenger_link.trim() || null,
-        mobile_number: editForm.mobile_number.trim() || null,
-        email: editForm.email.trim() || null,
-        notes: editForm.notes.trim() || null,
-        location,
+        full_name: editForm.full_name.trim(), customer_code: editForm.customer_code.trim(),
+        facebook_name: editForm.facebook_name.trim() || null, messenger_link: editForm.messenger_link.trim() || null,
+        mobile_number: editForm.mobile_number.trim() || null, email: editForm.email.trim() || null,
+        notes: editForm.notes.trim() || null, location,
       }).eq('id', editId);
       if (error) throw error;
       toast.success('Customer updated');
@@ -118,99 +102,122 @@ export default function Customers() {
   return (
     <AppLayout>
       <div className="animate-fade-in space-y-6">
-        <div className="flex items-center justify-between">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
-            <Users className="h-5 w-5 text-primary" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl gold-gradient">
+              <Users className="h-5 w-5 text-primary-foreground" />
+            </div>
             <div>
-              <h1 className="text-2xl font-bold text-foreground font-display">Customers</h1>
-              <p className="text-sm text-muted-foreground mt-0.5">{filtered.length} customers</p>
+              <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">Customers</h1>
+              <p className="text-sm text-muted-foreground">{filtered.length} customers</p>
             </div>
           </div>
           <NewCustomerDialog />
         </div>
 
-        <div className="relative">
+        {/* Search */}
+        <div className="relative max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search by name, code, or Facebook name…"
-            className="pl-9"
+            className="pl-9 bg-card border-border"
           />
         </div>
 
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          {isLoading ? (
-            <div className="p-6 space-y-3">
-              {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
-            </div>
-          ) : (
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border bg-muted/50">
-                   <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Customer</th>
-                   <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Location</th>
-                   <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Contact</th>
-                   <th className="text-center px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Active</th>
-                   <th className="text-center px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Completed</th>
-                   <th className="text-center px-5 py-3 text-xs font-semibold text-muted-foreground uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.length === 0 ? (
-                  <tr><td colSpan={6} className="px-5 py-8 text-center text-sm text-muted-foreground">No customers found</td></tr>
-                ) : filtered.map(c => {
-                   const custAccounts = (accounts || []).filter(a => a.customer_id === c.id && a.status !== 'forfeited' && a.status !== 'cancelled');
-                   const completedAccounts = custAccounts.filter(a => {
-                     const remainingBalance = Number(a.remaining_balance ?? 0);
-                     const totalPaid = Number(a.total_paid ?? 0);
-                     const totalAmount = Number(a.total_amount ?? 0);
-                     return a.status === 'completed' || remainingBalance <= 0 || (totalAmount > 0 && totalPaid >= totalAmount);
-                   });
-                   const activeCount = custAccounts.length - completedAccounts.length;
-                   const completedCount = completedAccounts.length;
-                   return (
-                     <tr key={c.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
-                       <td className="px-5 py-3">
-                         <div className="flex items-center gap-3 group">
-                           <Link to={`/customers/${c.id}`} className="flex items-center gap-3 flex-1">
-                             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-bold">
-                               {c.full_name.charAt(0)}
-                             </div>
-                             <div>
-                               <p className="text-sm font-medium text-card-foreground group-hover:text-primary transition-colors">{c.full_name}</p>
-                               {c.facebook_name && <p className="text-xs text-muted-foreground">@{c.facebook_name}</p>}
-                             </div>
-                           </Link>
-                           <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" onClick={() => openEdit(c)}>
-                             <Pencil className="h-3.5 w-3.5" />
-                           </Button>
-                         </div>
-                       </td>
-                       <td className="px-5 py-3 text-sm text-muted-foreground">{c.location || '—'}</td>
-                       <td className="px-5 py-3 text-sm text-muted-foreground">{c.mobile_number || '—'}</td>
-                       <td className="px-5 py-3 text-center text-sm text-card-foreground">{activeCount || '—'}</td>
-                        <td className="px-5 py-3 text-center text-sm">
-                          {completedCount > 0 ? (
-                            <span className="inline-flex min-w-8 items-center justify-center rounded-full bg-primary/15 px-2.5 py-1 text-xs font-semibold tabular-nums text-primary">{completedCount}</span>
-                          ) : '—'}
-                       </td>
-                       <td className="px-5 py-3 text-center">
-                        {c.messenger_link && (
-                          <a href={c.messenger_link} target="_blank" rel="noopener noreferrer">
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-info">
-                              <MessageCircle className="h-4 w-4" />
-                            </Button>
-                          </a>
+        {/* Customer Cards */}
+        {isLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-36 rounded-xl" />)}
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="rounded-xl border border-border bg-card p-12 text-center">
+            <Users className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-40" />
+            <p className="text-sm text-muted-foreground">No customers found</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filtered.map(c => {
+              const custAccounts = (accounts || []).filter(a => a.customer_id === c.id && a.status !== 'cancelled');
+              const activeCount = custAccounts.filter(a => !['completed', 'forfeited', 'final_forfeited'].includes(a.status)).length;
+              const completedCount = custAccounts.filter(a => a.status === 'completed' || Number(a.remaining_balance) <= 0).length;
+
+              return (
+                <div key={c.id} className="rounded-xl border border-border bg-card p-4 sm:p-5 card-hover group">
+                  <div className="flex items-start justify-between mb-3">
+                    <Link to={`/customers/${c.id}`} className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-bold shrink-0">
+                        {c.full_name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-card-foreground truncate group-hover:text-primary transition-colors">
+                          {c.full_name}
+                        </p>
+                        {c.facebook_name && (
+                          <p className="text-xs text-muted-foreground truncate">@{c.facebook_name}</p>
                         )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
+                      </div>
+                    </Link>
+                    <Button
+                      variant="ghost" size="icon"
+                      className="h-7 w-7 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                      onClick={() => openEdit(c)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+
+                  {/* Info row */}
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground mb-3">
+                    {c.location && (
+                      <span className="flex items-center gap-1">
+                        <MapPin className="h-3 w-3" /> {c.location}
+                      </span>
+                    )}
+                    {c.customer_code && (
+                      <span className="font-mono">{c.customer_code}</span>
+                    )}
+                  </div>
+
+                  {/* Account stats & actions */}
+                  <div className="flex items-center justify-between pt-3 border-t border-border">
+                    <div className="flex items-center gap-3 text-xs">
+                      {activeCount > 0 && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-success/10 text-success font-medium">
+                          {activeCount} active
+                        </span>
+                      )}
+                      {completedCount > 0 && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
+                          {completedCount} done
+                        </span>
+                      )}
+                      {activeCount === 0 && completedCount === 0 && (
+                        <span className="text-muted-foreground">No accounts</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {c.messenger_link && (
+                        <a href={c.messenger_link} target="_blank" rel="noopener noreferrer">
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-info">
+                            <MessageCircle className="h-3.5 w-3.5" />
+                          </Button>
+                        </a>
+                      )}
+                      <Link to={`/customers/${c.id}`}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary">
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Edit Customer Dialog */}
@@ -273,18 +280,10 @@ export default function Customers() {
               <Textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} rows={2} />
             </div>
             <div className="flex justify-between pt-2">
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                onClick={() => {
-                  setDeleteTarget({ id: editId!, name: editForm.full_name });
-                  setDeleteConfirmOpen(true);
-                }}
-                disabled={saving}
-              >
-                <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                Delete
+              <Button type="button" variant="destructive" size="sm"
+                onClick={() => { setDeleteTarget({ id: editId!, name: editForm.full_name }); setDeleteConfirmOpen(true); }}
+                disabled={saving}>
+                <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Delete
               </Button>
               <div className="flex gap-3">
                 <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>

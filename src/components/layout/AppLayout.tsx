@@ -19,7 +19,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0">
           {/* Top Header */}
-          <header className="h-12 flex items-center justify-between border-b border-border px-4 shrink-0 bg-card/80 backdrop-blur-sm sticky top-0 z-30">
+          <header className="h-12 flex items-center justify-between border-b border-border px-4 shrink-0 bg-card/80 glass-panel sticky top-0 z-30">
             <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
             <div className="flex items-center gap-3">
               <Link to="/monitoring">
@@ -44,8 +44,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </header>
 
           {/* Main Content */}
-          <main className="flex-1 overflow-auto">
-            <div className="p-4 md:p-6 lg:p-8">
+          <main className="flex-1 overflow-auto custom-scrollbar">
+            <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
               {children}
             </div>
           </main>

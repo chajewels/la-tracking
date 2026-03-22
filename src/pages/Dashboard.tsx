@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { DollarSign, FileText, AlertTriangle, TrendingUp, CheckCircle2, Banknote, Users, ShieldAlert } from 'lucide-react';
+import { DollarSign, FileText, AlertTriangle, TrendingUp, CheckCircle2, Banknote, Users, ShieldAlert, Gem } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import StatCard from '@/components/dashboard/StatCard';
 import AgingBuckets from '@/components/dashboard/AgingBuckets';
@@ -19,7 +19,7 @@ import { useAuth } from '@/contexts/AuthContext';
 
 export default function Dashboard() {
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
-  const { session, loading: authLoading } = useAuth();
+  const { session, loading: authLoading, profile } = useAuth();
   const displayCurrency: Currency = getDisplayCurrencyForFilter(currencyFilter);
 
   const { data: summary, isLoading: summaryLoading } = useDashboardSummary(
@@ -29,51 +29,82 @@ export default function Dashboard() {
   const { data: accounts } = useAccounts();
   const { data: customers } = useCustomers();
 
+  const greeting = () => {
+    const h = new Date().getHours();
+    if (h < 12) return 'Good morning';
+    if (h < 18) return 'Good afternoon';
+    return 'Good evening';
+  };
+
   return (
     <AppLayout>
-      <div className="animate-fade-in space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold text-primary uppercase tracking-widest mb-1">Overview</p>
-            <h1 className="text-2xl font-bold text-foreground font-display">Dashboard</h1>
-            <p className="text-sm text-muted-foreground mt-1">Cha Jewels · Layaway Payment Management</p>
+      <div className="animate-fade-in space-y-8">
+        {/* Welcome Banner */}
+        <div className="relative overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-card via-card to-primary/5 p-6 sm:p-8">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full -translate-y-1/2 translate-x-1/3 blur-3xl" />
+          <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl gold-gradient shadow-lg">
+                <Gem className="h-6 w-6 text-primary-foreground" />
+              </div>
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">
+                  {greeting()}, {profile?.full_name?.split(' ')[0] || 'there'}
+                </h1>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Cha Jewels · Layaway Payment Management
+                </p>
+              </div>
+            </div>
+            <CurrencyToggle value={currencyFilter} onChange={setCurrencyFilter} />
           </div>
-          <CurrencyToggle value={currencyFilter} onChange={setCurrencyFilter} />
         </div>
 
-        {/* ROW 1 — Executive Summary KPIs */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 gap-4">
+        {/* KPI Cards */}
+        <div>
+          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Key Metrics</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-4 gap-3 sm:gap-4">
+            {summaryLoading ? (
+              [...Array(4)].map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)
+            ) : (
+              <>
+                <StatCard
+                  title="Total Customers"
+                  value={(customers?.length ?? 0).toString()}
+                  subtitle="All registered"
+                  icon={Users}
+                />
+                <StatCard
+                  title="Total Receivables"
+                  value={formatCurrency(summary?.total_receivables ?? 0, displayCurrency)}
+                  icon={DollarSign}
+                  variant="gold"
+                />
+                <StatCard
+                  title="Active Accounts"
+                  value={(summary?.active_layaways ?? 0).toString()}
+                  subtitle={currencyFilter === 'ALL' ? 'PHP & JPY' : `${currencyFilter} only`}
+                  icon={FileText}
+                />
+                <StatCard
+                  title="Collections Today"
+                  value={formatCurrency(summary?.payments_today ?? 0, displayCurrency)}
+                  icon={TrendingUp}
+                  variant="success"
+                />
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Secondary KPIs */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
           {summaryLoading ? (
-            [...Array(7)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+            [...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
           ) : (
             <>
               <StatCard
-                title="Total Customers"
-                value={(customers?.length ?? 0).toString()}
-                subtitle="All registered"
-                icon={Users}
-              />
-              <StatCard
-                title="Total Receivables"
-                value={formatCurrency(summary?.total_receivables ?? 0, displayCurrency)}
-                icon={DollarSign}
-                variant="gold"
-              />
-              <StatCard
-                title="Active Accounts"
-                value={(summary?.active_layaways ?? 0).toString()}
-                subtitle={currencyFilter === 'ALL' ? 'PHP & JPY (in ¥)' : `${currencyFilter} only`}
-                icon={FileText}
-              />
-              <StatCard
-                title="Collections Today"
-                value={formatCurrency(summary?.payments_today ?? 0, displayCurrency)}
-                icon={TrendingUp}
-                variant="success"
-              />
-              <StatCard
-                title="Collections This Month"
+                title="This Month"
                 value={formatCurrency(summary?.collections_this_month ?? 0, displayCurrency)}
                 icon={Banknote}
                 variant="success"
@@ -87,9 +118,9 @@ export default function Dashboard() {
                 href="/monitoring?filter=overdue"
               />
               <StatCard
-                title="Completed This Month"
+                title="Completed"
                 value={(summary?.completed_this_month ?? 0).toString()}
-                subtitle="Closed deals"
+                subtitle="This month"
                 icon={CheckCircle2}
                 variant="success"
                 href="/accounts?status=completed"
@@ -97,7 +128,7 @@ export default function Dashboard() {
               <StatCard
                 title="Forfeited"
                 value={(summary?.forfeited_accounts ?? 0).toString()}
-                subtitle="Inactive accounts"
+                subtitle="Inactive"
                 icon={ShieldAlert}
                 variant="danger"
                 href="/accounts?status=forfeited"
@@ -106,18 +137,24 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* ROW 2 — Geo Breakdown */}
-        <GeoBreakdown accounts={accounts || []} customers={customers || []} />
-
-        {/* ROW 3 — Operations + Live Collection */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <OperationsPanel summary={summary} displayCurrency={displayCurrency} />
-          <LiveCollectionTracker currencyFilter={currencyFilter} displayCurrency={displayCurrency} />
+        {/* Geo Breakdown */}
+        <div>
+          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Regional Overview</p>
+          <GeoBreakdown accounts={accounts || []} customers={customers || []} />
         </div>
 
-        {/* ROW 4 — AI & Predictions */}
+        {/* Operations + Live Collection */}
         <div>
-          <p className="text-xs font-semibold text-primary uppercase tracking-widest mb-3">AI & Predictions</p>
+          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Operations & Activity</p>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <OperationsPanel summary={summary} displayCurrency={displayCurrency} />
+            <LiveCollectionTracker currencyFilter={currencyFilter} displayCurrency={displayCurrency} />
+          </div>
+        </div>
+
+        {/* AI & Predictions */}
+        <div>
+          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">AI & Predictions</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <LatePaymentRiskPanel />
             <CompletionProbabilityPanel />
@@ -125,11 +162,14 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* ROW 5 — Aging + Overdue + System Health */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <AgingBuckets currency={displayCurrency} />
-          <OverdueAlerts />
-          <SystemHealthPanel summary={summary} />
+        {/* Aging + Overdue + System Health */}
+        <div>
+          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">System Overview</p>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <AgingBuckets currency={displayCurrency} />
+            <OverdueAlerts />
+            <SystemHealthPanel summary={summary} />
+          </div>
         </div>
       </div>
     </AppLayout>

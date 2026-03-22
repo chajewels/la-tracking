@@ -135,11 +135,29 @@
 
   .card-hover:hover {
     @apply shadow-lg;
-    transform: translateY(-1px);
+    transform: translateY(-2px);
   }
 
   .brand-footer {
     font-family: var(--font-body);
     color: hsl(var(--muted-foreground));
+  }
+
+  /* Subtle glass effect for header */
+  .glass-panel {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* Smooth scrollbar styling */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 2px;
   }
 }
