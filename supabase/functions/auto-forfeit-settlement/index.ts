@@ -158,7 +158,7 @@ Deno.serve(async (req) => {
         forfeitResults.push({
           invoice_number: account.invoice_number,
           customer_name: customerName,
-          last_paid_month: lastPaidMonthDate,
+          first_unpaid_due_date: firstUnpaidDueDate,
           overdue_month_count: monthsOverdue,
           status: "FORFEITED",
         });
@@ -170,7 +170,7 @@ Deno.serve(async (req) => {
           new_value_json: {
             invoice_number: account.invoice_number,
             customer_name: customerName,
-            last_paid_month: lastPaidMonthDate,
+            first_unpaid_due_date: firstUnpaidDueDate,
             overdue_month_count: monthsOverdue,
             timestamp: now.toISOString(),
           },
