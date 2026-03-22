@@ -240,8 +240,6 @@ export default function AccountDetail() {
   // Shared message block for summary values (used across all statuses)
   const appendSummaryBlock = () => {
     message += `Total Layaway Amount: ${formatCurrency(summary.principalTotal, currency)}\n`;
-    if (summary.totalServices > 0) message += `Additional Services: ${formatCurrency(summary.totalServices, currency)}\n`;
-    if (summary.outstandingPenalties > 0) message += `Outstanding Penalties: ${formatCurrency(summary.outstandingPenalties, currency)}\n`;
     message += `Amount Paid: ${paymentBreakdownText}\n`;
   };
 
