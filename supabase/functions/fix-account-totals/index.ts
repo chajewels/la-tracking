@@ -6,9 +6,10 @@ const corsHeaders = {
 };
 
 /**
- * Fix account totals after penalty recalculation.
- * total_amount = downpayment + sum(non-cancelled schedule total_due_amount)
- * remaining_balance = sum of unpaid schedule rows
+ * Fix account totals using SINGLE SOURCE OF TRUTH:
+ * remaining_balance = total_amount - SUM(actual non-voided payments)
+ * total_paid = SUM(actual non-voided payments)
+ * Never derives from schedule rows to avoid rounding/gap discrepancies.
  * Supports ?offset=N&limit=N for chunked execution.
  */
 Deno.serve(async (req) => {
