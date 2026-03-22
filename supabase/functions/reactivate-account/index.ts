@@ -53,14 +53,21 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Validate: must be forfeited
+    // ⛔ LOCKED: FINAL_FORFEITED can NEVER be reactivated
+    if (account.status === "final_forfeited") {
+      return new Response(JSON.stringify({ error: "This account is PERMANENTLY FORFEITED. No reactivation, extension, or negotiation is allowed." }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ⛔ LOCKED: must be forfeited status
     if (account.status !== "forfeited") {
       return new Response(JSON.stringify({ error: `Account is '${account.status}', not 'forfeited'. Only forfeited accounts can be reactivated.` }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Validate: one-time only
+    // ⛔ LOCKED: one-time only — no second reactivation ever
     if (account.is_reactivated) {
       return new Response(JSON.stringify({ error: "This account has already been reactivated once. No further reactivation is allowed." }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
