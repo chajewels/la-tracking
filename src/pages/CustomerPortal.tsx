@@ -1,22 +1,50 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from '@/components/ui/sheet';
 import {
-  AlertTriangle, Calendar, Check, ChevronRight, Clock,
+  AlertTriangle, Calendar, Check, CheckCircle, ChevronRight, Clock,
   CreditCard, Diamond, FileText, Filter, Search, TrendingUp, X,
+  Upload, Send, ArrowLeft, Landmark, Wallet, Eye, MessageSquare, XCircle, Loader2, Image as ImageIcon,
 } from 'lucide-react';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const STATEMENT_BASE = 'https://chajewelslayaway.web.app';
+
+/* ─── Types ─── */
+interface PaymentMethod {
+  id: string;
+  method_name: string;
+  bank_name: string | null;
+  account_name: string | null;
+  account_number: string | null;
+  instructions: string | null;
+  qr_image_url: string | null;
+}
+
+interface Submission {
+  id: string;
+  submitted_amount: number;
+  payment_date: string;
+  payment_method: string;
+  reference_number: string | null;
+  sender_name: string | null;
+  notes: string | null;
+  proof_url: string | null;
+  status: string;
+  reviewer_notes: string | null;
+  created_at: string;
+}
 
 interface PortalAccount {
   id: string;
@@ -53,6 +81,7 @@ interface PortalAccount {
     reference: string | null;
     remarks: string | null;
   }>;
+  submissions: Submission[];
 }
 
 interface PortalData {
@@ -68,6 +97,7 @@ interface PortalData {
     primary_currency: string;
   };
   accounts: PortalAccount[];
+  payment_methods: PaymentMethod[];
 }
 
 function fmt(amount: number, currency: string): string {
@@ -84,6 +114,12 @@ function fmtDate(dateStr: string): string {
 function fmtDateLong(dateStr: string): string {
   return new Date(dateStr + 'T00:00:00Z').toLocaleDateString('en-US', {
     month: 'long', day: 'numeric', year: 'numeric',
+  });
+}
+
+function fmtDateTime(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
   });
 }
 
@@ -112,6 +148,14 @@ const installmentStatusLabel: Record<string, string> = {
   'cancelled': 'Cancelled',
 };
 
+const submissionStatusConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
+  submitted: { label: 'Submitted', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20', icon: <Send className="h-3 w-3" /> },
+  under_review: { label: 'Under Review', color: 'bg-warning/10 text-warning border-warning/20', icon: <Eye className="h-3 w-3" /> },
+  confirmed: { label: 'Confirmed by Cha Jewels', color: 'bg-success/10 text-success border-success/20', icon: <CheckCircle className="h-3 w-3" /> },
+  rejected: { label: 'Rejected', color: 'bg-destructive/10 text-destructive border-destructive/20', icon: <XCircle className="h-3 w-3" /> },
+  needs_clarification: { label: 'Needs Clarification', color: 'bg-warning/10 text-warning border-warning/20', icon: <MessageSquare className="h-3 w-3" /> },
+};
+
 export default function CustomerPortal() {
   const [params] = useSearchParams();
   const token = params.get('token');
@@ -123,22 +167,21 @@ export default function CustomerPortal() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('newest');
 
-  useEffect(() => {
+  const fetchPortal = async () => {
     if (!token) { setError('No access token provided.'); setLoading(false); return; }
-    const fetchPortal = async () => {
-      try {
-        const res = await fetch(
-          `${SUPABASE_URL}/functions/v1/customer-portal?token=${encodeURIComponent(token)}`,
-          { headers: { apikey: SUPABASE_KEY } },
-        );
-        const json = await res.json();
-        if (!res.ok) { setError(json.error || 'Access denied'); return; }
-        setData(json);
-      } catch { setError('Unable to load your accounts. Please try again.'); }
-      finally { setLoading(false); }
-    };
-    fetchPortal();
-  }, [token]);
+    try {
+      const res = await fetch(
+        `${SUPABASE_URL}/functions/v1/customer-portal?token=${encodeURIComponent(token)}`,
+        { headers: { apikey: SUPABASE_KEY } },
+      );
+      const json = await res.json();
+      if (!res.ok) { setError(json.error || 'Access denied'); return; }
+      setData(json);
+    } catch { setError('Unable to load your accounts. Please try again.'); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { fetchPortal(); }, [token]);
 
   if (loading) {
     return (
@@ -173,7 +216,6 @@ export default function CustomerPortal() {
     );
   }
 
-  // Filter & sort accounts
   let filtered = data.accounts.filter((a) => {
     if (statusFilter !== 'all' && a.status_label !== statusFilter) return false;
     if (search) {
@@ -193,7 +235,6 @@ export default function CustomerPortal() {
   });
 
   const currency = data.summary.primary_currency;
-  const today = new Date().toISOString().split('T')[0];
 
   return (
     <div className="min-h-screen bg-[hsl(var(--background))]">
@@ -309,7 +350,10 @@ export default function CustomerPortal() {
           {selectedAccount && (
             <AccountDetail
               account={selectedAccount}
+              paymentMethods={data.payment_methods}
+              portalToken={token!}
               onClose={() => setSelectedAccount(null)}
+              onRefresh={fetchPortal}
             />
           )}
         </SheetContent>
@@ -340,18 +384,27 @@ function SummaryTile({ label, value, icon, accent, sub }: {
 function AccountCard({ account, onViewDetails }: { account: PortalAccount; onViewDetails: () => void }) {
   const currency = account.currency;
   const colorClass = statusColor[account.status_label] || statusColor['Active'];
+  const isOverdue = account.status_label === 'Overdue';
+  const pendingSubs = account.submissions?.filter(s => ['submitted', 'under_review'].includes(s.status)).length || 0;
 
   return (
-    <Card className="shadow-sm hover:shadow-md transition-shadow cursor-pointer group" onClick={onViewDetails}>
+    <Card className={`shadow-sm hover:shadow-md transition-shadow cursor-pointer group ${isOverdue ? 'ring-1 ring-destructive/30' : ''}`} onClick={onViewDetails}>
       <CardContent className="p-4 sm:p-5">
         <div className="flex items-start justify-between mb-3">
           <div>
             <p className="text-xs text-muted-foreground font-medium">Invoice</p>
             <p className="text-base font-bold font-display text-foreground">#{account.invoice_number}</p>
           </div>
-          <Badge variant="outline" className={`text-[10px] ${colorClass}`}>
-            {account.status_label}
-          </Badge>
+          <div className="flex items-center gap-2">
+            {pendingSubs > 0 && (
+              <Badge variant="outline" className="bg-blue-500/10 text-blue-500 border-blue-500/20 text-[10px]">
+                {pendingSubs} pending
+              </Badge>
+            )}
+            <Badge variant="outline" className={`text-[10px] ${colorClass}`}>
+              {account.status_label}
+            </Badge>
+          </div>
         </div>
 
         {/* Progress */}
@@ -379,17 +432,22 @@ function AccountCard({ account, onViewDetails }: { account: PortalAccount; onVie
           </div>
         </div>
 
-        {/* Next Due & Actions */}
+        {/* Next Due & Pay Now hint */}
         <div className="flex items-center justify-between pt-2 border-t border-[hsl(var(--border))]">
-          {account.next_due_date ? (
+          {account.next_due_date && account.remaining_balance > 0 ? (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Clock className="h-3.5 w-3.5" />
-              <span>Next due: <span className="text-foreground font-medium">{fmtDate(account.next_due_date)}</span></span>
+              <span>Next due: <span className={`font-medium ${isOverdue ? 'text-destructive' : 'text-foreground'}`}>{fmtDate(account.next_due_date)}</span></span>
             </div>
           ) : (
-            <span className="text-xs text-muted-foreground">No upcoming dues</span>
+            <span className="text-xs text-muted-foreground">{account.remaining_balance <= 0 ? 'Fully paid' : 'No upcoming dues'}</span>
           )}
-          <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+          <div className="flex items-center gap-1.5">
+            {account.remaining_balance > 0 && (
+              <span className="text-[10px] text-primary font-medium">Pay Now →</span>
+            )}
+            <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -397,10 +455,19 @@ function AccountCard({ account, onViewDetails }: { account: PortalAccount; onVie
 }
 
 /* ─── Account Detail Panel ─── */
-function AccountDetail({ account, onClose }: { account: PortalAccount; onClose: () => void }) {
+function AccountDetail({ account, paymentMethods, portalToken, onClose, onRefresh }: {
+  account: PortalAccount;
+  paymentMethods: PaymentMethod[];
+  portalToken: string;
+  onClose: () => void;
+  onRefresh: () => void;
+}) {
   const currency = account.currency;
   const colorClass = statusColor[account.status_label] || statusColor['Active'];
   const today = new Date().toISOString().split('T')[0];
+  const isOverdue = account.status_label === 'Overdue';
+  const canPay = account.remaining_balance > 0 && !['completed', 'cancelled', 'forfeited', 'final_forfeited'].includes(account.status);
+  const [activeTab, setActiveTab] = useState<'overview' | 'pay' | 'submissions'>('overview');
 
   const statementUrl = account.statement_token
     ? `${STATEMENT_BASE}/statement?token=${account.statement_token}`
@@ -420,149 +487,601 @@ function AccountDetail({ account, onClose }: { account: PortalAccount; onClose: 
           </div>
         </SheetHeader>
 
+        {/* Overdue Warning */}
+        {isOverdue && (
+          <div className="mt-3 p-3 rounded-lg bg-destructive/10 border border-destructive/20 flex items-start gap-2.5">
+            <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-semibold text-destructive">Payment Overdue</p>
+              <p className="text-[10px] text-destructive/80 mt-0.5">
+                Your payment is past due. Please submit your payment as soon as possible to avoid additional penalties.
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="mt-4 grid grid-cols-2 gap-3">
-          <InfoBlock label="Order Date" value={fmtDateLong(account.order_date)} />
-          <InfoBlock label="Plan" value={`${account.payment_plan_months} months`} />
           <InfoBlock label="Total Amount" value={fmt(account.total_amount, currency)} />
-          <InfoBlock label="Downpayment" value={fmt(account.downpayment_amount, currency)} />
+          <InfoBlock label="Remaining" value={fmt(account.remaining_balance, currency)} highlight={isOverdue} />
+          <InfoBlock label="Next Due" value={account.next_due_date ? fmtDateLong(account.next_due_date) : '—'} />
+          <InfoBlock label="Next Amount" value={account.next_due_amount ? fmt(account.next_due_amount, currency) : '—'} />
         </div>
 
-        {/* Progress */}
-        <div className="mt-4">
-          <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
-            <span className="font-medium">{fmt(account.total_paid, currency)} paid</span>
-            <span>{fmt(account.remaining_balance, currency)} remaining</span>
-          </div>
-          <Progress value={account.progress_percent} className="h-2.5" />
-          <p className="text-[10px] text-muted-foreground mt-1 text-right">
-            {account.paid_installments}/{account.total_installments} installments completed
-          </p>
+        {/* Tabs */}
+        <div className="mt-4 flex gap-1 bg-muted/30 rounded-lg p-1">
+          {(['overview', 'pay', 'submissions'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`flex-1 text-xs font-medium py-2 rounded-md transition-all ${
+                activeTab === tab
+                  ? 'bg-[hsl(var(--card))] text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {tab === 'overview' ? 'Schedule' : tab === 'pay' ? '💳 Pay Now' : `Submissions${account.submissions?.length ? ` (${account.submissions.length})` : ''}`}
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-        {/* Statement CTA */}
-        {statementUrl && (
-          <a href={statementUrl} target="_blank" rel="noopener noreferrer">
-            <Button className="w-full gap-2" variant="default">
-              <FileText className="h-4 w-4" /> View Full Statement
-            </Button>
-          </a>
+        {activeTab === 'overview' && (
+          <OverviewTab account={account} statementUrl={statementUrl} today={today} />
         )}
-
-        {/* Payment Schedule */}
-        <div>
-          <h3 className="text-sm font-semibold font-display text-foreground mb-3 flex items-center gap-2">
-            <Calendar className="h-4 w-4 text-primary" /> Payment Schedule
-          </h3>
-          <div className="space-y-1.5">
-            {/* Downpayment */}
-            {account.downpayment_amount > 0 && (
-              <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/5 border border-primary/10">
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/20 text-primary text-xs font-bold shrink-0">DP</div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground">Downpayment</p>
-                  <p className="text-xs text-muted-foreground">Due on order</p>
-                </div>
-                <p className="text-sm font-semibold text-primary tabular-nums">{fmt(account.downpayment_amount, currency)}</p>
-              </div>
-            )}
-            {account.schedule.map((item) => {
-              const isPaid = item.status === 'paid';
-              const isOverdue = !isPaid && item.due_date < today && item.status !== 'cancelled';
-              const effectiveStatus = isOverdue ? 'overdue' : item.status;
-              const sColor = installmentStatusColor[effectiveStatus] || installmentStatusColor['pending'];
-              const sLabel = isOverdue ? 'Overdue' : (installmentStatusLabel[item.status] || item.status);
-
-              // Check if due within 7 days
-              const dueDate = new Date(item.due_date + 'T00:00:00Z');
-              const todayDate = new Date(today + 'T00:00:00Z');
-              const diffDays = Math.ceil((dueDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
-              const isDueSoon = !isPaid && !isOverdue && diffDays >= 0 && diffDays <= 7 && item.status !== 'cancelled';
-
-              return (
-                <div key={item.installment_number}
-                  className={`flex items-center gap-3 p-3 rounded-lg border ${
-                    isPaid ? 'bg-success/5 border-success/10' :
-                    isOverdue ? 'bg-destructive/5 border-destructive/10' :
-                    isDueSoon ? 'bg-warning/5 border-warning/10' :
-                    'bg-[hsl(var(--card))] border-[hsl(var(--border))]'
-                  }`}
-                >
-                  <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold shrink-0 ${
-                    isPaid ? 'bg-success/20 text-success' :
-                    isOverdue ? 'bg-destructive/20 text-destructive' :
-                    'bg-muted text-muted-foreground'
-                  }`}>
-                    {isPaid ? <Check className="h-3.5 w-3.5" /> : item.installment_number}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-foreground">Month {item.installment_number}</p>
-                      <Badge variant="outline" className={`text-[9px] py-0 h-4 ${sColor}`}>
-                        {isDueSoon ? 'Due Soon' : sLabel}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground">{fmtDate(item.due_date)}</p>
-                    {item.penalty_amount > 0 && (
-                      <p className="text-[10px] text-destructive mt-0.5">+{fmt(item.penalty_amount, currency)} penalty</p>
-                    )}
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className={`text-sm font-semibold tabular-nums ${isPaid ? 'text-success' : 'text-foreground'}`}>
-                      {fmt(item.base_amount, currency)}
-                    </p>
-                    {!isPaid && item.paid_amount > 0 && (
-                      <p className="text-[10px] text-muted-foreground">Paid: {fmt(item.paid_amount, currency)}</p>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+        {activeTab === 'pay' && canPay && (
+          <PayNowTab
+            account={account}
+            paymentMethods={paymentMethods}
+            portalToken={portalToken}
+            onSuccess={() => {
+              setActiveTab('submissions');
+              onRefresh();
+            }}
+          />
+        )}
+        {activeTab === 'pay' && !canPay && (
+          <div className="text-center py-12">
+            <CheckCircle className="h-12 w-12 text-success mx-auto mb-4" />
+            <h3 className="text-lg font-semibold font-display text-foreground mb-2">No Payment Due</h3>
+            <p className="text-sm text-muted-foreground">This account has no outstanding balance or is not accepting payments at this time.</p>
           </div>
-        </div>
-
-        {/* Payment History */}
-        {account.payments.length > 0 && (
-          <div>
-            <h3 className="text-sm font-semibold font-display text-foreground mb-3 flex items-center gap-2">
-              <CreditCard className="h-4 w-4 text-primary" /> Payment History
-            </h3>
-            <div className="space-y-1.5">
-              {account.payments.map((p, idx) => (
-                <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-[hsl(var(--card))] border border-[hsl(var(--border))]">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{fmtDate(p.date)}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      {p.method && (
-                        <span className="text-[10px] text-muted-foreground capitalize">{p.method}</span>
-                      )}
-                      {p.reference && (
-                        <span className="text-[10px] text-muted-foreground">Ref: {p.reference}</span>
-                      )}
-                    </div>
-                    {p.remarks && (
-                      <p className="text-[10px] text-muted-foreground mt-0.5">{p.remarks}</p>
-                    )}
-                  </div>
-                  <p className="text-sm font-semibold text-success tabular-nums">{fmt(p.amount, currency)}</p>
-                </div>
-              ))}
-            </div>
-          </div>
+        )}
+        {activeTab === 'submissions' && (
+          <SubmissionsTab submissions={account.submissions || []} currency={currency} />
         )}
       </div>
     </div>
   );
 }
 
+/* ─── Overview Tab ─── */
+function OverviewTab({ account, statementUrl, today }: {
+  account: PortalAccount; statementUrl: string | null; today: string;
+}) {
+  const currency = account.currency;
+  return (
+    <>
+      {statementUrl && (
+        <a href={statementUrl} target="_blank" rel="noopener noreferrer">
+          <Button className="w-full gap-2" variant="default">
+            <FileText className="h-4 w-4" /> View Full Statement
+          </Button>
+        </a>
+      )}
+
+      {/* Progress */}
+      <div>
+        <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
+          <span className="font-medium">{fmt(account.total_paid, currency)} paid</span>
+          <span>{fmt(account.remaining_balance, currency)} remaining</span>
+        </div>
+        <Progress value={account.progress_percent} className="h-2.5" />
+        <p className="text-[10px] text-muted-foreground mt-1 text-right">
+          {account.paid_installments}/{account.total_installments} installments completed
+        </p>
+      </div>
+
+      {/* Payment Schedule */}
+      <div>
+        <h3 className="text-sm font-semibold font-display text-foreground mb-3 flex items-center gap-2">
+          <Calendar className="h-4 w-4 text-primary" /> Payment Schedule
+        </h3>
+        <div className="space-y-1.5">
+          {account.downpayment_amount > 0 && (
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/5 border border-primary/10">
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/20 text-primary text-xs font-bold shrink-0">DP</div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground">Downpayment</p>
+                <p className="text-xs text-muted-foreground">Due on order</p>
+              </div>
+              <p className="text-sm font-semibold text-primary tabular-nums">{fmt(account.downpayment_amount, currency)}</p>
+            </div>
+          )}
+          {account.schedule.map((item) => {
+            const isPaid = item.status === 'paid';
+            const isOverdue = !isPaid && item.due_date < today && item.status !== 'cancelled';
+            const effectiveStatus = isOverdue ? 'overdue' : item.status;
+            const sColor = installmentStatusColor[effectiveStatus] || installmentStatusColor['pending'];
+            const sLabel = isOverdue ? 'Overdue' : (installmentStatusLabel[item.status] || item.status);
+            const dueDate = new Date(item.due_date + 'T00:00:00Z');
+            const todayDate = new Date(today + 'T00:00:00Z');
+            const diffDays = Math.ceil((dueDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
+            const isDueSoon = !isPaid && !isOverdue && diffDays >= 0 && diffDays <= 7 && item.status !== 'cancelled';
+
+            return (
+              <div key={item.installment_number}
+                className={`flex items-center gap-3 p-3 rounded-lg border ${
+                  isPaid ? 'bg-success/5 border-success/10' :
+                  isOverdue ? 'bg-destructive/5 border-destructive/10' :
+                  isDueSoon ? 'bg-warning/5 border-warning/10' :
+                  'bg-[hsl(var(--card))] border-[hsl(var(--border))]'
+                }`}
+              >
+                <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold shrink-0 ${
+                  isPaid ? 'bg-success/20 text-success' :
+                  isOverdue ? 'bg-destructive/20 text-destructive' :
+                  'bg-muted text-muted-foreground'
+                }`}>
+                  {isPaid ? <Check className="h-3.5 w-3.5" /> : item.installment_number}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-foreground">Month {item.installment_number}</p>
+                    <Badge variant="outline" className={`text-[9px] py-0 h-4 ${sColor}`}>
+                      {isDueSoon ? 'Due Soon' : sLabel}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{fmtDate(item.due_date)}</p>
+                  {item.penalty_amount > 0 && (
+                    <p className="text-[10px] text-destructive mt-0.5">+{fmt(item.penalty_amount, currency)} penalty</p>
+                  )}
+                </div>
+                <div className="text-right shrink-0">
+                  <p className={`text-sm font-semibold tabular-nums ${isPaid ? 'text-success' : 'text-foreground'}`}>
+                    {fmt(item.base_amount, currency)}
+                  </p>
+                  {!isPaid && item.paid_amount > 0 && (
+                    <p className="text-[10px] text-muted-foreground">Paid: {fmt(item.paid_amount, currency)}</p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Payment History */}
+      {account.payments.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold font-display text-foreground mb-3 flex items-center gap-2">
+            <CreditCard className="h-4 w-4 text-primary" /> Payment History
+          </h3>
+          <div className="space-y-1.5">
+            {account.payments.map((p, idx) => (
+              <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-[hsl(var(--card))] border border-[hsl(var(--border))]">
+                <div>
+                  <p className="text-sm font-medium text-foreground">{fmtDate(p.date)}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    {p.method && <span className="text-[10px] text-muted-foreground capitalize">{p.method}</span>}
+                    {p.reference && <span className="text-[10px] text-muted-foreground">Ref: {p.reference}</span>}
+                  </div>
+                </div>
+                <p className="text-sm font-semibold text-success tabular-nums">{fmt(p.amount, account.currency)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/* ─── Pay Now Tab ─── */
+function PayNowTab({ account, paymentMethods, portalToken, onSuccess }: {
+  account: PortalAccount;
+  paymentMethods: PaymentMethod[];
+  portalToken: string;
+  onSuccess: () => void;
+}) {
+  const currency = account.currency;
+  const [step, setStep] = useState<'methods' | 'form' | 'success'>('methods');
+  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // Form state
+  const [amount, setAmount] = useState(account.next_due_amount ? String(account.next_due_amount) : '');
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [referenceNumber, setReferenceNumber] = useState('');
+  const [senderName, setSenderName] = useState('');
+  const [notes, setNotes] = useState('');
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [proofPreview, setProofPreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setFormError('File must be less than 10MB');
+      return;
+    }
+    setProofFile(file);
+    setFormError(null);
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = () => setProofPreview(reader.result as string);
+      reader.readAsDataURL(file);
+    } else {
+      setProofPreview(null);
+    }
+  };
+
+  const handleSubmit = async () => {
+    setFormError(null);
+    const parsedAmount = parseFloat(amount);
+    if (!parsedAmount || parsedAmount <= 0) { setFormError('Please enter a valid amount.'); return; }
+    if (!paymentDate) { setFormError('Please select a payment date.'); return; }
+    if (!selectedMethod) { setFormError('Please select a payment method.'); return; }
+
+    setSubmitting(true);
+
+    try {
+      // Upload proof if provided
+      let proofUrl: string | null = null;
+      if (proofFile) {
+        const ext = proofFile.name.split('.').pop() || 'jpg';
+        const filePath = `${account.id}/${Date.now()}.${ext}`;
+        const uploadRes = await fetch(
+          `${SUPABASE_URL}/storage/v1/object/payment-proofs/${filePath}`,
+          {
+            method: 'POST',
+            headers: {
+              apikey: SUPABASE_KEY,
+              Authorization: `Bearer ${SUPABASE_KEY}`,
+              'Content-Type': proofFile.type,
+            },
+            body: proofFile,
+          }
+        );
+        if (uploadRes.ok) {
+          proofUrl = `${SUPABASE_URL}/storage/v1/object/public/payment-proofs/${filePath}`;
+        }
+      }
+
+      // Submit payment
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/submit-payment`, {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          portal_token: portalToken,
+          account_id: account.id,
+          submitted_amount: parsedAmount,
+          payment_date: paymentDate,
+          payment_method: selectedMethod.method_name,
+          reference_number: referenceNumber || null,
+          sender_name: senderName || null,
+          notes: notes || null,
+          proof_url: proofUrl,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        setFormError(json.error || 'Submission failed. Please try again.');
+        return;
+      }
+
+      setStep('success');
+      onSuccess();
+    } catch {
+      setFormError('Something went wrong. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (step === 'success') {
+    return (
+      <div className="text-center py-10 space-y-4">
+        <div className="mx-auto w-16 h-16 rounded-full bg-success/10 flex items-center justify-center">
+          <CheckCircle className="h-8 w-8 text-success" />
+        </div>
+        <h3 className="text-lg font-semibold font-display text-foreground">Payment Submitted!</h3>
+        <p className="text-sm text-muted-foreground max-w-xs mx-auto">
+          Your submission has been received and is now pending verification by the Cha Jewels team.
+        </p>
+        <div className="bg-muted/30 rounded-lg p-4 text-xs text-muted-foreground max-w-xs mx-auto">
+          <p className="font-medium text-foreground mb-1">What happens next?</p>
+          <p>Our team will review your payment proof and confirm within 1–2 business days. You'll see the status update in the Submissions tab.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 'form' && selectedMethod) {
+    return (
+      <div className="space-y-5">
+        <button onClick={() => setStep('methods')} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+          <ArrowLeft className="h-3.5 w-3.5" /> Back to payment methods
+        </button>
+
+        {/* Selected Method */}
+        <div className="p-4 rounded-xl bg-primary/5 border border-primary/10">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Paying via</p>
+          <p className="text-sm font-semibold text-foreground">{selectedMethod.method_name}</p>
+          {selectedMethod.bank_name && <p className="text-xs text-muted-foreground">{selectedMethod.bank_name}</p>}
+          {selectedMethod.account_name && (
+            <p className="text-xs text-foreground mt-2">Account: <span className="font-medium">{selectedMethod.account_name}</span></p>
+          )}
+          {selectedMethod.account_number && (
+            <p className="text-xs text-foreground">Number: <span className="font-mono font-medium">{selectedMethod.account_number}</span></p>
+          )}
+          {selectedMethod.instructions && (
+            <p className="text-[10px] text-muted-foreground mt-2 italic">{selectedMethod.instructions}</p>
+          )}
+        </div>
+
+        {/* Form */}
+        <div className="space-y-4">
+          <div>
+            <Label className="text-xs">Payment Amount <span className="text-destructive">*</span></Label>
+            <div className="relative mt-1.5">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                {currency === 'JPY' ? '¥' : '₱'}
+              </span>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="pl-8"
+                placeholder="0.00"
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Amount due: {account.next_due_amount ? fmt(account.next_due_amount, currency) : fmt(account.remaining_balance, currency)}
+            </p>
+          </div>
+
+          <div>
+            <Label className="text-xs">Payment Date <span className="text-destructive">*</span></Label>
+            <Input
+              type="date"
+              value={paymentDate}
+              onChange={(e) => setPaymentDate(e.target.value)}
+              className="mt-1.5"
+            />
+          </div>
+
+          <div>
+            <Label className="text-xs">Reference / Transaction Number</Label>
+            <Input
+              value={referenceNumber}
+              onChange={(e) => setReferenceNumber(e.target.value)}
+              placeholder="e.g. GCash ref #12345"
+              className="mt-1.5"
+            />
+          </div>
+
+          <div>
+            <Label className="text-xs">Sender Name (optional)</Label>
+            <Input
+              value={senderName}
+              onChange={(e) => setSenderName(e.target.value)}
+              placeholder="Name on the sending account"
+              className="mt-1.5"
+            />
+          </div>
+
+          <div>
+            <Label className="text-xs">Proof of Payment</Label>
+            <div className="mt-1.5">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,.pdf"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+              {proofPreview ? (
+                <div className="relative">
+                  <img src={proofPreview} alt="Proof" className="w-full h-40 object-cover rounded-lg border border-[hsl(var(--border))]" />
+                  <button
+                    onClick={() => { setProofFile(null); setProofPreview(null); }}
+                    className="absolute top-2 right-2 h-6 w-6 rounded-full bg-background/80 flex items-center justify-center"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : proofFile ? (
+                <div className="flex items-center gap-2 p-3 rounded-lg border border-[hsl(var(--border))] bg-muted/30">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-xs text-foreground truncate flex-1">{proofFile.name}</span>
+                  <button onClick={() => { setProofFile(null); setProofPreview(null); }}>
+                    <X className="h-3.5 w-3.5 text-muted-foreground" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full p-6 rounded-lg border-2 border-dashed border-[hsl(var(--border))] hover:border-primary/40 transition-colors flex flex-col items-center gap-2"
+                >
+                  <Upload className="h-6 w-6 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Tap to upload screenshot or receipt</span>
+                  <span className="text-[10px] text-muted-foreground/60">JPG, PNG, or PDF · Max 10MB</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <Label className="text-xs">Notes (optional)</Label>
+            <Textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Any additional details…"
+              className="mt-1.5"
+              rows={2}
+            />
+          </div>
+
+          {formError && (
+            <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+              <p className="text-xs text-destructive">{formError}</p>
+            </div>
+          )}
+
+          <Button
+            className="w-full gap-2"
+            size="lg"
+            onClick={handleSubmit}
+            disabled={submitting}
+          >
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {submitting ? 'Submitting…' : 'Submit Payment'}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Payment Methods list
+  return (
+    <div className="space-y-5">
+      {/* Amount Due Summary */}
+      <div className="p-4 rounded-xl bg-primary/5 border border-primary/10 text-center">
+        <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Amount Due Now</p>
+        <p className="text-2xl font-bold font-display text-primary tabular-nums">
+          {account.next_due_amount ? fmt(account.next_due_amount, currency) : fmt(account.remaining_balance, currency)}
+        </p>
+        {account.next_due_date && (
+          <p className="text-xs text-muted-foreground mt-1">Due {fmtDateLong(account.next_due_date)}</p>
+        )}
+      </div>
+
+      <div>
+        <h3 className="text-sm font-semibold font-display text-foreground mb-3 flex items-center gap-2">
+          <Wallet className="h-4 w-4 text-primary" /> Select Payment Method
+        </h3>
+        <div className="space-y-2">
+          {paymentMethods.map((method) => (
+            <button
+              key={method.id}
+              onClick={() => { setSelectedMethod(method); setStep('form'); }}
+              className="w-full text-left p-4 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] hover:border-primary/30 hover:bg-primary/5 transition-all group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                  <Landmark className="h-5 w-5 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">{method.method_name}</p>
+                  {method.bank_name && <p className="text-xs text-muted-foreground">{method.bank_name}</p>}
+                  {method.account_name && <p className="text-[10px] text-muted-foreground">{method.account_name}</p>}
+                </div>
+                <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {paymentMethods.length === 0 && (
+        <div className="text-center py-8">
+          <Wallet className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground">Payment methods are being configured.</p>
+          <p className="text-xs text-muted-foreground/60 mt-1">Please contact Cha Jewels for payment instructions.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Submissions Tab ─── */
+function SubmissionsTab({ submissions, currency }: { submissions: Submission[]; currency: string }) {
+  if (submissions.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <Send className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
+        <h3 className="text-sm font-semibold text-foreground mb-1">No Submissions Yet</h3>
+        <p className="text-xs text-muted-foreground">Use the Pay Now tab to submit your first payment.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <h3 className="text-sm font-semibold font-display text-foreground flex items-center gap-2">
+        <Send className="h-4 w-4 text-primary" /> Payment Submissions
+      </h3>
+      {submissions.map((sub) => {
+        const cfg = submissionStatusConfig[sub.status] || submissionStatusConfig.submitted;
+        return (
+          <div key={sub.id} className="p-4 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] space-y-2.5">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm font-semibold tabular-nums text-foreground">{fmt(sub.submitted_amount, currency)}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">{fmtDateTime(sub.created_at)}</p>
+              </div>
+              <Badge variant="outline" className={`text-[10px] gap-1 ${cfg.color}`}>
+                {cfg.icon} {cfg.label}
+              </Badge>
+            </div>
+
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+              <div>
+                <span className="text-muted-foreground">Method: </span>
+                <span className="text-foreground">{sub.payment_method}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Date: </span>
+                <span className="text-foreground">{fmtDate(sub.payment_date)}</span>
+              </div>
+              {sub.reference_number && (
+                <div className="col-span-2">
+                  <span className="text-muted-foreground">Ref: </span>
+                  <span className="text-foreground font-mono">{sub.reference_number}</span>
+                </div>
+              )}
+            </div>
+
+            {sub.proof_url && (
+              <a href={sub.proof_url} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-[10px] text-primary hover:underline">
+                <ImageIcon className="h-3 w-3" /> View proof of payment
+              </a>
+            )}
+
+            {sub.reviewer_notes && (
+              <div className={`p-2.5 rounded-lg text-xs ${
+                sub.status === 'rejected' ? 'bg-destructive/5 border border-destructive/10' :
+                sub.status === 'needs_clarification' ? 'bg-warning/5 border border-warning/10' :
+                'bg-muted/30 border border-[hsl(var(--border))]'
+              }`}>
+                <p className="text-[10px] text-muted-foreground mb-0.5 font-medium">Message from Cha Jewels:</p>
+                <p className="text-foreground">{sub.reviewer_notes}</p>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ─── Info Block ─── */
-function InfoBlock({ label, value }: { label: string; value: string }) {
+function InfoBlock({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div>
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className="text-sm font-medium text-foreground">{value}</p>
+      <p className={`text-sm font-medium ${highlight ? 'text-destructive' : 'text-foreground'}`}>{value}</p>
     </div>
   );
 }
