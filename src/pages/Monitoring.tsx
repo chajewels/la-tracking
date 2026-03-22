@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Bell, MessageCircle, Clock, AlertTriangle, CalendarCheck, Send, Copy, Check, Loader2 } from 'lucide-react';
+import { Bell, MessageCircle, Clock, AlertTriangle, CalendarCheck, Send, Copy, Check, Loader2, Filter } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
+import NotifiedButton, { type ReminderStage } from '@/components/notifications/NotifiedButton';
 import {
   Dialog,
   DialogContent,
@@ -29,6 +30,8 @@ interface AlertItem {
   currency: Currency;
   daysOverdue: number;
   accountId: string;
+  scheduleId: string;
+  customerId: string;
   messengerLink?: string | null;
 }
 
@@ -39,6 +42,7 @@ const iconMap = {
 };
 
 type FilterTab = 'all' | 'overdue' | 'due_today' | 'due_3_days' | 'due_7_days';
+type NotifFilter = 'all' | 'not_notified' | 'notified';
 
 const filterTabs: { key: FilterTab; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -47,6 +51,13 @@ const filterTabs: { key: FilterTab; label: string }[] = [
   { key: 'due_3_days', label: 'Due in 3 Days' },
   { key: 'due_7_days', label: 'Due in 7 Days' },
 ];
+
+function bucketToStage(bucket: AccountBucket): ReminderStage | null {
+  if (bucket === 'due_7_days') return '7_DAYS';
+  if (bucket === 'due_3_days') return '3_DAYS';
+  if (bucket === 'due_today') return 'DUE_TODAY';
+  return null;
+}
 
 function generateMessengerMessage(alert: AlertItem): string {
   const dueStr = new Date(alert.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
@@ -65,11 +76,12 @@ export default function Monitoring() {
   const [searchParams, setSearchParams] = useSearchParams();
   const initialFilter = (searchParams.get('filter') as FilterTab) || 'all';
   const [activeFilter, setActiveFilter] = useState<FilterTab>(initialFilter);
+  const [notifFilter, setNotifFilter] = useState<NotifFilter>('all');
   const [sending, setSending] = useState(false);
   const [messengerDialog, setMessengerDialog] = useState<{ alert: AlertItem; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Fetch ALL unpaid schedule items for active/overdue accounts (no date limit for overdue)
+  // Fetch ALL unpaid schedule items for active/overdue accounts
   const { data: scheduleItems, isLoading: schedLoading } = useQuery({
     queryKey: ['monitoring-schedules'],
     queryFn: async () => {
@@ -77,11 +89,10 @@ export default function Monitoring() {
       next7.setDate(next7.getDate() + 7);
       const next7Str = next7.toISOString().split('T')[0];
 
-      // Fetch overdue items (no date limit) + upcoming items (up to 7 days)
       const [overdueRes, upcomingRes] = await Promise.all([
         supabase
           .from('layaway_schedule')
-          .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customers(full_name, messenger_link))')
+          .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, customers(full_name, messenger_link))')
           .in('status', ['pending', 'overdue', 'partially_paid'])
           .in('layaway_accounts.status', ['active', 'overdue'])
           .lt('due_date', new Date().toISOString().split('T')[0])
@@ -89,7 +100,7 @@ export default function Monitoring() {
           .limit(500),
         supabase
           .from('layaway_schedule')
-          .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customers(full_name, messenger_link))')
+          .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, customers(full_name, messenger_link))')
           .in('status', ['pending', 'overdue', 'partially_paid'])
           .in('layaway_accounts.status', ['active', 'overdue'])
           .gte('due_date', new Date().toISOString().split('T')[0])
@@ -101,7 +112,6 @@ export default function Monitoring() {
       if (overdueRes.error) throw overdueRes.error;
       if (upcomingRes.error) throw upcomingRes.error;
 
-      // Merge and dedupe by id
       const map = new Map<string, any>();
       for (const item of [...(overdueRes.data || []), ...(upcomingRes.data || [])]) {
         map.set(item.id, item);
@@ -110,11 +120,34 @@ export default function Monitoring() {
     },
   });
 
+  // Fetch existing CSR notifications
+  const { data: notifications } = useQuery({
+    queryKey: ['csr-notifications'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('csr_notifications')
+        .select('schedule_id, reminder_stage, notified_by_name, notified_at');
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  // Build a lookup map: `scheduleId_stage` -> notification
+  const notifMap = useMemo(() => {
+    const map = new Map<string, { notified_by_name: string; notified_at: string }>();
+    for (const n of notifications || []) {
+      map.set(`${n.schedule_id}_${n.reminder_stage}`, {
+        notified_by_name: n.notified_by_name,
+        notified_at: n.notified_at,
+      });
+    }
+    return map;
+  }, [notifications]);
+
   // Group schedule items by account to determine NEXT due date per account
   const alerts: AlertItem[] = useMemo(() => {
     if (!scheduleItems) return [];
 
-    // Group by account
     const byAccount = new Map<string, any[]>();
     for (const s of scheduleItems) {
       const acc = (s as any).layaway_accounts;
@@ -133,7 +166,6 @@ export default function Monitoring() {
       const bucket = classifyAccountBucket(nextDue);
       if (bucket === 'fully_paid' || bucket === 'future') continue;
 
-      // Find the next unpaid item to show
       const nextItem = items
         .filter((s: any) => !isEffectivelyPaid(s) && s.status !== 'cancelled')
         .sort((a: any, b: any) => a.due_date.localeCompare(b.due_date))[0];
@@ -153,6 +185,8 @@ export default function Monitoring() {
         currency: acc.currency as Currency,
         daysOverdue: overdueDays,
         accountId: acc.id,
+        scheduleId: nextItem.id,
+        customerId: acc.customer_id,
         messengerLink: acc.customers?.messenger_link,
       });
     }
@@ -160,8 +194,8 @@ export default function Monitoring() {
     return result;
   }, [scheduleItems]);
 
-  // Apply filter
-  const filteredAlerts = useMemo(() => {
+  // Apply bucket filter
+  const bucketFiltered = useMemo(() => {
     if (activeFilter === 'all') return alerts;
     if (activeFilter === 'overdue') return alerts.filter(a => a.bucket === 'overdue');
     if (activeFilter === 'due_today') return alerts.filter(a => a.bucket === 'due_today');
@@ -170,18 +204,49 @@ export default function Monitoring() {
     return alerts;
   }, [alerts, activeFilter]);
 
+  // Apply notification filter
+  const filteredAlerts = useMemo(() => {
+    if (notifFilter === 'all') return bucketFiltered;
+    return bucketFiltered.filter(a => {
+      const stage = bucketToStage(a.bucket);
+      if (!stage) return notifFilter === 'not_notified'; // overdue has no stage
+      const isNotified = notifMap.has(`${a.scheduleId}_${stage}`);
+      return notifFilter === 'notified' ? isNotified : !isNotified;
+    });
+  }, [bucketFiltered, notifFilter, notifMap]);
+
   const sortedAlerts = useMemo(() => {
     const order: Record<string, number> = { overdue: 0, due_today: 1, due_3_days: 2, due_7_days: 3 };
     return [...filteredAlerts].sort((a, b) => (order[a.bucket] ?? 9) - (order[b.bucket] ?? 9) || b.daysOverdue - a.daysOverdue);
   }, [filteredAlerts]);
 
-  // Counts per bucket (from ALL alerts, not filtered)
+  // Counts per bucket (from ALL alerts)
   const counts = useMemo(() => ({
     overdue: alerts.filter(a => a.bucket === 'overdue').length,
     due_today: alerts.filter(a => a.bucket === 'due_today').length,
     due_3_days: alerts.filter(a => a.bucket === 'due_3_days').length,
     due_7_days: alerts.filter(a => ['due_3_days', 'due_7_days'].includes(a.bucket)).length,
   }), [alerts]);
+
+  // Notification stats per bucket
+  const notifStats = useMemo(() => {
+    const stats = {
+      due_today: { total: 0, notified: 0 },
+      due_3_days: { total: 0, notified: 0 },
+      due_7_days: { total: 0, notified: 0 },
+    };
+    for (const a of alerts) {
+      const stage = bucketToStage(a.bucket);
+      if (!stage) continue;
+      const key = a.bucket as 'due_today' | 'due_3_days' | 'due_7_days';
+      if (!stats[key]) continue;
+      stats[key].total++;
+      if (notifMap.has(`${a.scheduleId}_${stage}`)) {
+        stats[key].notified++;
+      }
+    }
+    return stats;
+  }, [alerts, notifMap]);
 
   const isLoading = schedLoading;
 
@@ -255,7 +320,7 @@ export default function Monitoring() {
             <Bell className="h-5 w-5 text-primary" />
             <div>
               <h1 className="text-2xl font-bold text-foreground font-display">CSR Monitoring Center</h1>
-              <p className="text-sm text-muted-foreground mt-0.5">Payment alerts & reminders</p>
+              <p className="text-sm text-muted-foreground mt-0.5">Payment alerts & stage-based notification tracking</p>
             </div>
           </div>
           <Button
@@ -268,40 +333,72 @@ export default function Monitoring() {
           </Button>
         </div>
 
-        {/* Summary Cards */}
+        {/* Summary Cards with notification stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          {[
-            { label: 'Overdue', count: counts.overdue, color: 'text-destructive', filter: 'overdue' as FilterTab },
-            { label: 'Due Today', count: counts.due_today, color: 'text-warning', filter: 'due_today' as FilterTab },
-            { label: 'Due in 3 Days', count: counts.due_3_days, color: 'text-info', filter: 'due_3_days' as FilterTab },
-            { label: 'Due in 7 Days', count: counts.due_7_days, color: 'text-primary', filter: 'due_7_days' as FilterTab },
-          ].map(s => (
-            <button
-              key={s.label}
-              onClick={() => handleFilterChange(s.filter)}
-              className={`rounded-xl border bg-card p-4 text-center transition-colors hover:bg-muted/30 ${activeFilter === s.filter ? 'border-primary ring-1 ring-primary/30' : 'border-border'}`}
-            >
-              <p className={`text-3xl font-bold font-display ${s.color}`}>{isLoading ? '—' : s.count}</p>
-              <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
-            </button>
-          ))}
+          {([
+            { label: 'Overdue', count: counts.overdue, color: 'text-destructive', filter: 'overdue' as FilterTab, statsKey: null },
+            { label: 'Due Today', count: counts.due_today, color: 'text-warning', filter: 'due_today' as FilterTab, statsKey: 'due_today' as const },
+            { label: 'Due in 3 Days', count: counts.due_3_days, color: 'text-info', filter: 'due_3_days' as FilterTab, statsKey: 'due_3_days' as const },
+            { label: 'Due in 7 Days', count: counts.due_7_days, color: 'text-primary', filter: 'due_7_days' as FilterTab, statsKey: 'due_7_days' as const },
+          ]).map(s => {
+            const stat = s.statsKey ? notifStats[s.statsKey] : null;
+            return (
+              <button
+                key={s.label}
+                onClick={() => handleFilterChange(s.filter)}
+                className={`rounded-xl border bg-card p-4 text-center transition-colors hover:bg-muted/30 ${activeFilter === s.filter ? 'border-primary ring-1 ring-primary/30' : 'border-border'}`}
+              >
+                <p className={`text-3xl font-bold font-display ${s.color}`}>{isLoading ? '—' : s.count}</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
+                {stat && stat.total > 0 && (
+                  <div className="mt-2 flex items-center justify-center gap-1.5">
+                    <span className="text-[10px] font-medium text-success">{stat.notified} notified</span>
+                    <span className="text-[10px] text-muted-foreground">·</span>
+                    <span className="text-[10px] font-medium text-warning">{stat.total - stat.notified} pending</span>
+                  </div>
+                )}
+              </button>
+            );
+          })}
         </div>
 
-        {/* Filter Tabs */}
-        <div className="flex gap-1 rounded-lg border border-border p-1 bg-card w-fit">
-          {filterTabs.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => handleFilterChange(tab.key)}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                activeFilter === tab.key
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+        {/* Filter Tabs + Notification Filter */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex gap-1 rounded-lg border border-border p-1 bg-card w-fit">
+            {filterTabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => handleFilterChange(tab.key)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  activeFilter === tab.key
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-1 rounded-lg border border-border p-1 bg-card w-fit">
+            {([
+              { key: 'all' as NotifFilter, label: 'All' },
+              { key: 'not_notified' as NotifFilter, label: 'Not Notified' },
+              { key: 'notified' as NotifFilter, label: 'Notified' },
+            ]).map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setNotifFilter(tab.key)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1 ${
+                  notifFilter === tab.key
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {tab.key === 'not_notified' && <Filter className="h-3 w-3" />}
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Alert List */}
@@ -312,9 +409,9 @@ export default function Monitoring() {
         ) : sortedAlerts.length === 0 ? (
           <div className="rounded-xl border border-border bg-card p-8 text-center">
             <p className="text-sm text-muted-foreground">
-              {activeFilter === 'all'
+              {activeFilter === 'all' && notifFilter === 'all'
                 ? 'No upcoming or overdue payments in the next 7 days.'
-                : `No accounts matching "${filterTabs.find(t => t.key === activeFilter)?.label}" filter.`}
+                : `No accounts matching current filters.`}
             </p>
           </div>
         ) : (
@@ -323,6 +420,9 @@ export default function Monitoring() {
             {sortedAlerts.map((alert, idx) => {
               const config = alertTypeConfig[alert.type];
               const Icon = iconMap[alert.type];
+              const stage = bucketToStage(alert.bucket);
+              const existingNotif = stage ? notifMap.get(`${alert.scheduleId}_${stage}`) || null : null;
+
               return (
                 <div key={`${alert.accountId}-${alert.dueDate}-${idx}`} className={`rounded-xl border bg-card p-4 ${config.borderClass} hover:bg-muted/30 transition-colors`}>
                   <div className="flex items-center justify-between">
@@ -345,7 +445,18 @@ export default function Monitoring() {
                       <span className="text-sm font-bold text-card-foreground tabular-nums">
                         {formatCurrency(alert.amount, alert.currency)}
                       </span>
-                      <div className="flex gap-1">
+                      <div className="flex gap-1 items-center">
+                        {stage && (
+                          <NotifiedButton
+                            accountId={alert.accountId}
+                            scheduleId={alert.scheduleId}
+                            customerId={alert.customerId}
+                            invoiceNumber={alert.invoice}
+                            dueDate={alert.dueDate}
+                            stage={stage}
+                            existingNotification={existingNotif}
+                          />
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"
