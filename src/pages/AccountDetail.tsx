@@ -741,6 +741,7 @@ export default function AccountDetail() {
               </div>
               {scheduleItems.map((item) => {
                 const effPaid = isEffectivelyPaid(item);
+                const partial = isPartiallyPaid(item);
                 const penaltyAmt = Number(item.penalty_amount);
                 const paidAmt = Number(item.paid_amount);
                 const baseAmt = Number(item.base_installment_amount);
@@ -752,14 +753,14 @@ export default function AccountDetail() {
                 return (
                   <div key={item.id}
                     className={`group rounded-lg border p-2.5 sm:p-3 ${
-                      effPaid ? 'bg-success/5 border-success/10' : 'bg-card border-border'
+                      effPaid ? 'bg-success/5 border-success/10' : partial ? 'bg-warning/5 border-warning/10' : 'bg-card border-border'
                     }`}
                   >
                     {/* Mobile layout */}
                     <div className="sm:hidden flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <div className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold ${
-                          effPaid ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'
+                          effPaid ? 'bg-success/20 text-success' : partial ? 'bg-warning/20 text-warning' : 'bg-muted text-muted-foreground'
                         }`}>
                           {effPaid ? <Check className="h-3 w-3" /> : item.installment_number}
                         </div>
@@ -768,14 +769,19 @@ export default function AccountDetail() {
                             {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                           </p>
                           <p className="text-[10px] text-muted-foreground">
-                            {effPaid ? 'Paid' : `Month ${item.installment_number}`}
+                            {effPaid ? 'Paid' : partial ? `Partial — ${formatCurrency(paidAmt, currency)} paid` : `Month ${item.installment_number}`}
                           </p>
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className={`text-xs font-semibold tabular-nums ${effPaid ? 'text-success' : 'text-card-foreground'}`}>
+                        <p className={`text-xs font-semibold tabular-nums ${effPaid ? 'text-success' : partial ? 'text-warning' : 'text-card-foreground'}`}>
                           {formatCurrency(effPaid ? Math.max(paidAmt, totalDue) : totalDue, currency)}
                         </p>
+                        {partial && (
+                          <p className="text-[10px] text-warning tabular-nums">
+                            Remaining: {formatCurrency(itemRemaining, currency)}
+                          </p>
+                        )}
                       </div>
                     </div>
                     {/* Mobile penalty detail */}
@@ -803,7 +809,7 @@ export default function AccountDetail() {
                     {/* Desktop layout: columnar */}
                     <div className="hidden sm:grid grid-cols-[2.5rem_1fr_5.5rem_5.5rem_5.5rem_5.5rem_2rem] gap-1 items-center">
                       <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${
-                        effPaid ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'
+                        effPaid ? 'bg-success/20 text-success' : partial ? 'bg-warning/20 text-warning' : 'bg-muted text-muted-foreground'
                       }`}>
                         {effPaid ? <Check className="h-3 w-3" /> : item.installment_number}
                       </div>
@@ -811,7 +817,10 @@ export default function AccountDetail() {
                         <p className="text-sm font-medium text-card-foreground">
                           {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                         </p>
-                        <p className="text-xs text-muted-foreground">Month {item.installment_number}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Month {item.installment_number}
+                          {partial && <span className="text-warning ml-1">(Paid: {formatCurrency(paidAmt, currency)})</span>}
+                        </p>
                       </div>
                       {/* Base Amount */}
                       <p className="text-xs tabular-nums text-right text-card-foreground">
