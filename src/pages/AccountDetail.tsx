@@ -702,8 +702,8 @@ export default function AccountDetail() {
                 const effPaid = isEffectivelyPaid(item);
                 const penaltyAmt = Number(item.penalty_amount);
                 const paidAmt = Number(item.paid_amount);
-                const totalDue = baseAmt + penaltyAmt;
                 const baseAmt = Number(item.base_installment_amount);
+                const totalDue = baseAmt + penaltyAmt;
                 const itemRemaining = remainingDue(item);
                 const isEditingThis = editingScheduleId === item.id;
                 const canEdit = account.status !== 'forfeited' && account.status !== 'cancelled' && item.status !== 'cancelled';
