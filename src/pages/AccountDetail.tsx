@@ -64,6 +64,7 @@ export default function AccountDetail() {
   const [editingInvoice, setEditingInvoice] = useState(false);
   const [invoiceInput, setInvoiceInput] = useState('');
   const [invoiceSaving, setInvoiceSaving] = useState(false);
+  const [reactivating, setReactivating] = useState(false);
   const queryClient = useQueryClient();
 
 
