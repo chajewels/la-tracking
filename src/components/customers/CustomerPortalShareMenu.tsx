@@ -6,20 +6,23 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Copy, ExternalLink, Link2, RefreshCw, Send } from 'lucide-react';
 import { toast } from 'sonner';
+import PortalActivationModal from './PortalActivationModal';
 
 const PORTAL_BASE = 'https://chajewelslayaway.web.app';
 
 interface Props {
   customerId: string;
   customerName: string;
+  messengerLink?: string | null;
 }
 
-export default function CustomerPortalShareMenu({ customerId, customerName }: Props) {
+export default function CustomerPortalShareMenu({ customerId, customerName, messengerLink }: Props) {
   const { user } = useAuth();
   const [token, setToken] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [showActivationModal, setShowActivationModal] = useState(false);
 
   const fetchToken = async () => {
     setLoading(true);
@@ -66,7 +69,23 @@ export default function CustomerPortalShareMenu({ customerId, customerName }: Pr
       if (error) throw error;
       setToken(data.token);
       setExpiresAt(data.expires_at);
-      toast.success('Portal link generated');
+
+      // Audit log
+      await (supabase as any).from('audit_logs').insert({
+        action: 'PORTAL_LINK_GENERATED',
+        entity_type: 'customer_portal_tokens',
+        entity_id: customerId,
+        performed_by_user_id: user?.id,
+        new_value_json: {
+          customer_id: customerId,
+          token: data.token,
+          generated_by: user?.id,
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      // Show activation modal instead of simple toast
+      setShowActivationModal(true);
     } catch {
       toast.error('Failed to generate portal link');
     }
@@ -91,51 +110,66 @@ export default function CustomerPortalShareMenu({ customerId, customerName }: Pr
   const isExpired = expiresAt && new Date(expiresAt) < new Date();
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-display flex items-center gap-2">
-            <Link2 className="h-4 w-4 text-primary" /> Customer Portal
-          </CardTitle>
-          {token && !isExpired && (
-            <Badge variant="outline" className="bg-success/10 text-success border-success/20 text-[10px]">Active</Badge>
+    <>
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-display flex items-center gap-2">
+              <Link2 className="h-4 w-4 text-primary" /> Customer Portal
+            </CardTitle>
+            {token && !isExpired && (
+              <Badge variant="outline" className="bg-success/10 text-success border-success/20 text-[10px]">Active</Badge>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {loading ? (
+            <p className="text-xs text-muted-foreground">Loading…</p>
+          ) : token && !isExpired ? (
+            <>
+              <p className="text-xs text-muted-foreground">
+                Expires {expiresAt ? new Date(expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={copyLink} className="gap-1.5">
+                  <Copy className="h-3.5 w-3.5" /> Copy Link
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setShowActivationModal(true)} className="gap-1.5">
+                  <Send className="h-3.5 w-3.5" /> Send Message
+                </Button>
+                <Button size="sm" variant="outline" onClick={shareMessenger} className="gap-1.5">
+                  <Send className="h-3.5 w-3.5" /> Messenger
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => portalUrl && window.open(portalUrl, '_blank')} className="gap-1.5">
+                  <ExternalLink className="h-3.5 w-3.5" /> Preview
+                </Button>
+              </div>
+              <Button size="sm" variant="ghost" onClick={generateToken} disabled={generating} className="gap-1.5 text-xs">
+                <RefreshCw className="h-3.5 w-3.5" /> Regenerate Link
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground">
+                Generate a portal link for this customer to view all their layaway accounts.
+              </p>
+              <Button size="sm" onClick={generateToken} disabled={generating} className="gap-1.5">
+                <Link2 className="h-3.5 w-3.5" /> Generate Portal Link
+              </Button>
+            </>
           )}
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {loading ? (
-          <p className="text-xs text-muted-foreground">Loading…</p>
-        ) : token && !isExpired ? (
-          <>
-            <p className="text-xs text-muted-foreground">
-              Expires {expiresAt ? new Date(expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" onClick={copyLink} className="gap-1.5">
-                <Copy className="h-3.5 w-3.5" /> Copy Link
-              </Button>
-              <Button size="sm" variant="outline" onClick={shareMessenger} className="gap-1.5">
-                <Send className="h-3.5 w-3.5" /> Messenger
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => portalUrl && window.open(portalUrl, '_blank')} className="gap-1.5">
-                <ExternalLink className="h-3.5 w-3.5" /> Preview
-              </Button>
-            </div>
-            <Button size="sm" variant="ghost" onClick={generateToken} disabled={generating} className="gap-1.5 text-xs">
-              <RefreshCw className="h-3.5 w-3.5" /> Regenerate Link
-            </Button>
-          </>
-        ) : (
-          <>
-            <p className="text-xs text-muted-foreground">
-              Generate a portal link for this customer to view all their layaway accounts.
-            </p>
-            <Button size="sm" onClick={generateToken} disabled={generating} className="gap-1.5">
-              <Link2 className="h-3.5 w-3.5" /> Generate Portal Link
-            </Button>
-          </>
-        )}
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+
+      {token && (
+        <PortalActivationModal
+          open={showActivationModal}
+          onOpenChange={setShowActivationModal}
+          customerName={customerName}
+          token={token}
+          messengerLink={messengerLink}
+        />
+      )}
+    </>
   );
 }
