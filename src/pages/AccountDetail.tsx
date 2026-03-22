@@ -36,6 +36,7 @@ import {
   isPenaltyOverCap, isFinalSettlement, isExtensionActive, isFinalForfeited,
   getForfeitureWarning,
   canReactivate, canAcceptPayment, canAddService, canAddPenalty,
+  computeAccountSummary,
 } from '@/lib/business-rules';
 
 export default function AccountDetail() {
