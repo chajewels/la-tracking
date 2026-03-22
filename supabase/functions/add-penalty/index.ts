@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
     // Validate account exists
     const { data: account, error: accErr } = await supabase
       .from("layaway_accounts")
-      .select("id, invoice_number, status")
+      .select("id, invoice_number, status, payment_plan_months")
       .eq("id", account_id)
       .single();
 
@@ -60,6 +60,8 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    const planMonths = account.payment_plan_months || 6;
 
     // Validate schedule item exists
     const { data: schedItem, error: schedErr } = await supabase
@@ -77,7 +79,7 @@ Deno.serve(async (req) => {
 
     // Check for per-invoice penalty cap override
     const installmentNumber = schedItem.installment_number;
-    let cap = installmentNumber >= 6 ? Infinity : (currency === "PHP" ? 1000 : 2000);
+    let cap = installmentNumber >= planMonths ? Infinity : (currency === "PHP" ? 1000 : 2000);
 
     const { data: overrideRow } = await supabase
       .from("penalty_cap_overrides")
@@ -85,7 +87,7 @@ Deno.serve(async (req) => {
       .eq("account_id", account_id)
       .eq("is_active", true)
       .maybeSingle();
-    if (overrideRow && installmentNumber < 6) {
+    if (overrideRow && installmentNumber < planMonths) {
       cap = Number(overrideRow.penalty_cap_amount);
     }
 

@@ -54,8 +54,8 @@ Deno.serve(async (req) => {
       return config[key] || (currency === "PHP" ? 500 : 1000);
     };
 
-    const getPenaltyCap = (currency: string, installmentNumber: number): number => {
-      if (installmentNumber >= 6) return Infinity;
+    const getPenaltyCap = (currency: string, installmentNumber: number, planMonths: number): number => {
+      if (installmentNumber >= planMonths) return Infinity;
       return currency === "PHP" ? 1000 : 2000;
     };
 
@@ -78,7 +78,7 @@ Deno.serve(async (req) => {
     while (true) {
       const { data: batch } = await supabase
         .from("layaway_schedule")
-        .select("*, layaway_accounts!inner(id, currency, status)")
+        .select("*, layaway_accounts!inner(id, currency, status, payment_plan_months)")
         .in("status", ["pending", "overdue", "partially_paid"])
         .lt("due_date", today)
         .in("layaway_accounts.status", ["active", "overdue"])
@@ -129,6 +129,7 @@ Deno.serve(async (req) => {
       const dueDate = new Date(item.due_date + "T00:00:00Z");
       const currency = (item as any).layaway_accounts.currency;
       const accountId = (item as any).layaway_accounts.id;
+      const planMonths = (item as any).layaway_accounts.payment_plan_months || 6;
       const installmentNumber = item.installment_number;
       const existingKeys = existingPenaltyMap.get(item.id) || new Set();
       const dueDayOfMonth = dueDate.getUTCDate();
@@ -136,8 +137,8 @@ Deno.serve(async (req) => {
       const currentTotal = currentPenaltyTotals.get(item.id) || 0;
       const overrideCap = overrideMap.get(accountId);
       const cap = overrideCap !== undefined
-        ? (installmentNumber >= 6 ? Infinity : overrideCap)
-        : getPenaltyCap(currency, installmentNumber);
+        ? (installmentNumber >= planMonths ? Infinity : overrideCap)
+        : getPenaltyCap(currency, installmentNumber, planMonths);
 
       if (currentTotal >= cap) continue;
 

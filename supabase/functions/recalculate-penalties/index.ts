@@ -57,8 +57,8 @@ Deno.serve(async (req) => {
       return config[key] || (currency === "PHP" ? 500 : 1000);
     };
 
-    const getCap = (currency: string, instNum: number): number => {
-      if (instNum >= 6) return Infinity;
+    const getCap = (currency: string, instNum: number, planMonths: number): number => {
+      if (instNum >= planMonths) return Infinity;
       return currency === "PHP" ? 1000 : 2000;
     };
 
@@ -103,7 +103,7 @@ Deno.serve(async (req) => {
       const chunk = targetAccountIds.slice(i, i + 50);
       const { data: batch } = await supabase
         .from("layaway_schedule")
-        .select("*, layaway_accounts!inner(id, currency, status, total_paid, downpayment_amount, total_amount, invoice_number)")
+        .select("*, layaway_accounts!inner(id, currency, status, total_paid, downpayment_amount, total_amount, invoice_number, payment_plan_months)")
         .in("account_id", chunk)
         .order("installment_number", { ascending: true });
       if (batch) allItems = allItems.concat(batch);
@@ -216,10 +216,11 @@ Deno.serve(async (req) => {
         }
 
         // Compute correct penalty with cap
+        const planMonths = acct.payment_plan_months || 6;
         const overrideCap = overrideMap.get(accountId);
         const cap = overrideCap !== undefined
-          ? (instNum >= 6 ? Infinity : overrideCap)
-          : getCap(currency, instNum);
+          ? (instNum >= planMonths ? Infinity : overrideCap)
+          : getCap(currency, instNum, planMonths);
 
         let correctPenalty = 0;
         const correctEntries: Array<{ stage: string; cycle: number; amount: number; date: string }> = [];
