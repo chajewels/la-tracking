@@ -301,8 +301,15 @@ function groupBy(items: any[], key: string): Map<string, any[]> {
   return map;
 }
 
-/** Calculate month difference between two dates */
+/** Calculate FULL month difference between two dates (day-level precision).
+ *  Only counts a month as complete when the day of 'to' >= day of 'from'.
+ *  E.g. Dec 24 → Mar 22 = 2 (not 3), Dec 24 → Mar 24 = 3. */
 function monthsDiff(from: Date, to: Date): number {
-  return (to.getFullYear() - from.getUTCFullYear()) * 12 +
+  const rawMonths = (to.getFullYear() - from.getUTCFullYear()) * 12 +
     (to.getMonth() - from.getUTCMonth());
+  // If the day hasn't been reached yet, subtract 1
+  if (to.getDate() < from.getUTCDate()) {
+    return Math.max(0, rawMonths - 1);
+  }
+  return rawMonths;
 }
