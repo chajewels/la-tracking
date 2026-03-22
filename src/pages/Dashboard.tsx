@@ -16,6 +16,7 @@ import { getDisplayCurrencyForFilter } from '@/lib/currency-converter';
 import { useAccounts, useCustomers, useDashboardSummary } from '@/hooks/use-supabase-data';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
+import { canSeeDashboardSection, type AppRole } from '@/lib/role-permissions';
 
 export default function Dashboard() {
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
