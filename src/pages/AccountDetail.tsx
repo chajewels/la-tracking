@@ -309,11 +309,12 @@ export default function AccountDetail() {
               )}
               <Badge variant="outline" className={
                 account.status === 'forfeited' ? 'bg-orange-500/10 text-orange-500 border-orange-500/20 text-xs' :
+                account.status === 'final_settlement' ? 'bg-amber-600/10 text-amber-600 border-amber-600/20 text-xs' :
                 account.status === 'overdue' ? 'bg-destructive/10 text-destructive border-destructive/20 text-xs' :
                 account.status === 'completed' ? 'bg-primary/10 text-primary border-primary/20 text-xs' :
                 'bg-success/10 text-success border-success/20 text-xs'
               }>
-                {account.status}
+                {account.status === 'final_settlement' ? 'FINAL SETTLEMENT' : account.status}
               </Badge>
               {penaltyCapOverride && (
                 <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-xs">
