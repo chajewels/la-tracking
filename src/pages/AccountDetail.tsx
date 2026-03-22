@@ -490,7 +490,7 @@ export default function AccountDetail() {
               currentCustomerName={account.customers?.full_name || 'Unknown'}
               invoiceNumber={account.invoice_number}
             />
-            {remainingBalance > 0 && canAcceptPayment(account.status) && (
+            {remainingBalance > 0 && canAcceptPayment(account.status) && can('record_payment') && (
               <>
                 <RecordPaymentDialog
                   accountId={account.id}
