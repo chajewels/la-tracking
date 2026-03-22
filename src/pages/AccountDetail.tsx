@@ -31,7 +31,7 @@ import {
   isEffectivelyPaid, remainingDue, computeRemainingBalance,
   getUnpaidScheduleItems, getActivePayments, accountProgress,
   ordinal, SERVICE_LABELS, getNextPaymentStatementDate,
-  isPenaltyOverCap,
+  isPenaltyOverCap, isFinalSettlement,
 } from '@/lib/business-rules';
 
 export default function AccountDetail() {
