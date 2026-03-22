@@ -57,8 +57,8 @@ Deno.serve(async (req) => {
       return config[key] || (currency === "PHP" ? 500 : 1000);
     };
 
-    const getCap = (currency: string, instNum: number): number => {
-      if (instNum >= 6) return Infinity;
+    const getCap = (currency: string, instNum: number, planMonths: number): number => {
+      if (instNum >= planMonths) return Infinity;
       return currency === "PHP" ? 1000 : 2000;
     };
 
