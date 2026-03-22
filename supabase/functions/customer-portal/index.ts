@@ -81,8 +81,8 @@ Deno.serve(async (req) => {
 
     const accountIds = (accounts || []).map((a: any) => a.id);
 
-    // Fetch schedules, payments, and statement tokens for all accounts in parallel
-    const [schedulesRes, paymentsRes, stTokensRes, servicesRes] = await Promise.all([
+    // Fetch schedules, payments, statement tokens, services, payment methods, and submissions in parallel
+    const [schedulesRes, paymentsRes, stTokensRes, servicesRes, methodsRes, submissionsRes] = await Promise.all([
       accountIds.length > 0
         ? supabase.from("layaway_schedule").select("*").in("account_id", accountIds).order("installment_number")
         : Promise.resolve({ data: [], error: null }),
@@ -95,12 +95,18 @@ Deno.serve(async (req) => {
       accountIds.length > 0
         ? supabase.from("account_services").select("*").in("account_id", accountIds)
         : Promise.resolve({ data: [], error: null }),
+      supabase.from("payment_methods").select("*").eq("is_active", true).order("sort_order"),
+      accountIds.length > 0
+        ? supabase.from("payment_submissions").select("id, account_id, submitted_amount, payment_date, payment_method, reference_number, sender_name, notes, proof_url, status, reviewer_notes, created_at").eq("customer_id", customerId).in("account_id", accountIds).order("created_at", { ascending: false })
+        : Promise.resolve({ data: [], error: null }),
     ]);
 
     const schedules = schedulesRes.data || [];
     const payments = paymentsRes.data || [];
     const stTokens = stTokensRes.data || [];
     const services = servicesRes.data || [];
+    const paymentMethods = methodsRes.data || [];
+    const submissions = submissionsRes.data || [];
 
     // Group by account
     const schedulesByAccount: Record<string, any[]> = {};
