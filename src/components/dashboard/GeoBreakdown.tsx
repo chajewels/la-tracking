@@ -11,47 +11,50 @@ interface GeoBreakdownProps {
 }
 
 export default function GeoBreakdown({ accounts, customers }: GeoBreakdownProps) {
+  const PRIMARY_MARKETS = ['japan', 'philippines', 'united states', 'canada', 'australia'];
+
   const geo = useMemo(() => {
     const customerMap = new Map(customers.map(c => [c.id, c]));
     const active = accounts.filter(a => a.status === 'active' || a.status === 'overdue');
 
-    let japanCount = 0, japanAmount = 0;
+    const primaryMap: Record<string, { count: number; amountPHP: number; amountJPY: number }> = {};
     const intlMap: Record<string, { count: number; amountPHP: number; amountJPY: number }> = {};
 
     for (const acc of active) {
       const cust = customerMap.get(acc.customer_id);
       const loc = (cust?.location || '').trim();
+      const locLower = loc.toLowerCase();
       const balance = Number(acc.remaining_balance);
       const cur = acc.currency as Currency;
 
-      if (!loc || loc.toLowerCase() === 'japan') {
-        japanCount++;
-        japanAmount += balance;
+      const isPrimary = !loc || PRIMARY_MARKETS.includes(locLower);
+      const label = !loc ? 'Japan' : loc;
+      const targetMap = isPrimary ? primaryMap : intlMap;
+
+      if (!targetMap[label]) targetMap[label] = { count: 0, amountPHP: 0, amountJPY: 0 };
+      targetMap[label].count++;
+      if (cur === 'JPY') {
+        targetMap[label].amountJPY += balance;
       } else {
-        if (!intlMap[loc]) intlMap[loc] = { count: 0, amountPHP: 0, amountJPY: 0 };
-        intlMap[loc].count++;
-        if (cur === 'JPY') {
-          intlMap[loc].amountJPY += balance;
-        } else {
-          intlMap[loc].amountPHP += balance;
-        }
+        targetMap[label].amountPHP += balance;
       }
     }
 
-    const international = Object.entries(intlMap)
-      .map(([country, data]) => ({ country, ...data }))
-      .sort((a, b) => (b.amountPHP + b.amountJPY) - (a.amountPHP + a.amountJPY));
+    const toSorted = (map: typeof primaryMap) =>
+      Object.entries(map)
+        .map(([country, data]) => ({ country, ...data }))
+        .sort((a, b) => (b.amountPHP + b.amountJPY) - (a.amountPHP + a.amountJPY));
 
-    const intlTotal = international.reduce(
-      (s, i) => ({
-        count: s.count + i.count,
-        amountPHP: s.amountPHP + i.amountPHP,
-        amountJPY: s.amountJPY + i.amountJPY,
-      }),
-      { count: 0, amountPHP: 0, amountJPY: 0 }
-    );
+    const primary = toSorted(primaryMap);
+    const international = toSorted(intlMap);
 
-    return { japan: { count: japanCount, amount: japanAmount }, international, intlTotal };
+    const sumGroup = (arr: typeof primary) =>
+      arr.reduce(
+        (s, i) => ({ count: s.count + i.count, amountPHP: s.amountPHP + i.amountPHP, amountJPY: s.amountJPY + i.amountJPY }),
+        { count: 0, amountPHP: 0, amountJPY: 0 }
+      );
+
+    return { primary, primaryTotal: sumGroup(primary), international, intlTotal: sumGroup(international) };
   }, [accounts, customers]);
 
   const formatIntlAmount = (php: number, jpy: number) => {
