@@ -15,7 +15,11 @@ import {
   AlertTriangle, Calendar, Check, CheckCircle, ChevronRight, Clock,
   CreditCard, Diamond, FileText, Filter, Search, TrendingUp, X,
   Upload, Send, ArrowLeft, Landmark, Wallet, Eye, MessageSquare, XCircle, Loader2, Image as ImageIcon,
+  User, Pencil, Save,
 } from 'lucide-react';
+import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
+import CountrySelect from '@/components/customers/CountrySelect';
+import { LocationType, parseLocation, toLocationString } from '@/lib/countries';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
