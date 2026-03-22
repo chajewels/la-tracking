@@ -141,7 +141,7 @@ Deno.serve(async (req) => {
     const penaltyFeesToInsert: any[] = [];
     const penaltyFeeIdsToWaive: string[] = [];
     const penaltyFeesToUpdate: Array<{ id: string; penalty_amount: number; penalty_date: string; status: string }> = [];
-    const accountUpdates = new Map<string, { total_amount: number; remaining_balance: number; status: string }>();
+    const accountUpdates = new Map<string, { remaining_balance: number; status: string }>();
 
     // ── Process each account ──
     for (const [accountId, schedItems] of accountSchedules) {
@@ -321,33 +321,31 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Recalculate account totals from schedule
-      const downpayment = Number(acct.downpayment_amount);
-      let totalBase = 0;
-      let totalPenaltyAll = 0;
+      // Recalculate account remaining balance (FIXED SCHEDULE MODEL)
+      // total_amount is ALWAYS principal only — NEVER include penalties
+      // remaining_balance = principal - payments (single source of truth)
       let unpaidDue = 0;
 
       for (const item of schedItems) {
         if (item.status === "cancelled") continue;
-        totalBase += Number(item.base_installment_amount);
 
         const updatedEntry = scheduleUpdates.find(u => u.id === item.id);
-        const itemPenalty = updatedEntry ? updatedEntry.penalty_amount : Number(item.penalty_amount);
-        const itemTotalDue = updatedEntry ? updatedEntry.total_due_amount : Number(item.total_due_amount);
         const itemStatus = updatedEntry ? updatedEntry.status : item.status;
 
-        totalPenaltyAll += itemPenalty;
-
         if (itemStatus !== "paid" && itemStatus !== "cancelled") {
-          unpaidDue += Math.max(0, itemTotalDue - Number(item.paid_amount));
+          const baseAmt = Number(item.base_installment_amount);
+          const paidAmt = Number(item.paid_amount);
+          unpaidDue += Math.max(0, baseAmt - paidAmt);
+        }
+
+        if (itemStatus !== "paid" && itemStatus !== "cancelled" && item.due_date < today) {
+          hasOverdue = true;
         }
       }
 
-      const newTotalAmount = downpayment + totalBase + totalPenaltyAll;
-
-      if (anyChange || Math.abs(Number(acct.total_amount) - newTotalAmount) > 0.001) {
+      // Only update remaining_balance and status — NEVER touch total_amount
+      if (anyChange) {
         accountUpdates.set(accountId, {
-          total_amount: newTotalAmount,
           remaining_balance: unpaidDue,
           status: hasOverdue ? "overdue" : acct.status,
         });
@@ -359,8 +357,6 @@ Deno.serve(async (req) => {
           currency,
           penalty_before: totalSchedulePenaltyBefore,
           penalty_after: totalSchedulePenaltyAfter,
-          total_amount_before: Number(acct.total_amount),
-          total_amount_after: newTotalAmount,
           remaining_before: Number(acct.remaining_balance ?? 0),
           remaining_after: unpaidDue,
         });
@@ -418,11 +414,10 @@ Deno.serve(async (req) => {
       else console.error("Penalty insert error:", error);
     }
 
-    // 4. Update account totals
+    // 4. Update account totals (NEVER touch total_amount — it's principal only)
     let accountsUpdated = 0;
     for (const [accId, upd] of accountUpdates) {
       const { error } = await supabase.from("layaway_accounts").update({
-        total_amount: upd.total_amount,
         remaining_balance: upd.remaining_balance,
         status: upd.status,
         updated_at: new Date().toISOString(),
