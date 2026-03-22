@@ -841,14 +841,23 @@ export default function AccountDetail() {
                           <p className="text-xs tabular-nums text-muted-foreground">—</p>
                         )}
                       </div>
-                      {/* Total Due */}
-                      <p className={`text-xs font-semibold tabular-nums text-right ${effPaid ? 'text-success' : 'text-card-foreground'}`}>
-                        {formatCurrency(effPaid ? Math.max(paidAmt, totalDue) : totalDue, currency)}
-                      </p>
+                      {/* Total Due / Remaining */}
+                      <div className="text-right">
+                        <p className={`text-xs font-semibold tabular-nums ${effPaid ? 'text-success' : partial ? 'text-warning' : 'text-card-foreground'}`}>
+                          {formatCurrency(effPaid ? Math.max(paidAmt, totalDue) : totalDue, currency)}
+                        </p>
+                        {partial && (
+                          <p className="text-[9px] text-warning tabular-nums">
+                            Rem: {formatCurrency(itemRemaining, currency)}
+                          </p>
+                        )}
+                      </div>
                       {/* Status */}
                       <div className="text-right">
                         {effPaid ? (
                           <Badge variant="outline" className="text-[9px] h-4 px-1 bg-success/10 text-success border-success/20">Paid</Badge>
+                        ) : partial ? (
+                          <Badge variant="outline" className="text-[9px] h-4 px-1 bg-warning/10 text-warning border-warning/20">Partial</Badge>
                         ) : penaltyCapOverride && item.installment_number <= 5 && penaltyAmt > 0 ? (
                           <Badge variant="outline" className="text-[9px] h-4 px-1 bg-primary/10 text-primary border-primary/20">Capped</Badge>
                         ) : item.status === 'overdue' ? (
