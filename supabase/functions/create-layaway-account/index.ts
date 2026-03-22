@@ -259,7 +259,7 @@ Deno.serve(async (req) => {
         let rem = allocAmount;
         const payAllocations: Array<{ schedule_id: string; allocation_type: "penalty" | "installment"; allocated_amount: number }> = [];
         const penUpdates: Array<{ id: string; status: string }> = [];
-        const schUpdates: Array<{ id: string; paid_amount?: number; status?: string; base_installment_amount?: number; total_due_amount?: number }> = [];
+        const schUpdates: Array<{ id: string; paid_amount?: number; status?: string }> = [];
 
         // Pay penalties first
         if (targetPenalties) {
