@@ -98,10 +98,8 @@ Deno.serve(async (req) => {
     const penaltyUpdates: Array<{ id: string; status: string; paid_amount: number }> = [];
     const scheduleUpdates: Array<{
       id: string;
-      paid_amount?: number;
-      status?: string;
-      base_installment_amount?: number;
-      total_due_amount?: number;
+      paid_amount: number;
+      status: string;
     }> = [];
 
     // 1. Pay unpaid penalties first
@@ -125,86 +123,40 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 2. For single-invoice payments, keep the full installment portion on one target installment
-    //    and reduce the last remaining installments instead of splitting across the next due items.
-    const effectiveDate = date_paid || new Date().toISOString().split("T")[0];
-    const unpaidItems = schedule.filter(item => item.status !== "paid" && Number(item.base_installment_amount) - Number(item.paid_amount) > 0);
-    const targetInstallment = unpaidItems.find(item => item.due_date <= effectiveDate) ?? unpaidItems[0];
+    // 2. Allocate remaining to installments sequentially (FIXED SCHEDULE MODEL)
+    //    base_installment_amount is NEVER modified. Only paid_amount and status change.
+    if (remaining > 0 && schedule) {
+      const unpaidItems = schedule.filter(
+        item => item.status !== "paid" && item.status !== "cancelled"
+      ).sort((a, b) => a.installment_number - b.installment_number);
 
-    if (remaining > 0 && targetInstallment) {
-      const currentPaid = Number(targetInstallment.paid_amount);
-      const baseAmount = Number(targetInstallment.base_installment_amount);
-      const installmentPortion = remaining;
-      const newPaid = currentPaid + installmentPortion;
+      for (const item of unpaidItems) {
+        if (remaining <= 0) break;
 
-      allocations.push({
-        schedule_id: targetInstallment.id,
-        allocation_type: "installment",
-        allocated_amount: installmentPortion,
-      });
+        const currentPaid = Number(item.paid_amount);
+        const baseAmount = Number(item.base_installment_amount);
+        const due = Math.max(0, baseAmount - currentPaid);
 
-      const laterUnpaidItems = unpaidItems.filter(
-        item => item.id !== targetInstallment.id && item.installment_number > targetInstallment.installment_number,
-      );
+        if (due <= 0) continue;
 
-      if (newPaid >= baseAmount) {
-        // Full or overpayment — mark paid, reduce future installments from end with excess
-        scheduleUpdates.push({
-          id: targetInstallment.id,
-          paid_amount: newPaid,
-          status: "paid",
+        const toApply = Math.min(remaining, due);
+        remaining -= toApply;
+
+        const newPaid = currentPaid + toApply;
+        const newStatus = newPaid >= baseAmount ? "paid" : "partially_paid";
+
+        allocations.push({
+          schedule_id: item.id,
+          allocation_type: "installment",
+          allocated_amount: toApply,
         });
 
-        let excessAmount = Math.max(0, newPaid - baseAmount);
-
-        for (const item of [...laterUnpaidItems].reverse()) {
-          if (excessAmount <= 0) break;
-
-          const itemBaseAmount = Number(item.base_installment_amount);
-          const itemPaidAmount = Number(item.paid_amount);
-          const remainingDue = Math.max(0, itemBaseAmount - itemPaidAmount);
-          const reduction = Math.min(excessAmount, remainingDue);
-
-          if (reduction <= 0) continue;
-
-          excessAmount -= reduction;
-
-          const newBase = Math.max(itemPaidAmount, itemBaseAmount - reduction);
-          const nextStatus = itemPaidAmount >= newBase ? "paid" : itemPaidAmount > 0 ? "partially_paid" : item.status;
-
-          scheduleUpdates.push({
-            id: item.id,
-            base_installment_amount: newBase,
-            total_due_amount: newBase,
-            status: nextStatus,
-          });
-        }
-      } else {
-        // Short payment — mark current installment as paid for actual amount,
-        // roll the shortfall forward to the next unpaid installment
-        const shortfall = baseAmount - newPaid;
-
         scheduleUpdates.push({
-          id: targetInstallment.id,
+          id: item.id,
           paid_amount: newPaid,
-          status: "paid",
-          base_installment_amount: newPaid,
-          total_due_amount: newPaid,
+          status: newStatus,
         });
-
-        // Add shortfall to the next unpaid installment
-        if (laterUnpaidItems.length > 0) {
-          const nextItem = laterUnpaidItems[0];
-          const nextBase = Number(nextItem.base_installment_amount) + shortfall;
-          scheduleUpdates.push({
-            id: nextItem.id,
-            base_installment_amount: nextBase,
-            total_due_amount: nextBase,
-          });
-        }
       }
-
-      remaining = 0;
     }
 
     const newTotalPaid = Number(account.total_paid) + Number(amount_paid);
