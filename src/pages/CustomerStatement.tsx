@@ -170,7 +170,8 @@ export default function CustomerStatement() {
   }
 
   const nextPayment = getNextPaymentInfo(data.schedule);
-  const totalLayaway = data.total_amount + data.total_services;
+  const totalLayaway = data.total_amount;
+  const currentTotalPayable = data.current_total_payable ?? (data.computed_remaining + data.total_active_penalties);
 
   return (
     <div className="min-h-screen bg-background">
