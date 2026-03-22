@@ -10,9 +10,10 @@ import {
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
+import { canSeeNavItem, type AppRole } from '@/lib/role-permissions';
 import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
 
-const navItems = [
+const allNavItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
   { icon: FileText, label: 'Layaway Accounts', path: '/accounts' },
   { icon: Users, label: 'Customers', path: '/customers' },
