@@ -110,7 +110,7 @@ Deno.serve(async (req) => {
 
       if (schedItems.length === 0) continue;
 
-      // ── Determine LAST PAID MONTH ──
+      // ── Determine FIRST UNPAID DUE DATE (forfeiture reference) ──
       const paidItems = schedItems.filter((s: any) =>
         s.status === "paid" || Number(s.paid_amount) >= Number(s.total_due_amount)
       );
@@ -120,16 +120,10 @@ Deno.serve(async (req) => {
 
       if (unpaidItems.length === 0) continue;
 
-      let lastPaidMonthDate: string | null = null;
-      if (paidItems.length > 0) {
-        const lastPaid = paidItems.sort((a: any, b: any) => b.installment_number - a.installment_number)[0];
-        lastPaidMonthDate = lastPaid.due_date;
-      }
-
       const firstUnpaid = unpaidItems.sort((a: any, b: any) => a.installment_number - b.installment_number)[0];
-      const referenceDate = lastPaidMonthDate || firstUnpaid.due_date;
+      const firstUnpaidDueDate = firstUnpaid.due_date;
 
-      // ── Count penalty occurrences AFTER last paid month ──
+      // ── Count penalty occurrences on unpaid items ──
       const unpaidScheduleIds = new Set(unpaidItems.map((s: any) => s.id));
       const relevantPenalties = penalties.filter((p: any) =>
         unpaidScheduleIds.has(p.schedule_id) && (p.status === "unpaid" || p.status === "paid")
@@ -139,8 +133,8 @@ Deno.serve(async (req) => {
         (sum: number, p: any) => sum + Number(p.penalty_amount), 0
       );
 
-      // ── Calculate months overdue from last paid month ──
-      const refDate = new Date(referenceDate + "T00:00:00Z");
+      // ── Calculate months overdue from FIRST UNPAID DUE DATE ──
+      const refDate = new Date(firstUnpaidDueDate + "T00:00:00Z");
       const monthsOverdue = monthsDiff(refDate, now);
 
       const currency = account.currency;
