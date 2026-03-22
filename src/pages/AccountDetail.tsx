@@ -32,6 +32,7 @@ import {
   getUnpaidScheduleItems, getActivePayments, accountProgress,
   ordinal, SERVICE_LABELS, getNextPaymentStatementDate,
   isPenaltyOverCap, isFinalSettlement, isExtensionActive, isFinalForfeited,
+  getForfeitureWarning,
 } from '@/lib/business-rules';
 
 export default function AccountDetail() {
