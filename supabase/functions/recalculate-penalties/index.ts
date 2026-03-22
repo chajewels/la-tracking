@@ -321,33 +321,31 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Recalculate account totals from schedule
-      const downpayment = Number(acct.downpayment_amount);
-      let totalBase = 0;
-      let totalPenaltyAll = 0;
+      // Recalculate account remaining balance (FIXED SCHEDULE MODEL)
+      // total_amount is ALWAYS principal only — NEVER include penalties
+      // remaining_balance = principal - payments (single source of truth)
       let unpaidDue = 0;
 
       for (const item of schedItems) {
         if (item.status === "cancelled") continue;
-        totalBase += Number(item.base_installment_amount);
 
         const updatedEntry = scheduleUpdates.find(u => u.id === item.id);
-        const itemPenalty = updatedEntry ? updatedEntry.penalty_amount : Number(item.penalty_amount);
-        const itemTotalDue = updatedEntry ? updatedEntry.total_due_amount : Number(item.total_due_amount);
         const itemStatus = updatedEntry ? updatedEntry.status : item.status;
 
-        totalPenaltyAll += itemPenalty;
-
         if (itemStatus !== "paid" && itemStatus !== "cancelled") {
-          unpaidDue += Math.max(0, itemTotalDue - Number(item.paid_amount));
+          const baseAmt = Number(item.base_installment_amount);
+          const paidAmt = Number(item.paid_amount);
+          unpaidDue += Math.max(0, baseAmt - paidAmt);
+        }
+
+        if (!isPaidItem(itemStatus) && item.due_date < today) {
+          hasOverdue = true;
         }
       }
 
-      const newTotalAmount = downpayment + totalBase + totalPenaltyAll;
-
-      if (anyChange || Math.abs(Number(acct.total_amount) - newTotalAmount) > 0.001) {
+      // Only update remaining_balance and status — NEVER touch total_amount
+      if (anyChange) {
         accountUpdates.set(accountId, {
-          total_amount: newTotalAmount,
           remaining_balance: unpaidDue,
           status: hasOverdue ? "overdue" : acct.status,
         });
