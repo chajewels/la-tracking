@@ -204,7 +204,7 @@ export default function AccountDetail() {
   const reconciliationValid = Math.abs(principalTotal - totalPaid - remainingBalance) < 1;
 
   const unpaidSchedule = getUnpaidScheduleItems(scheduleItems);
-  const activePayments = getActivePayments(payments || [])
+  const activePayments = [...confirmedActivePayments]
     .sort((a, b) => {
       const dateDiff = new Date(a.date_paid).getTime() - new Date(b.date_paid).getTime();
       if (dateDiff !== 0) return dateDiff;
