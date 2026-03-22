@@ -201,7 +201,7 @@ export default function AccountDetail() {
   const isSettlement = account.status === 'final_settlement';
   const isFinalForfeit = account.status === 'final_forfeited';
   const isExtension = account.status === 'extension_active';
-  const [reactivating, setReactivating] = useState(false);
+
 
   let message = `✨ Cha Jewels Layaway Payment Summary\n\n`;
 
