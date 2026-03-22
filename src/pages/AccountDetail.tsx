@@ -677,7 +677,7 @@ export default function AccountDetail() {
             </p>
           </div>
           <div className="rounded-xl border border-primary/20 bg-card p-3 sm:p-4">
-            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Remaining Principal</p>
+            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Remaining Balance</p>
             <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
               {formatCurrency(summary.remainingPrincipal, currency)}
             </p>
