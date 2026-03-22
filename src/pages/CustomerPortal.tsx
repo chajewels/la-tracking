@@ -284,83 +284,93 @@ export default function CustomerPortal() {
       </div>
 
       <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
-        {/* Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <SummaryTile label="Active Accounts" value={String(data.summary.total_active)} icon={<TrendingUp className="h-4 w-4" />} />
-          <SummaryTile label="Outstanding" value={fmt(data.summary.total_outstanding, currency)} icon={<CreditCard className="h-4 w-4" />} accent />
-          <SummaryTile label="Completed" value={String(data.summary.total_completed)} icon={<Check className="h-4 w-4" />} />
-          <SummaryTile
-            label="Next Due"
-            value={data.summary.next_due_date ? fmtDate(data.summary.next_due_date) : '—'}
-            icon={<Calendar className="h-4 w-4" />}
-            sub={data.summary.next_due_invoice ? `#${data.summary.next_due_invoice}` : undefined}
+        {portalView === 'profile' ? (
+          <ProfileEditor
+            profile={data.profile}
+            portalToken={token!}
+            onSaved={(updated) => setData({ ...data, profile: updated, customer_name: updated.full_name })}
           />
-        </div>
-
-        {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search invoice number…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 bg-[hsl(var(--card))]"
-            />
-          </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full sm:w-[150px] bg-[hsl(var(--card))]">
-              <Filter className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
-              <SelectItem value="Active">Active</SelectItem>
-              <SelectItem value="Overdue">Overdue</SelectItem>
-              <SelectItem value="Fully Paid">Fully Paid</SelectItem>
-              <SelectItem value="Final Settlement">Final Settlement</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger className="w-full sm:w-[150px] bg-[hsl(var(--card))]">
-              <SelectValue placeholder="Sort" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="newest">Newest First</SelectItem>
-              <SelectItem value="oldest">Oldest First</SelectItem>
-              <SelectItem value="due_soon">Due Soon</SelectItem>
-              <SelectItem value="balance">Highest Balance</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Account Cards */}
-        {filtered.length === 0 ? (
-          <Card className="shadow-sm">
-            <CardContent className="py-16 text-center">
-              <Diamond className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-foreground mb-1 font-display">
-                {data.accounts.length === 0
-                  ? "You don't have any layaway accounts yet."
-                  : 'No accounts match your search.'}
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                {data.accounts.length === 0
-                  ? 'Visit Cha Jewels to start your first layaway plan.'
-                  : 'Try adjusting your filters.'}
-              </p>
-            </CardContent>
-          </Card>
         ) : (
-          <div className="space-y-3">
-            {filtered.map((account) => (
-              <AccountCard
-                key={account.id}
-                account={account}
-                onViewDetails={() => setSelectedAccount(account)}
+          <>
+            {/* Summary Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <SummaryTile label="Active Accounts" value={String(data.summary.total_active)} icon={<TrendingUp className="h-4 w-4" />} />
+              <SummaryTile label="Outstanding" value={fmt(data.summary.total_outstanding, currency)} icon={<CreditCard className="h-4 w-4" />} accent />
+              <SummaryTile label="Completed" value={String(data.summary.total_completed)} icon={<Check className="h-4 w-4" />} />
+              <SummaryTile
+                label="Next Due"
+                value={data.summary.next_due_date ? fmtDate(data.summary.next_due_date) : '—'}
+                icon={<Calendar className="h-4 w-4" />}
+                sub={data.summary.next_due_invoice ? `#${data.summary.next_due_invoice}` : undefined}
               />
-            ))}
-          </div>
+            </div>
+
+            {/* Filters */}
+            <div className="flex flex-col sm:flex-row gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search invoice number…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9 bg-[hsl(var(--card))]"
+                />
+              </div>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-full sm:w-[150px] bg-[hsl(var(--card))]">
+                  <Filter className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="Active">Active</SelectItem>
+                  <SelectItem value="Overdue">Overdue</SelectItem>
+                  <SelectItem value="Fully Paid">Fully Paid</SelectItem>
+                  <SelectItem value="Final Settlement">Final Settlement</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={sortBy} onValueChange={setSortBy}>
+                <SelectTrigger className="w-full sm:w-[150px] bg-[hsl(var(--card))]">
+                  <SelectValue placeholder="Sort" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="newest">Newest First</SelectItem>
+                  <SelectItem value="oldest">Oldest First</SelectItem>
+                  <SelectItem value="due_soon">Due Soon</SelectItem>
+                  <SelectItem value="balance">Highest Balance</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Account Cards */}
+            {filtered.length === 0 ? (
+              <Card className="shadow-sm">
+                <CardContent className="py-16 text-center">
+                  <Diamond className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-foreground mb-1 font-display">
+                    {data.accounts.length === 0
+                      ? "You don't have any layaway accounts yet."
+                      : 'No accounts match your search.'}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    {data.accounts.length === 0
+                      ? 'Visit Cha Jewels to start your first layaway plan.'
+                      : 'Try adjusting your filters.'}
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {filtered.map((account) => (
+                  <AccountCard
+                    key={account.id}
+                    account={account}
+                    onViewDetails={() => setSelectedAccount(account)}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
 
         {/* Footer */}
