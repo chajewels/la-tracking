@@ -5,41 +5,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-function determineScheduleStatus(item: { paid_amount: number; base_installment_amount: number; due_date: string }): string {
-  const today = new Date().toISOString().split("T")[0];
-  if (item.paid_amount >= item.base_installment_amount && item.base_installment_amount > 0) return "paid";
-  if (item.paid_amount > 0) return "partially_paid";
-  if (item.due_date <= today) return "overdue";
-  return "pending";
-}
-
-function determineAccountStatus(schedule: any[], currentStatus: string): string {
-  if (currentStatus === "cancelled" || currentStatus === "forfeited") return currentStatus;
-  const today = new Date().toISOString().split("T")[0];
-  let allPaid = true;
-  let hasOverdue = false;
-  for (const item of schedule) {
-    if (item.status === "cancelled") continue;
-    if (item.status !== "paid") {
-      allPaid = false;
-      if (item.due_date <= today) hasOverdue = true;
-    }
-  }
-  if (allPaid) return "completed";
-  if (hasOverdue) return "overdue";
-  return "active";
-}
-
-function calcRemainingBalance(schedule: any[]): number {
-  let remaining = 0;
-  for (const item of schedule) {
-    if (item.status !== "paid" && item.status !== "cancelled") {
-      remaining += Math.max(0, Number(item.base_installment_amount) + Number(item.penalty_amount || 0) - Number(item.paid_amount));
-    }
-  }
-  return remaining;
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
