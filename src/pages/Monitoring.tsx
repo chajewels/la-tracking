@@ -45,6 +45,7 @@ export default function Monitoring() {
   const initialFilter = (searchParams.get('filter') as FilterTab) || 'all';
   const [activeFilter, setActiveFilter] = useState<FilterTab>(initialFilter);
   const [notifFilter, setNotifFilter] = useState<NotifFilter>('all');
+  const [activeSummaryCard, setActiveSummaryCard] = useState<SummaryFilter>(initialFilter === 'all' ? 'all' : initialFilter);
   const [sending, setSending] = useState(false);
   const [messengerDialog, setMessengerDialog] = useState<{ alert: AlertItem; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
