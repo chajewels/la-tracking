@@ -70,6 +70,9 @@ export default function AccountDetail() {
   const [invoiceSaving, setInvoiceSaving] = useState(false);
   const [reactivating, setReactivating] = useState(false);
   const queryClient = useQueryClient();
+  const { roles } = useAuth();
+  const r = roles as AppRole[];
+  const can = (action: Parameters<typeof canPerformAction>[1]) => canPerformAction(r, action);
 
 
   const handleInvoiceSave = useCallback(async () => {
