@@ -11,6 +11,8 @@ import AlphabetNav, { LETTERS, SPECIAL } from '@/components/customers/AlphabetNa
 import CustomerCard from '@/components/customers/CustomerCard';
 import EditCustomerDialog from '@/components/customers/EditCustomerDialog';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { canPerformAction, type AppRole } from '@/lib/role-permissions';
 
 type ViewMode = 'all' | 'filter' | 'grouped';
 
