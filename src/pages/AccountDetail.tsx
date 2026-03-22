@@ -540,7 +540,7 @@ export default function AccountDetail() {
                 <RotateCcw className="h-4 w-4 mr-2" /> {reactivating ? 'Reactivating…' : 'Reactivate (One-Time)'}
               </Button>
             )}
-            {(account.status === 'active' || account.status === 'overdue' || account.status === 'extension_active') && (
+            {canAddPenalty(account.status) && (
               <>
                 <AddPenaltyDialog
                   accountId={account.id}
