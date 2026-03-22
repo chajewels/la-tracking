@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, UserPlus, ChevronDown, ChevronUp, Banknote, Copy, Check, MessageCircle } from 'lucide-react';
+import { ArrowLeft, UserPlus, ChevronDown, ChevronUp, Banknote, Copy, Check, MessageCircle, Wand2 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,7 @@ import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
 import { Badge } from '@/components/ui/badge';
 
 type RemainingDpOption = 'split' | 'add_to_installments';
+type InstallmentMode = 'equal' | 'custom';
 
 interface SplitAllocation {
   account_id: string;
@@ -38,6 +39,10 @@ export default function NewAccount() {
   const [downpaymentInput, setDownpaymentInput] = useState('');
   const [downpaymentPaid, setDownpaymentPaid] = useState('');
   const [remainingDpOption, setRemainingDpOption] = useState<RemainingDpOption>('split');
+
+  // Custom installment mode
+  const [installmentMode, setInstallmentMode] = useState<InstallmentMode>('equal');
+  const [customAmounts, setCustomAmounts] = useState<string[]>([]);
 
   // Split payment state
   const [enableSplitPayment, setEnableSplitPayment] = useState(false);
@@ -82,7 +87,30 @@ export default function NewAccount() {
 
   const previewDates = orderDate ? generateScheduleDates(orderDate, paymentPlan) : [];
 
+  // Initialize custom amounts when switching to custom mode or changing plan
+  const initCustomAmounts = useCallback(() => {
+    const equalAmts = (() => {
+      if (installmentTotal <= 0) return Array(paymentPlan).fill(0);
+      if (hasShortDp && remainingDpOption === 'split') {
+        const baseInstallments = calculateInstallments(baseForInstallments, paymentPlan);
+        const dpPerMonth = Math.floor(remainingDp / paymentPlan);
+        const dpRemainder = remainingDp - dpPerMonth * paymentPlan;
+        return baseInstallments.map((base, i) => base + dpPerMonth + (i === paymentPlan - 1 ? dpRemainder : 0));
+      }
+      if (hasShortDp && remainingDpOption === 'add_to_installments') {
+        const installments = calculateInstallments(baseForInstallments, paymentPlan);
+        if (installments.length > 0) installments[0] += remainingDp;
+        return installments;
+      }
+      return calculateInstallments(installmentTotal, paymentPlan);
+    })();
+    setCustomAmounts(equalAmts.map(String));
+  }, [installmentTotal, paymentPlan, hasShortDp, remainingDpOption, baseForInstallments, remainingDp]);
+
   const previewInstallments = (() => {
+    if (installmentMode === 'custom' && customAmounts.length === paymentPlan) {
+      return customAmounts.map(v => parseInt(v) || 0);
+    }
     if (installmentTotal <= 0) return [];
     if (hasShortDp && remainingDpOption === 'split') {
       const baseInstallments = calculateInstallments(baseForInstallments, paymentPlan);
@@ -97,6 +125,32 @@ export default function NewAccount() {
     }
     return calculateInstallments(installmentTotal, paymentPlan);
   })();
+
+  // Custom installment validation
+  const customTotal = installmentMode === 'custom'
+    ? customAmounts.reduce((s, v) => s + (parseInt(v) || 0), 0)
+    : 0;
+  const expectedInstallmentTotal = Math.max(0, amount - downpaymentAmount);
+  const customMismatch = installmentMode === 'custom' && customAmounts.length === paymentPlan && customTotal !== expectedInstallmentTotal;
+
+  const updateCustomAmount = (index: number, value: string) => {
+    setCustomAmounts(prev => {
+      const next = [...prev];
+      next[index] = value;
+      return next;
+    });
+  };
+
+  const autoAdjustLastMonth = () => {
+    if (customAmounts.length !== paymentPlan) return;
+    const sumExceptLast = customAmounts.slice(0, -1).reduce((s, v) => s + (parseInt(v) || 0), 0);
+    const lastAmount = Math.max(0, expectedInstallmentTotal - sumExceptLast);
+    setCustomAmounts(prev => {
+      const next = [...prev];
+      next[next.length - 1] = String(lastAmount);
+      return next;
+    });
+  };
 
   // Toggle an existing account in the split allocation list
   const toggleAccount = (accountId: string) => {
@@ -120,6 +174,18 @@ export default function NewAccount() {
       return;
     }
 
+    // Custom installment validation
+    if (installmentMode === 'custom') {
+      if (customMismatch) {
+        toast.error(`Total installments (${formatCurrency(customTotal, currency)}) must match remaining balance (${formatCurrency(expectedInstallmentTotal, currency)})`);
+        return;
+      }
+      if (customAmounts.some(v => (parseInt(v) || 0) <= 0)) {
+        toast.error('All installment amounts must be greater than zero');
+        return;
+      }
+    }
+
     if (enableSplitPayment) {
       if (lumpSum <= 0) {
         toast.error('Please enter the total lump sum amount');
@@ -129,7 +195,6 @@ export default function NewAccount() {
         toast.error('Lump sum must cover at least some downpayment for the new account');
         return;
       }
-      // Validate allocations don't exceed account balances
       for (const alloc of splitAllocations) {
         const allocAmount = parseInt(alloc.amount) || 0;
         if (allocAmount <= 0) continue;
@@ -165,6 +230,9 @@ export default function NewAccount() {
         remaining_dp_option: hasShortDp ? remainingDpOption : undefined,
         split_allocations: validAllocations,
         lump_sum_total: enableSplitPayment ? lumpSum : undefined,
+        custom_installments: installmentMode === 'custom'
+          ? customAmounts.map(v => parseInt(v) || 0)
+          : undefined,
       });
       toast.success(`Layaway account #${invoiceNumber} created successfully`);
 
@@ -345,7 +413,12 @@ export default function NewAccount() {
                     <button
                       key={plan}
                       type="button"
-                      onClick={() => setPaymentPlan(plan)}
+                      onClick={() => {
+                        setPaymentPlan(plan);
+                        if (installmentMode === 'custom') {
+                          setCustomAmounts(Array(plan).fill('0'));
+                        }
+                      }}
                       className={`flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors ${
                         paymentPlan === plan
                           ? 'border-primary bg-primary/10 text-primary'
@@ -356,6 +429,38 @@ export default function NewAccount() {
                     </button>
                   ))}
                 </div>
+              </div>
+            </div>
+
+            {/* Installment Mode Toggle */}
+            <div className="space-y-2">
+              <Label className="text-card-foreground">Installment Structure</Label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setInstallmentMode('equal')}
+                  className={`flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors ${
+                    installmentMode === 'equal'
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border bg-background text-muted-foreground hover:border-primary/50'
+                  }`}
+                >
+                  Equal Installments
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInstallmentMode('custom');
+                    initCustomAmounts();
+                  }}
+                  className={`flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors ${
+                    installmentMode === 'custom'
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border bg-background text-muted-foreground hover:border-primary/50'
+                  }`}
+                >
+                  Custom Installments
+                </button>
               </div>
             </div>
           </div>
@@ -590,27 +695,77 @@ export default function NewAccount() {
             </div>
           )}
 
-          {/* Schedule Preview */}
-          {previewDates.length > 0 && installmentTotal > 0 && (
+          {/* Schedule Preview / Custom Installment Editor */}
+          {previewDates.length > 0 && (installmentTotal > 0 || installmentMode === 'custom') && (
             <div className="rounded-xl border border-primary/20 bg-card p-6">
-              <h3 className="text-sm font-semibold text-card-foreground mb-3">Schedule Preview ({paymentPlan} months)</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-card-foreground">
+                  {installmentMode === 'custom' ? 'Custom Schedule' : 'Schedule Preview'} ({paymentPlan} months)
+                </h3>
+                {installmentMode === 'custom' && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={autoAdjustLastMonth}
+                    className="gap-1.5 text-xs"
+                  >
+                    <Wand2 className="h-3.5 w-3.5" />
+                    Auto-adjust last month
+                  </Button>
+                )}
+              </div>
+
               <div className="space-y-2">
                 {previewDates.map((date, i) => (
-                  <div key={i} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                    <div className="flex items-center gap-3">
-                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
+                  <div key={i} className="flex items-center justify-between py-2 border-b border-border last:border-0 gap-3">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground shrink-0">
                         {i + 1}
                       </span>
-                      <span className="text-sm text-card-foreground">
+                      <span className="text-sm text-card-foreground truncate">
                         {new Date(date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                       </span>
                     </div>
-                    <span className="text-sm font-semibold text-card-foreground tabular-nums">
-                      {formatCurrency(previewInstallments[i] || 0, currency)}
-                    </span>
+                    {installmentMode === 'custom' ? (
+                      <Input
+                        type="number"
+                        value={customAmounts[i] || ''}
+                        onChange={(e) => updateCustomAmount(i, e.target.value)}
+                        className="w-32 bg-background border-border text-right text-sm h-8 tabular-nums"
+                        placeholder="Amount"
+                      />
+                    ) : (
+                      <span className="text-sm font-semibold text-card-foreground tabular-nums">
+                        {formatCurrency(previewInstallments[i] || 0, currency)}
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>
+
+              {/* Custom mode: running total and validation */}
+              {installmentMode === 'custom' && (
+                <div className={`mt-4 rounded-lg border p-3 ${customMismatch ? 'border-destructive/50 bg-destructive/5' : 'border-primary/20 bg-primary/5'}`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-card-foreground">Installment Total</span>
+                    <span className={`text-sm font-bold tabular-nums ${customMismatch ? 'text-destructive' : 'text-primary'}`}>
+                      {formatCurrency(customTotal, currency)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-xs text-muted-foreground">Required (Total − Downpayment)</span>
+                    <span className="text-xs font-medium text-muted-foreground tabular-nums">
+                      {formatCurrency(expectedInstallmentTotal, currency)}
+                    </span>
+                  </div>
+                  {customMismatch && (
+                    <p className="text-xs text-destructive mt-2 font-medium">
+                      ⚠ Mismatch of {formatCurrency(Math.abs(customTotal - expectedInstallmentTotal), currency)} — installments must equal remaining balance
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
