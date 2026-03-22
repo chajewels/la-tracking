@@ -695,27 +695,77 @@ export default function NewAccount() {
             </div>
           )}
 
-          {/* Schedule Preview */}
-          {previewDates.length > 0 && installmentTotal > 0 && (
+          {/* Schedule Preview / Custom Installment Editor */}
+          {previewDates.length > 0 && (installmentTotal > 0 || installmentMode === 'custom') && (
             <div className="rounded-xl border border-primary/20 bg-card p-6">
-              <h3 className="text-sm font-semibold text-card-foreground mb-3">Schedule Preview ({paymentPlan} months)</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-card-foreground">
+                  {installmentMode === 'custom' ? 'Custom Schedule' : 'Schedule Preview'} ({paymentPlan} months)
+                </h3>
+                {installmentMode === 'custom' && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={autoAdjustLastMonth}
+                    className="gap-1.5 text-xs"
+                  >
+                    <Wand2 className="h-3.5 w-3.5" />
+                    Auto-adjust last month
+                  </Button>
+                )}
+              </div>
+
               <div className="space-y-2">
                 {previewDates.map((date, i) => (
-                  <div key={i} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                    <div className="flex items-center gap-3">
-                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
+                  <div key={i} className="flex items-center justify-between py-2 border-b border-border last:border-0 gap-3">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground shrink-0">
                         {i + 1}
                       </span>
-                      <span className="text-sm text-card-foreground">
+                      <span className="text-sm text-card-foreground truncate">
                         {new Date(date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                       </span>
                     </div>
-                    <span className="text-sm font-semibold text-card-foreground tabular-nums">
-                      {formatCurrency(previewInstallments[i] || 0, currency)}
-                    </span>
+                    {installmentMode === 'custom' ? (
+                      <Input
+                        type="number"
+                        value={customAmounts[i] || ''}
+                        onChange={(e) => updateCustomAmount(i, e.target.value)}
+                        className="w-32 bg-background border-border text-right text-sm h-8 tabular-nums"
+                        placeholder="Amount"
+                      />
+                    ) : (
+                      <span className="text-sm font-semibold text-card-foreground tabular-nums">
+                        {formatCurrency(previewInstallments[i] || 0, currency)}
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>
+
+              {/* Custom mode: running total and validation */}
+              {installmentMode === 'custom' && (
+                <div className={`mt-4 rounded-lg border p-3 ${customMismatch ? 'border-destructive/50 bg-destructive/5' : 'border-primary/20 bg-primary/5'}`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-card-foreground">Installment Total</span>
+                    <span className={`text-sm font-bold tabular-nums ${customMismatch ? 'text-destructive' : 'text-primary'}`}>
+                      {formatCurrency(customTotal, currency)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-xs text-muted-foreground">Required (Total − Downpayment)</span>
+                    <span className="text-xs font-medium text-muted-foreground tabular-nums">
+                      {formatCurrency(expectedInstallmentTotal, currency)}
+                    </span>
+                  </div>
+                  {customMismatch && (
+                    <p className="text-xs text-destructive mt-2 font-medium">
+                      ⚠ Mismatch of {formatCurrency(Math.abs(customTotal - expectedInstallmentTotal), currency)} — installments must equal remaining balance
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

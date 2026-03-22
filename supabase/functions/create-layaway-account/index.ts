@@ -124,11 +124,25 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Generate schedule with remaining DP distributed per option
+    // Generate schedule
     const dayOfMonth = startDate.getDate();
     const scheduleRows = [];
+    const useCustom = Array.isArray(custom_installments) && custom_installments.length === payment_plan_months;
 
-    // Calculate base installment from the portion after full DP target
+    // Validate custom installments sum to baseForInstallments
+    if (useCustom) {
+      const customSum = custom_installments.reduce((s: number, v: number) => s + Math.round(Number(v)), 0);
+      if (customSum !== baseForInstallments) {
+        return new Response(JSON.stringify({
+          error: `Custom installments total (${customSum}) does not match remaining balance (${baseForInstallments})`
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    // Calculate equal-distribution amounts (used when not custom)
     const baseInstallment = Math.floor(baseForInstallments / payment_plan_months);
     const baseRemainder = baseForInstallments - baseInstallment * payment_plan_months;
 
@@ -137,29 +151,34 @@ Deno.serve(async (req) => {
     let dpDistRemainder = 0;
     const option = remaining_dp_option || 'split';
 
-    if (hasShortDp && option === 'split') {
+    if (hasShortDp && option === 'split' && !useCustom) {
       dpPerMonth = Math.floor(remainingDp / payment_plan_months);
       dpDistRemainder = remainingDp - dpPerMonth * payment_plan_months;
     }
 
     for (let i = 0; i < payment_plan_months; i++) {
-      // First installment is 1 month after order date, so +i+1
       const dueDate = new Date(startDate.getFullYear(), startDate.getMonth() + i + 1, dayOfMonth);
-      // If the day overflowed (e.g. 31st in a 30-day month), clamp to last day
       if (dueDate.getDate() !== dayOfMonth) {
         dueDate.setDate(0);
       }
 
-      const isLast = i === payment_plan_months - 1;
-      let amount = isLast ? baseInstallment + baseRemainder : baseInstallment;
+      let amount: number;
 
-      // Add remaining DP based on option
-      if (hasShortDp) {
-        if (option === 'split') {
-          amount += dpPerMonth;
-          if (isLast) amount += dpDistRemainder;
-        } else if (option === 'add_to_installments' && i === 0) {
-          amount += remainingDp;
+      if (useCustom) {
+        // Use exact custom amount — no redistribution
+        amount = Math.round(Number(custom_installments[i]));
+      } else {
+        const isLast = i === payment_plan_months - 1;
+        amount = isLast ? baseInstallment + baseRemainder : baseInstallment;
+
+        // Add remaining DP based on option
+        if (hasShortDp) {
+          if (option === 'split') {
+            amount += dpPerMonth;
+            if (isLast) amount += dpDistRemainder;
+          } else if (option === 'add_to_installments' && i === 0) {
+            amount += remainingDp;
+          }
         }
       }
 

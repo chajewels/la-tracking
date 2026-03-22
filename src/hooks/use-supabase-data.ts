@@ -334,6 +334,7 @@ export function useCreateAccount() {
       remaining_dp_option?: 'split' | 'add_to_installments';
       split_allocations?: { account_id: string; amount: number }[];
       lump_sum_total?: number;
+      custom_installments?: number[];
     }) => {
       const { data, error } = await supabase.functions.invoke('create-layaway-account', {
         body: payload,
