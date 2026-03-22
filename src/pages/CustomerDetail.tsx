@@ -354,6 +354,9 @@ export default function CustomerDetail() {
           </div>
         </div>
 
+        {/* Customer Portal Link */}
+        <CustomerPortalShareMenu customerId={customer.id} customerName={customer.full_name} />
+
         {/* All Accounts */}
         {accounts.map(({ account, schedule, penalties, schedulePaymentDates, services: acctServices }) => {
           const currency = account.currency as Currency;
