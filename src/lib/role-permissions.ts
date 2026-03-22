@@ -73,7 +73,7 @@ const ACTION_ROLES: Record<ActionKey, AppRole[]> = {
   recalculate_balance:   ['admin'],
   apply_cap_fix:         ['admin'],
   waive_penalty:         ['admin', 'finance'],
-  confirm_payment:       ['admin', 'finance', 'staff'],
+  confirm_payment:       ['admin', 'finance'],
   reject_submission:     ['admin', 'finance'],
   revoke_token:          ['admin'],
   regenerate_token:      ['admin', 'staff'],
