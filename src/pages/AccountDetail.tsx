@@ -343,11 +343,21 @@ export default function AccountDetail() {
         message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(itemRemaining, currency)}\n`;
       }
     });
-    const nextStatement = getNextPaymentStatementDate(scheduleItems);
-    if (nextStatement) {
-      const nextDate = new Date(nextStatement.date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
-      message += `\nPlease note your next monthly payment is on ${nextDate}. Please expect another payment reminder from us.\n\n`;
-      message += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
+    // Forfeiture notification warning for near-forfeit overdue accounts
+    const forfeitWarning = getForfeitureWarning(account.status, scheduleItems);
+    if (forfeitWarning && forfeitWarning.monthsOverdue >= 2) {
+      message += `\n⚠️ IMPORTANT NOTICE: Your account is ${forfeitWarning.monthsOverdue} months overdue.`;
+      if (forfeitWarning.daysUntilForfeit > 0) {
+        message += ` If payment is not received by ${new Date(forfeitWarning.forfeitDate).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}, your account will be subject to forfeiture.`;
+      }
+      message += `\nPlease settle your outstanding balance immediately to avoid forfeiture. 💛`;
+    } else {
+      const nextStatement = getNextPaymentStatementDate(scheduleItems);
+      if (nextStatement) {
+        const nextDate = new Date(nextStatement.date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+        message += `\nPlease note your next monthly payment is on ${nextDate}. Please expect another payment reminder from us.\n\n`;
+        message += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
+      }
     }
   }
 
