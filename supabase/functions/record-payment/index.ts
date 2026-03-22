@@ -209,20 +209,9 @@ Deno.serve(async (req) => {
 
     const newTotalPaid = Number(account.total_paid) + Number(amount_paid);
 
-    // Calculate remaining balance from actual schedule amounts (accounts for overpayment reductions)
-    let newRemainingBalance = 0;
-    if (schedule) {
-      for (const item of schedule) {
-        // Check if this item has a schedule update pending
-        const update = scheduleUpdates.find(u => u.id === item.id);
-        const base = update?.base_installment_amount !== undefined ? update.base_installment_amount : Number(item.base_installment_amount);
-        const paid = update?.paid_amount !== undefined ? update.paid_amount : Number(item.paid_amount);
-        const itemStatus = update?.status !== undefined ? update.status : item.status;
-        if (itemStatus !== 'paid' && itemStatus !== 'cancelled') {
-          newRemainingBalance += Math.max(0, base - paid);
-        }
-      }
-    }
+    // SINGLE SOURCE OF TRUTH: remaining = total_amount - total_paid
+    // Never derive from schedule rows — avoids rounding/gap discrepancies
+    const newRemainingBalance = Math.max(0, Number(account.total_amount) - newTotalPaid);
     const newStatus = newRemainingBalance <= 0 ? "completed" : account.status;
 
     // Preview mode - return allocation plan without saving

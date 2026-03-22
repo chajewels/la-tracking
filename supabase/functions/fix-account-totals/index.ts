@@ -37,22 +37,38 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Batch fetch all schedules for these accounts
+    // Batch fetch all payments for these accounts (SINGLE SOURCE OF TRUTH for remaining balance)
     const accountIds = accounts.map((a: any) => a.id);
+    let allPayments: any[] = [];
+    for (let i = 0; i < accountIds.length; i += 50) {
+      const chunk = accountIds.slice(i, i + 50);
+      const { data: pays } = await supabase
+        .from("payments")
+        .select("account_id, amount_paid")
+        .in("account_id", chunk)
+        .is("voided_at", null)
+        .limit(5000);
+      if (pays) allPayments = allPayments.concat(pays);
+    }
+
+    // Also fetch schedules for status checking
     let allSchedules: any[] = [];
-    // Fetch in chunks of 50 account IDs to avoid URL length limits
     for (let i = 0; i < accountIds.length; i += 50) {
       const chunk = accountIds.slice(i, i + 50);
       const { data: scheds } = await supabase
         .from("layaway_schedule")
-        .select("account_id, base_installment_amount, paid_amount, status")
+        .select("account_id, status")
         .in("account_id", chunk)
         .neq("status", "cancelled")
         .limit(5000);
       if (scheds) allSchedules = allSchedules.concat(scheds);
     }
 
-    // Index by account
+    // Index payments and schedules by account
+    const payByAcct: Record<string, any[]> = {};
+    for (const p of allPayments) {
+      (payByAcct[p.account_id] ||= []).push(p);
+    }
     const schedByAcct: Record<string, any[]> = {};
     for (const s of allSchedules) {
       (schedByAcct[s.account_id] ||= []).push(s);
@@ -61,26 +77,21 @@ Deno.serve(async (req) => {
     const fixes: any[] = [];
 
     for (const acct of accounts) {
+      const payments = payByAcct[acct.id] || [];
       const schedule = schedByAcct[acct.id] || [];
-      // Use base_installment_amount only — penalties must NOT inflate the contract total
-      const schedTotal = schedule.reduce((s: number, r: any) => s + Number(r.base_installment_amount), 0);
-      const unpaidDue = schedule
-        .filter((r: any) => r.status !== "paid")
-        .reduce((s: number, r: any) => s + Math.max(0, Number(r.base_installment_amount) - Number(r.paid_amount)), 0);
 
-      const correctTotalAmount = Number(acct.downpayment_amount) + schedTotal;
-      const correctRemaining = unpaidDue;
-      // Also fix total_paid to be consistent
-      const correctTotalPaid = correctTotalAmount - correctRemaining;
+      // SINGLE SOURCE OF TRUTH: remaining = total_amount - SUM(actual payments)
+      const totalPayments = payments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+      const correctTotalPaid = totalPayments;
+      const correctRemaining = Math.max(0, Number(acct.total_amount) - totalPayments);
 
       const needsUpdate =
-        Math.abs(Number(acct.total_amount) - correctTotalAmount) > 0.01 ||
+        Math.abs(Number(acct.total_paid) - correctTotalPaid) > 0.01 ||
         Math.abs(Number(acct.remaining_balance) - correctRemaining) > 0.01;
 
       if (needsUpdate) {
         const hasOverdue = schedule.some((r: any) => r.status === "overdue");
         await supabase.from("layaway_accounts").update({
-          total_amount: correctTotalAmount,
           remaining_balance: correctRemaining,
           total_paid: correctTotalPaid,
           status: hasOverdue ? "overdue" : acct.status,
@@ -89,10 +100,10 @@ Deno.serve(async (req) => {
 
         fixes.push({
           invoice: acct.invoice_number,
-          old_total: Number(acct.total_amount),
-          new_total: correctTotalAmount,
           old_remaining: Number(acct.remaining_balance),
           new_remaining: correctRemaining,
+          old_total_paid: Number(acct.total_paid),
+          new_total_paid: correctTotalPaid,
         });
       }
     }

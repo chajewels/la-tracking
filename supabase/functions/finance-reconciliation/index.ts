@@ -137,16 +137,14 @@ Deno.serve(async (req) => {
         });
       };
 
-      // 1. Balance reconciliation
-      const activePenalties = pens.filter((p: any) => p.status === "unpaid" || p.status === "paid").reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
-      const waivedPenalties = pens.filter((p: any) => p.status === "waived").reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
+      // 1. Balance reconciliation — SINGLE SOURCE OF TRUTH: remaining = total_amount - SUM(actual payments)
       const totalPayments = pays.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
 
-      const expectedCollectible = Number(acct.total_amount) - totalPayments;
+      const expectedRemaining = Math.max(0, Number(acct.total_amount) - totalPayments);
       const storedBalance = Number(acct.remaining_balance);
 
-      if (Math.abs(expectedCollectible - storedBalance) > 1) {
-        addEx("balance_mismatch", `Stored remaining ${storedBalance} vs computed ${expectedCollectible}`, expectedCollectible, storedBalance);
+      if (Math.abs(expectedRemaining - storedBalance) > 1) {
+        addEx("balance_mismatch", `Stored remaining ${storedBalance} vs computed ${expectedRemaining}`, expectedRemaining, storedBalance);
         balanceExceptions++;
       }
 
