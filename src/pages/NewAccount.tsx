@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, UserPlus, ChevronDown, ChevronUp, Banknote, Copy, Check, MessageCircle } from 'lucide-react';
+import { ArrowLeft, UserPlus, ChevronDown, ChevronUp, Banknote, Copy, Check, MessageCircle, Wand2 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,7 @@ import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
 import { Badge } from '@/components/ui/badge';
 
 type RemainingDpOption = 'split' | 'add_to_installments';
+type InstallmentMode = 'equal' | 'custom';
 
 interface SplitAllocation {
   account_id: string;
@@ -38,6 +39,10 @@ export default function NewAccount() {
   const [downpaymentInput, setDownpaymentInput] = useState('');
   const [downpaymentPaid, setDownpaymentPaid] = useState('');
   const [remainingDpOption, setRemainingDpOption] = useState<RemainingDpOption>('split');
+
+  // Custom installment mode
+  const [installmentMode, setInstallmentMode] = useState<InstallmentMode>('equal');
+  const [customAmounts, setCustomAmounts] = useState<string[]>([]);
 
   // Split payment state
   const [enableSplitPayment, setEnableSplitPayment] = useState(false);
@@ -82,7 +87,30 @@ export default function NewAccount() {
 
   const previewDates = orderDate ? generateScheduleDates(orderDate, paymentPlan) : [];
 
+  // Initialize custom amounts when switching to custom mode or changing plan
+  const initCustomAmounts = useCallback(() => {
+    const equalAmts = (() => {
+      if (installmentTotal <= 0) return Array(paymentPlan).fill(0);
+      if (hasShortDp && remainingDpOption === 'split') {
+        const baseInstallments = calculateInstallments(baseForInstallments, paymentPlan);
+        const dpPerMonth = Math.floor(remainingDp / paymentPlan);
+        const dpRemainder = remainingDp - dpPerMonth * paymentPlan;
+        return baseInstallments.map((base, i) => base + dpPerMonth + (i === paymentPlan - 1 ? dpRemainder : 0));
+      }
+      if (hasShortDp && remainingDpOption === 'add_to_installments') {
+        const installments = calculateInstallments(baseForInstallments, paymentPlan);
+        if (installments.length > 0) installments[0] += remainingDp;
+        return installments;
+      }
+      return calculateInstallments(installmentTotal, paymentPlan);
+    })();
+    setCustomAmounts(equalAmts.map(String));
+  }, [installmentTotal, paymentPlan, hasShortDp, remainingDpOption, baseForInstallments, remainingDp]);
+
   const previewInstallments = (() => {
+    if (installmentMode === 'custom' && customAmounts.length === paymentPlan) {
+      return customAmounts.map(v => parseInt(v) || 0);
+    }
     if (installmentTotal <= 0) return [];
     if (hasShortDp && remainingDpOption === 'split') {
       const baseInstallments = calculateInstallments(baseForInstallments, paymentPlan);
@@ -97,6 +125,32 @@ export default function NewAccount() {
     }
     return calculateInstallments(installmentTotal, paymentPlan);
   })();
+
+  // Custom installment validation
+  const customTotal = installmentMode === 'custom'
+    ? customAmounts.reduce((s, v) => s + (parseInt(v) || 0), 0)
+    : 0;
+  const expectedInstallmentTotal = Math.max(0, amount - downpaymentAmount);
+  const customMismatch = installmentMode === 'custom' && customAmounts.length === paymentPlan && customTotal !== expectedInstallmentTotal;
+
+  const updateCustomAmount = (index: number, value: string) => {
+    setCustomAmounts(prev => {
+      const next = [...prev];
+      next[index] = value;
+      return next;
+    });
+  };
+
+  const autoAdjustLastMonth = () => {
+    if (customAmounts.length !== paymentPlan) return;
+    const sumExceptLast = customAmounts.slice(0, -1).reduce((s, v) => s + (parseInt(v) || 0), 0);
+    const lastAmount = Math.max(0, expectedInstallmentTotal - sumExceptLast);
+    setCustomAmounts(prev => {
+      const next = [...prev];
+      next[next.length - 1] = String(lastAmount);
+      return next;
+    });
+  };
 
   // Toggle an existing account in the split allocation list
   const toggleAccount = (accountId: string) => {
