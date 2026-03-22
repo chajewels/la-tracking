@@ -469,8 +469,12 @@ function AccountCard({ account, onViewDetails }: { account: PortalAccount; onVie
             <p className="text-sm font-semibold tabular-nums text-success">{fmt(account.total_paid, currency)}</p>
           </div>
           <div>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Remaining</p>
-            <p className="text-sm font-semibold tabular-nums text-foreground">{fmt(account.remaining_balance, currency)}</p>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+              {(account.outstanding_penalties ?? 0) > 0 ? 'Total Payable' : 'Remaining'}
+            </p>
+            <p className={`text-sm font-semibold tabular-nums ${(account.outstanding_penalties ?? 0) > 0 ? 'text-warning' : 'text-foreground'}`}>
+              {fmt((account.outstanding_penalties ?? 0) > 0 ? (account.current_total_payable ?? account.remaining_balance) : account.remaining_balance, currency)}
+            </p>
           </div>
         </div>
 
