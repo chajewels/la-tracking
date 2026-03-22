@@ -408,6 +408,7 @@ export default function AccountDetail() {
               ) : (
                 <div className="flex items-center gap-2">
                   <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">INV #{account.invoice_number}</h1>
+                  {can('edit_invoice') && (
                   <Button
                     size="icon"
                     variant="ghost"
@@ -417,6 +418,7 @@ export default function AccountDetail() {
                   >
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
+                  )}
                 </div>
               )}
               <Badge variant="outline" className={
