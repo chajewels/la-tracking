@@ -20,6 +20,7 @@ const navItems = [
   { icon: Send, label: 'Reminders', path: '/reminders' },
   { icon: Activity, label: 'Collections', path: '/collections' },
   { icon: DollarSign, label: 'Finance', path: '/finance' },
+  { icon: CreditCard, label: 'Payment Submissions', path: '/payment-submissions' },
   { icon: Scale, label: 'Waivers', path: '/waivers' },
   { icon: BarChart3, label: 'Analytics', path: '/analytics' },
   { icon: Shield, label: 'Admin Audit', path: '/admin-audit' },

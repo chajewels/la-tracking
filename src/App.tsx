@@ -58,6 +58,7 @@ const App = () => (
             <Route path="/waivers" element={<Protected><Waivers /></Protected>} />
             <Route path="/admin-audit" element={<Protected><AdminAudit /></Protected>} />
             <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
+            <Route path="/payment-submissions" element={<Protected><PaymentSubmissions /></Protected>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
