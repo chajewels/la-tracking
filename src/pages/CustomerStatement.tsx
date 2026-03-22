@@ -227,13 +227,20 @@ export default function CustomerStatement() {
                 <p className="text-sm font-bold text-success font-display tabular-nums">{fmt(data.total_paid, data.currency)}</p>
               </div>
               <div className="rounded-lg bg-primary/5 p-3">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">Remaining</p>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">Remaining Principal</p>
                 <p className="text-sm font-bold text-foreground font-display tabular-nums">{fmt(data.computed_remaining, data.currency)}</p>
               </div>
               {data.total_active_penalties > 0 && (
                 <div className="rounded-lg bg-destructive/5 p-3">
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">Active Penalties</p>
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">Outstanding Penalties</p>
                   <p className="text-sm font-bold text-destructive font-display tabular-nums">{fmt(data.total_active_penalties, data.currency)}</p>
+                </div>
+              )}
+              {data.total_active_penalties > 0 && (
+                <div className="rounded-lg bg-warning/5 border border-warning/20 p-3">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">Current Total Payable</p>
+                  <p className="text-sm font-bold text-warning font-display tabular-nums">{fmt(currentTotalPayable, data.currency)}</p>
+                  <p className="text-[9px] text-muted-foreground mt-0.5">Principal + Penalties</p>
                 </div>
               )}
               {data.total_waived_amount > 0 && (
