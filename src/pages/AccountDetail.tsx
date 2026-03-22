@@ -171,11 +171,15 @@ export default function AccountDetail() {
   }
 
   const currency = account.currency as Currency;
-  const totalPaid = Number(account.total_paid);
   const principalTotal = Number(account.total_amount);
   const scheduleItems = schedule || [];
-  const remainingBalance = computeRemainingBalance(scheduleItems, principalTotal, totalPaid);
   const downpaymentAmount = Number((account as any).downpayment_amount || 0);
+
+  // SINGLE SOURCE OF TRUTH: derive totalPaid from actual confirmed payment records,
+  // NOT from the stored account.total_paid field which may be stale.
+  const confirmedActivePayments = getActivePayments(payments || []);
+  const totalPaid = confirmedActivePayments.reduce((sum, p) => sum + Number(p.amount_paid), 0);
+  const remainingBalance = computeRemainingBalance(scheduleItems, principalTotal, totalPaid);
   const accountServices = ((services || []) as AccountService[]);
   const totalServicesAmount = accountServices.reduce((s, svc) => s + Number(svc.amount), 0);
   const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
