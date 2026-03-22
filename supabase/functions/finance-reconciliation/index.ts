@@ -36,8 +36,11 @@ Deno.serve(async (req) => {
     const exceptions: Exception[] = [];
     const today = new Date().toISOString().split("T")[0];
 
-    // Fetch all active/overdue accounts with customer info
+    // Only audit operationally relevant accounts (exclude closed/terminal statuses)
+    const CLOSED_STATUSES = ['forfeited', 'final_forfeited', 'cancelled', 'completed'];
+
     let allAccounts: any[] = [];
+    let closedAccountCount = 0;
     let from = 0;
     const PAGE = 1000;
     while (true) {
@@ -46,7 +49,13 @@ Deno.serve(async (req) => {
         .select("id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, downpayment_amount, customers!inner(full_name)")
         .range(from, from + PAGE - 1);
       if (!data || data.length === 0) break;
-      allAccounts = allAccounts.concat(data);
+      for (const row of data) {
+        if (CLOSED_STATUSES.includes(row.status)) {
+          closedAccountCount++;
+        } else {
+          allAccounts.push(row);
+        }
+      }
       if (data.length < PAGE) break;
       from += PAGE;
     }
@@ -228,6 +237,7 @@ Deno.serve(async (req) => {
       waiver_exceptions: waiverExceptions,
       balance_exceptions: balanceExceptions,
       payment_exceptions: paymentExceptions,
+      closed_accounts_excluded: closedAccountCount,
       reference_invoices: refResults,
       timestamp: new Date().toISOString(),
     };
