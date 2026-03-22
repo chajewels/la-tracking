@@ -631,23 +631,12 @@ export default function AccountDetail() {
         )}
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
           <div className="rounded-xl border border-border bg-card p-3 sm:p-4">
             <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Total Layaway Amount</p>
             <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
-              {formatCurrency(principalTotal, currency)}
+              {formatCurrency(summary.principalTotal, currency)}
             </p>
-            {(totalServicesAmount > 0 || schedulePenaltySum > 0 || Math.abs(originalPrincipal - principalTotal) >= 1) && (
-              <div className="text-[10px] text-muted-foreground mt-0.5 space-y-0.5">
-                <p>Principal: {formatCurrency(principalTotal, currency)}</p>
-                {schedulePenaltySum > 0 && (
-                  <p className="text-destructive/80">Outstanding penalties: {formatCurrency(schedulePenaltySum, currency)}</p>
-                )}
-                {totalServicesAmount > 0 && (
-                  <p>Services: {formatCurrency(totalServicesAmount, currency)}</p>
-                )}
-              </div>
-            )}
           </div>
           {downpaymentAmount > 0 && (
             <div className="rounded-xl border border-primary/20 bg-card p-3 sm:p-4">
@@ -660,14 +649,43 @@ export default function AccountDetail() {
           <div className="rounded-xl border border-success/20 bg-card p-3 sm:p-4">
             <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Total Paid</p>
             <p className="text-lg sm:text-xl font-bold text-success font-display tabular-nums">
-              {formatCurrency(totalPaid, currency)}
+              {formatCurrency(summary.totalPaid, currency)}
             </p>
           </div>
           <div className="rounded-xl border border-primary/20 bg-card p-3 sm:p-4">
-            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Remaining</p>
+            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Remaining Principal</p>
             <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
-              {formatCurrency(remainingBalance, currency)}
+              {formatCurrency(summary.remainingPrincipal, currency)}
             </p>
+          </div>
+          {summary.outstandingPenalties > 0 && (
+            <div className="rounded-xl border border-destructive/20 bg-card p-3 sm:p-4">
+              <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Outstanding Penalties</p>
+              <p className="text-lg sm:text-xl font-bold text-destructive font-display tabular-nums">
+                {formatCurrency(summary.outstandingPenalties, currency)}
+              </p>
+            </div>
+          )}
+          {totalServicesAmount > 0 && (
+            <div className="rounded-xl border border-border bg-card p-3 sm:p-4">
+              <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Services</p>
+              <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
+                {formatCurrency(summary.totalServices, currency)}
+              </p>
+            </div>
+          )}
+          <div className={`rounded-xl border ${summary.outstandingPenalties > 0 ? 'border-warning/30 bg-warning/5' : 'border-primary/20 bg-card'} p-3 sm:p-4`}>
+            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">
+              {summary.outstandingPenalties > 0 ? 'Current Total Payable' : 'Remaining Balance'}
+            </p>
+            <p className={`text-lg sm:text-xl font-bold font-display tabular-nums ${summary.outstandingPenalties > 0 ? 'text-warning' : 'text-card-foreground'}`}>
+              {formatCurrency(summary.currentTotalPayable, currency)}
+            </p>
+            {summary.outstandingPenalties > 0 && (
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                = Principal {formatCurrency(summary.remainingPrincipal, currency)} + Penalties {formatCurrency(summary.outstandingPenalties, currency)}
+              </p>
+            )}
           </div>
           <div className="rounded-xl border border-border bg-card p-3 sm:p-4">
             <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Progress</p>
