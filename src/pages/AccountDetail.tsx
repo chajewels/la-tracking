@@ -433,6 +433,27 @@ export default function AccountDetail() {
                 </Badge>
               )}
             </div>
+            {/* Forfeiture Notification Warning Banner */}
+            {(() => {
+              const warning = getForfeitureWarning(account.status, scheduleItems);
+              if (!warning) return null;
+              return (
+                <div className="mt-2 p-3 rounded-lg border border-orange-500/30 bg-orange-500/5">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-orange-500 flex-shrink-0" />
+                    <span className="text-sm font-medium text-orange-500">⚠️ FORFEITURE NOTIFICATION</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    This account is <strong>{warning.monthsOverdue} month{warning.monthsOverdue !== 1 ? 's' : ''} overdue</strong> since last paid due date
+                    {warning.lastPaidDueDate ? ` (${new Date(warning.lastPaidDueDate).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })})` : ''}.
+                    {warning.daysUntilForfeit > 0
+                      ? ` Auto-forfeiture will trigger on ${new Date(warning.forfeitDate).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })} (${warning.daysUntilForfeit} day${warning.daysUntilForfeit !== 1 ? 's' : ''} remaining).`
+                      : ` Forfeiture date (${new Date(warning.forfeitDate).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })}) has been reached — pending engine run.`
+                    }
+                  </p>
+                </div>
+              );
+            })()}
             <p className="text-sm text-muted-foreground mt-0.5">
               {account.customers?.full_name} · {account.payment_plan_months}-Month Plan · {currency}
             </p>
