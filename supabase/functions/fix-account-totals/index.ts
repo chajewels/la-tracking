@@ -81,10 +81,11 @@ Deno.serve(async (req) => {
       const payments = payByAcct[acct.id] || [];
       const schedule = schedByAcct[acct.id] || [];
 
-      // SINGLE SOURCE OF TRUTH: remaining = total_amount - SUM(actual payments)
+      // SINGLE SOURCE OF TRUTH: total_paid = downpayment + SUM(actual payments)
+      // remaining = total_amount - total_paid
       const totalPayments = payments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
-      const correctTotalPaid = totalPayments;
-      const correctRemaining = Math.max(0, Number(acct.total_amount) - totalPayments);
+      const correctTotalPaid = totalPayments + Number(acct.downpayment_amount || 0);
+      const correctRemaining = Math.max(0, Number(acct.total_amount) - correctTotalPaid);
 
       const needsUpdate =
         Math.abs(Number(acct.total_paid) - correctTotalPaid) > 0.01 ||

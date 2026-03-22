@@ -259,7 +259,7 @@ Deno.serve(async (req) => {
         let rem = allocAmount;
         const payAllocations: Array<{ schedule_id: string; allocation_type: "penalty" | "installment"; allocated_amount: number }> = [];
         const penUpdates: Array<{ id: string; status: string }> = [];
-        const schUpdates: Array<{ id: string; paid_amount?: number; status?: string; base_installment_amount?: number; total_due_amount?: number }> = [];
+        const schUpdates: Array<{ id: string; paid_amount?: number; status?: string }> = [];
 
         // Pay penalties first
         if (targetPenalties) {
@@ -273,67 +273,27 @@ Deno.serve(async (req) => {
           }
         }
 
-        // Pay installments
-        const unpaidItems = targetSchedule.filter(
-          item => item.status !== "paid" && Number(item.base_installment_amount) - Number(item.paid_amount) > 0
-        );
-        const effectiveDate = order_date || new Date().toISOString().split("T")[0];
-        const targetItem = unpaidItems.find(item => item.due_date <= effectiveDate) ?? unpaidItems[0];
+        // Pay installments sequentially (FIXED SCHEDULE — never modify base_installment_amount)
+        if (rem > 0) {
+          const unpaidItems = targetSchedule.filter(
+            item => item.status !== "paid" && item.status !== "cancelled"
+          ).sort((a, b) => a.installment_number - b.installment_number);
 
-        if (rem > 0 && targetItem) {
-          const currentPaid = Number(targetItem.paid_amount);
-          const baseAmt = Number(targetItem.base_installment_amount);
-          const newPaid = currentPaid + rem;
+          for (const item of unpaidItems) {
+            if (rem <= 0) break;
+            const currentPaid = Number(item.paid_amount);
+            const baseAmt = Number(item.base_installment_amount);
+            const due = Math.max(0, baseAmt - currentPaid);
+            if (due <= 0) continue;
 
-          payAllocations.push({ schedule_id: targetItem.id, allocation_type: "installment", allocated_amount: rem });
+            const toApply = Math.min(rem, due);
+            rem -= toApply;
+            const newPaid = currentPaid + toApply;
+            const newStatus = newPaid >= baseAmt ? "paid" : "partially_paid";
 
-          const laterItems = unpaidItems
-            .filter(i => i.id !== targetItem.id && i.installment_number > targetItem.installment_number);
-
-          if (newPaid >= baseAmt) {
-            // Full or overpayment
-            schUpdates.push({ id: targetItem.id, paid_amount: newPaid, status: "paid" });
-
-            let excess = Math.max(0, newPaid - baseAmt);
-            for (const item of [...laterItems].reverse()) {
-              if (excess <= 0) break;
-              const itemBase = Number(item.base_installment_amount);
-              const itemPaid = Number(item.paid_amount);
-              const remainingDue = Math.max(0, itemBase - itemPaid);
-              const reduction = Math.min(excess, remainingDue);
-              if (reduction <= 0) continue;
-              excess -= reduction;
-              const newBase = Math.max(itemPaid, itemBase - reduction);
-              const nextStatus = itemPaid >= newBase ? "paid" : itemPaid > 0 ? "partially_paid" : item.status;
-              schUpdates.push({
-                id: item.id,
-                base_installment_amount: newBase,
-                total_due_amount: newBase + Number(item.penalty_amount || 0),
-                status: nextStatus,
-              });
-            }
-          } else {
-            // Short payment — mark paid for actual amount, roll shortfall to next
-            const shortfall = baseAmt - newPaid;
-            schUpdates.push({
-              id: targetItem.id,
-              paid_amount: newPaid,
-              status: "paid",
-              base_installment_amount: newPaid,
-              total_due_amount: newPaid + Number(targetItem.penalty_amount || 0),
-            });
-
-            if (laterItems.length > 0) {
-              const nextItem = laterItems[0];
-              const nextBase = Number(nextItem.base_installment_amount) + shortfall;
-              schUpdates.push({
-                id: nextItem.id,
-                base_installment_amount: nextBase,
-                total_due_amount: nextBase + Number(nextItem.penalty_amount || 0),
-              });
-            }
+            payAllocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
+            schUpdates.push({ id: item.id, paid_amount: newPaid, status: newStatus });
           }
-          rem = 0;
         }
 
         // Create payment record for existing account
@@ -369,35 +329,22 @@ Deno.serve(async (req) => {
           await supabase.from("penalty_fees").update({ status: pu.status }).eq("id", pu.id);
         }
 
-        // Update schedule items
+        // Update schedule items (only paid_amount and status — base_installment_amount is IMMUTABLE)
         for (const su of schUpdates) {
           const updateData: Record<string, unknown> = {};
           if (su.paid_amount !== undefined) updateData.paid_amount = su.paid_amount;
           if (su.status !== undefined) updateData.status = su.status;
-          if (su.base_installment_amount !== undefined) updateData.base_installment_amount = su.base_installment_amount;
-          if (su.total_due_amount !== undefined) updateData.total_due_amount = su.total_due_amount;
           await supabase.from("layaway_schedule").update(updateData).eq("id", su.id);
         }
 
-        // Recalculate remaining balance from schedule
-        let newRemBal = 0;
-        for (const item of targetSchedule) {
-          const su = schUpdates.find(u => u.id === item.id);
-          const base = su?.base_installment_amount !== undefined ? su.base_installment_amount : Number(item.base_installment_amount);
-          const penAmt = Number(item.penalty_amount || 0);
-          const paid = su?.paid_amount !== undefined ? su.paid_amount : Number(item.paid_amount);
-          const itemSt = su?.status !== undefined ? su.status : item.status;
-          if (itemSt !== 'paid' && itemSt !== 'cancelled') {
-            newRemBal += Math.max(0, base + penAmt - paid);
-          }
-        }
-
+        // SINGLE SOURCE OF TRUTH: remaining = total_amount - SUM(actual payments)
         const newTotalPaid = Number(targetAcct.total_paid) + allocAmount;
+        const newRemBal = Math.max(0, Number(targetAcct.total_amount) - newTotalPaid);
         const newAcctStatus = newRemBal <= 0 ? "completed" : targetAcct.status;
 
         await supabase.from("layaway_accounts").update({
           total_paid: newTotalPaid,
-          remaining_balance: Math.max(0, newRemBal),
+          remaining_balance: newRemBal,
           status: newAcctStatus,
         }).eq("id", alloc.account_id);
 
