@@ -347,7 +347,7 @@ export default function Monitoring() {
               <button
                 key={s.label}
                 onClick={() => handleFilterChange(s.filter)}
-                className={`rounded-xl border bg-card p-4 text-center transition-colors hover:bg-muted/30 ${activeFilter === s.filter ? 'border-primary ring-1 ring-primary/30' : s.borderColor}`}
+                className={`rounded-xl border bg-card p-4 text-center transition-colors hover:bg-muted/30 ${activeSummaryCard === s.filter ? 'border-primary ring-1 ring-primary/30' : s.borderColor}`}
               >
                 <p className={`text-3xl font-bold font-display ${s.color}`}>{isLoading ? '—' : s.count}</p>
                 <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
