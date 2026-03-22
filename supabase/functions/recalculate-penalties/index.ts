@@ -103,7 +103,7 @@ Deno.serve(async (req) => {
       const chunk = targetAccountIds.slice(i, i + 50);
       const { data: batch } = await supabase
         .from("layaway_schedule")
-        .select("*, layaway_accounts!inner(id, currency, status, total_paid, downpayment_amount, total_amount, invoice_number)")
+        .select("*, layaway_accounts!inner(id, currency, status, total_paid, downpayment_amount, total_amount, invoice_number, payment_plan_months)")
         .in("account_id", chunk)
         .order("installment_number", { ascending: true });
       if (batch) allItems = allItems.concat(batch);
