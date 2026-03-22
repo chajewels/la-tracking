@@ -140,21 +140,26 @@ export default function Dashboard() {
         </div>
 
         {/* Geo Breakdown */}
+        {canSeeDashboardSection(r, 'geo_breakdown') && (
         <div>
           <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Regional Overview</p>
           <GeoBreakdown accounts={accounts || []} customers={customers || []} />
         </div>
+        )}
 
         {/* Operations + Live Collection */}
+        {(canSeeDashboardSection(r, 'operations_panel') || canSeeDashboardSection(r, 'live_collection')) && (
         <div>
           <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Operations & Activity</p>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <OperationsPanel summary={summary} displayCurrency={displayCurrency} />
-            <LiveCollectionTracker currencyFilter={currencyFilter} displayCurrency={displayCurrency} />
+            {canSeeDashboardSection(r, 'operations_panel') && <OperationsPanel summary={summary} displayCurrency={displayCurrency} />}
+            {canSeeDashboardSection(r, 'live_collection') && <LiveCollectionTracker currencyFilter={currencyFilter} displayCurrency={displayCurrency} />}
           </div>
         </div>
+        )}
 
         {/* AI & Predictions */}
+        {canSeeDashboardSection(r, 'ai_risk') && (
         <div>
           <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">AI & Predictions</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -163,14 +168,15 @@ export default function Dashboard() {
             <CLVPanel />
           </div>
         </div>
+        )}
 
         {/* Aging + Overdue + System Health */}
         <div>
           <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">System Overview</p>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <AgingBuckets currency={displayCurrency} />
-            <OverdueAlerts />
-            <SystemHealthPanel summary={summary} />
+            {canSeeDashboardSection(r, 'aging_buckets') && <AgingBuckets currency={displayCurrency} />}
+            {canSeeDashboardSection(r, 'overdue_alerts') && <OverdueAlerts />}
+            {canSeeDashboardSection(r, 'system_health') && <SystemHealthPanel summary={summary} />}
           </div>
         </div>
       </div>
