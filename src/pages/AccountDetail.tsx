@@ -32,6 +32,7 @@ import {
   getUnpaidScheduleItems, getActivePayments, accountProgress,
   ordinal, SERVICE_LABELS, getNextPaymentStatementDate,
   isPenaltyOverCap, isFinalSettlement, isExtensionActive, isFinalForfeited,
+  getForfeitureWarning,
 } from '@/lib/business-rules';
 
 export default function AccountDetail() {
@@ -342,11 +343,21 @@ export default function AccountDetail() {
         message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(itemRemaining, currency)}\n`;
       }
     });
-    const nextStatement = getNextPaymentStatementDate(scheduleItems);
-    if (nextStatement) {
-      const nextDate = new Date(nextStatement.date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
-      message += `\nPlease note your next monthly payment is on ${nextDate}. Please expect another payment reminder from us.\n\n`;
-      message += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
+    // Forfeiture notification warning for near-forfeit overdue accounts
+    const forfeitWarning = getForfeitureWarning(account.status, scheduleItems);
+    if (forfeitWarning && forfeitWarning.monthsOverdue >= 2) {
+      message += `\n⚠️ IMPORTANT NOTICE: Your account is ${forfeitWarning.monthsOverdue} months overdue.`;
+      if (forfeitWarning.daysUntilForfeit > 0) {
+        message += ` If payment is not received by ${new Date(forfeitWarning.forfeitDate).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}, your account will be subject to forfeiture.`;
+      }
+      message += `\nPlease settle your outstanding balance immediately to avoid forfeiture. 💛`;
+    } else {
+      const nextStatement = getNextPaymentStatementDate(scheduleItems);
+      if (nextStatement) {
+        const nextDate = new Date(nextStatement.date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+        message += `\nPlease note your next monthly payment is on ${nextDate}. Please expect another payment reminder from us.\n\n`;
+        message += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
+      }
     }
   }
 
@@ -432,6 +443,27 @@ export default function AccountDetail() {
                 </Badge>
               )}
             </div>
+            {/* Forfeiture Notification Warning Banner */}
+            {(() => {
+              const warning = getForfeitureWarning(account.status, scheduleItems);
+              if (!warning) return null;
+              return (
+                <div className="mt-2 p-3 rounded-lg border border-orange-500/30 bg-orange-500/5">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-orange-500 flex-shrink-0" />
+                    <span className="text-sm font-medium text-orange-500">⚠️ FORFEITURE NOTIFICATION</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    This account is <strong>{warning.monthsOverdue} month{warning.monthsOverdue !== 1 ? 's' : ''} overdue</strong> since last paid due date
+                    {warning.lastPaidDueDate ? ` (${new Date(warning.lastPaidDueDate).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })})` : ''}.
+                    {warning.daysUntilForfeit > 0
+                      ? ` Auto-forfeiture will trigger on ${new Date(warning.forfeitDate).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })} (${warning.daysUntilForfeit} day${warning.daysUntilForfeit !== 1 ? 's' : ''} remaining).`
+                      : ` Forfeiture date (${new Date(warning.forfeitDate).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })}) has been reached — pending engine run.`
+                    }
+                  </p>
+                </div>
+              );
+            })()}
             <p className="text-sm text-muted-foreground mt-0.5">
               {account.customers?.full_name} · {account.payment_plan_months}-Month Plan · {currency}
             </p>

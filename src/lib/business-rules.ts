@@ -169,6 +169,57 @@ export function isFinalForfeited(status: string): boolean {
   return status === 'final_forfeited';
 }
 
+/**
+ * Calculate forfeiture notification info for an overdue account.
+ * Returns null if not applicable, or an object with warning details.
+ * Based on: 3 full months after last paid month due date = FORFEITED.
+ */
+export function getForfeitureWarning(
+  status: string,
+  scheduleItems: DbSchedule[],
+): { monthsOverdue: number; lastPaidDueDate: string | null; forfeitDate: string; daysUntilForfeit: number } | null {
+  if (status !== 'overdue') return null;
+
+  const sorted = [...scheduleItems]
+    .filter(s => s.status !== 'cancelled')
+    .sort((a, b) => a.installment_number - b.installment_number);
+
+  const paidItems = sorted.filter(s => isEffectivelyPaid(s));
+  const unpaidItems = sorted.filter(s => !isEffectivelyPaid(s));
+  if (unpaidItems.length === 0) return null;
+
+  const lastPaidDueDate = paidItems.length > 0
+    ? paidItems.sort((a, b) => b.installment_number - a.installment_number)[0].due_date
+    : null;
+  const referenceDate = lastPaidDueDate || unpaidItems[0].due_date;
+
+  // Calculate forfeit date = reference + 3 months
+  const refDate = new Date(referenceDate + 'T00:00:00Z');
+  const forfeitDate = new Date(refDate);
+  forfeitDate.setUTCMonth(forfeitDate.getUTCMonth() + 3);
+  const forfeitDateStr = forfeitDate.toISOString().split('T')[0];
+
+  const today = new Date();
+  const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+  const daysUntilForfeit = Math.ceil((forfeitDate.getTime() - todayUTC.getTime()) / 86_400_000);
+
+  // Calculate months overdue with day-level precision
+  const rawMonths = (todayUTC.getUTCFullYear() - refDate.getUTCFullYear()) * 12 +
+    (todayUTC.getUTCMonth() - refDate.getUTCMonth());
+  const monthsOverdue = todayUTC.getUTCDate() < refDate.getUTCDate()
+    ? Math.max(0, rawMonths - 1)
+    : rawMonths;
+
+  if (monthsOverdue < 1) return null; // Not yet overdue enough to warn
+
+  return {
+    monthsOverdue,
+    lastPaidDueDate: lastPaidDueDate,
+    forfeitDate: forfeitDateStr,
+    daysUntilForfeit,
+  };
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 4. FINANCIAL CALCULATIONS (account-level)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
