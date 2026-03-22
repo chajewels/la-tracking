@@ -484,12 +484,14 @@ export default function AccountDetail() {
             )}
           </div>
           <div className="flex gap-2 flex-wrap">
+            {can('reassign_owner') && (
             <ReassignOwnerDialog
               accountId={account.id}
               currentCustomerId={account.customer_id}
               currentCustomerName={account.customers?.full_name || 'Unknown'}
               invoiceNumber={account.invoice_number}
             />
+            )}
             {remainingBalance > 0 && canAcceptPayment(account.status) && can('record_payment') && (
               <>
                 <RecordPaymentDialog
