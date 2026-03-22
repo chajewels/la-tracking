@@ -1022,10 +1022,12 @@ export default function AccountDetail() {
                             }}>
                             <Pencil className="h-3 w-3" />
                           </Button>
+                          {can('void_payment') && (
                           <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
                             onClick={() => { setVoidTarget(p.id); setVoidReason(''); }}>
                             <Ban className="h-3 w-3" />
                           </Button>
+                          )}
                         </div>
                       )}
                       {isVoided && (
