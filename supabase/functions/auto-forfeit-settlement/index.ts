@@ -190,7 +190,7 @@ Deno.serve(async (req) => {
 
         await supabase.from("final_settlement_records").insert({
           account_id: account.id,
-          last_paid_month_date: lastPaidMonthDate,
+          last_paid_month_date: firstUnpaidDueDate,
           penalty_occurrence_count: penaltyOccurrenceCount,
           penalty_total_from_last_paid: penaltyTotalFromLastPaid,
           remaining_principal: Math.max(0, remainingPrincipal),
@@ -200,6 +200,7 @@ Deno.serve(async (req) => {
             penalty_total: penaltyTotalFromLastPaid,
             penalty_occurrences: penaltyOccurrenceCount,
             threshold_rule: "6th penalty occurrence",
+            first_unpaid_due_date: firstUnpaidDueDate,
             unpaid_installments: unpaidItems.map((s: any) => ({
               installment: s.installment_number,
               base: Number(s.base_installment_amount),
@@ -219,7 +220,7 @@ Deno.serve(async (req) => {
         settlementResults.push({
           invoice_number: account.invoice_number,
           customer_name: customerName,
-          last_paid_month: lastPaidMonthDate,
+          first_unpaid_due_date: firstUnpaidDueDate,
           penalty_occurrence_count: penaltyOccurrenceCount,
           penalty_total: penaltyTotalFromLastPaid,
           remaining_principal: remainingPrincipal,
@@ -234,7 +235,7 @@ Deno.serve(async (req) => {
           new_value_json: {
             invoice_number: account.invoice_number,
             customer_name: customerName,
-            last_paid_month: lastPaidMonthDate,
+            first_unpaid_due_date: firstUnpaidDueDate,
             penalty_occurrence_count: penaltyOccurrenceCount,
             penalty_total: penaltyTotalFromLastPaid,
             final_settlement_amount: finalSettlementAmount,
