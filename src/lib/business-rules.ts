@@ -154,6 +154,33 @@ export function isAccountExcluded(status: string): boolean {
   return EXCLUDED_STATUSES.includes(status as any);
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ⛔ PERMANENT FORFEITURE LIFECYCLE — LOCKED RULE
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// This block defines the immutable forfeiture status flow.
+// DO NOT MODIFY without explicit business owner approval.
+//
+// STATUS FLOW:
+//   OVERDUE → FORFEITED → EXTENSION_ACTIVE → FINAL_FORFEITED
+//
+// RULES:
+//   1. Forfeiture reference = FIRST UNPAID DUE DATE (never last paid).
+//   2. FORFEITED triggers at exactly 3 calendar months (day-level precision).
+//   3. ONE-TIME reactivation allowed → status becomes EXTENSION_ACTIVE
+//      with a 1-month final extension. Penalty cycle continues (no reset).
+//   4. If unpaid after the 1-month extension → FINAL_FORFEITED.
+//   5. FINAL_FORFEITED is PERMANENT:
+//      - No reactivation, no extension, no negotiation, no override.
+//   6. No account may become FINAL_FORFEITED before extension period ends.
+//   7. No account may be reactivated more than once (is_reactivated flag).
+//
+// UI RULES:
+//   - OVERDUE: warning banner only, no negotiation button.
+//   - FORFEITED: show one-time "Reactivate" button (if not already used).
+//   - EXTENSION_ACTIVE: no second negotiation button.
+//   - FINAL_FORFEITED: no buttons, no negotiation, no reactivation.
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 /** Check if account is in final settlement state. */
 export function isFinalSettlement(status: string): boolean {
   return status === 'final_settlement';
@@ -167,6 +194,34 @@ export function isExtensionActive(status: string): boolean {
 /** Check if account is permanently forfeited (no further action). */
 export function isFinalForfeited(status: string): boolean {
   return status === 'final_forfeited';
+}
+
+/** Guard: Can this account be reactivated? Only forfeited + never reactivated. */
+export function canReactivate(status: string, isReactivated: boolean): boolean {
+  return status === 'forfeited' && !isReactivated;
+}
+
+/** Guard: Can this account accept payments? */
+export function canAcceptPayment(status: string): boolean {
+  return !['forfeited', 'cancelled', 'final_forfeited'].includes(status);
+}
+
+/** Guard: Can services be added to this account? */
+export function canAddService(status: string): boolean {
+  return !['forfeited', 'cancelled', 'final_forfeited'].includes(status);
+}
+
+/** Guard: Can penalties be added to this account? */
+export function canAddPenalty(status: string): boolean {
+  return ['active', 'overdue', 'extension_active'].includes(status);
+}
+
+/** Guard: Is any negotiation/extension allowed? */
+export function canNegotiate(status: string, isReactivated: boolean): boolean {
+  if (status === 'final_forfeited') return false;
+  if (status === 'extension_active') return false;
+  if (status === 'forfeited' && isReactivated) return false;
+  return status === 'forfeited';
 }
 
 /**
