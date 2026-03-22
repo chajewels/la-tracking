@@ -273,14 +273,12 @@ Deno.serve(async (req) => {
           await supabase.from("penalty_fees").update({ status: pen.status }).eq("id", pen.id);
         }
 
-        // Update schedule
+        // Update schedule (only paid_amount and status — base_installment_amount is IMMUTABLE)
         for (const item of scheduleUpdates) {
-          const updateData: Record<string, unknown> = {};
-          if (item.paid_amount !== undefined) updateData.paid_amount = item.paid_amount;
-          if (item.status !== undefined) updateData.status = item.status;
-          if (item.base_installment_amount !== undefined) updateData.base_installment_amount = item.base_installment_amount;
-          if (item.total_due_amount !== undefined) updateData.total_due_amount = item.total_due_amount;
-          await supabase.from("layaway_schedule").update(updateData).eq("id", item.id);
+          await supabase.from("layaway_schedule").update({
+            paid_amount: item.paid_amount,
+            status: item.status,
+          }).eq("id", item.id);
         }
 
         // Update account
