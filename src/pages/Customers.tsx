@@ -1,27 +1,27 @@
-import { useState } from 'react';
-import { Users, MessageCircle, Search, Pencil, Trash2, ChevronRight, MapPin } from 'lucide-react';
+import { useState, useMemo, useCallback, useRef } from 'react';
+import { Users, Search, LayoutGrid, ListFilter, Layers } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useCustomers, useAccounts } from '@/hooks/use-supabase-data';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Link } from 'react-router-dom';
 import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
-import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
-import { useQueryClient } from '@tanstack/react-query';
+import AlphabetNav, { LETTERS, SPECIAL } from '@/components/customers/AlphabetNav';
+import CustomerCard from '@/components/customers/CustomerCard';
+import EditCustomerDialog from '@/components/customers/EditCustomerDialog';
+import { cn } from '@/lib/utils';
+
+type ViewMode = 'all' | 'filter' | 'grouped';
 
 export default function Customers() {
   const { data: customers, isLoading } = useCustomers();
   const { data: accounts } = useAccounts();
   const [search, setSearch] = useState('');
-  const queryClient = useQueryClient();
+  const [viewMode, setViewMode] = useState<ViewMode>('all');
+  const [activeLetter, setActiveLetter] = useState<string | null>(null);
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
+  // Edit dialog state
   const [editOpen, setEditOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
@@ -29,41 +29,8 @@ export default function Customers() {
     mobile_number: '', email: '', notes: '',
     locationType: 'japan' as 'japan' | 'international', country: '',
   });
-  const [saving, setSaving] = useState(false);
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const resp = await supabase.functions.invoke('delete-customer', {
-        body: { customer_id: deleteTarget.id },
-        headers: { Authorization: `Bearer ${session?.access_token}` },
-      });
-      if (resp.error || resp.data?.error) throw new Error(resp.data?.error || resp.error?.message);
-      toast.success(`Customer "${deleteTarget.name}" deleted`);
-      queryClient.invalidateQueries({ queryKey: ['customers'] });
-      setDeleteConfirmOpen(false);
-      setEditOpen(false);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to delete');
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  const filtered = (customers || [])
-    .filter(c =>
-      c.full_name.toLowerCase().includes(search.toLowerCase()) ||
-      (c.facebook_name || '').toLowerCase().includes(search.toLowerCase()) ||
-      (c.customer_code || '').toLowerCase().includes(search.toLowerCase())
-    )
-    .sort((a, b) => a.full_name.localeCompare(b.full_name));
-
-  const openEdit = (c: any) => {
+  const openEdit = useCallback((c: any) => {
     const loc = (c.location || '').trim();
     const isJapan = !loc || loc.toLowerCase() === 'japan';
     setEditId(c.id);
@@ -74,34 +41,104 @@ export default function Customers() {
       locationType: isJapan ? 'japan' : 'international', country: isJapan ? '' : loc,
     });
     setEditOpen(true);
-  };
+  }, []);
 
-  const saveEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editId || !editForm.full_name.trim()) return;
-    setSaving(true);
-    const location = editForm.locationType === 'japan' ? 'Japan' : editForm.country.trim() || null;
-    try {
-      const { error } = await supabase.from('customers').update({
-        full_name: editForm.full_name.trim(), customer_code: editForm.customer_code.trim(),
-        facebook_name: editForm.facebook_name.trim() || null, messenger_link: editForm.messenger_link.trim() || null,
-        mobile_number: editForm.mobile_number.trim() || null, email: editForm.email.trim() || null,
-        notes: editForm.notes.trim() || null, location,
-      }).eq('id', editId);
-      if (error) throw error;
-      toast.success('Customer updated');
-      queryClient.invalidateQueries({ queryKey: ['customers'] });
-      setEditOpen(false);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to update');
-    } finally {
-      setSaving(false);
+  // Sort all customers alphabetically
+  const sorted = useMemo(() =>
+    (customers || []).slice().sort((a, b) => a.full_name.localeCompare(b.full_name)),
+    [customers]
+  );
+
+  // Search-filtered list
+  const searchFiltered = useMemo(() => {
+    if (!search.trim()) return sorted;
+    const q = search.toLowerCase();
+    return sorted.filter(c =>
+      c.full_name.toLowerCase().includes(q) ||
+      (c.facebook_name || '').toLowerCase().includes(q) ||
+      (c.customer_code || '').toLowerCase().includes(q)
+    );
+  }, [sorted, search]);
+
+  // Letter-filtered list (only in filter mode)
+  const displayed = useMemo(() => {
+    if (search.trim()) return searchFiltered; // search overrides letter
+    if (viewMode === 'filter' && activeLetter) {
+      return searchFiltered.filter(c => {
+        const first = c.full_name.charAt(0).toUpperCase();
+        if (activeLetter === SPECIAL) return !/[A-Z]/.test(first);
+        return first === activeLetter;
+      });
     }
-  };
+    return searchFiltered;
+  }, [searchFiltered, viewMode, activeLetter, search]);
+
+  // Grouped data (for grouped view)
+  const grouped = useMemo(() => {
+    if (viewMode !== 'grouped') return null;
+    const groups: Record<string, typeof searchFiltered> = {};
+    for (const c of searchFiltered) {
+      const first = c.full_name.charAt(0).toUpperCase();
+      const key = /[A-Z]/.test(first) ? first : SPECIAL;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(c);
+    }
+    return groups;
+  }, [searchFiltered, viewMode]);
+
+  // Account stats lookup
+  const accountStats = useMemo(() => {
+    const map = new Map<string, { active: number; completed: number }>();
+    for (const a of accounts || []) {
+      if (a.status === 'cancelled') continue;
+      const stats = map.get(a.customer_id) || { active: 0, completed: 0 };
+      if (a.status === 'completed' || Number(a.remaining_balance) <= 0) {
+        stats.completed++;
+      } else if (!['forfeited', 'final_forfeited'].includes(a.status)) {
+        stats.active++;
+      }
+      map.set(a.customer_id, stats);
+    }
+    return map;
+  }, [accounts]);
+
+  const handleLetterSelect = useCallback((letter: string | null) => {
+    setActiveLetter(letter);
+    if (viewMode === 'grouped' && letter) {
+      const el = sectionRefs.current[letter];
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [viewMode]);
+
+  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearch(e.target.value);
+    // Auto-jump: if typed text matches a letter, select it in filter mode
+    const val = e.target.value.trim();
+    if (val.length === 1 && /[A-Za-z]/.test(val) && viewMode === 'filter') {
+      setActiveLetter(val.toUpperCase());
+    }
+  }, [viewMode]);
+
+  const renderCards = (list: typeof sorted) => (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {list.map(c => {
+        const stats = accountStats.get(c.id) || { active: 0, completed: 0 };
+        return (
+          <CustomerCard
+            key={c.id}
+            customer={c}
+            activeCount={stats.active}
+            completedCount={stats.completed}
+            onEdit={openEdit}
+          />
+        );
+      })}
+    </div>
+  );
 
   return (
     <AppLayout>
-      <div className="animate-fade-in space-y-6">
+      <div className="animate-fade-in space-y-5">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -110,209 +147,110 @@ export default function Customers() {
             </div>
             <div>
               <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">Customers</h1>
-              <p className="text-sm text-muted-foreground">{filtered.length} customers</p>
+              <p className="text-sm text-muted-foreground">
+                {displayed.length} of {sorted.length} customers
+              </p>
             </div>
           </div>
           <NewCustomerDialog />
         </div>
 
-        {/* Search */}
-        <div className="relative max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search by name, code, or Facebook name…"
-            className="pl-9 bg-card border-border"
-          />
+        {/* Search + View Toggle */}
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={handleSearchChange}
+              placeholder="Search by name, code, or Facebook…"
+              className="pl-9 bg-card border-border"
+            />
+          </div>
+          <div className="flex items-center gap-1 p-1 rounded-lg bg-card border border-border">
+            {([
+              { mode: 'all' as ViewMode, icon: LayoutGrid, label: 'All' },
+              { mode: 'filter' as ViewMode, icon: ListFilter, label: 'A–Z Filter' },
+              { mode: 'grouped' as ViewMode, icon: Layers, label: 'Grouped' },
+            ]).map(({ mode, icon: Icon, label }) => (
+              <Button
+                key={mode}
+                variant="ghost"
+                size="sm"
+                onClick={() => { setViewMode(mode); setActiveLetter(null); }}
+                className={cn(
+                  'h-8 px-3 text-xs gap-1.5 rounded-md transition-all',
+                  viewMode === mode
+                    ? 'gold-gradient text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">{label}</span>
+              </Button>
+            ))}
+          </div>
         </div>
 
-        {/* Customer Cards */}
+        {/* Alphabet Nav */}
+        <AlphabetNav
+          customers={sorted}
+          activeLetter={activeLetter}
+          onSelect={handleLetterSelect}
+          viewMode={viewMode}
+        />
+
+        {/* Content */}
         {isLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-36 rounded-xl" />)}
           </div>
-        ) : filtered.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card p-12 text-center">
-            <Users className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-40" />
-            <p className="text-sm text-muted-foreground">No customers found</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filtered.map(c => {
-              const custAccounts = (accounts || []).filter(a => a.customer_id === c.id && a.status !== 'cancelled');
-              const activeCount = custAccounts.filter(a => !['completed', 'forfeited', 'final_forfeited'].includes(a.status)).length;
-              const completedCount = custAccounts.filter(a => a.status === 'completed' || Number(a.remaining_balance) <= 0).length;
-
+        ) : viewMode === 'grouped' && grouped && !search.trim() ? (
+          /* Grouped view */
+          <div className="space-y-8">
+            {[...LETTERS, SPECIAL].map(letter => {
+              const group = grouped[letter];
+              if (!group || group.length === 0) return null;
               return (
-                <div key={c.id} className="rounded-xl border border-border bg-card p-4 sm:p-5 card-hover group">
-                  <div className="flex items-start justify-between mb-3">
-                    <Link to={`/customers/${c.id}`} className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-bold shrink-0">
-                        {c.full_name.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-card-foreground truncate group-hover:text-primary transition-colors">
-                          {c.full_name}
-                        </p>
-                        {c.facebook_name && (
-                          <p className="text-xs text-muted-foreground truncate">@{c.facebook_name}</p>
-                        )}
-                      </div>
-                    </Link>
-                    <Button
-                      variant="ghost" size="icon"
-                      className="h-7 w-7 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                      onClick={() => openEdit(c)}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-
-                  {/* Info row */}
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground mb-3">
-                    {c.location && (
-                      <span className="flex items-center gap-1">
-                        <MapPin className="h-3 w-3" /> {c.location}
-                      </span>
-                    )}
-                    {c.customer_code && (
-                      <span className="font-mono">{c.customer_code}</span>
-                    )}
-                  </div>
-
-                  {/* Account stats & actions */}
-                  <div className="flex items-center justify-between pt-3 border-t border-border">
-                    <div className="flex items-center gap-3 text-xs">
-                      {activeCount > 0 && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-success/10 text-success font-medium">
-                          {activeCount} active
-                        </span>
-                      )}
-                      {completedCount > 0 && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
-                          {completedCount} done
-                        </span>
-                      )}
-                      {activeCount === 0 && completedCount === 0 && (
-                        <span className="text-muted-foreground">No accounts</span>
-                      )}
+                <div
+                  key={letter}
+                  ref={el => { sectionRefs.current[letter] = el; }}
+                  className="scroll-mt-24"
+                >
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full gold-gradient text-primary-foreground font-bold text-sm">
+                      {letter}
                     </div>
-                    <div className="flex items-center gap-1">
-                      {c.messenger_link && (
-                        <a href={c.messenger_link} target="_blank" rel="noopener noreferrer">
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-info">
-                            <MessageCircle className="h-3.5 w-3.5" />
-                          </Button>
-                        </a>
-                      )}
-                      <Link to={`/customers/${c.id}`}>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary">
-                          <ChevronRight className="h-4 w-4" />
-                        </Button>
-                      </Link>
-                    </div>
+                    <div className="h-px flex-1 bg-border" />
+                    <span className="text-xs text-muted-foreground font-medium">
+                      {group.length} customer{group.length !== 1 ? 's' : ''}
+                    </span>
                   </div>
+                  {renderCards(group)}
                 </div>
               );
             })}
           </div>
+        ) : displayed.length === 0 ? (
+          <div className="rounded-xl border border-border bg-card p-12 text-center animate-fade-in">
+            <Users className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-40" />
+            <p className="text-sm text-muted-foreground">
+              {activeLetter
+                ? `No customers under "${activeLetter}"`
+                : 'No customers found'}
+            </p>
+          </div>
+        ) : (
+          renderCards(displayed)
         )}
       </div>
 
-      {/* Edit Customer Dialog */}
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="font-display">Edit Customer</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={saveEdit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Full Name *</Label>
-                <Input value={editForm.full_name} onChange={e => setEditForm(f => ({ ...f, full_name: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>Customer Code</Label>
-                <Input value={editForm.customer_code} onChange={e => setEditForm(f => ({ ...f, customer_code: e.target.value }))} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Location</Label>
-                <Select value={editForm.locationType} onValueChange={v => setEditForm(f => ({ ...f, locationType: v as 'japan' | 'international' }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="japan">Japan</SelectItem>
-                    <SelectItem value="international">International</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {editForm.locationType === 'international' && (
-                <div className="space-y-2">
-                  <Label>Country</Label>
-                  <Input value={editForm.country} onChange={e => setEditForm(f => ({ ...f, country: e.target.value }))} placeholder="e.g. Philippines" />
-                </div>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Facebook Name</Label>
-                <Input value={editForm.facebook_name} onChange={e => setEditForm(f => ({ ...f, facebook_name: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>Messenger Link</Label>
-                <Input value={editForm.messenger_link} onChange={e => setEditForm(f => ({ ...f, messenger_link: e.target.value }))} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Mobile Number</Label>
-                <Input value={editForm.mobile_number} onChange={e => setEditForm(f => ({ ...f, mobile_number: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>Email</Label>
-                <Input type="email" value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Notes</Label>
-              <Textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} rows={2} />
-            </div>
-            <div className="flex justify-between pt-2">
-              <Button type="button" variant="destructive" size="sm"
-                onClick={() => { setDeleteTarget({ id: editId!, name: editForm.full_name }); setDeleteConfirmOpen(true); }}
-                disabled={saving}>
-                <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Delete
-              </Button>
-              <div className="flex gap-3">
-                <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
-                <Button type="submit" disabled={saving} className="gold-gradient text-primary-foreground font-medium">
-                  {saving ? 'Saving…' : 'Save Changes'}
-                </Button>
-              </div>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Confirmation */}
-      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Customer</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete <strong>{deleteTarget?.name}</strong>? This cannot be undone. Customers with linked accounts cannot be deleted.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} disabled={deleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              {deleting ? 'Deleting…' : 'Delete'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <EditCustomerDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        editId={editId}
+        editForm={editForm}
+        setEditForm={setEditForm}
+      />
     </AppLayout>
   );
 }
