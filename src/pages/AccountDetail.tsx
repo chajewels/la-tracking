@@ -698,19 +698,19 @@ export default function AccountDetail() {
               </p>
             </div>
           )}
-          <div className={`rounded-xl border ${summary.outstandingPenalties > 0 ? 'border-warning/30 bg-warning/5' : 'border-primary/20 bg-card'} p-3 sm:p-4`}>
-            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">
-              {summary.outstandingPenalties > 0 ? 'Current Total Payable' : 'Remaining Balance'}
-            </p>
-            <p className={`text-lg sm:text-xl font-bold font-display tabular-nums ${summary.outstandingPenalties > 0 ? 'text-warning' : 'text-card-foreground'}`}>
+          {(summary.outstandingPenalties > 0 || summary.totalServices > 0) && (
+          <div className="rounded-xl border border-warning/30 bg-warning/5 p-3 sm:p-4">
+            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Current Total Payable</p>
+            <p className="text-lg sm:text-xl font-bold font-display tabular-nums text-warning">
               {formatCurrency(summary.currentTotalPayable, currency)}
             </p>
-            {summary.outstandingPenalties > 0 && (
-              <p className="text-[10px] text-muted-foreground mt-0.5">
-                = Principal {formatCurrency(summary.remainingPrincipal, currency)} + Penalties {formatCurrency(summary.outstandingPenalties, currency)}
-              </p>
-            )}
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              = Balance {formatCurrency(summary.remainingPrincipal, currency)}
+              {summary.outstandingPenalties > 0 ? ` + Penalties ${formatCurrency(summary.outstandingPenalties, currency)}` : ''}
+              {summary.totalServices > 0 ? ` + Services ${formatCurrency(summary.totalServices, currency)}` : ''}
+            </p>
           </div>
+          )}
           <div className="rounded-xl border border-border bg-card p-3 sm:p-4">
             <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Progress</p>
             <p className="text-lg sm:text-xl font-bold text-primary font-display">{Math.round(progress)}%</p>

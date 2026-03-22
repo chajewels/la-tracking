@@ -777,7 +777,7 @@ export function computeAccountSummary(params: {
 }): AccountSummaryValues {
   const { principalTotal, totalPaid, unpaidPenaltySum, totalServicesAmount } = params;
   const remainingPrincipal = Math.max(0, principalTotal - totalPaid);
-  const currentTotalPayable = remainingPrincipal + unpaidPenaltySum;
+  const currentTotalPayable = remainingPrincipal + unpaidPenaltySum + totalServicesAmount;
   const progressPercent = accountProgress(totalPaid, principalTotal);
 
   return {
