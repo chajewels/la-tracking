@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
       const chunk = accountIds.slice(i, i + 50);
       const { data: scheds } = await supabase
         .from("layaway_schedule")
-        .select("account_id, total_due_amount, paid_amount, status")
+        .select("account_id, base_installment_amount, paid_amount, status")
         .in("account_id", chunk)
         .neq("status", "cancelled")
         .limit(5000);
