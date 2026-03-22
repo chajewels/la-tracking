@@ -32,6 +32,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   isEffectivelyPaid, isPartiallyPaid, remainingDue, remainingPrincipalDue, computeRemainingBalance,
   getUnpaidScheduleItems, getActivePayments, accountProgress,
+  getMessageSchedulePaymentCoverage,
   ordinal, SERVICE_LABELS, getNextPaymentStatementDate,
   isPenaltyOverCap, isFinalSettlement, isExtensionActive, isFinalForfeited,
   getForfeitureWarning,
@@ -213,6 +214,15 @@ export default function AccountDetail() {
   const paymentBreakdownText = activePayments.length > 0
     ? `${activePayments.map(payment => formatCurrency(Number(payment.amount_paid), payment.currency as Currency)).join(' + ')} = ${formatCurrency(totalPaid, currency)}`
     : formatCurrency(totalPaid, currency);
+  const messageScheduleCoverage = getMessageSchedulePaymentCoverage(scheduleItems, totalPaid, downpaymentAmount);
+  const getMessageScheduleState = (item: any, idx: number) => {
+    const totalDue = Number(item.total_due_amount);
+    const coveredAmount = Math.min(messageScheduleCoverage[idx] || 0, totalDue);
+    const effPaid = isEffectivelyPaid(item) && totalDue > 0 && coveredAmount >= totalDue;
+    const partial = !effPaid && isPartiallyPaid(item) && coveredAmount > 0;
+
+    return { coveredAmount, effPaid, partial, totalDue };
+  };
 
   // Find the most recent payment for the thank-you line
   const mostRecentPayment = activePayments.length > 0
@@ -268,13 +278,14 @@ export default function AccountDetail() {
     appendPayableBlock();
     message += `\nMonthly Payment:\n`;
     scheduleItems.forEach((item, idx) => {
-      const effPaid = isEffectivelyPaid(item);
-      const partial = isPartiallyPaid(item);
+      const messageState = getMessageScheduleState(item, idx);
+      const effPaid = messageState.effPaid;
+      const partial = messageState.partial;
       const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
       const penalty = Number(item.penalty_amount);
       const baseAmt = Number(item.base_installment_amount);
-      const paidAmt = Number(item.paid_amount);
-      const totalDue = baseAmt + penalty;
+      const paidAmt = messageState.coveredAmount;
+      const totalDue = messageState.totalDue;
       if (effPaid) {
         message += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} (PAID)\n`;
       } else if (partial) {
@@ -308,13 +319,14 @@ export default function AccountDetail() {
     message += `Please settle the full amount above to complete your layaway.\n\n`;
     message += `Monthly Payment History:\n`;
     scheduleItems.forEach((item, idx) => {
-      const effPaid = isEffectivelyPaid(item);
-      const partial = isPartiallyPaid(item);
+      const messageState = getMessageScheduleState(item, idx);
+      const effPaid = messageState.effPaid;
+      const partial = messageState.partial;
       const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
       const penalty = Number(item.penalty_amount);
       const baseAmt = Number(item.base_installment_amount);
-      const paidAmt = Number(item.paid_amount);
-      const totalDue = baseAmt + penalty;
+      const paidAmt = messageState.coveredAmount;
+      const totalDue = messageState.totalDue;
       const displayAmt = effPaid ? Math.max(paidAmt, totalDue) : totalDue;
       const itemRemaining = Math.max(0, totalDue - paidAmt);
       if (effPaid) {
@@ -351,13 +363,14 @@ export default function AccountDetail() {
     message += `${unpaidCount} month${unpaidCount !== 1 ? 's' : ''} remaining\n`;
     message += `\nMonthly Payment:\n`;
     scheduleItems.forEach((item, idx) => {
-      const effPaid = isEffectivelyPaid(item);
-      const partial = isPartiallyPaid(item);
+      const messageState = getMessageScheduleState(item, idx);
+      const effPaid = messageState.effPaid;
+      const partial = messageState.partial;
       const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
       const penalty = Number(item.penalty_amount);
       const baseAmt = Number(item.base_installment_amount);
-      const paidAmt = Number(item.paid_amount);
-      const totalDue = baseAmt + penalty;
+      const paidAmt = messageState.coveredAmount;
+      const totalDue = messageState.totalDue;
 
       if (effPaid) {
         if (penalty > 0) {

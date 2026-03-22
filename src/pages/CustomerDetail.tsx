@@ -20,7 +20,7 @@ import { useCustomerAccounts, useForfeitAccount } from '@/hooks/use-supabase-dat
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  isEffectivelyPaid, remainingDue, getUnpaidScheduleItems,
+  isEffectivelyPaid, isPartiallyPaid, remainingDue, getUnpaidScheduleItems, getMessageSchedulePaymentCoverage,
   ordinal, SERVICE_LABELS, accountProgress, getNextPaymentStatementDate,
 } from '@/lib/business-rules';
 
@@ -151,6 +151,7 @@ export default function CustomerDetail() {
       const paymentBreakdownText = activePayments.length > 0
         ? `${paymentParts.join(' + ')} = ${formatCurrency(totalPaid, currency)}`
         : formatCurrency(totalPaid, currency);
+      const messageScheduleCoverage = getMessageSchedulePaymentCoverage(scheduleItems, totalPaid, downpayment);
 
       // Collect split payment batches for this account
       const splitPayments = activePayments.filter(
@@ -225,12 +226,14 @@ export default function CustomerDetail() {
 
       msg += `Monthly Payment:\n`;
       scheduleItems.forEach((item, idx) => {
-        const effPaid = isEffectivelyPaid(item);
+        const totalDue = Number(item.total_due_amount);
+        const coveredAmount = Math.min(messageScheduleCoverage[idx] || 0, totalDue);
+        const effPaid = isEffectivelyPaid(item) && totalDue > 0 && coveredAmount >= totalDue;
+        const partial = !effPaid && isPartiallyPaid(item) && coveredAmount > 0;
         const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
         const penalty = Number(item.penalty_amount);
         const baseAmt = Number(item.base_installment_amount);
-        const paidAmt = Number(item.paid_amount);
-        const totalDue = Number(item.total_due_amount);
+        const paidAmt = coveredAmount;
         const displayAmt = effPaid ? Math.max(paidAmt, totalDue) : totalDue;
         const itemRemaining = remainingDue(item);
 
@@ -240,6 +243,10 @@ export default function CustomerDetail() {
           } else {
             msg += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(displayAmt, currency)} (PAID)\n`;
           }
+        } else if (partial) {
+          msg += `🔶 ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)}`;
+          if (penalty > 0) msg += ` + ${formatCurrency(penalty, currency)} (Penalty)`;
+          msg += ` — ${formatCurrency(paidAmt, currency)} paid, ${formatCurrency(Math.max(0, totalDue - paidAmt), currency)} remaining\n`;
         } else if (penalty > 0) {
           msg += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
         } else {

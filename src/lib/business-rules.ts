@@ -343,6 +343,26 @@ export function getActivePayments<T extends { voided_at: string | null }>(
   return payments.filter(p => !p.voided_at);
 }
 
+/**
+ * Message-only payment coverage across schedule rows using confirmed non-voided payments.
+ * Downpayment is consumed first, then the remaining confirmed amount is applied to
+ * schedule rows in order so paid markers cannot exceed the confirmed payment total.
+ */
+export function getMessageSchedulePaymentCoverage<T extends { total_due_amount: number | string }>(
+  schedule: T[],
+  totalPaid: number,
+  downpaymentAmount: number,
+): number[] {
+  let remainingConfirmedForSchedule = Math.max(0, totalPaid - Math.min(downpaymentAmount, totalPaid));
+
+  return schedule.map((item) => {
+    const totalDue = Math.max(0, Number(item.total_due_amount));
+    const coveredAmount = Math.min(totalDue, remainingConfirmedForSchedule);
+    remainingConfirmedForSchedule = Math.max(0, remainingConfirmedForSchedule - coveredAmount);
+    return coveredAmount;
+  });
+}
+
 /** Account progress as a percentage (0–100). */
 export function accountProgress(totalPaid: number, totalAmount: number): number {
   if (totalAmount <= 0) return 0;
