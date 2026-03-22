@@ -164,7 +164,7 @@ export default function AccountDetail() {
   const currency = account.currency as Currency;
   const totalPaid = Number(account.total_paid);
   const scheduleItems = schedule || [];
-  const remainingBalance = computeRemainingBalance(scheduleItems);
+  const remainingBalance = computeRemainingBalance(scheduleItems, Number(account.total_amount), totalPaid);
   const downpaymentAmount = Number((account as any).downpayment_amount || 0);
   const accountServices = ((services || []) as AccountService[]);
   const totalServicesAmount = accountServices.reduce((s, svc) => s + Number(svc.amount), 0);

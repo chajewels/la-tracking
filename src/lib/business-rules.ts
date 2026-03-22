@@ -276,18 +276,28 @@ export function getForfeitureWarning(
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * Compute remaining balance from schedule items.
- * This is THE canonical way to compute remaining balance —
- * derived from unpaid schedule items, not from account.remaining_balance
- * (which may lag behind after payments).
+ * Compute remaining balance using SINGLE SOURCE OF TRUTH formula:
+ *   Remaining = Total Amount - Total Paid
+ * When account-level totals are available, use them directly.
+ * Falls back to schedule-derived calculation only if account data unavailable.
+ * 
+ * IMPORTANT: Do NOT derive remaining from schedule rows — this causes
+ * rounding/gap discrepancies when paid_amount doesn't exactly match base amounts.
  */
 export function computeRemainingBalance(
   schedule: Array<{
     status: string;
     paid_amount: number | string;
     total_due_amount: number | string;
-  }>
+  }>,
+  accountTotalAmount?: number,
+  accountTotalPaid?: number
 ): number {
+  // Preferred: use account-level totals (single source of truth)
+  if (accountTotalAmount !== undefined && accountTotalPaid !== undefined) {
+    return Math.max(0, accountTotalAmount - accountTotalPaid);
+  }
+  // Fallback only: schedule-derived (legacy, avoid when possible)
   return schedule.reduce((sum, item) => {
     if (isEffectivelyPaid(item) || item.status === 'cancelled') return sum;
     return sum + remainingDue(item);
