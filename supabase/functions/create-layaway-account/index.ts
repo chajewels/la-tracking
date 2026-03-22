@@ -329,35 +329,22 @@ Deno.serve(async (req) => {
           await supabase.from("penalty_fees").update({ status: pu.status }).eq("id", pu.id);
         }
 
-        // Update schedule items
+        // Update schedule items (only paid_amount and status — base_installment_amount is IMMUTABLE)
         for (const su of schUpdates) {
           const updateData: Record<string, unknown> = {};
           if (su.paid_amount !== undefined) updateData.paid_amount = su.paid_amount;
           if (su.status !== undefined) updateData.status = su.status;
-          if (su.base_installment_amount !== undefined) updateData.base_installment_amount = su.base_installment_amount;
-          if (su.total_due_amount !== undefined) updateData.total_due_amount = su.total_due_amount;
           await supabase.from("layaway_schedule").update(updateData).eq("id", su.id);
         }
 
-        // Recalculate remaining balance from schedule
-        let newRemBal = 0;
-        for (const item of targetSchedule) {
-          const su = schUpdates.find(u => u.id === item.id);
-          const base = su?.base_installment_amount !== undefined ? su.base_installment_amount : Number(item.base_installment_amount);
-          const penAmt = Number(item.penalty_amount || 0);
-          const paid = su?.paid_amount !== undefined ? su.paid_amount : Number(item.paid_amount);
-          const itemSt = su?.status !== undefined ? su.status : item.status;
-          if (itemSt !== 'paid' && itemSt !== 'cancelled') {
-            newRemBal += Math.max(0, base + penAmt - paid);
-          }
-        }
-
+        // SINGLE SOURCE OF TRUTH: remaining = total_amount - SUM(actual payments)
         const newTotalPaid = Number(targetAcct.total_paid) + allocAmount;
+        const newRemBal = Math.max(0, Number(targetAcct.total_amount) - newTotalPaid);
         const newAcctStatus = newRemBal <= 0 ? "completed" : targetAcct.status;
 
         await supabase.from("layaway_accounts").update({
           total_paid: newTotalPaid,
-          remaining_balance: Math.max(0, newRemBal),
+          remaining_balance: newRemBal,
           status: newAcctStatus,
         }).eq("id", alloc.account_id);
 
