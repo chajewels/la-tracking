@@ -95,7 +95,7 @@ Deno.serve(async (req) => {
     // End date = last installment due date (order month + plan months)
     const endDate = new Date(startDate.getFullYear(), startDate.getMonth() + payment_plan_months, startDate.getDate());
 
-    // Create account — remaining_balance = total minus what was actually paid as DP
+    // Create account — confirmed DP is treated as real paid principal, without changing fixed schedule rows
     const { data: account, error: accountError } = await supabase
       .from("layaway_accounts")
       .insert({
@@ -201,6 +201,20 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: scheduleError.message }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Record confirmed downpayment as a real payment fact
+    if (downpaymentPaid > 0) {
+      await supabase.from("payments").insert({
+        account_id: account.id,
+        amount_paid: downpaymentPaid,
+        currency,
+        date_paid: order_date,
+        payment_method: "cash",
+        remarks: "Downpayment",
+        reference_number: `DP-${invoice_number}`,
+        entered_by_user_id: user.id,
       });
     }
 

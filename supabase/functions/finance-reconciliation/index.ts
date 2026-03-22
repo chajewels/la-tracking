@@ -147,6 +147,7 @@ Deno.serve(async (req) => {
       };
 
       // 1. Balance reconciliation — SINGLE SOURCE OF TRUTH: remaining = total_amount - SUM(actual payments)
+      // Downpayment must be represented by a real payment row.
       const totalPayments = pays.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
 
       const expectedRemaining = Math.max(0, Number(acct.total_amount) - totalPayments);
