@@ -66,6 +66,8 @@ interface PortalAccount {
   paid_installments: number;
   total_installments: number;
   total_services: number;
+  outstanding_penalties: number;
+  current_total_payable: number;
   next_due_date: string | null;
   next_due_amount: number | null;
   statement_token: string | null;
