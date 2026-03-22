@@ -11,47 +11,50 @@ interface GeoBreakdownProps {
 }
 
 export default function GeoBreakdown({ accounts, customers }: GeoBreakdownProps) {
+  const PRIMARY_MARKETS = ['japan', 'philippines', 'united states', 'canada', 'australia'];
+
   const geo = useMemo(() => {
     const customerMap = new Map(customers.map(c => [c.id, c]));
     const active = accounts.filter(a => a.status === 'active' || a.status === 'overdue');
 
-    let japanCount = 0, japanAmount = 0;
+    const primaryMap: Record<string, { count: number; amountPHP: number; amountJPY: number }> = {};
     const intlMap: Record<string, { count: number; amountPHP: number; amountJPY: number }> = {};
 
     for (const acc of active) {
       const cust = customerMap.get(acc.customer_id);
       const loc = (cust?.location || '').trim();
+      const locLower = loc.toLowerCase();
       const balance = Number(acc.remaining_balance);
       const cur = acc.currency as Currency;
 
-      if (!loc || loc.toLowerCase() === 'japan') {
-        japanCount++;
-        japanAmount += balance;
+      const isPrimary = !loc || PRIMARY_MARKETS.includes(locLower);
+      const label = !loc ? 'Japan' : loc;
+      const targetMap = isPrimary ? primaryMap : intlMap;
+
+      if (!targetMap[label]) targetMap[label] = { count: 0, amountPHP: 0, amountJPY: 0 };
+      targetMap[label].count++;
+      if (cur === 'JPY') {
+        targetMap[label].amountJPY += balance;
       } else {
-        if (!intlMap[loc]) intlMap[loc] = { count: 0, amountPHP: 0, amountJPY: 0 };
-        intlMap[loc].count++;
-        if (cur === 'JPY') {
-          intlMap[loc].amountJPY += balance;
-        } else {
-          intlMap[loc].amountPHP += balance;
-        }
+        targetMap[label].amountPHP += balance;
       }
     }
 
-    const international = Object.entries(intlMap)
-      .map(([country, data]) => ({ country, ...data }))
-      .sort((a, b) => (b.amountPHP + b.amountJPY) - (a.amountPHP + a.amountJPY));
+    const toSorted = (map: typeof primaryMap) =>
+      Object.entries(map)
+        .map(([country, data]) => ({ country, ...data }))
+        .sort((a, b) => (b.amountPHP + b.amountJPY) - (a.amountPHP + a.amountJPY));
 
-    const intlTotal = international.reduce(
-      (s, i) => ({
-        count: s.count + i.count,
-        amountPHP: s.amountPHP + i.amountPHP,
-        amountJPY: s.amountJPY + i.amountJPY,
-      }),
-      { count: 0, amountPHP: 0, amountJPY: 0 }
-    );
+    const primary = toSorted(primaryMap);
+    const international = toSorted(intlMap);
 
-    return { japan: { count: japanCount, amount: japanAmount }, international, intlTotal };
+    const sumGroup = (arr: typeof primary) =>
+      arr.reduce(
+        (s, i) => ({ count: s.count + i.count, amountPHP: s.amountPHP + i.amountPHP, amountJPY: s.amountJPY + i.amountJPY }),
+        { count: 0, amountPHP: 0, amountJPY: 0 }
+      );
+
+    return { primary, primaryTotal: sumGroup(primary), international, intlTotal: sumGroup(international) };
   }, [accounts, customers]);
 
   const formatIntlAmount = (php: number, jpy: number) => {
@@ -66,20 +69,40 @@ export default function GeoBreakdown({ accounts, customers }: GeoBreakdownProps)
       <div className="rounded-xl border border-border bg-card p-5">
         <div className="flex items-center gap-2 mb-3">
           <MapPin className="h-4 w-4 text-primary" />
-          <h3 className="text-sm font-semibold text-card-foreground">Japan</h3>
+          <h3 className="text-sm font-semibold text-card-foreground">Primary Markets</h3>
+          <span className="ml-auto text-xs text-muted-foreground">{geo.primary.length} regions</span>
         </div>
-        <div className="flex items-baseline justify-between">
+        <div className="flex items-baseline justify-between mb-3">
           <div>
-            <p className="text-2xl font-bold text-card-foreground font-display">{geo.japan.count}</p>
+            <p className="text-2xl font-bold text-card-foreground font-display">{geo.primaryTotal.count}</p>
             <p className="text-xs text-muted-foreground">active accounts</p>
           </div>
-          <div className="text-right">
-            <p className="text-sm font-semibold text-card-foreground tabular-nums">
-              {formatCurrency(geo.japan.amount, 'JPY')}
-            </p>
+          <div className="text-right space-y-0.5">
+            {geo.primaryTotal.amountJPY > 0 && (
+              <p className="text-sm font-semibold text-card-foreground tabular-nums">
+                {formatCurrency(geo.primaryTotal.amountJPY, 'JPY')}
+              </p>
+            )}
+            {geo.primaryTotal.amountPHP > 0 && (
+              <p className="text-sm font-semibold text-card-foreground tabular-nums">
+                {formatCurrency(geo.primaryTotal.amountPHP, 'PHP')}
+              </p>
+            )}
             <p className="text-xs text-muted-foreground">outstanding</p>
           </div>
         </div>
+        {geo.primary.length > 0 && (
+          <div className="space-y-1.5 border-t border-border pt-3">
+            {geo.primary.map(item => (
+              <div key={item.country} className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">{item.country}</span>
+                <span className="text-card-foreground font-medium tabular-nums">
+                  {item.count} acct · {formatIntlAmount(item.amountPHP, item.amountJPY)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="rounded-xl border border-border bg-card p-5">
