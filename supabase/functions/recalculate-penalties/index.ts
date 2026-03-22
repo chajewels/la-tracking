@@ -216,10 +216,11 @@ Deno.serve(async (req) => {
         }
 
         // Compute correct penalty with cap
+        const planMonths = acct.payment_plan_months || 6;
         const overrideCap = overrideMap.get(accountId);
         const cap = overrideCap !== undefined
-          ? (instNum >= 6 ? Infinity : overrideCap)
-          : getCap(currency, instNum);
+          ? (instNum >= planMonths ? Infinity : overrideCap)
+          : getCap(currency, instNum, planMonths);
 
         let correctPenalty = 0;
         const correctEntries: Array<{ stage: string; cycle: number; amount: number; date: string }> = [];
