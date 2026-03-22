@@ -66,6 +66,8 @@ interface PortalAccount {
   paid_installments: number;
   total_installments: number;
   total_services: number;
+  outstanding_penalties: number;
+  current_total_payable: number;
   next_due_date: string | null;
   next_due_amount: number | null;
   statement_token: string | null;
@@ -467,8 +469,12 @@ function AccountCard({ account, onViewDetails }: { account: PortalAccount; onVie
             <p className="text-sm font-semibold tabular-nums text-success">{fmt(account.total_paid, currency)}</p>
           </div>
           <div>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Remaining</p>
-            <p className="text-sm font-semibold tabular-nums text-foreground">{fmt(account.remaining_balance, currency)}</p>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+              {(account.outstanding_penalties ?? 0) > 0 ? 'Total Payable' : 'Remaining'}
+            </p>
+            <p className={`text-sm font-semibold tabular-nums ${(account.outstanding_penalties ?? 0) > 0 ? 'text-warning' : 'text-foreground'}`}>
+              {fmt((account.outstanding_penalties ?? 0) > 0 ? (account.current_total_payable ?? account.remaining_balance) : account.remaining_balance, currency)}
+            </p>
           </div>
         </div>
 
@@ -542,7 +548,13 @@ function AccountDetail({ account, paymentMethods, portalToken, onClose, onRefres
 
         <div className="mt-4 grid grid-cols-2 gap-3">
           <InfoBlock label="Total Amount" value={fmt(account.total_amount, currency)} />
-          <InfoBlock label="Remaining" value={fmt(account.remaining_balance, currency)} highlight={isOverdue} />
+          <InfoBlock label="Remaining Principal" value={fmt(account.remaining_balance, currency)} highlight={isOverdue} />
+          {(account.outstanding_penalties ?? 0) > 0 && (
+            <InfoBlock label="Outstanding Penalties" value={fmt(account.outstanding_penalties, currency)} highlight />
+          )}
+          {(account.outstanding_penalties ?? 0) > 0 && (
+            <InfoBlock label="Current Total Payable" value={fmt(account.current_total_payable ?? account.remaining_balance, currency)} highlight />
+          )}
           <InfoBlock label="Next Due" value={account.next_due_date ? fmtDateLong(account.next_due_date) : '—'} />
           <InfoBlock label="Next Amount" value={account.next_due_amount ? fmt(account.next_due_amount, currency) : '—'} />
         </div>

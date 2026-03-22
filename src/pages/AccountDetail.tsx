@@ -36,6 +36,7 @@ import {
   isPenaltyOverCap, isFinalSettlement, isExtensionActive, isFinalForfeited,
   getForfeitureWarning,
   canReactivate, canAcceptPayment, canAddService, canAddPenalty,
+  computeAccountSummary,
 } from '@/lib/business-rules';
 
 export default function AccountDetail() {
@@ -180,12 +181,20 @@ export default function AccountDetail() {
   const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
   const unpaidPenaltySum = unpaidPenalties.reduce((sum, penalty) => sum + Number(penalty.penalty_amount), 0);
 
+  // SINGLE SOURCE OF TRUTH: shared summary values used by cards, message, statement, portal
+  const summary = computeAccountSummary({
+    principalTotal,
+    totalPaid,
+    unpaidPenaltySum,
+    totalServicesAmount,
+  });
+
   // Keep principal-based totals as the single source of truth.
   // Penalties and services are shown separately and must not inflate the layaway principal.
   const scheduleBaseSum = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
   const schedulePenaltySum = scheduleItems.reduce((s, i) => s + Number(i.penalty_amount), 0);
   const originalPrincipal = downpaymentAmount + scheduleBaseSum;
-  const progress = accountProgress(totalPaid, principalTotal);
+  const progress = summary.progressPercent;
 
   // Reconciliation validation: principal total - paid must equal remaining principal balance
   const reconciliationValid = Math.abs(principalTotal - totalPaid - remainingBalance) < 1;
@@ -214,24 +223,34 @@ export default function AccountDetail() {
 
   let message = `✨ Cha Jewels Layaway Payment Summary\n\n`;
 
+  // Shared message block for summary values (used across all statuses)
+  const appendSummaryBlock = () => {
+    message += `Total Layaway Amount: ${formatCurrency(summary.principalTotal, currency)}\n`;
+    if (summary.totalServices > 0) message += `Additional Services: ${formatCurrency(summary.totalServices, currency)}\n`;
+    if (summary.outstandingPenalties > 0) message += `Outstanding Penalties: ${formatCurrency(summary.outstandingPenalties, currency)}\n`;
+    message += `Amount Paid: ${paymentBreakdownText}\n`;
+  };
+
+  const appendPayableBlock = () => {
+    message += `================\n`;
+    message += `Remaining Principal: ${formatCurrency(summary.remainingPrincipal, currency)}\n`;
+    if (summary.outstandingPenalties > 0) {
+      message += `Current Total Payable: ${formatCurrency(summary.currentTotalPayable, currency)}\n`;
+    }
+  };
+
   if (isFinalForfeit) {
     message += `🚫 PERMANENT FORFEITURE NOTICE\n\n`;
     message += `Inv # ${account.invoice_number}\n`;
     message += `Status: PERMANENTLY FORFEITED\n`;
-    message += `Total Layaway Amount: ${formatCurrency(principalTotal, currency)}\n`;
-    if (totalServicesAmount > 0) message += `Additional Services: ${formatCurrency(totalServicesAmount, currency)}\n`;
-    if (unpaidPenaltySum > 0) message += `Outstanding Penalties: ${formatCurrency(unpaidPenaltySum, currency)}\n`;
-    message += `Amount Paid: ${paymentBreakdownText}\n`;
+    appendSummaryBlock();
     message += `\nYour account is permanently forfeited.\nNo further reactivation or negotiation is allowed.\n`;
     message += `\nFor any questions, please contact Cha Jewels directly.`;
   } else if (isForfeited) {
     message += `⛔ NOTICE: This layaway account has been FORFEITED due to extended non-payment.\n\n`;
     message += `Inv # ${account.invoice_number}\n`;
     message += `Status: FORFEITED\n`;
-    message += `Total Layaway Amount: ${formatCurrency(principalTotal, currency)}\n`;
-    if (totalServicesAmount > 0) message += `Additional Services: ${formatCurrency(totalServicesAmount, currency)}\n`;
-    if (unpaidPenaltySum > 0) message += `Outstanding Penalties: ${formatCurrency(unpaidPenaltySum, currency)}\n`;
-    message += `Amount Paid: ${paymentBreakdownText}\n`;
+    appendSummaryBlock();
     message += `\nNo further installment payments are being accepted for this account.\n`;
     message += `\nFor any questions, please contact Cha Jewels directly.`;
   } else if (isExtension) {
@@ -241,15 +260,8 @@ export default function AccountDetail() {
     message += `You are given a final extension of 1 month${(account as any).extension_end_date ? ` (until ${new Date((account as any).extension_end_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })})` : ''}.\n`;
     message += `Penalty charges will continue to apply based on the existing schedule.\n`;
     message += `No further extensions will be allowed.\n\n`;
-    message += `Total Layaway Amount: ${formatCurrency(principalTotal, currency)}\n`;
-    if (totalServicesAmount > 0) message += `Additional Services: ${formatCurrency(totalServicesAmount, currency)}\n`;
-    if (unpaidPenaltySum > 0) message += `Outstanding Penalties: ${formatCurrency(unpaidPenaltySum, currency)}\n`;
-    message += `Amount Paid: ${paymentBreakdownText}\n`;
-    message += `================\n`;
-    message += `Remaining Principal Balance: ${formatCurrency(remainingBalance, currency)}\n`;
-    if (unpaidPenaltySum > 0) {
-      message += `Current Total Due (including penalties): ${formatCurrency(remainingBalance + unpaidPenaltySum, currency)}\n`;
-    }
+    appendSummaryBlock();
+    appendPayableBlock();
     message += `\nMonthly Payment:\n`;
     scheduleItems.forEach((item, idx) => {
       const effPaid = isEffectivelyPaid(item);
@@ -270,19 +282,20 @@ export default function AccountDetail() {
     });
     message += `\nPlease settle promptly to avoid permanent forfeiture. 💛`;
   } else if (isSettlement) {
-    const finalSettlementAmount = remainingBalance + unpaidPenaltySum;
     message += `⚠️ FINAL SETTLEMENT NOTICE\n\n`;
     message += `Inv # ${account.invoice_number}\n`;
     message += `Your account has reached final settlement.\nThe total amount is final and must be settled.\n\n`;
-    message += `Total Layaway Amount: ${formatCurrency(principalTotal, currency)}\n`;
-    if (totalServicesAmount > 0) message += `Additional Services: ${formatCurrency(totalServicesAmount, currency)}\n`;
-    if (unpaidPenaltySum > 0) message += `Outstanding Penalties: ${formatCurrency(unpaidPenaltySum, currency)}\n`;
-    message += `Amount Paid: ${paymentBreakdownText}\n`;
+    appendSummaryBlock();
     message += `================\n`;
-    message += `⚠️ FINAL SETTLEMENT AMOUNT: ${formatCurrency(finalSettlementAmount, currency)}\n\n`;
-    message += `This amount includes:\n`;
-    message += `  • Remaining principal balance\n`;
-    if (unpaidPenaltySum > 0) message += `  • Outstanding penalty fees\n`;
+    message += `Remaining Principal: ${formatCurrency(summary.remainingPrincipal, currency)}\n`;
+    if (summary.outstandingPenalties > 0) {
+      message += `⚠️ FINAL SETTLEMENT AMOUNT: ${formatCurrency(summary.currentTotalPayable, currency)}\n\n`;
+      message += `This amount includes:\n`;
+      message += `  • Remaining principal: ${formatCurrency(summary.remainingPrincipal, currency)}\n`;
+      message += `  • Outstanding penalties: ${formatCurrency(summary.outstandingPenalties, currency)}\n`;
+    } else {
+      message += `⚠️ FINAL SETTLEMENT AMOUNT: ${formatCurrency(summary.remainingPrincipal, currency)}\n\n`;
+    }
     message += `\nRegular installment schedule is no longer active.\n`;
     message += `Please settle the full amount above to complete your layaway.\n\n`;
     message += `Monthly Payment History:\n`;
@@ -310,29 +323,18 @@ export default function AccountDetail() {
       message += `Thank you for your payment. ${formatCurrency(Number((mostRecentPayment as any).amount_paid), currency)} has been received.\n\n`;
     }
     message += `Inv # ${account.invoice_number}\n`;
-    message += `Total Layaway Amount: ${formatCurrency(principalTotal, currency)}\n`;
-    if (totalServicesAmount > 0) {
-      message += `Additional Services: ${formatCurrency(totalServicesAmount, currency)}\n`;
-    }
-    if (unpaidPenaltySum > 0) {
-      message += `Outstanding Penalties: ${formatCurrency(unpaidPenaltySum, currency)}\n`;
-    }
-    message += `Amount Paid: ${paymentBreakdownText}\n`;
+    appendSummaryBlock();
     if (accountServices.length > 0) {
       message += `\n🔧 Additional Services:\n`;
       accountServices.forEach(svc => {
         const label = SERVICE_LABELS[svc.service_type] || svc.service_type;
         message += `  • ${label}${svc.description ? ` - ${svc.description}` : ''}: ${formatCurrency(Number(svc.amount), currency)}\n`;
       });
-      message += `  Services Total: ${formatCurrency(totalServicesAmount, currency)}\n`;
+      message += `  Services Total: ${formatCurrency(summary.totalServices, currency)}\n`;
     }
-    const laRemainingText = `LA ${new Date(account.end_date || account.order_date).toLocaleDateString('en-US', { month: 'short' }).toUpperCase()} remaining principal balance`;
-    message += `================\n`;
+    appendPayableBlock();
     const unpaidCount = unpaidSchedule.length;
-    message += `${laRemainingText} - ${formatCurrency(remainingBalance, currency)} to pay in ${unpaidCount} month${unpaidCount !== 1 ? 's' : ''}\n`;
-    if (unpaidPenaltySum > 0) {
-      message += `Current Total Due (including penalties): ${formatCurrency(remainingBalance + unpaidPenaltySum, currency)}\n`;
-    }
+    message += `${unpaidCount} month${unpaidCount !== 1 ? 's' : ''} remaining\n`;
     message += `\nMonthly Payment:\n`;
     scheduleItems.forEach((item, idx) => {
       const effPaid = isEffectivelyPaid(item);
@@ -622,23 +624,12 @@ export default function AccountDetail() {
         )}
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
           <div className="rounded-xl border border-border bg-card p-3 sm:p-4">
             <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Total Layaway Amount</p>
             <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
-              {formatCurrency(principalTotal, currency)}
+              {formatCurrency(summary.principalTotal, currency)}
             </p>
-            {(totalServicesAmount > 0 || schedulePenaltySum > 0 || Math.abs(originalPrincipal - principalTotal) >= 1) && (
-              <div className="text-[10px] text-muted-foreground mt-0.5 space-y-0.5">
-                <p>Principal: {formatCurrency(principalTotal, currency)}</p>
-                {schedulePenaltySum > 0 && (
-                  <p className="text-destructive/80">Outstanding penalties: {formatCurrency(schedulePenaltySum, currency)}</p>
-                )}
-                {totalServicesAmount > 0 && (
-                  <p>Services: {formatCurrency(totalServicesAmount, currency)}</p>
-                )}
-              </div>
-            )}
           </div>
           {downpaymentAmount > 0 && (
             <div className="rounded-xl border border-primary/20 bg-card p-3 sm:p-4">
@@ -651,14 +642,43 @@ export default function AccountDetail() {
           <div className="rounded-xl border border-success/20 bg-card p-3 sm:p-4">
             <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Total Paid</p>
             <p className="text-lg sm:text-xl font-bold text-success font-display tabular-nums">
-              {formatCurrency(totalPaid, currency)}
+              {formatCurrency(summary.totalPaid, currency)}
             </p>
           </div>
           <div className="rounded-xl border border-primary/20 bg-card p-3 sm:p-4">
-            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Remaining</p>
+            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Remaining Principal</p>
             <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
-              {formatCurrency(remainingBalance, currency)}
+              {formatCurrency(summary.remainingPrincipal, currency)}
             </p>
+          </div>
+          {summary.outstandingPenalties > 0 && (
+            <div className="rounded-xl border border-destructive/20 bg-card p-3 sm:p-4">
+              <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Outstanding Penalties</p>
+              <p className="text-lg sm:text-xl font-bold text-destructive font-display tabular-nums">
+                {formatCurrency(summary.outstandingPenalties, currency)}
+              </p>
+            </div>
+          )}
+          {totalServicesAmount > 0 && (
+            <div className="rounded-xl border border-border bg-card p-3 sm:p-4">
+              <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Services</p>
+              <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
+                {formatCurrency(summary.totalServices, currency)}
+              </p>
+            </div>
+          )}
+          <div className={`rounded-xl border ${summary.outstandingPenalties > 0 ? 'border-warning/30 bg-warning/5' : 'border-primary/20 bg-card'} p-3 sm:p-4`}>
+            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">
+              {summary.outstandingPenalties > 0 ? 'Current Total Payable' : 'Remaining Balance'}
+            </p>
+            <p className={`text-lg sm:text-xl font-bold font-display tabular-nums ${summary.outstandingPenalties > 0 ? 'text-warning' : 'text-card-foreground'}`}>
+              {formatCurrency(summary.currentTotalPayable, currency)}
+            </p>
+            {summary.outstandingPenalties > 0 && (
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                = Principal {formatCurrency(summary.remainingPrincipal, currency)} + Penalties {formatCurrency(summary.outstandingPenalties, currency)}
+              </p>
+            )}
           </div>
           <div className="rounded-xl border border-border bg-card p-3 sm:p-4">
             <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Progress</p>
