@@ -20,10 +20,8 @@ import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { computeRemainingBalance, getNextPaymentStatementDate } from '@/lib/business-rules';
 
-// Production base URL for statement links — ensures correct domain regardless of preview/dev environment
-const STATEMENT_BASE_URL = import.meta.env.PROD
-  ? 'https://chajewelslayaway.web.app'
-  : window.location.origin;
+// Always use the public production domain for customer-facing statement links.
+const STATEMENT_BASE_URL = 'https://chajewelslayaway.web.app';
 
 function buildStatementUrl(token: string): string {
   return `${STATEMENT_BASE_URL}/statement?token=${token}`;
