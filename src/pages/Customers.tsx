@@ -19,6 +19,8 @@ type ViewMode = 'all' | 'filter' | 'grouped';
 export default function Customers() {
   const { data: customers, isLoading } = useCustomers();
   const { data: accounts } = useAccounts();
+  const { roles } = useAuth();
+  const r = roles as AppRole[];
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('all');
   const [activeLetter, setActiveLetter] = useState<string | null>(null);
