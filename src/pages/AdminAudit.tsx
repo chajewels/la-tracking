@@ -350,6 +350,7 @@ interface ReconcData {
     waiver_exceptions: number;
     balance_exceptions: number;
     payment_exceptions: number;
+    closed_accounts_excluded?: number;
     reference_invoices: Record<string, string>;
     timestamp: string;
   };
