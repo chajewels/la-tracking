@@ -413,7 +413,12 @@ export default function NewAccount() {
                     <button
                       key={plan}
                       type="button"
-                      onClick={() => setPaymentPlan(plan)}
+                      onClick={() => {
+                        setPaymentPlan(plan);
+                        if (installmentMode === 'custom') {
+                          setCustomAmounts(Array(plan).fill('0'));
+                        }
+                      }}
                       className={`flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors ${
                         paymentPlan === plan
                           ? 'border-primary bg-primary/10 text-primary'
@@ -424,6 +429,38 @@ export default function NewAccount() {
                     </button>
                   ))}
                 </div>
+              </div>
+            </div>
+
+            {/* Installment Mode Toggle */}
+            <div className="space-y-2">
+              <Label className="text-card-foreground">Installment Structure</Label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setInstallmentMode('equal')}
+                  className={`flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors ${
+                    installmentMode === 'equal'
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border bg-background text-muted-foreground hover:border-primary/50'
+                  }`}
+                >
+                  Equal Installments
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInstallmentMode('custom');
+                    initCustomAmounts();
+                  }}
+                  className={`flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors ${
+                    installmentMode === 'custom'
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border bg-background text-muted-foreground hover:border-primary/50'
+                  }`}
+                >
+                  Custom Installments
+                </button>
               </div>
             </div>
           </div>
