@@ -33,6 +33,7 @@ import {
   ordinal, SERVICE_LABELS, getNextPaymentStatementDate,
   isPenaltyOverCap, isFinalSettlement, isExtensionActive, isFinalForfeited,
   getForfeitureWarning,
+  canReactivate, canAcceptPayment, canAddService, canAddPenalty,
 } from '@/lib/business-rules';
 
 export default function AccountDetail() {
@@ -482,7 +483,7 @@ export default function AccountDetail() {
               currentCustomerName={account.customers?.full_name || 'Unknown'}
               invoiceNumber={account.invoice_number}
             />
-            {remainingBalance > 0 && !['forfeited', 'cancelled', 'final_forfeited'].includes(account.status) && (
+            {remainingBalance > 0 && canAcceptPayment(account.status) && (
               <>
                 <RecordPaymentDialog
                   accountId={account.id}
@@ -506,11 +507,11 @@ export default function AccountDetail() {
                 </Button>
               </a>
             )}
-            {!['forfeited', 'cancelled', 'final_forfeited'].includes(account.status) && (
+            {canAddService(account.status) && (
               <AddServiceDialog accountId={account.id} currency={currency} />
             )}
             {/* Reactivate button — only for forfeited, non-reactivated accounts */}
-            {account.status === 'forfeited' && !(account as any).is_reactivated && (
+            {canReactivate(account.status, !!(account as any).is_reactivated) && (
               <Button
                 variant="outline"
                 className="border-info/30 text-info hover:bg-info/10"
@@ -539,7 +540,7 @@ export default function AccountDetail() {
                 <RotateCcw className="h-4 w-4 mr-2" /> {reactivating ? 'Reactivating…' : 'Reactivate (One-Time)'}
               </Button>
             )}
-            {(account.status === 'active' || account.status === 'overdue' || account.status === 'extension_active') && (
+            {canAddPenalty(account.status) && (
               <>
                 <AddPenaltyDialog
                   accountId={account.id}
