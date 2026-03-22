@@ -871,7 +871,7 @@ export default function AccountDetail() {
                   <div className="flex justify-between text-sm font-semibold px-1 pt-1 border-t border-border">
                     <span className="text-card-foreground">Grand Total (Schedule)</span>
                     <span className="tabular-nums text-card-foreground">
-                      {formatCurrency(scheduleItems.reduce((s, i) => s + Number(i.total_due_amount), 0), currency)}
+                      {formatCurrency(scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount) + Number(i.penalty_amount), 0), currency)}
                     </span>
                   </div>
                   {penaltyCapOverride && (
