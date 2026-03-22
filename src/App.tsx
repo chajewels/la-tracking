@@ -21,6 +21,7 @@ import AdminAudit from "./pages/AdminAudit";
 import Login from "./pages/Login";
 import CustomerStatement from "./pages/CustomerStatement";
 import CustomerPortal from "./pages/CustomerPortal";
+import PaymentSubmissions from "./pages/PaymentSubmissions";
 
 import Reminders from "./pages/Reminders";
 import NotFound from "./pages/NotFound";
