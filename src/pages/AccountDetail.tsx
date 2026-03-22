@@ -196,63 +196,112 @@ export default function AccountDetail() {
     ? [...activePayments].sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
     : null;
 
+  const isForfeited = account.status === 'forfeited';
+  const isSettlement = account.status === 'final_settlement';
+
   let message = `✨ Cha Jewels Layaway Payment Summary\n\n`;
-  if (mostRecentPayment) {
-    message += `Thank you for your payment. ${formatCurrency(Number((mostRecentPayment as any).amount_paid), currency)} has been received.\n\n`;
-  }
-  message += `Inv # ${account.invoice_number}\n`;
-  // Build Total Layaway Amount line: principal + services + schedule penalties
-  const amountParts: string[] = [formatCurrency(originalPrincipal, currency)];
-  if (totalServicesAmount > 0) amountParts.push(`${formatCurrency(totalServicesAmount, currency)} (Services)`);
-  if (schedulePenaltySum > 0) amountParts.push(`${formatCurrency(schedulePenaltySum, currency)} (Penalty)`);
-  message += `Total Layaway Amount: ${amountParts.join(' + ')}`;
-  if (amountParts.length > 1) {
-    message += ` = ${formatCurrency(totalLayawayAmount, currency)}`;
-  }
-  message += `\n`;
-  message += `Amount Paid: ${paymentBreakdownText}\n`;
-  // Services in message
-  if (accountServices.length > 0) {
-    message += `\n🔧 Additional Services:\n`;
-    accountServices.forEach(svc => {
-      const label = SERVICE_LABELS[svc.service_type] || svc.service_type;
-      message += `  • ${label}${svc.description ? ` - ${svc.description}` : ''}: ${formatCurrency(Number(svc.amount), currency)}\n`;
-    });
-    message += `  Services Total: ${formatCurrency(totalServicesAmount, currency)}\n`;
-  }
-  const laRemainingText = `LA ${new Date(account.end_date || account.order_date).toLocaleDateString('en-US', { month: 'short' }).toUpperCase()} remaining balance`;
-  message += `================\n`;
-  const unpaidCount = unpaidSchedule.length;
-  message += `${laRemainingText} - ${formatCurrency(remainingBalance, currency)} to pay in ${unpaidCount} month${unpaidCount !== 1 ? 's' : ''}\n\n`;
 
-  message += `Monthly Payment:\n`;
-  scheduleItems.forEach((item, idx) => {
-    const effPaid = isEffectivelyPaid(item);
-    const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
-    const penalty = Number(item.penalty_amount);
-    const baseAmt = Number(item.base_installment_amount);
-    const paidAmt = Number(item.paid_amount);
-    const totalDue = Number(item.total_due_amount);
-    const displayAmt = effPaid ? Math.max(paidAmt, totalDue) : totalDue;
-    const itemRemaining = remainingDue(item);
-
-    if (effPaid) {
-      if (penalty > 0) {
-        message += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(displayAmt, currency)} (PAID)\n`;
-      } else {
+  if (isForfeited) {
+    message += `⛔ NOTICE: This layaway account has been FORFEITED due to extended non-payment.\n\n`;
+    message += `Inv # ${account.invoice_number}\n`;
+    message += `Status: FORFEITED\n`;
+    message += `Total Layaway Amount: ${formatCurrency(totalLayawayAmount, currency)}\n`;
+    message += `Amount Paid: ${paymentBreakdownText}\n`;
+    message += `\nNo further installment payments are being accepted for this account.\n`;
+    message += `\nFor any questions, please contact Cha Jewels directly.`;
+  } else if (isSettlement) {
+    message += `⚠️ FINAL SETTLEMENT NOTICE\n\n`;
+    message += `Inv # ${account.invoice_number}\n`;
+    message += `Due to accumulated overdue penalties, this invoice has been converted to a FINAL SETTLEMENT.\n\n`;
+    const amountParts: string[] = [formatCurrency(originalPrincipal, currency)];
+    if (totalServicesAmount > 0) amountParts.push(`${formatCurrency(totalServicesAmount, currency)} (Services)`);
+    if (schedulePenaltySum > 0) amountParts.push(`${formatCurrency(schedulePenaltySum, currency)} (Penalty)`);
+    message += `Total Layaway Amount: ${amountParts.join(' + ')}`;
+    if (amountParts.length > 1) message += ` = ${formatCurrency(totalLayawayAmount, currency)}`;
+    message += `\n`;
+    message += `Amount Paid: ${paymentBreakdownText}\n`;
+    message += `================\n`;
+    message += `⚠️ FINAL SETTLEMENT AMOUNT: ${formatCurrency(remainingBalance, currency)}\n\n`;
+    message += `This amount includes:\n`;
+    message += `  • Remaining principal balance\n`;
+    message += `  • All accumulated penalty fees\n\n`;
+    message += `Regular installment schedule is no longer active.\n`;
+    message += `Please settle the full amount above to complete your layaway.\n\n`;
+    message += `Monthly Payment History:\n`;
+    scheduleItems.forEach((item, idx) => {
+      const effPaid = isEffectivelyPaid(item);
+      const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+      const penalty = Number(item.penalty_amount);
+      const baseAmt = Number(item.base_installment_amount);
+      const paidAmt = Number(item.paid_amount);
+      const totalDue = Number(item.total_due_amount);
+      const displayAmt = effPaid ? Math.max(paidAmt, totalDue) : totalDue;
+      if (effPaid) {
         message += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(displayAmt, currency)} (PAID)\n`;
+      } else if (penalty > 0) {
+        message += `❌ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)} (UNPAID)\n`;
+      } else {
+        message += `❌ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(totalDue, currency)} (UNPAID)\n`;
       }
-    } else if (penalty > 0) {
-      message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
-    } else {
-      message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(itemRemaining, currency)}\n`;
+    });
+    message += `\nFor any questions, please contact Cha Jewels directly. 💛`;
+  } else {
+    // Normal active/overdue message
+    if (mostRecentPayment) {
+      message += `Thank you for your payment. ${formatCurrency(Number((mostRecentPayment as any).amount_paid), currency)} has been received.\n\n`;
     }
-  });
-  const nextStatement = getNextPaymentStatementDate(scheduleItems);
-  if (nextStatement) {
-    const nextDate = new Date(nextStatement.date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
-    message += `\nPlease note your next monthly payment is on ${nextDate}. Please expect another payment reminder from us.\n\n`;
-    message += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
+    message += `Inv # ${account.invoice_number}\n`;
+    const amountParts: string[] = [formatCurrency(originalPrincipal, currency)];
+    if (totalServicesAmount > 0) amountParts.push(`${formatCurrency(totalServicesAmount, currency)} (Services)`);
+    if (schedulePenaltySum > 0) amountParts.push(`${formatCurrency(schedulePenaltySum, currency)} (Penalty)`);
+    message += `Total Layaway Amount: ${amountParts.join(' + ')}`;
+    if (amountParts.length > 1) {
+      message += ` = ${formatCurrency(totalLayawayAmount, currency)}`;
+    }
+    message += `\n`;
+    message += `Amount Paid: ${paymentBreakdownText}\n`;
+    if (accountServices.length > 0) {
+      message += `\n🔧 Additional Services:\n`;
+      accountServices.forEach(svc => {
+        const label = SERVICE_LABELS[svc.service_type] || svc.service_type;
+        message += `  • ${label}${svc.description ? ` - ${svc.description}` : ''}: ${formatCurrency(Number(svc.amount), currency)}\n`;
+      });
+      message += `  Services Total: ${formatCurrency(totalServicesAmount, currency)}\n`;
+    }
+    const laRemainingText = `LA ${new Date(account.end_date || account.order_date).toLocaleDateString('en-US', { month: 'short' }).toUpperCase()} remaining balance`;
+    message += `================\n`;
+    const unpaidCount = unpaidSchedule.length;
+    message += `${laRemainingText} - ${formatCurrency(remainingBalance, currency)} to pay in ${unpaidCount} month${unpaidCount !== 1 ? 's' : ''}\n\n`;
+
+    message += `Monthly Payment:\n`;
+    scheduleItems.forEach((item, idx) => {
+      const effPaid = isEffectivelyPaid(item);
+      const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+      const penalty = Number(item.penalty_amount);
+      const baseAmt = Number(item.base_installment_amount);
+      const paidAmt = Number(item.paid_amount);
+      const totalDue = Number(item.total_due_amount);
+      const displayAmt = effPaid ? Math.max(paidAmt, totalDue) : totalDue;
+      const itemRemaining = remainingDue(item);
+
+      if (effPaid) {
+        if (penalty > 0) {
+          message += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(displayAmt, currency)} (PAID)\n`;
+        } else {
+          message += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(displayAmt, currency)} (PAID)\n`;
+        }
+      } else if (penalty > 0) {
+        message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
+      } else {
+        message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(itemRemaining, currency)}\n`;
+      }
+    });
+    const nextStatement = getNextPaymentStatementDate(scheduleItems);
+    if (nextStatement) {
+      const nextDate = new Date(nextStatement.date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+      message += `\nPlease note your next monthly payment is on ${nextDate}. Please expect another payment reminder from us.\n\n`;
+      message += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
+    }
   }
 
   const handleCopy = () => {
