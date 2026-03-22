@@ -9,13 +9,13 @@ const corsHeaders = {
  * Auto Forfeit & Final Settlement Engine
  *
  * Checks all overdue accounts and:
- * 1. Creates FINAL SETTLEMENT when 6th penalty occurrence is reached after last paid month
+ * 1. Creates FINAL SETTLEMENT when 6th penalty occurrence is reached
  *    - PHP → ₱3,000 (6 × ₱500)
  *    - JPY → ¥6,000 (6 × ¥1,000)
- * 2. Auto-FORFEITS when 3 months overdue after last paid month
+ * 2. Auto-FORFEITS when 3 months overdue after FIRST UNPAID DUE DATE
  * 3. Auto-FINAL_FORFEITS extension_active accounts past their extension_end_date
  *
- * Reference point: LAST PAID MONTH (not invoice start date)
+ * Reference point: FIRST UNPAID DUE DATE (not last paid month)
  */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
