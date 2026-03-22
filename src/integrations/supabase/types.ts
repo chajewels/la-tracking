@@ -91,6 +91,79 @@ export type Database = {
         }
         Relationships: []
       }
+      csr_notifications: {
+        Row: {
+          account_id: string
+          contact_method: string | null
+          created_at: string
+          customer_id: string
+          due_date: string
+          id: string
+          invoice_number: string
+          notified: boolean
+          notified_at: string
+          notified_by_name: string
+          notified_by_user_id: string
+          remarks: string | null
+          reminder_stage: string
+          schedule_id: string
+        }
+        Insert: {
+          account_id: string
+          contact_method?: string | null
+          created_at?: string
+          customer_id: string
+          due_date: string
+          id?: string
+          invoice_number: string
+          notified?: boolean
+          notified_at?: string
+          notified_by_name: string
+          notified_by_user_id: string
+          remarks?: string | null
+          reminder_stage: string
+          schedule_id: string
+        }
+        Update: {
+          account_id?: string
+          contact_method?: string | null
+          created_at?: string
+          customer_id?: string
+          due_date?: string
+          id?: string
+          invoice_number?: string
+          notified?: boolean
+          notified_at?: string
+          notified_by_name?: string
+          notified_by_user_id?: string
+          remarks?: string | null
+          reminder_stage?: string
+          schedule_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "csr_notifications_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "csr_notifications_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "csr_notifications_schedule_id_fkey"
+            columns: ["schedule_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_schedule"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customer_analytics: {
         Row: {
           completion_probability_score: number | null
