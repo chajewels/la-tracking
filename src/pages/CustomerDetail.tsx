@@ -358,7 +358,7 @@ export default function CustomerDetail() {
         </div>
 
         {/* Customer Portal Link */}
-        <CustomerPortalShareMenu customerId={customer.id} customerName={customer.full_name} />
+        <CustomerPortalShareMenu customerId={customer.id} customerName={customer.full_name} messengerLink={customer.messenger_link} />
 
         {/* All Accounts */}
         {accounts.map(({ account, schedule, penalties, schedulePaymentDates, services: acctServices }) => {
