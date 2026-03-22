@@ -265,12 +265,19 @@ export default function AccountDetail() {
     message += `\nMonthly Payment:\n`;
     scheduleItems.forEach((item, idx) => {
       const effPaid = isEffectivelyPaid(item);
+      const partial = isPartiallyPaid(item);
       const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
       const penalty = Number(item.penalty_amount);
       const baseAmt = Number(item.base_installment_amount);
+      const paidAmt = Number(item.paid_amount);
       const totalDue = baseAmt + penalty;
       if (effPaid) {
-        message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} (PAID)\n`;
+        message += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} (PAID)\n`;
+      } else if (partial) {
+        const itemRemaining = Math.max(0, baseAmt - paidAmt);
+        message += `🔶 ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)}`;
+        if (penalty > 0) message += ` + ${formatCurrency(penalty, currency)} (Penalty)`;
+        message += ` — ${formatCurrency(paidAmt, currency)} paid, ${formatCurrency(itemRemaining, currency)} remaining\n`;
       } else if (penalty > 0) {
         message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)}  + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
       } else {
