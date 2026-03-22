@@ -87,7 +87,7 @@ Deno.serve(async (req) => {
       .eq("account_id", account_id)
       .eq("is_active", true)
       .maybeSingle();
-    if (overrideRow && installmentNumber < 6) {
+    if (overrideRow && installmentNumber < planMonths) {
       cap = Number(overrideRow.penalty_cap_amount);
     }
 
