@@ -182,6 +182,7 @@ export default function CustomerPortal() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('newest');
+  const [portalView, setPortalView] = useState<'accounts' | 'profile'>('accounts');
 
   const fetchPortal = async () => {
     if (!token) { setError('No access token provided.'); setLoading(false); return; }
