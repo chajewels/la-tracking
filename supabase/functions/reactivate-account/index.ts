@@ -8,11 +8,19 @@ const corsHeaders = {
 /**
  * Reactivate Account — One-time reactivation of a forfeited account
  *
- * 1. Validates account is in 'forfeited' status and has NOT been reactivated before
- * 2. Changes status to 'extension_active'
- * 3. Sets is_reactivated = true, extension_end_date = last_due + 1 month
- * 4. Records penalty_count_at_reactivation so penalty engine continues without reset
- * 5. Un-cancels remaining schedule items so penalties can continue
+ * ⛔ PERMANENT FORFEITURE LIFECYCLE — LOCKED RULE
+ * DO NOT MODIFY without explicit business owner approval.
+ *
+ * GUARDS (all enforced server-side):
+ *   - Account MUST be in 'forfeited' status
+ *   - Account MUST NOT have is_reactivated = true (one-time only)
+ *   - FINAL_FORFEITED accounts can NEVER be reactivated
+ *
+ * ACTIONS:
+ *   1. Changes status to 'extension_active'
+ *   2. Sets is_reactivated = true, extension_end_date = last_due + 1 month
+ *   3. Records penalty_count_at_reactivation (penalty cycle continues, no reset)
+ *   4. Un-cancels remaining schedule items
  */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
