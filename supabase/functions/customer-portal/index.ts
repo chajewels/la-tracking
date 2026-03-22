@@ -113,6 +113,7 @@ Deno.serve(async (req) => {
     const paymentsByAccount: Record<string, any[]> = {};
     const servicesByAccount: Record<string, any[]> = {};
     const statementTokenByAccount: Record<string, string> = {};
+    const submissionsByAccount: Record<string, any[]> = {};
 
     for (const s of schedules) {
       (schedulesByAccount[s.account_id] ||= []).push(s);
@@ -124,10 +125,12 @@ Deno.serve(async (req) => {
       (servicesByAccount[s.account_id] ||= []).push(s);
     }
     for (const t of stTokens) {
-      // Check expiry
       if (!t.expires_at || new Date(t.expires_at) > new Date()) {
         statementTokenByAccount[t.account_id] = t.token;
       }
+    }
+    for (const sub of submissions) {
+      (submissionsByAccount[sub.account_id] ||= []).push(sub);
     }
 
     // Build response
