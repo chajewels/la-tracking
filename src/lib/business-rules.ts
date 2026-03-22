@@ -139,10 +139,10 @@ export function scheduleDisplayAmount(item: {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /** Active statuses that count toward receivables and operations. */
-export const ACTIVE_STATUSES = ['active', 'overdue', 'final_settlement'] as const;
+export const ACTIVE_STATUSES = ['active', 'overdue', 'final_settlement', 'extension_active'] as const;
 
 /** Statuses excluded from receivables and account counts. */
-export const EXCLUDED_STATUSES = ['forfeited', 'cancelled'] as const;
+export const EXCLUDED_STATUSES = ['forfeited', 'cancelled', 'final_forfeited'] as const;
 
 /** Check if account is operationally active. */
 export function isAccountActive(status: string): boolean {
@@ -157,6 +157,16 @@ export function isAccountExcluded(status: string): boolean {
 /** Check if account is in final settlement state. */
 export function isFinalSettlement(status: string): boolean {
   return status === 'final_settlement';
+}
+
+/** Check if account is in extension period after reactivation. */
+export function isExtensionActive(status: string): boolean {
+  return status === 'extension_active';
+}
+
+/** Check if account is permanently forfeited (no further action). */
+export function isFinalForfeited(status: string): boolean {
+  return status === 'final_forfeited';
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

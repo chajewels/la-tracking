@@ -31,7 +31,7 @@ import {
   isEffectivelyPaid, remainingDue, computeRemainingBalance,
   getUnpaidScheduleItems, getActivePayments, accountProgress,
   ordinal, SERVICE_LABELS, getNextPaymentStatementDate,
-  isPenaltyOverCap, isFinalSettlement,
+  isPenaltyOverCap, isFinalSettlement, isExtensionActive, isFinalForfeited,
 } from '@/lib/business-rules';
 
 export default function AccountDetail() {
@@ -64,6 +64,7 @@ export default function AccountDetail() {
   const [editingInvoice, setEditingInvoice] = useState(false);
   const [invoiceInput, setInvoiceInput] = useState('');
   const [invoiceSaving, setInvoiceSaving] = useState(false);
+  const [reactivating, setReactivating] = useState(false);
   const queryClient = useQueryClient();
 
 
@@ -198,10 +199,21 @@ export default function AccountDetail() {
 
   const isForfeited = account.status === 'forfeited';
   const isSettlement = account.status === 'final_settlement';
+  const isFinalForfeit = account.status === 'final_forfeited';
+  const isExtension = account.status === 'extension_active';
+
 
   let message = `✨ Cha Jewels Layaway Payment Summary\n\n`;
 
-  if (isForfeited) {
+  if (isFinalForfeit) {
+    message += `🚫 PERMANENT FORFEITURE NOTICE\n\n`;
+    message += `Inv # ${account.invoice_number}\n`;
+    message += `Status: PERMANENTLY FORFEITED\n`;
+    message += `Total Layaway Amount: ${formatCurrency(totalLayawayAmount, currency)}\n`;
+    message += `Amount Paid: ${paymentBreakdownText}\n`;
+    message += `\nYour account is permanently forfeited.\nNo further reactivation or negotiation is allowed.\n`;
+    message += `\nFor any questions, please contact Cha Jewels directly.`;
+  } else if (isForfeited) {
     message += `⛔ NOTICE: This layaway account has been FORFEITED due to extended non-payment.\n\n`;
     message += `Inv # ${account.invoice_number}\n`;
     message += `Status: FORFEITED\n`;
@@ -209,10 +221,44 @@ export default function AccountDetail() {
     message += `Amount Paid: ${paymentBreakdownText}\n`;
     message += `\nNo further installment payments are being accepted for this account.\n`;
     message += `\nFor any questions, please contact Cha Jewels directly.`;
+  } else if (isExtension) {
+    message += `🔄 REACTIVATION NOTICE\n\n`;
+    message += `Inv # ${account.invoice_number}\n`;
+    message += `Your account has been reactivated as a one-time consideration.\n`;
+    message += `You are given a final extension of 1 month${(account as any).extension_end_date ? ` (until ${new Date((account as any).extension_end_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })})` : ''}.\n`;
+    message += `Penalty charges will continue to apply based on the existing schedule.\n`;
+    message += `No further extensions will be allowed.\n\n`;
+    const amountParts: string[] = [formatCurrency(originalPrincipal, currency)];
+    if (totalServicesAmount > 0) amountParts.push(`${formatCurrency(totalServicesAmount, currency)} (Services)`);
+    if (schedulePenaltySum > 0) amountParts.push(`${formatCurrency(schedulePenaltySum, currency)} (Penalty)`);
+    message += `Total Layaway Amount: ${amountParts.join(' + ')}`;
+    if (amountParts.length > 1) message += ` = ${formatCurrency(totalLayawayAmount, currency)}`;
+    message += `\n`;
+    message += `Amount Paid: ${paymentBreakdownText}\n`;
+    message += `================\n`;
+    message += `Remaining Balance: ${formatCurrency(remainingBalance, currency)}\n\n`;
+    message += `Monthly Payment:\n`;
+    scheduleItems.forEach((item, idx) => {
+      const effPaid = isEffectivelyPaid(item);
+      const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+      const penalty = Number(item.penalty_amount);
+      const baseAmt = Number(item.base_installment_amount);
+      const paidAmt = Number(item.paid_amount);
+      const totalDue = Number(item.total_due_amount);
+      const displayAmt = effPaid ? Math.max(paidAmt, totalDue) : totalDue;
+      if (effPaid) {
+        message += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(displayAmt, currency)} (PAID)\n`;
+      } else if (penalty > 0) {
+        message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
+      } else {
+        message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(remainingDue(item), currency)}\n`;
+      }
+    });
+    message += `\nPlease settle promptly to avoid permanent forfeiture. 💛`;
   } else if (isSettlement) {
     message += `⚠️ FINAL SETTLEMENT NOTICE\n\n`;
     message += `Inv # ${account.invoice_number}\n`;
-    message += `Due to accumulated overdue penalties, this invoice has been converted to a FINAL SETTLEMENT.\n\n`;
+    message += `Your account has reached final settlement.\nThe total amount is final and must be settled.\n\n`;
     const amountParts: string[] = [formatCurrency(originalPrincipal, currency)];
     if (totalServicesAmount > 0) amountParts.push(`${formatCurrency(totalServicesAmount, currency)} (Services)`);
     if (schedulePenaltySum > 0) amountParts.push(`${formatCurrency(schedulePenaltySum, currency)} (Penalty)`);
@@ -357,14 +403,29 @@ export default function AccountDetail() {
                 </div>
               )}
               <Badge variant="outline" className={
+                account.status === 'final_forfeited' ? 'bg-destructive/10 text-destructive border-destructive/20 text-xs' :
                 account.status === 'forfeited' ? 'bg-orange-500/10 text-orange-500 border-orange-500/20 text-xs' :
+                account.status === 'extension_active' ? 'bg-info/10 text-info border-info/20 text-xs' :
                 account.status === 'final_settlement' ? 'bg-amber-600/10 text-amber-600 border-amber-600/20 text-xs' :
                 account.status === 'overdue' ? 'bg-destructive/10 text-destructive border-destructive/20 text-xs' :
                 account.status === 'completed' ? 'bg-primary/10 text-primary border-primary/20 text-xs' :
                 'bg-success/10 text-success border-success/20 text-xs'
               }>
-                {account.status === 'final_settlement' ? 'FINAL SETTLEMENT' : account.status}
+                {account.status === 'final_settlement' ? 'FINAL SETTLEMENT' :
+                 account.status === 'extension_active' ? 'EXTENSION ACTIVE' :
+                 account.status === 'final_forfeited' ? 'PERMANENTLY FORFEITED' :
+                 account.status.toUpperCase()}
               </Badge>
+              {(account as any).is_reactivated && (
+                <Badge variant="outline" className="bg-info/10 text-info border-info/20 text-xs">
+                  🔄 Reactivated
+                </Badge>
+              )}
+              {isExtension && (account as any).extension_end_date && (
+                <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20 text-xs">
+                  Extension until {new Date((account as any).extension_end_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })}
+                </Badge>
+              )}
               {penaltyCapOverride && (
                 <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-xs">
                   <ShieldCheck className="h-3 w-3 mr-1" /> Penalty Override Active ✅
@@ -389,7 +450,7 @@ export default function AccountDetail() {
               currentCustomerName={account.customers?.full_name || 'Unknown'}
               invoiceNumber={account.invoice_number}
             />
-            {remainingBalance > 0 && account.status !== 'forfeited' && account.status !== 'cancelled' && (
+            {remainingBalance > 0 && !['forfeited', 'cancelled', 'final_forfeited'].includes(account.status) && (
               <>
                 <RecordPaymentDialog
                   accountId={account.id}
@@ -413,10 +474,40 @@ export default function AccountDetail() {
                 </Button>
               </a>
             )}
-            {account.status !== 'forfeited' && account.status !== 'cancelled' && (
+            {!['forfeited', 'cancelled', 'final_forfeited'].includes(account.status) && (
               <AddServiceDialog accountId={account.id} currency={currency} />
             )}
-            {(account.status === 'active' || account.status === 'overdue') && (
+            {/* Reactivate button — only for forfeited, non-reactivated accounts */}
+            {account.status === 'forfeited' && !(account as any).is_reactivated && (
+              <Button
+                variant="outline"
+                className="border-info/30 text-info hover:bg-info/10"
+                disabled={reactivating}
+                onClick={async () => {
+                  setReactivating(true);
+                  try {
+                    const user = (await supabase.auth.getUser()).data.user;
+                    const { data, error } = await supabase.functions.invoke('reactivate-account', {
+                      body: { account_id: account.id, staff_user_id: user?.id },
+                    });
+                    if (error) throw error;
+                    if (data?.error) throw new Error(data.error);
+                    toast.success(data.message || 'Account reactivated');
+                    queryClient.invalidateQueries({ queryKey: ['accounts', account.id] });
+                    queryClient.invalidateQueries({ queryKey: ['accounts'] });
+                    queryClient.invalidateQueries({ queryKey: ['schedule', id] });
+                    queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+                  } catch (err: any) {
+                    toast.error(err.message || 'Failed to reactivate');
+                  } finally {
+                    setReactivating(false);
+                  }
+                }}
+              >
+                <RotateCcw className="h-4 w-4 mr-2" /> {reactivating ? 'Reactivating…' : 'Reactivate (One-Time)'}
+              </Button>
+            )}
+            {(account.status === 'active' || account.status === 'overdue' || account.status === 'extension_active') && (
               <>
                 <AddPenaltyDialog
                   accountId={account.id}

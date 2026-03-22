@@ -44,3 +44,6 @@ verify_jwt = false
 
 [functions.auto-forfeit-settlement]
 verify_jwt = false
+
+[functions.reactivate-account]
+verify_jwt = false
