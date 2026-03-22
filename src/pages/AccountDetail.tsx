@@ -829,7 +829,7 @@ export default function AccountDetail() {
                               <X className="h-3 w-3" />
                             </Button>
                           </div>
-                        ) : canEdit ? (
+                        ) : canEdit && can('edit_schedule') ? (
                           <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
                             title="Edit installment amount"
                             onClick={() => {
