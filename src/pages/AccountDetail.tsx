@@ -308,14 +308,17 @@ export default function AccountDetail() {
     message += `Your account has reached final settlement.\nThe total amount is final and must be settled.\n\n`;
     appendSummaryBlock();
     message += `================\n`;
-    message += `Remaining Principal: ${formatCurrency(summary.remainingPrincipal, currency)}\n`;
+    message += `Remaining Balance: ${formatCurrency(summary.remainingPrincipal, currency)}\n`;
     if (summary.outstandingPenalties > 0) {
+      if (summary.totalServices > 0) message += `Additional Services: ${formatCurrency(summary.totalServices, currency)}\n`;
       message += `⚠️ FINAL SETTLEMENT AMOUNT: ${formatCurrency(summary.currentTotalPayable, currency)}\n\n`;
       message += `This amount includes:\n`;
-      message += `  • Remaining principal: ${formatCurrency(summary.remainingPrincipal, currency)}\n`;
+      message += `  • Remaining balance: ${formatCurrency(summary.remainingPrincipal, currency)}\n`;
       message += `  • Outstanding penalties: ${formatCurrency(summary.outstandingPenalties, currency)}\n`;
+      if (summary.totalServices > 0) message += `  • Additional services: ${formatCurrency(summary.totalServices, currency)}\n`;
     } else {
-      message += `⚠️ FINAL SETTLEMENT AMOUNT: ${formatCurrency(summary.remainingPrincipal, currency)}\n\n`;
+      if (summary.totalServices > 0) message += `Additional Services: ${formatCurrency(summary.totalServices, currency)}\n`;
+      message += `⚠️ FINAL SETTLEMENT AMOUNT: ${formatCurrency(summary.currentTotalPayable, currency)}\n\n`;
     }
     message += `\nRegular installment schedule is no longer active.\n`;
     message += `Please settle the full amount above to complete your layaway.\n\n`;
