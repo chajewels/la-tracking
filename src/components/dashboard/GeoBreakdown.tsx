@@ -69,20 +69,40 @@ export default function GeoBreakdown({ accounts, customers }: GeoBreakdownProps)
       <div className="rounded-xl border border-border bg-card p-5">
         <div className="flex items-center gap-2 mb-3">
           <MapPin className="h-4 w-4 text-primary" />
-          <h3 className="text-sm font-semibold text-card-foreground">Japan</h3>
+          <h3 className="text-sm font-semibold text-card-foreground">Primary Markets</h3>
+          <span className="ml-auto text-xs text-muted-foreground">{geo.primary.length} regions</span>
         </div>
-        <div className="flex items-baseline justify-between">
+        <div className="flex items-baseline justify-between mb-3">
           <div>
-            <p className="text-2xl font-bold text-card-foreground font-display">{geo.japan.count}</p>
+            <p className="text-2xl font-bold text-card-foreground font-display">{geo.primaryTotal.count}</p>
             <p className="text-xs text-muted-foreground">active accounts</p>
           </div>
-          <div className="text-right">
-            <p className="text-sm font-semibold text-card-foreground tabular-nums">
-              {formatCurrency(geo.japan.amount, 'JPY')}
-            </p>
+          <div className="text-right space-y-0.5">
+            {geo.primaryTotal.amountJPY > 0 && (
+              <p className="text-sm font-semibold text-card-foreground tabular-nums">
+                {formatCurrency(geo.primaryTotal.amountJPY, 'JPY')}
+              </p>
+            )}
+            {geo.primaryTotal.amountPHP > 0 && (
+              <p className="text-sm font-semibold text-card-foreground tabular-nums">
+                {formatCurrency(geo.primaryTotal.amountPHP, 'PHP')}
+              </p>
+            )}
             <p className="text-xs text-muted-foreground">outstanding</p>
           </div>
         </div>
+        {geo.primary.length > 0 && (
+          <div className="space-y-1.5 border-t border-border pt-3">
+            {geo.primary.map(item => (
+              <div key={item.country} className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">{item.country}</span>
+                <span className="text-card-foreground font-medium tabular-nums">
+                  {item.count} acct · {formatIntlAmount(item.amountPHP, item.amountJPY)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="rounded-xl border border-border bg-card p-5">
