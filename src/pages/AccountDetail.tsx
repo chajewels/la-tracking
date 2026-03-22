@@ -518,7 +518,7 @@ export default function AccountDetail() {
               <AddServiceDialog accountId={account.id} currency={currency} />
             )}
             {/* Reactivate button — only for forfeited, non-reactivated accounts */}
-            {canReactivate(account.status, !!(account as any).is_reactivated) && (
+            {canReactivate(account.status, !!(account as any).is_reactivated) && can('reactivate_account') && (
               <Button
                 variant="outline"
                 className="border-info/30 text-info hover:bg-info/10"
