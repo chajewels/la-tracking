@@ -429,9 +429,9 @@ function ReconciliationTab() {
 
       {/* Summary Cards */}
       {s && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <div className="rounded-lg border border-border bg-card p-3">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Accounts Checked</p>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Active Accounts</p>
             <p className="text-lg font-bold text-card-foreground tabular-nums">{s.total_accounts}</p>
           </div>
           <div className="rounded-lg border border-success/20 bg-success/5 p-3">
@@ -449,6 +449,10 @@ function ReconciliationTab() {
           <div className="rounded-lg border border-border bg-card p-3">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Penalty Issues</p>
             <p className="text-lg font-bold text-card-foreground tabular-nums">{s.penalty_exceptions}</p>
+          </div>
+          <div className="rounded-lg border border-muted bg-muted/20 p-3">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Closed (Excluded)</p>
+            <p className="text-lg font-bold text-muted-foreground tabular-nums">{s.closed_accounts_excluded ?? 0}</p>
           </div>
         </div>
       )}
