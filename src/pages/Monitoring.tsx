@@ -23,6 +23,7 @@ import ReminderCard, { type AlertItem, generateReminderMessage } from '@/compone
 
 type FilterTab = 'all' | 'overdue' | 'due_today' | 'due_3_days' | 'due_7_days';
 type NotifFilter = 'all' | 'not_notified' | 'notified';
+type SummaryFilter = FilterTab | 'notified' | 'not_notified';
 
 const filterTabs: { key: FilterTab; label: string }[] = [
   { key: 'all', label: 'All' },
