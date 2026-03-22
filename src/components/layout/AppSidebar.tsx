@@ -10,9 +10,10 @@ import {
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
+import { canSeeNavItem, type AppRole } from '@/lib/role-permissions';
 import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
 
-const navItems = [
+const allNavItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
   { icon: FileText, label: 'Layaway Accounts', path: '/accounts' },
   { icon: Users, label: 'Customers', path: '/customers' },
@@ -32,6 +33,7 @@ export default function AppSidebar() {
   const collapsed = state === 'collapsed';
   const location = useLocation();
   const { profile, roles, signOut } = useAuth();
+  const navItems = allNavItems.filter(item => canSeeNavItem(roles as AppRole[], item.path));
 
   const initials = profile?.full_name
     ? profile.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)

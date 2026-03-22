@@ -11,12 +11,16 @@ import AlphabetNav, { LETTERS, SPECIAL } from '@/components/customers/AlphabetNa
 import CustomerCard from '@/components/customers/CustomerCard';
 import EditCustomerDialog from '@/components/customers/EditCustomerDialog';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { canPerformAction, type AppRole } from '@/lib/role-permissions';
 
 type ViewMode = 'all' | 'filter' | 'grouped';
 
 export default function Customers() {
   const { data: customers, isLoading } = useCustomers();
   const { data: accounts } = useAccounts();
+  const { roles } = useAuth();
+  const r = roles as AppRole[];
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('all');
   const [activeLetter, setActiveLetter] = useState<string | null>(null);
@@ -152,7 +156,7 @@ export default function Customers() {
               </p>
             </div>
           </div>
-          <NewCustomerDialog />
+          {canPerformAction(r, 'edit_customer') && <NewCustomerDialog />}
         </div>
 
         {/* Search + View Toggle */}

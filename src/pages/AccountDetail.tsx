@@ -1,6 +1,8 @@
 import { useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { canPerformAction, type AppRole } from '@/lib/role-permissions';
 import StatementShareMenu from '@/components/statement/StatementShareMenu';
 import RestorePaymentDialog from '@/components/payments/RestorePaymentDialog';
 import ReassignOwnerDialog from '@/components/accounts/ReassignOwnerDialog';
@@ -68,6 +70,9 @@ export default function AccountDetail() {
   const [invoiceSaving, setInvoiceSaving] = useState(false);
   const [reactivating, setReactivating] = useState(false);
   const queryClient = useQueryClient();
+  const { roles } = useAuth();
+  const r = roles as AppRole[];
+  const can = (action: Parameters<typeof canPerformAction>[1]) => canPerformAction(r, action);
 
 
   const handleInvoiceSave = useCallback(async () => {
@@ -403,6 +408,7 @@ export default function AccountDetail() {
               ) : (
                 <div className="flex items-center gap-2">
                   <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">INV #{account.invoice_number}</h1>
+                  {can('edit_invoice') && (
                   <Button
                     size="icon"
                     variant="ghost"
@@ -412,6 +418,7 @@ export default function AccountDetail() {
                   >
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
+                  )}
                 </div>
               )}
               <Badge variant="outline" className={
@@ -477,13 +484,15 @@ export default function AccountDetail() {
             )}
           </div>
           <div className="flex gap-2 flex-wrap">
+            {can('reassign_owner') && (
             <ReassignOwnerDialog
               accountId={account.id}
               currentCustomerId={account.customer_id}
               currentCustomerName={account.customers?.full_name || 'Unknown'}
               invoiceNumber={account.invoice_number}
             />
-            {remainingBalance > 0 && canAcceptPayment(account.status) && (
+            )}
+            {remainingBalance > 0 && canAcceptPayment(account.status) && can('record_payment') && (
               <>
                 <RecordPaymentDialog
                   accountId={account.id}
@@ -507,11 +516,11 @@ export default function AccountDetail() {
                 </Button>
               </a>
             )}
-            {canAddService(account.status) && (
+            {canAddService(account.status) && can('add_service') && (
               <AddServiceDialog accountId={account.id} currency={currency} />
             )}
             {/* Reactivate button — only for forfeited, non-reactivated accounts */}
-            {canReactivate(account.status, !!(account as any).is_reactivated) && (
+            {canReactivate(account.status, !!(account as any).is_reactivated) && can('reactivate_account') && (
               <Button
                 variant="outline"
                 className="border-info/30 text-info hover:bg-info/10"
@@ -540,7 +549,7 @@ export default function AccountDetail() {
                 <RotateCcw className="h-4 w-4 mr-2" /> {reactivating ? 'Reactivating…' : 'Reactivate (One-Time)'}
               </Button>
             )}
-            {canAddPenalty(account.status) && (
+            {canAddPenalty(account.status) && can('add_penalty') && (
               <>
                 <AddPenaltyDialog
                   accountId={account.id}
@@ -553,12 +562,15 @@ export default function AccountDetail() {
                     status: s.status,
                   }))}
                 />
+                {can('apply_cap_fix') && (
                 <ApplyPenaltyCapDialog
                   accountId={account.id}
                   invoiceNumber={account.invoice_number}
                   currency={currency}
                   hasOverride={!!penaltyCapOverride}
                 />
+                )}
+                {can('forfeit_account') && (
                 <Button
                   variant="outline"
                   className="border-orange-500/30 text-orange-500 hover:bg-orange-500/10"
@@ -566,6 +578,7 @@ export default function AccountDetail() {
                 >
                   <AlertTriangle className="h-4 w-4 mr-2" /> Forfeit
                 </Button>
+                )}
               </>
             )}
             <StatementShareMenu
@@ -579,6 +592,7 @@ export default function AccountDetail() {
               scheduleItems={scheduleItems}
               messengerLink={account.customers?.messenger_link}
             />
+            {can('delete_account') && (
             <Button
               variant="outline"
               className="border-destructive/30 text-destructive hover:bg-destructive/10"
@@ -586,6 +600,7 @@ export default function AccountDetail() {
             >
               <Trash2 className="h-4 w-4 mr-2" /> Delete Account
             </Button>
+            )}
           </div>
         </div>
 
@@ -816,7 +831,7 @@ export default function AccountDetail() {
                               <X className="h-3 w-3" />
                             </Button>
                           </div>
-                        ) : canEdit ? (
+                        ) : canEdit && can('edit_schedule') ? (
                           <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
                             title="Edit installment amount"
                             onClick={() => {
@@ -1009,13 +1024,15 @@ export default function AccountDetail() {
                             }}>
                             <Pencil className="h-3 w-3" />
                           </Button>
+                          {can('void_payment') && (
                           <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
                             onClick={() => { setVoidTarget(p.id); setVoidReason(''); }}>
                             <Ban className="h-3 w-3" />
                           </Button>
+                          )}
                         </div>
                       )}
-                      {isVoided && (
+                      {isVoided && can('restore_payment') && (
                         <Button variant="ghost" size="sm"
                           className="h-7 text-xs text-muted-foreground hover:text-success"
                           style={{ textDecoration: 'none' }}
