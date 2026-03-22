@@ -416,11 +416,10 @@ Deno.serve(async (req) => {
       else console.error("Penalty insert error:", error);
     }
 
-    // 4. Update account totals
+    // 4. Update account totals (NEVER touch total_amount — it's principal only)
     let accountsUpdated = 0;
     for (const [accId, upd] of accountUpdates) {
       const { error } = await supabase.from("layaway_accounts").update({
-        total_amount: upd.total_amount,
         remaining_balance: upd.remaining_balance,
         status: upd.status,
         updated_at: new Date().toISOString(),
