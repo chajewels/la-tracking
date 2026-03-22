@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
     // Validate account exists
     const { data: account, error: accErr } = await supabase
       .from("layaway_accounts")
-      .select("id, invoice_number, status")
+      .select("id, invoice_number, status, payment_plan_months")
       .eq("id", account_id)
       .single();
 
@@ -60,6 +60,8 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    const planMonths = account.payment_plan_months || 6;
 
     // Validate schedule item exists
     const { data: schedItem, error: schedErr } = await supabase
