@@ -548,7 +548,13 @@ function AccountDetail({ account, paymentMethods, portalToken, onClose, onRefres
 
         <div className="mt-4 grid grid-cols-2 gap-3">
           <InfoBlock label="Total Amount" value={fmt(account.total_amount, currency)} />
-          <InfoBlock label="Remaining" value={fmt(account.remaining_balance, currency)} highlight={isOverdue} />
+          <InfoBlock label="Remaining Principal" value={fmt(account.remaining_balance, currency)} highlight={isOverdue} />
+          {(account.outstanding_penalties ?? 0) > 0 && (
+            <InfoBlock label="Outstanding Penalties" value={fmt(account.outstanding_penalties, currency)} highlight />
+          )}
+          {(account.outstanding_penalties ?? 0) > 0 && (
+            <InfoBlock label="Current Total Payable" value={fmt(account.current_total_payable ?? account.remaining_balance, currency)} highlight />
+          )}
           <InfoBlock label="Next Due" value={account.next_due_date ? fmtDateLong(account.next_due_date) : '—'} />
           <InfoBlock label="Next Amount" value={account.next_due_amount ? fmt(account.next_due_amount, currency) : '—'} />
         </div>
