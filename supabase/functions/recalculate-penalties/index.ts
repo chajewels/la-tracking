@@ -141,7 +141,7 @@ Deno.serve(async (req) => {
     const penaltyFeesToInsert: any[] = [];
     const penaltyFeeIdsToWaive: string[] = [];
     const penaltyFeesToUpdate: Array<{ id: string; penalty_amount: number; penalty_date: string; status: string }> = [];
-    const accountUpdates = new Map<string, { total_amount: number; remaining_balance: number; status: string }>();
+    const accountUpdates = new Map<string, { remaining_balance: number; status: string }>();
 
     // ── Process each account ──
     for (const [accountId, schedItems] of accountSchedules) {
