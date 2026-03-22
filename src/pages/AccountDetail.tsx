@@ -592,7 +592,7 @@ export default function AccountDetail() {
               currency={currency}
               remainingBalance={remainingBalance}
               totalPaid={totalPaid}
-              totalAmount={totalLayawayAmount}
+              totalAmount={principalTotal}
               scheduleItems={scheduleItems}
               messengerLink={account.customers?.messenger_link}
             />
@@ -613,7 +613,7 @@ export default function AccountDetail() {
           <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0" />
             <p className="text-xs text-destructive font-medium">
-              Reconciliation Error: Total ({formatCurrency(totalLayawayAmount, currency)}) − Paid ({formatCurrency(totalPaid, currency)}) = {formatCurrency(totalLayawayAmount - totalPaid, currency)} ≠ Remaining ({formatCurrency(remainingBalance, currency)})
+              Reconciliation Error: Total ({formatCurrency(principalTotal, currency)}) − Paid ({formatCurrency(totalPaid, currency)}) = {formatCurrency(principalTotal - totalPaid, currency)} ≠ Remaining ({formatCurrency(remainingBalance, currency)})
             </p>
           </div>
         )}
@@ -623,13 +623,13 @@ export default function AccountDetail() {
           <div className="rounded-xl border border-border bg-card p-3 sm:p-4">
             <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Total Layaway Amount</p>
             <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
-              {formatCurrency(totalLayawayAmount, currency)}
+              {formatCurrency(principalTotal, currency)}
             </p>
-            {(totalServicesAmount > 0 || schedulePenaltySum > 0) && (
+            {(totalServicesAmount > 0 || schedulePenaltySum > 0 || Math.abs(originalPrincipal - principalTotal) >= 1) && (
               <div className="text-[10px] text-muted-foreground mt-0.5 space-y-0.5">
-                <p>Principal: {formatCurrency(originalPrincipal, currency)}</p>
+                <p>Principal: {formatCurrency(principalTotal, currency)}</p>
                 {schedulePenaltySum > 0 && (
-                  <p className="text-destructive/80">Penalties: {formatCurrency(schedulePenaltySum, currency)}</p>
+                  <p className="text-destructive/80">Outstanding penalties: {formatCurrency(schedulePenaltySum, currency)}</p>
                 )}
                 {totalServicesAmount > 0 && (
                   <p>Services: {formatCurrency(totalServicesAmount, currency)}</p>
