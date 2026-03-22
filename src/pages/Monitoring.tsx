@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Bell, Send, Copy, Check, Loader2, Filter, MessageCircle } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
+import PenaltyFollowUpSection from '@/components/monitoring/PenaltyFollowUpSection';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useQuery } from '@tanstack/react-query';
@@ -416,6 +417,9 @@ export default function Monitoring() {
             ))}
           </div>
         </div>
+
+        {/* Penalty Follow-Up Stages */}
+        <PenaltyFollowUpSection />
 
         {/* Alert List */}
         {isLoading ? (
