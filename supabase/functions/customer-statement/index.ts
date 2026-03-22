@@ -80,6 +80,28 @@ Deno.serve(async (req) => {
     } : null;
 
     // Build safe response - no internal IDs, user IDs, or admin data
+    const isFinalSettlement = account.status === 'final_settlement';
+    const isForfeited = account.status === 'forfeited';
+
+    // Fetch final settlement record if applicable
+    let finalSettlementRecord = null;
+    if (isFinalSettlement) {
+      const { data: fsRecord } = await supabase
+        .from("final_settlement_records")
+        .select("*")
+        .eq("account_id", accountId)
+        .maybeSingle();
+      if (fsRecord) {
+        finalSettlementRecord = {
+          final_settlement_amount: Number(fsRecord.final_settlement_amount),
+          remaining_principal: Number(fsRecord.remaining_principal),
+          penalty_total: Number(fsRecord.penalty_total_from_last_paid),
+          penalty_occurrences: fsRecord.penalty_occurrence_count,
+          last_paid_month: fsRecord.last_paid_month_date,
+        };
+      }
+    }
+
     const statement = {
       invoice_number: account.invoice_number,
       customer_name: customer?.full_name || "Customer",
@@ -89,8 +111,10 @@ Deno.serve(async (req) => {
       remaining_balance: Number(account.remaining_balance),
       downpayment_amount: Number(account.downpayment_amount || 0),
       status: account.status,
+      status_label: isFinalSettlement ? 'FINAL SETTLEMENT' : isForfeited ? 'FORFEITED' : account.status.toUpperCase(),
       order_date: account.order_date,
       payment_plan_months: account.payment_plan_months,
+      final_settlement: finalSettlementRecord,
       schedule: (scheduleRes.data || []).map((s: any) => ({
         installment_number: s.installment_number,
         due_date: s.due_date,
