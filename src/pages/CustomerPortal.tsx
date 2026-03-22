@@ -15,7 +15,11 @@ import {
   AlertTriangle, Calendar, Check, CheckCircle, ChevronRight, Clock,
   CreditCard, Diamond, FileText, Filter, Search, TrendingUp, X,
   Upload, Send, ArrowLeft, Landmark, Wallet, Eye, MessageSquare, XCircle, Loader2, Image as ImageIcon,
+  User, Pencil, Save,
 } from 'lucide-react';
+import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
+import CountrySelect from '@/components/customers/CountrySelect';
+import { LocationType, parseLocation, toLocationString } from '@/lib/countries';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -84,9 +88,21 @@ interface PortalAccount {
   submissions: Submission[];
 }
 
+interface CustomerProfile {
+  full_name: string;
+  location: string | null;
+  facebook_name: string | null;
+  messenger_link: string | null;
+  mobile_number: string | null;
+  email: string | null;
+  notes: string | null;
+}
+
 interface PortalData {
   customer_name: string;
   customer_code: string;
+  customer_id: string;
+  profile: CustomerProfile;
   summary: {
     total_active: number;
     total_completed: number;
@@ -166,6 +182,7 @@ export default function CustomerPortal() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('newest');
+  const [portalView, setPortalView] = useState<'accounts' | 'profile'>('accounts');
 
   const fetchPortal = async () => {
     if (!token) { setError('No access token provided.'); setLoading(false); return; }
@@ -240,97 +257,120 @@ export default function CustomerPortal() {
     <div className="min-h-screen bg-[hsl(var(--background))]">
       {/* Header */}
       <div className="bg-[hsl(var(--card))] border-b border-[hsl(var(--border))]">
-        <div className="max-w-3xl mx-auto px-4 py-6 sm:py-8">
-          <div className="flex items-center gap-3 mb-1">
-            <Diamond className="h-6 w-6 text-primary" />
-            <h1 className="text-xl sm:text-2xl font-bold font-display text-foreground tracking-tight">
-              Cha Jewels
-            </h1>
+        <div className="max-w-3xl mx-auto px-4 py-5 sm:py-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <img src={chaJewelsLogo} alt="Cha Jewels" className="h-10 w-10 rounded-lg object-cover shadow-sm" />
+              <div>
+                <h1 className="text-lg sm:text-xl font-bold font-display text-foreground tracking-tight">
+                  Cha Jewels
+                </h1>
+                <p className="text-[11px] text-muted-foreground">
+                  Welcome, <span className="text-foreground font-medium">{data.customer_name}</span>
+                </p>
+              </div>
+            </div>
+            <Button
+              variant={portalView === 'profile' ? 'default' : 'outline'}
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setPortalView(portalView === 'profile' ? 'accounts' : 'profile')}
+            >
+              <User className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">{portalView === 'profile' ? 'My Accounts' : 'My Profile'}</span>
+            </Button>
           </div>
-          <p className="text-sm text-muted-foreground ml-9">
-            Welcome back, <span className="text-foreground font-medium">{data.customer_name}</span>
-          </p>
         </div>
       </div>
 
       <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
-        {/* Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <SummaryTile label="Active Accounts" value={String(data.summary.total_active)} icon={<TrendingUp className="h-4 w-4" />} />
-          <SummaryTile label="Outstanding" value={fmt(data.summary.total_outstanding, currency)} icon={<CreditCard className="h-4 w-4" />} accent />
-          <SummaryTile label="Completed" value={String(data.summary.total_completed)} icon={<Check className="h-4 w-4" />} />
-          <SummaryTile
-            label="Next Due"
-            value={data.summary.next_due_date ? fmtDate(data.summary.next_due_date) : '—'}
-            icon={<Calendar className="h-4 w-4" />}
-            sub={data.summary.next_due_invoice ? `#${data.summary.next_due_invoice}` : undefined}
+        {portalView === 'profile' ? (
+          <ProfileEditor
+            profile={data.profile}
+            portalToken={token!}
+            onSaved={(updated) => setData({ ...data, profile: updated, customer_name: updated.full_name })}
           />
-        </div>
-
-        {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search invoice number…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 bg-[hsl(var(--card))]"
-            />
-          </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full sm:w-[150px] bg-[hsl(var(--card))]">
-              <Filter className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
-              <SelectItem value="Active">Active</SelectItem>
-              <SelectItem value="Overdue">Overdue</SelectItem>
-              <SelectItem value="Fully Paid">Fully Paid</SelectItem>
-              <SelectItem value="Final Settlement">Final Settlement</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger className="w-full sm:w-[150px] bg-[hsl(var(--card))]">
-              <SelectValue placeholder="Sort" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="newest">Newest First</SelectItem>
-              <SelectItem value="oldest">Oldest First</SelectItem>
-              <SelectItem value="due_soon">Due Soon</SelectItem>
-              <SelectItem value="balance">Highest Balance</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Account Cards */}
-        {filtered.length === 0 ? (
-          <Card className="shadow-sm">
-            <CardContent className="py-16 text-center">
-              <Diamond className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-foreground mb-1 font-display">
-                {data.accounts.length === 0
-                  ? "You don't have any layaway accounts yet."
-                  : 'No accounts match your search.'}
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                {data.accounts.length === 0
-                  ? 'Visit Cha Jewels to start your first layaway plan.'
-                  : 'Try adjusting your filters.'}
-              </p>
-            </CardContent>
-          </Card>
         ) : (
-          <div className="space-y-3">
-            {filtered.map((account) => (
-              <AccountCard
-                key={account.id}
-                account={account}
-                onViewDetails={() => setSelectedAccount(account)}
+          <>
+            {/* Summary Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <SummaryTile label="Active Accounts" value={String(data.summary.total_active)} icon={<TrendingUp className="h-4 w-4" />} />
+              <SummaryTile label="Outstanding" value={fmt(data.summary.total_outstanding, currency)} icon={<CreditCard className="h-4 w-4" />} accent />
+              <SummaryTile label="Completed" value={String(data.summary.total_completed)} icon={<Check className="h-4 w-4" />} />
+              <SummaryTile
+                label="Next Due"
+                value={data.summary.next_due_date ? fmtDate(data.summary.next_due_date) : '—'}
+                icon={<Calendar className="h-4 w-4" />}
+                sub={data.summary.next_due_invoice ? `#${data.summary.next_due_invoice}` : undefined}
               />
-            ))}
-          </div>
+            </div>
+
+            {/* Filters */}
+            <div className="flex flex-col sm:flex-row gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search invoice number…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9 bg-[hsl(var(--card))]"
+                />
+              </div>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-full sm:w-[150px] bg-[hsl(var(--card))]">
+                  <Filter className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="Active">Active</SelectItem>
+                  <SelectItem value="Overdue">Overdue</SelectItem>
+                  <SelectItem value="Fully Paid">Fully Paid</SelectItem>
+                  <SelectItem value="Final Settlement">Final Settlement</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={sortBy} onValueChange={setSortBy}>
+                <SelectTrigger className="w-full sm:w-[150px] bg-[hsl(var(--card))]">
+                  <SelectValue placeholder="Sort" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="newest">Newest First</SelectItem>
+                  <SelectItem value="oldest">Oldest First</SelectItem>
+                  <SelectItem value="due_soon">Due Soon</SelectItem>
+                  <SelectItem value="balance">Highest Balance</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Account Cards */}
+            {filtered.length === 0 ? (
+              <Card className="shadow-sm">
+                <CardContent className="py-16 text-center">
+                  <Diamond className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-foreground mb-1 font-display">
+                    {data.accounts.length === 0
+                      ? "You don't have any layaway accounts yet."
+                      : 'No accounts match your search.'}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    {data.accounts.length === 0
+                      ? 'Visit Cha Jewels to start your first layaway plan.'
+                      : 'Try adjusting your filters.'}
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {filtered.map((account) => (
+                  <AccountCard
+                    key={account.id}
+                    account={account}
+                    onViewDetails={() => setSelectedAccount(account)}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
 
         {/* Footer */}
@@ -1082,6 +1122,204 @@ function InfoBlock({ label, value, highlight }: { label: string; value: string; 
     <div>
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className={`text-sm font-medium ${highlight ? 'text-destructive' : 'text-foreground'}`}>{value}</p>
+    </div>
+  );
+}
+
+/* ─── Profile Editor ─── */
+function ProfileEditor({ profile, portalToken, onSaved }: {
+  profile: CustomerProfile;
+  portalToken: string;
+  onSaved: (updated: CustomerProfile) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [successMsg, setSuccessMsg] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const parsed = parseLocation(profile.location);
+  const [fullName, setFullName] = useState(profile.full_name);
+  const [locationType, setLocationType] = useState<LocationType>(parsed.locationType);
+  const [country, setCountry] = useState(parsed.country);
+  const [facebookName, setFacebookName] = useState(profile.facebook_name || '');
+  const [messengerLink, setMessengerLink] = useState(profile.messenger_link || '');
+  const [mobileNumber, setMobileNumber] = useState(profile.mobile_number || '');
+  const [email, setEmail] = useState(profile.email || '');
+  const [notes, setNotes] = useState(profile.notes || '');
+
+  const resetForm = () => {
+    const p = parseLocation(profile.location);
+    setFullName(profile.full_name);
+    setLocationType(p.locationType);
+    setCountry(p.country);
+    setFacebookName(profile.facebook_name || '');
+    setMessengerLink(profile.messenger_link || '');
+    setMobileNumber(profile.mobile_number || '');
+    setEmail(profile.email || '');
+    setNotes(profile.notes || '');
+    setFormError(null);
+  };
+
+  const handleLocationChange = (v: string) => {
+    const lt = v as LocationType;
+    setLocationType(lt);
+    if (lt !== 'international') setCountry('');
+  };
+
+  const handleSave = async () => {
+    setFormError(null);
+    if (!fullName.trim()) { setFormError('Full Name is required.'); return; }
+    if (locationType === 'international' && !country.trim()) { setFormError('Please select a country.'); return; }
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setFormError('Please enter a valid email address.'); return; }
+
+    setSaving(true);
+    try {
+      const location = toLocationString(locationType, country);
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/customer-portal`, {
+        method: 'POST',
+        headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: portalToken,
+          action: 'update_profile',
+          profile: {
+            full_name: fullName.trim(),
+            location,
+            facebook_name: facebookName.trim() || null,
+            messenger_link: messengerLink.trim() || null,
+            mobile_number: mobileNumber.trim() || null,
+            email: email.trim() || null,
+            notes: notes.trim() || null,
+          },
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setFormError(json.error || 'Failed to update profile.'); return; }
+      onSaved(json.profile);
+      setEditing(false);
+      setSuccessMsg(true);
+      setTimeout(() => setSuccessMsg(false), 4000);
+    } catch {
+      setFormError('Something went wrong. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const locationLabel = locationType === 'japan' ? 'Japan' : locationType === 'philippines' ? 'Philippines' : country || 'International';
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold font-display text-foreground flex items-center gap-2">
+          <User className="h-5 w-5 text-primary" /> My Profile
+        </h2>
+        {!editing && (
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => { resetForm(); setEditing(true); setSuccessMsg(false); }}>
+            <Pencil className="h-3.5 w-3.5" /> Edit Profile
+          </Button>
+        )}
+      </div>
+
+      {successMsg && (
+        <div className="p-3 rounded-lg bg-success/10 border border-success/20 flex items-center gap-2">
+          <CheckCircle className="h-4 w-4 text-success shrink-0" />
+          <p className="text-xs text-success font-medium">Your profile has been updated successfully.</p>
+        </div>
+      )}
+
+      {!editing ? (
+        <Card className="shadow-sm">
+          <CardContent className="pt-6 space-y-4">
+            <ProfileField label="Full Name" value={profile.full_name} />
+            <ProfileField label="Location" value={locationLabel} />
+            <ProfileField label="Facebook Name" value={profile.facebook_name} />
+            <ProfileField label="Messenger Link" value={profile.messenger_link} />
+            <ProfileField label="Mobile Number" value={profile.mobile_number} />
+            <ProfileField label="Email" value={profile.email} />
+            <ProfileField label="Notes" value={profile.notes} />
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="shadow-sm">
+          <CardContent className="pt-6 space-y-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Full Name <span className="text-destructive">*</span></Label>
+              <Input value={fullName} onChange={(e) => setFullName(e.target.value)} />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Location</Label>
+                <Select value={locationType} onValueChange={handleLocationChange}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="japan">Japan</SelectItem>
+                    <SelectItem value="philippines">Philippines</SelectItem>
+                    <SelectItem value="international">International</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {locationType === 'international' && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Country <span className="text-destructive">*</span></Label>
+                  <CountrySelect value={country} onValueChange={setCountry} />
+                  <p className="text-[10px] text-muted-foreground">Please select your country for delivery and payment coordination.</p>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Facebook Name</Label>
+                <Input value={facebookName} onChange={(e) => setFacebookName(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Messenger Link</Label>
+                <Input value={messengerLink} onChange={(e) => setMessengerLink(e.target.value)} placeholder="m.me/username" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Mobile Number</Label>
+                <Input value={mobileNumber} onChange={(e) => setMobileNumber(e.target.value)} placeholder="+63 or +81" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Email</Label>
+                <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Notes</Label>
+              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Any notes for Cha Jewels…" />
+            </div>
+
+            {formError && (
+              <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+                <p className="text-xs text-destructive">{formError}</p>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="outline" onClick={() => setEditing(false)} disabled={saving}>Cancel</Button>
+              <Button onClick={handleSave} disabled={saving} className="gap-1.5">
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                {saving ? 'Saving…' : 'Save Changes'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function ProfileField({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-4">
+      <p className="text-xs text-muted-foreground w-32 shrink-0">{label}</p>
+      <p className="text-sm text-foreground">{value || <span className="text-muted-foreground/50 italic">Not set</span>}</p>
     </div>
   );
 }

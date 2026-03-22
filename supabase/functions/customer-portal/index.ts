@@ -11,6 +11,97 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    // Handle POST for profile updates
+    if (req.method === "POST") {
+      const body = await req.json();
+      const token = body.token;
+      const action = body.action;
+
+      if (!token || token.length < 16) {
+        return new Response(JSON.stringify({ error: "Invalid token" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Validate token
+      const { data: tokenRow } = await supabase
+        .from("customer_portal_tokens")
+        .select("*")
+        .eq("token", token)
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (!tokenRow) {
+        return new Response(JSON.stringify({ error: "Access denied" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) {
+        return new Response(JSON.stringify({ error: "Portal link has expired" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (action === "update_profile") {
+        const profile = body.profile;
+        if (!profile || !profile.full_name?.trim()) {
+          return new Response(JSON.stringify({ error: "Full Name is required" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const updateData: Record<string, any> = {
+          full_name: profile.full_name.trim(),
+          location: profile.location || null,
+          facebook_name: profile.facebook_name || null,
+          messenger_link: profile.messenger_link || null,
+          mobile_number: profile.mobile_number || null,
+          email: profile.email || null,
+          notes: profile.notes || null,
+        };
+
+        const { error: updateErr } = await supabase
+          .from("customers")
+          .update(updateData)
+          .eq("id", tokenRow.customer_id);
+
+        if (updateErr) {
+          return new Response(JSON.stringify({ error: "Failed to update profile" }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        // Log audit
+        await supabase.from("audit_logs").insert({
+          entity_type: "customer",
+          entity_id: tokenRow.customer_id,
+          action: "portal_profile_update",
+          new_value_json: updateData,
+        });
+
+        return new Response(JSON.stringify({ profile: updateData }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      return new Response(JSON.stringify({ error: "Unknown action" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // GET flow - existing portal data
     const url = new URL(req.url);
     const token = url.searchParams.get("token");
 
@@ -20,11 +111,6 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
 
     // Validate portal token
     const { data: tokenRow, error: tokenErr } = await supabase
@@ -41,7 +127,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Check expiry
     if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) {
       return new Response(JSON.stringify({ error: "Portal link has expired" }), {
         status: 403,
@@ -51,10 +136,10 @@ Deno.serve(async (req) => {
 
     const customerId = tokenRow.customer_id;
 
-    // Fetch customer
+    // Fetch customer with profile fields
     const { data: customer, error: custErr } = await supabase
       .from("customers")
-      .select("id, full_name, customer_code")
+      .select("id, full_name, customer_code, location, facebook_name, messenger_link, mobile_number, email, notes")
       .eq("id", customerId)
       .maybeSingle();
 
@@ -81,7 +166,6 @@ Deno.serve(async (req) => {
 
     const accountIds = (accounts || []).map((a: any) => a.id);
 
-    // Fetch schedules, payments, statement tokens, services, payment methods, and submissions in parallel
     const [schedulesRes, paymentsRes, stTokensRes, servicesRes, methodsRes, submissionsRes] = await Promise.all([
       accountIds.length > 0
         ? supabase.from("layaway_schedule").select("*").in("account_id", accountIds).order("installment_number")
@@ -108,32 +192,22 @@ Deno.serve(async (req) => {
     const paymentMethods = methodsRes.data || [];
     const submissions = submissionsRes.data || [];
 
-    // Group by account
     const schedulesByAccount: Record<string, any[]> = {};
     const paymentsByAccount: Record<string, any[]> = {};
     const servicesByAccount: Record<string, any[]> = {};
     const statementTokenByAccount: Record<string, string> = {};
     const submissionsByAccount: Record<string, any[]> = {};
 
-    for (const s of schedules) {
-      (schedulesByAccount[s.account_id] ||= []).push(s);
-    }
-    for (const p of payments) {
-      (paymentsByAccount[p.account_id] ||= []).push(p);
-    }
-    for (const s of services) {
-      (servicesByAccount[s.account_id] ||= []).push(s);
-    }
+    for (const s of schedules) { (schedulesByAccount[s.account_id] ||= []).push(s); }
+    for (const p of payments) { (paymentsByAccount[p.account_id] ||= []).push(p); }
+    for (const s of services) { (servicesByAccount[s.account_id] ||= []).push(s); }
     for (const t of stTokens) {
       if (!t.expires_at || new Date(t.expires_at) > new Date()) {
         statementTokenByAccount[t.account_id] = t.token;
       }
     }
-    for (const sub of submissions) {
-      (submissionsByAccount[sub.account_id] ||= []).push(sub);
-    }
+    for (const sub of submissions) { (submissionsByAccount[sub.account_id] ||= []).push(sub); }
 
-    // Build response
     const accountCards = (accounts || []).map((acc: any) => {
       const acctSchedule = schedulesByAccount[acc.id] || [];
       const acctPayments = paymentsByAccount[acc.id] || [];
@@ -141,25 +215,20 @@ Deno.serve(async (req) => {
 
       const paidInstallments = acctSchedule.filter((s: any) => s.status === 'paid').length;
       const totalInstallments = acctSchedule.filter((s: any) => s.status !== 'cancelled').length;
-
-      // Compute actual remaining from payments
       const totalPayments = acctPayments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
       const computedRemaining = Math.max(0, Number(acc.total_amount) - totalPayments);
       const totalServices = acctServices.reduce((s: number, sv: any) => s + Number(sv.amount), 0);
 
-      // Next due date
       const today = new Date().toISOString().split('T')[0];
       const unpaidSchedule = acctSchedule
         .filter((s: any) => s.status !== 'paid' && s.status !== 'cancelled')
         .sort((a: any, b: any) => a.due_date.localeCompare(b.due_date));
       const nextDue = unpaidSchedule[0] || null;
 
-      // Progress percentage
       const progressPercent = Number(acc.total_amount) > 0
         ? Math.min(100, Math.round((totalPayments / Number(acc.total_amount)) * 100))
         : 0;
 
-      // Status label
       const statusLabel =
         acc.status === 'completed' ? 'Fully Paid' :
         acc.status === 'active' ? (unpaidSchedule.some((s: any) => s.due_date < today) ? 'Overdue' : 'Active') :
@@ -221,12 +290,10 @@ Deno.serve(async (req) => {
       };
     });
 
-    // Summary stats
     const activeAccounts = accountCards.filter((a: any) => ['Active', 'Overdue'].includes(a.status_label));
     const completedAccounts = accountCards.filter((a: any) => a.status_label === 'Fully Paid');
     const totalOutstanding = activeAccounts.reduce((s: number, a: any) => s + a.remaining_balance, 0);
 
-    // Next due across all accounts
     const allNextDues = accountCards
       .filter((a: any) => a.next_due_date)
       .sort((a: any, b: any) => a.next_due_date.localeCompare(b.next_due_date));
@@ -234,6 +301,16 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({
       customer_name: customer.full_name,
       customer_code: customer.customer_code,
+      customer_id: customer.id,
+      profile: {
+        full_name: customer.full_name,
+        location: customer.location,
+        facebook_name: customer.facebook_name,
+        messenger_link: customer.messenger_link,
+        mobile_number: customer.mobile_number,
+        email: customer.email,
+        notes: customer.notes,
+      },
       summary: {
         total_active: activeAccounts.length,
         total_completed: completedAccounts.length,
