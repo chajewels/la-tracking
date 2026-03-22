@@ -96,6 +96,18 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ── Guard: Remove any items where paid_amount >= base_installment_amount ──
+    // Even if status hasn't been updated to "paid", a fully-covered installment must never get a penalty
+    allOverdueItems = allOverdueItems.filter(item => {
+      return Number(item.paid_amount) < Number(item.base_installment_amount);
+    });
+
+    if (allOverdueItems.length === 0) {
+      return new Response(JSON.stringify({ message: "No eligible overdue items (all fully paid)", penalties_created: 0 }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // ── Step 2: Batch-fetch existing penalties ──
     const scheduleIds = allOverdueItems.map(i => i.id);
     let allExistingPenalties: any[] = [];
