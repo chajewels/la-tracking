@@ -547,7 +547,7 @@ export default function AccountDetail() {
                 <RotateCcw className="h-4 w-4 mr-2" /> {reactivating ? 'Reactivating…' : 'Reactivate (One-Time)'}
               </Button>
             )}
-            {canAddPenalty(account.status) && (
+            {canAddPenalty(account.status) && can('add_penalty') && (
               <>
                 <AddPenaltyDialog
                   accountId={account.id}
@@ -560,12 +560,15 @@ export default function AccountDetail() {
                     status: s.status,
                   }))}
                 />
+                {can('apply_cap_fix') && (
                 <ApplyPenaltyCapDialog
                   accountId={account.id}
                   invoiceNumber={account.invoice_number}
                   currency={currency}
                   hasOverride={!!penaltyCapOverride}
                 />
+                )}
+                {can('forfeit_account') && (
                 <Button
                   variant="outline"
                   className="border-orange-500/30 text-orange-500 hover:bg-orange-500/10"
@@ -573,6 +576,7 @@ export default function AccountDetail() {
                 >
                   <AlertTriangle className="h-4 w-4 mr-2" /> Forfeit
                 </Button>
+                )}
               </>
             )}
             <StatementShareMenu
