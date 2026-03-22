@@ -237,6 +237,7 @@ Deno.serve(async (req) => {
       waiver_exceptions: waiverExceptions,
       balance_exceptions: balanceExceptions,
       payment_exceptions: paymentExceptions,
+      closed_accounts_excluded: closedAccountCount,
       reference_invoices: refResults,
       timestamp: new Date().toISOString(),
     };
