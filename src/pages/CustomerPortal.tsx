@@ -15,7 +15,7 @@ import {
   AlertTriangle, Calendar, Check, CheckCircle, ChevronRight, Clock,
   CreditCard, Diamond, FileText, Filter, Search, TrendingUp, X,
   Upload, Send, ArrowLeft, Landmark, Wallet, Eye, MessageSquare, XCircle, Loader2, Image as ImageIcon,
-  User, Pencil, Save,
+  User, Pencil, Save, Copy, Zap, Phone, MapPin, Mail, Building2, Smartphone,
 } from 'lucide-react';
 import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
 import CountrySelect from '@/components/customers/CountrySelect';
@@ -730,8 +730,295 @@ function OverviewTab({ account, statementUrl, today }: {
   );
 }
 
+/* ─── Hardcoded Cha Jewels Payment Methods ─── */
+interface ChaPaymentMethod {
+  id: string;
+  name: string;
+  group: 'PH' | 'JP';
+  icon: React.ReactNode;
+  isFast?: boolean;
+  bankName?: string;
+  accountNumber?: string;
+  accountName?: string;
+  branchName?: string;
+  bankCode?: string;
+  branchCode?: string;
+  accountType?: string;
+  recipientAddress?: string;
+  phone?: string;
+  email?: string;
+  extraNumbers?: Array<{ number: string; label: string }>;
+  location?: string;
+  payId?: string;
+}
+
+const CHA_PAYMENT_METHODS: ChaPaymentMethod[] = [
+  // Philippines
+  {
+    id: 'bpi', name: 'BPI', group: 'PH',
+    icon: <Building2 className="h-5 w-5" />,
+    bankName: 'Bank of the Philippine Islands (BPI)',
+    accountNumber: '8899-2755-95',
+    accountName: 'CHAJEWELSJAPAN JEWELRY AND ACCESSORIES SHOP',
+    branchName: 'Rosario Batangas',
+    accountType: 'Peso Savings',
+    recipientAddress: '296 Calicanto San Juan Batangas 4226',
+    phone: '0916-723-5528',
+    email: 'sales@chajewelsjp.com',
+  },
+  {
+    id: 'metrobank', name: 'Metrobank', group: 'PH',
+    icon: <Building2 className="h-5 w-5" />,
+    bankName: 'Metrobank',
+    accountNumber: '397-7-397-55124-1',
+    accountName: 'CHAJEWELSJAPAN JEWELRY AND ACCESSORIES SHOP',
+    branchName: 'Rosario Batangas',
+    accountType: 'Peso Savings',
+    recipientAddress: '296 Calicanto San Juan Batangas 4226',
+    phone: '0916-723-5528',
+    email: 'sales@chajewelsjp.com',
+  },
+  {
+    id: 'bdo', name: 'BDO', group: 'PH',
+    icon: <Building2 className="h-5 w-5" />,
+    bankName: 'BDO Unibank',
+    accountNumber: '004970387187',
+    accountName: 'CHAJEWELSJAPAN JEWELRY AND ACCESSORIES SHOP',
+    branchName: 'San Juan Batangas',
+    accountType: 'Peso Savings',
+    recipientAddress: 'Calicanto San Juan Batangas',
+    phone: '0952-446-8539',
+    email: 'sales@chajewelsjp.com',
+  },
+  {
+    id: 'gcash', name: 'GCash', group: 'PH',
+    icon: <Smartphone className="h-5 w-5" />,
+    isFast: true,
+    extraNumbers: [
+      { number: '0916-723-5528', label: 'April Largo' },
+      { number: '0915-7511-043', label: 'Cynthia Largo' },
+    ],
+  },
+  {
+    id: 'cash-pickup', name: 'Cash Pickup', group: 'PH',
+    icon: <MapPin className="h-5 w-5" />,
+    accountName: 'Cesar Magsino',
+    location: 'San Juan Batangas',
+    phone: '0906 032 2808',
+  },
+  // Japan
+  {
+    id: 'rakuten', name: 'Rakuten Bank', group: 'JP',
+    icon: <Building2 className="h-5 w-5" />,
+    bankName: 'Rakuten Bank',
+    branchName: '第四営業支店',
+    bankCode: '0036',
+    branchCode: '254',
+    accountNumber: '7555832',
+    accountType: 'Ordinary (Futsuu)',
+    accountName: 'チャ ジュエルズ カブシキガイシャ',
+    email: 'sales@chajewelsjp.com',
+  },
+  {
+    id: 'sumitomo', name: 'Sumitomo Bank', group: 'JP',
+    icon: <Building2 className="h-5 w-5" />,
+    bankName: 'Sumitomo Bank',
+    branchName: '新小岩',
+    bankCode: '0009',
+    branchCode: '232',
+    accountNumber: '7756718',
+    accountType: 'Ordinary (Futsuu)',
+    accountName: 'ﾁﾔ- ｼﾞﾕｴﾙｽ ﾗﾙｺﾞ ｼﾝﾃｲｱ ﾈﾗ',
+    email: 'sales@chajewelsjp.com',
+  },
+  {
+    id: 'paypay', name: 'PayPay', group: 'JP',
+    icon: <Smartphone className="h-5 w-5" />,
+    isFast: true,
+    payId: 'chajewelsjapan',
+    phone: '070-8307-3318',
+  },
+];
+
+function copyToClipboard(text: string, label: string, setCopied: (v: string | null) => void) {
+  navigator.clipboard.writeText(text).then(() => {
+    setCopied(label);
+    setTimeout(() => setCopied(null), 2000);
+  });
+}
+
+function buildFullDetails(m: ChaPaymentMethod): string {
+  const lines: string[] = [m.name];
+  if (m.bankName) lines.push(`Bank: ${m.bankName}`);
+  if (m.branchName) lines.push(`Branch: ${m.branchName}`);
+  if (m.bankCode) lines.push(`Bank Code: ${m.bankCode}`);
+  if (m.branchCode) lines.push(`Branch Code: ${m.branchCode}`);
+  if (m.accountNumber) lines.push(`Account #: ${m.accountNumber}`);
+  if (m.accountType) lines.push(`Type: ${m.accountType}`);
+  if (m.accountName) lines.push(`Name: ${m.accountName}`);
+  if (m.recipientAddress) lines.push(`Address: ${m.recipientAddress}`);
+  if (m.phone) lines.push(`Phone: ${m.phone}`);
+  if (m.email) lines.push(`Email: ${m.email}`);
+  if (m.payId) lines.push(`PayPay ID: ${m.payId}`);
+  if (m.location) lines.push(`Location: ${m.location}`);
+  if (m.extraNumbers) m.extraNumbers.forEach(n => lines.push(`${n.label}: ${n.number}`));
+  return lines.join('\n');
+}
+
+/* ─── Payment Method Detail Card ─── */
+function PaymentMethodCard({ method, onSelect, copiedField, setCopied }: {
+  method: ChaPaymentMethod;
+  onSelect: () => void;
+  copiedField: string | null;
+  setCopied: (v: string | null) => void;
+}) {
+  const CopyBtn = ({ text, label }: { text: string; label: string }) => (
+    <button
+      onClick={(e) => { e.stopPropagation(); copyToClipboard(text, label, setCopied); }}
+      className="inline-flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 transition-colors font-medium"
+    >
+      {copiedField === label ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+      {copiedField === label ? 'Copied!' : `Copy`}
+    </button>
+  );
+
+  return (
+    <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] overflow-hidden hover:border-primary/30 transition-all">
+      {/* Header */}
+      <div className="p-4 flex items-center gap-3">
+        <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 text-primary">
+          {method.icon}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-semibold text-foreground">{method.name}</p>
+            {method.isFast && (
+              <Badge variant="outline" className="text-[9px] py-0 h-4 bg-success/10 text-success border-success/20 gap-0.5">
+                <Zap className="h-2.5 w-2.5" /> Fast
+              </Badge>
+            )}
+          </div>
+          {method.bankName && <p className="text-xs text-muted-foreground">{method.bankName}</p>}
+          {method.accountType && !method.bankName && <p className="text-xs text-muted-foreground">{method.accountType}</p>}
+        </div>
+      </div>
+
+      {/* Details */}
+      <div className="px-4 pb-3 space-y-1.5 text-xs">
+        {method.accountNumber && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Account #:</span>
+            <span className="flex items-center gap-2">
+              <span className="font-mono font-medium text-foreground">{method.accountNumber}</span>
+              <CopyBtn text={method.accountNumber} label={`${method.id}-acct`} />
+            </span>
+          </div>
+        )}
+        {method.accountName && (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-muted-foreground shrink-0">Name:</span>
+            <span className="flex items-center gap-2 min-w-0">
+              <span className="font-medium text-foreground text-right truncate">{method.accountName}</span>
+              <CopyBtn text={method.accountName} label={`${method.id}-name`} />
+            </span>
+          </div>
+        )}
+        {method.branchName && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Branch:</span>
+            <span className="font-medium text-foreground">{method.branchName}</span>
+          </div>
+        )}
+        {method.bankCode && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Bank Code:</span>
+            <span className="font-mono font-medium text-foreground">{method.bankCode}</span>
+          </div>
+        )}
+        {method.branchCode && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Branch Code:</span>
+            <span className="font-mono font-medium text-foreground">{method.branchCode}</span>
+          </div>
+        )}
+        {method.accountType && method.bankName && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Type:</span>
+            <span className="text-foreground">{method.accountType}</span>
+          </div>
+        )}
+        {method.payId && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">PayPay ID:</span>
+            <span className="flex items-center gap-2">
+              <span className="font-mono font-medium text-foreground">{method.payId}</span>
+              <CopyBtn text={method.payId} label={`${method.id}-payid`} />
+            </span>
+          </div>
+        )}
+        {method.extraNumbers && method.extraNumbers.map((n, i) => (
+          <div key={i} className="flex items-center justify-between">
+            <span className="text-muted-foreground">{n.label}:</span>
+            <span className="flex items-center gap-2">
+              <span className="font-mono font-medium text-foreground">{n.number}</span>
+              <CopyBtn text={n.number} label={`${method.id}-num-${i}`} />
+            </span>
+          </div>
+        ))}
+        {method.recipientAddress && (
+          <div className="flex items-start justify-between gap-2">
+            <span className="text-muted-foreground shrink-0">Address:</span>
+            <span className="text-foreground text-right text-[11px]">{method.recipientAddress}</span>
+          </div>
+        )}
+        {method.location && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Location:</span>
+            <span className="text-foreground">{method.location}</span>
+          </div>
+        )}
+        {method.phone && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Phone:</span>
+            <span className="flex items-center gap-2">
+              <span className="font-medium text-foreground">{method.phone}</span>
+              <CopyBtn text={method.phone} label={`${method.id}-phone`} />
+            </span>
+          </div>
+        )}
+        {method.email && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Email:</span>
+            <span className="text-foreground">{method.email}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="px-4 pb-4 flex gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="flex-1 text-xs gap-1.5"
+          onClick={(e) => { e.stopPropagation(); copyToClipboard(buildFullDetails(method), `${method.id}-full`, setCopied); }}
+        >
+          <Copy className="h-3 w-3" />
+          {copiedField === `${method.id}-full` ? 'Copied!' : 'Copy All Details'}
+        </Button>
+        <Button
+          size="sm"
+          className="flex-1 text-xs gap-1.5"
+          onClick={(e) => { e.stopPropagation(); onSelect(); }}
+        >
+          <Send className="h-3 w-3" /> Select & Pay
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Pay Now Tab ─── */
-function PayNowTab({ account, paymentMethods, portalToken, onSuccess }: {
+function PayNowTab({ account, paymentMethods: _dbMethods, portalToken, onSuccess }: {
   account: PortalAccount;
   paymentMethods: PaymentMethod[];
   portalToken: string;
@@ -739,9 +1026,16 @@ function PayNowTab({ account, paymentMethods, portalToken, onSuccess }: {
 }) {
   const currency = account.currency;
   const [step, setStep] = useState<'methods' | 'form' | 'success'>('methods');
-  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | null>(null);
+  const [selectedMethodName, setSelectedMethodName] = useState<string>('');
+  const [selectedChaMethod, setSelectedChaMethod] = useState<ChaPaymentMethod | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  // Filter methods by currency
+  const relevantGroup = currency === 'JPY' ? 'JP' : 'PH';
+  const primaryMethods = CHA_PAYMENT_METHODS.filter(m => m.group === relevantGroup);
+  const otherMethods = CHA_PAYMENT_METHODS.filter(m => m.group !== relevantGroup);
 
   // Form state
   const [amount, setAmount] = useState(account.next_due_amount ? String(account.next_due_amount) : '');
@@ -771,17 +1065,22 @@ function PayNowTab({ account, paymentMethods, portalToken, onSuccess }: {
     }
   };
 
+  const handleSelectMethod = (m: ChaPaymentMethod) => {
+    setSelectedChaMethod(m);
+    setSelectedMethodName(m.name);
+    setStep('form');
+  };
+
   const handleSubmit = async () => {
     setFormError(null);
     const parsedAmount = parseFloat(amount);
     if (!parsedAmount || parsedAmount <= 0) { setFormError('Please enter a valid amount.'); return; }
     if (!paymentDate) { setFormError('Please select a payment date.'); return; }
-    if (!selectedMethod) { setFormError('Please select a payment method.'); return; }
+    if (!selectedMethodName) { setFormError('Please select a payment method.'); return; }
 
     setSubmitting(true);
 
     try {
-      // Upload proof if provided
       let proofUrl: string | null = null;
       if (proofFile) {
         const ext = proofFile.name.split('.').pop() || 'jpg';
@@ -803,7 +1102,6 @@ function PayNowTab({ account, paymentMethods, portalToken, onSuccess }: {
         }
       }
 
-      // Submit payment
       const res = await fetch(`${SUPABASE_URL}/functions/v1/submit-payment`, {
         method: 'POST',
         headers: {
@@ -815,7 +1113,7 @@ function PayNowTab({ account, paymentMethods, portalToken, onSuccess }: {
           account_id: account.id,
           submitted_amount: parsedAmount,
           payment_date: paymentDate,
-          payment_method: selectedMethod.method_name,
+          payment_method: selectedMethodName,
           reference_number: referenceNumber || null,
           sender_name: senderName || null,
           notes: notes || null,
@@ -856,27 +1154,62 @@ function PayNowTab({ account, paymentMethods, portalToken, onSuccess }: {
     );
   }
 
-  if (step === 'form' && selectedMethod) {
+  if (step === 'form' && selectedChaMethod) {
     return (
       <div className="space-y-5">
         <button onClick={() => setStep('methods')} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
           <ArrowLeft className="h-3.5 w-3.5" /> Back to payment methods
         </button>
 
-        {/* Selected Method */}
-        <div className="p-4 rounded-xl bg-primary/5 border border-primary/10">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Paying via</p>
-          <p className="text-sm font-semibold text-foreground">{selectedMethod.method_name}</p>
-          {selectedMethod.bank_name && <p className="text-xs text-muted-foreground">{selectedMethod.bank_name}</p>}
-          {selectedMethod.account_name && (
-            <p className="text-xs text-foreground mt-2">Account: <span className="font-medium">{selectedMethod.account_name}</span></p>
+        {/* Selected Method Summary */}
+        <div className="p-4 rounded-xl bg-primary/5 border border-primary/10 space-y-2">
+          <div className="flex items-center gap-2">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">Paying via</p>
+            {selectedChaMethod.isFast && (
+              <Badge variant="outline" className="text-[9px] py-0 h-4 bg-success/10 text-success border-success/20 gap-0.5">
+                <Zap className="h-2.5 w-2.5" /> Fast
+              </Badge>
+            )}
+          </div>
+          <p className="text-sm font-semibold text-foreground">{selectedChaMethod.name}</p>
+          {selectedChaMethod.bankName && <p className="text-xs text-muted-foreground">{selectedChaMethod.bankName}</p>}
+          {selectedChaMethod.accountNumber && (
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-foreground">Account #: <span className="font-mono font-medium">{selectedChaMethod.accountNumber}</span></p>
+              <button
+                onClick={() => copyToClipboard(selectedChaMethod.accountNumber!, `form-acct`, setCopiedField)}
+                className="text-[10px] text-primary hover:text-primary/80 inline-flex items-center gap-0.5"
+              >
+                {copiedField === 'form-acct' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              </button>
+            </div>
           )}
-          {selectedMethod.account_number && (
-            <p className="text-xs text-foreground">Number: <span className="font-mono font-medium">{selectedMethod.account_number}</span></p>
+          {selectedChaMethod.accountName && (
+            <p className="text-xs text-foreground">Name: <span className="font-medium">{selectedChaMethod.accountName}</span></p>
           )}
-          {selectedMethod.instructions && (
-            <p className="text-[10px] text-muted-foreground mt-2 italic">{selectedMethod.instructions}</p>
+          {selectedChaMethod.extraNumbers && selectedChaMethod.extraNumbers.map((n, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <p className="text-xs text-foreground">{n.label}: <span className="font-mono font-medium">{n.number}</span></p>
+              <button
+                onClick={() => copyToClipboard(n.number, `form-num-${i}`, setCopiedField)}
+                className="text-[10px] text-primary hover:text-primary/80 inline-flex items-center gap-0.5"
+              >
+                {copiedField === `form-num-${i}` ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              </button>
+            </div>
+          ))}
+          {selectedChaMethod.payId && (
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-foreground">PayPay ID: <span className="font-mono font-medium">{selectedChaMethod.payId}</span></p>
+              <button
+                onClick={() => copyToClipboard(selectedChaMethod.payId!, `form-payid`, setCopiedField)}
+                className="text-[10px] text-primary hover:text-primary/80 inline-flex items-center gap-0.5"
+              >
+                {copiedField === 'form-payid' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              </button>
+            </div>
           )}
+          <p className="text-[10px] text-muted-foreground italic mt-2">After completing your payment, please upload your proof of payment below.</p>
         </div>
 
         {/* Form */}
@@ -1004,7 +1337,7 @@ function PayNowTab({ account, paymentMethods, portalToken, onSuccess }: {
     );
   }
 
-  // Payment Methods list
+  // Payment Methods list (grouped)
   return (
     <div className="space-y-5">
       {/* Amount Due Summary */}
@@ -1018,38 +1351,50 @@ function PayNowTab({ account, paymentMethods, portalToken, onSuccess }: {
         )}
       </div>
 
+      {/* Primary Group */}
       <div>
         <h3 className="text-sm font-semibold font-display text-foreground mb-3 flex items-center gap-2">
-          <Wallet className="h-4 w-4 text-primary" /> Select Payment Method
+          <Wallet className="h-4 w-4 text-primary" />
+          {relevantGroup === 'PH' ? '🇵🇭 Philippines (Peso Payments)' : '🇯🇵 Japan (JPY Payments)'}
         </h3>
-        <div className="space-y-2">
-          {paymentMethods.map((method) => (
-            <button
+        {relevantGroup === 'PH' && (
+          <p className="text-[10px] text-muted-foreground mb-3">Recommended for Peso accounts</p>
+        )}
+        {relevantGroup === 'JP' && (
+          <p className="text-[10px] text-muted-foreground mb-3">Recommended for Yen accounts</p>
+        )}
+        <div className="space-y-3">
+          {primaryMethods.map((method) => (
+            <PaymentMethodCard
               key={method.id}
-              onClick={() => { setSelectedMethod(method); setStep('form'); }}
-              className="w-full text-left p-4 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] hover:border-primary/30 hover:bg-primary/5 transition-all group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                  <Landmark className="h-5 w-5 text-primary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">{method.method_name}</p>
-                  {method.bank_name && <p className="text-xs text-muted-foreground">{method.bank_name}</p>}
-                  {method.account_name && <p className="text-[10px] text-muted-foreground">{method.account_name}</p>}
-                </div>
-                <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
-              </div>
-            </button>
+              method={method}
+              onSelect={() => handleSelectMethod(method)}
+              copiedField={copiedField}
+              setCopied={setCopiedField}
+            />
           ))}
         </div>
       </div>
 
-      {paymentMethods.length === 0 && (
-        <div className="text-center py-8">
-          <Wallet className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground">Payment methods are being configured.</p>
-          <p className="text-xs text-muted-foreground/60 mt-1">Please contact Cha Jewels for payment instructions.</p>
+      {/* Other Group */}
+      {otherMethods.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold font-display text-foreground mb-3 flex items-center gap-2">
+            <Landmark className="h-4 w-4 text-muted-foreground" />
+            {relevantGroup === 'PH' ? '🇯🇵 Japan (JPY Payments)' : '🇵🇭 Philippines (Peso Payments)'}
+          </h3>
+          <p className="text-[10px] text-muted-foreground mb-3">Other available methods</p>
+          <div className="space-y-3">
+            {otherMethods.map((method) => (
+              <PaymentMethodCard
+                key={method.id}
+                method={method}
+                onSelect={() => handleSelectMethod(method)}
+                copiedField={copiedField}
+                setCopied={setCopiedField}
+              />
+            ))}
+          </div>
         </div>
       )}
     </div>
