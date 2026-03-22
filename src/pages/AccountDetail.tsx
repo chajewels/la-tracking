@@ -215,7 +215,9 @@ export default function AccountDetail() {
     message += `🚫 PERMANENT FORFEITURE NOTICE\n\n`;
     message += `Inv # ${account.invoice_number}\n`;
     message += `Status: PERMANENTLY FORFEITED\n`;
-    message += `Total Layaway Amount: ${formatCurrency(totalLayawayAmount, currency)}\n`;
+    message += `Total Layaway Amount: ${formatCurrency(principalTotal, currency)}\n`;
+    if (totalServicesAmount > 0) message += `Additional Services: ${formatCurrency(totalServicesAmount, currency)}\n`;
+    if (unpaidPenaltySum > 0) message += `Outstanding Penalties: ${formatCurrency(unpaidPenaltySum, currency)}\n`;
     message += `Amount Paid: ${paymentBreakdownText}\n`;
     message += `\nYour account is permanently forfeited.\nNo further reactivation or negotiation is allowed.\n`;
     message += `\nFor any questions, please contact Cha Jewels directly.`;
@@ -223,7 +225,9 @@ export default function AccountDetail() {
     message += `⛔ NOTICE: This layaway account has been FORFEITED due to extended non-payment.\n\n`;
     message += `Inv # ${account.invoice_number}\n`;
     message += `Status: FORFEITED\n`;
-    message += `Total Layaway Amount: ${formatCurrency(totalLayawayAmount, currency)}\n`;
+    message += `Total Layaway Amount: ${formatCurrency(principalTotal, currency)}\n`;
+    if (totalServicesAmount > 0) message += `Additional Services: ${formatCurrency(totalServicesAmount, currency)}\n`;
+    if (unpaidPenaltySum > 0) message += `Outstanding Penalties: ${formatCurrency(unpaidPenaltySum, currency)}\n`;
     message += `Amount Paid: ${paymentBreakdownText}\n`;
     message += `\nNo further installment payments are being accepted for this account.\n`;
     message += `\nFor any questions, please contact Cha Jewels directly.`;
@@ -234,50 +238,49 @@ export default function AccountDetail() {
     message += `You are given a final extension of 1 month${(account as any).extension_end_date ? ` (until ${new Date((account as any).extension_end_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })})` : ''}.\n`;
     message += `Penalty charges will continue to apply based on the existing schedule.\n`;
     message += `No further extensions will be allowed.\n\n`;
-    const amountParts: string[] = [formatCurrency(originalPrincipal, currency)];
-    if (totalServicesAmount > 0) amountParts.push(`${formatCurrency(totalServicesAmount, currency)} (Services)`);
-    if (schedulePenaltySum > 0) amountParts.push(`${formatCurrency(schedulePenaltySum, currency)} (Penalty)`);
-    message += `Total Layaway Amount: ${amountParts.join(' + ')}`;
-    if (amountParts.length > 1) message += ` = ${formatCurrency(totalLayawayAmount, currency)}`;
-    message += `\n`;
+    message += `Total Layaway Amount: ${formatCurrency(principalTotal, currency)}\n`;
+    if (totalServicesAmount > 0) message += `Additional Services: ${formatCurrency(totalServicesAmount, currency)}\n`;
+    if (unpaidPenaltySum > 0) message += `Outstanding Penalties: ${formatCurrency(unpaidPenaltySum, currency)}\n`;
     message += `Amount Paid: ${paymentBreakdownText}\n`;
     message += `================\n`;
-    message += `Remaining Balance: ${formatCurrency(remainingBalance, currency)}\n\n`;
-    message += `Monthly Payment:\n`;
+    message += `Remaining Principal Balance: ${formatCurrency(remainingBalance, currency)}\n`;
+    if (unpaidPenaltySum > 0) {
+      message += `Current Total Due (including penalties): ${formatCurrency(remainingBalance + unpaidPenaltySum, currency)}\n`;
+    }
+    message += `\nMonthly Payment:\n`;
     scheduleItems.forEach((item, idx) => {
       const effPaid = isEffectivelyPaid(item);
       const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
       const penalty = Number(item.penalty_amount);
       const baseAmt = Number(item.base_installment_amount);
       const paidAmt = Number(item.paid_amount);
-      const totalDue = Number(item.total_due_amount);
+      const totalDue = baseAmt + penalty;
       const displayAmt = effPaid ? Math.max(paidAmt, totalDue) : totalDue;
+      const itemRemaining = Math.max(0, totalDue - paidAmt);
       if (effPaid) {
         message += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(displayAmt, currency)} (PAID)\n`;
       } else if (penalty > 0) {
-        message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
+        message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(itemRemaining, currency)}\n`;
       } else {
-        message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(remainingDue(item), currency)}\n`;
+        message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(itemRemaining, currency)}\n`;
       }
     });
     message += `\nPlease settle promptly to avoid permanent forfeiture. 💛`;
   } else if (isSettlement) {
+    const finalSettlementAmount = remainingBalance + unpaidPenaltySum;
     message += `⚠️ FINAL SETTLEMENT NOTICE\n\n`;
     message += `Inv # ${account.invoice_number}\n`;
     message += `Your account has reached final settlement.\nThe total amount is final and must be settled.\n\n`;
-    const amountParts: string[] = [formatCurrency(originalPrincipal, currency)];
-    if (totalServicesAmount > 0) amountParts.push(`${formatCurrency(totalServicesAmount, currency)} (Services)`);
-    if (schedulePenaltySum > 0) amountParts.push(`${formatCurrency(schedulePenaltySum, currency)} (Penalty)`);
-    message += `Total Layaway Amount: ${amountParts.join(' + ')}`;
-    if (amountParts.length > 1) message += ` = ${formatCurrency(totalLayawayAmount, currency)}`;
-    message += `\n`;
+    message += `Total Layaway Amount: ${formatCurrency(principalTotal, currency)}\n`;
+    if (totalServicesAmount > 0) message += `Additional Services: ${formatCurrency(totalServicesAmount, currency)}\n`;
+    if (unpaidPenaltySum > 0) message += `Outstanding Penalties: ${formatCurrency(unpaidPenaltySum, currency)}\n`;
     message += `Amount Paid: ${paymentBreakdownText}\n`;
     message += `================\n`;
-    message += `⚠️ FINAL SETTLEMENT AMOUNT: ${formatCurrency(remainingBalance, currency)}\n\n`;
+    message += `⚠️ FINAL SETTLEMENT AMOUNT: ${formatCurrency(finalSettlementAmount, currency)}\n\n`;
     message += `This amount includes:\n`;
     message += `  • Remaining principal balance\n`;
-    message += `  • All accumulated penalty fees\n\n`;
-    message += `Regular installment schedule is no longer active.\n`;
+    if (unpaidPenaltySum > 0) message += `  • Outstanding penalty fees\n`;
+    message += `\nRegular installment schedule is no longer active.\n`;
     message += `Please settle the full amount above to complete your layaway.\n\n`;
     message += `Monthly Payment History:\n`;
     scheduleItems.forEach((item, idx) => {
@@ -286,14 +289,15 @@ export default function AccountDetail() {
       const penalty = Number(item.penalty_amount);
       const baseAmt = Number(item.base_installment_amount);
       const paidAmt = Number(item.paid_amount);
-      const totalDue = Number(item.total_due_amount);
+      const totalDue = baseAmt + penalty;
       const displayAmt = effPaid ? Math.max(paidAmt, totalDue) : totalDue;
+      const itemRemaining = Math.max(0, totalDue - paidAmt);
       if (effPaid) {
         message += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(displayAmt, currency)} (PAID)\n`;
       } else if (penalty > 0) {
-        message += `❌ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)} (UNPAID)\n`;
+        message += `❌ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(itemRemaining, currency)} (UNPAID)\n`;
       } else {
-        message += `❌ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(totalDue, currency)} (UNPAID)\n`;
+        message += `❌ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(itemRemaining, currency)} (UNPAID)\n`;
       }
     });
     message += `\nFor any questions, please contact Cha Jewels directly. 💛`;
@@ -303,14 +307,13 @@ export default function AccountDetail() {
       message += `Thank you for your payment. ${formatCurrency(Number((mostRecentPayment as any).amount_paid), currency)} has been received.\n\n`;
     }
     message += `Inv # ${account.invoice_number}\n`;
-    const amountParts: string[] = [formatCurrency(originalPrincipal, currency)];
-    if (totalServicesAmount > 0) amountParts.push(`${formatCurrency(totalServicesAmount, currency)} (Services)`);
-    if (schedulePenaltySum > 0) amountParts.push(`${formatCurrency(schedulePenaltySum, currency)} (Penalty)`);
-    message += `Total Layaway Amount: ${amountParts.join(' + ')}`;
-    if (amountParts.length > 1) {
-      message += ` = ${formatCurrency(totalLayawayAmount, currency)}`;
+    message += `Total Layaway Amount: ${formatCurrency(principalTotal, currency)}\n`;
+    if (totalServicesAmount > 0) {
+      message += `Additional Services: ${formatCurrency(totalServicesAmount, currency)}\n`;
     }
-    message += `\n`;
+    if (unpaidPenaltySum > 0) {
+      message += `Outstanding Penalties: ${formatCurrency(unpaidPenaltySum, currency)}\n`;
+    }
     message += `Amount Paid: ${paymentBreakdownText}\n`;
     if (accountServices.length > 0) {
       message += `\n🔧 Additional Services:\n`;
@@ -320,21 +323,23 @@ export default function AccountDetail() {
       });
       message += `  Services Total: ${formatCurrency(totalServicesAmount, currency)}\n`;
     }
-    const laRemainingText = `LA ${new Date(account.end_date || account.order_date).toLocaleDateString('en-US', { month: 'short' }).toUpperCase()} remaining balance`;
+    const laRemainingText = `LA ${new Date(account.end_date || account.order_date).toLocaleDateString('en-US', { month: 'short' }).toUpperCase()} remaining principal balance`;
     message += `================\n`;
     const unpaidCount = unpaidSchedule.length;
-    message += `${laRemainingText} - ${formatCurrency(remainingBalance, currency)} to pay in ${unpaidCount} month${unpaidCount !== 1 ? 's' : ''}\n\n`;
-
-    message += `Monthly Payment:\n`;
+    message += `${laRemainingText} - ${formatCurrency(remainingBalance, currency)} to pay in ${unpaidCount} month${unpaidCount !== 1 ? 's' : ''}\n`;
+    if (unpaidPenaltySum > 0) {
+      message += `Current Total Due (including penalties): ${formatCurrency(remainingBalance + unpaidPenaltySum, currency)}\n`;
+    }
+    message += `\nMonthly Payment:\n`;
     scheduleItems.forEach((item, idx) => {
       const effPaid = isEffectivelyPaid(item);
       const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
       const penalty = Number(item.penalty_amount);
       const baseAmt = Number(item.base_installment_amount);
       const paidAmt = Number(item.paid_amount);
-      const totalDue = Number(item.total_due_amount);
+      const totalDue = baseAmt + penalty;
       const displayAmt = effPaid ? Math.max(paidAmt, totalDue) : totalDue;
-      const itemRemaining = remainingDue(item);
+      const itemRemaining = Math.max(0, totalDue - paidAmt);
 
       if (effPaid) {
         if (penalty > 0) {
@@ -343,7 +348,7 @@ export default function AccountDetail() {
           message += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(displayAmt, currency)} (PAID)\n`;
         }
       } else if (penalty > 0) {
-        message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
+        message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(itemRemaining, currency)}\n`;
       } else {
         message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(itemRemaining, currency)}\n`;
       }
