@@ -198,10 +198,21 @@ export default function AccountDetail() {
 
   const isForfeited = account.status === 'forfeited';
   const isSettlement = account.status === 'final_settlement';
+  const isFinalForfeit = account.status === 'final_forfeited';
+  const isExtension = account.status === 'extension_active';
+  const [reactivating, setReactivating] = useState(false);
 
   let message = `✨ Cha Jewels Layaway Payment Summary\n\n`;
 
-  if (isForfeited) {
+  if (isFinalForfeit) {
+    message += `🚫 PERMANENT FORFEITURE NOTICE\n\n`;
+    message += `Inv # ${account.invoice_number}\n`;
+    message += `Status: PERMANENTLY FORFEITED\n`;
+    message += `Total Layaway Amount: ${formatCurrency(totalLayawayAmount, currency)}\n`;
+    message += `Amount Paid: ${paymentBreakdownText}\n`;
+    message += `\nYour account is permanently forfeited.\nNo further reactivation or negotiation is allowed.\n`;
+    message += `\nFor any questions, please contact Cha Jewels directly.`;
+  } else if (isForfeited) {
     message += `⛔ NOTICE: This layaway account has been FORFEITED due to extended non-payment.\n\n`;
     message += `Inv # ${account.invoice_number}\n`;
     message += `Status: FORFEITED\n`;
@@ -209,10 +220,44 @@ export default function AccountDetail() {
     message += `Amount Paid: ${paymentBreakdownText}\n`;
     message += `\nNo further installment payments are being accepted for this account.\n`;
     message += `\nFor any questions, please contact Cha Jewels directly.`;
+  } else if (isExtension) {
+    message += `🔄 REACTIVATION NOTICE\n\n`;
+    message += `Inv # ${account.invoice_number}\n`;
+    message += `Your account has been reactivated as a one-time consideration.\n`;
+    message += `You are given a final extension of 1 month${(account as any).extension_end_date ? ` (until ${new Date((account as any).extension_end_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })})` : ''}.\n`;
+    message += `Penalty charges will continue to apply based on the existing schedule.\n`;
+    message += `No further extensions will be allowed.\n\n`;
+    const amountParts: string[] = [formatCurrency(originalPrincipal, currency)];
+    if (totalServicesAmount > 0) amountParts.push(`${formatCurrency(totalServicesAmount, currency)} (Services)`);
+    if (schedulePenaltySum > 0) amountParts.push(`${formatCurrency(schedulePenaltySum, currency)} (Penalty)`);
+    message += `Total Layaway Amount: ${amountParts.join(' + ')}`;
+    if (amountParts.length > 1) message += ` = ${formatCurrency(totalLayawayAmount, currency)}`;
+    message += `\n`;
+    message += `Amount Paid: ${paymentBreakdownText}\n`;
+    message += `================\n`;
+    message += `Remaining Balance: ${formatCurrency(remainingBalance, currency)}\n\n`;
+    message += `Monthly Payment:\n`;
+    scheduleItems.forEach((item, idx) => {
+      const effPaid = isEffectivelyPaid(item);
+      const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+      const penalty = Number(item.penalty_amount);
+      const baseAmt = Number(item.base_installment_amount);
+      const paidAmt = Number(item.paid_amount);
+      const totalDue = Number(item.total_due_amount);
+      const displayAmt = effPaid ? Math.max(paidAmt, totalDue) : totalDue;
+      if (effPaid) {
+        message += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(displayAmt, currency)} (PAID)\n`;
+      } else if (penalty > 0) {
+        message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
+      } else {
+        message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(remainingDue(item), currency)}\n`;
+      }
+    });
+    message += `\nPlease settle promptly to avoid permanent forfeiture. 💛`;
   } else if (isSettlement) {
     message += `⚠️ FINAL SETTLEMENT NOTICE\n\n`;
     message += `Inv # ${account.invoice_number}\n`;
-    message += `Due to accumulated overdue penalties, this invoice has been converted to a FINAL SETTLEMENT.\n\n`;
+    message += `Your account has reached final settlement.\nThe total amount is final and must be settled.\n\n`;
     const amountParts: string[] = [formatCurrency(originalPrincipal, currency)];
     if (totalServicesAmount > 0) amountParts.push(`${formatCurrency(totalServicesAmount, currency)} (Services)`);
     if (schedulePenaltySum > 0) amountParts.push(`${formatCurrency(schedulePenaltySum, currency)} (Penalty)`);
