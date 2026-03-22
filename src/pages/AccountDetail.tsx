@@ -247,8 +247,10 @@ export default function AccountDetail() {
 
   const appendPayableBlock = () => {
     message += `================\n`;
-    message += `Remaining Principal: ${formatCurrency(summary.remainingPrincipal, currency)}\n`;
-    if (summary.outstandingPenalties > 0) {
+    message += `Remaining Balance: ${formatCurrency(summary.remainingPrincipal, currency)}\n`;
+    if (summary.outstandingPenalties > 0 || summary.totalServices > 0) {
+      if (summary.outstandingPenalties > 0) message += `Outstanding Penalties: ${formatCurrency(summary.outstandingPenalties, currency)}\n`;
+      if (summary.totalServices > 0) message += `Additional Services: ${formatCurrency(summary.totalServices, currency)}\n`;
       message += `Current Total Payable: ${formatCurrency(summary.currentTotalPayable, currency)}\n`;
     }
   };
