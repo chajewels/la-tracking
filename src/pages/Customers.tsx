@@ -156,7 +156,7 @@ export default function Customers() {
               </p>
             </div>
           </div>
-          <NewCustomerDialog />
+          {canPerformAction(r, 'edit_customer') && <NewCustomerDialog />}
         </div>
 
         {/* Search + View Toggle */}
