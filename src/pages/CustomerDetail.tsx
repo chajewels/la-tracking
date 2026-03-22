@@ -29,7 +29,7 @@ export default function CustomerDetail() {
   const { data, isLoading } = useCustomerAccounts(customerId);
   const [copied, setCopied] = useState(false);
   const [editingLocation, setEditingLocation] = useState(false);
-  const [locationType, setLocationType] = useState<'japan' | 'international'>('japan');
+  const [locationType, setLocationType] = useState<LocationType>('japan');
   const [country, setCountry] = useState('');
   const queryClient = useQueryClient();
   const forfeitAccount = useForfeitAccount();
