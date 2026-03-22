@@ -71,56 +71,96 @@ Deno.serve(async (req) => {
       .select("*")
       .eq("payment_id", payment_id);
 
-    // Step 1: Reverse direct allocation effects on schedule items
+    // Step 1: Mark payment as voided FIRST so recalculations exclude it
+    await supabase.from("payments").update({
+      voided_at: new Date().toISOString(),
+      voided_by_user_id: user.id,
+      void_reason: reason || "Voided by user",
+    }).eq("id", payment_id);
+
+    // Step 2: Collect all schedule IDs affected by this payment
+    const affectedScheduleIds = new Set<string>();
     for (const alloc of (allocations || [])) {
-      if (alloc.allocation_type === "installment") {
-        const { data: sched } = await supabase
-          .from("layaway_schedule")
-          .select("*")
-          .eq("id", alloc.schedule_id)
-          .single();
+      affectedScheduleIds.add(alloc.schedule_id);
+    }
 
-        if (sched) {
-          const newPaid = Math.max(0, Number(sched.paid_amount) - Number(alloc.allocated_amount));
-          const baseAmount = Number(sched.base_installment_amount);
-          // base_installment_amount is NEVER modified — only paid_amount and status
-          const newStatus = newPaid >= baseAmount ? "paid"
-            : newPaid > 0 ? "partially_paid"
-            : sched.due_date <= new Date().toISOString().split("T")[0] ? "overdue"
-            : "pending";
+    // Step 3: For each affected schedule item, recalculate paid_amount
+    // from all remaining non-voided payment allocations (source-of-truth)
+    const { data: validPayments } = await supabase
+      .from("payments")
+      .select("id")
+      .eq("account_id", payment.account_id)
+      .is("voided_at", null);
+    const validPaymentIds = new Set((validPayments || []).map(p => p.id));
 
-          await supabase.from("layaway_schedule").update({
-            paid_amount: newPaid,
-            status: newStatus,
-          }).eq("id", alloc.schedule_id);
-        }
-      } else if (alloc.allocation_type === "penalty") {
+    for (const scheduleId of affectedScheduleIds) {
+      // Recalculate installment paid_amount from non-voided allocations
+      const { data: allAllocations } = await supabase
+        .from("payment_allocations")
+        .select("allocated_amount, allocation_type, payment_id")
+        .eq("schedule_id", scheduleId)
+        .eq("allocation_type", "installment");
+
+      const recalcPaid = (allAllocations || [])
+        .filter(a => validPaymentIds.has(a.payment_id))
+        .reduce((sum, a) => sum + Number(a.allocated_amount), 0);
+
+      const { data: sched } = await supabase
+        .from("layaway_schedule")
+        .select("base_installment_amount, due_date")
+        .eq("id", scheduleId)
+        .single();
+
+      if (sched) {
+        const base = Number(sched.base_installment_amount);
+        const today = new Date().toISOString().split("T")[0];
+        const newSchedStatus = recalcPaid >= base ? "paid"
+          : recalcPaid > 0 ? "partially_paid"
+          : sched.due_date <= today ? "overdue"
+          : "pending";
+
+        await supabase.from("layaway_schedule").update({
+          paid_amount: recalcPaid,
+          status: newSchedStatus,
+        }).eq("id", scheduleId);
+      }
+
+      // Revert penalty allocations for this payment on this schedule
+      const penaltyAllocs = (allocations || []).filter(
+        a => a.schedule_id === scheduleId && a.allocation_type === "penalty"
+      );
+      for (const _pa of penaltyAllocs) {
         const { data: penaltyFees } = await supabase
           .from("penalty_fees")
-          .select("*")
-          .eq("schedule_id", alloc.schedule_id)
+          .select("id")
+          .eq("schedule_id", scheduleId)
           .eq("status", "paid")
           .eq("account_id", payment.account_id)
           .order("created_at", { ascending: true })
           .limit(1);
-
         if (penaltyFees && penaltyFees.length > 0) {
           await supabase.from("penalty_fees").update({ status: "unpaid" }).eq("id", penaltyFees[0].id);
         }
       }
     }
 
-    // Step 2: Update account totals using SINGLE SOURCE OF TRUTH
-    // remaining_balance = total_amount - SUM(non-voided payments)
-    const newTotalPaid = Math.max(0, Number(account.total_paid) - Number(payment.amount_paid));
+    // Step 4: Recalculate account totals from non-voided payments
+    const newTotalPaid = (validPayments || []).length > 0
+      ? await (async () => {
+          const { data: activePayments } = await supabase
+            .from("payments")
+            .select("amount_paid")
+            .eq("account_id", payment.account_id)
+            .is("voided_at", null);
+          return (activePayments || []).reduce((s, p) => s + Number(p.amount_paid), 0);
+        })()
+      : 0;
     const newRemainingBalance = Math.max(0, Number(account.total_amount) - newTotalPaid);
 
-    // Determine account status from schedule
     const { data: updatedSchedule } = await supabase
       .from("layaway_schedule")
-      .select("*")
-      .eq("account_id", payment.account_id)
-      .order("installment_number", { ascending: true });
+      .select("status, due_date")
+      .eq("account_id", payment.account_id);
 
     let newStatus = account.status;
     if (updatedSchedule) {
@@ -137,13 +177,6 @@ Deno.serve(async (req) => {
       remaining_balance: newRemainingBalance,
       status: newStatus,
     }).eq("id", payment.account_id);
-
-    // Mark payment as voided
-    await supabase.from("payments").update({
-      voided_at: new Date().toISOString(),
-      voided_by_user_id: user.id,
-      void_reason: reason || "Voided by user",
-    }).eq("id", payment_id);
 
     // Audit log
     await supabase.from("audit_logs").insert({
