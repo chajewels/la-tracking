@@ -62,10 +62,11 @@ Deno.serve(async (req) => {
 
     for (const acct of accounts) {
       const schedule = schedByAcct[acct.id] || [];
-      const schedTotal = schedule.reduce((s: number, r: any) => s + Number(r.total_due_amount), 0);
+      // Use base_installment_amount only — penalties must NOT inflate the contract total
+      const schedTotal = schedule.reduce((s: number, r: any) => s + Number(r.base_installment_amount), 0);
       const unpaidDue = schedule
         .filter((r: any) => r.status !== "paid")
-        .reduce((s: number, r: any) => s + Math.max(0, Number(r.total_due_amount) - Number(r.paid_amount)), 0);
+        .reduce((s: number, r: any) => s + Math.max(0, Number(r.base_installment_amount) - Number(r.paid_amount)), 0);
 
       const correctTotalAmount = Number(acct.downpayment_amount) + schedTotal;
       const correctRemaining = unpaidDue;

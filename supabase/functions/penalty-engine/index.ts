@@ -227,7 +227,7 @@ Deno.serve(async (req) => {
     for (const [schedId, info] of scheduleUpdates) {
       await supabase.from("layaway_schedule").update({
         penalty_amount: info.totalPenalty,
-        total_due_amount: info.baseAmount + info.totalPenalty,
+        total_due_amount: info.baseAmount,
         status: "overdue",
       }).eq("id", schedId);
     }
@@ -262,13 +262,13 @@ Deno.serve(async (req) => {
     for (const accountId of accountsToMarkOverdue) {
       const { data: allSchedule } = await supabase
         .from("layaway_schedule")
-        .select("total_due_amount, paid_amount, status")
+        .select("base_installment_amount, paid_amount, status")
         .eq("account_id", accountId);
 
       if (allSchedule) {
         const newRemaining = allSchedule.reduce((sum, s) => {
           if (s.status === "paid" || s.status === "cancelled") return sum;
-          return sum + Math.max(0, Number(s.total_due_amount) - Number(s.paid_amount));
+          return sum + Math.max(0, Number(s.base_installment_amount) - Number(s.paid_amount));
         }, 0);
         await supabase.from("layaway_accounts")
           .update({ remaining_balance: newRemaining })
