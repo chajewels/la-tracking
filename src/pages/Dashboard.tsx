@@ -20,7 +20,8 @@ import { canSeeDashboardSection, type AppRole } from '@/lib/role-permissions';
 
 export default function Dashboard() {
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
-  const { session, loading: authLoading, profile } = useAuth();
+  const { session, loading: authLoading, profile, roles } = useAuth();
+  const r = roles as AppRole[];
   const displayCurrency: Currency = getDisplayCurrencyForFilter(currencyFilter);
 
   const { data: summary, isLoading: summaryLoading } = useDashboardSummary(
