@@ -205,6 +205,19 @@ Deno.serve(async (req) => {
           reference: p.reference_number,
           remarks: p.remarks,
         })),
+        submissions: (submissionsByAccount[acc.id] || []).map((sub: any) => ({
+          id: sub.id,
+          submitted_amount: Number(sub.submitted_amount),
+          payment_date: sub.payment_date,
+          payment_method: sub.payment_method,
+          reference_number: sub.reference_number,
+          sender_name: sub.sender_name,
+          notes: sub.notes,
+          proof_url: sub.proof_url,
+          status: sub.status,
+          reviewer_notes: sub.reviewer_notes,
+          created_at: sub.created_at,
+        })),
       };
     });
 
