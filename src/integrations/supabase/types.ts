@@ -214,6 +214,44 @@ export type Database = {
           },
         ]
       }
+      customer_portal_tokens: {
+        Row: {
+          created_at: string
+          created_by_user_id: string | null
+          customer_id: string
+          expires_at: string | null
+          id: string
+          is_active: boolean
+          token: string
+        }
+        Insert: {
+          created_at?: string
+          created_by_user_id?: string | null
+          customer_id: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          token?: string
+        }
+        Update: {
+          created_at?: string
+          created_by_user_id?: string | null
+          customer_id?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_portal_tokens_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customers: {
         Row: {
           created_at: string

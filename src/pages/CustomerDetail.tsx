@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Copy, Check, CheckCircle2, MessageCircle, Calendar, AlertTriangle, MapPin, Pencil, X, Ban, Wrench } from 'lucide-react';
+import CustomerPortalShareMenu from '@/components/customers/CustomerPortalShareMenu';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -352,6 +353,9 @@ export default function CustomerDetail() {
             )}
           </div>
         </div>
+
+        {/* Customer Portal Link */}
+        <CustomerPortalShareMenu customerId={customer.id} customerName={customer.full_name} />
 
         {/* All Accounts */}
         {accounts.map(({ account, schedule, penalties, schedulePaymentDates, services: acctServices }) => {

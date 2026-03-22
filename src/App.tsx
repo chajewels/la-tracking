@@ -20,6 +20,7 @@ import Waivers from "./pages/Waivers";
 import AdminAudit from "./pages/AdminAudit";
 import Login from "./pages/Login";
 import CustomerStatement from "./pages/CustomerStatement";
+import CustomerPortal from "./pages/CustomerPortal";
 
 import Reminders from "./pages/Reminders";
 import NotFound from "./pages/NotFound";
@@ -40,6 +41,7 @@ const App = () => (
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/statement" element={<CustomerStatement />} />
+            <Route path="/portal" element={<CustomerPortal />} />
             
             <Route path="/" element={<Protected><Dashboard /></Protected>} />
             <Route path="/accounts" element={<Protected><AccountList /></Protected>} />
