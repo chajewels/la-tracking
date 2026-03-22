@@ -23,6 +23,7 @@ interface StatementData {
   total_waived_amount: number;
   total_services: number;
   computed_remaining: number;
+  current_total_payable: number;
   schedule: Array<{
     installment_number: number;
     due_date: string;
