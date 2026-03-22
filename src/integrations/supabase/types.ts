@@ -186,6 +186,50 @@ export type Database = {
         }
         Relationships: []
       }
+      final_settlement_records: {
+        Row: {
+          account_id: string
+          calculation_json: Json | null
+          created_at: string
+          final_settlement_amount: number
+          id: string
+          last_paid_month_date: string | null
+          penalty_occurrence_count: number
+          penalty_total_from_last_paid: number
+          remaining_principal: number
+        }
+        Insert: {
+          account_id: string
+          calculation_json?: Json | null
+          created_at?: string
+          final_settlement_amount?: number
+          id?: string
+          last_paid_month_date?: string | null
+          penalty_occurrence_count?: number
+          penalty_total_from_last_paid?: number
+          remaining_principal?: number
+        }
+        Update: {
+          account_id?: string
+          calculation_json?: Json | null
+          created_at?: string
+          final_settlement_amount?: number
+          id?: string
+          last_paid_month_date?: string | null
+          penalty_occurrence_count?: number
+          penalty_total_from_last_paid?: number
+          remaining_principal?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "final_settlement_records_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: true
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       forecast_snapshots: {
         Row: {
           created_at: string
@@ -832,6 +876,7 @@ export type Database = {
         | "cancelled"
         | "overdue"
         | "forfeited"
+        | "final_settlement"
       allocation_type: "penalty" | "installment"
       app_role: "admin" | "staff" | "finance" | "csr"
       clv_tier: "bronze" | "silver" | "gold" | "vip"
@@ -980,6 +1025,7 @@ export const Constants = {
         "cancelled",
         "overdue",
         "forfeited",
+        "final_settlement",
       ],
       allocation_type: ["penalty", "installment"],
       app_role: ["admin", "staff", "finance", "csr"],
