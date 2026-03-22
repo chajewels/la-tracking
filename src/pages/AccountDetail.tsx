@@ -132,7 +132,10 @@ export default function AccountDetail() {
       toast.success('Installment amount updated');
       queryClient.invalidateQueries({ queryKey: ['schedule', id] });
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
-      queryClient.invalidateQueries({ queryKey: ['account', id] });
+      queryClient.invalidateQueries({ queryKey: ['accounts', id] });
+      queryClient.invalidateQueries({ queryKey: ['penalties', id] });
+      queryClient.invalidateQueries({ queryKey: ['account-services', id] });
+      queryClient.invalidateQueries({ queryKey: ['payments', id] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       setEditingScheduleId(null);
     } catch (err: any) {
