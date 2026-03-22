@@ -507,7 +507,7 @@ export default function AccountDetail() {
                 </Button>
               </a>
             )}
-            {!['forfeited', 'cancelled', 'final_forfeited'].includes(account.status) && (
+            {canAddService(account.status) && (
               <AddServiceDialog accountId={account.id} currency={currency} />
             )}
             {/* Reactivate button — only for forfeited, non-reactivated accounts */}
