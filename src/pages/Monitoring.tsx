@@ -418,6 +418,9 @@ export default function Monitoring() {
           </div>
         </div>
 
+        {/* Penalty Follow-Up Stages */}
+        <PenaltyFollowUpSection />
+
         {/* Alert List */}
         {isLoading ? (
           <div className="space-y-3">
