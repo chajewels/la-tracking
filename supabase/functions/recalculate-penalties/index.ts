@@ -338,7 +338,7 @@ Deno.serve(async (req) => {
           unpaidDue += Math.max(0, baseAmt - paidAmt);
         }
 
-        if (!isPaidItem(itemStatus) && item.due_date < today) {
+        if (itemStatus !== "paid" && itemStatus !== "cancelled" && item.due_date < today) {
           hasOverdue = true;
         }
       }
@@ -357,8 +357,6 @@ Deno.serve(async (req) => {
           currency,
           penalty_before: totalSchedulePenaltyBefore,
           penalty_after: totalSchedulePenaltyAfter,
-          total_amount_before: Number(acct.total_amount),
-          total_amount_after: newTotalAmount,
           remaining_before: Number(acct.remaining_balance ?? 0),
           remaining_after: unpaidDue,
         });
