@@ -10,11 +10,13 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
+import CountrySelect from '@/components/customers/CountrySelect';
+import { LocationType, toLocationString } from '@/lib/countries';
 
 interface EditForm {
   full_name: string; customer_code: string; facebook_name: string; messenger_link: string;
   mobile_number: string; email: string; notes: string;
-  locationType: 'japan' | 'international'; country: string;
+  locationType: LocationType; country: string;
 }
 
 interface EditCustomerDialogProps {
@@ -30,6 +32,11 @@ export default function EditCustomerDialog({ open, onOpenChange, editId, editFor
   const [saving, setSaving] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  const handleLocationChange = (v: string) => {
+    const lt = v as LocationType;
+    setEditForm(f => ({ ...f, locationType: lt, ...(lt !== 'international' ? { country: '' } : {}) }));
+  };
 
   const handleDelete = async () => {
     if (!editId) return;
@@ -55,8 +62,12 @@ export default function EditCustomerDialog({ open, onOpenChange, editId, editFor
   const saveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editId || !editForm.full_name.trim()) return;
+    if (editForm.locationType === 'international' && !editForm.country.trim()) {
+      toast.error('Please select a country');
+      return;
+    }
     setSaving(true);
-    const location = editForm.locationType === 'japan' ? 'Japan' : editForm.country.trim() || null;
+    const location = toLocationString(editForm.locationType, editForm.country);
     try {
       const { error } = await supabase.from('customers').update({
         full_name: editForm.full_name.trim(), customer_code: editForm.customer_code.trim(),
@@ -96,18 +107,20 @@ export default function EditCustomerDialog({ open, onOpenChange, editId, editFor
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Location</Label>
-                <Select value={editForm.locationType} onValueChange={v => setEditForm(f => ({ ...f, locationType: v as 'japan' | 'international' }))}>
+                <Select value={editForm.locationType} onValueChange={handleLocationChange}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="japan">Japan</SelectItem>
+                    <SelectItem value="philippines">Philippines</SelectItem>
                     <SelectItem value="international">International</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               {editForm.locationType === 'international' && (
                 <div className="space-y-2">
-                  <Label>Country</Label>
-                  <Input value={editForm.country} onChange={e => setEditForm(f => ({ ...f, country: e.target.value }))} placeholder="e.g. Philippines" />
+                  <Label>Country *</Label>
+                  <CountrySelect value={editForm.country} onValueChange={v => setEditForm(f => ({ ...f, country: v }))} />
+                  <p className="text-xs text-muted-foreground">Please select your country for delivery and payment coordination.</p>
                 </div>
               )}
             </div>
