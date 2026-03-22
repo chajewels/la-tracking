@@ -305,6 +305,7 @@ export default function AccountDetail() {
     message += `Monthly Payment History:\n`;
     scheduleItems.forEach((item, idx) => {
       const effPaid = isEffectivelyPaid(item);
+      const partial = isPartiallyPaid(item);
       const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
       const penalty = Number(item.penalty_amount);
       const baseAmt = Number(item.base_installment_amount);
@@ -314,6 +315,11 @@ export default function AccountDetail() {
       const itemRemaining = Math.max(0, totalDue - paidAmt);
       if (effPaid) {
         message += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(displayAmt, currency)} (PAID)\n`;
+      } else if (partial) {
+        const principalRemaining = Math.max(0, baseAmt - paidAmt);
+        message += `🔶 ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)}`;
+        if (penalty > 0) message += ` + ${formatCurrency(penalty, currency)} (Penalty)`;
+        message += ` — ${formatCurrency(paidAmt, currency)} paid, ${formatCurrency(principalRemaining, currency)} remaining (PARTIAL)\n`;
       } else if (penalty > 0) {
         message += `❌ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(itemRemaining, currency)} (UNPAID)\n`;
       } else {
