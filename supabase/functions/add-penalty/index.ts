@@ -79,7 +79,7 @@ Deno.serve(async (req) => {
 
     // Check for per-invoice penalty cap override
     const installmentNumber = schedItem.installment_number;
-    let cap = installmentNumber >= 6 ? Infinity : (currency === "PHP" ? 1000 : 2000);
+    let cap = installmentNumber >= planMonths ? Infinity : (currency === "PHP" ? 1000 : 2000);
 
     const { data: overrideRow } = await supabase
       .from("penalty_cap_overrides")
