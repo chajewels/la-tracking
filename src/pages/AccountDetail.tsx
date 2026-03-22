@@ -449,7 +449,7 @@ export default function AccountDetail() {
               currentCustomerName={account.customers?.full_name || 'Unknown'}
               invoiceNumber={account.invoice_number}
             />
-            {remainingBalance > 0 && account.status !== 'forfeited' && account.status !== 'cancelled' && (
+            {remainingBalance > 0 && !['forfeited', 'cancelled', 'final_forfeited'].includes(account.status) && (
               <>
                 <RecordPaymentDialog
                   accountId={account.id}
@@ -473,10 +473,40 @@ export default function AccountDetail() {
                 </Button>
               </a>
             )}
-            {account.status !== 'forfeited' && account.status !== 'cancelled' && (
+            {!['forfeited', 'cancelled', 'final_forfeited'].includes(account.status) && (
               <AddServiceDialog accountId={account.id} currency={currency} />
             )}
-            {(account.status === 'active' || account.status === 'overdue') && (
+            {/* Reactivate button — only for forfeited, non-reactivated accounts */}
+            {account.status === 'forfeited' && !(account as any).is_reactivated && (
+              <Button
+                variant="outline"
+                className="border-info/30 text-info hover:bg-info/10"
+                disabled={reactivating}
+                onClick={async () => {
+                  setReactivating(true);
+                  try {
+                    const user = (await supabase.auth.getUser()).data.user;
+                    const { data, error } = await supabase.functions.invoke('reactivate-account', {
+                      body: { account_id: account.id, staff_user_id: user?.id },
+                    });
+                    if (error) throw error;
+                    if (data?.error) throw new Error(data.error);
+                    toast.success(data.message || 'Account reactivated');
+                    queryClient.invalidateQueries({ queryKey: ['accounts', account.id] });
+                    queryClient.invalidateQueries({ queryKey: ['accounts'] });
+                    queryClient.invalidateQueries({ queryKey: ['schedule', id] });
+                    queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+                  } catch (err: any) {
+                    toast.error(err.message || 'Failed to reactivate');
+                  } finally {
+                    setReactivating(false);
+                  }
+                }}
+              >
+                <RotateCcw className="h-4 w-4 mr-2" /> {reactivating ? 'Reactivating…' : 'Reactivate (One-Time)'}
+              </Button>
+            )}
+            {(account.status === 'active' || account.status === 'overdue' || account.status === 'extension_active') && (
               <>
                 <AddPenaltyDialog
                   accountId={account.id}
