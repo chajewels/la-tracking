@@ -248,11 +248,21 @@ export default function Monitoring() {
 
   const handleFilterChange = (filter: FilterTab) => {
     setActiveFilter(filter);
+    setNotifFilter('all');
+    setActiveSummaryCard(filter);
     if (filter === 'all') {
       searchParams.delete('filter');
     } else {
       searchParams.set('filter', filter);
     }
+    setSearchParams(searchParams, { replace: true });
+  };
+
+  const handleNotifCardClick = (nf: 'notified' | 'not_notified') => {
+    setActiveFilter('all');
+    setNotifFilter(nf);
+    setActiveSummaryCard(nf);
+    searchParams.delete('filter');
     setSearchParams(searchParams, { replace: true });
   };
 
