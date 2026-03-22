@@ -483,7 +483,7 @@ export default function AccountDetail() {
               currentCustomerName={account.customers?.full_name || 'Unknown'}
               invoiceNumber={account.invoice_number}
             />
-            {remainingBalance > 0 && !['forfeited', 'cancelled', 'final_forfeited'].includes(account.status) && (
+            {remainingBalance > 0 && canAcceptPayment(account.status) && (
               <>
                 <RecordPaymentDialog
                   accountId={account.id}
