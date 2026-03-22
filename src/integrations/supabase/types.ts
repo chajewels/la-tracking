@@ -558,6 +558,130 @@ export type Database = {
           },
         ]
       }
+      payment_methods: {
+        Row: {
+          account_name: string | null
+          account_number: string | null
+          bank_name: string | null
+          created_at: string
+          id: string
+          instructions: string | null
+          is_active: boolean
+          method_name: string
+          qr_image_url: string | null
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          account_name?: string | null
+          account_number?: string | null
+          bank_name?: string | null
+          created_at?: string
+          id?: string
+          instructions?: string | null
+          is_active?: boolean
+          method_name: string
+          qr_image_url?: string | null
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          account_name?: string | null
+          account_number?: string | null
+          bank_name?: string | null
+          created_at?: string
+          id?: string
+          instructions?: string | null
+          is_active?: boolean
+          method_name?: string
+          qr_image_url?: string | null
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      payment_submissions: {
+        Row: {
+          account_id: string
+          confirmed_payment_id: string | null
+          created_at: string
+          customer_id: string
+          id: string
+          notes: string | null
+          payment_date: string
+          payment_method: string
+          portal_token: string | null
+          proof_url: string | null
+          reference_number: string | null
+          reviewer_notes: string | null
+          reviewer_user_id: string | null
+          sender_name: string | null
+          status: Database["public"]["Enums"]["submission_status"]
+          submitted_amount: number
+          updated_at: string
+        }
+        Insert: {
+          account_id: string
+          confirmed_payment_id?: string | null
+          created_at?: string
+          customer_id: string
+          id?: string
+          notes?: string | null
+          payment_date: string
+          payment_method: string
+          portal_token?: string | null
+          proof_url?: string | null
+          reference_number?: string | null
+          reviewer_notes?: string | null
+          reviewer_user_id?: string | null
+          sender_name?: string | null
+          status?: Database["public"]["Enums"]["submission_status"]
+          submitted_amount: number
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string
+          confirmed_payment_id?: string | null
+          created_at?: string
+          customer_id?: string
+          id?: string
+          notes?: string | null
+          payment_date?: string
+          payment_method?: string
+          portal_token?: string | null
+          proof_url?: string | null
+          reference_number?: string | null
+          reviewer_notes?: string | null
+          reviewer_user_id?: string | null
+          sender_name?: string | null
+          status?: Database["public"]["Enums"]["submission_status"]
+          submitted_amount?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_submissions_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_submissions_confirmed_payment_id_fkey"
+            columns: ["confirmed_payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_submissions_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payments: {
         Row: {
           account_id: string
@@ -1018,6 +1142,12 @@ export type Database = {
         | "paid"
         | "overdue"
         | "cancelled"
+      submission_status:
+        | "submitted"
+        | "under_review"
+        | "confirmed"
+        | "rejected"
+        | "needs_clarification"
       user_status: "active" | "inactive" | "suspended"
       waiver_status: "pending" | "approved" | "rejected"
     }
@@ -1171,6 +1301,13 @@ export const Constants = {
         "paid",
         "overdue",
         "cancelled",
+      ],
+      submission_status: [
+        "submitted",
+        "under_review",
+        "confirmed",
+        "rejected",
+        "needs_clarification",
       ],
       user_status: ["active", "inactive", "suspended"],
       waiver_status: ["pending", "approved", "rejected"],

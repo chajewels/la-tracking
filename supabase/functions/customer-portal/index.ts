@@ -81,8 +81,8 @@ Deno.serve(async (req) => {
 
     const accountIds = (accounts || []).map((a: any) => a.id);
 
-    // Fetch schedules, payments, and statement tokens for all accounts in parallel
-    const [schedulesRes, paymentsRes, stTokensRes, servicesRes] = await Promise.all([
+    // Fetch schedules, payments, statement tokens, services, payment methods, and submissions in parallel
+    const [schedulesRes, paymentsRes, stTokensRes, servicesRes, methodsRes, submissionsRes] = await Promise.all([
       accountIds.length > 0
         ? supabase.from("layaway_schedule").select("*").in("account_id", accountIds).order("installment_number")
         : Promise.resolve({ data: [], error: null }),
@@ -95,18 +95,25 @@ Deno.serve(async (req) => {
       accountIds.length > 0
         ? supabase.from("account_services").select("*").in("account_id", accountIds)
         : Promise.resolve({ data: [], error: null }),
+      supabase.from("payment_methods").select("*").eq("is_active", true).order("sort_order"),
+      accountIds.length > 0
+        ? supabase.from("payment_submissions").select("id, account_id, submitted_amount, payment_date, payment_method, reference_number, sender_name, notes, proof_url, status, reviewer_notes, created_at").eq("customer_id", customerId).in("account_id", accountIds).order("created_at", { ascending: false })
+        : Promise.resolve({ data: [], error: null }),
     ]);
 
     const schedules = schedulesRes.data || [];
     const payments = paymentsRes.data || [];
     const stTokens = stTokensRes.data || [];
     const services = servicesRes.data || [];
+    const paymentMethods = methodsRes.data || [];
+    const submissions = submissionsRes.data || [];
 
     // Group by account
     const schedulesByAccount: Record<string, any[]> = {};
     const paymentsByAccount: Record<string, any[]> = {};
     const servicesByAccount: Record<string, any[]> = {};
     const statementTokenByAccount: Record<string, string> = {};
+    const submissionsByAccount: Record<string, any[]> = {};
 
     for (const s of schedules) {
       (schedulesByAccount[s.account_id] ||= []).push(s);
@@ -118,10 +125,12 @@ Deno.serve(async (req) => {
       (servicesByAccount[s.account_id] ||= []).push(s);
     }
     for (const t of stTokens) {
-      // Check expiry
       if (!t.expires_at || new Date(t.expires_at) > new Date()) {
         statementTokenByAccount[t.account_id] = t.token;
       }
+    }
+    for (const sub of submissions) {
+      (submissionsByAccount[sub.account_id] ||= []).push(sub);
     }
 
     // Build response
@@ -196,6 +205,19 @@ Deno.serve(async (req) => {
           reference: p.reference_number,
           remarks: p.remarks,
         })),
+        submissions: (submissionsByAccount[acc.id] || []).map((sub: any) => ({
+          id: sub.id,
+          submitted_amount: Number(sub.submitted_amount),
+          payment_date: sub.payment_date,
+          payment_method: sub.payment_method,
+          reference_number: sub.reference_number,
+          sender_name: sub.sender_name,
+          notes: sub.notes,
+          proof_url: sub.proof_url,
+          status: sub.status,
+          reviewer_notes: sub.reviewer_notes,
+          created_at: sub.created_at,
+        })),
       };
     });
 
@@ -222,6 +244,15 @@ Deno.serve(async (req) => {
         primary_currency: accountCards[0]?.currency || 'PHP',
       },
       accounts: accountCards,
+      payment_methods: paymentMethods.map((m: any) => ({
+        id: m.id,
+        method_name: m.method_name,
+        bank_name: m.bank_name,
+        account_name: m.account_name,
+        account_number: m.account_number,
+        instructions: m.instructions,
+        qr_image_url: m.qr_image_url,
+      })),
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
