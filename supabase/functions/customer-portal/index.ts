@@ -244,6 +244,15 @@ Deno.serve(async (req) => {
         primary_currency: accountCards[0]?.currency || 'PHP',
       },
       accounts: accountCards,
+      payment_methods: paymentMethods.map((m: any) => ({
+        id: m.id,
+        method_name: m.method_name,
+        bank_name: m.bank_name,
+        account_name: m.account_name,
+        account_number: m.account_number,
+        instructions: m.instructions,
+        qr_image_url: m.qr_image_url,
+      })),
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
