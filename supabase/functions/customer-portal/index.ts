@@ -219,6 +219,12 @@ Deno.serve(async (req) => {
       const computedRemaining = Math.max(0, Number(acc.total_amount) - totalPayments);
       const totalServices = acctServices.reduce((s: number, sv: any) => s + Number(sv.amount), 0);
 
+      // Compute outstanding penalties from schedule penalty_amount on unpaid items
+      const unpaidPenaltySum = acctSchedule
+        .filter((s: any) => s.status !== 'paid' && s.status !== 'cancelled')
+        .reduce((s: number, si: any) => s + Number(si.penalty_amount), 0);
+      const currentTotalPayable = computedRemaining + unpaidPenaltySum;
+
       const today = new Date().toISOString().split('T')[0];
       const unpaidSchedule = acctSchedule
         .filter((s: any) => s.status !== 'paid' && s.status !== 'cancelled')
@@ -255,6 +261,8 @@ Deno.serve(async (req) => {
         paid_installments: paidInstallments,
         total_installments: totalInstallments,
         total_services: totalServices,
+        outstanding_penalties: unpaidPenaltySum,
+        current_total_payable: currentTotalPayable,
         next_due_date: nextDue?.due_date || null,
         next_due_amount: nextDue ? Number(nextDue.total_due_amount) - Number(nextDue.paid_amount) : null,
         statement_token: statementTokenByAccount[acc.id] || null,

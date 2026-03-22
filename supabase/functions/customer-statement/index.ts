@@ -151,9 +151,11 @@ Deno.serve(async (req) => {
     const totalServices = (servicesRes.data || []).reduce((s: number, sv: any) => s + Number(sv.amount), 0);
 
     // SINGLE SOURCE OF TRUTH: Remaining = Total Amount - SUM(actual payments)
-    // Never derive from schedule rows — avoids rounding/gap discrepancies
     const actualPaymentsTotal = (paymentsRes.data || []).reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
     const computedRemaining = Math.max(0, Number(account.total_amount) - actualPaymentsTotal);
+
+    // Consistent payable total: remaining principal + outstanding penalties
+    const currentTotalPayable = computedRemaining + totalActivePenalties;
 
     return new Response(JSON.stringify({
       ...statement,
@@ -161,6 +163,7 @@ Deno.serve(async (req) => {
       total_waived_amount: totalWaivedAmount,
       total_services: totalServices,
       computed_remaining: computedRemaining,
+      current_total_payable: currentTotalPayable,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
