@@ -104,12 +104,37 @@ export function isEffectivelyPaid(item: {
   return paid > 0 && paid >= due;
 }
 
+/**
+ * An installment is "partially paid" when:
+ * - NOT effectively paid, AND
+ * - paid_amount > 0
+ */
+export function isPartiallyPaid(item: {
+  status: string;
+  paid_amount: number | string;
+  total_due_amount: number | string;
+}): boolean {
+  if (isEffectivelyPaid(item)) return false;
+  return Number(item.paid_amount) > 0;
+}
+
 /** Remaining amount due on a schedule item (never negative). */
 export function remainingDue(item: {
   total_due_amount: number | string;
   paid_amount: number | string;
 }): number {
   return Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
+}
+
+/**
+ * Remaining principal due on a schedule item (base_installment_amount - paid_amount, never negative).
+ * This considers only the principal portion, excluding penalties.
+ */
+export function remainingPrincipalDue(item: {
+  base_installment_amount: number | string;
+  paid_amount: number | string;
+}): number {
+  return Math.max(0, Number(item.base_installment_amount) - Number(item.paid_amount));
 }
 
 /** Overpayment credit on a paid item. */

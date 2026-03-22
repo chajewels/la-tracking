@@ -30,7 +30,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  isEffectivelyPaid, remainingDue, computeRemainingBalance,
+  isEffectivelyPaid, isPartiallyPaid, remainingDue, remainingPrincipalDue, computeRemainingBalance,
   getUnpaidScheduleItems, getActivePayments, accountProgress,
   ordinal, SERVICE_LABELS, getNextPaymentStatementDate,
   isPenaltyOverCap, isFinalSettlement, isExtensionActive, isFinalForfeited,
@@ -265,12 +265,19 @@ export default function AccountDetail() {
     message += `\nMonthly Payment:\n`;
     scheduleItems.forEach((item, idx) => {
       const effPaid = isEffectivelyPaid(item);
+      const partial = isPartiallyPaid(item);
       const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
       const penalty = Number(item.penalty_amount);
       const baseAmt = Number(item.base_installment_amount);
+      const paidAmt = Number(item.paid_amount);
       const totalDue = baseAmt + penalty;
       if (effPaid) {
-        message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} (PAID)\n`;
+        message += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} (PAID)\n`;
+      } else if (partial) {
+        const itemRemaining = Math.max(0, baseAmt - paidAmt);
+        message += `🔶 ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)}`;
+        if (penalty > 0) message += ` + ${formatCurrency(penalty, currency)} (Penalty)`;
+        message += ` — ${formatCurrency(paidAmt, currency)} paid, ${formatCurrency(itemRemaining, currency)} remaining\n`;
       } else if (penalty > 0) {
         message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)}  + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
       } else {
@@ -298,6 +305,7 @@ export default function AccountDetail() {
     message += `Monthly Payment History:\n`;
     scheduleItems.forEach((item, idx) => {
       const effPaid = isEffectivelyPaid(item);
+      const partial = isPartiallyPaid(item);
       const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
       const penalty = Number(item.penalty_amount);
       const baseAmt = Number(item.base_installment_amount);
@@ -307,6 +315,11 @@ export default function AccountDetail() {
       const itemRemaining = Math.max(0, totalDue - paidAmt);
       if (effPaid) {
         message += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(displayAmt, currency)} (PAID)\n`;
+      } else if (partial) {
+        const principalRemaining = Math.max(0, baseAmt - paidAmt);
+        message += `🔶 ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)}`;
+        if (penalty > 0) message += ` + ${formatCurrency(penalty, currency)} (Penalty)`;
+        message += ` — ${formatCurrency(paidAmt, currency)} paid, ${formatCurrency(principalRemaining, currency)} remaining (PARTIAL)\n`;
       } else if (penalty > 0) {
         message += `❌ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(itemRemaining, currency)} (UNPAID)\n`;
       } else {
@@ -335,9 +348,11 @@ export default function AccountDetail() {
     message += `\nMonthly Payment:\n`;
     scheduleItems.forEach((item, idx) => {
       const effPaid = isEffectivelyPaid(item);
+      const partial = isPartiallyPaid(item);
       const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
       const penalty = Number(item.penalty_amount);
       const baseAmt = Number(item.base_installment_amount);
+      const paidAmt = Number(item.paid_amount);
       const totalDue = baseAmt + penalty;
 
       if (effPaid) {
@@ -346,6 +361,11 @@ export default function AccountDetail() {
         } else {
           message += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} (PAID)\n`;
         }
+      } else if (partial) {
+        const principalRemaining = Math.max(0, baseAmt - paidAmt);
+        message += `🔶 ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)}`;
+        if (penalty > 0) message += ` + ${formatCurrency(penalty, currency)} (Penalty)`;
+        message += ` — ${formatCurrency(paidAmt, currency)} paid, ${formatCurrency(principalRemaining, currency)} remaining\n`;
       } else if (penalty > 0) {
         message += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)}  + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
       } else {
@@ -721,6 +741,7 @@ export default function AccountDetail() {
               </div>
               {scheduleItems.map((item) => {
                 const effPaid = isEffectivelyPaid(item);
+                const partial = isPartiallyPaid(item);
                 const penaltyAmt = Number(item.penalty_amount);
                 const paidAmt = Number(item.paid_amount);
                 const baseAmt = Number(item.base_installment_amount);
@@ -732,14 +753,14 @@ export default function AccountDetail() {
                 return (
                   <div key={item.id}
                     className={`group rounded-lg border p-2.5 sm:p-3 ${
-                      effPaid ? 'bg-success/5 border-success/10' : 'bg-card border-border'
+                      effPaid ? 'bg-success/5 border-success/10' : partial ? 'bg-warning/5 border-warning/10' : 'bg-card border-border'
                     }`}
                   >
                     {/* Mobile layout */}
                     <div className="sm:hidden flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <div className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold ${
-                          effPaid ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'
+                          effPaid ? 'bg-success/20 text-success' : partial ? 'bg-warning/20 text-warning' : 'bg-muted text-muted-foreground'
                         }`}>
                           {effPaid ? <Check className="h-3 w-3" /> : item.installment_number}
                         </div>
@@ -748,14 +769,19 @@ export default function AccountDetail() {
                             {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                           </p>
                           <p className="text-[10px] text-muted-foreground">
-                            {effPaid ? 'Paid' : `Month ${item.installment_number}`}
+                            {effPaid ? 'Paid' : partial ? `Partial — ${formatCurrency(paidAmt, currency)} paid` : `Month ${item.installment_number}`}
                           </p>
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className={`text-xs font-semibold tabular-nums ${effPaid ? 'text-success' : 'text-card-foreground'}`}>
+                        <p className={`text-xs font-semibold tabular-nums ${effPaid ? 'text-success' : partial ? 'text-warning' : 'text-card-foreground'}`}>
                           {formatCurrency(effPaid ? Math.max(paidAmt, totalDue) : totalDue, currency)}
                         </p>
+                        {partial && (
+                          <p className="text-[10px] text-warning tabular-nums">
+                            Remaining: {formatCurrency(itemRemaining, currency)}
+                          </p>
+                        )}
                       </div>
                     </div>
                     {/* Mobile penalty detail */}
@@ -783,7 +809,7 @@ export default function AccountDetail() {
                     {/* Desktop layout: columnar */}
                     <div className="hidden sm:grid grid-cols-[2.5rem_1fr_5.5rem_5.5rem_5.5rem_5.5rem_2rem] gap-1 items-center">
                       <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${
-                        effPaid ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'
+                        effPaid ? 'bg-success/20 text-success' : partial ? 'bg-warning/20 text-warning' : 'bg-muted text-muted-foreground'
                       }`}>
                         {effPaid ? <Check className="h-3 w-3" /> : item.installment_number}
                       </div>
@@ -791,7 +817,10 @@ export default function AccountDetail() {
                         <p className="text-sm font-medium text-card-foreground">
                           {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                         </p>
-                        <p className="text-xs text-muted-foreground">Month {item.installment_number}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Month {item.installment_number}
+                          {partial && <span className="text-warning ml-1">(Paid: {formatCurrency(paidAmt, currency)})</span>}
+                        </p>
                       </div>
                       {/* Base Amount */}
                       <p className="text-xs tabular-nums text-right text-card-foreground">
@@ -812,14 +841,23 @@ export default function AccountDetail() {
                           <p className="text-xs tabular-nums text-muted-foreground">—</p>
                         )}
                       </div>
-                      {/* Total Due */}
-                      <p className={`text-xs font-semibold tabular-nums text-right ${effPaid ? 'text-success' : 'text-card-foreground'}`}>
-                        {formatCurrency(effPaid ? Math.max(paidAmt, totalDue) : totalDue, currency)}
-                      </p>
+                      {/* Total Due / Remaining */}
+                      <div className="text-right">
+                        <p className={`text-xs font-semibold tabular-nums ${effPaid ? 'text-success' : partial ? 'text-warning' : 'text-card-foreground'}`}>
+                          {formatCurrency(effPaid ? Math.max(paidAmt, totalDue) : totalDue, currency)}
+                        </p>
+                        {partial && (
+                          <p className="text-[9px] text-warning tabular-nums">
+                            Rem: {formatCurrency(itemRemaining, currency)}
+                          </p>
+                        )}
+                      </div>
                       {/* Status */}
                       <div className="text-right">
                         {effPaid ? (
                           <Badge variant="outline" className="text-[9px] h-4 px-1 bg-success/10 text-success border-success/20">Paid</Badge>
+                        ) : partial ? (
+                          <Badge variant="outline" className="text-[9px] h-4 px-1 bg-warning/10 text-warning border-warning/20">Partial</Badge>
                         ) : penaltyCapOverride && item.installment_number <= 5 && penaltyAmt > 0 ? (
                           <Badge variant="outline" className="text-[9px] h-4 px-1 bg-primary/10 text-primary border-primary/20">Capped</Badge>
                         ) : item.status === 'overdue' ? (
