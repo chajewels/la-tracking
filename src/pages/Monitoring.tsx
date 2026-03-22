@@ -1,45 +1,25 @@
 import { useMemo, useState } from 'react';
-import { Bell, MessageCircle, Clock, AlertTriangle, CalendarCheck, Send, Copy, Check, Loader2, Filter } from 'lucide-react';
+import { Bell, Send, Copy, Check, Loader2, Filter, MessageCircle } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { formatCurrency } from '@/lib/calculations';
-import { Link } from 'react-router-dom';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
-import NotifiedButton, { type ReminderStage } from '@/components/notifications/NotifiedButton';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { categorizeByDueDate, daysOverdueFromToday, remainingDue, alertTypeConfig, isEffectivelyPaid, getNextUnpaidDueDate, classifyAccountBucket, type AlertType, type AccountBucket } from '@/lib/business-rules';
-
-interface AlertItem {
-  type: AlertType;
-  bucket: AccountBucket;
-  customer: string;
-  invoice: string;
-  dueDate: string;
-  amount: number;
-  currency: Currency;
-  daysOverdue: number;
-  accountId: string;
-  scheduleId: string;
-  customerId: string;
-  messengerLink?: string | null;
-}
-
-const iconMap = {
-  overdue: AlertTriangle,
-  due_today: Clock,
-  upcoming: CalendarCheck,
-};
+import {
+  categorizeByDueDate, daysOverdueFromToday, remainingDue,
+  isEffectivelyPaid, getNextUnpaidDueDate, classifyAccountBucket,
+  type AlertType, type AccountBucket,
+} from '@/lib/business-rules';
+import ReminderCard, { type AlertItem, generateReminderMessage } from '@/components/monitoring/ReminderCard';
 
 type FilterTab = 'all' | 'overdue' | 'due_today' | 'due_3_days' | 'due_7_days';
 type NotifFilter = 'all' | 'not_notified' | 'notified';
@@ -52,24 +32,11 @@ const filterTabs: { key: FilterTab; label: string }[] = [
   { key: 'due_7_days', label: 'Due in 7 Days' },
 ];
 
-function bucketToStage(bucket: AccountBucket): ReminderStage | null {
+function bucketToStage(bucket: AccountBucket): string | null {
   if (bucket === 'due_7_days') return '7_DAYS';
   if (bucket === 'due_3_days') return '3_DAYS';
   if (bucket === 'due_today') return 'DUE_TODAY';
   return null;
-}
-
-function generateMessengerMessage(alert: AlertItem): string {
-  const dueStr = new Date(alert.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-  const amtStr = formatCurrency(alert.amount, alert.currency);
-
-  if (alert.type === 'overdue') {
-    return `Hi ${alert.customer}! 👋\n\nThis is a friendly reminder from Cha Jewels that your layaway payment for INV #${alert.invoice} was due on ${dueStr} (${alert.daysOverdue} days ago).\n\nRemaining amount due: ${amtStr}\n\nPlease settle at your earliest convenience to avoid additional penalties. Thank you! 💎`;
-  } else if (alert.type === 'due_today') {
-    return `Hi ${alert.customer}! 👋\n\nJust a reminder from Cha Jewels — your layaway payment for INV #${alert.invoice} is due today!\n\nAmount due: ${amtStr}\n\nThank you for your prompt payment! 💎`;
-  } else {
-    return `Hi ${alert.customer}! 👋\n\nThis is a friendly heads-up from Cha Jewels — your next layaway payment for INV #${alert.invoice} is coming up on ${dueStr}.\n\nAmount due: ${amtStr}\n\nThank you for staying on track! 💎`;
-  }
 }
 
 export default function Monitoring() {
@@ -92,7 +59,7 @@ export default function Monitoring() {
       const [overdueRes, upcomingRes] = await Promise.all([
         supabase
           .from('layaway_schedule')
-          .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, customers(full_name, messenger_link))')
+          .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, remaining_balance, customers(full_name, messenger_link))')
           .in('status', ['pending', 'overdue', 'partially_paid'])
           .in('layaway_accounts.status', ['active', 'overdue'])
           .lt('due_date', new Date().toISOString().split('T')[0])
@@ -100,7 +67,7 @@ export default function Monitoring() {
           .limit(500),
         supabase
           .from('layaway_schedule')
-          .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, customers(full_name, messenger_link))')
+          .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, remaining_balance, customers(full_name, messenger_link))')
           .in('status', ['pending', 'overdue', 'partially_paid'])
           .in('layaway_accounts.status', ['active', 'overdue'])
           .gte('due_date', new Date().toISOString().split('T')[0])
@@ -132,7 +99,28 @@ export default function Monitoring() {
     },
   });
 
-  // Build a lookup map: `scheduleId_stage` -> notification
+  // Fetch active portal tokens per customer
+  const { data: portalTokens } = useQuery({
+    queryKey: ['portal-tokens-active'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('customer_portal_tokens')
+        .select('customer_id, token, expires_at')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      // Deduplicate: keep latest per customer, exclude expired
+      const map = new Map<string, string>();
+      for (const t of data || []) {
+        if (map.has(t.customer_id)) continue;
+        if (t.expires_at && new Date(t.expires_at) < new Date()) continue;
+        map.set(t.customer_id, t.token);
+      }
+      return map;
+    },
+  });
+
+  // Build notification lookup map
   const notifMap = useMemo(() => {
     const map = new Map<string, { notified_by_name: string; notified_at: string }>();
     for (const n of notifications || []) {
@@ -144,7 +132,7 @@ export default function Monitoring() {
     return map;
   }, [notifications]);
 
-  // Group schedule items by account to determine NEXT due date per account
+  // Group schedule items by account → determine NEXT due date per account
   const alerts: AlertItem[] = useMemo(() => {
     if (!scheduleItems) return [];
 
@@ -182,17 +170,19 @@ export default function Monitoring() {
         invoice: acc.invoice_number,
         dueDate: nextItem.due_date,
         amount: remainingDue(nextItem),
+        remainingBalance: Number(acc.remaining_balance || 0),
         currency: acc.currency as Currency,
         daysOverdue: overdueDays,
         accountId: acc.id,
         scheduleId: nextItem.id,
         customerId: acc.customer_id,
         messengerLink: acc.customers?.messenger_link,
+        portalToken: portalTokens?.get(acc.customer_id) || null,
       });
     }
 
     return result;
-  }, [scheduleItems]);
+  }, [scheduleItems, portalTokens]);
 
   // Apply bucket filter
   const bucketFiltered = useMemo(() => {
@@ -209,7 +199,7 @@ export default function Monitoring() {
     if (notifFilter === 'all') return bucketFiltered;
     return bucketFiltered.filter(a => {
       const stage = bucketToStage(a.bucket);
-      if (!stage) return notifFilter === 'not_notified'; // overdue has no stage
+      if (!stage) return notifFilter === 'not_notified';
       const isNotified = notifMap.has(`${a.scheduleId}_${stage}`);
       return notifFilter === 'notified' ? isNotified : !isNotified;
     });
@@ -220,7 +210,7 @@ export default function Monitoring() {
     return [...filteredAlerts].sort((a, b) => (order[a.bucket] ?? 9) - (order[b.bucket] ?? 9) || b.daysOverdue - a.daysOverdue);
   }, [filteredAlerts]);
 
-  // Counts per bucket (from ALL alerts)
+  // Counts
   const counts = useMemo(() => ({
     overdue: alerts.filter(a => a.bucket === 'overdue').length,
     due_today: alerts.filter(a => a.bucket === 'due_today').length,
@@ -247,6 +237,10 @@ export default function Monitoring() {
     }
     return stats;
   }, [alerts, notifMap]);
+
+  // Total notified / pending across all stages
+  const totalNotified = Object.values(notifStats).reduce((s, v) => s + v.notified, 0);
+  const totalPending = Object.values(notifStats).reduce((s, v) => s + (v.total - v.notified), 0);
 
   const isLoading = schedLoading;
 
@@ -280,12 +274,6 @@ export default function Monitoring() {
     }
   };
 
-  const handleOpenMessenger = (alert: AlertItem) => {
-    const message = generateMessengerMessage(alert);
-    setMessengerDialog({ alert, message });
-    setCopied(false);
-  };
-
   const handleCopyMessage = async () => {
     if (!messengerDialog) return;
     try {
@@ -315,12 +303,13 @@ export default function Monitoring() {
   return (
     <AppLayout>
       <div className="animate-fade-in space-y-6">
-        <div className="flex items-center justify-between">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Bell className="h-5 w-5 text-primary" />
             <div>
-              <h1 className="text-2xl font-bold text-foreground font-display">CSR Monitoring Center</h1>
-              <p className="text-sm text-muted-foreground mt-0.5">Payment alerts & stage-based notification tracking</p>
+              <h1 className="text-2xl font-bold text-foreground font-display">Smart Reminder Center</h1>
+              <p className="text-sm text-muted-foreground mt-0.5">Stage-based payment alerts with portal link integration</p>
             </div>
           </div>
           <Button
@@ -333,26 +322,26 @@ export default function Monitoring() {
           </Button>
         </div>
 
-        {/* Summary Cards with notification stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {/* Summary Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {([
-            { label: 'Overdue', count: counts.overdue, color: 'text-destructive', filter: 'overdue' as FilterTab, statsKey: null },
-            { label: 'Due Today', count: counts.due_today, color: 'text-warning', filter: 'due_today' as FilterTab, statsKey: 'due_today' as const },
-            { label: 'Due in 3 Days', count: counts.due_3_days, color: 'text-info', filter: 'due_3_days' as FilterTab, statsKey: 'due_3_days' as const },
-            { label: 'Due in 7 Days', count: counts.due_7_days, color: 'text-primary', filter: 'due_7_days' as FilterTab, statsKey: 'due_7_days' as const },
+            { label: 'Overdue', count: counts.overdue, color: 'text-destructive', borderColor: 'border-destructive/20', filter: 'overdue' as FilterTab, statsKey: null },
+            { label: 'Due Today', count: counts.due_today, color: 'text-warning', borderColor: 'border-warning/20', filter: 'due_today' as FilterTab, statsKey: 'due_today' as const },
+            { label: 'Due in 3 Days', count: counts.due_3_days, color: 'text-info', borderColor: 'border-info/20', filter: 'due_3_days' as FilterTab, statsKey: 'due_3_days' as const },
+            { label: 'Due in 7 Days', count: counts.due_7_days, color: 'text-primary', borderColor: 'border-primary/20', filter: 'due_7_days' as FilterTab, statsKey: 'due_7_days' as const },
           ]).map(s => {
             const stat = s.statsKey ? notifStats[s.statsKey] : null;
             return (
               <button
                 key={s.label}
                 onClick={() => handleFilterChange(s.filter)}
-                className={`rounded-xl border bg-card p-4 text-center transition-colors hover:bg-muted/30 ${activeFilter === s.filter ? 'border-primary ring-1 ring-primary/30' : 'border-border'}`}
+                className={`rounded-xl border bg-card p-4 text-center transition-colors hover:bg-muted/30 ${activeFilter === s.filter ? 'border-primary ring-1 ring-primary/30' : s.borderColor}`}
               >
                 <p className={`text-3xl font-bold font-display ${s.color}`}>{isLoading ? '—' : s.count}</p>
                 <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
                 {stat && stat.total > 0 && (
                   <div className="mt-2 flex items-center justify-center gap-1.5">
-                    <span className="text-[10px] font-medium text-success">{stat.notified} notified</span>
+                    <span className="text-[10px] font-medium text-success">{stat.notified} ✓</span>
                     <span className="text-[10px] text-muted-foreground">·</span>
                     <span className="text-[10px] font-medium text-warning">{stat.total - stat.notified} pending</span>
                   </div>
@@ -360,6 +349,21 @@ export default function Monitoring() {
               </button>
             );
           })}
+          {/* Total Notified / Pending */}
+          <button
+            onClick={() => setNotifFilter('notified')}
+            className={`rounded-xl border bg-card p-4 text-center transition-colors hover:bg-muted/30 ${notifFilter === 'notified' ? 'border-success ring-1 ring-success/30' : 'border-success/20'}`}
+          >
+            <p className="text-3xl font-bold font-display text-success">{isLoading ? '—' : totalNotified}</p>
+            <p className="text-xs text-muted-foreground mt-1">Notified</p>
+          </button>
+          <button
+            onClick={() => setNotifFilter('not_notified')}
+            className={`rounded-xl border bg-card p-4 text-center transition-colors hover:bg-muted/30 ${notifFilter === 'not_notified' ? 'border-warning ring-1 ring-warning/30' : 'border-warning/20'}`}
+          >
+            <p className="text-3xl font-bold font-display text-warning">{isLoading ? '—' : totalPending}</p>
+            <p className="text-xs text-muted-foreground mt-1">Pending</p>
+          </button>
         </div>
 
         {/* Filter Tabs + Notification Filter */}
@@ -404,74 +408,27 @@ export default function Monitoring() {
         {/* Alert List */}
         {isLoading ? (
           <div className="space-y-3">
-            {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
+            {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
           </div>
         ) : sortedAlerts.length === 0 ? (
           <div className="rounded-xl border border-border bg-card p-8 text-center">
             <p className="text-sm text-muted-foreground">
               {activeFilter === 'all' && notifFilter === 'all'
                 ? 'No upcoming or overdue payments in the next 7 days.'
-                : `No accounts matching current filters.`}
+                : 'No accounts matching current filters.'}
             </p>
           </div>
         ) : (
           <div className="space-y-3">
             <p className="text-xs text-muted-foreground">{sortedAlerts.length} account{sortedAlerts.length !== 1 ? 's' : ''}</p>
-            {sortedAlerts.map((alert, idx) => {
-              const config = alertTypeConfig[alert.type];
-              const Icon = iconMap[alert.type];
-              const stage = bucketToStage(alert.bucket);
-              const existingNotif = stage ? notifMap.get(`${alert.scheduleId}_${stage}`) || null : null;
-
-              return (
-                <div key={`${alert.accountId}-${alert.dueDate}-${idx}`} className={`rounded-xl border bg-card p-4 ${config.borderClass} hover:bg-muted/30 transition-colors`}>
-                  <div className="flex items-center justify-between">
-                    <Link to={`/accounts/${alert.accountId}`} className="flex items-center gap-4 flex-1 cursor-pointer">
-                      <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${config.iconBg}`}>
-                        <Icon className={`h-5 w-5 ${config.iconColor}`} />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-semibold text-card-foreground">{alert.customer}</p>
-                          <Badge variant="outline" className={`text-[10px] ${config.badgeClass}`}>{config.label}</Badge>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          INV #{alert.invoice} · Due {new Date(alert.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                          {alert.daysOverdue > 0 && ` · ${alert.daysOverdue} days overdue`}
-                        </p>
-                      </div>
-                    </Link>
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-bold text-card-foreground tabular-nums">
-                        {formatCurrency(alert.amount, alert.currency)}
-                      </span>
-                      <div className="flex gap-1 items-center">
-                        {stage && (
-                          <NotifiedButton
-                            accountId={alert.accountId}
-                            scheduleId={alert.scheduleId}
-                            customerId={alert.customerId}
-                            invoiceNumber={alert.invoice}
-                            dueDate={alert.dueDate}
-                            stage={stage}
-                            existingNotification={existingNotif}
-                          />
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-info"
-                          title="Generate Messenger message"
-                          onClick={() => handleOpenMessenger(alert)}
-                        >
-                          <MessageCircle className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {sortedAlerts.map((alert, idx) => (
+              <ReminderCard
+                key={`${alert.accountId}-${alert.dueDate}-${idx}`}
+                alert={alert}
+                notifMap={notifMap}
+                onOpenMessenger={(a, msg) => { setMessengerDialog({ alert: a, message: msg }); setCopied(false); }}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -482,16 +439,10 @@ export default function Monitoring() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <MessageCircle className="h-5 w-5 text-info" />
-              Messenger Reminder — {messengerDialog?.alert.customer}
+              Reminder — {messengerDialog?.alert.customer}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className={`text-[10px] ${messengerDialog?.alert.type === 'overdue' ? 'text-destructive border-destructive/20' : messengerDialog?.alert.type === 'due_today' ? 'text-warning border-warning/20' : 'text-info border-info/20'}`}>
-                {messengerDialog?.alert.type === 'overdue' ? 'Overdue' : messengerDialog?.alert.type === 'due_today' ? 'Due Today' : 'Upcoming'}
-              </Badge>
-              <span className="text-xs text-muted-foreground">INV #{messengerDialog?.alert.invoice}</span>
-            </div>
             <div className="rounded-lg border border-border bg-muted/30 p-4">
               <pre className="text-sm text-card-foreground whitespace-pre-wrap font-sans leading-relaxed">
                 {messengerDialog?.message}
