@@ -95,7 +95,7 @@ Deno.serve(async (req) => {
     // End date = last installment due date (order month + plan months)
     const endDate = new Date(startDate.getFullYear(), startDate.getMonth() + payment_plan_months, startDate.getDate());
 
-    // Create account — remaining_balance = total minus what was actually paid as DP
+    // Create account — confirmed DP is treated as real paid principal, without changing fixed schedule rows
     const { data: account, error: accountError } = await supabase
       .from("layaway_accounts")
       .insert({
