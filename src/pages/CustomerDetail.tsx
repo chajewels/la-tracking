@@ -3,6 +3,8 @@ import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Copy, Check, CheckCircle2, MessageCircle, Calendar, AlertTriangle, MapPin, Pencil, X, Ban, Wrench } from 'lucide-react';
 import CustomerPortalShareMenu from '@/components/customers/CustomerPortalShareMenu';
 import AppLayout from '@/components/layout/AppLayout';
+import CountrySelect from '@/components/customers/CountrySelect';
+import { LocationType, parseLocation, toLocationString } from '@/lib/countries';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -27,7 +29,7 @@ export default function CustomerDetail() {
   const { data, isLoading } = useCustomerAccounts(customerId);
   const [copied, setCopied] = useState(false);
   const [editingLocation, setEditingLocation] = useState(false);
-  const [locationType, setLocationType] = useState<'japan' | 'international'>('japan');
+  const [locationType, setLocationType] = useState<LocationType>('japan');
   const [country, setCountry] = useState('');
   const queryClient = useQueryClient();
   const forfeitAccount = useForfeitAccount();
@@ -286,28 +288,29 @@ export default function CustomerDetail() {
             <div className="flex items-center gap-2 mt-1">
               <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
               {editingLocation ? (
-                <div className="flex items-center gap-2">
-                  <Select value={locationType} onValueChange={(v) => setLocationType(v as 'japan' | 'international')}>
-                    <SelectTrigger className="h-7 text-xs w-28">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Select value={locationType} onValueChange={(v) => {
+                    const lt = v as LocationType;
+                    setLocationType(lt);
+                    if (lt !== 'international') setCountry('');
+                  }}>
+                    <SelectTrigger className="h-7 text-xs w-32">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="japan">Japan</SelectItem>
+                      <SelectItem value="philippines">Philippines</SelectItem>
                       <SelectItem value="international">International</SelectItem>
                     </SelectContent>
                   </Select>
                   {locationType === 'international' && (
-                    <Input
-                      value={country}
-                      onChange={e => setCountry(e.target.value)}
-                      placeholder="Country"
-                      className="h-7 text-xs w-32"
-                      autoFocus
-                    />
+                    <div className="w-40">
+                      <CountrySelect value={country} onValueChange={setCountry} triggerClassName="h-7 text-xs" />
+                    </div>
                   )}
                   <Button variant="ghost" size="icon" className="h-6 w-6 text-emerald-500" onClick={async () => {
-                    const loc = locationType === 'japan' ? 'Japan' : country.trim();
-                    if (locationType === 'international' && !loc) { toast.error('Enter a country'); return; }
+                    const loc = toLocationString(locationType, country);
+                    if (locationType === 'international' && !loc) { toast.error('Please select a country'); return; }
                     const { error } = await supabase.from('customers').update({ location: loc } as any).eq('id', customer.id);
                     if (error) { toast.error(error.message); return; }
                     toast.success('Location updated');
@@ -321,9 +324,9 @@ export default function CustomerDetail() {
                 <div className="flex items-center gap-1.5 group">
                   <span className="text-xs text-muted-foreground">{(customer as any).location || 'Not set'}</span>
                   <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" onClick={() => {
-                    const loc = (customer as any).location || '';
-                    if (loc === 'Japan' || !loc) { setLocationType('japan'); setCountry(''); }
-                    else { setLocationType('international'); setCountry(loc); }
+                    const parsed = parseLocation((customer as any).location);
+                    setLocationType(parsed.locationType);
+                    setCountry(parsed.country);
                     setEditingLocation(true);
                   }}><Pencil className="h-3 w-3" /></Button>
                 </div>

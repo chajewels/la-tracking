@@ -8,6 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { UserPlus } from 'lucide-react';
 import { useCreateCustomer, DbCustomer } from '@/hooks/use-supabase-data';
 import { toast } from 'sonner';
+import CountrySelect from '@/components/customers/CountrySelect';
+import { LocationType, toLocationString } from '@/lib/countries';
 
 interface NewCustomerDialogProps {
   onCreated?: (customer: DbCustomer) => void;
@@ -25,7 +27,7 @@ export default function NewCustomerDialog({ onCreated, trigger }: NewCustomerDia
   const [mobileNumber, setMobileNumber] = useState('');
   const [email, setEmail] = useState('');
   const [notes, setNotes] = useState('');
-  const [locationType, setLocationType] = useState<'japan' | 'international'>('japan');
+  const [locationType, setLocationType] = useState<LocationType>('japan');
   const [country, setCountry] = useState('');
 
   const resetForm = () => {
@@ -40,13 +42,23 @@ export default function NewCustomerDialog({ onCreated, trigger }: NewCustomerDia
     setCountry('');
   };
 
+  const handleLocationChange = (v: string) => {
+    const lt = v as LocationType;
+    setLocationType(lt);
+    if (lt !== 'international') setCountry('');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName.trim() || !customerCode.trim()) {
       toast.error('Full name and customer code are required');
       return;
     }
-    const location = locationType === 'japan' ? 'Japan' : country.trim() || undefined;
+    if (locationType === 'international' && !country.trim()) {
+      toast.error('Please select a country');
+      return;
+    }
+    const location = toLocationString(locationType, country) || undefined;
     try {
       const customer = await createCustomer.mutateAsync({
         full_name: fullName.trim(),
@@ -95,20 +107,22 @@ export default function NewCustomerDialog({ onCreated, trigger }: NewCustomerDia
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Location</Label>
-              <Select value={locationType} onValueChange={(v) => setLocationType(v as 'japan' | 'international')}>
+              <Select value={locationType} onValueChange={handleLocationChange}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="japan">Japan</SelectItem>
+                  <SelectItem value="philippines">Philippines</SelectItem>
                   <SelectItem value="international">International</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             {locationType === 'international' && (
               <div className="space-y-2">
-                <Label>Country</Label>
-                <Input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="e.g. Philippines" />
+                <Label>Country *</Label>
+                <CountrySelect value={country} onValueChange={setCountry} />
+                <p className="text-xs text-muted-foreground">Please select your country for delivery and payment coordination.</p>
               </div>
             )}
           </div>

@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useRef } from 'react';
+import { parseLocation, LocationType } from '@/lib/countries';
 import { Users, Search, LayoutGrid, ListFilter, Layers } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -27,18 +28,17 @@ export default function Customers() {
   const [editForm, setEditForm] = useState({
     full_name: '', customer_code: '', facebook_name: '', messenger_link: '',
     mobile_number: '', email: '', notes: '',
-    locationType: 'japan' as 'japan' | 'international', country: '',
+    locationType: 'japan' as LocationType, country: '',
   });
 
   const openEdit = useCallback((c: any) => {
-    const loc = (c.location || '').trim();
-    const isJapan = !loc || loc.toLowerCase() === 'japan';
+    const parsed = parseLocation(c.location);
     setEditId(c.id);
     setEditForm({
       full_name: c.full_name || '', customer_code: c.customer_code || '',
       facebook_name: c.facebook_name || '', messenger_link: c.messenger_link || '',
       mobile_number: c.mobile_number || '', email: c.email || '', notes: c.notes || '',
-      locationType: isJapan ? 'japan' : 'international', country: isJapan ? '' : loc,
+      locationType: parsed.locationType, country: parsed.country,
     });
     setEditOpen(true);
   }, []);
