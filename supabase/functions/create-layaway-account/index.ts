@@ -204,6 +204,20 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Record confirmed downpayment as a real payment fact
+    if (downpaymentPaid > 0) {
+      await supabase.from("payments").insert({
+        account_id: account.id,
+        amount_paid: downpaymentPaid,
+        currency,
+        date_paid: order_date,
+        payment_method: "cash",
+        remarks: "Downpayment",
+        reference_number: `DP-${invoice_number}`,
+        entered_by_user_id: user.id,
+      });
+    }
+
     // Create audit log
     await supabase.from("audit_logs").insert({
       entity_type: "layaway_account",
