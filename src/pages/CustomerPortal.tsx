@@ -15,7 +15,7 @@ import {
   AlertTriangle, Calendar, Check, CheckCircle, ChevronRight, Clock,
   CreditCard, Diamond, FileText, Filter, Search, TrendingUp, X,
   Upload, Send, ArrowLeft, Landmark, Wallet, Eye, MessageSquare, XCircle, Loader2, Image as ImageIcon,
-  User, Pencil, Save,
+  User, Pencil, Save, Copy, Zap, Phone, MapPin, Mail, Building2, Smartphone,
 } from 'lucide-react';
 import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
 import CountrySelect from '@/components/customers/CountrySelect';
