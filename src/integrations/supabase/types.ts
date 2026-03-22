@@ -274,11 +274,16 @@ export type Database = {
           customer_id: string
           downpayment_amount: number
           end_date: string | null
+          extension_end_date: string | null
           id: string
           invoice_number: string
+          is_reactivated: boolean
           notes: string | null
           order_date: string
           payment_plan_months: number
+          penalty_count_at_reactivation: number | null
+          reactivated_at: string | null
+          reactivated_by_user_id: string | null
           remaining_balance: number
           status: Database["public"]["Enums"]["account_status"]
           total_amount: number
@@ -295,11 +300,16 @@ export type Database = {
           customer_id: string
           downpayment_amount?: number
           end_date?: string | null
+          extension_end_date?: string | null
           id?: string
           invoice_number: string
+          is_reactivated?: boolean
           notes?: string | null
           order_date: string
           payment_plan_months: number
+          penalty_count_at_reactivation?: number | null
+          reactivated_at?: string | null
+          reactivated_by_user_id?: string | null
           remaining_balance: number
           status?: Database["public"]["Enums"]["account_status"]
           total_amount: number
@@ -316,11 +326,16 @@ export type Database = {
           customer_id?: string
           downpayment_amount?: number
           end_date?: string | null
+          extension_end_date?: string | null
           id?: string
           invoice_number?: string
+          is_reactivated?: boolean
           notes?: string | null
           order_date?: string
           payment_plan_months?: number
+          penalty_count_at_reactivation?: number | null
+          reactivated_at?: string | null
+          reactivated_by_user_id?: string | null
           remaining_balance?: number
           status?: Database["public"]["Enums"]["account_status"]
           total_amount?: number
@@ -877,6 +892,9 @@ export type Database = {
         | "overdue"
         | "forfeited"
         | "final_settlement"
+        | "reactivated"
+        | "extension_active"
+        | "final_forfeited"
       allocation_type: "penalty" | "installment"
       app_role: "admin" | "staff" | "finance" | "csr"
       clv_tier: "bronze" | "silver" | "gold" | "vip"
@@ -1026,6 +1044,9 @@ export const Constants = {
         "overdue",
         "forfeited",
         "final_settlement",
+        "reactivated",
+        "extension_active",
+        "final_forfeited",
       ],
       allocation_type: ["penalty", "installment"],
       app_role: ["admin", "staff", "finance", "csr"],
