@@ -88,9 +88,21 @@ interface PortalAccount {
   submissions: Submission[];
 }
 
+interface CustomerProfile {
+  full_name: string;
+  location: string | null;
+  facebook_name: string | null;
+  messenger_link: string | null;
+  mobile_number: string | null;
+  email: string | null;
+  notes: string | null;
+}
+
 interface PortalData {
   customer_name: string;
   customer_code: string;
+  customer_id: string;
+  profile: CustomerProfile;
   summary: {
     total_active: number;
     total_completed: number;
