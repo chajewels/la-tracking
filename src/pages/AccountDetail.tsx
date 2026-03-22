@@ -454,8 +454,8 @@ export default function AccountDetail() {
                     <span className="text-sm font-medium text-orange-500">⚠️ FORFEITURE NOTIFICATION</span>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    This account is <strong>{warning.monthsOverdue} month{warning.monthsOverdue !== 1 ? 's' : ''} overdue</strong> since last paid due date
-                    {warning.lastPaidDueDate ? ` (${new Date(warning.lastPaidDueDate).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })})` : ''}.
+                    This account is <strong>{warning.monthsOverdue} month{warning.monthsOverdue !== 1 ? 's' : ''} overdue</strong> since first unpaid due date
+                    {warning.firstUnpaidDueDate ? ` (${new Date(warning.firstUnpaidDueDate).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })})` : ''}.
                     {warning.daysUntilForfeit > 0
                       ? ` Auto-forfeiture will trigger on ${new Date(warning.forfeitDate).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })} (${warning.daysUntilForfeit} day${warning.daysUntilForfeit !== 1 ? 's' : ''} remaining).`
                       : ` Forfeiture date (${new Date(warning.forfeitDate).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })}) has been reached — pending engine run.`

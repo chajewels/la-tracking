@@ -9,13 +9,13 @@ const corsHeaders = {
  * Auto Forfeit & Final Settlement Engine
  *
  * Checks all overdue accounts and:
- * 1. Creates FINAL SETTLEMENT when 6th penalty occurrence is reached after last paid month
+ * 1. Creates FINAL SETTLEMENT when 6th penalty occurrence is reached
  *    - PHP → ₱3,000 (6 × ₱500)
  *    - JPY → ¥6,000 (6 × ¥1,000)
- * 2. Auto-FORFEITS when 3 months overdue after last paid month
+ * 2. Auto-FORFEITS when 3 months overdue after FIRST UNPAID DUE DATE
  * 3. Auto-FINAL_FORFEITS extension_active accounts past their extension_end_date
  *
- * Reference point: LAST PAID MONTH (not invoice start date)
+ * Reference point: FIRST UNPAID DUE DATE (not last paid month)
  */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -110,7 +110,7 @@ Deno.serve(async (req) => {
 
       if (schedItems.length === 0) continue;
 
-      // ── Determine LAST PAID MONTH ──
+      // ── Determine FIRST UNPAID DUE DATE (forfeiture reference) ──
       const paidItems = schedItems.filter((s: any) =>
         s.status === "paid" || Number(s.paid_amount) >= Number(s.total_due_amount)
       );
@@ -120,16 +120,10 @@ Deno.serve(async (req) => {
 
       if (unpaidItems.length === 0) continue;
 
-      let lastPaidMonthDate: string | null = null;
-      if (paidItems.length > 0) {
-        const lastPaid = paidItems.sort((a: any, b: any) => b.installment_number - a.installment_number)[0];
-        lastPaidMonthDate = lastPaid.due_date;
-      }
-
       const firstUnpaid = unpaidItems.sort((a: any, b: any) => a.installment_number - b.installment_number)[0];
-      const referenceDate = lastPaidMonthDate || firstUnpaid.due_date;
+      const firstUnpaidDueDate = firstUnpaid.due_date;
 
-      // ── Count penalty occurrences AFTER last paid month ──
+      // ── Count penalty occurrences on unpaid items ──
       const unpaidScheduleIds = new Set(unpaidItems.map((s: any) => s.id));
       const relevantPenalties = penalties.filter((p: any) =>
         unpaidScheduleIds.has(p.schedule_id) && (p.status === "unpaid" || p.status === "paid")
@@ -139,8 +133,8 @@ Deno.serve(async (req) => {
         (sum: number, p: any) => sum + Number(p.penalty_amount), 0
       );
 
-      // ── Calculate months overdue from last paid month ──
-      const refDate = new Date(referenceDate + "T00:00:00Z");
+      // ── Calculate months overdue from FIRST UNPAID DUE DATE ──
+      const refDate = new Date(firstUnpaidDueDate + "T00:00:00Z");
       const monthsOverdue = monthsDiff(refDate, now);
 
       const currency = account.currency;
@@ -164,7 +158,7 @@ Deno.serve(async (req) => {
         forfeitResults.push({
           invoice_number: account.invoice_number,
           customer_name: customerName,
-          last_paid_month: lastPaidMonthDate,
+          first_unpaid_due_date: firstUnpaidDueDate,
           overdue_month_count: monthsOverdue,
           status: "FORFEITED",
         });
@@ -176,7 +170,7 @@ Deno.serve(async (req) => {
           new_value_json: {
             invoice_number: account.invoice_number,
             customer_name: customerName,
-            last_paid_month: lastPaidMonthDate,
+            first_unpaid_due_date: firstUnpaidDueDate,
             overdue_month_count: monthsOverdue,
             timestamp: now.toISOString(),
           },
@@ -196,7 +190,7 @@ Deno.serve(async (req) => {
 
         await supabase.from("final_settlement_records").insert({
           account_id: account.id,
-          last_paid_month_date: lastPaidMonthDate,
+          last_paid_month_date: firstUnpaidDueDate,
           penalty_occurrence_count: penaltyOccurrenceCount,
           penalty_total_from_last_paid: penaltyTotalFromLastPaid,
           remaining_principal: Math.max(0, remainingPrincipal),
@@ -206,6 +200,7 @@ Deno.serve(async (req) => {
             penalty_total: penaltyTotalFromLastPaid,
             penalty_occurrences: penaltyOccurrenceCount,
             threshold_rule: "6th penalty occurrence",
+            first_unpaid_due_date: firstUnpaidDueDate,
             unpaid_installments: unpaidItems.map((s: any) => ({
               installment: s.installment_number,
               base: Number(s.base_installment_amount),
@@ -225,7 +220,7 @@ Deno.serve(async (req) => {
         settlementResults.push({
           invoice_number: account.invoice_number,
           customer_name: customerName,
-          last_paid_month: lastPaidMonthDate,
+          first_unpaid_due_date: firstUnpaidDueDate,
           penalty_occurrence_count: penaltyOccurrenceCount,
           penalty_total: penaltyTotalFromLastPaid,
           remaining_principal: remainingPrincipal,
@@ -240,7 +235,7 @@ Deno.serve(async (req) => {
           new_value_json: {
             invoice_number: account.invoice_number,
             customer_name: customerName,
-            last_paid_month: lastPaidMonthDate,
+            first_unpaid_due_date: firstUnpaidDueDate,
             penalty_occurrence_count: penaltyOccurrenceCount,
             penalty_total: penaltyTotalFromLastPaid,
             final_settlement_amount: finalSettlementAmount,
