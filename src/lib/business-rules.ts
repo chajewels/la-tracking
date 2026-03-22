@@ -693,3 +693,55 @@ export const SERVICE_LABELS: Record<string, string> = {
   repair: 'Repair',
   other: 'Other',
 };
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 11. ACCOUNT SUMMARY — SINGLE SOURCE OF TRUTH
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Compute all account summary values from raw data.
+ * This is THE canonical function for summary cards, customer messages,
+ * statements, and portal views. Every consumer must use this to avoid
+ * calculation mismatches.
+ *
+ * SAFETY: This function does NOT touch penalty records, payment history,
+ * or audit logs. It is read-only and forward-looking.
+ */
+export interface AccountSummaryValues {
+  /** Original contract principal (never includes penalties) */
+  principalTotal: number;
+  /** Sum of all confirmed payments */
+  totalPaid: number;
+  /** Principal remaining: principalTotal - totalPaid (never negative) */
+  remainingPrincipal: number;
+  /** Sum of unpaid penalties from penalty_fees table */
+  outstandingPenalties: number;
+  /** Sum of additional services */
+  totalServices: number;
+  /** What the customer owes right now: remainingPrincipal + outstandingPenalties */
+  currentTotalPayable: number;
+  /** Payment progress as percentage (0–100), based on principal only */
+  progressPercent: number;
+}
+
+export function computeAccountSummary(params: {
+  principalTotal: number;
+  totalPaid: number;
+  unpaidPenaltySum: number;
+  totalServicesAmount: number;
+}): AccountSummaryValues {
+  const { principalTotal, totalPaid, unpaidPenaltySum, totalServicesAmount } = params;
+  const remainingPrincipal = Math.max(0, principalTotal - totalPaid);
+  const currentTotalPayable = remainingPrincipal + unpaidPenaltySum;
+  const progressPercent = accountProgress(totalPaid, principalTotal);
+
+  return {
+    principalTotal,
+    totalPaid,
+    remainingPrincipal,
+    outstandingPenalties: unpaidPenaltySum,
+    totalServices: totalServicesAmount,
+    currentTotalPayable,
+    progressPercent,
+  };
+}
