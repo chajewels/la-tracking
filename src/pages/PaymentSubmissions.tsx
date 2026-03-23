@@ -39,10 +39,19 @@ interface SubmissionRow {
   reviewer_notes: string | null;
   confirmed_payment_id: string | null;
   portal_token: string | null;
+  submission_type: string | null;
   created_at: string;
   updated_at: string;
   customers: { full_name: string; customer_code: string } | null;
   layaway_accounts: { invoice_number: string; currency: string; remaining_balance: number; total_amount: number } | null;
+}
+
+interface SubmissionAllocation {
+  id: string;
+  submission_id: string;
+  account_id: string;
+  invoice_number: string;
+  allocated_amount: number;
 }
 
 const statusConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
