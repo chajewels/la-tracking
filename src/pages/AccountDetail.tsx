@@ -246,7 +246,7 @@ export default function AccountDetail() {
   const isFinalForfeit = account.status === 'final_forfeited';
   const isExtension = account.status === 'extension_active';
   const message = useMemo(() => {
-  let msg = `✨ Cha Jewels Layaway Payment Summary\n\n`;
+  let message = `✨ Cha Jewels Layaway Payment Summary\n\n`;
 
   // Shared message block for summary values (used across all statuses)
   const appendSummaryBlock = () => {
