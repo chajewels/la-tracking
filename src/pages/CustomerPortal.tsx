@@ -473,8 +473,34 @@ export default function CustomerPortal() {
         </div>
       </div>
 
+      {/* Sticky Mobile Pay Now Bar */}
+      {firstPayable && portalView === 'accounts' && !selectedAccount && (
+        <div className="fixed bottom-0 left-0 right-0 sm:hidden z-40 border-t border-[hsl(var(--border))] px-4 py-3 bg-[hsl(var(--card))]" style={{ backdropFilter: 'blur(12px)' }}>
+          <div className="flex gap-2 max-w-3xl mx-auto">
+            <Button
+              className="flex-1 gap-2 bg-[hsl(var(--gold))] hover:bg-[hsl(var(--gold-dark))] text-white font-bold shadow-lg text-sm h-11"
+              style={hasOverdue ? { boxShadow: '0 0 0 2px hsl(0 72% 51% / 0.4), 0 4px 16px hsl(44 72% 47% / 0.25)' } : { boxShadow: '0 4px 16px hsl(44 72% 47% / 0.25)' }}
+              onClick={() => openAccountPay(firstPayable, 'single')}
+            >
+              <Wallet className="h-4 w-4" />
+              Pay Now
+            </Button>
+            {payableAccounts.length > 1 && (
+              <Button
+                variant="outline"
+                className="gap-2 h-11 border-[hsl(var(--gold)/0.3)] text-foreground"
+                onClick={() => openAccountPay(firstPayable, 'split')}
+              >
+                <CreditCard className="h-4 w-4" />
+                Split
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Detail Sheet */}
-      <Sheet open={!!selectedAccount} onOpenChange={(open) => !open && setSelectedAccount(null)}>
+      <Sheet open={!!selectedAccount} onOpenChange={(open) => { if (!open) { setSelectedAccount(null); setInitialDetailTab('overview'); setInitialPaymentMode('single'); } }}>
         <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto p-0">
           {selectedAccount && (
             <AccountDetail
@@ -482,8 +508,10 @@ export default function CustomerPortal() {
               allAccounts={data.accounts}
               paymentMethods={data.payment_methods}
               portalToken={token!}
-              onClose={() => setSelectedAccount(null)}
+              onClose={() => { setSelectedAccount(null); setInitialDetailTab('overview'); setInitialPaymentMode('single'); }}
               onRefresh={fetchPortal}
+              initialTab={initialDetailTab}
+              initialPaymentMode={initialPaymentMode}
             />
           )}
         </SheetContent>
