@@ -406,6 +406,14 @@ export default function AccountDetail() {
     });
     // Forfeiture notification warning for near-forfeit overdue accounts
     const forfeitWarning = getForfeitureWarning(account.status, scheduleItems);
+    // Show upcoming 14-day follow-up dates ABOVE Important Notice for near-forfeiture penalized accounts
+    const followUpDates = getUpcomingFollowUpDates(account.status, scheduleItems, 4);
+    if (followUpDates && forfeitWarning && forfeitWarning.monthsOverdue >= 2) {
+      message += `\n📅 Next Scheduled Follow-Up Dates:\n`;
+      followUpDates.dates.forEach(d => {
+        message += `  • ${d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}\n`;
+      });
+    }
     if (forfeitWarning && forfeitWarning.monthsOverdue >= 2) {
       message += `\n⚠️ IMPORTANT NOTICE: Your account is ${forfeitWarning.monthsOverdue} months overdue.`;
       if (forfeitWarning.daysUntilForfeit > 0) {
