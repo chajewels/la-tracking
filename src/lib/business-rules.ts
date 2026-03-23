@@ -774,10 +774,35 @@ export interface AccountSummaryValues {
   outstandingPenalties: number;
   /** Sum of additional services */
   totalServices: number;
-  /** What the customer owes right now: remainingPrincipal + outstandingPenalties */
+  /** What the customer owes right now: remainingPrincipal + outstandingPenalties + totalServices */
   currentTotalPayable: number;
   /** Payment progress as percentage (0–100), based on principal only */
   progressPercent: number;
+  /** Schedule line items with derived paid state (for message/statement sync) */
+  scheduleStates: ScheduleLineState[];
+  /** Next unpaid due date or null if fully paid */
+  nextDueDate: string | null;
+  /** Number of remaining unpaid installments */
+  unpaidCount: number;
+  /** Whether any installment is past due */
+  isOverdue: boolean;
+}
+
+/** Per-installment derived state used by messages, schedule cards, and statements. */
+export interface ScheduleLineState {
+  installmentNumber: number;
+  dueDate: string;
+  baseAmount: number;
+  penaltyAmount: number;
+  totalDue: number;
+  paidAmount: number;
+  /** true when paid_amount >= base_installment_amount (or status=paid) */
+  isPaid: boolean;
+  /** true when 0 < paid_amount < base_installment_amount and not fully paid */
+  isPartial: boolean;
+  /** Principal remaining on this specific installment */
+  principalRemaining: number;
+  status: string;
 }
 
 export function computeAccountSummary(params: {
@@ -785,11 +810,52 @@ export function computeAccountSummary(params: {
   totalPaid: number;
   unpaidPenaltySum: number;
   totalServicesAmount: number;
+  scheduleItems?: Array<{
+    installment_number: number;
+    due_date: string;
+    base_installment_amount: number | string;
+    penalty_amount: number | string;
+    total_due_amount: number | string;
+    paid_amount: number | string;
+    status: string;
+  }>;
 }): AccountSummaryValues {
-  const { principalTotal, totalPaid, unpaidPenaltySum, totalServicesAmount } = params;
+  const { principalTotal, totalPaid, unpaidPenaltySum, totalServicesAmount, scheduleItems } = params;
   const remainingPrincipal = Math.max(0, principalTotal - totalPaid);
   const currentTotalPayable = remainingPrincipal + unpaidPenaltySum + totalServicesAmount;
   const progressPercent = accountProgress(totalPaid, principalTotal);
+
+  // Derive schedule states from actual DB paid_amount (single source of truth)
+  const scheduleStates: ScheduleLineState[] = (scheduleItems || [])
+    .filter(s => s.status !== 'cancelled')
+    .map(item => {
+      const baseAmount = Number(item.base_installment_amount);
+      const penaltyAmount = Number(item.penalty_amount);
+      const totalDue = Number(item.total_due_amount);
+      const paidAmount = Number(item.paid_amount);
+      const isPaid = isEffectivelyPaid(item as any);
+      const isPartialFlag = !isPaid && paidAmount > 0;
+      const principalRemaining = Math.max(0, baseAmount - paidAmount);
+      return {
+        installmentNumber: item.installment_number,
+        dueDate: item.due_date,
+        baseAmount,
+        penaltyAmount,
+        totalDue,
+        paidAmount,
+        isPaid,
+        isPartial: isPartialFlag,
+        principalRemaining,
+        status: item.status,
+      };
+    });
+
+  const unpaidStates = scheduleStates.filter(s => !s.isPaid);
+  const today = todayStr();
+  const nextDueDate = unpaidStates.length > 0
+    ? unpaidStates.sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0].dueDate
+    : null;
+  const isOverdueFlag = unpaidStates.some(s => s.dueDate < today);
 
   return {
     principalTotal,
@@ -799,6 +865,10 @@ export function computeAccountSummary(params: {
     totalServices: totalServicesAmount,
     currentTotalPayable,
     progressPercent,
+    scheduleStates,
+    nextDueDate,
+    unpaidCount: unpaidStates.length,
+    isOverdue: isOverdueFlag,
   };
 }
 
