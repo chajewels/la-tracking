@@ -16,6 +16,7 @@ interface Props {
   invoiceNumber: string;
   currency: Currency;
   hasOverride: boolean;
+  planMonths: number;
 }
 
 export default function ApplyPenaltyCapDialog({ accountId, invoiceNumber, currency, hasOverride }: Props) {
