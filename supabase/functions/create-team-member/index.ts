@@ -5,6 +5,26 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+async function hasPermission(supabase: any, userId: string, permissionKey: string) {
+  const { data: roles, error: roleError } = await supabase
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId);
+  if (roleError) throw roleError;
+
+  const roleNames = (roles ?? []).map((row: any) => row.role);
+  if (roleNames.length === 0) return false;
+
+  const { data: permissions, error: permissionError } = await supabase
+    .from("role_permissions")
+    .select("role, is_allowed")
+    .eq("permission_key", permissionKey)
+    .in("role", roleNames);
+  if (permissionError) throw permissionError;
+
+  return (permissions ?? []).some((row: any) => row.is_allowed);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -14,20 +34,23 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Verify caller is admin
-    const authHeader = req.headers.get("Authorization");
-    if (authHeader) {
+    const { count } = await supabaseAdmin.from("user_roles").select("*", { count: "exact", head: true });
+    const bootstrapMode = (count ?? 0) === 0;
+
+    if (!bootstrapMode) {
+      const authHeader = req.headers.get("Authorization");
+      if (!authHeader) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       const { data: { user } } = await supabaseAdmin.auth.getUser(authHeader.replace("Bearer ", ""));
-      if (user) {
-        const { data: roles } = await supabaseAdmin.from("user_roles").select("role").eq("user_id", user.id);
-        const isAdmin = roles?.some((r: any) => r.role === "admin");
-        if (!isAdmin) {
-          // Allow if no users exist yet (bootstrap)
-          const { count } = await supabaseAdmin.from("user_roles").select("*", { count: "exact", head: true });
-          if ((count ?? 0) > 0) {
-            return new Response(JSON.stringify({ error: "Admin only" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-          }
-        }
+      if (!user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const canManageTeam = await hasPermission(supabaseAdmin, user.id, "manage_team");
+      if (!canManageTeam) {
+        return new Response(JSON.stringify({ error: "Permission denied" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
     }
 

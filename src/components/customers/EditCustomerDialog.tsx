@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import CountrySelect from '@/components/customers/CountrySelect';
 import { LocationType, toLocationString } from '@/lib/countries';
+import { usePermissions } from '@/contexts/PermissionsContext';
 
 interface EditForm {
   full_name: string; customer_code: string; facebook_name: string; messenger_link: string;
@@ -29,9 +30,11 @@ interface EditCustomerDialogProps {
 
 export default function EditCustomerDialog({ open, onOpenChange, editId, editForm, setEditForm }: EditCustomerDialogProps) {
   const queryClient = useQueryClient();
+  const { can } = usePermissions();
   const [saving, setSaving] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const canDeleteCustomer = can('delete_customer');
 
   const handleLocationChange = (v: string) => {
     const lt = v as LocationType;
@@ -39,7 +42,7 @@ export default function EditCustomerDialog({ open, onOpenChange, editId, editFor
   };
 
   const handleDelete = async () => {
-    if (!editId) return;
+    if (!editId || !canDeleteCustomer) return;
     setDeleting(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -149,11 +152,13 @@ export default function EditCustomerDialog({ open, onOpenChange, editId, editFor
               <Textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} rows={2} />
             </div>
             <div className="flex justify-between pt-2">
-              <Button type="button" variant="destructive" size="sm"
-                onClick={() => setDeleteConfirmOpen(true)}
-                disabled={saving}>
-                <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Delete
-              </Button>
+              {canDeleteCustomer ? (
+                <Button type="button" variant="destructive" size="sm"
+                  onClick={() => setDeleteConfirmOpen(true)}
+                  disabled={saving}>
+                  <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Delete
+                </Button>
+              ) : <div />}
               <div className="flex gap-3">
                 <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
                 <Button type="submit" disabled={saving} className="gold-gradient text-primary-foreground font-medium">
