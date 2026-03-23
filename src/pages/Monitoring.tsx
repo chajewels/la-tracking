@@ -95,6 +95,7 @@ export default function Monitoring() {
   // Fetch existing CSR notifications
   const { data: notifications } = useQuery({
     queryKey: ['csr-notifications'],
+    staleTime: 30_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('csr_notifications')
