@@ -274,7 +274,7 @@ Deno.serve(async (req) => {
         total_services: totalServices,
         outstanding_penalties: unpaidPenaltySum,
         current_total_payable: currentTotalPayable,
-        next_due_date: nextDue?.due_date || null,
+        next_due_date: nextDueInfo?.date || null,
         next_due_amount: nextDue ? Number(nextDue.total_due_amount) - Number(nextDue.paid_amount) : null,
         statement_token: statementTokenByAccount[acc.id] || null,
         schedule: acctSchedule.map((s: any) => ({
