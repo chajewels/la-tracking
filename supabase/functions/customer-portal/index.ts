@@ -5,6 +5,55 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+/**
+ * Penalty-aware next due date.
+ * 14-day checkpoints only for installments with penalty_amount > 0.
+ */
+function computeNextDueDate(
+  unpaidSchedule: any[],
+  today: string,
+  todayDate: Date
+): { date: string; isAdjusted: boolean } | null {
+  if (unpaidSchedule.length === 0) return null;
+
+  const candidates: Array<{ date: Date; isAdjusted: boolean }> = [];
+
+  for (const item of unpaidSchedule) {
+    const hasPenalty = Number(item.penalty_amount) > 0;
+    const isOverdue = item.due_date < today;
+
+    if (!isOverdue) {
+      candidates.push({ date: new Date(item.due_date + 'T00:00:00Z'), isAdjusted: false });
+    } else if (hasPenalty) {
+      const dueDate = new Date(item.due_date + 'T00:00:00Z');
+      const dueDayOfMonth = dueDate.getUTCDate();
+      const checkpoints: Date[] = [];
+      const p1 = new Date(dueDate); p1.setUTCDate(p1.getUTCDate() + 7); checkpoints.push(p1);
+      const p2 = new Date(dueDate); p2.setUTCDate(p2.getUTCDate() + 14); checkpoints.push(p2);
+      for (let m = 1; m <= 12; m++) {
+        const year = dueDate.getUTCFullYear();
+        const month = dueDate.getUTCMonth() + m;
+        const maxDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+        const monthly = new Date(Date.UTC(year, month, Math.min(dueDayOfMonth, maxDay)));
+        checkpoints.push(monthly);
+        const plus14 = new Date(monthly); plus14.setUTCDate(plus14.getUTCDate() + 14);
+        checkpoints.push(plus14);
+      }
+      const nextCp = checkpoints.find(cp => cp > todayDate);
+      if (nextCp) candidates.push({ date: nextCp, isAdjusted: true });
+    } else {
+      candidates.push({ date: new Date(item.due_date + 'T00:00:00Z'), isAdjusted: false });
+    }
+  }
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => a.date.getTime() - b.date.getTime());
+  const future = candidates.find(c => c.date >= todayDate);
+  if (future) return { date: future.date.toISOString().split('T')[0], isAdjusted: future.isAdjusted };
+  const latest = candidates[candidates.length - 1];
+  return { date: latest.date.toISOString().split('T')[0], isAdjusted: latest.isAdjusted };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
