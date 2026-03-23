@@ -39,16 +39,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(null);
   };
 
-  const fetchUserData = async (userId: string) => {
-    const [rolesRes, profileRes] = await Promise.all([
-      supabase.from('user_roles').select('role').eq('user_id', userId),
-      supabase.from('profiles').select('full_name, email').eq('user_id', userId).maybeSingle(),
-    ]);
+  const fetchUserData = async (userId: string, retryCount = 0): Promise<{ roles: AppRole[]; profile: { full_name: string; email: string | null } | null }> => {
+    try {
+      const [rolesRes, profileRes] = await Promise.all([
+        supabase.from('user_roles').select('role').eq('user_id', userId),
+        supabase.from('profiles').select('full_name, email').eq('user_id', userId).maybeSingle(),
+      ]);
 
-    return {
-      roles: (rolesRes.data ?? []).map((r) => r.role as AppRole),
-      profile: profileRes.data ?? null,
-    };
+      if ((rolesRes.error || profileRes.error) && retryCount < 2) {
+        console.warn('Auth data fetch retry:', rolesRes.error?.message, profileRes.error?.message);
+        await new Promise(r => setTimeout(r, 1500 * (retryCount + 1)));
+        return fetchUserData(userId, retryCount + 1);
+      }
+
+      return {
+        roles: (rolesRes.data ?? []).map((r) => r.role as AppRole),
+        profile: profileRes.data ?? null,
+      };
+    } catch (err) {
+      if (retryCount < 2) {
+        console.warn('Auth data fetch retry after error:', err);
+        await new Promise(r => setTimeout(r, 1500 * (retryCount + 1)));
+        return fetchUserData(userId, retryCount + 1);
+      }
+      return { roles: [], profile: null };
+    }
   };
 
   useEffect(() => {
