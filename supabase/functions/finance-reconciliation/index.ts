@@ -164,16 +164,18 @@ Deno.serve(async (req) => {
         balanceExceptions++;
       }
 
-      // 3. Over-cap penalties (months 1-5)
+      // 3. Over-cap penalties (non-final installments only — final is uncapped)
+      const planMonths = acct.payment_plan_months || 6;
       const penBySched: Record<string, any[]> = {};
       for (const p of pens) {
         (penBySched[p.schedule_id] ||= []).push(p);
       }
       for (const sched of scheds) {
-        if (sched.installment_number >= 1 && sched.installment_number <= 5) {
+        // Only cap non-final installments; final installment is uncapped
+        if (sched.installment_number < planMonths) {
           const schedPens = (penBySched[sched.id] || []).filter((p: any) => p.status !== "waived");
           const totalPen = schedPens.reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
-          const cap = PENALTY_CAP[acct.currency]?.months1to5 || 1000;
+          const cap = PENALTY_CAP_PER_INSTALLMENT[acct.currency] || 1000;
           if (totalPen > cap + 0.01) {
             addEx("overcap_penalty", `Inst ${sched.installment_number}: penalty ${totalPen} exceeds cap ${cap}`, cap, totalPen);
             penaltyExceptions++;
