@@ -487,8 +487,8 @@ export default function MultiInvoicePaymentDialog({
                 disabled={submitting}
                 className="gold-gradient text-primary-foreground"
               >
-                {submitting ? 'Processing…' : 'Confirm Payment'}
-                <CheckCircle2 className="h-4 w-4 ml-1" />
+                {submitting ? 'Processing…' : isAdminOrFinance ? 'Confirm Payment' : 'Submit for Confirmation'}
+                {isAdminOrFinance ? <CheckCircle2 className="h-4 w-4 ml-1" /> : <Clock className="h-4 w-4 ml-1" />}
               </Button>
             </DialogFooter>
           </div>
