@@ -165,7 +165,7 @@ export default function Monitoring() {
 
       if (!nextItem) continue;
 
-      const type = categorizeByDueDate(nextItem.due_date);
+      const type = bucket === 'grace_period' ? 'grace_period' as const : categorizeByDueDate(nextItem.due_date);
       const overdueDays = daysOverdueFromToday(nextItem.due_date);
 
       result.push({
