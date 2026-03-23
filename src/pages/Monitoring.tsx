@@ -56,6 +56,7 @@ export default function Monitoring() {
   // Fetch ALL unpaid schedule items for active/overdue accounts
   const { data: scheduleItems, isLoading: schedLoading } = useQuery({
     queryKey: ['monitoring-schedules'],
+    staleTime: 30_000,
     queryFn: async () => {
       const next7 = new Date();
       next7.setDate(next7.getDate() + 7);
@@ -95,6 +96,7 @@ export default function Monitoring() {
   // Fetch existing CSR notifications
   const { data: notifications } = useQuery({
     queryKey: ['csr-notifications'],
+    staleTime: 30_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('csr_notifications')
@@ -107,6 +109,7 @@ export default function Monitoring() {
   // Fetch active portal tokens per customer
   const { data: portalTokens } = useQuery({
     queryKey: ['portal-tokens-active'],
+    staleTime: 5 * 60_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('customer_portal_tokens')
@@ -114,7 +117,6 @@ export default function Monitoring() {
         .eq('is_active', true)
         .order('created_at', { ascending: false });
       if (error) throw error;
-      // Deduplicate: keep latest per customer, exclude expired
       const map = new Map<string, string>();
       for (const t of data || []) {
         if (map.has(t.customer_id)) continue;

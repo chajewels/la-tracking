@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -245,8 +245,7 @@ export default function AccountDetail() {
   const isSettlement = account.status === 'final_settlement';
   const isFinalForfeit = account.status === 'final_forfeited';
   const isExtension = account.status === 'extension_active';
-
-
+  const message = useMemo(() => {
   let message = `✨ Cha Jewels Layaway Payment Summary\n\n`;
 
   // Shared message block for summary values (used across all statuses)
@@ -428,6 +427,8 @@ export default function AccountDetail() {
       message += `\nThank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
     }
   }
+  return message;
+  }, [account?.id, account?.status, summary, scheduleItems, currency, mostRecentPayment?.id, paymentBreakdownText, accountServices, unpaidSchedule, penaltyCapOverride]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message);
