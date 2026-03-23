@@ -427,6 +427,8 @@ export default function AccountDetail() {
       message += `\nThank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
     }
   }
+  return message;
+  }, [account?.id, account?.status, summary, scheduleItems, currency, mostRecentPayment?.id, paymentBreakdownText, accountServices, unpaidSchedule, penaltyCapOverride]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message);
