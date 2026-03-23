@@ -41,8 +41,8 @@ export default function LiveCollectionTracker({ currencyFilter, displayCurrency 
       }
 
       for (const p of data || []) {
-        const existing = dayMap.get(p.date_paid) ?? 0;
-        dayMap.set(p.date_paid, existing + toJpy(Number(p.amount_paid), p.currency as Currency));
+        if (!dayMap.has(p.date_paid)) continue;
+        dayMap.set(p.date_paid, dayMap.get(p.date_paid)! + toJpy(Number(p.amount_paid), p.currency as Currency));
       }
 
       return [...dayMap.entries()].map(([dateStr, amount]) => ({
