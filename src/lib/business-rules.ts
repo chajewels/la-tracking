@@ -530,7 +530,7 @@ export function computeCollectionStats(
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export type AlertType = 'overdue' | 'due_today' | 'upcoming';
-export type AccountBucket = 'overdue' | 'due_today' | 'due_3_days' | 'due_7_days' | 'future' | 'fully_paid';
+export type AccountBucket = 'overdue' | 'grace_period' | 'due_today' | 'due_3_days' | 'due_7_days' | 'future' | 'fully_paid';
 
 export function categorizeByDueDate(dueDate: string): AlertType {
   const today = todayStr();
