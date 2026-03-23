@@ -82,9 +82,9 @@ export default function AppSidebar() {
                     >
                       <item.icon className="h-4 w-4" />
                       <span>{item.label}</span>
-                      {item.label === 'CSR Monitoring' && (
-                        <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground px-1.5">
-                          3
+                      {item.label === 'Payment Submissions' && !!pendingCount && pendingCount > 0 && (
+                        <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-warning text-[10px] font-bold text-warning-foreground px-1.5">
+                          {pendingCount}
                         </span>
                       )}
                     </NavLink>
