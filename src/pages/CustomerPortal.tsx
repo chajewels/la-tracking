@@ -617,20 +617,22 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
 }
 
 /* ─── Account Detail Panel ─── */
-function AccountDetail({ account, allAccounts, paymentMethods, portalToken, onClose, onRefresh }: {
+function AccountDetail({ account, allAccounts, paymentMethods, portalToken, onClose, onRefresh, initialTab = 'overview', initialPaymentMode = 'single' }: {
   account: PortalAccount;
   allAccounts: PortalAccount[];
   paymentMethods: PaymentMethod[];
   portalToken: string;
   onClose: () => void;
   onRefresh: () => void;
+  initialTab?: 'overview' | 'pay' | 'submissions';
+  initialPaymentMode?: 'single' | 'split';
 }) {
   const currency = account.currency;
   const colorClass = statusColor[account.status_label] || statusColor['Active'];
   const today = new Date().toISOString().split('T')[0];
   const isOverdue = account.status_label === 'Overdue';
   const canPay = account.remaining_balance > 0 && !['completed', 'cancelled', 'forfeited', 'final_forfeited'].includes(account.status);
-  const [activeTab, setActiveTab] = useState<'overview' | 'pay' | 'submissions'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'pay' | 'submissions'>(canPay ? initialTab : 'overview');
 
   const statementUrl = account.statement_token
     ? `${STATEMENT_BASE}/statement?token=${account.statement_token}`
