@@ -146,37 +146,11 @@ export default function AccountDetail() {
     }
   }, [editScheduleAmount, id, queryClient]);
 
-
-  if (accountLoading) {
-    return (
-      <AppLayout>
-        <div className="space-y-6 max-w-5xl">
-          <Skeleton className="h-10 w-64" />
-          <div className="grid grid-cols-4 gap-4">
-            {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
-          </div>
-        </div>
-      </AppLayout>
-    );
-  }
-
-  if (!account) {
-    return (
-      <AppLayout>
-        <div className="flex items-center justify-center h-64">
-          <p className="text-muted-foreground">Account not found</p>
-        </div>
-      </AppLayout>
-    );
-  }
-
-  const currency = account.currency as Currency;
-  const principalTotal = Number(account.total_amount);
+  const currency = (account?.currency || 'PHP') as Currency;
+  const principalTotal = Number(account?.total_amount || 0);
   const scheduleItems = schedule || [];
-  const downpaymentAmount = Number((account as any).downpayment_amount || 0);
+  const downpaymentAmount = Number((account as any)?.downpayment_amount || 0);
 
-  // SINGLE SOURCE OF TRUTH: derive totalPaid from actual confirmed payment records,
-  // NOT from the stored account.total_paid field which may be stale.
   const confirmedActivePayments = getActivePayments(payments || []);
   const totalPaid = confirmedActivePayments.reduce((sum, p) => sum + Number(p.amount_paid), 0);
   const remainingBalance = computeRemainingBalance(scheduleItems, principalTotal, totalPaid);
@@ -185,7 +159,6 @@ export default function AccountDetail() {
   const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
   const unpaidPenaltySum = unpaidPenalties.reduce((sum, penalty) => sum + Number(penalty.penalty_amount), 0);
 
-  // SINGLE SOURCE OF TRUTH: shared summary values used by cards, message, statement, portal
   const summary = computeAccountSummary({
     principalTotal,
     totalPaid,
@@ -194,14 +167,11 @@ export default function AccountDetail() {
     scheduleItems,
   });
 
-  // Keep principal-based totals as the single source of truth.
-  // Penalties and services are shown separately and must not inflate the layaway principal.
   const scheduleBaseSum = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
   const schedulePenaltySum = scheduleItems.reduce((s, i) => s + Number(i.penalty_amount), 0);
   const originalPrincipal = downpaymentAmount + scheduleBaseSum;
   const progress = summary.progressPercent;
 
-  // Reconciliation validation: principal total - paid must equal remaining principal balance
   const reconciliationValid = Math.abs(principalTotal - totalPaid - remainingBalance) < 1;
 
   const unpaidSchedule = getUnpaidScheduleItems(scheduleItems);
@@ -214,10 +184,8 @@ export default function AccountDetail() {
   const paymentBreakdownText = activePayments.length > 0
     ? `${activePayments.map(payment => formatCurrency(Number(payment.amount_paid), payment.currency as Currency)).join(' + ')} = ${formatCurrency(totalPaid, currency)}`
     : formatCurrency(totalPaid, currency);
-  // Customer message uses schedule states from computeAccountSummary (single source of truth)
-  // This ensures message, schedule card, and statement all show identical paid/partial/unpaid status.
+
   const getMessageScheduleState = (item: any, idx: number) => {
-    // Find the matching state from the summary engine
     const state = summary.scheduleStates.find(s => s.installmentNumber === item.installment_number);
     if (state) {
       return {
@@ -227,7 +195,6 @@ export default function AccountDetail() {
         totalDue: state.totalDue,
       };
     }
-    // Fallback to direct item data
     return {
       coveredAmount: Number(item.paid_amount),
       effPaid: isEffectivelyPaid(item),
@@ -236,16 +203,17 @@ export default function AccountDetail() {
     };
   };
 
-  // Find the most recent payment for the thank-you line
   const mostRecentPayment = activePayments.length > 0
     ? [...activePayments].sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
     : null;
 
-  const isForfeited = account.status === 'forfeited';
-  const isSettlement = account.status === 'final_settlement';
-  const isFinalForfeit = account.status === 'final_forfeited';
-  const isExtension = account.status === 'extension_active';
+  const isForfeited = account?.status === 'forfeited';
+  const isSettlement = account?.status === 'final_settlement';
+  const isFinalForfeit = account?.status === 'final_forfeited';
+  const isExtension = account?.status === 'extension_active';
+
   const message = useMemo(() => {
+  if (!account) return '';
   let message = `✨ Cha Jewels Layaway Payment Summary\n\n`;
 
   // Shared message block for summary values (used across all statuses)
