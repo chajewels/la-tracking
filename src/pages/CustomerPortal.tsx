@@ -539,7 +539,7 @@ function SummaryTile({ label, value, icon, accent, sub }: {
 }
 
 /* ─── Account Card ─── */
-function AccountCard({ account, onViewDetails }: { account: PortalAccount; onViewDetails: () => void }) {
+function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount; onViewDetails: () => void; onPay: () => void }) {
   const currency = account.currency;
   const colorClass = statusColor[account.status_label] || statusColor['Active'];
   const isOverdue = account.status_label === 'Overdue';
