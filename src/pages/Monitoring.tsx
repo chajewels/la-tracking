@@ -193,7 +193,7 @@ export default function Monitoring() {
     if (activeFilter === 'overdue') return alerts.filter(a => a.bucket === 'overdue');
     if (activeFilter === 'due_today') return alerts.filter(a => a.bucket === 'due_today');
     if (activeFilter === 'due_3_days') return alerts.filter(a => a.bucket === 'due_3_days');
-    if (activeFilter === 'due_7_days') return alerts.filter(a => ['due_3_days', 'due_7_days'].includes(a.bucket));
+    if (activeFilter === 'due_7_days') return alerts.filter(a => a.bucket === 'due_7_days');
     return alerts;
   }, [alerts, activeFilter]);
 
@@ -218,7 +218,7 @@ export default function Monitoring() {
     overdue: alerts.filter(a => a.bucket === 'overdue').length,
     due_today: alerts.filter(a => a.bucket === 'due_today').length,
     due_3_days: alerts.filter(a => a.bucket === 'due_3_days').length,
-    due_7_days: alerts.filter(a => ['due_3_days', 'due_7_days'].includes(a.bucket)).length,
+    due_7_days: alerts.filter(a => a.bucket === 'due_7_days').length,
   }), [alerts]);
 
   // Notification stats per bucket
