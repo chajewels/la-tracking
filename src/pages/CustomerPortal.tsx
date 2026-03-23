@@ -181,10 +181,30 @@ export default function CustomerPortal() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedAccount, setSelectedAccount] = useState<PortalAccount | null>(null);
+  const [initialDetailTab, setInitialDetailTab] = useState<'overview' | 'pay' | 'submissions'>('overview');
+  const [initialPaymentMode, setInitialPaymentMode] = useState<'single' | 'split'>('single');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('newest');
   const [portalView, setPortalView] = useState<'accounts' | 'profile'>('accounts');
+
+  const openAccountPay = (account: PortalAccount, mode: 'single' | 'split' = 'single') => {
+    setInitialDetailTab('pay');
+    setInitialPaymentMode(mode);
+    setSelectedAccount(account);
+  };
+
+  // Find first payable account for top-level Pay Now
+  const payableAccounts = data?.accounts.filter(a =>
+    a.remaining_balance > 0 &&
+    !['completed', 'cancelled', 'forfeited', 'final_forfeited'].includes(a.status)
+  ) || [];
+  const hasOverdue = payableAccounts.some(a => a.status_label === 'Overdue');
+  const hasDueToday = payableAccounts.some(a => {
+    const today = new Date().toISOString().split('T')[0];
+    return a.next_due_date === today;
+  });
+  const firstPayable = payableAccounts[0];
 
   const fetchPortal = async () => {
     if (!token) { setError('No access token provided.'); setLoading(false); return; }
@@ -272,15 +292,28 @@ export default function CustomerPortal() {
                 </p>
               </div>
             </div>
-            <Button
-              variant={portalView === 'profile' ? 'default' : 'outline'}
-              size="sm"
-              className="gap-1.5"
-              onClick={() => setPortalView(portalView === 'profile' ? 'accounts' : 'profile')}
-            >
-              <User className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{portalView === 'profile' ? 'My Accounts' : 'My Profile'}</span>
-            </Button>
+            <div className="flex items-center gap-2">
+              {firstPayable && (
+                <Button
+                  size="sm"
+                  className="gap-1.5 bg-[hsl(var(--gold))] hover:bg-[hsl(var(--gold-dark))] text-white font-semibold shadow-md hover:shadow-lg transition-all hidden sm:flex"
+                  style={hasOverdue ? { boxShadow: '0 0 0 2px hsl(var(--destructive) / 0.4), 0 0 12px hsl(var(--destructive) / 0.15)' } : hasDueToday ? { boxShadow: '0 0 0 2px hsl(var(--warning) / 0.3)' } : {}}
+                  onClick={() => openAccountPay(firstPayable, 'single')}
+                >
+                  <Wallet className="h-3.5 w-3.5" />
+                  Pay Now
+                </Button>
+              )}
+              <Button
+                variant={portalView === 'profile' ? 'default' : 'outline'}
+                size="sm"
+                className="gap-1.5"
+                onClick={() => setPortalView(portalView === 'profile' ? 'accounts' : 'profile')}
+              >
+                <User className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">{portalView === 'profile' ? 'My Accounts' : 'My Profile'}</span>
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -306,6 +339,59 @@ export default function CustomerPortal() {
                 sub={data.summary.next_due_invoice ? `#${data.summary.next_due_invoice}` : undefined}
               />
             </div>
+
+            {/* Action Cards: Pay Now + Split Payment */}
+            {payableAccounts.length > 0 && (
+              <div className={`grid ${payableAccounts.length > 1 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'} gap-3`}>
+                {/* Pay Now Card */}
+                <button
+                  onClick={() => openAccountPay(firstPayable, 'single')}
+                  className="group relative overflow-hidden rounded-xl border-2 border-[hsl(var(--gold)/0.3)] bg-gradient-to-br from-[hsl(var(--gold)/0.08)] to-[hsl(var(--gold)/0.02)] p-4 text-left transition-all hover:border-[hsl(var(--gold)/0.5)] hover:shadow-lg"
+                  style={hasOverdue ? { boxShadow: '0 0 16px hsl(0 72% 51% / 0.1)' } : {}}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[hsl(var(--gold)/0.15)] group-hover:bg-[hsl(var(--gold)/0.25)] transition-colors">
+                        <Wallet className="h-5 w-5 text-[hsl(var(--gold))]" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold font-display text-foreground">Pay Now</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {hasOverdue ? 'Overdue payment — act now' : 'Make a payment on your account'}
+                        </p>
+                      </div>
+                    </div>
+                    <ChevronRight className="h-5 w-5 text-[hsl(var(--gold))] group-hover:translate-x-0.5 transition-transform" />
+                  </div>
+                  {hasOverdue && (
+                    <div className="absolute top-0 right-0 px-2 py-0.5 rounded-bl-lg bg-destructive text-destructive-foreground text-[9px] font-bold uppercase tracking-wider">
+                      Overdue
+                    </div>
+                  )}
+                </button>
+
+                {/* Split Payment Card */}
+                {payableAccounts.length > 1 && (
+                  <button
+                    onClick={() => openAccountPay(firstPayable, 'split')}
+                    className="group relative overflow-hidden rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 text-left transition-all hover:border-[hsl(var(--gold)/0.3)] hover:shadow-md"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[hsl(var(--accent))] group-hover:bg-[hsl(var(--gold)/0.15)] transition-colors">
+                          <CreditCard className="h-5 w-5 text-[hsl(var(--accent-foreground))]" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold font-display text-foreground">Split Payment</p>
+                          <p className="text-[10px] text-muted-foreground">Pay multiple accounts in one transaction</p>
+                        </div>
+                      </div>
+                      <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-[hsl(var(--gold))] group-hover:translate-x-0.5 transition-all" />
+                    </div>
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Filters */}
             <div className="flex flex-col sm:flex-row gap-2">
@@ -367,7 +453,8 @@ export default function CustomerPortal() {
                   <AccountCard
                     key={account.id}
                     account={account}
-                    onViewDetails={() => setSelectedAccount(account)}
+                    onViewDetails={() => { setInitialDetailTab('overview'); setSelectedAccount(account); }}
+                    onPay={() => openAccountPay(account, 'single')}
                   />
                 ))}
               </div>
@@ -375,8 +462,8 @@ export default function CustomerPortal() {
           </>
         )}
 
-        {/* Footer */}
-        <div className="text-center py-6">
+        {/* Footer - extra bottom padding on mobile for sticky bar */}
+        <div className="text-center py-6 pb-20 sm:pb-6">
           <p className="text-xs text-muted-foreground">
             © {new Date().getFullYear()} Cha Jewels · Layaway Portal
           </p>
@@ -386,8 +473,34 @@ export default function CustomerPortal() {
         </div>
       </div>
 
+      {/* Sticky Mobile Pay Now Bar */}
+      {firstPayable && portalView === 'accounts' && !selectedAccount && (
+        <div className="fixed bottom-0 left-0 right-0 sm:hidden z-40 border-t border-[hsl(var(--border))] px-4 py-3 bg-[hsl(var(--card))]" style={{ backdropFilter: 'blur(12px)' }}>
+          <div className="flex gap-2 max-w-3xl mx-auto">
+            <Button
+              className="flex-1 gap-2 bg-[hsl(var(--gold))] hover:bg-[hsl(var(--gold-dark))] text-white font-bold shadow-lg text-sm h-11"
+              style={hasOverdue ? { boxShadow: '0 0 0 2px hsl(0 72% 51% / 0.4), 0 4px 16px hsl(44 72% 47% / 0.25)' } : { boxShadow: '0 4px 16px hsl(44 72% 47% / 0.25)' }}
+              onClick={() => openAccountPay(firstPayable, 'single')}
+            >
+              <Wallet className="h-4 w-4" />
+              Pay Now
+            </Button>
+            {payableAccounts.length > 1 && (
+              <Button
+                variant="outline"
+                className="gap-2 h-11 border-[hsl(var(--gold)/0.3)] text-foreground"
+                onClick={() => openAccountPay(firstPayable, 'split')}
+              >
+                <CreditCard className="h-4 w-4" />
+                Split
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Detail Sheet */}
-      <Sheet open={!!selectedAccount} onOpenChange={(open) => !open && setSelectedAccount(null)}>
+      <Sheet open={!!selectedAccount} onOpenChange={(open) => { if (!open) { setSelectedAccount(null); setInitialDetailTab('overview'); setInitialPaymentMode('single'); } }}>
         <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto p-0">
           {selectedAccount && (
             <AccountDetail
@@ -395,8 +508,10 @@ export default function CustomerPortal() {
               allAccounts={data.accounts}
               paymentMethods={data.payment_methods}
               portalToken={token!}
-              onClose={() => setSelectedAccount(null)}
+              onClose={() => { setSelectedAccount(null); setInitialDetailTab('overview'); setInitialPaymentMode('single'); }}
               onRefresh={fetchPortal}
+              initialTab={initialDetailTab}
+              initialPaymentMode={initialPaymentMode}
             />
           )}
         </SheetContent>
@@ -424,7 +539,7 @@ function SummaryTile({ label, value, icon, accent, sub }: {
 }
 
 /* ─── Account Card ─── */
-function AccountCard({ account, onViewDetails }: { account: PortalAccount; onViewDetails: () => void }) {
+function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount; onViewDetails: () => void; onPay: () => void }) {
   const currency = account.currency;
   const colorClass = statusColor[account.status_label] || statusColor['Active'];
   const isOverdue = account.status_label === 'Overdue';
@@ -502,20 +617,22 @@ function AccountCard({ account, onViewDetails }: { account: PortalAccount; onVie
 }
 
 /* ─── Account Detail Panel ─── */
-function AccountDetail({ account, allAccounts, paymentMethods, portalToken, onClose, onRefresh }: {
+function AccountDetail({ account, allAccounts, paymentMethods, portalToken, onClose, onRefresh, initialTab = 'overview', initialPaymentMode = 'single' }: {
   account: PortalAccount;
   allAccounts: PortalAccount[];
   paymentMethods: PaymentMethod[];
   portalToken: string;
   onClose: () => void;
   onRefresh: () => void;
+  initialTab?: 'overview' | 'pay' | 'submissions';
+  initialPaymentMode?: 'single' | 'split';
 }) {
   const currency = account.currency;
   const colorClass = statusColor[account.status_label] || statusColor['Active'];
   const today = new Date().toISOString().split('T')[0];
   const isOverdue = account.status_label === 'Overdue';
   const canPay = account.remaining_balance > 0 && !['completed', 'cancelled', 'forfeited', 'final_forfeited'].includes(account.status);
-  const [activeTab, setActiveTab] = useState<'overview' | 'pay' | 'submissions'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'pay' | 'submissions'>(canPay ? initialTab : 'overview');
 
   const statementUrl = account.statement_token
     ? `${STATEMENT_BASE}/statement?token=${account.statement_token}`
@@ -590,6 +707,7 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, onCl
             allAccounts={allAccounts}
             paymentMethods={paymentMethods}
             portalToken={portalToken}
+            initialPaymentMode={initialPaymentMode}
             onSuccess={() => {
               setActiveTab('submissions');
               onRefresh();
@@ -1021,12 +1139,13 @@ function PaymentMethodCard({ method, onSelect, copiedField, setCopied }: {
 }
 
 /* ─── Pay Now Tab ─── */
-function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalToken, onSuccess }: {
+function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalToken, onSuccess, initialPaymentMode = 'single' }: {
   account: PortalAccount;
   allAccounts: PortalAccount[];
   paymentMethods: PaymentMethod[];
   portalToken: string;
   onSuccess: () => void;
+  initialPaymentMode?: 'single' | 'split';
 }) {
   const currency = account.currency;
   const [step, setStep] = useState<'methods' | 'form' | 'success'>('methods');
@@ -1037,7 +1156,7 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   // Split payment state
-  const [paymentMode, setPaymentMode] = useState<'single' | 'split'>('single');
+  const [paymentMode, setPaymentMode] = useState<'single' | 'split'>(initialPaymentMode);
   const payableAccounts = allAccounts.filter(a =>
     a.remaining_balance > 0 &&
     !['completed', 'cancelled', 'forfeited', 'final_forfeited'].includes(a.status) &&
