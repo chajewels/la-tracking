@@ -392,6 +392,7 @@ export default function CustomerPortal() {
           {selectedAccount && (
             <AccountDetail
               account={selectedAccount}
+              allAccounts={data.accounts}
               paymentMethods={data.payment_methods}
               portalToken={token!}
               onClose={() => setSelectedAccount(null)}
@@ -501,8 +502,9 @@ function AccountCard({ account, onViewDetails }: { account: PortalAccount; onVie
 }
 
 /* ─── Account Detail Panel ─── */
-function AccountDetail({ account, paymentMethods, portalToken, onClose, onRefresh }: {
+function AccountDetail({ account, allAccounts, paymentMethods, portalToken, onClose, onRefresh }: {
   account: PortalAccount;
+  allAccounts: PortalAccount[];
   paymentMethods: PaymentMethod[];
   portalToken: string;
   onClose: () => void;
@@ -585,6 +587,7 @@ function AccountDetail({ account, paymentMethods, portalToken, onClose, onRefres
         {activeTab === 'pay' && canPay && (
           <PayNowTab
             account={account}
+            allAccounts={allAccounts}
             paymentMethods={paymentMethods}
             portalToken={portalToken}
             onSuccess={() => {
@@ -1018,8 +1021,9 @@ function PaymentMethodCard({ method, onSelect, copiedField, setCopied }: {
 }
 
 /* ─── Pay Now Tab ─── */
-function PayNowTab({ account, paymentMethods: _dbMethods, portalToken, onSuccess }: {
+function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalToken, onSuccess }: {
   account: PortalAccount;
+  allAccounts: PortalAccount[];
   paymentMethods: PaymentMethod[];
   portalToken: string;
   onSuccess: () => void;
@@ -1031,6 +1035,15 @@ function PayNowTab({ account, paymentMethods: _dbMethods, portalToken, onSuccess
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  // Split payment state
+  const [paymentMode, setPaymentMode] = useState<'single' | 'split'>('single');
+  const payableAccounts = allAccounts.filter(a =>
+    a.remaining_balance > 0 &&
+    !['completed', 'cancelled', 'forfeited', 'final_forfeited'].includes(a.status) &&
+    a.currency === currency
+  );
+  const [splitAllocations, setSplitAllocations] = useState<Record<string, string>>({});
 
   // Filter methods by currency
   const relevantGroup = currency === 'JPY' ? 'JP' : 'PH';
@@ -1071,10 +1084,21 @@ function PayNowTab({ account, paymentMethods: _dbMethods, portalToken, onSuccess
     setStep('form');
   };
 
+  // Split allocation helpers
+  const splitTotal = Object.values(splitAllocations).reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
+
   const handleSubmit = async () => {
     setFormError(null);
-    const parsedAmount = parseFloat(amount);
-    if (!parsedAmount || parsedAmount <= 0) { setFormError('Please enter a valid amount.'); return; }
+
+    if (paymentMode === 'single') {
+      const parsedAmount = parseFloat(amount);
+      if (!parsedAmount || parsedAmount <= 0) { setFormError('Please enter a valid amount.'); return; }
+    } else {
+      if (splitTotal <= 0) { setFormError('Please allocate amounts to at least one invoice.'); return; }
+      const nonZero = Object.entries(splitAllocations).filter(([, v]) => parseFloat(v) > 0);
+      if (nonZero.length === 0) { setFormError('Please allocate amounts to at least one invoice.'); return; }
+    }
+
     if (!paymentDate) { setFormError('Please select a payment date.'); return; }
     if (!selectedMethodName) { setFormError('Please select a payment method.'); return; }
 
@@ -1084,7 +1108,8 @@ function PayNowTab({ account, paymentMethods: _dbMethods, portalToken, onSuccess
       let proofUrl: string | null = null;
       if (proofFile) {
         const ext = proofFile.name.split('.').pop() || 'jpg';
-        const filePath = `${account.id}/${Date.now()}.${ext}`;
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const filePath = `${account.id}/${timestamp}_${proofFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')}.${ext}`;
         const uploadRes = await fetch(
           `${SUPABASE_URL}/storage/v1/object/payment-proofs/${filePath}`,
           {
@@ -1102,6 +1127,23 @@ function PayNowTab({ account, paymentMethods: _dbMethods, portalToken, onSuccess
         }
       }
 
+      // Build allocations for split
+      const isSplit = paymentMode === 'split';
+      const allocations = isSplit
+        ? Object.entries(splitAllocations)
+            .filter(([, v]) => parseFloat(v) > 0)
+            .map(([accId, v]) => {
+              const acct = payableAccounts.find(a => a.id === accId);
+              return {
+                account_id: accId,
+                invoice_number: acct?.invoice_number || '',
+                allocated_amount: parseFloat(v),
+              };
+            })
+        : [];
+
+      const submittedAmount = isSplit ? splitTotal : parseFloat(amount);
+
       const res = await fetch(`${SUPABASE_URL}/functions/v1/submit-payment`, {
         method: 'POST',
         headers: {
@@ -1110,14 +1152,16 @@ function PayNowTab({ account, paymentMethods: _dbMethods, portalToken, onSuccess
         },
         body: JSON.stringify({
           portal_token: portalToken,
-          account_id: account.id,
-          submitted_amount: parsedAmount,
+          account_id: isSplit ? allocations[0]?.account_id : account.id,
+          submitted_amount: submittedAmount,
           payment_date: paymentDate,
           payment_method: selectedMethodName,
           reference_number: referenceNumber || null,
           sender_name: senderName || null,
           notes: notes || null,
           proof_url: proofUrl,
+          submission_type: isSplit ? 'split' : 'single',
+          allocations: isSplit ? allocations : undefined,
         }),
       });
 
@@ -1146,6 +1190,21 @@ function PayNowTab({ account, paymentMethods: _dbMethods, portalToken, onSuccess
         <p className="text-sm text-muted-foreground max-w-xs mx-auto">
           Your submission has been received and is now pending verification by the Cha Jewels team.
         </p>
+        {paymentMode === 'split' && (
+          <div className="bg-primary/5 border border-primary/10 rounded-lg p-3 text-xs text-foreground max-w-xs mx-auto">
+            <p className="font-medium mb-1">Split Payment Summary</p>
+            {Object.entries(splitAllocations)
+              .filter(([, v]) => parseFloat(v) > 0)
+              .map(([accId, v]) => {
+                const acct = payableAccounts.find(a => a.id === accId);
+                return (
+                  <p key={accId} className="text-muted-foreground">
+                    #{acct?.invoice_number}: {fmt(parseFloat(v), currency)}
+                  </p>
+                );
+              })}
+          </div>
+        )}
         <div className="bg-muted/30 rounded-lg p-4 text-xs text-muted-foreground max-w-xs mx-auto">
           <p className="font-medium text-foreground mb-1">What happens next?</p>
           <p>Our team will review your payment proof and confirm within 1–2 business days. You'll see the status update in the Submissions tab.</p>
@@ -1212,28 +1271,91 @@ function PayNowTab({ account, paymentMethods: _dbMethods, portalToken, onSuccess
           <p className="text-[10px] text-muted-foreground italic mt-2">After completing your payment, please upload your proof of payment below.</p>
         </div>
 
+        {/* Payment Mode Toggle - only show if multiple payable accounts */}
+        {payableAccounts.length > 1 && (
+          <div className="flex gap-1 bg-muted/30 rounded-lg p-1">
+            <button
+              onClick={() => setPaymentMode('single')}
+              className={`flex-1 text-xs font-medium py-2 rounded-md transition-all ${
+                paymentMode === 'single'
+                  ? 'bg-[hsl(var(--card))] text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Single Invoice
+            </button>
+            <button
+              onClick={() => setPaymentMode('split')}
+              className={`flex-1 text-xs font-medium py-2 rounded-md transition-all ${
+                paymentMode === 'split'
+                  ? 'bg-[hsl(var(--card))] text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Split Across Invoices
+            </button>
+          </div>
+        )}
+
         {/* Form */}
         <div className="space-y-4">
-          <div>
-            <Label className="text-xs">Payment Amount <span className="text-destructive">*</span></Label>
-            <div className="relative mt-1.5">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                {currency === 'JPY' ? '¥' : '₱'}
-              </span>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="pl-8"
-                placeholder="0.00"
-              />
+          {paymentMode === 'single' ? (
+            <div>
+              <Label className="text-xs">Payment Amount <span className="text-destructive">*</span></Label>
+              <div className="relative mt-1.5">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                  {currency === 'JPY' ? '¥' : '₱'}
+                </span>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="pl-8"
+                  placeholder="0.00"
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Amount due: {account.next_due_amount ? fmt(account.next_due_amount, currency) : fmt(account.remaining_balance, currency)}
+              </p>
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">
-              Amount due: {account.next_due_amount ? fmt(account.next_due_amount, currency) : fmt(account.remaining_balance, currency)}
-            </p>
-          </div>
+          ) : (
+            <div className="space-y-3">
+              <Label className="text-xs">Allocate Payment per Invoice <span className="text-destructive">*</span></Label>
+              {payableAccounts.map((acct) => (
+                <div key={acct.id} className="p-3 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-foreground">#{acct.invoice_number}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        Balance: {fmt(acct.remaining_balance, currency)}
+                      </p>
+                    </div>
+                    <div className="relative w-28">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                        {currency === 'JPY' ? '¥' : '₱'}
+                      </span>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max={acct.remaining_balance}
+                        value={splitAllocations[acct.id] || ''}
+                        onChange={(e) => setSplitAllocations(prev => ({ ...prev, [acct.id]: e.target.value }))}
+                        className="pl-6 text-right text-xs h-8"
+                        placeholder="0"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <div className="flex items-center justify-between p-3 rounded-lg bg-primary/5 border border-primary/10">
+                <p className="text-xs font-semibold text-foreground">Total Payment</p>
+                <p className="text-sm font-bold text-primary tabular-nums">{fmt(splitTotal, currency)}</p>
+              </div>
+            </div>
+          )}
 
           <div>
             <Label className="text-xs">Payment Date <span className="text-destructive">*</span></Label>
@@ -1330,7 +1452,7 @@ function PayNowTab({ account, paymentMethods: _dbMethods, portalToken, onSuccess
             disabled={submitting}
           >
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {submitting ? 'Submitting…' : 'Submit Payment'}
+            {submitting ? 'Submitting…' : paymentMode === 'split' ? `Submit Split Payment (${fmt(splitTotal, currency)})` : 'Submit Payment'}
           </Button>
         </div>
       </div>
