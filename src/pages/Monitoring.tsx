@@ -56,6 +56,7 @@ export default function Monitoring() {
   // Fetch ALL unpaid schedule items for active/overdue accounts
   const { data: scheduleItems, isLoading: schedLoading } = useQuery({
     queryKey: ['monitoring-schedules'],
+    staleTime: 30_000,
     queryFn: async () => {
       const next7 = new Date();
       next7.setDate(next7.getDate() + 7);
