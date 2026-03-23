@@ -646,6 +646,20 @@ export default function SettingsPage() {
               </table>
             </div>
           </TabsContent>
+
+          {/* ── PERMISSION MATRIX TAB ── */}
+          {isAdmin && (
+            <TabsContent value="matrix" className="mt-4">
+              <PermissionMatrixTab />
+            </TabsContent>
+          )}
+
+          {/* ── FEATURE TOGGLES TAB ── */}
+          {isAdmin && (
+            <TabsContent value="features" className="mt-4">
+              <FeatureTogglesTab />
+            </TabsContent>
+          )}
         </Tabs>
 
         {/* Reset Password Dialog */}
