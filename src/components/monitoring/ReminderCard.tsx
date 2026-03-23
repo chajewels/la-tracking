@@ -28,7 +28,7 @@ import { toast } from 'sonner';
 const PORTAL_BASE = 'https://chajewelslayaway.web.app';
 
 export interface AlertItem {
-  type: AlertType;
+  type: AlertType | 'grace_period';
   bucket: AccountBucket;
   customer: string;
   invoice: string;
