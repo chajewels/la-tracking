@@ -44,8 +44,9 @@ export interface AlertItem {
   portalToken?: string | null;
 }
 
-const iconMap = {
+const iconMap: Record<string, any> = {
   overdue: AlertTriangle,
+  grace_period: Clock,
   due_today: Clock,
   upcoming: CalendarCheck,
 };
