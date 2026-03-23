@@ -219,6 +219,7 @@ export default function Monitoring() {
   // Counts
   const counts = useMemo(() => ({
     overdue: alerts.filter(a => a.bucket === 'overdue').length,
+    grace_period: alerts.filter(a => a.bucket === 'grace_period').length,
     due_today: alerts.filter(a => a.bucket === 'due_today').length,
     due_3_days: alerts.filter(a => a.bucket === 'due_3_days').length,
     due_7_days: alerts.filter(a => a.bucket === 'due_7_days').length,
