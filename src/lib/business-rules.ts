@@ -726,6 +726,11 @@ export const MUTATION_INVALIDATION_KEYS = [
   'all-schedules-analytics',
   'waivers',
   'waivers-page',
+  'overdue-schedule',
+  'penalty-followup-alerts',
+  'csr-notifications-penalty',
+  'pending-submissions-count',
+  'pending-submissions',
 ] as const;
 
 /** Service labels for account services display. */
