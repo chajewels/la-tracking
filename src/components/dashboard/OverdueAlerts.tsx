@@ -18,8 +18,9 @@ export default function OverdueAlerts() {
       // Get overdue or due-soon schedule items
       const { data, error } = await supabase
         .from('layaway_schedule')
-        .select('*, layaway_accounts(*, customers(*))')
+        .select('*, layaway_accounts!inner(*, customers(*))')
         .in('status', ['pending', 'overdue', 'partially_paid'])
+        .in('layaway_accounts.status', ['active', 'overdue'])
         .lte('due_date', threeDaysFromNow)
         .order('due_date', { ascending: true })
         .limit(5);

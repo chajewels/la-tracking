@@ -19,7 +19,7 @@ export default function AgingBuckets({ currency = 'PHP' }: { currency?: Currency
         .from('layaway_schedule')
         .select('*, layaway_accounts!inner(status)')
         .in('status', ['pending', 'overdue', 'partially_paid'])
-        .eq('layaway_accounts.status', 'active');
+        .in('layaway_accounts.status', ['active', 'overdue']);
       if (error) throw error;
       return data;
     },
