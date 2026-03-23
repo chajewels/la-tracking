@@ -92,7 +92,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
   const [featureToggles, setFeatureToggles] = useState<FeatureToggle[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (retryCount = 0) => {
     if (!user) {
       setAllPermissions([]);
       setFeatureToggles([]);
@@ -100,14 +100,31 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const [permRes, toggleRes] = await Promise.all([
-      supabase.from('role_permissions').select('role, permission_key, is_allowed'),
-      supabase.from('feature_toggles').select('feature_key, is_enabled, label, description, module, sort_order').order('sort_order'),
-    ]);
+    try {
+      const [permRes, toggleRes] = await Promise.all([
+        supabase.from('role_permissions').select('role, permission_key, is_allowed'),
+        supabase.from('feature_toggles').select('feature_key, is_enabled, label, description, module, sort_order').order('sort_order'),
+      ]);
 
-    setAllPermissions((permRes.data as RolePermission[] | null) ?? []);
-    setFeatureToggles((toggleRes.data as FeatureToggle[] | null) ?? []);
-    setLoading(false);
+      if (permRes.error || toggleRes.error) {
+        console.warn('Permissions fetch error:', permRes.error?.message, toggleRes.error?.message);
+        if (retryCount < 2) {
+          await new Promise(r => setTimeout(r, 1500 * (retryCount + 1)));
+          return fetchData(retryCount + 1);
+        }
+      }
+
+      setAllPermissions((permRes.data as RolePermission[] | null) ?? []);
+      setFeatureToggles((toggleRes.data as FeatureToggle[] | null) ?? []);
+    } catch (err) {
+      console.error('Permissions fetch failed:', err);
+      if (retryCount < 2) {
+        await new Promise(r => setTimeout(r, 1500 * (retryCount + 1)));
+        return fetchData(retryCount + 1);
+      }
+    } finally {
+      setLoading(false);
+    }
   }, [user]);
 
   useEffect(() => {
