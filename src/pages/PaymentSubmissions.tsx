@@ -53,7 +53,9 @@ const statusConfig: Record<string, { label: string; color: string; icon: React.R
 };
 
 export default function PaymentSubmissions() {
-  const { session } = useAuth();
+  const { session, roles } = useAuth();
+  const userRoles = roles as Array<'admin' | 'staff' | 'finance' | 'csr'>;
+  const canReview = userRoles.includes('admin') || userRoles.includes('finance');
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<string>('pending');
   const [search, setSearch] = useState('');

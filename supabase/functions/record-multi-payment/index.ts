@@ -344,6 +344,22 @@ Deno.serve(async (req) => {
       }
     }
 
+    // If staff submitted (not preview, not canConfirm), return submission info
+    if (!preview_only && !canConfirm) {
+      return new Response(
+        JSON.stringify({
+          submitted_for_confirmation: true,
+          batch_id: batchId,
+          total_amount: totalAllocated,
+          message: "Payments submitted for confirmation. Admin/Finance will review.",
+        }),
+        {
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
     return new Response(
       JSON.stringify({
         preview: !!preview_only,
