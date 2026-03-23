@@ -229,11 +229,12 @@ Deno.serve(async (req) => {
       const computedRemaining = Math.max(0, Number(acc.total_amount) - totalPayments);
       const totalServices = acctServices.reduce((s: number, sv: any) => s + Number(sv.amount), 0);
 
-      // Compute outstanding penalties from schedule penalty_amount on unpaid items
-      const unpaidPenaltySum = acctSchedule
-        .filter((s: any) => s.status !== 'paid' && s.status !== 'cancelled')
-        .reduce((s: number, si: any) => s + Number(si.penalty_amount), 0);
-      const currentTotalPayable = computedRemaining + unpaidPenaltySum;
+      // Compute outstanding penalties from penalty_fees table (source of truth)
+      const acctPenalties = penaltiesByAccount[acc.id] || [];
+      const unpaidPenaltySum = acctPenalties
+        .filter((p: any) => p.status === 'unpaid')
+        .reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
+      const currentTotalPayable = computedRemaining + unpaidPenaltySum + totalServices;
 
       const today = new Date().toISOString().split('T')[0];
       const unpaidSchedule = acctSchedule
