@@ -695,6 +695,7 @@ export const completionStyles = {
 
 export const alertTypeConfig = {
   overdue: { label: 'Overdue', badgeClass: 'bg-destructive/10 text-destructive border-destructive/20', borderClass: 'border-destructive/20', iconBg: 'bg-destructive/10', iconColor: 'text-destructive' },
+  grace_period: { label: 'Grace Period', badgeClass: 'bg-amber-500/10 text-amber-600 border-amber-500/20', borderClass: 'border-amber-500/20', iconBg: 'bg-amber-500/10', iconColor: 'text-amber-600' },
   due_today: { label: 'Due Today', badgeClass: 'bg-warning/10 text-warning border-warning/20', borderClass: 'border-warning/20', iconBg: 'bg-warning/10', iconColor: 'text-warning' },
   upcoming: { label: 'Upcoming', badgeClass: 'bg-info/10 text-info border-info/20', borderClass: 'border-border', iconBg: 'bg-info/10', iconColor: 'text-info' },
 } as const;
