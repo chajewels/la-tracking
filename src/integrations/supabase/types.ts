@@ -636,6 +636,48 @@ export type Database = {
         }
         Relationships: []
       }
+      payment_submission_allocations: {
+        Row: {
+          account_id: string
+          allocated_amount: number
+          created_at: string
+          id: string
+          invoice_number: string
+          submission_id: string
+        }
+        Insert: {
+          account_id: string
+          allocated_amount: number
+          created_at?: string
+          id?: string
+          invoice_number: string
+          submission_id: string
+        }
+        Update: {
+          account_id?: string
+          allocated_amount?: number
+          created_at?: string
+          id?: string
+          invoice_number?: string
+          submission_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_submission_allocations_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_submission_allocations_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "payment_submissions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payment_submissions: {
         Row: {
           account_id: string
@@ -653,6 +695,7 @@ export type Database = {
           reviewer_user_id: string | null
           sender_name: string | null
           status: Database["public"]["Enums"]["submission_status"]
+          submission_type: string
           submitted_amount: number
           updated_at: string
         }
@@ -672,6 +715,7 @@ export type Database = {
           reviewer_user_id?: string | null
           sender_name?: string | null
           status?: Database["public"]["Enums"]["submission_status"]
+          submission_type?: string
           submitted_amount: number
           updated_at?: string
         }
@@ -691,6 +735,7 @@ export type Database = {
           reviewer_user_id?: string | null
           sender_name?: string | null
           status?: Database["public"]["Enums"]["submission_status"]
+          submission_type?: string
           submitted_amount?: number
           updated_at?: string
         }
