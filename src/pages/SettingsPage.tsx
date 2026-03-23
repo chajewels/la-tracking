@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react';
 import {
   Settings, UserPlus, Users, Shield, Eye, EyeOff, RotateCcw,
   DollarSign, Bell, Info, ChevronDown, ChevronUp, AlertTriangle,
-  MessageSquare, Mail, Clock, Percent
+  MessageSquare, Mail, Clock, Percent, Zap, Grid3X3
 } from 'lucide-react';
+import PermissionMatrixTab from '@/components/settings/PermissionMatrixTab';
+import FeatureTogglesTab from '@/components/settings/FeatureTogglesTab';
 import AppLayout from '@/components/layout/AppLayout';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
