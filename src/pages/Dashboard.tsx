@@ -34,6 +34,7 @@ export default function Dashboard() {
   const needsGeo = can('view_geo_breakdown');
   const { data: accounts } = useAccounts();
   const { data: customers } = useCustomers();
+  // Note: accounts/customers are cached with staleTime so these calls are cheap when already loaded
 
   const customerCount = customers?.length ?? 0;
 
