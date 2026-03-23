@@ -344,6 +344,7 @@ export default function Monitoring() {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
           {([
             { label: 'Overdue', count: counts.overdue, color: 'text-destructive', borderColor: 'border-destructive/20', filter: 'overdue' as FilterTab, statsKey: null },
+            { label: 'Grace Period', count: counts.grace_period, color: 'text-amber-600', borderColor: 'border-amber-500/20', filter: 'grace_period' as FilterTab, statsKey: 'grace_period' as const },
             { label: 'Due Today', count: counts.due_today, color: 'text-warning', borderColor: 'border-warning/20', filter: 'due_today' as FilterTab, statsKey: 'due_today' as const },
             { label: 'Due in 3 Days', count: counts.due_3_days, color: 'text-info', borderColor: 'border-info/20', filter: 'due_3_days' as FilterTab, statsKey: 'due_3_days' as const },
             { label: 'Due in 7 Days', count: counts.due_7_days, color: 'text-primary', borderColor: 'border-primary/20', filter: 'due_7_days' as FilterTab, statsKey: 'due_7_days' as const },
