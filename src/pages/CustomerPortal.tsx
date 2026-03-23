@@ -292,15 +292,28 @@ export default function CustomerPortal() {
                 </p>
               </div>
             </div>
-            <Button
-              variant={portalView === 'profile' ? 'default' : 'outline'}
-              size="sm"
-              className="gap-1.5"
-              onClick={() => setPortalView(portalView === 'profile' ? 'accounts' : 'profile')}
-            >
-              <User className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{portalView === 'profile' ? 'My Accounts' : 'My Profile'}</span>
-            </Button>
+            <div className="flex items-center gap-2">
+              {firstPayable && (
+                <Button
+                  size="sm"
+                  className="gap-1.5 bg-[hsl(var(--gold))] hover:bg-[hsl(var(--gold-dark))] text-white font-semibold shadow-md hover:shadow-lg transition-all hidden sm:flex"
+                  style={hasOverdue ? { boxShadow: '0 0 0 2px hsl(var(--destructive) / 0.4), 0 0 12px hsl(var(--destructive) / 0.15)' } : hasDueToday ? { boxShadow: '0 0 0 2px hsl(var(--warning) / 0.3)' } : {}}
+                  onClick={() => openAccountPay(firstPayable, 'single')}
+                >
+                  <Wallet className="h-3.5 w-3.5" />
+                  Pay Now
+                </Button>
+              )}
+              <Button
+                variant={portalView === 'profile' ? 'default' : 'outline'}
+                size="sm"
+                className="gap-1.5"
+                onClick={() => setPortalView(portalView === 'profile' ? 'accounts' : 'profile')}
+              >
+                <User className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">{portalView === 'profile' ? 'My Accounts' : 'My Profile'}</span>
+              </Button>
+            </div>
           </div>
         </div>
       </div>
