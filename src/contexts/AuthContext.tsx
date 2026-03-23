@@ -125,7 +125,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, [initialLoadDone]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const signOut = async () => {
     await supabase.auth.signOut();
