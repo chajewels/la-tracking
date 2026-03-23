@@ -193,6 +193,7 @@ export default function Monitoring() {
   const bucketFiltered = useMemo(() => {
     if (activeFilter === 'all') return alerts;
     if (activeFilter === 'overdue') return alerts.filter(a => a.bucket === 'overdue');
+    if (activeFilter === 'grace_period') return alerts.filter(a => a.bucket === 'grace_period');
     if (activeFilter === 'due_today') return alerts.filter(a => a.bucket === 'due_today');
     if (activeFilter === 'due_3_days') return alerts.filter(a => a.bucket === 'due_3_days');
     if (activeFilter === 'due_7_days') return alerts.filter(a => a.bucket === 'due_7_days');
