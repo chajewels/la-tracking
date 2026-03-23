@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
     while (true) {
       const { data } = await supabase
         .from("layaway_accounts")
-        .select("id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, downpayment_amount, customers!inner(full_name)")
+        .select("id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, downpayment_amount, payment_plan_months, customers!inner(full_name)")
         .range(from, from + PAGE - 1);
       if (!data || data.length === 0) break;
       for (const row of data) {
