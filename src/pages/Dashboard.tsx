@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { DollarSign, FileText, AlertTriangle, TrendingUp, CheckCircle2, Banknote, Users, ShieldAlert, Gem } from 'lucide-react';
 import PendingSubmissionsAlert from '@/components/dashboard/PendingSubmissionsAlert';
 import AppLayout from '@/components/layout/AppLayout';
@@ -29,15 +29,19 @@ export default function Dashboard() {
     currencyFilter,
     Boolean(session) && !authLoading,
   );
+  // Only load accounts/customers if needed by visible widgets
+  const needsGeo = can('view_geo_breakdown');
   const { data: accounts } = useAccounts();
   const { data: customers } = useCustomers();
 
-  const greeting = () => {
+  const customerCount = customers?.length ?? 0;
+
+  const greeting = useMemo(() => {
     const h = new Date().getHours();
     if (h < 12) return 'Good morning';
     if (h < 18) return 'Good afternoon';
     return 'Good evening';
-  };
+  }, []);
 
   return (
     <AppLayout>
@@ -52,7 +56,7 @@ export default function Dashboard() {
               </div>
               <div>
                 <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">
-                  {greeting()}, {profile?.full_name?.split(' ')[0] || 'there'}
+                  {greeting}, {profile?.full_name?.split(' ')[0] || 'there'}
                 </h1>
                 <p className="text-sm text-muted-foreground mt-0.5">
                   Cha Jewels · Layaway Payment Management
@@ -73,7 +77,7 @@ export default function Dashboard() {
               <>
                 <StatCard
                   title="Total Customers"
-                  value={(customers?.length ?? 0).toString()}
+                  value={customerCount.toString()}
                   subtitle="All registered"
                   icon={Users}
                 />
@@ -144,7 +148,7 @@ export default function Dashboard() {
         </div>
 
         {/* Geo Breakdown */}
-        {can('view_geo_breakdown') && (
+        {needsGeo && (
         <div>
           <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Regional Overview</p>
           <GeoBreakdown accounts={accounts || []} customers={customers || []} />
