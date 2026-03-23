@@ -529,16 +529,24 @@ export default function CustomerPortal() {
 }
 
 /* ─── Summary Tile ─── */
-function SummaryTile({ label, value, icon, accent, sub }: {
-  label: string; value: string; icon: React.ReactNode; accent?: boolean; sub?: string;
+function SummaryTile({ label, value, icon, accent, danger, sub }: {
+  label: string; value: string; icon: React.ReactNode; accent?: boolean; danger?: boolean; sub?: string;
 }) {
+  const borderBg = danger
+    ? 'border-destructive/20 bg-destructive/5'
+    : accent
+      ? 'border-primary/20 bg-primary/5'
+      : 'bg-[hsl(var(--card))] border-[hsl(var(--border))]';
+  const iconColor = danger ? 'text-destructive' : 'text-muted-foreground';
+  const valueColor = danger ? 'text-destructive' : accent ? 'text-primary' : 'text-foreground';
+
   return (
-    <div className={`rounded-xl border p-3.5 ${accent ? 'border-primary/20 bg-primary/5' : 'bg-[hsl(var(--card))] border-[hsl(var(--border))]'}`}>
+    <div className={`rounded-xl border p-3.5 ${borderBg}`}>
       <div className="flex items-center gap-1.5 mb-1.5">
-        <span className="text-muted-foreground">{icon}</span>
+        <span className={iconColor}>{icon}</span>
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">{label}</span>
       </div>
-      <p className={`text-base sm:text-lg font-bold font-display tabular-nums ${accent ? 'text-primary' : 'text-foreground'}`}>
+      <p className={`text-base sm:text-lg font-bold font-display tabular-nums ${valueColor}`}>
         {value}
       </p>
       {sub && <p className="text-[10px] text-muted-foreground mt-0.5">{sub}</p>}
