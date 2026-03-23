@@ -623,6 +623,7 @@ export default function AccountDetail() {
                   invoiceNumber={account.invoice_number}
                   currency={currency}
                   hasOverride={!!penaltyCapOverride}
+                  planMonths={account.payment_plan_months}
                 />
                 )}
                 {can('forfeit_account') && (

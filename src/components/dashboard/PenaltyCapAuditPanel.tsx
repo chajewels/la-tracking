@@ -33,7 +33,7 @@ export default function PenaltyCapAuditPanel() {
       // Fetch all active/overdue accounts with schedule + penalties
       const { data: accounts, error } = await supabase
         .from('layaway_accounts')
-        .select('id, invoice_number, currency, status, customers(full_name), layaway_schedule(id, installment_number, penalty_amount, status, due_date), penalty_fees(id, penalty_amount, status, schedule_id)')
+        .select('id, invoice_number, currency, status, payment_plan_months, customers(full_name), layaway_schedule(id, installment_number, penalty_amount, status, due_date), penalty_fees(id, penalty_amount, status, schedule_id)')
         .in('status', ['active', 'overdue'])
         .order('created_at', { ascending: false });
       if (error) throw error;
