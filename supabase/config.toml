@@ -1,52 +1,39 @@
 project_id = "pfoicalpzdcmyxzvwyhz"
 
-[functions.create-layaway-account]
-verify_jwt = false
-
-[functions.record-payment]
-verify_jwt = false
-
-[functions.penalty-engine]
-verify_jwt = false
-
-[functions.dashboard-summary]
-verify_jwt = false
-
-[functions.bulk-import]
-verify_jwt = false
-
-[functions.parse-import-docs]
-verify_jwt = false
-
-[functions.void-payment]
-verify_jwt = false
-
-[functions.restore-payment]
-verify_jwt = false
-
-[functions.restructure-account]
-verify_jwt = false
-
-[functions.create-team-member]
-verify_jwt = false
-
-[functions.send-reminders]
-verify_jwt = false
-
-[functions.record-multi-payment]
-verify_jwt = false
-
-[functions.add-penalty]
-verify_jwt = false
-
-[functions.finance-reconciliation]
-verify_jwt = false
-
-[functions.auto-forfeit-settlement]
-verify_jwt = false
-
-[functions.reactivate-account]
-verify_jwt = false
-
-[functions.process-email-queue]
-verify_jwt = true
+[functions]
+  [functions.add-penalty]
+    verify_jwt = false
+  [functions.auth-email-hook]
+    verify_jwt = false
+  [functions.auto-forfeit-settlement]
+    verify_jwt = false
+  [functions.bulk-import]
+    verify_jwt = false
+  [functions.create-layaway-account]
+    verify_jwt = false
+  [functions.create-team-member]
+    verify_jwt = false
+  [functions.dashboard-summary]
+    verify_jwt = false
+  [functions.finance-reconciliation]
+    verify_jwt = false
+  [functions.parse-import-docs]
+    verify_jwt = false
+  [functions.penalty-engine]
+    verify_jwt = false
+  [functions.process-email-queue]
+    verify_jwt = true
+  [functions.reactivate-account]
+    verify_jwt = false
+  [functions.record-multi-payment]
+    verify_jwt = false
+  [functions.record-payment]
+    verify_jwt = false
+  [functions.restore-payment]
+    verify_jwt = false
+  [functions.restructure-account]
+    verify_jwt = false
+  [functions.send-reminders]
+    verify_jwt = false
+  [functions.void-payment]
+    verify_jwt = false
