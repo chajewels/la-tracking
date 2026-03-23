@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { DollarSign, FileText, AlertTriangle, TrendingUp, CheckCircle2, Banknote, Users, ShieldAlert, Gem } from 'lucide-react';
+import PendingSubmissionsAlert from '@/components/dashboard/PendingSubmissionsAlert';
 import AppLayout from '@/components/layout/AppLayout';
 import StatCard from '@/components/dashboard/StatCard';
 import AgingBuckets from '@/components/dashboard/AgingBuckets';
@@ -98,6 +99,9 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+
+        {/* Pending Submissions Alert - Admin/Finance only */}
+        {(r.includes('admin') || r.includes('finance')) && <PendingSubmissionsAlert />}
 
         {/* Secondary KPIs */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">

@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { canSeeNavItem, type AppRole } from '@/lib/role-permissions';
+import { usePendingSubmissionCount } from '@/hooks/use-pending-submissions';
 import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
 
 const allNavItems = [
@@ -34,6 +35,7 @@ export default function AppSidebar() {
   const location = useLocation();
   const { profile, roles, signOut } = useAuth();
   const navItems = allNavItems.filter(item => canSeeNavItem(roles as AppRole[], item.path));
+  const { data: pendingCount } = usePendingSubmissionCount();
 
   const initials = profile?.full_name
     ? profile.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
@@ -80,9 +82,9 @@ export default function AppSidebar() {
                     >
                       <item.icon className="h-4 w-4" />
                       <span>{item.label}</span>
-                      {item.label === 'CSR Monitoring' && (
-                        <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground px-1.5">
-                          3
+                      {item.label === 'Payment Submissions' && !!pendingCount && pendingCount > 0 && (
+                        <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-warning text-[10px] font-bold text-warning-foreground px-1.5">
+                          {pendingCount}
                         </span>
                       )}
                     </NavLink>
