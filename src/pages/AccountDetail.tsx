@@ -534,26 +534,19 @@ export default function AccountDetail() {
                 </div>
               );
             })()}
-            {/* Upcoming 14-Day Follow-Up Dates for near-forfeiture penalized accounts */}
+            {/* Single next due date for near-forfeiture penalized accounts */}
             {(() => {
-              const followUp = getUpcomingFollowUpDates(account.status, scheduleItems, 4);
-              if (!followUp) return null;
+              const followUp = getUpcomingFollowUpDates(account.status, scheduleItems, 1);
+              if (!followUp || followUp.dates.length === 0) return null;
+              const nextDate = followUp.dates[0].toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
               return (
                 <div className="mt-2 p-3 rounded-lg border border-warning/30 bg-warning/5">
-                  <div className="flex items-center gap-2 mb-2">
+                  <div className="flex items-center gap-2">
                     <Calendar className="h-4 w-4 text-warning flex-shrink-0" />
-                    <span className="text-sm font-medium text-warning">📅 Next Scheduled Follow-Up Dates</span>
+                    <span className="text-sm text-warning">
+                      Next monthly payment is on <span className="font-semibold">{nextDate}</span>
+                    </span>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {followUp.dates.map((d, i) => (
-                      <span key={i} className="text-xs px-2.5 py-1 rounded-full bg-warning/10 text-warning border border-warning/20 font-medium tabular-nums">
-                        {d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}
-                      </span>
-                    ))}
-                  </div>
-                  <p className="text-[10px] text-muted-foreground mt-2">
-                    Based on the 14-day penalty follow-up cycle. Payment before any date avoids further escalation.
-                  </p>
                 </div>
               );
             })()}
