@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, memo, useCallback, lazy, Suspense } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -287,8 +287,14 @@ export default function CustomerPortal() {
                 <h1 className="text-lg sm:text-xl font-bold font-display text-foreground tracking-tight">
                   Cha Jewels
                 </h1>
-                <p className="text-base sm:text-lg text-muted-foreground mt-0.5">
-                  Welcome, <span className="text-foreground font-medium font-display">{data.customer_name}</span>
+                <p className="text-base sm:text-lg text-muted-foreground/80 mt-1">
+                  {(() => {
+                    const h = new Date().getHours();
+                    if (h < 12) return 'Good Morning';
+                    if (h < 18) return 'Good Afternoon';
+                    return 'Good Evening';
+                  })()},{' '}
+                  <span className="text-foreground font-semibold font-display">{data.customer_name}</span>
                 </p>
               </div>
             </div>
