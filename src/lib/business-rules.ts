@@ -627,10 +627,10 @@ export function classifyAccountBucket(nextDueDate: string | null): AccountBucket
   const today = todayStr();
   if (nextDueDate < today) return 'overdue';
   if (nextDueDate === today) return 'due_today';
-  const in3 = daysFromNow(3);
-  if (nextDueDate <= in3) return 'due_3_days';
-  const in7 = daysFromNow(7);
-  if (nextDueDate <= in7) return 'due_7_days';
+  const exactly3 = daysFromNow(3);
+  if (nextDueDate === exactly3) return 'due_3_days';
+  const exactly7 = daysFromNow(7);
+  if (nextDueDate === exactly7) return 'due_7_days';
   return 'future';
 }
 

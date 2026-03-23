@@ -218,7 +218,7 @@ export default function Monitoring() {
     overdue: alerts.filter(a => a.bucket === 'overdue').length,
     due_today: alerts.filter(a => a.bucket === 'due_today').length,
     due_3_days: alerts.filter(a => a.bucket === 'due_3_days').length,
-    due_7_days: alerts.filter(a => ['due_3_days', 'due_7_days'].includes(a.bucket)).length,
+    due_7_days: alerts.filter(a => a.bucket === 'due_7_days').length,
   }), [alerts]);
 
   // Notification stats per bucket
