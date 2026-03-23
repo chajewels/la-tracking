@@ -54,7 +54,7 @@ export function useCustomers() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('customers')
-        .select('id, full_name, customer_code, location, email, mobile_number, facebook_name, messenger_link, preferred_contact_method, notes, created_at, updated_at')
+        .select('*')
         .order('created_at', { ascending: false });
       if (error) throw error;
       return data as DbCustomer[];
