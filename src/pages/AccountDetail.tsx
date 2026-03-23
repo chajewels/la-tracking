@@ -34,7 +34,7 @@ import {
   getUnpaidScheduleItems, getActivePayments, accountProgress,
   ordinal, SERVICE_LABELS, getNextPaymentStatementDate,
   isPenaltyOverCap, isFinalSettlement, isExtensionActive, isFinalForfeited,
-  getForfeitureWarning,
+  getForfeitureWarning, getUpcomingFollowUpDates,
   canReactivate, canAcceptPayment, canAddService, canAddPenalty,
   computeAccountSummary,
 } from '@/lib/business-rules';
