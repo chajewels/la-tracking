@@ -35,6 +35,7 @@ export default function AppSidebar() {
   const location = useLocation();
   const { profile, roles, signOut } = useAuth();
   const navItems = allNavItems.filter(item => canSeeNavItem(roles as AppRole[], item.path));
+  const { data: pendingCount } = usePendingSubmissionCount();
 
   const initials = profile?.full_name
     ? profile.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
