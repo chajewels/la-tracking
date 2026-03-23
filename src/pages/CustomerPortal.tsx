@@ -1411,6 +1411,27 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
             </div>
           ) : (
             <div className="space-y-3">
+              {/* Total amount input for split */}
+              <div>
+                <Label className="text-xs">Total Payment Amount <span className="text-destructive">*</span></Label>
+                <div className="relative mt-1.5">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                    {currency === 'JPY' ? '¥' : '₱'}
+                  </span>
+                  <Input
+                    type="number"
+                    step="1"
+                    min="0"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    className="pl-8"
+                    placeholder="Enter total payment"
+                  />
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Enter total amount then tap "Auto Distribute" or allocate manually below
+                </p>
+              </div>
               <div className="flex items-center justify-between">
                 <Label className="text-xs">Allocate Payment per Invoice <span className="text-destructive">*</span></Label>
                 <div className="flex gap-1.5">
