@@ -625,7 +625,12 @@ export function getNextPaymentStatementDate(
 export function classifyAccountBucket(nextDueDate: string | null): AccountBucket {
   if (!nextDueDate) return 'fully_paid';
   const today = todayStr();
-  if (nextDueDate < today) return 'overdue';
+  if (nextDueDate < today) {
+    // Check if within 1-6 days grace period
+    const daysOver = daysBetween(nextDueDate, today);
+    if (daysOver >= 1 && daysOver <= 6) return 'grace_period';
+    return 'overdue';
+  }
   if (nextDueDate === today) return 'due_today';
   const exactly3 = daysFromNow(3);
   if (nextDueDate === exactly3) return 'due_3_days';
