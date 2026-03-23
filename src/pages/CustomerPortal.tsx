@@ -587,6 +587,7 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, onCl
         {activeTab === 'pay' && canPay && (
           <PayNowTab
             account={account}
+            allAccounts={allAccounts}
             paymentMethods={paymentMethods}
             portalToken={portalToken}
             onSuccess={() => {
