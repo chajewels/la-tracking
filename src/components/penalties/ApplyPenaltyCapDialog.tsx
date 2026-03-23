@@ -183,11 +183,11 @@ export default function ApplyPenaltyCapDialog({ accountId, invoiceNumber, curren
           <AlertDialogHeader>
             <AlertDialogTitle>Apply Penalty Cap Override</AlertDialogTitle>
             <AlertDialogDescription className="space-y-2">
-              <p>This will cap the total penalty for <strong>INV #{invoiceNumber}</strong> at <strong>{capDisplay}</strong> for overdue months 1–5.</p>
+              <p>This will cap the total penalty for <strong>INV #{invoiceNumber}</strong> at <strong>{capDisplay}</strong> for overdue months 1–{planMonths - 1}.</p>
               <ul className="list-disc list-inside text-xs space-y-1 mt-2">
                 <li>Penalties exceeding the cap will be waived</li>
                 <li>No new penalties will be added beyond the cap</li>
-                <li>Only the final payment may include remaining adjustments</li>
+                <li>The final payment (month {planMonths}) is uncapped per business rules</li>
                 <li>This does NOT affect any other invoices</li>
               </ul>
             </AlertDialogDescription>
