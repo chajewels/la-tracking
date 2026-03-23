@@ -4,6 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { PermissionsProvider } from "@/contexts/PermissionsContext";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import Dashboard from "./pages/Dashboard";
 import AccountList from "./pages/AccountList";
@@ -39,28 +40,30 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/statement" element={<CustomerStatement />} />
-            <Route path="/portal" element={<CustomerPortal />} />
-            
-            <Route path="/" element={<Protected><Dashboard /></Protected>} />
-            <Route path="/accounts" element={<Protected><AccountList /></Protected>} />
-            <Route path="/accounts/new" element={<Protected><NewAccount /></Protected>} />
-            <Route path="/accounts/:id" element={<Protected><AccountDetail /></Protected>} />
-            <Route path="/customers" element={<Protected><Customers /></Protected>} />
-            <Route path="/customers/:customerId" element={<Protected><CustomerDetail /></Protected>} />
-            <Route path="/monitoring" element={<Protected><Monitoring /></Protected>} />
-            <Route path="/collections" element={<Protected><Collections /></Protected>} />
-            <Route path="/finance" element={<Protected><Finance /></Protected>} />
-            <Route path="/analytics" element={<Protected><Analytics /></Protected>} />
-            <Route path="/reminders" element={<Protected><Reminders /></Protected>} />
-            <Route path="/waivers" element={<Protected><Waivers /></Protected>} />
-            <Route path="/admin-audit" element={<Protected><AdminAudit /></Protected>} />
-            <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
-            <Route path="/payment-submissions" element={<Protected><PaymentSubmissions /></Protected>} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+          <PermissionsProvider>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/statement" element={<CustomerStatement />} />
+              <Route path="/portal" element={<CustomerPortal />} />
+              
+              <Route path="/" element={<Protected><Dashboard /></Protected>} />
+              <Route path="/accounts" element={<Protected><AccountList /></Protected>} />
+              <Route path="/accounts/new" element={<Protected><NewAccount /></Protected>} />
+              <Route path="/accounts/:id" element={<Protected><AccountDetail /></Protected>} />
+              <Route path="/customers" element={<Protected><Customers /></Protected>} />
+              <Route path="/customers/:customerId" element={<Protected><CustomerDetail /></Protected>} />
+              <Route path="/monitoring" element={<Protected><Monitoring /></Protected>} />
+              <Route path="/collections" element={<Protected><Collections /></Protected>} />
+              <Route path="/finance" element={<Protected><Finance /></Protected>} />
+              <Route path="/analytics" element={<Protected><Analytics /></Protected>} />
+              <Route path="/reminders" element={<Protected><Reminders /></Protected>} />
+              <Route path="/waivers" element={<Protected><Waivers /></Protected>} />
+              <Route path="/admin-audit" element={<Protected><AdminAudit /></Protected>} />
+              <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
+              <Route path="/payment-submissions" element={<Protected><PaymentSubmissions /></Protected>} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </PermissionsProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

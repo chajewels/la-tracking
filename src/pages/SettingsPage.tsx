@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react';
 import {
   Settings, UserPlus, Users, Shield, Eye, EyeOff, RotateCcw,
   DollarSign, Bell, Info, ChevronDown, ChevronUp, AlertTriangle,
-  MessageSquare, Mail, Clock, Percent
+  MessageSquare, Mail, Clock, Percent, Zap, Grid3X3
 } from 'lucide-react';
+import PermissionMatrixTab from '@/components/settings/PermissionMatrixTab';
+import FeatureTogglesTab from '@/components/settings/FeatureTogglesTab';
 import AppLayout from '@/components/layout/AppLayout';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -231,6 +233,18 @@ export default function SettingsPage() {
               <Shield className="h-3.5 w-3.5" />
               Roles & Permissions
             </TabsTrigger>
+            {isAdmin && (
+              <TabsTrigger value="matrix" className="gap-1.5 text-xs">
+                <Grid3X3 className="h-3.5 w-3.5" />
+                Permission Matrix
+              </TabsTrigger>
+            )}
+            {isAdmin && (
+              <TabsTrigger value="features" className="gap-1.5 text-xs">
+                <Zap className="h-3.5 w-3.5" />
+                Feature Toggles
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {/* ── GENERAL TAB ── */}
@@ -632,6 +646,20 @@ export default function SettingsPage() {
               </table>
             </div>
           </TabsContent>
+
+          {/* ── PERMISSION MATRIX TAB ── */}
+          {isAdmin && (
+            <TabsContent value="matrix" className="mt-4">
+              <PermissionMatrixTab />
+            </TabsContent>
+          )}
+
+          {/* ── FEATURE TOGGLES TAB ── */}
+          {isAdmin && (
+            <TabsContent value="features" className="mt-4">
+              <FeatureTogglesTab />
+            </TabsContent>
+          )}
         </Tabs>
 
         {/* Reset Password Dialog */}

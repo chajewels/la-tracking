@@ -297,6 +297,42 @@ export type Database = {
         }
         Relationships: []
       }
+      feature_toggles: {
+        Row: {
+          description: string | null
+          feature_key: string
+          id: string
+          is_enabled: boolean
+          label: string
+          module: string
+          sort_order: number
+          updated_at: string
+          updated_by_user_id: string | null
+        }
+        Insert: {
+          description?: string | null
+          feature_key: string
+          id?: string
+          is_enabled?: boolean
+          label: string
+          module: string
+          sort_order?: number
+          updated_at?: string
+          updated_by_user_id?: string | null
+        }
+        Update: {
+          description?: string | null
+          feature_key?: string
+          id?: string
+          is_enabled?: boolean
+          label?: string
+          module?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by_user_id?: string | null
+        }
+        Relationships: []
+      }
       final_settlement_records: {
         Row: {
           account_id: string
@@ -1020,6 +1056,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      role_permissions: {
+        Row: {
+          id: string
+          is_allowed: boolean
+          permission_key: string
+          role: Database["public"]["Enums"]["app_role"]
+          updated_at: string
+          updated_by_user_id: string | null
+        }
+        Insert: {
+          id?: string
+          is_allowed?: boolean
+          permission_key: string
+          role: Database["public"]["Enums"]["app_role"]
+          updated_at?: string
+          updated_by_user_id?: string | null
+        }
+        Update: {
+          id?: string
+          is_allowed?: boolean
+          permission_key?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          updated_at?: string
+          updated_by_user_id?: string | null
+        }
+        Relationships: []
       }
       statement_tokens: {
         Row: {

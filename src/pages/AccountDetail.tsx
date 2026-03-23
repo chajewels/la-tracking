@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { canPerformAction, type AppRole } from '@/lib/role-permissions';
+import { usePermissions } from '@/contexts/PermissionsContext';
 import StatementShareMenu from '@/components/statement/StatementShareMenu';
 import RestorePaymentDialog from '@/components/payments/RestorePaymentDialog';
 import ReassignOwnerDialog from '@/components/accounts/ReassignOwnerDialog';
@@ -72,8 +72,8 @@ export default function AccountDetail() {
   const [reactivating, setReactivating] = useState(false);
   const queryClient = useQueryClient();
   const { roles } = useAuth();
-  const r = roles as AppRole[];
-  const can = (action: Parameters<typeof canPerformAction>[1]) => canPerformAction(r, action);
+  const { can: canPerm } = usePermissions();
+  const can = (action: string) => canPerm(action);
 
 
   const handleInvoiceSave = useCallback(async () => {
