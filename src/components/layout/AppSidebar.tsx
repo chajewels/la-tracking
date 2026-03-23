@@ -34,7 +34,8 @@ export default function AppSidebar() {
   const collapsed = state === 'collapsed';
   const location = useLocation();
   const { profile, roles, signOut } = useAuth();
-  const navItems = allNavItems.filter(item => canSeeNavItem(roles as AppRole[], item.path));
+  const { canSeeNav } = usePermissions();
+  const navItems = allNavItems.filter(item => canSeeNav(item.path));
   const { data: pendingCount } = usePendingSubmissionCount();
 
   const initials = profile?.full_name

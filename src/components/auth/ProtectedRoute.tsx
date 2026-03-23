@@ -1,6 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { hasPageAccess, type AppRole } from '@/lib/role-permissions';
+import { usePermissions } from '@/contexts/PermissionsContext';
 import { ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -26,10 +26,11 @@ function AccessDenied() {
 }
 
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { session, loading, roles } = useAuth();
+  const { session, loading } = useAuth();
+  const { canAccessPage, loading: permLoading } = usePermissions();
   const location = useLocation();
 
-  if (loading) {
+  if (loading || permLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
@@ -41,8 +42,8 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
     return <Navigate to="/login" replace />;
   }
 
-  // Check role-based page access
-  if (!hasPageAccess(roles as AppRole[], location.pathname)) {
+  // Check dynamic role-based + feature-toggle page access
+  if (!canAccessPage(location.pathname)) {
     return <AccessDenied />;
   }
 
