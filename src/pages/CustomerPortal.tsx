@@ -181,10 +181,30 @@ export default function CustomerPortal() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedAccount, setSelectedAccount] = useState<PortalAccount | null>(null);
+  const [initialDetailTab, setInitialDetailTab] = useState<'overview' | 'pay' | 'submissions'>('overview');
+  const [initialPaymentMode, setInitialPaymentMode] = useState<'single' | 'split'>('single');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('newest');
   const [portalView, setPortalView] = useState<'accounts' | 'profile'>('accounts');
+
+  const openAccountPay = (account: PortalAccount, mode: 'single' | 'split' = 'single') => {
+    setInitialDetailTab('pay');
+    setInitialPaymentMode(mode);
+    setSelectedAccount(account);
+  };
+
+  // Find first payable account for top-level Pay Now
+  const payableAccounts = data?.accounts.filter(a =>
+    a.remaining_balance > 0 &&
+    !['completed', 'cancelled', 'forfeited', 'final_forfeited'].includes(a.status)
+  ) || [];
+  const hasOverdue = payableAccounts.some(a => a.status_label === 'Overdue');
+  const hasDueToday = payableAccounts.some(a => {
+    const today = new Date().toISOString().split('T')[0];
+    return a.next_due_date === today;
+  });
+  const firstPayable = payableAccounts[0];
 
   const fetchPortal = async () => {
     if (!token) { setError('No access token provided.'); setLoading(false); return; }
