@@ -1496,14 +1496,39 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
                   </div>
                 );
               })}
-              <div className={`flex items-center justify-between p-3 rounded-lg border ${
-                splitTotal > 0 ? 'bg-primary/5 border-primary/10' : 'bg-muted/30 border-[hsl(var(--border))]'
-              }`}>
-                <p className="text-xs font-semibold text-foreground">Total Payment</p>
-                <p className={`text-sm font-bold tabular-nums ${splitTotal > 0 ? 'text-primary' : 'text-muted-foreground'}`}>
-                  {fmt(splitTotal, currency)}
-                </p>
-              </div>
+              {(() => {
+                const enteredTotal = parseFloat(amount) || 0;
+                const hasMismatch = enteredTotal > 0 && splitTotal > 0 && Math.abs(splitTotal - enteredTotal) > 0.01;
+                const isMatch = enteredTotal > 0 && splitTotal > 0 && Math.abs(splitTotal - enteredTotal) <= 0.01;
+                return (
+                  <div className={`flex items-center justify-between p-3 rounded-lg border ${
+                    hasMismatch
+                      ? 'bg-destructive/5 border-destructive/30'
+                      : isMatch
+                        ? 'bg-success/5 border-success/20'
+                        : splitTotal > 0
+                          ? 'bg-primary/5 border-primary/10'
+                          : 'bg-muted/30 border-[hsl(var(--border))]'
+                  }`}>
+                    <p className="text-xs font-semibold text-foreground">Allocated</p>
+                    <div className="text-right">
+                      <p className={`text-sm font-bold tabular-nums ${
+                        hasMismatch ? 'text-destructive' : isMatch ? 'text-success' : splitTotal > 0 ? 'text-primary' : 'text-muted-foreground'
+                      }`}>
+                        {fmt(splitTotal, currency)}{enteredTotal > 0 ? ` / ${fmt(enteredTotal, currency)}` : ''}
+                      </p>
+                      {hasMismatch && (
+                        <p className="text-[10px] text-destructive mt-0.5">
+                          {splitTotal > enteredTotal ? 'Over-allocated' : 'Under-allocated'} by {fmt(Math.abs(splitTotal - enteredTotal), currency)}
+                        </p>
+                      )}
+                      {isMatch && (
+                        <p className="text-[10px] text-success mt-0.5">✓ Amounts match</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
