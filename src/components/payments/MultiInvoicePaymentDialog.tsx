@@ -158,6 +158,11 @@ export default function MultiInvoicePaymentDialog({
         },
       });
       if (error) throw error;
+      if (data?.submitted_for_confirmation) {
+        toast.success('Payments submitted for confirmation. Admin/Finance will review.');
+        resetAndClose();
+        return;
+      }
       toast.success(
         `Split payment of ${totalAllocated.toLocaleString()} recorded across ${selectedAccounts.length} invoices`
       );
