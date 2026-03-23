@@ -561,7 +561,7 @@ export function getNextUnpaidDueDate(
  * Build 14-day penalty checkpoint dates from a due date.
  * Pattern: due+7, due+14, monthly, monthly+14, … (up to 12 months out)
  */
-function buildPenaltyCheckpoints(dueDateStr: string): Date[] {
+export function buildPenaltyCheckpoints(dueDateStr: string): Date[] {
   const dueDate = new Date(dueDateStr + 'T00:00:00Z');
   const dueDayOfMonth = dueDate.getUTCDate();
   const checkpoints: Date[] = [];
@@ -590,6 +590,52 @@ function buildPenaltyCheckpoints(dueDateStr: string): Date[] {
   }
 
   return checkpoints;
+}
+
+/**
+ * Get upcoming 14-day follow-up dates for near-forfeiture penalized accounts.
+ * Only returns dates when ALL conditions are met:
+ * 1. Account has active unpaid penalties
+ * 2. Account is near-forfeiture (monthsOverdue >= 2)
+ * 3. Penalty age is in the serious range (1-3 months overdue)
+ *
+ * Uses the same buildPenaltyCheckpoints logic as the penalty engine.
+ * Returns the next N upcoming checkpoint dates (default 4).
+ */
+export function getUpcomingFollowUpDates(
+  status: string,
+  scheduleItems: DbSchedule[],
+  count: number = 4,
+): { dates: Date[]; firstUnpaidDueDate: string } | null {
+  // Only applies to overdue accounts
+  const forfeitWarning = getForfeitureWarning(status, scheduleItems);
+  if (!forfeitWarning || forfeitWarning.monthsOverdue < 2) return null;
+
+  // Find penalized unpaid installments
+  const unpaidWithPenalty = scheduleItems
+    .filter(s => !isEffectivelyPaid(s) && s.status !== 'cancelled' && Number(s.penalty_amount) > 0)
+    .sort((a, b) => a.due_date.localeCompare(b.due_date));
+
+  if (unpaidWithPenalty.length === 0) return null;
+
+  // Use the first penalized unpaid installment's due date for checkpoint generation
+  const refItem = unpaidWithPenalty[0];
+  const checkpoints = buildPenaltyCheckpoints(refItem.due_date);
+
+  const today = new Date();
+  const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+
+  // Filter to only future checkpoints and take the first N
+  const upcomingDates = checkpoints
+    .filter(cp => cp > todayUTC)
+    .slice(0, count);
+
+  if (upcomingDates.length === 0) return null;
+
+  return {
+    dates: upcomingDates,
+    firstUnpaidDueDate: forfeitWarning.firstUnpaidDueDate,
+  };
 }
 
 /**

@@ -34,7 +34,7 @@ import {
   getUnpaidScheduleItems, getActivePayments, accountProgress,
   ordinal, SERVICE_LABELS, getNextPaymentStatementDate,
   isPenaltyOverCap, isFinalSettlement, isExtensionActive, isFinalForfeited,
-  getForfeitureWarning,
+  getForfeitureWarning, getUpcomingFollowUpDates,
   canReactivate, canAcceptPayment, canAddService, canAddPenalty,
   computeAccountSummary,
 } from '@/lib/business-rules';
@@ -406,6 +406,14 @@ export default function AccountDetail() {
     });
     // Forfeiture notification warning for near-forfeit overdue accounts
     const forfeitWarning = getForfeitureWarning(account.status, scheduleItems);
+    // Show upcoming 14-day follow-up dates ABOVE Important Notice for near-forfeiture penalized accounts
+    const followUpDates = getUpcomingFollowUpDates(account.status, scheduleItems, 4);
+    if (followUpDates && forfeitWarning && forfeitWarning.monthsOverdue >= 2) {
+      message += `\n📅 Next Scheduled Follow-Up Dates:\n`;
+      followUpDates.dates.forEach(d => {
+        message += `  • ${d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}\n`;
+      });
+    }
     if (forfeitWarning && forfeitWarning.monthsOverdue >= 2) {
       message += `\n⚠️ IMPORTANT NOTICE: Your account is ${forfeitWarning.monthsOverdue} months overdue.`;
       if (forfeitWarning.daysUntilForfeit > 0) {
@@ -523,6 +531,29 @@ export default function AccountDetail() {
                       ? ` Auto-forfeiture will trigger on ${new Date(warning.forfeitDate).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })} (${warning.daysUntilForfeit} day${warning.daysUntilForfeit !== 1 ? 's' : ''} remaining).`
                       : ` Forfeiture date (${new Date(warning.forfeitDate).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })}) has been reached — pending engine run.`
                     }
+                  </p>
+                </div>
+              );
+            })()}
+            {/* Upcoming 14-Day Follow-Up Dates for near-forfeiture penalized accounts */}
+            {(() => {
+              const followUp = getUpcomingFollowUpDates(account.status, scheduleItems, 4);
+              if (!followUp) return null;
+              return (
+                <div className="mt-2 p-3 rounded-lg border border-warning/30 bg-warning/5">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Calendar className="h-4 w-4 text-warning flex-shrink-0" />
+                    <span className="text-sm font-medium text-warning">📅 Next Scheduled Follow-Up Dates</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {followUp.dates.map((d, i) => (
+                      <span key={i} className="text-xs px-2.5 py-1 rounded-full bg-warning/10 text-warning border border-warning/20 font-medium tabular-nums">
+                        {d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-2">
+                    Based on the 14-day penalty follow-up cycle. Payment before any date avoids further escalation.
                   </p>
                 </div>
               );
