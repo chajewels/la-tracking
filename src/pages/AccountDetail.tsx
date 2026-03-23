@@ -398,6 +398,29 @@ export default function AccountDetail() {
   return message;
   }, [account?.id, account?.status, summary, scheduleItems, currency, mostRecentPayment?.id, paymentBreakdownText, accountServices, unpaidSchedule, penaltyCapOverride]);
 
+
+  if (accountLoading) {
+    return (
+      <AppLayout>
+        <div className="space-y-6 max-w-5xl">
+          <Skeleton className="h-10 w-64" />
+          <div className="grid grid-cols-4 gap-4">
+            {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (!account) {
+    return (
+      <AppLayout>
+        <div className="flex items-center justify-center h-64">
+          <p className="text-muted-foreground">Account not found</p>
+        </div>
+      </AppLayout>
+    );
+  }
   const handleCopy = () => {
     navigator.clipboard.writeText(message);
     setCopied(true);
