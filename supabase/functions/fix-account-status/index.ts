@@ -1,0 +1,173 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    // Validate JWT in code
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) throw new Error("Missing authorization");
+    const token = authHeader.replace("Bearer ", "");
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) throw new Error("Unauthorized");
+
+    // Check admin role
+    const { data: roleCheck } = await supabase.rpc("has_role", { _user_id: user.id, _role: "admin" });
+    if (!roleCheck) throw new Error("Admin role required");
+
+    const body = await req.json();
+    const { action, account_id, schedule_id } = body;
+
+    if (!action || !account_id) throw new Error("Missing action or account_id");
+
+    const results: any = { action, account_id, changes: [] };
+    const today = new Date().toISOString().split("T")[0];
+
+    // Get account
+    const { data: account, error: accErr } = await supabase
+      .from("layaway_accounts")
+      .select("*")
+      .eq("id", account_id)
+      .single();
+    if (accErr || !account) throw new Error("Account not found");
+
+    const oldStatus = account.status;
+
+    if (action === "fix_status") {
+      // Determine correct status based on schedule and payments
+      const { data: schedules } = await supabase
+        .from("layaway_schedule")
+        .select("*")
+        .eq("account_id", account_id)
+        .not("status", "eq", "cancelled")
+        .order("due_date");
+
+      const allPaid = (schedules || []).every((s: any) => s.status === "paid" || Number(s.paid_amount) >= Number(s.base_installment_amount));
+      const hasPastDueUnpaid = (schedules || []).some(
+        (s: any) => s.due_date < today && s.status !== "paid" && s.status !== "cancelled" && Number(s.paid_amount) < Number(s.base_installment_amount)
+      );
+
+      let correctStatus = "active";
+      if (allPaid) correctStatus = "completed";
+      else if (hasPastDueUnpaid) correctStatus = "overdue";
+
+      if (correctStatus !== oldStatus) {
+        const { error: updErr } = await supabase
+          .from("layaway_accounts")
+          .update({ status: correctStatus })
+          .eq("id", account_id);
+        if (updErr) throw updErr;
+        results.changes.push({ field: "status", from: oldStatus, to: correctStatus });
+      } else {
+        results.changes.push({ field: "status", note: `Already correct: ${oldStatus}` });
+      }
+    } else if (action === "recalculate") {
+      // Recalculate total_paid and remaining_balance from actual payments
+      const { data: payments } = await supabase
+        .from("payments")
+        .select("amount_paid")
+        .eq("account_id", account_id)
+        .is("voided_at", null);
+
+      const actualTotalPaid = (payments || []).reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+      const correctRemaining = Number(account.total_amount) - actualTotalPaid;
+
+      const updates: any = {};
+      if (Math.abs(actualTotalPaid - Number(account.total_paid)) > 0.01) {
+        updates.total_paid = actualTotalPaid;
+        results.changes.push({ field: "total_paid", from: Number(account.total_paid), to: actualTotalPaid });
+      }
+      if (Math.abs(correctRemaining - Number(account.remaining_balance)) > 0.01) {
+        updates.remaining_balance = correctRemaining;
+        results.changes.push({ field: "remaining_balance", from: Number(account.remaining_balance), to: correctRemaining });
+      }
+
+      if (Object.keys(updates).length > 0) {
+        const { error: updErr } = await supabase
+          .from("layaway_accounts")
+          .update(updates)
+          .eq("id", account_id);
+        if (updErr) throw updErr;
+      } else {
+        results.changes.push({ note: "All totals already correct" });
+      }
+    } else if (action === "sync_schedule") {
+      // For a specific schedule row or all: align status with paid_amount
+      const query = supabase
+        .from("layaway_schedule")
+        .select("*")
+        .eq("account_id", account_id)
+        .not("status", "eq", "cancelled");
+
+      if (schedule_id) query.eq("id", schedule_id);
+
+      const { data: schedules } = await query;
+      let fixed = 0;
+
+      for (const s of (schedules || [])) {
+        const paidAmt = Number(s.paid_amount);
+        const baseAmt = Number(s.base_installment_amount);
+        let correctStatus = s.status;
+
+        if (paidAmt >= baseAmt && baseAmt > 0) {
+          correctStatus = "paid";
+        } else if (paidAmt > 0 && paidAmt < baseAmt) {
+          correctStatus = "partially_paid";
+        } else if (s.due_date < today && paidAmt === 0) {
+          correctStatus = "overdue";
+        } else if (paidAmt === 0) {
+          correctStatus = "pending";
+        }
+
+        if (correctStatus !== s.status) {
+          await supabase
+            .from("layaway_schedule")
+            .update({ status: correctStatus })
+            .eq("id", s.id);
+          fixed++;
+          results.changes.push({
+            field: `schedule_${s.installment_number}_status`,
+            from: s.status,
+            to: correctStatus,
+          });
+        }
+      }
+      if (fixed === 0) results.changes.push({ note: "All schedule statuses already correct" });
+    } else {
+      throw new Error(`Unknown action: ${action}`);
+    }
+
+    // Audit log
+    if (results.changes.some((c: any) => c.from !== undefined)) {
+      await supabase.from("audit_logs").insert({
+        action: `SYSTEM_HEALTH_FIX_${action.toUpperCase()}`,
+        entity_type: "layaway_account",
+        entity_id: account_id,
+        performed_by_user_id: user.id,
+        old_value_json: { status: oldStatus, changes_applied: results.changes.filter((c: any) => c.from !== undefined).map((c: any) => ({ field: c.field, old: c.from })) },
+        new_value_json: { action, changes: results.changes },
+      });
+    }
+
+    return new Response(JSON.stringify(results), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: (error as Error).message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});
