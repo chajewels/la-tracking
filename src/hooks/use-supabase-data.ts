@@ -486,16 +486,16 @@ export function useEditPayment() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (payload: {
-      payment_id: string;
+      id: string;
       date_paid?: string;
       payment_method?: string;
       remarks?: string;
     }) => {
-      const { payment_id, ...updates } = payload;
+      const { id, ...updates } = payload;
       const { error } = await supabase
         .from('payments')
         .update(updates)
-        .eq('id', payment_id);
+        .eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
