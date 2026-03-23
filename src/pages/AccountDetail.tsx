@@ -247,6 +247,7 @@ export default function AccountDetail() {
   const isExtension = account.status === 'extension_active';
 
 
+  const message = useMemo(() => {
   let message = `✨ Cha Jewels Layaway Payment Summary\n\n`;
 
   // Shared message block for summary values (used across all statuses)
