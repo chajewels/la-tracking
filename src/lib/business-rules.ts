@@ -561,7 +561,7 @@ export function getNextUnpaidDueDate(
  * Build 14-day penalty checkpoint dates from a due date.
  * Pattern: due+7, due+14, monthly, monthly+14, … (up to 12 months out)
  */
-function buildPenaltyCheckpoints(dueDateStr: string): Date[] {
+export function buildPenaltyCheckpoints(dueDateStr: string): Date[] {
   const dueDate = new Date(dueDateStr + 'T00:00:00Z');
   const dueDayOfMonth = dueDate.getUTCDate();
   const checkpoints: Date[] = [];
