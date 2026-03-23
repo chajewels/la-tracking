@@ -54,7 +54,7 @@ export function useCustomers() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('customers')
-        .select('id, full_name, customer_code, location, email, mobile_number, facebook_name, messenger_link, preferred_contact_method, notes, created_at, updated_at')
+        .select('*')
         .order('created_at', { ascending: false });
       if (error) throw error;
       return data as DbCustomer[];
@@ -72,7 +72,7 @@ export function useAccounts() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('layaway_accounts')
-        .select('id, invoice_number, currency, total_amount, total_paid, remaining_balance, downpayment_amount, status, order_date, payment_plan_months, customer_id, created_at, end_date, is_reactivated, extension_end_date, notes, customers(id, full_name, customer_code, messenger_link, location)')
+        .select('*, customers(*)')
         .order('created_at', { ascending: false });
       if (error) throw error;
       return data as AccountWithCustomer[];
