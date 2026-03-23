@@ -1045,6 +1045,95 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
   );
   const [splitAllocations, setSplitAllocations] = useState<Record<string, string>>({});
 
+  // ── Auto-distribute helper ──
+  // Compute due priority and target amount per account
+  const getAccountDuePriority = (acct: PortalAccount): { priority: number; label: string; badgeClass: string; targetAmount: number } => {
+    const today = new Date().toISOString().split('T')[0];
+    const unpaidItems = acct.schedule
+      .filter(s => s.status !== 'paid' && s.status !== 'cancelled' && s.paid_amount < s.total_due)
+      .sort((a, b) => a.due_date.localeCompare(b.due_date));
+
+    const nextItem = unpaidItems[0];
+    if (!nextItem) {
+      return { priority: 99, label: '', badgeClass: '', targetAmount: 0 };
+    }
+
+    // Target = next installment remaining + outstanding penalties + services
+    const nextDueRemaining = nextItem.total_due - nextItem.paid_amount;
+    const targetAmount = Math.max(0, nextDueRemaining + (acct.outstanding_penalties || 0) + (acct.total_services || 0));
+
+    const dueDate = nextItem.due_date;
+    const todayDate = new Date(today + 'T00:00:00');
+    const dueDateObj = new Date(dueDate + 'T00:00:00');
+    const diffDays = Math.floor((dueDateObj.getTime() - todayDate.getTime()) / 86400000);
+
+    if (diffDays < 0) {
+      const daysOver = Math.abs(diffDays);
+      if (daysOver >= 7) {
+        return { priority: 1, label: '🔴 Overdue', badgeClass: 'bg-destructive/10 text-destructive border-destructive/20', targetAmount };
+      }
+      return { priority: 2, label: '🟠 Grace Period', badgeClass: 'bg-amber-500/10 text-amber-600 border-amber-500/20', targetAmount };
+    }
+    if (diffDays === 0) {
+      return { priority: 3, label: '⚠️ Due Today', badgeClass: 'bg-warning/10 text-warning border-warning/20', targetAmount };
+    }
+    if (diffDays <= 3) {
+      return { priority: 4, label: '🟡 Due Soon', badgeClass: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20', targetAmount };
+    }
+    if (diffDays <= 7) {
+      return { priority: 5, label: '🟡 Due Soon', badgeClass: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20', targetAmount };
+    }
+    return { priority: 6, label: '', badgeClass: '', targetAmount };
+  };
+
+  const sortedPayableAccounts = [...payableAccounts].sort((a, b) => {
+    const pa = getAccountDuePriority(a);
+    const pb = getAccountDuePriority(b);
+    if (pa.priority !== pb.priority) return pa.priority - pb.priority;
+    // Within same priority: oldest due date first
+    return (a.next_due_date || 'z').localeCompare(b.next_due_date || 'z');
+  });
+
+  const autoDistribute = () => {
+    const totalPayment = parseFloat(amount) || splitTotal || 0;
+    if (totalPayment <= 0) return;
+
+    let remaining = totalPayment;
+    const newAllocations: Record<string, string> = {};
+
+    for (const acct of sortedPayableAccounts) {
+      if (remaining <= 0) break;
+      const { targetAmount } = getAccountDuePriority(acct);
+      // Use target amount if available, otherwise use remaining balance
+      const target = targetAmount > 0 ? Math.min(targetAmount, acct.remaining_balance) : acct.remaining_balance;
+      const allocation = Math.min(remaining, target);
+      if (allocation > 0) {
+        newAllocations[acct.id] = String(Math.round(allocation));
+        remaining -= allocation;
+      }
+    }
+
+    // If remaining > 0 after covering all targets, distribute to accounts with remaining balance
+    if (remaining > 0) {
+      for (const acct of sortedPayableAccounts) {
+        if (remaining <= 0) break;
+        const alreadyAllocated = parseFloat(newAllocations[acct.id] || '0');
+        const canTakeMore = acct.remaining_balance - alreadyAllocated;
+        if (canTakeMore > 0) {
+          const extra = Math.min(remaining, canTakeMore);
+          newAllocations[acct.id] = String(Math.round(alreadyAllocated + extra));
+          remaining -= extra;
+        }
+      }
+    }
+
+    setSplitAllocations(newAllocations);
+  };
+
+  const resetAllocations = () => {
+    setSplitAllocations({});
+  };
+
   // Filter methods by currency
   const relevantGroup = currency === 'JPY' ? 'JP' : 'PH';
   const primaryMethods = CHA_PAYMENT_METHODS.filter(m => m.group === relevantGroup);
