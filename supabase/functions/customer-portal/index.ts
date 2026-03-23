@@ -207,10 +207,6 @@ Deno.serve(async (req) => {
     for (const p of payments) { (paymentsByAccount[p.account_id] ||= []).push(p); }
     for (const s of services) { (servicesByAccount[s.account_id] ||= []).push(s); }
     for (const pen of penalties) { (penaltiesByAccount[pen.account_id] ||= []).push(pen); }
-
-    for (const s of schedules) { (schedulesByAccount[s.account_id] ||= []).push(s); }
-    for (const p of payments) { (paymentsByAccount[p.account_id] ||= []).push(p); }
-    for (const s of services) { (servicesByAccount[s.account_id] ||= []).push(s); }
     for (const t of stTokens) {
       if (!t.expires_at || new Date(t.expires_at) > new Date()) {
         statementTokenByAccount[t.account_id] = t.token;
