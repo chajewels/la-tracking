@@ -1021,12 +1021,507 @@ function PaymentMethodCard({ method, onSelect, copiedField, setCopied }: {
 }
 
 /* ─── Pay Now Tab ─── */
-function PayNowTab({ account, paymentMethods: _dbMethods, portalToken, onSuccess }: {
+function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalToken, onSuccess }: {
   account: PortalAccount;
+  allAccounts: PortalAccount[];
   paymentMethods: PaymentMethod[];
   portalToken: string;
   onSuccess: () => void;
 }) {
+  const currency = account.currency;
+  const [step, setStep] = useState<'methods' | 'form' | 'success'>('methods');
+  const [selectedMethodName, setSelectedMethodName] = useState<string>('');
+  const [selectedChaMethod, setSelectedChaMethod] = useState<ChaPaymentMethod | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  // Split payment state
+  const [paymentMode, setPaymentMode] = useState<'single' | 'split'>('single');
+  const payableAccounts = allAccounts.filter(a =>
+    a.remaining_balance > 0 &&
+    !['completed', 'cancelled', 'forfeited', 'final_forfeited'].includes(a.status) &&
+    a.currency === currency
+  );
+  const [splitAllocations, setSplitAllocations] = useState<Record<string, string>>({});
+
+  // Filter methods by currency
+  const relevantGroup = currency === 'JPY' ? 'JP' : 'PH';
+  const primaryMethods = CHA_PAYMENT_METHODS.filter(m => m.group === relevantGroup);
+  const otherMethods = CHA_PAYMENT_METHODS.filter(m => m.group !== relevantGroup);
+
+  // Form state
+  const [amount, setAmount] = useState(account.next_due_amount ? String(account.next_due_amount) : '');
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [referenceNumber, setReferenceNumber] = useState('');
+  const [senderName, setSenderName] = useState('');
+  const [notes, setNotes] = useState('');
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [proofPreview, setProofPreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setFormError('File must be less than 10MB');
+      return;
+    }
+    setProofFile(file);
+    setFormError(null);
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = () => setProofPreview(reader.result as string);
+      reader.readAsDataURL(file);
+    } else {
+      setProofPreview(null);
+    }
+  };
+
+  const handleSelectMethod = (m: ChaPaymentMethod) => {
+    setSelectedChaMethod(m);
+    setSelectedMethodName(m.name);
+    setStep('form');
+  };
+
+  // Split allocation helpers
+  const splitTotal = Object.values(splitAllocations).reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
+
+  const handleSubmit = async () => {
+    setFormError(null);
+
+    if (paymentMode === 'single') {
+      const parsedAmount = parseFloat(amount);
+      if (!parsedAmount || parsedAmount <= 0) { setFormError('Please enter a valid amount.'); return; }
+    } else {
+      if (splitTotal <= 0) { setFormError('Please allocate amounts to at least one invoice.'); return; }
+      const nonZero = Object.entries(splitAllocations).filter(([, v]) => parseFloat(v) > 0);
+      if (nonZero.length === 0) { setFormError('Please allocate amounts to at least one invoice.'); return; }
+    }
+
+    if (!paymentDate) { setFormError('Please select a payment date.'); return; }
+    if (!selectedMethodName) { setFormError('Please select a payment method.'); return; }
+
+    setSubmitting(true);
+
+    try {
+      let proofUrl: string | null = null;
+      if (proofFile) {
+        const ext = proofFile.name.split('.').pop() || 'jpg';
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const filePath = `${account.id}/${timestamp}_${proofFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')}.${ext}`;
+        const uploadRes = await fetch(
+          `${SUPABASE_URL}/storage/v1/object/payment-proofs/${filePath}`,
+          {
+            method: 'POST',
+            headers: {
+              apikey: SUPABASE_KEY,
+              Authorization: `Bearer ${SUPABASE_KEY}`,
+              'Content-Type': proofFile.type,
+            },
+            body: proofFile,
+          }
+        );
+        if (uploadRes.ok) {
+          proofUrl = `${SUPABASE_URL}/storage/v1/object/public/payment-proofs/${filePath}`;
+        }
+      }
+
+      // Build allocations for split
+      const isSplit = paymentMode === 'split';
+      const allocations = isSplit
+        ? Object.entries(splitAllocations)
+            .filter(([, v]) => parseFloat(v) > 0)
+            .map(([accId, v]) => {
+              const acct = payableAccounts.find(a => a.id === accId);
+              return {
+                account_id: accId,
+                invoice_number: acct?.invoice_number || '',
+                allocated_amount: parseFloat(v),
+              };
+            })
+        : [];
+
+      const submittedAmount = isSplit ? splitTotal : parseFloat(amount);
+
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/submit-payment`, {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          portal_token: portalToken,
+          account_id: isSplit ? allocations[0]?.account_id : account.id,
+          submitted_amount: submittedAmount,
+          payment_date: paymentDate,
+          payment_method: selectedMethodName,
+          reference_number: referenceNumber || null,
+          sender_name: senderName || null,
+          notes: notes || null,
+          proof_url: proofUrl,
+          submission_type: isSplit ? 'split' : 'single',
+          allocations: isSplit ? allocations : undefined,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        setFormError(json.error || 'Submission failed. Please try again.');
+        return;
+      }
+
+      setStep('success');
+      onSuccess();
+    } catch {
+      setFormError('Something went wrong. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (step === 'success') {
+    return (
+      <div className="text-center py-10 space-y-4">
+        <div className="mx-auto w-16 h-16 rounded-full bg-success/10 flex items-center justify-center">
+          <CheckCircle className="h-8 w-8 text-success" />
+        </div>
+        <h3 className="text-lg font-semibold font-display text-foreground">Payment Submitted!</h3>
+        <p className="text-sm text-muted-foreground max-w-xs mx-auto">
+          Your submission has been received and is now pending verification by the Cha Jewels team.
+        </p>
+        {paymentMode === 'split' && (
+          <div className="bg-primary/5 border border-primary/10 rounded-lg p-3 text-xs text-foreground max-w-xs mx-auto">
+            <p className="font-medium mb-1">Split Payment Summary</p>
+            {Object.entries(splitAllocations)
+              .filter(([, v]) => parseFloat(v) > 0)
+              .map(([accId, v]) => {
+                const acct = payableAccounts.find(a => a.id === accId);
+                return (
+                  <p key={accId} className="text-muted-foreground">
+                    #{acct?.invoice_number}: {fmt(parseFloat(v), currency)}
+                  </p>
+                );
+              })}
+          </div>
+        )}
+        <div className="bg-muted/30 rounded-lg p-4 text-xs text-muted-foreground max-w-xs mx-auto">
+          <p className="font-medium text-foreground mb-1">What happens next?</p>
+          <p>Our team will review your payment proof and confirm within 1–2 business days. You'll see the status update in the Submissions tab.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 'form' && selectedChaMethod) {
+    return (
+      <div className="space-y-5">
+        <button onClick={() => setStep('methods')} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+          <ArrowLeft className="h-3.5 w-3.5" /> Back to payment methods
+        </button>
+
+        {/* Selected Method Summary */}
+        <div className="p-4 rounded-xl bg-primary/5 border border-primary/10 space-y-2">
+          <div className="flex items-center gap-2">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">Paying via</p>
+            {selectedChaMethod.isFast && (
+              <Badge variant="outline" className="text-[9px] py-0 h-4 bg-success/10 text-success border-success/20 gap-0.5">
+                <Zap className="h-2.5 w-2.5" /> Fast
+              </Badge>
+            )}
+          </div>
+          <p className="text-sm font-semibold text-foreground">{selectedChaMethod.name}</p>
+          {selectedChaMethod.bankName && <p className="text-xs text-muted-foreground">{selectedChaMethod.bankName}</p>}
+          {selectedChaMethod.accountNumber && (
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-foreground">Account #: <span className="font-mono font-medium">{selectedChaMethod.accountNumber}</span></p>
+              <button
+                onClick={() => copyToClipboard(selectedChaMethod.accountNumber!, `form-acct`, setCopiedField)}
+                className="text-[10px] text-primary hover:text-primary/80 inline-flex items-center gap-0.5"
+              >
+                {copiedField === 'form-acct' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              </button>
+            </div>
+          )}
+          {selectedChaMethod.accountName && (
+            <p className="text-xs text-foreground">Name: <span className="font-medium">{selectedChaMethod.accountName}</span></p>
+          )}
+          {selectedChaMethod.extraNumbers && selectedChaMethod.extraNumbers.map((n, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <p className="text-xs text-foreground">{n.label}: <span className="font-mono font-medium">{n.number}</span></p>
+              <button
+                onClick={() => copyToClipboard(n.number, `form-num-${i}`, setCopiedField)}
+                className="text-[10px] text-primary hover:text-primary/80 inline-flex items-center gap-0.5"
+              >
+                {copiedField === `form-num-${i}` ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              </button>
+            </div>
+          ))}
+          {selectedChaMethod.payId && (
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-foreground">PayPay ID: <span className="font-mono font-medium">{selectedChaMethod.payId}</span></p>
+              <button
+                onClick={() => copyToClipboard(selectedChaMethod.payId!, `form-payid`, setCopiedField)}
+                className="text-[10px] text-primary hover:text-primary/80 inline-flex items-center gap-0.5"
+              >
+                {copiedField === 'form-payid' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              </button>
+            </div>
+          )}
+          <p className="text-[10px] text-muted-foreground italic mt-2">After completing your payment, please upload your proof of payment below.</p>
+        </div>
+
+        {/* Payment Mode Toggle - only show if multiple payable accounts */}
+        {payableAccounts.length > 1 && (
+          <div className="flex gap-1 bg-muted/30 rounded-lg p-1">
+            <button
+              onClick={() => setPaymentMode('single')}
+              className={`flex-1 text-xs font-medium py-2 rounded-md transition-all ${
+                paymentMode === 'single'
+                  ? 'bg-[hsl(var(--card))] text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Single Invoice
+            </button>
+            <button
+              onClick={() => setPaymentMode('split')}
+              className={`flex-1 text-xs font-medium py-2 rounded-md transition-all ${
+                paymentMode === 'split'
+                  ? 'bg-[hsl(var(--card))] text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Split Across Invoices
+            </button>
+          </div>
+        )}
+
+        {/* Form */}
+        <div className="space-y-4">
+          {paymentMode === 'single' ? (
+            <div>
+              <Label className="text-xs">Payment Amount <span className="text-destructive">*</span></Label>
+              <div className="relative mt-1.5">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                  {currency === 'JPY' ? '¥' : '₱'}
+                </span>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="pl-8"
+                  placeholder="0.00"
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Amount due: {account.next_due_amount ? fmt(account.next_due_amount, currency) : fmt(account.remaining_balance, currency)}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <Label className="text-xs">Allocate Payment per Invoice <span className="text-destructive">*</span></Label>
+              {payableAccounts.map((acct) => (
+                <div key={acct.id} className="p-3 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-foreground">#{acct.invoice_number}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        Balance: {fmt(acct.remaining_balance, currency)}
+                      </p>
+                    </div>
+                    <div className="relative w-28">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                        {currency === 'JPY' ? '¥' : '₱'}
+                      </span>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max={acct.remaining_balance}
+                        value={splitAllocations[acct.id] || ''}
+                        onChange={(e) => setSplitAllocations(prev => ({ ...prev, [acct.id]: e.target.value }))}
+                        className="pl-6 text-right text-xs h-8"
+                        placeholder="0"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <div className="flex items-center justify-between p-3 rounded-lg bg-primary/5 border border-primary/10">
+                <p className="text-xs font-semibold text-foreground">Total Payment</p>
+                <p className="text-sm font-bold text-primary tabular-nums">{fmt(splitTotal, currency)}</p>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <Label className="text-xs">Payment Date <span className="text-destructive">*</span></Label>
+            <Input
+              type="date"
+              value={paymentDate}
+              onChange={(e) => setPaymentDate(e.target.value)}
+              className="mt-1.5"
+            />
+          </div>
+
+          <div>
+            <Label className="text-xs">Reference / Transaction Number</Label>
+            <Input
+              value={referenceNumber}
+              onChange={(e) => setReferenceNumber(e.target.value)}
+              placeholder="e.g. GCash ref #12345"
+              className="mt-1.5"
+            />
+          </div>
+
+          <div>
+            <Label className="text-xs">Sender Name (optional)</Label>
+            <Input
+              value={senderName}
+              onChange={(e) => setSenderName(e.target.value)}
+              placeholder="Name on the sending account"
+              className="mt-1.5"
+            />
+          </div>
+
+          <div>
+            <Label className="text-xs">Proof of Payment</Label>
+            <div className="mt-1.5">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,.pdf"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+              {proofPreview ? (
+                <div className="relative">
+                  <img src={proofPreview} alt="Proof" className="w-full h-40 object-cover rounded-lg border border-[hsl(var(--border))]" />
+                  <button
+                    onClick={() => { setProofFile(null); setProofPreview(null); }}
+                    className="absolute top-2 right-2 h-6 w-6 rounded-full bg-background/80 flex items-center justify-center"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : proofFile ? (
+                <div className="flex items-center gap-2 p-3 rounded-lg border border-[hsl(var(--border))] bg-muted/30">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-xs text-foreground truncate flex-1">{proofFile.name}</span>
+                  <button onClick={() => { setProofFile(null); setProofPreview(null); }}>
+                    <X className="h-3.5 w-3.5 text-muted-foreground" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full p-6 rounded-lg border-2 border-dashed border-[hsl(var(--border))] hover:border-primary/40 transition-colors flex flex-col items-center gap-2"
+                >
+                  <Upload className="h-6 w-6 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Tap to upload screenshot or receipt</span>
+                  <span className="text-[10px] text-muted-foreground/60">JPG, PNG, or PDF · Max 10MB</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <Label className="text-xs">Notes (optional)</Label>
+            <Textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Any additional details…"
+              className="mt-1.5"
+              rows={2}
+            />
+          </div>
+
+          {formError && (
+            <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+              <p className="text-xs text-destructive">{formError}</p>
+            </div>
+          )}
+
+          <Button
+            className="w-full gap-2"
+            size="lg"
+            onClick={handleSubmit}
+            disabled={submitting}
+          >
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {submitting ? 'Submitting…' : paymentMode === 'split' ? `Submit Split Payment (${fmt(splitTotal, currency)})` : 'Submit Payment'}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Payment Methods list (grouped)
+  return (
+    <div className="space-y-5">
+      {/* Amount Due Summary */}
+      <div className="p-4 rounded-xl bg-primary/5 border border-primary/10 text-center">
+        <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Amount Due Now</p>
+        <p className="text-2xl font-bold font-display text-primary tabular-nums">
+          {account.next_due_amount ? fmt(account.next_due_amount, currency) : fmt(account.remaining_balance, currency)}
+        </p>
+        {account.next_due_date && (
+          <p className="text-xs text-muted-foreground mt-1">Due {fmtDateLong(account.next_due_date)}</p>
+        )}
+      </div>
+
+      {/* Primary Group */}
+      <div>
+        <h3 className="text-sm font-semibold font-display text-foreground mb-3 flex items-center gap-2">
+          <Wallet className="h-4 w-4 text-primary" />
+          {relevantGroup === 'PH' ? '🇵🇭 Philippines (Peso Payments)' : '🇯🇵 Japan (JPY Payments)'}
+        </h3>
+        {relevantGroup === 'PH' && (
+          <p className="text-[10px] text-muted-foreground mb-3">Recommended for Peso accounts</p>
+        )}
+        {relevantGroup === 'JP' && (
+          <p className="text-[10px] text-muted-foreground mb-3">Recommended for Yen accounts</p>
+        )}
+        <div className="space-y-3">
+          {primaryMethods.map((method) => (
+            <PaymentMethodCard
+              key={method.id}
+              method={method}
+              onSelect={() => handleSelectMethod(method)}
+              copiedField={copiedField}
+              setCopied={setCopiedField}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Other Group */}
+      {otherMethods.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold font-display text-foreground mb-3 flex items-center gap-2">
+            <Landmark className="h-4 w-4 text-muted-foreground" />
+            {relevantGroup === 'PH' ? '🇯🇵 Japan (JPY Payments)' : '🇵🇭 Philippines (Peso Payments)'}
+          </h3>
+          <p className="text-[10px] text-muted-foreground mb-3">Other available methods</p>
+          <div className="space-y-3">
+            {otherMethods.map((method) => (
+              <PaymentMethodCard
+                key={method.id}
+                method={method}
+                onSelect={() => handleSelectMethod(method)}
+                copiedField={copiedField}
+                setCopied={setCopiedField}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
   const currency = account.currency;
   const [step, setStep] = useState<'methods' | 'form' | 'success'>('methods');
   const [selectedMethodName, setSelectedMethodName] = useState<string>('');
