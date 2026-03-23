@@ -17,12 +17,12 @@ import { getDisplayCurrencyForFilter } from '@/lib/currency-converter';
 import { useAccounts, useCustomers, useDashboardSummary } from '@/hooks/use-supabase-data';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
-import { canSeeDashboardSection, type AppRole } from '@/lib/role-permissions';
+import { usePermissions } from '@/contexts/PermissionsContext';
 
 export default function Dashboard() {
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
   const { session, loading: authLoading, profile, roles } = useAuth();
-  const r = roles as AppRole[];
+  const { can } = usePermissions();
   const displayCurrency: Currency = getDisplayCurrencyForFilter(currencyFilter);
 
   const { data: summary, isLoading: summaryLoading } = useDashboardSummary(
