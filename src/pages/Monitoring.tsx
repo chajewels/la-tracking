@@ -39,6 +39,7 @@ function bucketToStage(bucket: AccountBucket): string | null {
   if (bucket === 'due_7_days') return '7_DAYS';
   if (bucket === 'due_3_days') return '3_DAYS';
   if (bucket === 'due_today') return 'DUE_TODAY';
+  if (bucket === 'grace_period') return 'GRACE_PERIOD';
   return null;
 }
 
