@@ -287,8 +287,8 @@ export default function CustomerPortal() {
                 <h1 className="text-lg sm:text-xl font-bold font-display text-foreground tracking-tight">
                   Cha Jewels
                 </h1>
-                <p className="text-sm text-muted-foreground">
-                  Welcome, <span className="text-foreground font-semibold">{data.customer_name}</span>
+                <p className="text-base sm:text-lg text-muted-foreground mt-0.5">
+                  Welcome, <span className="text-foreground font-medium font-display">{data.customer_name}</span>
                 </p>
               </div>
             </div>
