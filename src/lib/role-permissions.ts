@@ -14,7 +14,7 @@ const PAGE_ACCESS: Record<string, AppRole[]> = {
   '/reminders':           ['admin', 'staff', 'csr'],
   '/collections':         ['admin', 'finance'],
   '/finance':             ['admin', 'finance'],
-  '/payment-submissions': ['admin', 'finance'],
+  '/payment-submissions': ['admin', 'finance', 'staff', 'csr'],
   '/waivers':             ['admin', 'finance'],
   '/analytics':           ['admin', 'finance'],
   '/admin-audit':         ['admin'],
