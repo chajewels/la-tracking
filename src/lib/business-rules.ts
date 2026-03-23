@@ -19,19 +19,24 @@ export type DbPenalty = Tables<'penalty_fees'>;
 
 // ── Penalty Cap Constants ──
 export const PENALTY_CAP = {
-  PHP: { months1to5: 1000, month6: Infinity },
-  JPY: { months1to5: 2000, month6: Infinity },
+  PHP: { perInstallment: 1000 },
+  JPY: { perInstallment: 2000 },
 } as const;
 
-/** Get the max penalty allowed for a given installment number and currency. */
-export function getPenaltyCap(currency: 'PHP' | 'JPY', installmentNumber: number): number {
-  if (installmentNumber >= 6) return Infinity;
-  return currency === 'PHP' ? PENALTY_CAP.PHP.months1to5 : PENALTY_CAP.JPY.months1to5;
+/**
+ * Get the max penalty allowed for a given installment.
+ * The FINAL installment of any plan (3-month, 6-month, etc.) is UNCAPPED
+ * because it can legitimately accumulate multiple months of penalties.
+ * All non-final installments are capped at PHP 1,000 / JPY 2,000.
+ */
+export function getPenaltyCap(currency: 'PHP' | 'JPY', installmentNumber: number, planMonths: number = 6): number {
+  if (installmentNumber >= planMonths) return Infinity;
+  return currency === 'PHP' ? PENALTY_CAP.PHP.perInstallment : PENALTY_CAP.JPY.perInstallment;
 }
 
 /** Check if a penalty amount exceeds the cap for a given installment. */
-export function isPenaltyOverCap(currency: 'PHP' | 'JPY', installmentNumber: number, totalPenalty: number): boolean {
-  const cap = getPenaltyCap(currency, installmentNumber);
+export function isPenaltyOverCap(currency: 'PHP' | 'JPY', installmentNumber: number, totalPenalty: number, planMonths: number = 6): boolean {
+  const cap = getPenaltyCap(currency, installmentNumber, planMonths);
   return totalPenalty > cap;
 }
 
