@@ -245,8 +245,8 @@ export default function AccountDetail() {
   const isSettlement = account.status === 'final_settlement';
   const isFinalForfeit = account.status === 'final_forfeited';
   const isExtension = account.status === 'extension_active';
-
-
+  return message;
+  }, [account, summary, scheduleItems, paymentBreakdownText, accountServices, unpaidSchedule, currency, isFinalForfeit, isForfeited, isExtension, isSettlement, mostRecentPayment, penaltyCapOverride]);
   const message = useMemo(() => {
   let message = `✨ Cha Jewels Layaway Payment Summary\n\n`;
 
