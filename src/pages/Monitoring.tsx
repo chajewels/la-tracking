@@ -229,13 +229,14 @@ export default function Monitoring() {
   const notifStats = useMemo(() => {
     const stats = {
       due_today: { total: 0, notified: 0 },
+      grace_period: { total: 0, notified: 0 },
       due_3_days: { total: 0, notified: 0 },
       due_7_days: { total: 0, notified: 0 },
     };
     for (const a of alerts) {
       const stage = bucketToStage(a.bucket);
       if (!stage) continue;
-      const key = a.bucket as 'due_today' | 'due_3_days' | 'due_7_days';
+      const key = a.bucket as 'due_today' | 'grace_period' | 'due_3_days' | 'due_7_days';
       if (!stats[key]) continue;
       stats[key].total++;
       if (notifMap.has(`${a.scheduleId}_${stage}`)) {
