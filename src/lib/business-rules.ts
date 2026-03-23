@@ -801,3 +801,47 @@ export function computeAccountSummary(params: {
     progressPercent,
   };
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 12. CONSISTENCY VALIDATION
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export interface ConsistencyCheck {
+  isValid: boolean;
+  errors: string[];
+}
+
+/**
+ * Validate that account data is internally consistent.
+ * Uses confirmed payments as the single source of truth.
+ * 
+ * Call this after any mutation to detect desync early.
+ */
+export function validateAccountConsistency(params: {
+  principalTotal: number;
+  confirmedPaymentsTotal: number;
+  storedTotalPaid: number;
+  storedRemainingBalance: number;
+  schedulePaidSum: number;
+}): ConsistencyCheck {
+  const { principalTotal, confirmedPaymentsTotal, storedTotalPaid, storedRemainingBalance, schedulePaidSum } = params;
+  const errors: string[] = [];
+
+  // Rule 1: stored total_paid must match SUM(confirmed payments)
+  if (Math.abs(storedTotalPaid - confirmedPaymentsTotal) > 0.01) {
+    errors.push(`Total Paid mismatch: stored=${storedTotalPaid}, payments sum=${confirmedPaymentsTotal}`);
+  }
+
+  // Rule 2: remaining_balance must equal principal - total_paid
+  const expectedRemaining = Math.max(0, principalTotal - confirmedPaymentsTotal);
+  if (Math.abs(storedRemainingBalance - expectedRemaining) > 0.01) {
+    errors.push(`Remaining Balance mismatch: stored=${storedRemainingBalance}, expected=${expectedRemaining}`);
+  }
+
+  // Rule 3: schedule paid_amount sum should not exceed total_paid
+  if (schedulePaidSum > confirmedPaymentsTotal + 0.01) {
+    errors.push(`Schedule paid sum (${schedulePaidSum}) exceeds confirmed payments (${confirmedPaymentsTotal})`);
+  }
+
+  return { isValid: errors.length === 0, errors };
+}

@@ -210,7 +210,16 @@ Deno.serve(async (req) => {
       }
     }
 
-    const newTotalPaid = Number(account.total_paid) + Number(amount_paid);
+    // SINGLE SOURCE OF TRUTH: derive total_paid from SUM of all confirmed payments
+    // (not from stored account.total_paid which may be stale)
+    const { data: allActivePayments } = await supabase
+      .from("payments")
+      .select("amount_paid")
+      .eq("account_id", account_id)
+      .is("voided_at", null);
+    const existingPaidSum = (allActivePayments || []).reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+    // Add current payment amount (not yet inserted)
+    const newTotalPaid = existingPaidSum + Number(amount_paid);
     const newRemainingBalance = Math.max(0, Number(account.total_amount) - newTotalPaid);
     const newStatus = newRemainingBalance <= 0 ? "completed" : account.status;
 
@@ -275,11 +284,20 @@ Deno.serve(async (req) => {
       }).eq("id", item.id);
     }
 
-    // Update account
+    // SINGLE SOURCE OF TRUTH: re-derive from all payments after insert
+    const { data: postInsertPayments } = await supabase
+      .from("payments")
+      .select("amount_paid")
+      .eq("account_id", account_id)
+      .is("voided_at", null);
+    const verifiedTotalPaid = (postInsertPayments || []).reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+    const verifiedRemaining = Math.max(0, Number(account.total_amount) - verifiedTotalPaid);
+    const verifiedStatus = verifiedRemaining <= 0 ? "completed" : account.status;
+
     await supabase.from("layaway_accounts").update({
-      total_paid: newTotalPaid,
-      remaining_balance: Math.max(0, newRemainingBalance),
-      status: newStatus,
+      total_paid: verifiedTotalPaid,
+      remaining_balance: verifiedRemaining,
+      status: verifiedStatus,
     }).eq("id", account_id);
 
     // Audit log

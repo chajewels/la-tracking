@@ -102,13 +102,17 @@ Deno.serve(async (req) => {
       }
     }
 
+    // SINGLE SOURCE OF TRUTH: derive totals from confirmed payments, not stored fields
+    const actualPaymentsTotal = (paymentsRes.data || []).reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+    const computedRemaining = Math.max(0, Number(account.total_amount) - actualPaymentsTotal);
+
     const statement = {
       invoice_number: account.invoice_number,
       customer_name: customer?.full_name || "Customer",
       currency: account.currency,
       total_amount: Number(account.total_amount),
-      total_paid: Number(account.total_paid),
-      remaining_balance: Number(account.remaining_balance),
+      total_paid: actualPaymentsTotal,
+      remaining_balance: computedRemaining,
       downpayment_amount: Number(account.downpayment_amount || 0),
       status: account.status,
       status_label: isFinalSettlement ? 'FINAL SETTLEMENT' : isForfeited ? 'FORFEITED' : account.status.toUpperCase(),
@@ -149,10 +153,6 @@ Deno.serve(async (req) => {
     const totalActivePenalties = activePenalties.reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
     const totalWaivedAmount = waivedPenalties.reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
     const totalServices = (servicesRes.data || []).reduce((s: number, sv: any) => s + Number(sv.amount), 0);
-
-    // SINGLE SOURCE OF TRUTH: Remaining = Total Amount - SUM(actual payments)
-    const actualPaymentsTotal = (paymentsRes.data || []).reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
-    const computedRemaining = Math.max(0, Number(account.total_amount) - actualPaymentsTotal);
 
     // Consistent payable total: remaining principal + outstanding penalties
     const currentTotalPayable = computedRemaining + totalActivePenalties;
