@@ -462,8 +462,8 @@ export default function CustomerPortal() {
           </>
         )}
 
-        {/* Footer */}
-        <div className="text-center py-6">
+        {/* Footer - extra bottom padding on mobile for sticky bar */}
+        <div className="text-center py-6 pb-20 sm:pb-6">
           <p className="text-xs text-muted-foreground">
             © {new Date().getFullYear()} Cha Jewels · Layaway Portal
           </p>
