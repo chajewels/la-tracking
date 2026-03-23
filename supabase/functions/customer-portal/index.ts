@@ -194,12 +194,19 @@ Deno.serve(async (req) => {
     const services = servicesRes.data || [];
     const paymentMethods = methodsRes.data || [];
     const submissions = submissionsRes.data || [];
+    const penalties = penaltiesRes.data || [];
 
     const schedulesByAccount: Record<string, any[]> = {};
     const paymentsByAccount: Record<string, any[]> = {};
     const servicesByAccount: Record<string, any[]> = {};
     const statementTokenByAccount: Record<string, string> = {};
     const submissionsByAccount: Record<string, any[]> = {};
+    const penaltiesByAccount: Record<string, any[]> = {};
+
+    for (const s of schedules) { (schedulesByAccount[s.account_id] ||= []).push(s); }
+    for (const p of payments) { (paymentsByAccount[p.account_id] ||= []).push(p); }
+    for (const s of services) { (servicesByAccount[s.account_id] ||= []).push(s); }
+    for (const pen of penalties) { (penaltiesByAccount[pen.account_id] ||= []).push(pen); }
 
     for (const s of schedules) { (schedulesByAccount[s.account_id] ||= []).push(s); }
     for (const p of payments) { (paymentsByAccount[p.account_id] ||= []).push(p); }
