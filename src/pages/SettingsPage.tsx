@@ -233,6 +233,18 @@ export default function SettingsPage() {
               <Shield className="h-3.5 w-3.5" />
               Roles & Permissions
             </TabsTrigger>
+            {isAdmin && (
+              <TabsTrigger value="matrix" className="gap-1.5 text-xs">
+                <Grid3X3 className="h-3.5 w-3.5" />
+                Permission Matrix
+              </TabsTrigger>
+            )}
+            {isAdmin && (
+              <TabsTrigger value="features" className="gap-1.5 text-xs">
+                <Zap className="h-3.5 w-3.5" />
+                Feature Toggles
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {/* ── GENERAL TAB ── */}
