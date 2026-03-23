@@ -5,9 +5,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const PENALTY_CAP: Record<string, Record<string, number>> = {
-  PHP: { months1to5: 1000 },
-  JPY: { months1to5: 2000 },
+const PENALTY_CAP_PER_INSTALLMENT: Record<string, number> = {
+  PHP: 1000,
+  JPY: 2000,
 };
 
 interface Exception {
