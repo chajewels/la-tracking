@@ -100,6 +100,9 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Pending Submissions Alert - Admin/Finance only */}
+        {(r.includes('admin') || r.includes('finance')) && <PendingSubmissionsAlert />}
+
         {/* Secondary KPIs */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
           {summaryLoading ? (
