@@ -216,6 +216,8 @@ export default function PaymentSubmissions() {
               const cfg = statusConfig[sub.status] || statusConfig.submitted;
               const currency = (sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY';
               const isPending = ['submitted', 'under_review'].includes(sub.status);
+              const isSplit = sub.submission_type === 'split';
+              const allocs = getAllocsForSubmission(sub.id);
 
               return (
                 <Card key={sub.id} className={`shadow-sm ${isPending ? 'ring-1 ring-primary/10' : ''}`}>
@@ -225,9 +227,16 @@ export default function PaymentSubmissions() {
                       <div className="flex-1 min-w-0 space-y-2.5">
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <p className="text-base font-bold font-display text-foreground tabular-nums">
-                              {formatCurrency(sub.submitted_amount, currency)}
-                            </p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-base font-bold font-display text-foreground tabular-nums">
+                                {formatCurrency(sub.submitted_amount, currency)}
+                              </p>
+                              {isSplit && (
+                                <Badge variant="outline" className="text-[9px] bg-primary/10 text-primary border-primary/20">
+                                  Split
+                                </Badge>
+                              )}
+                            </div>
                             <p className="text-xs text-muted-foreground mt-0.5">
                               via {sub.payment_method} · {new Date(sub.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
                             </p>
@@ -244,7 +253,11 @@ export default function PaymentSubmissions() {
                           </div>
                           <div>
                             <p className="text-muted-foreground">Invoice</p>
-                            <p className="text-foreground font-medium">#{sub.layaway_accounts?.invoice_number || '—'}</p>
+                            <p className="text-foreground font-medium">
+                              {isSplit && allocs.length > 1
+                                ? `${allocs.length} invoices`
+                                : `#${sub.layaway_accounts?.invoice_number || '—'}`}
+                            </p>
                           </div>
                           <div>
                             <p className="text-muted-foreground">Payment Date</p>
@@ -255,6 +268,36 @@ export default function PaymentSubmissions() {
                             <p className="text-foreground font-mono text-[11px]">{sub.reference_number || '—'}</p>
                           </div>
                         </div>
+
+                        {/* Split Allocation Breakdown */}
+                        {isSplit && allocs.length > 0 && (
+                          <div className="space-y-1">
+                            <button
+                              onClick={() => setExpandedAllocs(expandedAllocs === sub.id ? null : sub.id)}
+                              className="text-[10px] text-primary font-medium hover:underline flex items-center gap-1"
+                            >
+                              {expandedAllocs === sub.id ? '▼' : '▶'} View allocation breakdown ({allocs.length} invoices)
+                            </button>
+                            {expandedAllocs === sub.id && (
+                              <div className="p-2.5 rounded-lg bg-primary/5 border border-primary/10 space-y-1">
+                                {allocs.map((alloc) => (
+                                  <div key={alloc.id} className="flex items-center justify-between text-xs">
+                                    <span className="text-muted-foreground">#{alloc.invoice_number}</span>
+                                    <span className="font-medium text-foreground tabular-nums">
+                                      {formatCurrency(alloc.allocated_amount, currency)}
+                                    </span>
+                                  </div>
+                                ))}
+                                <div className="flex items-center justify-between text-xs pt-1 border-t border-primary/10">
+                                  <span className="font-semibold text-foreground">Total</span>
+                                  <span className="font-bold text-primary tabular-nums">
+                                    {formatCurrency(sub.submitted_amount, currency)}
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {sub.sender_name && (
                           <p className="text-xs text-muted-foreground">Sender: <span className="text-foreground">{sub.sender_name}</span></p>
