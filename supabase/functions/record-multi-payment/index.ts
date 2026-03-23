@@ -41,6 +41,13 @@ Deno.serve(async (req) => {
     // Service role client for data ops
     const supabase = createClient(supabaseUrl, serviceKey);
 
+    // ── Role check: only admin/finance can directly record payments ──
+    const [{ data: isAdmin }, { data: isFinance }] = await Promise.all([
+      supabase.rpc("has_role", { _user_id: userId, _role: "admin" }),
+      supabase.rpc("has_role", { _user_id: userId, _role: "finance" }),
+    ]);
+    const canConfirm = isAdmin || isFinance;
+
     const body = await req.json();
     const {
       customer_id,
