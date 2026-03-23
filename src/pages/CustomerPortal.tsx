@@ -335,8 +335,9 @@ export default function CustomerPortal() {
         ) : (
           <>
             {/* Summary Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               <SummaryTile label="Active Accounts" value={String(data.summary.total_active)} icon={<TrendingUp className="h-4 w-4" />} />
+              <SummaryTile label="Overdue" value={String(overdueCount)} icon={<AlertTriangle className="h-4 w-4" />} danger={overdueCount > 0} />
               <SummaryTile label="Outstanding" value={fmt(data.summary.total_outstanding, currency)} icon={<CreditCard className="h-4 w-4" />} accent />
               <SummaryTile label="Completed" value={String(data.summary.total_completed)} icon={<Check className="h-4 w-4" />} />
               <SummaryTile
