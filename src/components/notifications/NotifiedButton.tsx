@@ -12,7 +12,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
-export type ReminderStage = '7_DAYS' | '3_DAYS' | 'DUE_TODAY';
+export type ReminderStage = '7_DAYS' | '3_DAYS' | 'DUE_TODAY' | 'GRACE_PERIOD';
 
 interface NotifiedButtonProps {
   accountId: string;
