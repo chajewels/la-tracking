@@ -64,13 +64,14 @@ export default function ApplyPenaltyCapDialog({ accountId, invoiceNumber, curren
         },
       });
 
-      // Now enforce the cap: waive penalties that exceed cap for months 1-5
-      // Fetch schedule items for months 1-5
+      // Now enforce the cap: waive penalties that exceed cap for non-final months
+      // For a 3-month plan, only months 1-2 are capped; for 6-month, months 1-5
+      const lastCappedMonth = planMonths - 1;
       const { data: schedItems } = await supabase
         .from('layaway_schedule')
         .select('id, installment_number, penalty_amount, base_installment_amount, total_due_amount, paid_amount, status')
         .eq('account_id', accountId)
-        .lte('installment_number', 5)
+        .lte('installment_number', lastCappedMonth)
         .order('installment_number', { ascending: true });
 
       if (schedItems) {
