@@ -558,36 +558,12 @@ export function getNextUnpaidDueDate(
 }
 
 /**
- * Get the "next payment" statement date.
- *
- * For unpaid installments that are NOT yet overdue, returns the due_date.
- * For overdue installments, computes the next penalty checkpoint using
- * the alternating pattern (due+7, due+14, monthly, monthly+14, …)
- * and returns the first checkpoint >= today.
+ * Build 14-day penalty checkpoint dates from a due date.
+ * Pattern: due+7, due+14, monthly, monthly+14, … (up to 12 months out)
  */
-export function getNextPaymentStatementDate(
-  scheduleItems: Array<{ due_date: string; status: string; paid_amount: number | string; total_due_amount: number | string; penalty_amount: number | string }>
-): { date: string; isAdjusted: boolean } | null {
-  const unpaid = scheduleItems
-    .filter(s => !isEffectivelyPaid(s) && s.status !== 'cancelled')
-    .sort((a, b) => a.due_date.localeCompare(b.due_date));
-  if (unpaid.length === 0) return null;
-
-  const today = todayStr();
-
-  // If there's an upcoming (not yet overdue) installment, return its due_date
-  const upcoming = unpaid.find(s => s.due_date >= today);
-  if (upcoming) {
-    return { date: upcoming.due_date, isAdjusted: false };
-  }
-
-  // All unpaid are overdue — compute the next penalty checkpoint for the earliest one
-  const overdueItem = unpaid[0];
-  const dueDate = new Date(overdueItem.due_date + 'T00:00:00Z');
-  const todayDate = new Date(today + 'T00:00:00Z');
+function buildPenaltyCheckpoints(dueDateStr: string): Date[] {
+  const dueDate = new Date(dueDateStr + 'T00:00:00Z');
   const dueDayOfMonth = dueDate.getUTCDate();
-
-  // Build penalty checkpoint dates in the alternating pattern
   const checkpoints: Date[] = [];
 
   // Phase 1: due + 7
@@ -613,14 +589,74 @@ export function getNextPaymentStatementDate(
     checkpoints.push(plus14);
   }
 
-  // Find the next checkpoint that is > today (the next one the customer should pay by)
-  const nextCheckpoint = checkpoints.find(cp => cp > todayDate);
-  if (nextCheckpoint) {
-    return { date: nextCheckpoint.toISOString().split('T')[0], isAdjusted: true };
+  return checkpoints;
+}
+
+/**
+ * Get the "next payment" statement date — PENALTY-AWARE.
+ *
+ * For penalized unpaid installments that are overdue, generates 14-day
+ * milestone checkpoints and picks the nearest upcoming one.
+ *
+ * For non-penalized unpaid installments, uses the original due date.
+ *
+ * The function collects all candidate milestone dates across all unpaid
+ * installments and returns the earliest one >= today.
+ *
+ * RULE: The 14-day cycle applies ONLY to installments with penalty > 0.
+ */
+export function getNextPaymentStatementDate(
+  scheduleItems: Array<{ due_date: string; status: string; paid_amount: number | string; total_due_amount: number | string; penalty_amount: number | string }>
+): { date: string; isAdjusted: boolean } | null {
+  const unpaid = scheduleItems
+    .filter(s => !isEffectivelyPaid(s) && s.status !== 'cancelled')
+    .sort((a, b) => a.due_date.localeCompare(b.due_date));
+  if (unpaid.length === 0) return null;
+
+  const today = todayStr();
+  const todayDate = new Date(today + 'T00:00:00Z');
+
+  // Collect all candidate "next due" dates
+  const candidates: Array<{ date: Date; isAdjusted: boolean }> = [];
+
+  for (const item of unpaid) {
+    const hasPenalty = Number(item.penalty_amount) > 0;
+    const isOverdue = item.due_date < today;
+
+    if (!isOverdue) {
+      // Future/today installment — use original due date as candidate
+      candidates.push({ date: new Date(item.due_date + 'T00:00:00Z'), isAdjusted: false });
+    } else if (hasPenalty) {
+      // Overdue WITH penalty — generate 14-day checkpoints, pick next future one
+      const checkpoints = buildPenaltyCheckpoints(item.due_date);
+      const nextCp = checkpoints.find(cp => cp > todayDate);
+      if (nextCp) {
+        candidates.push({ date: nextCp, isAdjusted: true });
+      }
+    } else {
+      // Overdue WITHOUT penalty — just use original due date (already past)
+      // Still include it so we have a fallback, but it won't be picked
+      // unless there are no future candidates
+      candidates.push({ date: new Date(item.due_date + 'T00:00:00Z'), isAdjusted: false });
+    }
   }
 
-  // Fallback: return the due date itself
-  return { date: overdueItem.due_date, isAdjusted: false };
+  if (candidates.length === 0) {
+    return { date: unpaid[0].due_date, isAdjusted: false };
+  }
+
+  // Sort candidates by date ascending
+  candidates.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  // Prefer candidates that are >= today
+  const futureCandidate = candidates.find(c => c.date >= todayDate);
+  if (futureCandidate) {
+    return { date: futureCandidate.date.toISOString().split('T')[0], isAdjusted: futureCandidate.isAdjusted };
+  }
+
+  // All past — return nearest (last item is most recent past)
+  const latest = candidates[candidates.length - 1];
+  return { date: latest.date.toISOString().split('T')[0], isAdjusted: latest.isAdjusted };
 }
 
 /**

@@ -68,31 +68,15 @@ const SERVICE_LABELS: Record<string, string> = {
   change_color: 'Change Color', engraving: 'Engraving', repair: 'Repair', other: 'Other',
 };
 
-function getNextPaymentInfo(schedule: StatementData['schedule']): { date: string; amount: number; isAdjusted: boolean } | null {
-  const today = new Date().toISOString().split('T')[0];
-  const todayDate = new Date(today + 'T00:00:00Z');
-  const unpaid = schedule
-    .filter(s => s.status !== 'paid' && s.status !== 'cancelled' && s.paid_amount < s.total_due)
-    .sort((a, b) => a.due_date.localeCompare(b.due_date));
-  if (unpaid.length === 0) return null;
-
-  // If there's an upcoming (not yet overdue) installment, return its due_date
-  const upcoming = unpaid.find(s => s.due_date >= today);
-  if (upcoming) {
-    return { date: upcoming.due_date, amount: upcoming.total_due - upcoming.paid_amount, isAdjusted: false };
-  }
-
-  // All overdue — compute next penalty checkpoint for the earliest overdue
-  const overdueItem = unpaid[0];
-  const dueDate = new Date(overdueItem.due_date + 'T00:00:00Z');
+/**
+ * Build 14-day penalty checkpoint dates from a due date.
+ */
+function buildPenaltyCheckpoints(dueDateStr: string): Date[] {
+  const dueDate = new Date(dueDateStr + 'T00:00:00Z');
   const dueDayOfMonth = dueDate.getUTCDate();
   const checkpoints: Date[] = [];
-
-  // due+7, due+14
   const p1 = new Date(dueDate); p1.setUTCDate(p1.getUTCDate() + 7); checkpoints.push(p1);
   const p2 = new Date(dueDate); p2.setUTCDate(p2.getUTCDate() + 14); checkpoints.push(p2);
-
-  // monthly + 14 alternating
   for (let m = 1; m <= 12; m++) {
     const year = dueDate.getUTCFullYear();
     const month = dueDate.getUTCMonth() + m;
@@ -102,13 +86,52 @@ function getNextPaymentInfo(schedule: StatementData['schedule']): { date: string
     const plus14 = new Date(monthly); plus14.setUTCDate(plus14.getUTCDate() + 14);
     checkpoints.push(plus14);
   }
+  return checkpoints;
+}
 
-  const nextCp = checkpoints.find(cp => cp > todayDate);
-  if (nextCp) {
-    return { date: nextCp.toISOString().split('T')[0], amount: overdueItem.total_due - overdueItem.paid_amount, isAdjusted: true };
+/**
+ * Penalty-aware next payment info.
+ * 14-day checkpoints only apply to installments that have penalty > 0.
+ */
+function getNextPaymentInfo(schedule: StatementData['schedule']): { date: string; amount: number; isAdjusted: boolean } | null {
+  const today = new Date().toISOString().split('T')[0];
+  const todayDate = new Date(today + 'T00:00:00Z');
+  const unpaid = schedule
+    .filter(s => s.status !== 'paid' && s.status !== 'cancelled' && s.paid_amount < s.total_due)
+    .sort((a, b) => a.due_date.localeCompare(b.due_date));
+  if (unpaid.length === 0) return null;
+
+  const candidates: Array<{ date: Date; amount: number; isAdjusted: boolean }> = [];
+
+  for (const item of unpaid) {
+    const hasPenalty = (item.penalty_amount || 0) > 0;
+    const isOverdue = item.due_date < today;
+    const amt = item.total_due - item.paid_amount;
+
+    if (!isOverdue) {
+      candidates.push({ date: new Date(item.due_date + 'T00:00:00Z'), amount: amt, isAdjusted: false });
+    } else if (hasPenalty) {
+      const nextCp = buildPenaltyCheckpoints(item.due_date).find(cp => cp > todayDate);
+      if (nextCp) {
+        candidates.push({ date: nextCp, amount: amt, isAdjusted: true });
+      }
+    } else {
+      candidates.push({ date: new Date(item.due_date + 'T00:00:00Z'), amount: amt, isAdjusted: false });
+    }
   }
 
-  return { date: overdueItem.due_date, amount: overdueItem.total_due - overdueItem.paid_amount, isAdjusted: false };
+  if (candidates.length === 0) {
+    const first = unpaid[0];
+    return { date: first.due_date, amount: first.total_due - first.paid_amount, isAdjusted: false };
+  }
+
+  candidates.sort((a, b) => a.date.getTime() - b.date.getTime());
+  const future = candidates.find(c => c.date >= todayDate);
+  if (future) {
+    return { date: future.date.toISOString().split('T')[0], amount: future.amount, isAdjusted: future.isAdjusted };
+  }
+  const latest = candidates[candidates.length - 1];
+  return { date: latest.date.toISOString().split('T')[0], amount: latest.amount, isAdjusted: latest.isAdjusted };
 }
 
 export default function CustomerStatement() {
