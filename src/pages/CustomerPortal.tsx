@@ -502,8 +502,9 @@ function AccountCard({ account, onViewDetails }: { account: PortalAccount; onVie
 }
 
 /* ─── Account Detail Panel ─── */
-function AccountDetail({ account, paymentMethods, portalToken, onClose, onRefresh }: {
+function AccountDetail({ account, allAccounts, paymentMethods, portalToken, onClose, onRefresh }: {
   account: PortalAccount;
+  allAccounts: PortalAccount[];
   paymentMethods: PaymentMethod[];
   portalToken: string;
   onClose: () => void;
