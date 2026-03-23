@@ -611,11 +611,32 @@ interface ReconcData {
   exceptions: ReconcException[];
 }
 
+type Severity = 'critical' | 'warning' | 'minor';
+
+const ISSUE_META: Record<string, { severity: Severity; label: string; fixInstruction: string; recommendedAction: string; fixAction: string }> = {
+  balance_mismatch: { severity: 'critical', label: 'BALANCE MISMATCH', fixInstruction: 'Stored remaining balance does not match computed balance. Recalculation required.', recommendedAction: 'Recalculate Totals', fixAction: 'recalculate' },
+  negative_balance: { severity: 'critical', label: 'NEGATIVE BALANCE', fixInstruction: 'Remaining balance is negative. Recalculate from actual payments.', recommendedAction: 'Recalculate Totals', fixAction: 'recalculate' },
+  overcap_penalty: { severity: 'warning', label: 'PENALTY OVER-CAP', fixInstruction: 'Penalty exceeds the allowed cap for this installment range. Review penalties.', recommendedAction: 'Review Penalties', fixAction: 'recalculate' },
+  chronology_break: { severity: 'critical', label: 'CHRONOLOGY BREAK', fixInstruction: 'Installment due dates are out of order. Schedule sync required.', recommendedAction: 'Sync Schedule', fixAction: 'sync_schedule' },
+  legacy_year: { severity: 'minor', label: 'LEGACY YEAR', fixInstruction: 'Payment date still has year 2024. Review payment record.', recommendedAction: 'Review Payments', fixAction: 'recalculate' },
+  paid_marked_unpaid: { severity: 'warning', label: 'PAID MARKED UNPAID', fixInstruction: 'Installment is fully paid but status is not "paid". Sync schedule required.', recommendedAction: 'Sync Schedule', fixAction: 'sync_schedule' },
+};
+
+const SEVERITY_STYLES: Record<Severity, string> = {
+  critical: 'bg-destructive/10 text-destructive border-destructive/20',
+  warning: 'bg-warning/10 text-warning border-warning/20',
+  minor: 'bg-muted text-muted-foreground border-border',
+};
+
+const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, warning: 1, minor: 2 };
+
 function ReconciliationTab() {
   const [running, setRunning] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [fixingId, setFixingId] = useState<string | null>(null);
+  const [bulkFixType, setBulkFixType] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const { data, isLoading, refetch } = useQuery<ReconcData>({
     queryKey: ['admin-reconciliation'],
@@ -633,9 +654,60 @@ function ReconciliationTab() {
     toast.success('Reconciliation completed');
   };
 
+  const runFix = async (action: string, accountId: string) => {
+    setFixingId(accountId);
+    try {
+      const { data: result, error } = await supabase.functions.invoke('fix-account-status', {
+        body: { action, account_id: accountId },
+      });
+      if (error) throw error;
+      const changes = result?.changes || [];
+      const realChanges = changes.filter((c: any) => c.from !== undefined);
+      if (realChanges.length > 0) {
+        toast.success(`Fixed: ${realChanges.map((c: any) => `${c.field}: ${c.from} → ${c.to}`).join(', ')}`);
+      } else {
+        toast.info('No changes needed — already correct');
+      }
+      await refetch();
+      queryClient.invalidateQueries({ queryKey: ['admin-system-health'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-overdue-debug'] });
+    } catch (err: any) {
+      toast.error(err.message || 'Fix failed');
+    } finally {
+      setFixingId(null);
+    }
+  };
+
+  const runBulkFix = async (issueType: string) => {
+    if (!data?.exceptions) return;
+    const targets = data.exceptions.filter(e => e.type === issueType);
+    const action = ISSUE_META[issueType]?.fixAction || 'recalculate';
+    const uniqueAccounts = [...new Map(targets.map(t => [t.account_id, t])).values()];
+    setBulkFixType(issueType);
+    let fixed = 0;
+    for (const acc of uniqueAccounts) {
+      try {
+        await supabase.functions.invoke('fix-account-status', {
+          body: { action, account_id: acc.account_id },
+        });
+        fixed++;
+      } catch {}
+    }
+    toast.success(`Bulk fix complete: ${fixed}/${uniqueAccounts.length} accounts processed`);
+    await refetch();
+    queryClient.invalidateQueries({ queryKey: ['admin-system-health'] });
+    queryClient.invalidateQueries({ queryKey: ['admin-overdue-debug'] });
+    setBulkFixType(null);
+  };
+
   const filteredExceptions = useMemo(() => {
     if (!data?.exceptions) return [];
-    return data.exceptions.filter(e => {
+    const sorted = [...data.exceptions].sort((a, b) => {
+      const sa = SEVERITY_ORDER[ISSUE_META[a.type]?.severity || 'minor'];
+      const sb = SEVERITY_ORDER[ISSUE_META[b.type]?.severity || 'minor'];
+      return sa - sb;
+    });
+    return sorted.filter(e => {
       if (typeFilter !== 'all' && e.type !== typeFilter) return false;
       if (searchTerm) {
         const q = searchTerm.toLowerCase();
@@ -645,6 +717,17 @@ function ReconciliationTab() {
     });
   }, [data?.exceptions, searchTerm, typeFilter]);
 
+  const typeBreakdown = useMemo(() => {
+    if (!data?.exceptions) return [];
+    const counts: Record<string, number> = {};
+    for (const e of data.exceptions) {
+      counts[e.type] = (counts[e.type] || 0) + 1;
+    }
+    return Object.entries(counts)
+      .map(([type, count]) => ({ type, count, meta: ISSUE_META[type] }))
+      .sort((a, b) => SEVERITY_ORDER[a.meta?.severity || 'minor'] - SEVERITY_ORDER[b.meta?.severity || 'minor']);
+  }, [data?.exceptions]);
+
   const exceptionTypes = useMemo(() => {
     if (!data?.exceptions) return [];
     return [...new Set(data.exceptions.map(e => e.type))];
@@ -653,14 +736,6 @@ function ReconciliationTab() {
   if (isLoading) return <div className="space-y-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>;
 
   const s = data?.summary;
-  const typeColors: Record<string, string> = {
-    balance_mismatch: 'bg-destructive/10 text-destructive border-destructive/20',
-    negative_balance: 'bg-destructive/10 text-destructive border-destructive/20',
-    overcap_penalty: 'bg-warning/10 text-warning border-warning/20',
-    chronology_break: 'bg-destructive/10 text-destructive border-destructive/20',
-    legacy_year: 'bg-muted text-muted-foreground border-border',
-    paid_marked_unpaid: 'bg-warning/10 text-warning border-warning/20',
-  };
 
   return (
     <div className="space-y-5">
@@ -670,7 +745,7 @@ function ReconciliationTab() {
           {s && (
             <Badge variant="outline" className={s.exception_accounts === 0 ? 'bg-success/10 text-success border-success/20' : 'bg-warning/10 text-warning border-warning/20'}>
               {s.exception_accounts === 0 ? <CheckCircle className="h-3 w-3 mr-1" /> : <AlertTriangle className="h-3 w-3 mr-1" />}
-              {s.exception_accounts === 0 ? 'ALL CLEAR' : `${s.exception_accounts} exceptions`}
+              {s.exception_accounts === 0 ? 'ALL CLEAR' : `${s.exception_accounts} exception accounts`}
             </Badge>
           )}
           {s?.timestamp && <span className="text-[10px] text-muted-foreground">Run: {new Date(s.timestamp).toLocaleString()}</span>}
@@ -707,6 +782,44 @@ function ReconciliationTab() {
           <div className="rounded-lg border border-muted bg-muted/20 p-3">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Closed (Excluded)</p>
             <p className="text-lg font-bold text-muted-foreground tabular-nums">{s.closed_accounts_excluded ?? 0}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Issue Type Breakdown with Bulk Actions */}
+      {typeBreakdown.length > 0 && (
+        <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+          <p className="text-xs font-semibold text-card-foreground">Issue Breakdown</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {typeBreakdown.map(({ type, count, meta }) => (
+              <div
+                key={type}
+                className={`rounded-lg border p-3 flex items-center justify-between cursor-pointer hover:ring-1 hover:ring-primary/30 transition-all ${typeFilter === type ? 'ring-2 ring-primary/40' : ''} ${SEVERITY_STYLES[meta?.severity || 'minor']}`}
+                onClick={() => setTypeFilter(typeFilter === type ? 'all' : type)}
+              >
+                <div className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${meta?.severity === 'critical' ? 'bg-destructive' : meta?.severity === 'warning' ? 'bg-warning' : 'bg-muted-foreground'}`} />
+                  <div>
+                    <p className="text-xs font-semibold">{meta?.label || type.replace(/_/g, ' ').toUpperCase()}</p>
+                    <p className="text-[10px] opacity-70">{count} issue{count !== 1 ? 's' : ''}</p>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 text-[10px] px-2"
+                  disabled={bulkFixType === type}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (confirm(`Fix all ${count} ${meta?.label || type} issues? This will ${meta?.recommendedAction?.toLowerCase() || 'recalculate'} for affected accounts.`)) {
+                      runBulkFix(type);
+                    }
+                  }}
+                >
+                  {bulkFixType === type ? <Loader2 className="h-3 w-3 animate-spin" /> : <>Fix All ({count})</>}
+                </Button>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -750,62 +863,92 @@ function ReconciliationTab() {
               <SelectContent>
                 <SelectItem value="all">All Types</SelectItem>
                 {exceptionTypes.map(t => (
-                  <SelectItem key={t} value={t}>{t.replace(/_/g, ' ')}</SelectItem>
+                  <SelectItem key={t} value={t}>{ISSUE_META[t]?.label || t.replace(/_/g, ' ')}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <span className="text-[10px] text-muted-foreground">{filteredExceptions.length} exception(s)</span>
           </div>
 
-          {/* Exception List */}
-          <div className="space-y-2">
-            {filteredExceptions.slice(0, 50).map((ex, idx) => (
-              <div
-                key={`${ex.account_id}-${ex.type}-${idx}`}
-                className="rounded-lg border border-border bg-card p-3 cursor-pointer hover:border-primary/30 transition-colors"
-                onClick={() => setExpandedId(expandedId === `${ex.account_id}-${idx}` ? null : `${ex.account_id}-${idx}`)}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Link
-                      to={`/accounts/${ex.account_id}`}
-                      className="font-mono text-xs font-semibold text-primary hover:underline"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      #{ex.invoice_number}
-                    </Link>
-                    <span className="text-xs text-card-foreground">{ex.customer_name}</span>
-                  </div>
-                  <Badge variant="outline" className={`text-[10px] ${typeColors[ex.type] || 'bg-muted text-muted-foreground border-border'}`}>
-                    {ex.type.replace(/_/g, ' ')}
-                  </Badge>
-                </div>
-                <p className="text-[11px] text-muted-foreground mt-1">{ex.detail}</p>
-
-                {expandedId === `${ex.account_id}-${idx}` && ex.expected !== undefined && (
-                  <div className="mt-2 pt-2 border-t border-border grid grid-cols-3 gap-2 text-xs">
-                    <div>
-                      <p className="text-muted-foreground">Expected</p>
-                      <p className="font-semibold text-card-foreground tabular-nums">
-                        {formatCurrency(ex.expected, ex.currency as Currency)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Stored</p>
-                      <p className="font-semibold text-card-foreground tabular-nums">
-                        {formatCurrency(ex.actual ?? 0, ex.currency as Currency)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Difference</p>
-                      <p className={`font-semibold tabular-nums ${(ex.difference ?? 0) !== 0 ? 'text-destructive' : 'text-success'}`}>
-                        {formatCurrency(ex.difference ?? 0, ex.currency as Currency)}
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
+          {/* Exception Table */}
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Invoice</th>
+                    <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Customer</th>
+                    <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Severity</th>
+                    <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Issue Type</th>
+                    <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">What to Fix</th>
+                    <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Expected</th>
+                    <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Stored</th>
+                    <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Diff</th>
+                    <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filteredExceptions.slice(0, 100).map((ex, idx) => {
+                    const meta = ISSUE_META[ex.type];
+                    const severity = meta?.severity || 'minor';
+                    const cur = ex.currency as Currency;
+                    return (
+                      <tr key={`${ex.account_id}-${ex.type}-${idx}`} className="hover:bg-muted/10">
+                        <td className="px-3 py-2">
+                          <Link to={`/accounts/${ex.account_id}`} className="font-mono text-xs font-semibold text-primary hover:underline">
+                            #{ex.invoice_number}
+                          </Link>
+                        </td>
+                        <td className="px-3 py-2 text-xs text-card-foreground">{ex.customer_name}</td>
+                        <td className="px-3 py-2">
+                          <Badge variant="outline" className={`text-[10px] font-bold ${SEVERITY_STYLES[severity]}`}>
+                            {severity === 'critical' ? '🔴' : severity === 'warning' ? '🟠' : '🟡'} {severity.toUpperCase()}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2">
+                          <Badge variant="outline" className={`text-[10px] ${SEVERITY_STYLES[severity]}`}>
+                            {meta?.label || ex.type.replace(/_/g, ' ')}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2 text-[10px] text-muted-foreground max-w-[220px]">
+                          {meta?.fixInstruction || ex.detail}
+                        </td>
+                        <td className="px-3 py-2 text-xs font-semibold text-card-foreground tabular-nums">
+                          {ex.expected !== undefined ? formatCurrency(ex.expected, cur) : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-xs font-semibold text-card-foreground tabular-nums">
+                          {ex.actual !== undefined ? formatCurrency(ex.actual, cur) : '—'}
+                        </td>
+                        <td className="px-3 py-2">
+                          {ex.difference !== undefined && ex.difference !== 0 ? (
+                            <span className="text-xs font-semibold text-destructive tabular-nums">{formatCurrency(ex.difference, cur)}</span>
+                          ) : <span className="text-xs text-muted-foreground">—</span>}
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-6 text-[10px] px-2"
+                              disabled={fixingId === `${ex.account_id}-${idx}`}
+                              onClick={() => {
+                                setFixingId(`${ex.account_id}-${idx}`);
+                                runFix(meta?.fixAction || 'recalculate', ex.account_id).finally(() => setFixingId(null));
+                              }}
+                            >
+                              {fixingId === `${ex.account_id}-${idx}` ? <Loader2 className="h-3 w-3 animate-spin" /> : (meta?.recommendedAction || 'Fix')}
+                            </Button>
+                            <Link to={`/accounts/${ex.account_id}`}>
+                              <Button variant="ghost" size="sm" className="h-6 text-[10px] px-2">View</Button>
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </>
       )}
