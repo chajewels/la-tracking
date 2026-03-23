@@ -22,13 +22,14 @@ import {
 } from '@/lib/business-rules';
 import ReminderCard, { type AlertItem, generateReminderMessage } from '@/components/monitoring/ReminderCard';
 
-type FilterTab = 'all' | 'overdue' | 'due_today' | 'due_3_days' | 'due_7_days';
+type FilterTab = 'all' | 'overdue' | 'grace_period' | 'due_today' | 'due_3_days' | 'due_7_days';
 type NotifFilter = 'all' | 'not_notified' | 'notified';
 type SummaryFilter = FilterTab | 'notified' | 'not_notified';
 
 const filterTabs: { key: FilterTab; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'overdue', label: 'Overdue' },
+  { key: 'grace_period', label: 'Grace Period' },
   { key: 'due_today', label: 'Due Today' },
   { key: 'due_3_days', label: 'Due in 3 Days' },
   { key: 'due_7_days', label: 'Due in 7 Days' },

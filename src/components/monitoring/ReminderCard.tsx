@@ -68,6 +68,12 @@ export function generateReminderMessage(alert: AlertItem): string {
 
   if (alert.type === 'overdue') {
     return `Hi ${alert.customer}! 👋\n\nThis is a friendly reminder from Cha Jewels that your layaway payment for INV #${alert.invoice} was due on ${dueStr} (${alert.daysOverdue} days ago).\n\nRemaining amount due: ${amtStr}\n\nPlease settle at your earliest convenience to avoid additional penalties.${portalLink}\n\nThank you! 💎`;
+  } else if (alert.type === 'grace_period') {
+    const graceEnd = new Date(alert.dueDate);
+    graceEnd.setDate(graceEnd.getDate() + 7);
+    const graceEndStr = graceEnd.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const portalLine = alert.portalToken ? `\n\nSettle your payment here:\n${PORTAL_BASE}/portal?token=${alert.portalToken}` : '';
+    return `⏳ Cha Jewels Grace Period Reminder\n\nHi Ma'am/Sir 💎\n\nYour layaway payment for Invoice #${alert.invoice} was due on ${dueStr} (${alert.daysOverdue} day${alert.daysOverdue !== 1 ? 's' : ''} ago).\n\nAmount Due: ${amtStr}\n\nYou are currently within your 7-day grace period, which ends on ${graceEndStr}.\n\nTo avoid penalties, please settle your payment before the grace period expires.${portalLine}\n\nThank you for choosing Cha Jewels 💛`;
   } else if (alert.type === 'due_today') {
     const dueDate = new Date(alert.dueDate);
     const graceEnd = new Date(dueDate);
