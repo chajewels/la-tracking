@@ -707,6 +707,7 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, onCl
             allAccounts={allAccounts}
             paymentMethods={paymentMethods}
             portalToken={portalToken}
+            initialPaymentMode={initialPaymentMode}
             onSuccess={() => {
               setActiveTab('submissions');
               onRefresh();
