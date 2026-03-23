@@ -1,12 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { type AppRole } from '@/lib/role-permissions';
+import { usePermissions } from '@/contexts/PermissionsContext';
 
 export function usePendingSubmissionCount() {
-  const { session, roles } = useAuth();
-  const userRoles = roles as AppRole[];
-  const canSee = userRoles.includes('admin') || userRoles.includes('finance');
+  const { session } = useAuth();
+  const { canAccessPage } = usePermissions();
+  const canSee = canAccessPage('/payment-submissions');
 
   return useQuery({
     queryKey: ['pending-submission-count'],
@@ -36,9 +36,9 @@ export interface PendingSubmissionSummary {
 }
 
 export function usePendingSubmissions(limit = 5) {
-  const { session, roles } = useAuth();
-  const userRoles = roles as AppRole[];
-  const canSee = userRoles.includes('admin') || userRoles.includes('finance');
+  const { session } = useAuth();
+  const { canAccessPage } = usePermissions();
+  const canSee = canAccessPage('/payment-submissions');
 
   return useQuery({
     queryKey: ['pending-submissions-summary', limit],

@@ -21,9 +21,10 @@ import { usePermissions } from '@/contexts/PermissionsContext';
 
 export default function Dashboard() {
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
-  const { session, loading: authLoading, profile, roles } = useAuth();
-  const { can } = usePermissions();
+  const { session, loading: authLoading, profile } = useAuth();
+  const { can, canAccessPage } = usePermissions();
   const displayCurrency: Currency = getDisplayCurrencyForFilter(currencyFilter);
+  const canSeePendingSubmissions = canAccessPage('/payment-submissions');
 
   const { data: summary, isLoading: summaryLoading } = useDashboardSummary(
     currencyFilter,
@@ -104,8 +105,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Pending Submissions Alert - Admin/Finance only */}
-        {(roles.includes('admin') || roles.includes('finance')) && <PendingSubmissionsAlert />}
+        {canSeePendingSubmissions && <PendingSubmissionsAlert />}
 
         {/* Secondary KPIs */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">

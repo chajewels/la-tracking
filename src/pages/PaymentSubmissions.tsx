@@ -19,6 +19,7 @@ import {
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/calculations';
 import { Link } from 'react-router-dom';
+import { usePermissions } from '@/contexts/PermissionsContext';
 
 type SubmissionStatus = 'submitted' | 'under_review' | 'confirmed' | 'rejected' | 'needs_clarification';
 
@@ -53,9 +54,12 @@ const statusConfig: Record<string, { label: string; color: string; icon: React.R
 };
 
 export default function PaymentSubmissions() {
-  const { session, roles } = useAuth();
-  const userRoles = roles as Array<'admin' | 'staff' | 'finance' | 'csr'>;
-  const canReview = userRoles.includes('admin') || userRoles.includes('finance');
+  const { session } = useAuth();
+  const { can } = usePermissions();
+  const canConfirm = can('confirm_payment');
+  const canReview = can('review_submission');
+  const canReject = can('reject_submission');
+  const canModerate = canConfirm || canReview || canReject;
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<string>('pending');
   const [search, setSearch] = useState('');
@@ -244,20 +248,26 @@ export default function PaymentSubmissions() {
                             <ImageIcon className="h-3.5 w-3.5" /> Proof
                           </Button>
                         )}
-                        {isPending && canReview && (
+                        {isPending && canModerate && (
                           <>
-                            <Button size="sm" variant="default" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'confirmed' })}>
-                              <Check className="h-3.5 w-3.5" /> Confirm
-                            </Button>
-                            <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'rejected' })}>
-                              <XCircle className="h-3.5 w-3.5" /> Reject
-                            </Button>
-                            <Button size="sm" variant="ghost" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'needs_clarification' })}>
-                              <MessageSquare className="h-3.5 w-3.5" /> Clarify
-                            </Button>
+                            {canConfirm && (
+                              <Button size="sm" variant="default" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'confirmed' })}>
+                                <Check className="h-3.5 w-3.5" /> Confirm
+                              </Button>
+                            )}
+                            {canReject && (
+                              <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'rejected' })}>
+                                <XCircle className="h-3.5 w-3.5" /> Reject
+                              </Button>
+                            )}
+                            {canReview && (
+                              <Button size="sm" variant="ghost" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'needs_clarification' })}>
+                                <MessageSquare className="h-3.5 w-3.5" /> Clarify
+                              </Button>
+                            )}
                           </>
                         )}
-                        {isPending && !canReview && (
+                        {isPending && !canModerate && (
                           <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20 text-[10px]">
                             <Clock className="h-3 w-3 mr-1" /> Pending Confirmation
                           </Badge>

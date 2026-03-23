@@ -5,6 +5,26 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+async function hasPermission(supabase: any, userId: string, permissionKey: string) {
+  const { data: roles, error: roleError } = await supabase
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId);
+  if (roleError) throw roleError;
+
+  const roleNames = (roles ?? []).map((row: any) => row.role);
+  if (roleNames.length === 0) return false;
+
+  const { data: permissions, error: permissionError } = await supabase
+    .from("role_permissions")
+    .select("role, is_allowed")
+    .eq("permission_key", permissionKey)
+    .in("role", roleNames);
+  if (permissionError) throw permissionError;
+
+  return (permissions ?? []).some((row: any) => row.is_allowed);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -52,14 +72,20 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ── CRITICAL: Only admin or finance can confirm/reject/clarify ──
-    const [{ data: isAdmin }, { data: isFinance }] = await Promise.all([
-      supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
-      supabase.rpc("has_role", { _user_id: user.id, _role: "finance" }),
-    ]);
+    const permissionByAction: Record<string, string> = {
+      under_review: "review_submission",
+      needs_clarification: "review_submission",
+      rejected: "reject_submission",
+      confirmed: "confirm_payment",
+    };
 
-    if (!isAdmin && !isFinance) {
-      return new Response(JSON.stringify({ error: "Access denied. Only admin or finance roles can review payment submissions." }), {
+    const requiredPermission = permissionByAction[action];
+    const isAllowed = requiredPermission
+      ? await hasPermission(supabase, user.id, requiredPermission)
+      : false;
+
+    if (!isAllowed) {
+      return new Response(JSON.stringify({ error: "Access denied for this submission action." }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

@@ -5,6 +5,26 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+async function hasPermission(supabase: any, userId: string, permissionKey: string) {
+  const { data: roles, error: roleError } = await supabase
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId);
+  if (roleError) throw roleError;
+
+  const roleNames = (roles ?? []).map((row: any) => row.role);
+  if (roleNames.length === 0) return false;
+
+  const { data: permissions, error: permissionError } = await supabase
+    .from("role_permissions")
+    .select("role, is_allowed")
+    .eq("permission_key", permissionKey)
+    .in("role", roleNames);
+  if (permissionError) throw permissionError;
+
+  return (permissions ?? []).some((row: any) => row.is_allowed);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -23,9 +43,8 @@ Deno.serve(async (req) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) throw new Error("Unauthorized");
 
-    // Check admin role
-    const { data: roleCheck } = await supabase.rpc("has_role", { _user_id: user.id, _role: "admin" });
-    if (!roleCheck) throw new Error("Admin role required");
+    const canRunSystemHealthFixes = await hasPermission(supabase, user.id, "system_health");
+    if (!canRunSystemHealthFixes) throw new Error("Permission denied");
 
     const body = await req.json();
     const { action, account_id, schedule_id } = body;
