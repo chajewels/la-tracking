@@ -392,6 +392,7 @@ export default function CustomerPortal() {
           {selectedAccount && (
             <AccountDetail
               account={selectedAccount}
+              allAccounts={data.accounts}
               paymentMethods={data.payment_methods}
               portalToken={token!}
               onClose={() => setSelectedAccount(null)}
