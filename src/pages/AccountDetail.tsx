@@ -406,13 +406,17 @@ export default function AccountDetail() {
     });
     // Forfeiture notification warning for near-forfeit overdue accounts
     const forfeitWarning = getForfeitureWarning(account.status, scheduleItems);
-    // Show upcoming 14-day follow-up dates ABOVE Important Notice for near-forfeiture penalized accounts
-    const followUpDates = getUpcomingFollowUpDates(account.status, scheduleItems, 4);
-    if (followUpDates && forfeitWarning && forfeitWarning.monthsOverdue >= 2) {
-      message += `\n📅 Next Scheduled Follow-Up Dates:\n`;
-      followUpDates.dates.forEach(d => {
-        message += `  • ${d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}\n`;
-      });
+    // Determine the single next due date from either 14-day follow-up or normal schedule
+    const followUpDates = getUpcomingFollowUpDates(account.status, scheduleItems, 1);
+    const nextStatement = getNextPaymentStatementDate(scheduleItems);
+    let nextDueDateStr: string | null = null;
+    if (followUpDates && followUpDates.dates.length > 0 && forfeitWarning && forfeitWarning.monthsOverdue >= 2) {
+      nextDueDateStr = followUpDates.dates[0].toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+    } else if (nextStatement) {
+      nextDueDateStr = new Date(nextStatement.date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+    }
+    if (nextDueDateStr) {
+      message += `\nPlease note your next monthly payment is on ${nextDueDateStr}. Please expect another payment reminder from us.\n`;
     }
     if (forfeitWarning && forfeitWarning.monthsOverdue >= 2) {
       message += `\n⚠️ IMPORTANT NOTICE: Your account is ${forfeitWarning.monthsOverdue} months overdue.`;
@@ -421,12 +425,7 @@ export default function AccountDetail() {
       }
       message += `\nPlease settle your outstanding balance immediately to avoid forfeiture. 💛`;
     } else {
-      const nextStatement = getNextPaymentStatementDate(scheduleItems);
-      if (nextStatement) {
-        const nextDate = new Date(nextStatement.date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
-        message += `\nPlease note your next monthly payment is on ${nextDate}. Please expect another payment reminder from us.\n\n`;
-        message += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
-      }
+      message += `\nThank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
     }
   }
 
