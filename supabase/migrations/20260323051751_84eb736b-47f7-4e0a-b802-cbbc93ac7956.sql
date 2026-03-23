@@ -1,0 +1,1 @@
+UPDATE layaway_accounts SET downpayment_amount = 25447, updated_at = now() WHERE invoice_number = '17723' AND downpayment_amount = 25976;
