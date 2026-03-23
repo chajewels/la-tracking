@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Layers, ArrowRight, CheckCircle2, AlertTriangle, Copy, Check, MessageCircle } from 'lucide-react';
+import { Layers, ArrowRight, CheckCircle2, AlertTriangle, Copy, Check, MessageCircle, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,6 +14,8 @@ import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/contexts/AuthContext';
+import { type AppRole } from '@/lib/role-permissions';
 
 interface AccountInfo {
   id: string;
@@ -57,6 +59,9 @@ export default function MultiInvoicePaymentDialog({
   accounts,
 }: MultiInvoicePaymentDialogProps) {
   const queryClient = useQueryClient();
+  const { roles } = useAuth();
+  const r = roles as AppRole[];
+  const isAdminOrFinance = r.includes('admin') || r.includes('finance');
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<'select' | 'allocate' | 'preview' | 'message'>('select');
   const [consolidatedMessage, setConsolidatedMessage] = useState('');
@@ -153,6 +158,11 @@ export default function MultiInvoicePaymentDialog({
         },
       });
       if (error) throw error;
+      if (data?.submitted_for_confirmation) {
+        toast.success('Payments submitted for confirmation. Admin/Finance will review.');
+        resetAndClose();
+        return;
+      }
       toast.success(
         `Split payment of ${totalAllocated.toLocaleString()} recorded across ${selectedAccounts.length} invoices`
       );
@@ -477,8 +487,8 @@ export default function MultiInvoicePaymentDialog({
                 disabled={submitting}
                 className="gold-gradient text-primary-foreground"
               >
-                {submitting ? 'Processing…' : 'Confirm Payment'}
-                <CheckCircle2 className="h-4 w-4 ml-1" />
+                {submitting ? 'Processing…' : isAdminOrFinance ? 'Confirm Payment' : 'Submit for Confirmation'}
+                {isAdminOrFinance ? <CheckCircle2 className="h-4 w-4 ml-1" /> : <Clock className="h-4 w-4 ml-1" />}
               </Button>
             </DialogFooter>
           </div>

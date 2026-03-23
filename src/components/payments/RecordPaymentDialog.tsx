@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, ArrowRight, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Plus, ArrowRight, AlertTriangle, CheckCircle2, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,6 +13,8 @@ import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
 import { useRecordPayment } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { type AppRole } from '@/lib/role-permissions';
 
 interface Allocation {
   schedule_id: string;
@@ -60,6 +62,9 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const recordPayment = useRecordPayment();
+  const { roles } = useAuth();
+  const r = roles as AppRole[];
+  const isAdminOrFinance = r.includes('admin') || r.includes('finance');
 
   // Calculate multi-month quick-fill amounts from unpaid schedule items
   const unpaidItems = (schedule || [])
@@ -88,6 +93,13 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
 
   const handlePreview = async () => {
     if (!isValid) return;
+
+    // Staff doesn't need preview — they just submit
+    if (!isAdminOrFinance) {
+      handleSubmitForConfirmation();
+      return;
+    }
+
     setLoadingPreview(true);
     try {
       const { data, error } = await supabase.functions.invoke('record-payment', {
@@ -105,6 +117,33 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
       setStep('preview');
     } catch (err: any) {
       toast.error(err.message || 'Failed to generate preview');
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
+  const handleSubmitForConfirmation = async () => {
+    setLoadingPreview(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('record-payment', {
+        body: {
+          account_id: accountId,
+          amount_paid: parsedAmount,
+          date_paid: paymentDate,
+          payment_method: paymentMethod,
+          reference_number: undefined,
+          remarks: notes || undefined,
+        },
+      });
+      if (error) throw error;
+      if (data?.submitted_for_confirmation) {
+        toast.success('Payment submitted for confirmation. Admin/Finance will review.');
+      } else {
+        toast.success(`Payment of ${formatCurrency(parsedAmount, currency)} recorded successfully`);
+      }
+      resetAndClose();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to submit payment');
     } finally {
       setLoadingPreview(false);
     }
@@ -141,7 +180,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     .filter(a => a.allocation_type === 'penalty')
     .reduce((s, a) => s + a.allocated_amount, 0) ?? 0;
 
-  // Consolidate installment allocations: group by schedule_id so overpayments show as one line
+  // Consolidate installment allocations
   const rawInstallmentAllocs = preview?.allocations.filter(a => a.allocation_type === 'installment') ?? [];
   const installmentAllocsMap = new Map<string, number>();
   for (const a of rawInstallmentAllocs) {
@@ -152,7 +191,6 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     allocation_type: 'installment' as const,
     allocated_amount,
   }));
-  // For single-invoice: if all allocations go to one installment, show as one line
   const displayAllocs = installmentAllocs.length <= 1
     ? installmentAllocs
     : installmentAllocs.filter(a => a.allocated_amount > 0);
@@ -167,15 +205,22 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
           </Button>
         ) : (
           <Button className="gold-gradient text-primary-foreground font-medium">
-            <Plus className="h-4 w-4 mr-1" /> Record Payment
+            <Plus className="h-4 w-4 mr-1" /> {isAdminOrFinance ? 'Record Payment' : 'Submit Payment'}
           </Button>
         )}
       </DialogTrigger>
       <DialogContent className="bg-card border-border max-w-md">
         <DialogHeader>
-          <DialogTitle className="font-display text-card-foreground">Record Payment</DialogTitle>
+          <DialogTitle className="font-display text-card-foreground">
+            {isAdminOrFinance ? 'Record Payment' : 'Submit Payment for Confirmation'}
+          </DialogTitle>
           <DialogDescription>
             Remaining balance: {formatCurrency(remainingBalance, currency)}
+            {!isAdminOrFinance && (
+              <span className="block mt-1 text-warning">
+                This payment will be submitted for admin/finance confirmation before it takes effect.
+              </span>
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -273,10 +318,17 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={resetAndClose}>Cancel</Button>
-              <Button type="submit" disabled={!isValid || loadingPreview} className="gold-gradient text-primary-foreground">
-                {loadingPreview ? 'Loading…' : 'Preview Allocation'}
-                <ArrowRight className="h-4 w-4 ml-1" />
-              </Button>
+              {isAdminOrFinance ? (
+                <Button type="submit" disabled={!isValid || loadingPreview} className="gold-gradient text-primary-foreground">
+                  {loadingPreview ? 'Loading…' : 'Preview Allocation'}
+                  <ArrowRight className="h-4 w-4 ml-1" />
+                </Button>
+              ) : (
+                <Button type="submit" disabled={!isValid || loadingPreview} className="gold-gradient text-primary-foreground">
+                  {loadingPreview ? 'Submitting…' : 'Submit for Confirmation'}
+                  <Clock className="h-4 w-4 ml-1" />
+                </Button>
+              )}
             </DialogFooter>
           </form>
         )}
@@ -343,7 +395,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
               </div>
             </div>
 
-            {/* Installment statuses - only for partial payments */}
+            {/* Installment statuses */}
             {!payFullBalance && preview.schedule_updates.length > 0 && (
               <div className="text-xs text-muted-foreground">
                 {preview.schedule_updates.map((su) => (

@@ -53,7 +53,9 @@ const statusConfig: Record<string, { label: string; color: string; icon: React.R
 };
 
 export default function PaymentSubmissions() {
-  const { session } = useAuth();
+  const { session, roles } = useAuth();
+  const userRoles = roles as Array<'admin' | 'staff' | 'finance' | 'csr'>;
+  const canReview = userRoles.includes('admin') || userRoles.includes('finance');
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<string>('pending');
   const [search, setSearch] = useState('');
@@ -242,7 +244,7 @@ export default function PaymentSubmissions() {
                             <ImageIcon className="h-3.5 w-3.5" /> Proof
                           </Button>
                         )}
-                        {isPending && (
+                        {isPending && canReview && (
                           <>
                             <Button size="sm" variant="default" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'confirmed' })}>
                               <Check className="h-3.5 w-3.5" /> Confirm
@@ -254,6 +256,11 @@ export default function PaymentSubmissions() {
                               <MessageSquare className="h-3.5 w-3.5" /> Clarify
                             </Button>
                           </>
+                        )}
+                        {isPending && !canReview && (
+                          <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20 text-[10px]">
+                            <Clock className="h-3 w-3 mr-1" /> Pending Confirmation
+                          </Badge>
                         )}
                         <Link to={`/accounts/${sub.account_id}`}>
                           <Button size="sm" variant="ghost" className="gap-1.5 text-xs w-full">

@@ -41,6 +41,13 @@ Deno.serve(async (req) => {
     // Service role client for data ops
     const supabase = createClient(supabaseUrl, serviceKey);
 
+    // ── Role check: only admin/finance can directly record payments ──
+    const [{ data: isAdmin }, { data: isFinance }] = await Promise.all([
+      supabase.rpc("has_role", { _user_id: userId, _role: "admin" }),
+      supabase.rpc("has_role", { _user_id: userId, _role: "finance" }),
+    ]);
+    const canConfirm = isAdmin || isFinance;
+
     const body = await req.json();
     const {
       customer_id,
@@ -239,7 +246,36 @@ Deno.serve(async (req) => {
       });
 
       // If not preview, persist changes
-      if (!preview_only) {
+      if (!preview_only && !canConfirm) {
+        // Staff: create payment submission instead
+        const { data: submission, error: subErr } = await supabase
+          .from("payment_submissions")
+          .insert({
+            account_id: inputAlloc.account_id,
+            customer_id: customer_id,
+            submitted_amount: amountForAccount,
+            payment_date: effectiveDate,
+            payment_method: effectiveMethod,
+            reference_number: batchId,
+            notes: remarks ? `[Multi-invoice] ${remarks}` : `[Multi-invoice batch: ${batchId}]`,
+            status: "submitted",
+          })
+          .select("id")
+          .single();
+        if (subErr) throw subErr;
+
+        await supabase.from("audit_logs").insert({
+          entity_type: "payment_submission",
+          entity_id: submission.id,
+          action: "staff_multi_payment_submitted",
+          new_value_json: {
+            batch_id: batchId,
+            amount: amountForAccount,
+            account_id: inputAlloc.account_id,
+          },
+          performed_by_user_id: userId,
+        });
+      } else if (!preview_only && canConfirm) {
         // Create payment record
         const { data: payment, error: payErr } = await supabase
           .from("payments")
@@ -306,6 +342,22 @@ Deno.serve(async (req) => {
           performed_by_user_id: userId,
         });
       }
+    }
+
+    // If staff submitted (not preview, not canConfirm), return submission info
+    if (!preview_only && !canConfirm) {
+      return new Response(
+        JSON.stringify({
+          submitted_for_confirmation: true,
+          batch_id: batchId,
+          total_amount: totalAllocated,
+          message: "Payments submitted for confirmation. Admin/Finance will review.",
+        }),
+        {
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
     return new Response(
