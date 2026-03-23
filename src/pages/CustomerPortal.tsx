@@ -453,7 +453,8 @@ export default function CustomerPortal() {
                   <AccountCard
                     key={account.id}
                     account={account}
-                    onViewDetails={() => setSelectedAccount(account)}
+                    onViewDetails={() => { setInitialDetailTab('overview'); setSelectedAccount(account); }}
+                    onPay={() => openAccountPay(account, 'single')}
                   />
                 ))}
               </div>
