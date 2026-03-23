@@ -546,9 +546,9 @@ export function useDeleteAccount() {
 export function useForfeitAccount() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: { account_id: string }) => {
+    mutationFn: async (accountId: string) => {
       const { data, error } = await supabase.functions.invoke('auto-forfeit-settlement', {
-        body: payload,
+        body: { account_id: accountId },
       });
       if (error) throw error;
       return data;
