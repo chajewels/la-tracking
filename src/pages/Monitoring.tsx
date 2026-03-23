@@ -212,7 +212,7 @@ export default function Monitoring() {
   }, [bucketFiltered, notifFilter, notifMap]);
 
   const sortedAlerts = useMemo(() => {
-    const order: Record<string, number> = { overdue: 0, due_today: 1, due_3_days: 2, due_7_days: 3 };
+    const order: Record<string, number> = { overdue: 0, grace_period: 1, due_today: 2, due_3_days: 3, due_7_days: 4 };
     return [...filteredAlerts].sort((a, b) => (order[a.bucket] ?? 9) - (order[b.bucket] ?? 9) || b.daysOverdue - a.daysOverdue);
   }, [filteredAlerts]);
 
