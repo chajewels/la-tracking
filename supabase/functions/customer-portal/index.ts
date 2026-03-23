@@ -166,7 +166,7 @@ Deno.serve(async (req) => {
 
     const accountIds = (accounts || []).map((a: any) => a.id);
 
-    const [schedulesRes, paymentsRes, stTokensRes, servicesRes, methodsRes, submissionsRes] = await Promise.all([
+    const [schedulesRes, paymentsRes, stTokensRes, servicesRes, methodsRes, submissionsRes, penaltiesRes] = await Promise.all([
       accountIds.length > 0
         ? supabase.from("layaway_schedule").select("*").in("account_id", accountIds).order("installment_number")
         : Promise.resolve({ data: [], error: null }),
@@ -182,6 +182,9 @@ Deno.serve(async (req) => {
       supabase.from("payment_methods").select("*").eq("is_active", true).order("sort_order"),
       accountIds.length > 0
         ? supabase.from("payment_submissions").select("id, account_id, submitted_amount, payment_date, payment_method, reference_number, sender_name, notes, proof_url, status, reviewer_notes, created_at").eq("customer_id", customerId).in("account_id", accountIds).order("created_at", { ascending: false })
+        : Promise.resolve({ data: [], error: null }),
+      accountIds.length > 0
+        ? supabase.from("penalty_fees").select("id, account_id, schedule_id, penalty_amount, status").in("account_id", accountIds)
         : Promise.resolve({ data: [], error: null }),
     ]);
 
