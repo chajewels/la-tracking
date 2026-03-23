@@ -1,0 +1,2 @@
+ALTER TABLE public.csr_notifications DROP CONSTRAINT csr_notifications_reminder_stage_check;
+ALTER TABLE public.csr_notifications ADD CONSTRAINT csr_notifications_reminder_stage_check CHECK (reminder_stage = ANY (ARRAY['7_DAYS','3_DAYS','DUE_TODAY','OVERDUE','P1','P2','P3','P4','P5','P6','P7','P8']));
