@@ -70,15 +70,15 @@ export default function PenaltyCapAuditPanel() {
 
       // Count overdue months (past due, not paid)
       const today = new Date().toISOString().split('T')[0];
-      const overdueItems = schedItems15.filter(
+      const overdueItems = schedItemsCapped.filter(
         (s: any) => s.due_date < today && s.status !== 'paid'
       );
 
-      // Sum active (unpaid + paid) penalties for months 1-5
-      const penalties15 = ((acc.penalty_fees || []) as any[]).filter(
-        (p: any) => schedIds15.has(p.schedule_id) && p.status !== 'waived'
+      // Sum active (unpaid + paid) penalties for capped months only
+      const penaltiesCapped = ((acc.penalty_fees || []) as any[]).filter(
+        (p: any) => schedIdsCapped.has(p.schedule_id) && p.status !== 'waived'
       );
-      const totalPenalty = penalties15.reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
+      const totalPenalty = penaltiesCapped.reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
 
       let auditStatus: AuditRow['audit_status'] = 'OK';
       let auditNotes = 'Within acceptable range';
