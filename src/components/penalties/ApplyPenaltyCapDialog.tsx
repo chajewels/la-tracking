@@ -19,7 +19,7 @@ interface Props {
   planMonths: number;
 }
 
-export default function ApplyPenaltyCapDialog({ accountId, invoiceNumber, currency, hasOverride }: Props) {
+export default function ApplyPenaltyCapDialog({ accountId, invoiceNumber, currency, hasOverride, planMonths }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const queryClient = useQueryClient();
