@@ -274,6 +274,7 @@ export default function CustomerPortal() {
   });
 
   const currency = data.summary.primary_currency;
+  const overdueCount = data.accounts.filter(a => a.status_label === 'Overdue').length;
 
   return (
     <div className="min-h-screen bg-[hsl(var(--background))]">
