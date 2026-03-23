@@ -75,6 +75,7 @@ export default function PaymentSubmissions() {
   const [actionDialog, setActionDialog] = useState<{ sub: SubmissionRow; action: string } | null>(null);
   const [reviewerNotes, setReviewerNotes] = useState('');
   const [proofDialog, setProofDialog] = useState<string | null>(null);
+  const [expandedAllocs, setExpandedAllocs] = useState<string | null>(null);
 
   const { data: submissions, isLoading } = useQuery({
     queryKey: ['payment-submissions', statusFilter],
@@ -96,6 +97,25 @@ export default function PaymentSubmissions() {
     },
     enabled: !!session,
   });
+
+  // Fetch allocations for all submissions
+  const submissionIds = (submissions || []).map(s => s.id);
+  const { data: allAllocations } = useQuery({
+    queryKey: ['submission-allocations', submissionIds],
+    queryFn: async () => {
+      if (submissionIds.length === 0) return [];
+      const { data, error } = await (supabase as any)
+        .from('payment_submission_allocations')
+        .select('*')
+        .in('submission_id', submissionIds);
+      if (error) throw error;
+      return data as SubmissionAllocation[];
+    },
+    enabled: !!session && submissionIds.length > 0,
+  });
+
+  const getAllocsForSubmission = (subId: string) =>
+    (allAllocations || []).filter(a => a.submission_id === subId);
 
   const reviewMutation = useMutation({
     mutationFn: async ({ submissionId, action, notes }: { submissionId: string; action: string; notes: string }) => {
