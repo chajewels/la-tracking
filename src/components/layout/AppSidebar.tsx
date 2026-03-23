@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { canSeeNavItem, type AppRole } from '@/lib/role-permissions';
+import { usePermissions } from '@/contexts/PermissionsContext';
 import { usePendingSubmissionCount } from '@/hooks/use-pending-submissions';
 import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
 
