@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Layers, ArrowRight, CheckCircle2, AlertTriangle, Copy, Check, MessageCircle } from 'lucide-react';
+import { Layers, ArrowRight, CheckCircle2, AlertTriangle, Copy, Check, MessageCircle, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,6 +14,8 @@ import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/contexts/AuthContext';
+import { type AppRole } from '@/lib/role-permissions';
 
 interface AccountInfo {
   id: string;
