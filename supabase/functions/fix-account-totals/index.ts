@@ -9,8 +9,9 @@ const corsHeaders = {
  * Fix account totals AND schedule allocations using SINGLE SOURCE OF TRUTH:
  * 1. remaining_balance = total_amount - SUM(actual non-voided payments)
  * 2. total_paid = SUM(actual non-voided payments)
- * 3. Schedule paid_amount = SUM(non-voided allocations per schedule row)
- * 4. Schedule status = derived from paid_amount vs base_installment_amount
+ * 3. Creates missing allocation records for unallocated payments (e.g. bulk imports)
+ * 4. Schedule paid_amount = SUM(non-voided allocations per schedule row)
+ * 5. Schedule status = derived from paid_amount vs base_installment_amount
  * 
  * Never derives from schedule rows to avoid rounding/gap discrepancies.
  * Supports ?offset=N&limit=N for chunked execution.
@@ -36,7 +37,7 @@ Deno.serve(async (req) => {
       .range(offset, offset + limit - 1);
 
     if (!accounts || accounts.length === 0) {
-      return new Response(JSON.stringify({ message: "No more accounts", accounts_fixed: 0, schedule_rows_fixed: 0, fixes: [], offset, done: true }), {
+      return new Response(JSON.stringify({ message: "No more accounts", accounts_fixed: 0, schedule_rows_fixed: 0, allocations_created: 0, fixes: [], offset, done: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -49,7 +50,7 @@ Deno.serve(async (req) => {
       const chunk = accountIds.slice(i, i + 50);
       const { data: pays } = await supabase
         .from("payments")
-        .select("id, account_id, amount_paid")
+        .select("id, account_id, amount_paid, date_paid, remarks")
         .in("account_id", chunk)
         .is("voided_at", null)
         .limit(5000);
@@ -96,21 +97,81 @@ Deno.serve(async (req) => {
     for (const s of allSchedules) {
       (schedByAcct[s.account_id] ||= []).push(s);
     }
-    // Index allocations by schedule_id, filtered to non-voided payments only
+    // Index allocations by schedule_id AND by payment_id, filtered to non-voided payments only
     const allocBySchedule: Record<string, any[]> = {};
+    const allocByPayment: Record<string, any[]> = {};
     for (const a of allAllocations) {
       if (validPaymentIds.has(a.payment_id)) {
         (allocBySchedule[a.schedule_id] ||= []).push(a);
+        (allocByPayment[a.payment_id] ||= []).push(a);
       }
     }
 
     const fixes: any[] = [];
     let scheduleRowsFixed = 0;
+    let allocationsCreated = 0;
     const today = new Date().toISOString().split("T")[0];
 
     for (const acct of accounts) {
-      const payments = payByAcct[acct.id] || [];
-      const schedule = schedByAcct[acct.id] || [];
+      const payments = (payByAcct[acct.id] || []).sort(
+        (a: any, b: any) => a.date_paid.localeCompare(b.date_paid)
+      );
+      const schedule = (schedByAcct[acct.id] || []).sort(
+        (a: any, b: any) => a.installment_number - b.installment_number
+      );
+
+      // ── Step 0: Create missing allocations for unallocated payments ──
+      // Identify payments that have NO allocation records at all
+      const unallocatedPayments = payments.filter((p: any) => {
+        const allocs = allocByPayment[p.id];
+        return !allocs || allocs.length === 0;
+      });
+
+      if (unallocatedPayments.length > 0) {
+        // Build current allocation state per schedule row
+        const schedAllocated: Record<string, number> = {};
+        for (const s of schedule) {
+          const allocs = allocBySchedule[s.id] || [];
+          schedAllocated[s.id] = allocs.reduce((sum: number, a: any) => sum + Number(a.allocated_amount), 0);
+        }
+
+        for (const payment of unallocatedPayments) {
+          let remaining = Number(payment.amount_paid);
+
+          // Check if this is a downpayment (skip - downpayments don't allocate to schedule)
+          const isDownpayment = (payment.remarks || "").toLowerCase().includes("downpayment");
+          if (isDownpayment) continue;
+
+          // Allocate chronologically to schedule rows that still need payment
+          for (const sched of schedule) {
+            if (remaining <= 0) break;
+            const base = Number(sched.base_installment_amount);
+            const alreadyAllocated = schedAllocated[sched.id] || 0;
+            const needed = Math.max(0, base - alreadyAllocated);
+
+            if (needed > 0) {
+              const toAllocate = Math.min(remaining, needed);
+              const { error: insertErr } = await supabase
+                .from("payment_allocations")
+                .insert({
+                  payment_id: payment.id,
+                  schedule_id: sched.id,
+                  allocated_amount: toAllocate,
+                  allocation_type: "installment",
+                });
+
+              if (!insertErr) {
+                allocationsCreated++;
+                schedAllocated[sched.id] = alreadyAllocated + toAllocate;
+                // Update local index so schedule sync below picks it up
+                const newAlloc = { payment_id: payment.id, schedule_id: sched.id, allocated_amount: toAllocate, allocation_type: "installment" };
+                (allocBySchedule[sched.id] ||= []).push(newAlloc);
+                remaining -= toAllocate;
+              }
+            }
+          }
+        }
+      }
 
       // ACCOUNT TOTALS: total_paid = SUM(actual non-voided payments)
       const correctTotalPaid = payments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
@@ -179,6 +240,7 @@ Deno.serve(async (req) => {
       accounts_processed: accounts.length,
       accounts_fixed: fixes.length,
       schedule_rows_fixed: scheduleRowsFixed,
+      allocations_created: allocationsCreated,
       offset,
       next_offset: offset + limit,
       done: accounts.length < limit,
