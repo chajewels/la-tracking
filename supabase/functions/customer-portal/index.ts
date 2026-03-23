@@ -233,9 +233,13 @@ Deno.serve(async (req) => {
       const currentTotalPayable = computedRemaining + unpaidPenaltySum + totalServices;
 
       const today = new Date().toISOString().split('T')[0];
+      const todayDate = new Date(today + 'T00:00:00Z');
       const unpaidSchedule = acctSchedule
         .filter((s: any) => s.status !== 'paid' && s.status !== 'cancelled')
         .sort((a: any, b: any) => a.due_date.localeCompare(b.due_date));
+
+      // Penalty-aware next due date calculation
+      const nextDueInfo = computeNextDueDate(unpaidSchedule, today, todayDate);
       const nextDue = unpaidSchedule[0] || null;
 
       const progressPercent = Number(acc.total_amount) > 0
