@@ -166,7 +166,7 @@ Deno.serve(async (req) => {
 
     const accountIds = (accounts || []).map((a: any) => a.id);
 
-    const [schedulesRes, paymentsRes, stTokensRes, servicesRes, methodsRes, submissionsRes] = await Promise.all([
+    const [schedulesRes, paymentsRes, stTokensRes, servicesRes, methodsRes, submissionsRes, penaltiesRes] = await Promise.all([
       accountIds.length > 0
         ? supabase.from("layaway_schedule").select("*").in("account_id", accountIds).order("installment_number")
         : Promise.resolve({ data: [], error: null }),
@@ -183,6 +183,9 @@ Deno.serve(async (req) => {
       accountIds.length > 0
         ? supabase.from("payment_submissions").select("id, account_id, submitted_amount, payment_date, payment_method, reference_number, sender_name, notes, proof_url, status, reviewer_notes, created_at").eq("customer_id", customerId).in("account_id", accountIds).order("created_at", { ascending: false })
         : Promise.resolve({ data: [], error: null }),
+      accountIds.length > 0
+        ? supabase.from("penalty_fees").select("id, account_id, schedule_id, penalty_amount, status").in("account_id", accountIds)
+        : Promise.resolve({ data: [], error: null }),
     ]);
 
     const schedules = schedulesRes.data || [];
@@ -191,12 +194,19 @@ Deno.serve(async (req) => {
     const services = servicesRes.data || [];
     const paymentMethods = methodsRes.data || [];
     const submissions = submissionsRes.data || [];
+    const penalties = penaltiesRes.data || [];
 
     const schedulesByAccount: Record<string, any[]> = {};
     const paymentsByAccount: Record<string, any[]> = {};
     const servicesByAccount: Record<string, any[]> = {};
     const statementTokenByAccount: Record<string, string> = {};
     const submissionsByAccount: Record<string, any[]> = {};
+    const penaltiesByAccount: Record<string, any[]> = {};
+
+    for (const s of schedules) { (schedulesByAccount[s.account_id] ||= []).push(s); }
+    for (const p of payments) { (paymentsByAccount[p.account_id] ||= []).push(p); }
+    for (const s of services) { (servicesByAccount[s.account_id] ||= []).push(s); }
+    for (const pen of penalties) { (penaltiesByAccount[pen.account_id] ||= []).push(pen); }
 
     for (const s of schedules) { (schedulesByAccount[s.account_id] ||= []).push(s); }
     for (const p of payments) { (paymentsByAccount[p.account_id] ||= []).push(p); }
@@ -219,11 +229,12 @@ Deno.serve(async (req) => {
       const computedRemaining = Math.max(0, Number(acc.total_amount) - totalPayments);
       const totalServices = acctServices.reduce((s: number, sv: any) => s + Number(sv.amount), 0);
 
-      // Compute outstanding penalties from schedule penalty_amount on unpaid items
-      const unpaidPenaltySum = acctSchedule
-        .filter((s: any) => s.status !== 'paid' && s.status !== 'cancelled')
-        .reduce((s: number, si: any) => s + Number(si.penalty_amount), 0);
-      const currentTotalPayable = computedRemaining + unpaidPenaltySum;
+      // Compute outstanding penalties from penalty_fees table (source of truth)
+      const acctPenalties = penaltiesByAccount[acc.id] || [];
+      const unpaidPenaltySum = acctPenalties
+        .filter((p: any) => p.status === 'unpaid')
+        .reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
+      const currentTotalPayable = computedRemaining + unpaidPenaltySum + totalServices;
 
       const today = new Date().toISOString().split('T')[0];
       const unpaidSchedule = acctSchedule
