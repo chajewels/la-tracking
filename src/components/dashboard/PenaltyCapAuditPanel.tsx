@@ -88,7 +88,7 @@ export default function PenaltyCapAuditPanel() {
         auditNotes = `Penalty exceeds recommended cap (${formatCurrency(totalPenalty, currency)} > ${formatCurrency(cap, currency)})`;
       } else {
         // Check for computation irregularities
-        const schedPenaltySum = schedItems15.reduce((s: number, sc: any) => s + Number(sc.penalty_amount), 0);
+        const schedPenaltySum = schedItemsCapped.reduce((s: number, sc: any) => s + Number(sc.penalty_amount), 0);
         if (Math.abs(schedPenaltySum - totalPenalty) > 1) {
           auditStatus = 'CHECK_REQUIRED';
           auditNotes = 'Mismatch between schedule penalty and penalty_fees records';
