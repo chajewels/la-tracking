@@ -340,6 +340,59 @@ export default function CustomerPortal() {
               />
             </div>
 
+            {/* Action Cards: Pay Now + Split Payment */}
+            {payableAccounts.length > 0 && (
+              <div className={`grid ${payableAccounts.length > 1 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'} gap-3`}>
+                {/* Pay Now Card */}
+                <button
+                  onClick={() => openAccountPay(firstPayable, 'single')}
+                  className="group relative overflow-hidden rounded-xl border-2 border-[hsl(var(--gold)/0.3)] bg-gradient-to-br from-[hsl(var(--gold)/0.08)] to-[hsl(var(--gold)/0.02)] p-4 text-left transition-all hover:border-[hsl(var(--gold)/0.5)] hover:shadow-lg"
+                  style={hasOverdue ? { boxShadow: '0 0 16px hsl(0 72% 51% / 0.1)' } : {}}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[hsl(var(--gold)/0.15)] group-hover:bg-[hsl(var(--gold)/0.25)] transition-colors">
+                        <Wallet className="h-5 w-5 text-[hsl(var(--gold))]" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold font-display text-foreground">Pay Now</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {hasOverdue ? 'Overdue payment — act now' : 'Make a payment on your account'}
+                        </p>
+                      </div>
+                    </div>
+                    <ChevronRight className="h-5 w-5 text-[hsl(var(--gold))] group-hover:translate-x-0.5 transition-transform" />
+                  </div>
+                  {hasOverdue && (
+                    <div className="absolute top-0 right-0 px-2 py-0.5 rounded-bl-lg bg-destructive text-destructive-foreground text-[9px] font-bold uppercase tracking-wider">
+                      Overdue
+                    </div>
+                  )}
+                </button>
+
+                {/* Split Payment Card */}
+                {payableAccounts.length > 1 && (
+                  <button
+                    onClick={() => openAccountPay(firstPayable, 'split')}
+                    className="group relative overflow-hidden rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 text-left transition-all hover:border-[hsl(var(--gold)/0.3)] hover:shadow-md"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[hsl(var(--accent))] group-hover:bg-[hsl(var(--gold)/0.15)] transition-colors">
+                          <CreditCard className="h-5 w-5 text-[hsl(var(--accent-foreground))]" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold font-display text-foreground">Split Payment</p>
+                          <p className="text-[10px] text-muted-foreground">Pay multiple accounts in one transaction</p>
+                        </div>
+                      </div>
+                      <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-[hsl(var(--gold))] group-hover:translate-x-0.5 transition-all" />
+                    </div>
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Filters */}
             <div className="flex flex-col sm:flex-row gap-2">
               <div className="relative flex-1">
