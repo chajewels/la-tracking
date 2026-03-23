@@ -22,13 +22,14 @@ import {
 } from '@/lib/business-rules';
 import ReminderCard, { type AlertItem, generateReminderMessage } from '@/components/monitoring/ReminderCard';
 
-type FilterTab = 'all' | 'overdue' | 'due_today' | 'due_3_days' | 'due_7_days';
+type FilterTab = 'all' | 'overdue' | 'grace_period' | 'due_today' | 'due_3_days' | 'due_7_days';
 type NotifFilter = 'all' | 'not_notified' | 'notified';
 type SummaryFilter = FilterTab | 'notified' | 'not_notified';
 
 const filterTabs: { key: FilterTab; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'overdue', label: 'Overdue' },
+  { key: 'grace_period', label: 'Grace Period' },
   { key: 'due_today', label: 'Due Today' },
   { key: 'due_3_days', label: 'Due in 3 Days' },
   { key: 'due_7_days', label: 'Due in 7 Days' },
@@ -38,6 +39,7 @@ function bucketToStage(bucket: AccountBucket): string | null {
   if (bucket === 'due_7_days') return '7_DAYS';
   if (bucket === 'due_3_days') return '3_DAYS';
   if (bucket === 'due_today') return 'DUE_TODAY';
+  if (bucket === 'grace_period') return 'GRACE_PERIOD';
   return null;
 }
 
@@ -163,7 +165,7 @@ export default function Monitoring() {
 
       if (!nextItem) continue;
 
-      const type = categorizeByDueDate(nextItem.due_date);
+      const type = bucket === 'grace_period' ? 'grace_period' as const : categorizeByDueDate(nextItem.due_date);
       const overdueDays = daysOverdueFromToday(nextItem.due_date);
 
       result.push({
@@ -191,6 +193,7 @@ export default function Monitoring() {
   const bucketFiltered = useMemo(() => {
     if (activeFilter === 'all') return alerts;
     if (activeFilter === 'overdue') return alerts.filter(a => a.bucket === 'overdue');
+    if (activeFilter === 'grace_period') return alerts.filter(a => a.bucket === 'grace_period');
     if (activeFilter === 'due_today') return alerts.filter(a => a.bucket === 'due_today');
     if (activeFilter === 'due_3_days') return alerts.filter(a => a.bucket === 'due_3_days');
     if (activeFilter === 'due_7_days') return alerts.filter(a => a.bucket === 'due_7_days');
@@ -209,13 +212,14 @@ export default function Monitoring() {
   }, [bucketFiltered, notifFilter, notifMap]);
 
   const sortedAlerts = useMemo(() => {
-    const order: Record<string, number> = { overdue: 0, due_today: 1, due_3_days: 2, due_7_days: 3 };
+    const order: Record<string, number> = { overdue: 0, grace_period: 1, due_today: 2, due_3_days: 3, due_7_days: 4 };
     return [...filteredAlerts].sort((a, b) => (order[a.bucket] ?? 9) - (order[b.bucket] ?? 9) || b.daysOverdue - a.daysOverdue);
   }, [filteredAlerts]);
 
   // Counts
   const counts = useMemo(() => ({
     overdue: alerts.filter(a => a.bucket === 'overdue').length,
+    grace_period: alerts.filter(a => a.bucket === 'grace_period').length,
     due_today: alerts.filter(a => a.bucket === 'due_today').length,
     due_3_days: alerts.filter(a => a.bucket === 'due_3_days').length,
     due_7_days: alerts.filter(a => a.bucket === 'due_7_days').length,
@@ -225,13 +229,14 @@ export default function Monitoring() {
   const notifStats = useMemo(() => {
     const stats = {
       due_today: { total: 0, notified: 0 },
+      grace_period: { total: 0, notified: 0 },
       due_3_days: { total: 0, notified: 0 },
       due_7_days: { total: 0, notified: 0 },
     };
     for (const a of alerts) {
       const stage = bucketToStage(a.bucket);
       if (!stage) continue;
-      const key = a.bucket as 'due_today' | 'due_3_days' | 'due_7_days';
+      const key = a.bucket as 'due_today' | 'grace_period' | 'due_3_days' | 'due_7_days';
       if (!stats[key]) continue;
       stats[key].total++;
       if (notifMap.has(`${a.scheduleId}_${stage}`)) {
@@ -336,9 +341,10 @@ export default function Monitoring() {
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
           {([
             { label: 'Overdue', count: counts.overdue, color: 'text-destructive', borderColor: 'border-destructive/20', filter: 'overdue' as FilterTab, statsKey: null },
+            { label: 'Grace Period', count: counts.grace_period, color: 'text-amber-600', borderColor: 'border-amber-500/20', filter: 'grace_period' as FilterTab, statsKey: 'grace_period' as const },
             { label: 'Due Today', count: counts.due_today, color: 'text-warning', borderColor: 'border-warning/20', filter: 'due_today' as FilterTab, statsKey: 'due_today' as const },
             { label: 'Due in 3 Days', count: counts.due_3_days, color: 'text-info', borderColor: 'border-info/20', filter: 'due_3_days' as FilterTab, statsKey: 'due_3_days' as const },
             { label: 'Due in 7 Days', count: counts.due_7_days, color: 'text-primary', borderColor: 'border-primary/20', filter: 'due_7_days' as FilterTab, statsKey: 'due_7_days' as const },

@@ -530,7 +530,7 @@ export function computeCollectionStats(
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export type AlertType = 'overdue' | 'due_today' | 'upcoming';
-export type AccountBucket = 'overdue' | 'due_today' | 'due_3_days' | 'due_7_days' | 'future' | 'fully_paid';
+export type AccountBucket = 'overdue' | 'grace_period' | 'due_today' | 'due_3_days' | 'due_7_days' | 'future' | 'fully_paid';
 
 export function categorizeByDueDate(dueDate: string): AlertType {
   const today = todayStr();
@@ -625,7 +625,12 @@ export function getNextPaymentStatementDate(
 export function classifyAccountBucket(nextDueDate: string | null): AccountBucket {
   if (!nextDueDate) return 'fully_paid';
   const today = todayStr();
-  if (nextDueDate < today) return 'overdue';
+  if (nextDueDate < today) {
+    // Check if within 1-6 days grace period
+    const daysOver = daysBetween(nextDueDate, today);
+    if (daysOver >= 1 && daysOver <= 6) return 'grace_period';
+    return 'overdue';
+  }
   if (nextDueDate === today) return 'due_today';
   const exactly3 = daysFromNow(3);
   if (nextDueDate === exactly3) return 'due_3_days';
@@ -690,6 +695,7 @@ export const completionStyles = {
 
 export const alertTypeConfig = {
   overdue: { label: 'Overdue', badgeClass: 'bg-destructive/10 text-destructive border-destructive/20', borderClass: 'border-destructive/20', iconBg: 'bg-destructive/10', iconColor: 'text-destructive' },
+  grace_period: { label: 'Grace Period', badgeClass: 'bg-amber-500/10 text-amber-600 border-amber-500/20', borderClass: 'border-amber-500/20', iconBg: 'bg-amber-500/10', iconColor: 'text-amber-600' },
   due_today: { label: 'Due Today', badgeClass: 'bg-warning/10 text-warning border-warning/20', borderClass: 'border-warning/20', iconBg: 'bg-warning/10', iconColor: 'text-warning' },
   upcoming: { label: 'Upcoming', badgeClass: 'bg-info/10 text-info border-info/20', borderClass: 'border-border', iconBg: 'bg-info/10', iconColor: 'text-info' },
 } as const;
