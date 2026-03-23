@@ -1,7 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { Tables } from '@/integrations/supabase/types';
-import { MUTATION_INVALIDATION_KEYS } from '@/lib/business-rules';
 
 // ── Re-export DB row types with short aliases ──
 export type DbCustomer = Tables<'customers'>;
@@ -16,12 +15,34 @@ export interface AccountWithCustomer extends DbAccount {
   customers: DbCustomer;
 }
 
-// ── Centralized cache invalidation ──
+// ── Scoped invalidation for better performance ──
+const CORE_KEYS = ['accounts', 'dashboard-summary', 'payments-with-accounts', 'customers'] as const;
+const PAYMENT_KEYS = ['payments', 'schedule', 'collections-upcoming-schedule', 'weekly-collections', 'aging-buckets', 'overdue-schedule'] as const;
+const MONITORING_KEYS = ['monitoring-schedules', 'csr-notifications', 'penalty-followup-alerts', 'csr-notifications-penalty'] as const;
+const SUBMISSION_KEYS = ['pending-submission-count', 'pending-submissions-summary', 'payment-submissions'] as const;
+
 function invalidateAll(qc: ReturnType<typeof useQueryClient>) {
-  for (const key of MUTATION_INVALIDATION_KEYS) {
+  for (const key of [...CORE_KEYS, ...PAYMENT_KEYS]) {
     qc.invalidateQueries({ queryKey: [key] });
   }
 }
+
+function invalidatePaymentRelated(qc: ReturnType<typeof useQueryClient>) {
+  for (const key of [...CORE_KEYS, ...PAYMENT_KEYS, ...MONITORING_KEYS]) {
+    qc.invalidateQueries({ queryKey: [key] });
+  }
+}
+
+function invalidateSubmissions(qc: ReturnType<typeof useQueryClient>) {
+  for (const key of SUBMISSION_KEYS) {
+    qc.invalidateQueries({ queryKey: [key] });
+  }
+}
+
+// ── Shared staleTime configs ──
+const STALE_SHORT = 30_000;    // 30s - for frequently changing data
+const STALE_MEDIUM = 60_000;   // 1min - for moderately changing data  
+const STALE_LONG = 5 * 60_000; // 5min - for rarely changing data
 
 // ──────────────────────────────────────────────
 // CUSTOMERS
@@ -29,6 +50,7 @@ function invalidateAll(qc: ReturnType<typeof useQueryClient>) {
 export function useCustomers() {
   return useQuery({
     queryKey: ['customers'],
+    staleTime: STALE_MEDIUM,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('customers')
@@ -46,6 +68,7 @@ export function useCustomers() {
 export function useAccounts() {
   return useQuery({
     queryKey: ['accounts'],
+    staleTime: STALE_SHORT,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('layaway_accounts')
@@ -61,6 +84,7 @@ export function useAccount(id: string | undefined) {
   return useQuery({
     queryKey: ['accounts', id],
     enabled: !!id,
+    staleTime: STALE_SHORT,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('layaway_accounts')
@@ -80,6 +104,7 @@ export function useCustomerAccounts(customerId: string | undefined) {
   return useQuery({
     queryKey: ['customer-detail', customerId],
     enabled: !!customerId,
+    staleTime: STALE_SHORT,
     queryFn: async () => {
       const { data: customer, error: custErr } = await supabase
         .from('customers')
@@ -154,6 +179,7 @@ export function useSchedule(accountId: string | undefined) {
   return useQuery({
     queryKey: ['schedule', accountId],
     enabled: !!accountId,
+    staleTime: STALE_SHORT,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('layaway_schedule')
@@ -173,6 +199,7 @@ export function useAccountServices(accountId: string | undefined) {
   return useQuery({
     queryKey: ['account-services', accountId],
     enabled: !!accountId,
+    staleTime: STALE_MEDIUM,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('account_services' as any)
@@ -191,12 +218,14 @@ export function useAccountServices(accountId: string | undefined) {
 export function usePayments(accountId?: string) {
   return useQuery({
     queryKey: accountId ? ['payments', accountId] : ['payments'],
+    staleTime: STALE_SHORT,
     queryFn: async () => {
       let query = supabase
         .from('payments')
         .select('*')
         .order('date_paid', { ascending: false });
       if (accountId) query = query.eq('account_id', accountId);
+      else query = query.limit(500); // Limit global payment fetch
       const { data, error } = await query;
       if (error) throw error;
       return data as DbPayment[];
@@ -207,10 +236,12 @@ export function usePayments(accountId?: string) {
 export function useRecentPaymentsWithAccount() {
   return useQuery({
     queryKey: ['payments-with-accounts'],
+    staleTime: STALE_SHORT,
     queryFn: async () => {
       const { data: payments, error: pErr } = await supabase
         .from('payments')
         .select('*')
+        .is('voided_at', null)
         .order('date_paid', { ascending: false })
         .limit(10);
       if (pErr) throw pErr;
@@ -239,6 +270,7 @@ export function useRecentPaymentsWithAccount() {
 export function usePenalties(accountId?: string) {
   return useQuery({
     queryKey: accountId ? ['penalties', accountId] : ['penalties'],
+    staleTime: STALE_MEDIUM,
     queryFn: async () => {
       let query = supabase.from('penalty_fees').select('*');
       if (accountId) query = query.eq('account_id', accountId);
@@ -255,6 +287,7 @@ export function usePenalties(accountId?: string) {
 export function useWaiverRequests(accountId?: string) {
   return useQuery({
     queryKey: accountId ? ['waivers', accountId] : ['waivers'],
+    staleTime: STALE_MEDIUM,
     queryFn: async () => {
       let query = supabase.from('penalty_waiver_requests').select('*');
       if (accountId) query = query.eq('account_id', accountId);
@@ -273,6 +306,7 @@ export function useDashboardSummary(currencyMode: 'PHP' | 'JPY' | 'ALL', enabled
     queryKey: ['dashboard-summary', currencyMode],
     enabled,
     retry: false,
+    staleTime: STALE_MEDIUM,
     queryFn: async () => {
       const { data, error } = await supabase.functions.invoke('dashboard-summary', {
         body: { currency_mode: currencyMode },
@@ -375,7 +409,7 @@ export function useRecordPayment() {
       return data;
     },
     onSuccess: (_data, variables) => {
-      if (!variables.preview_only) invalidateAll(qc);
+      if (!variables.preview_only) invalidatePaymentRelated(qc);
     },
   });
 }
@@ -405,7 +439,9 @@ export function useCreateCustomer() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => invalidateAll(qc),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['customers'] });
+    },
   });
 }
 
@@ -422,7 +458,7 @@ export function useVoidPayment() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => invalidateAll(qc),
+    onSuccess: () => invalidatePaymentRelated(qc),
   });
 }
 
@@ -439,7 +475,7 @@ export function useRecordMultiPayment() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => invalidateAll(qc),
+    onSuccess: () => invalidatePaymentRelated(qc),
   });
 }
 
@@ -452,27 +488,26 @@ export function useEditPayment() {
     mutationFn: async (payload: {
       id: string;
       date_paid?: string;
-      remarks?: string;
       payment_method?: string;
-      reference_number?: string;
+      remarks?: string;
     }) => {
       const { id, ...updates } = payload;
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('payments')
         .update(updates)
-        .eq('id', id)
-        .is('voided_at', null)
-        .select()
-        .single();
+        .eq('id', id);
       if (error) throw error;
-      return data;
     },
-    onSuccess: () => invalidateAll(qc),
+    onSuccess: () => {
+      for (const key of ['payments', 'payments-with-accounts', 'weekly-collections']) {
+        qc.invalidateQueries({ queryKey: [key] });
+      }
+    },
   });
 }
 
 // ──────────────────────────────────────────────
-// RESTORE VOIDED PAYMENT (via edge function)
+// RESTORE PAYMENT (un-void)
 // ──────────────────────────────────────────────
 export function useRestorePayment() {
   const qc = useQueryClient();
@@ -484,7 +519,7 @@ export function useRestorePayment() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => invalidateAll(qc),
+    onSuccess: () => invalidatePaymentRelated(qc),
   });
 }
 
@@ -494,9 +529,9 @@ export function useRestorePayment() {
 export function useDeleteAccount() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (account_id: string) => {
+    mutationFn: async (accountId: string) => {
       const { data, error } = await supabase.functions.invoke('delete-account', {
-        body: { account_id },
+        body: { account_id: accountId },
       });
       if (error) throw error;
       return data;
@@ -506,38 +541,39 @@ export function useDeleteAccount() {
 }
 
 // ──────────────────────────────────────────────
-// FORFEIT ACCOUNT (direct update)
+// FORFEIT ACCOUNT (via edge function)
 // ──────────────────────────────────────────────
 export function useForfeitAccount() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (account_id: string) => {
-      const { error } = await supabase
-        .from('layaway_accounts')
-        .update({ status: 'forfeited' as any })
-        .eq('id', account_id);
+    mutationFn: async (accountId: string) => {
+      const { data, error } = await supabase.functions.invoke('auto-forfeit-settlement', {
+        body: { account_id: accountId },
+      });
       if (error) throw error;
+      return data;
     },
     onSuccess: () => invalidateAll(qc),
   });
 }
 
 // ──────────────────────────────────────────────
-// PENALTY CAP OVERRIDE
+// PENALTY CAP OVERRIDES
 // ──────────────────────────────────────────────
 export function usePenaltyCapOverride(accountId: string | undefined) {
   return useQuery({
     queryKey: ['penalty-cap-override', accountId],
     enabled: !!accountId,
+    staleTime: STALE_LONG,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('penalty_cap_overrides' as any)
+        .from('penalty_cap_overrides')
         .select('*')
         .eq('account_id', accountId!)
         .eq('is_active', true)
         .maybeSingle();
       if (error) throw error;
-      return data as any;
+      return data;
     },
   });
 }

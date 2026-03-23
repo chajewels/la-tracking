@@ -14,10 +14,11 @@ interface Bucket {
 export default function AgingBuckets({ currency = 'PHP' }: { currency?: Currency }) {
   const { data: scheduleData } = useQuery({
     queryKey: ['aging-buckets'],
+    staleTime: 60_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('layaway_schedule')
-        .select('*, layaway_accounts!inner(status)')
+        .select('due_date, total_due_amount, paid_amount, layaway_accounts!inner(status)')
         .in('status', ['pending', 'overdue', 'partially_paid'])
         .in('layaway_accounts.status', ['active', 'overdue']);
       if (error) throw error;

@@ -17,28 +17,38 @@ interface LiveCollectionTrackerProps {
 export default function LiveCollectionTracker({ currencyFilter, displayCurrency }: LiveCollectionTrackerProps) {
   const { data: paymentsWithAccounts, isLoading } = useRecentPaymentsWithAccount();
 
-  // Weekly collections for mini chart
+  // Weekly collections - SINGLE query instead of 7 serial queries
   const { data: weeklyData } = useQuery({
     queryKey: ['weekly-collections'],
+    staleTime: 60_000,
     queryFn: async () => {
-      const days: { label: string; amount: number }[] = [];
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+      const startStr = sevenDaysAgo.toISOString().split('T')[0];
+
+      const { data } = await supabase
+        .from('payments')
+        .select('amount_paid, currency, date_paid')
+        .gte('date_paid', startStr)
+        .is('voided_at', null);
+
+      // Group by date
+      const dayMap = new Map<string, number>();
       for (let i = 6; i >= 0; i--) {
         const d = new Date();
         d.setDate(d.getDate() - i);
-        const dateStr = d.toISOString().split('T')[0];
-        const { data } = await supabase
-          .from('payments')
-          .select('amount_paid, currency')
-          .eq('date_paid', dateStr)
-          .is('voided_at', null);
-
-        let total = 0;
-        for (const p of data || []) {
-          total += toJpy(Number(p.amount_paid), p.currency as Currency);
-        }
-        days.push({ label: d.toLocaleDateString('en-US', { weekday: 'short' }), amount: total });
+        dayMap.set(d.toISOString().split('T')[0], 0);
       }
-      return days;
+
+      for (const p of data || []) {
+        const existing = dayMap.get(p.date_paid) ?? 0;
+        dayMap.set(p.date_paid, existing + toJpy(Number(p.amount_paid), p.currency as Currency));
+      }
+
+      return [...dayMap.entries()].map(([dateStr, amount]) => ({
+        label: new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' }),
+        amount,
+      }));
     },
   });
 

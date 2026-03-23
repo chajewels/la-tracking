@@ -5,11 +5,11 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Link } from 'react-router-dom';
-import { useAccounts, useCustomers, usePayments, AccountWithCustomer, DbCustomer } from '@/hooks/use-supabase-data';
+import { useAccounts, useCustomers, AccountWithCustomer, DbCustomer } from '@/hooks/use-supabase-data';
 import { Currency, RiskLevel, CLVTier, CompletionProbability } from '@/lib/types';
 
-// ── Risk assessment (same logic as Analytics) ──
-function assessRisk(account: AccountWithCustomer, payments: any[], schedules: any[]): { riskLevel: RiskLevel; score: number; maxOverdueDays: number } {
+// ── Risk assessment ──
+function assessRisk(account: AccountWithCustomer, schedules: any[]): { riskLevel: RiskLevel; score: number; maxOverdueDays: number } {
   const acctSchedules = schedules.filter(s => s.account_id === account.id);
   const today = new Date().toISOString().split('T')[0];
   const overdueItems = acctSchedules.filter(s => s.due_date < today && ['pending', 'partially_paid'].includes(s.status));
@@ -35,11 +35,9 @@ function assessRisk(account: AccountWithCustomer, payments: any[], schedules: an
   return { riskLevel, score: Math.max(0, Math.min(100, score)), maxOverdueDays };
 }
 
-// ── CLV assessment (same logic as Analytics) ──
-function assessCLV(customer: DbCustomer, accounts: AccountWithCustomer[], payments: any[]): { tier: CLVTier; score: number } {
+// ── CLV assessment ──
+function assessCLV(customer: DbCustomer, accounts: AccountWithCustomer[]): { tier: CLVTier; score: number } {
   const custAccounts = accounts.filter(a => a.customer_id === customer.id);
-  const custPayments = payments.filter(p => custAccounts.some(a => a.id === p.account_id) && !p.voided_at);
-
   const totalPurchaseValue = custAccounts.reduce((s, a) => s + Number(a.total_amount), 0);
   const completedContracts = custAccounts.filter(a => a.status === 'completed').length;
   const activeAccts = custAccounts.filter(a => a.status === 'active' || a.status === 'overdue');
@@ -62,24 +60,28 @@ function assessCLV(customer: DbCustomer, accounts: AccountWithCustomer[], paymen
   return { tier, score };
 }
 
-// Shared hook for all panels
+// Shared hook - only fetches schedules separately, reuses cached accounts/customers
 function useAIData() {
   const { data: accounts, isLoading: aL } = useAccounts();
   const { data: customers, isLoading: cL } = useCustomers();
-  const { data: payments, isLoading: pL } = usePayments();
   const { data: schedules, isLoading: sL } = useQuery({
     queryKey: ['ai-panel-schedules'],
+    staleTime: 120_000, // 2min cache
     queryFn: async () => {
-      const { data, error } = await supabase.from('layaway_schedule').select('*');
+      // Only fetch active/overdue account schedules for risk assessment
+      const { data, error } = await supabase
+        .from('layaway_schedule')
+        .select('account_id, due_date, status, total_due_amount, paid_amount')
+        .in('status', ['pending', 'partially_paid', 'overdue']);
       if (error) throw error;
       return data;
     },
   });
-  return { accounts: accounts || [], customers: customers || [], payments: payments || [], schedules: schedules || [], isLoading: aL || cL || pL || sL };
+  return { accounts: accounts || [], customers: customers || [], schedules: schedules || [], isLoading: aL || cL || sL };
 }
 
 export function LatePaymentRiskPanel() {
-  const { accounts, payments, schedules, isLoading } = useAIData();
+  const { accounts, schedules, isLoading } = useAIData();
 
   const risks = useMemo(() => {
     const active = accounts.filter(a => a.status === 'active' || a.status === 'overdue');
@@ -88,9 +90,9 @@ export function LatePaymentRiskPanel() {
       customerId: a.customer_id,
       customerName: a.customers?.full_name || 'Unknown',
       invoice: a.invoice_number,
-      ...assessRisk(a, payments, schedules),
+      ...assessRisk(a, schedules),
     })).sort((a, b) => b.score - a.score);
-  }, [accounts, payments, schedules]);
+  }, [accounts, schedules]);
 
   const high = risks.filter(r => r.riskLevel === 'high');
   const medium = risks.filter(r => r.riskLevel === 'medium');
@@ -139,13 +141,13 @@ export function LatePaymentRiskPanel() {
 }
 
 export function CompletionProbabilityPanel() {
-  const { accounts, payments, schedules, isLoading } = useAIData();
+  const { accounts, schedules, isLoading } = useAIData();
 
   const completions = useMemo(() => {
     const active = accounts.filter(a => a.status === 'active' || a.status === 'overdue');
     return active.map(a => {
       const progressPercent = Math.round((Number(a.total_paid) / Number(a.total_amount)) * 100);
-      const risk = assessRisk(a, payments, schedules);
+      const risk = assessRisk(a, schedules);
       let score = Math.round((100 - risk.score) * 0.6 + progressPercent * 0.4);
       score = Math.max(0, Math.min(100, score));
       let probability: CompletionProbability = 'low';
@@ -153,7 +155,7 @@ export function CompletionProbabilityPanel() {
       else if (score >= 35) probability = 'medium';
       return { accountId: a.id, customerName: a.customers?.full_name || 'Unknown', invoice: a.invoice_number, probability, score, progressPercent };
     }).sort((a, b) => a.score - b.score);
-  }, [accounts, payments, schedules]);
+  }, [accounts, schedules]);
 
   const likelyComplete = completions.filter(c => c.probability === 'high');
   const atRisk = completions.filter(c => c.probability === 'low');
@@ -197,15 +199,15 @@ export function CompletionProbabilityPanel() {
 }
 
 export function CLVPanel() {
-  const { accounts, customers, payments, isLoading } = useAIData();
+  const { accounts, customers, isLoading } = useAIData();
 
   const clvs = useMemo(() =>
     customers.map(c => ({
       customerId: c.id,
       customerName: c.full_name,
-      ...assessCLV(c, accounts, payments),
+      ...assessCLV(c, accounts),
     })).sort((a, b) => b.score - a.score),
-    [customers, accounts, payments]
+    [customers, accounts]
   );
 
   const vip = clvs.filter(c => c.tier === 'vip');

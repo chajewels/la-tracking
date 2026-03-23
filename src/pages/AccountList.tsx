@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Search, Eye, MessageCircle, FileText, ChevronRight } from 'lucide-react';
+import { Plus, Search, Eye, MessageCircle, FileText, ChevronRight, ChevronLeft } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { useAccounts } from '@/hooks/use-supabase-data';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const statusStyles: Record<string, string> = {
@@ -39,8 +40,11 @@ const statusOptions = ['all', 'active', 'overdue', 'completed', 'forfeited', 'ca
 export default function AccountList() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 250);
   const [filterCurrency, setFilterCurrency] = useState<Currency | 'all'>('all');
   const [filterStatus, setFilterStatus] = useState<string>(searchParams.get('status') || 'all');
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 30;
   const navigate = useNavigate();
   const { data: accounts, isLoading } = useAccounts();
 
@@ -49,13 +53,19 @@ export default function AccountList() {
     if (s && statusOptions.includes(s as any)) setFilterStatus(s);
   }, [searchParams]);
 
-  const filtered = (accounts || []).filter(a => {
-    const matchesSearch = a.invoice_number.includes(search) ||
-      (a.customers?.full_name || '').toLowerCase().includes(search.toLowerCase());
+  // Reset page on filter change
+  useEffect(() => { setPage(0); }, [debouncedSearch, filterCurrency, filterStatus]);
+
+  const filtered = useMemo(() => (accounts || []).filter(a => {
+    const matchesSearch = !debouncedSearch || a.invoice_number.includes(debouncedSearch) ||
+      (a.customers?.full_name || '').toLowerCase().includes(debouncedSearch.toLowerCase());
     const matchesCurrency = filterCurrency === 'all' || a.currency === filterCurrency;
     const matchesStatus = filterStatus === 'all' || a.status === filterStatus;
     return matchesSearch && matchesCurrency && matchesStatus;
-  });
+  }), [accounts, debouncedSearch, filterCurrency, filterStatus]);
+
+  const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
 
   return (
     <AppLayout>
@@ -140,7 +150,7 @@ export default function AccountList() {
           <>
             {/* Card Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filtered.map((account) => {
+              {paged.map((account) => {
                 const currency = account.currency as Currency;
                 const totalAmount = Number(account.total_amount);
                 const totalPaid = Number(account.total_paid);
@@ -226,6 +236,18 @@ export default function AccountList() {
                 );
               })}
             </div>
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-2 pt-2">
+                <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
+                  <ChevronLeft className="h-4 w-4 mr-1" /> Previous
+                </Button>
+                <span className="text-xs text-muted-foreground">Page {page + 1} of {totalPages}</span>
+                <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
+                  Next <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            )}
           </>
         )}
       </div>
