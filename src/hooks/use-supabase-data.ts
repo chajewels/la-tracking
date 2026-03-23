@@ -512,7 +512,7 @@ export function useEditPayment() {
 export function useRestorePayment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: { payment_id: string }) => {
+    mutationFn: async (payload: { payment_id: string; selected_schedule_ids?: string[] }) => {
       const { data, error } = await supabase.functions.invoke('restore-payment', {
         body: payload,
       });
