@@ -218,17 +218,27 @@ Deno.serve(async (req) => {
       if (!hasException) cleanCount++;
     }
 
-    // Reference invoice checks
+    // Reference invoice checks — also check closed/completed accounts
     const refInvoices = ["17059", "17062", "17169"];
     const refResults: Record<string, string> = {};
     for (const inv of refInvoices) {
       const found = allAccounts.find((a: any) => a.invoice_number === inv);
-      if (!found) {
-        refResults[inv] = "not_found";
-        continue;
+      if (found) {
+        const hasEx = exceptions.some(e => e.invoice_number === inv);
+        refResults[inv] = hasEx ? "EXCEPTION" : "CLEAN";
+      } else {
+        // Check if it's a closed/completed account
+        const { data: closedAcct } = await supabase
+          .from("layaway_accounts")
+          .select("status")
+          .eq("invoice_number", inv)
+          .maybeSingle();
+        if (closedAcct) {
+          refResults[inv] = closedAcct.status.toUpperCase();
+        } else {
+          refResults[inv] = "not_found";
+        }
       }
-      const hasEx = exceptions.some(e => e.invoice_number === inv);
-      refResults[inv] = hasEx ? "EXCEPTION" : "CLEAN";
     }
 
     const summary = {
