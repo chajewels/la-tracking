@@ -59,6 +59,9 @@ export default function MultiInvoicePaymentDialog({
   accounts,
 }: MultiInvoicePaymentDialogProps) {
   const queryClient = useQueryClient();
+  const { roles } = useAuth();
+  const r = roles as AppRole[];
+  const isAdminOrFinance = r.includes('admin') || r.includes('finance');
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<'select' | 'allocate' | 'preview' | 'message'>('select');
   const [consolidatedMessage, setConsolidatedMessage] = useState('');
