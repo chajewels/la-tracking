@@ -1139,12 +1139,13 @@ function PaymentMethodCard({ method, onSelect, copiedField, setCopied }: {
 }
 
 /* ─── Pay Now Tab ─── */
-function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalToken, onSuccess }: {
+function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalToken, onSuccess, initialPaymentMode = 'single' }: {
   account: PortalAccount;
   allAccounts: PortalAccount[];
   paymentMethods: PaymentMethod[];
   portalToken: string;
   onSuccess: () => void;
+  initialPaymentMode?: 'single' | 'split';
 }) {
   const currency = account.currency;
   const [step, setStep] = useState<'methods' | 'form' | 'success'>('methods');
@@ -1155,7 +1156,7 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   // Split payment state
-  const [paymentMode, setPaymentMode] = useState<'single' | 'split'>('single');
+  const [paymentMode, setPaymentMode] = useState<'single' | 'split'>(initialPaymentMode);
   const payableAccounts = allAccounts.filter(a =>
     a.remaining_balance > 0 &&
     !['completed', 'cancelled', 'forfeited', 'final_forfeited'].includes(a.status) &&
