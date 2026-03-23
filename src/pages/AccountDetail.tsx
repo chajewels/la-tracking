@@ -32,7 +32,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   isEffectivelyPaid, isPartiallyPaid, remainingDue, remainingPrincipalDue, computeRemainingBalance,
   getUnpaidScheduleItems, getActivePayments, accountProgress,
-  getMessageSchedulePaymentCoverage,
   ordinal, SERVICE_LABELS, getNextPaymentStatementDate,
   isPenaltyOverCap, isFinalSettlement, isExtensionActive, isFinalForfeited,
   getForfeitureWarning,
