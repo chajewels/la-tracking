@@ -32,7 +32,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   isEffectivelyPaid, isPartiallyPaid, remainingDue, remainingPrincipalDue, computeRemainingBalance,
   getUnpaidScheduleItems, getActivePayments, accountProgress,
-  getMessageSchedulePaymentCoverage,
   ordinal, SERVICE_LABELS, getNextPaymentStatementDate,
   isPenaltyOverCap, isFinalSettlement, isExtensionActive, isFinalForfeited,
   getForfeitureWarning,
@@ -214,14 +213,17 @@ export default function AccountDetail() {
   const paymentBreakdownText = activePayments.length > 0
     ? `${activePayments.map(payment => formatCurrency(Number(payment.amount_paid), payment.currency as Currency)).join(' + ')} = ${formatCurrency(totalPaid, currency)}`
     : formatCurrency(totalPaid, currency);
-  const messageScheduleCoverage = getMessageSchedulePaymentCoverage(scheduleItems, totalPaid, downpaymentAmount);
+  // Customer message now uses schedule's actual paid_amount (single source of truth)
+  // instead of re-deriving coverage from totalPaid - downpayment, which caused
+  // mismatches when stored downpayment_amount differs from actual DP payment.
   const getMessageScheduleState = (item: any, idx: number) => {
     const totalDue = Number(item.total_due_amount);
-    const coveredAmount = Math.min(messageScheduleCoverage[idx] || 0, totalDue);
-    const effPaid = isEffectivelyPaid(item) && totalDue > 0 && coveredAmount >= totalDue;
-    const partial = !effPaid && isPartiallyPaid(item) && coveredAmount > 0;
+    const paidAmount = Number(item.paid_amount);
+    const baseAmt = Number(item.base_installment_amount);
+    const effPaid = isEffectivelyPaid(item);
+    const partial = !effPaid && isPartiallyPaid(item);
 
-    return { coveredAmount, effPaid, partial, totalDue };
+    return { coveredAmount: paidAmount, effPaid, partial, totalDue };
   };
 
   // Find the most recent payment for the thank-you line
