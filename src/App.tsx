@@ -9,14 +9,16 @@ import { PermissionsProvider } from "@/contexts/PermissionsContext";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import Login from "./pages/Login";
 
-// Lazy-loaded pages for better initial load
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const AccountList = lazy(() => import("./pages/AccountList"));
-const AccountDetail = lazy(() => import("./pages/AccountDetail"));
-const NewAccount = lazy(() => import("./pages/NewAccount"));
-const Customers = lazy(() => import("./pages/Customers"));
-const CustomerDetail = lazy(() => import("./pages/CustomerDetail"));
-const Monitoring = lazy(() => import("./pages/Monitoring"));
+// Core pages — loaded eagerly for instant navigation
+import Dashboard from "./pages/Dashboard";
+import AccountList from "./pages/AccountList";
+import AccountDetail from "./pages/AccountDetail";
+import Customers from "./pages/Customers";
+import CustomerDetail from "./pages/CustomerDetail";
+import Monitoring from "./pages/Monitoring";
+import CustomerPortal from "./pages/CustomerPortal";
+
+// Secondary pages — lazy loaded (visited less frequently)
 const Collections = lazy(() => import("./pages/Collections"));
 const Finance = lazy(() => import("./pages/Finance"));
 const Analytics = lazy(() => import("./pages/Analytics"));
@@ -24,9 +26,9 @@ const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const Waivers = lazy(() => import("./pages/Waivers"));
 const AdminAudit = lazy(() => import("./pages/AdminAudit"));
 const CustomerStatement = lazy(() => import("./pages/CustomerStatement"));
-const CustomerPortal = lazy(() => import("./pages/CustomerPortal"));
 const PaymentSubmissions = lazy(() => import("./pages/PaymentSubmissions"));
 const Reminders = lazy(() => import("./pages/Reminders"));
+const NewAccount = lazy(() => import("./pages/NewAccount"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
