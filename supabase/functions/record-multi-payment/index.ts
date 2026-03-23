@@ -246,7 +246,36 @@ Deno.serve(async (req) => {
       });
 
       // If not preview, persist changes
-      if (!preview_only) {
+      if (!preview_only && !canConfirm) {
+        // Staff: create payment submission instead
+        const { data: submission, error: subErr } = await supabase
+          .from("payment_submissions")
+          .insert({
+            account_id: inputAlloc.account_id,
+            customer_id: customer_id,
+            submitted_amount: amountForAccount,
+            payment_date: effectiveDate,
+            payment_method: effectiveMethod,
+            reference_number: batchId,
+            notes: remarks ? `[Multi-invoice] ${remarks}` : `[Multi-invoice batch: ${batchId}]`,
+            status: "submitted",
+          })
+          .select("id")
+          .single();
+        if (subErr) throw subErr;
+
+        await supabase.from("audit_logs").insert({
+          entity_type: "payment_submission",
+          entity_id: submission.id,
+          action: "staff_multi_payment_submitted",
+          new_value_json: {
+            batch_id: batchId,
+            amount: amountForAccount,
+            account_id: inputAlloc.account_id,
+          },
+          performed_by_user_id: userId,
+        });
+      } else if (!preview_only && canConfirm) {
         // Create payment record
         const { data: payment, error: payErr } = await supabase
           .from("payments")
