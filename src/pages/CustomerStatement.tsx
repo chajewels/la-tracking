@@ -286,7 +286,7 @@ export default function CustomerStatement() {
         {nextPayment && (
           <Card className="mb-6 border-primary/30 bg-primary/5">
             <CardContent className="pt-4 pb-4">
-              <p className="text-[11px] text-muted-foreground mb-2.5">
+              <p className="text-xs text-muted-foreground/70 mb-3 leading-relaxed italic">
                 These are your next payment follow-up checkpoints if your account remains unpaid.
               </p>
               <div className="flex items-start gap-3">
