@@ -1411,37 +1411,77 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
             </div>
           ) : (
             <div className="space-y-3">
-              <Label className="text-xs">Allocate Payment per Invoice <span className="text-destructive">*</span></Label>
-              {payableAccounts.map((acct) => (
-                <div key={acct.id} className="p-3 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs font-semibold text-foreground">#{acct.invoice_number}</p>
-                      <p className="text-[10px] text-muted-foreground">
-                        Balance: {fmt(acct.remaining_balance, currency)}
-                      </p>
-                    </div>
-                    <div className="relative w-28">
-                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-                        {currency === 'JPY' ? '¥' : '₱'}
-                      </span>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        max={acct.remaining_balance}
-                        value={splitAllocations[acct.id] || ''}
-                        onChange={(e) => setSplitAllocations(prev => ({ ...prev, [acct.id]: e.target.value }))}
-                        className="pl-6 text-right text-xs h-8"
-                        placeholder="0"
-                      />
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Allocate Payment per Invoice <span className="text-destructive">*</span></Label>
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={autoDistribute}
+                    className="text-[10px] font-medium px-2 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                  >
+                    ⚡ Auto Distribute
+                  </button>
+                  {Object.values(splitAllocations).some(v => parseFloat(v) > 0) && (
+                    <button
+                      type="button"
+                      onClick={resetAllocations}
+                      className="text-[10px] font-medium px-2 py-1 rounded-md bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+              </div>
+              {Object.values(splitAllocations).some(v => parseFloat(v) > 0) && (
+                <p className="text-[10px] text-muted-foreground italic -mt-1">Suggested based on due amounts • You can edit manually</p>
+              )}
+              {sortedPayableAccounts.map((acct) => {
+                const duePriority = getAccountDuePriority(acct);
+                return (
+                  <div key={acct.id} className="p-3 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-xs font-semibold text-foreground">#{acct.invoice_number}</p>
+                          {duePriority.label && (
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded-full border font-medium ${duePriority.badgeClass}`}>
+                              {duePriority.label}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          Balance: {fmt(acct.remaining_balance, currency)}
+                          {duePriority.targetAmount > 0 && duePriority.targetAmount < acct.remaining_balance && (
+                            <span className="ml-1">• Due now: {fmt(duePriority.targetAmount, currency)}</span>
+                          )}
+                        </p>
+                      </div>
+                      <div className="relative w-28">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                          {currency === 'JPY' ? '¥' : '₱'}
+                        </span>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          max={acct.remaining_balance}
+                          value={splitAllocations[acct.id] || ''}
+                          onChange={(e) => setSplitAllocations(prev => ({ ...prev, [acct.id]: e.target.value }))}
+                          className="pl-6 text-right text-xs h-8"
+                          placeholder="0"
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-              <div className="flex items-center justify-between p-3 rounded-lg bg-primary/5 border border-primary/10">
+                );
+              })}
+              <div className={`flex items-center justify-between p-3 rounded-lg border ${
+                splitTotal > 0 ? 'bg-primary/5 border-primary/10' : 'bg-muted/30 border-[hsl(var(--border))]'
+              }`}>
                 <p className="text-xs font-semibold text-foreground">Total Payment</p>
-                <p className="text-sm font-bold text-primary tabular-nums">{fmt(splitTotal, currency)}</p>
+                <p className={`text-sm font-bold tabular-nums ${splitTotal > 0 ? 'text-primary' : 'text-muted-foreground'}`}>
+                  {fmt(splitTotal, currency)}
+                </p>
               </div>
             </div>
           )}
