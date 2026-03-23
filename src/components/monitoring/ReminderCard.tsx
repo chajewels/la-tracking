@@ -22,7 +22,7 @@ import {
 import NotifiedButton, { type ReminderStage } from '@/components/notifications/NotifiedButton';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
-import { alertTypeConfig, type AlertType, type AccountBucket } from '@/lib/business-rules';
+import { alertTypeConfig, type AlertType, type AccountBucket, daysOverdueFromToday } from '@/lib/business-rules';
 import { toast } from 'sonner';
 
 const PORTAL_BASE = 'https://chajewelslayaway.web.app';
