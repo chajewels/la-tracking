@@ -57,14 +57,16 @@ export default function PenaltyCapAuditPanel() {
 
     return (accounts as any[]).map((acc) => {
       const currency = acc.currency as Currency;
+      const planMonths = acc.payment_plan_months || 6;
       const cap = currency === 'PHP' ? 1000 : 2000;
       const hasOverride = overrideSet.has(acc.id);
 
-      // Only look at months 1-5 schedule items
-      const schedItems15 = ((acc.layaway_schedule || []) as any[]).filter(
-        (s: any) => s.installment_number <= 5 && s.status !== 'cancelled'
+      // Only look at non-final installments (capped months)
+      const lastCappedMonth = planMonths - 1;
+      const schedItemsCapped = ((acc.layaway_schedule || []) as any[]).filter(
+        (s: any) => s.installment_number <= lastCappedMonth && s.status !== 'cancelled'
       );
-      const schedIds15 = new Set(schedItems15.map((s: any) => s.id));
+      const schedIdsCapped = new Set(schedItemsCapped.map((s: any) => s.id));
 
       // Count overdue months (past due, not paid)
       const today = new Date().toISOString().split('T')[0];
