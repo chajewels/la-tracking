@@ -72,8 +72,8 @@ export default function AccountDetail() {
   const [reactivating, setReactivating] = useState(false);
   const queryClient = useQueryClient();
   const { roles } = useAuth();
-  const r = roles as AppRole[];
-  const can = (action: Parameters<typeof canPerformAction>[1]) => canPerformAction(r, action);
+  const { can: canPerm } = usePermissions();
+  const can = (action: string) => canPerm(action);
 
 
   const handleInvoiceSave = useCallback(async () => {

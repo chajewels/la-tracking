@@ -144,7 +144,7 @@ export default function Dashboard() {
         </div>
 
         {/* Geo Breakdown */}
-        {canSeeDashboardSection(r, 'geo_breakdown') && (
+        {can('view_geo_breakdown') && (
         <div>
           <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Regional Overview</p>
           <GeoBreakdown accounts={accounts || []} customers={customers || []} />
@@ -152,18 +152,18 @@ export default function Dashboard() {
         )}
 
         {/* Operations + Live Collection */}
-        {(canSeeDashboardSection(r, 'operations_panel') || canSeeDashboardSection(r, 'live_collection')) && (
+        {(can('view_operations_panel') || can('view_live_collection')) && (
         <div>
           <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Operations & Activity</p>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {canSeeDashboardSection(r, 'operations_panel') && <OperationsPanel summary={summary} displayCurrency={displayCurrency} />}
-            {canSeeDashboardSection(r, 'live_collection') && <LiveCollectionTracker currencyFilter={currencyFilter} displayCurrency={displayCurrency} />}
+            {can('view_operations_panel') && <OperationsPanel summary={summary} displayCurrency={displayCurrency} />}
+            {can('view_live_collection') && <LiveCollectionTracker currencyFilter={currencyFilter} displayCurrency={displayCurrency} />}
           </div>
         </div>
         )}
 
         {/* AI & Predictions */}
-        {canSeeDashboardSection(r, 'ai_risk') && (
+        {can('view_ai_risk') && (
         <div>
           <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">AI & Predictions</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -178,9 +178,9 @@ export default function Dashboard() {
         <div>
           <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">System Overview</p>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {canSeeDashboardSection(r, 'aging_buckets') && <AgingBuckets currency={displayCurrency} />}
-            {canSeeDashboardSection(r, 'overdue_alerts') && <OverdueAlerts />}
-            {canSeeDashboardSection(r, 'system_health') && <SystemHealthPanel summary={summary} />}
+            {can('view_aging_buckets') && <AgingBuckets currency={displayCurrency} />}
+            {can('view_overdue_alerts') && <OverdueAlerts />}
+            {can('view_system_health') && <SystemHealthPanel summary={summary} />}
           </div>
         </div>
       </div>

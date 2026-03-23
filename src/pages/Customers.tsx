@@ -12,7 +12,7 @@ import CustomerCard from '@/components/customers/CustomerCard';
 import EditCustomerDialog from '@/components/customers/EditCustomerDialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
-import { canPerformAction, type AppRole } from '@/lib/role-permissions';
+import { usePermissions } from '@/contexts/PermissionsContext';
 
 type ViewMode = 'all' | 'filter' | 'grouped';
 
