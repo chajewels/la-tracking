@@ -193,7 +193,7 @@ export default function Monitoring() {
     if (activeFilter === 'overdue') return alerts.filter(a => a.bucket === 'overdue');
     if (activeFilter === 'due_today') return alerts.filter(a => a.bucket === 'due_today');
     if (activeFilter === 'due_3_days') return alerts.filter(a => a.bucket === 'due_3_days');
-    if (activeFilter === 'due_7_days') return alerts.filter(a => ['due_3_days', 'due_7_days'].includes(a.bucket));
+    if (activeFilter === 'due_7_days') return alerts.filter(a => a.bucket === 'due_7_days');
     return alerts;
   }, [alerts, activeFilter]);
 
