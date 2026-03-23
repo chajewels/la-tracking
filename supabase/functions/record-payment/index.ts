@@ -44,6 +44,13 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ── Role check: only admin/finance can directly record payments ──
+    const [{ data: isAdmin }, { data: isFinance }] = await Promise.all([
+      supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
+      supabase.rpc("has_role", { _user_id: user.id, _role: "finance" }),
+    ]);
+    const canConfirm = isAdmin || isFinance;
+
     // Fetch account
     const { data: account, error: accErr } = await supabase
       .from("layaway_accounts")
@@ -64,6 +71,51 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // ── Staff/CSR: redirect to payment_submissions instead of direct payment ──
+    if (!canConfirm && !preview_only) {
+      const { data: submission, error: subErr } = await supabase
+        .from("payment_submissions")
+        .insert({
+          account_id,
+          customer_id: account.customer_id,
+          submitted_amount: amount_paid,
+          payment_date: date_paid || new Date().toISOString().split("T")[0],
+          payment_method: payment_method || "cash",
+          reference_number: reference_number || null,
+          notes: remarks || null,
+          status: "submitted",
+        })
+        .select("id")
+        .single();
+
+      if (subErr) {
+        return new Response(JSON.stringify({ error: subErr.message }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Audit log
+      await supabase.from("audit_logs").insert({
+        entity_type: "payment_submission",
+        entity_id: submission.id,
+        action: "staff_payment_submitted",
+        new_value_json: { amount_paid, account_id, payment_method, date_paid },
+        performed_by_user_id: user.id,
+      });
+
+      return new Response(JSON.stringify({
+        submitted_for_confirmation: true,
+        submission_id: submission.id,
+        message: "Payment submitted for confirmation. An admin or finance user will review it.",
+      }), {
+        status: 201,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── From here: admin/finance flow (unchanged) OR preview_only ──
 
     // Fetch schedule ordered by installment
     const { data: schedule } = await supabase
@@ -124,7 +176,6 @@ Deno.serve(async (req) => {
     }
 
     // 2. Allocate remaining to installments sequentially (FIXED SCHEDULE MODEL)
-    //    base_installment_amount is NEVER modified. Only paid_amount and status change.
     if (remaining > 0 && schedule) {
       const unpaidItems = schedule.filter(
         item => item.status !== "paid" && item.status !== "cancelled"
@@ -160,9 +211,6 @@ Deno.serve(async (req) => {
     }
 
     const newTotalPaid = Number(account.total_paid) + Number(amount_paid);
-
-    // SINGLE SOURCE OF TRUTH: remaining = total_amount - total_paid
-    // Never derive from schedule rows — avoids rounding/gap discrepancies
     const newRemainingBalance = Math.max(0, Number(account.total_amount) - newTotalPaid);
     const newStatus = newRemainingBalance <= 0 ? "completed" : account.status;
 
@@ -219,7 +267,7 @@ Deno.serve(async (req) => {
       await supabase.from("penalty_fees").update({ status: pen.status }).eq("id", pen.id);
     }
 
-    // Update schedule items (only paid_amount and status — base_installment_amount is IMMUTABLE)
+    // Update schedule items
     for (const item of scheduleUpdates) {
       await supabase.from("layaway_schedule").update({
         paid_amount: item.paid_amount,

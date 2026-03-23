@@ -34,15 +34,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Verify staff role
-    const { data: isStaff } = await supabase.rpc("is_staff", { _user_id: user.id });
-    if (!isStaff) {
-      return new Response(JSON.stringify({ error: "Access denied" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     const body = await req.json();
     const { submission_id, action, reviewer_notes } = body;
 
@@ -57,6 +48,19 @@ Deno.serve(async (req) => {
     if (!validActions.includes(action)) {
       return new Response(JSON.stringify({ error: "Invalid action" }), {
         status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── CRITICAL: Only admin or finance can confirm/reject/clarify ──
+    const [{ data: isAdmin }, { data: isFinance }] = await Promise.all([
+      supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
+      supabase.rpc("has_role", { _user_id: user.id, _role: "finance" }),
+    ]);
+
+    if (!isAdmin && !isFinance) {
+      return new Response(JSON.stringify({ error: "Access denied. Only admin or finance roles can review payment submissions." }), {
+        status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -77,21 +81,96 @@ Deno.serve(async (req) => {
 
     let confirmedPaymentId = null;
 
-    // If confirming, create actual payment record
+    // If confirming, create actual payment record via the same allocation logic
     if (action === "confirmed") {
       const account = submission.layaway_accounts;
+      const accountId = account.id;
+      const amountPaid = Number(submission.submitted_amount);
 
-      // Create payment via record-payment edge function logic
+      // Fetch schedule
+      const { data: schedule } = await supabase
+        .from("layaway_schedule")
+        .select("*")
+        .eq("account_id", accountId)
+        .order("installment_number", { ascending: true });
+
+      // Fetch unpaid penalties
+      const { data: unpaidPenalties } = await supabase
+        .from("penalty_fees")
+        .select("*")
+        .eq("account_id", accountId)
+        .eq("status", "unpaid")
+        .order("penalty_date", { ascending: true });
+
+      // Allocate payment: penalties first, then installments
+      let remaining = amountPaid;
+      const allocations: Array<{
+        schedule_id: string;
+        allocation_type: "penalty" | "installment";
+        allocated_amount: number;
+        penalty_fee_id?: string;
+      }> = [];
+      const penaltyUpdates: Array<{ id: string; status: string }> = [];
+      const scheduleUpdates: Array<{ id: string; paid_amount: number; status: string }> = [];
+
+      // 1. Pay unpaid penalties first
+      if (unpaidPenalties) {
+        for (const pen of unpaidPenalties) {
+          if (remaining <= 0) break;
+          const penAmount = Number(pen.penalty_amount);
+          const toPay = Math.min(remaining, penAmount);
+          remaining -= toPay;
+          allocations.push({
+            schedule_id: pen.schedule_id,
+            allocation_type: "penalty",
+            allocated_amount: toPay,
+            penalty_fee_id: pen.id,
+          });
+          penaltyUpdates.push({
+            id: pen.id,
+            status: toPay >= penAmount ? "paid" : "unpaid",
+          });
+        }
+      }
+
+      // 2. Allocate remaining to installments
+      if (remaining > 0 && schedule) {
+        const unpaidItems = schedule
+          .filter(item => item.status !== "paid" && item.status !== "cancelled")
+          .sort((a: any, b: any) => a.installment_number - b.installment_number);
+
+        for (const item of unpaidItems) {
+          if (remaining <= 0) break;
+          const currentPaid = Number(item.paid_amount);
+          const baseAmount = Number(item.base_installment_amount);
+          const due = Math.max(0, baseAmount - currentPaid);
+          if (due <= 0) continue;
+
+          const toApply = Math.min(remaining, due);
+          remaining -= toApply;
+          const newPaid = currentPaid + toApply;
+          const newStatus = newPaid >= baseAmount ? "paid" : "partially_paid";
+
+          allocations.push({
+            schedule_id: item.id,
+            allocation_type: "installment",
+            allocated_amount: toApply,
+          });
+          scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: newStatus });
+        }
+      }
+
+      // Create payment record
       const { data: payment, error: payErr } = await supabase
         .from("payments")
         .insert({
-          account_id: submission.account_id,
-          amount_paid: submission.submitted_amount,
+          account_id: accountId,
+          amount_paid: amountPaid,
           currency: account.currency,
           date_paid: submission.payment_date,
           payment_method: submission.payment_method,
           reference_number: submission.reference_number,
-          remarks: `Payment submitted via portal. Submission #${submission.id.substring(0, 8)}`,
+          remarks: `Payment submitted${submission.notes ? ': ' + submission.notes : ''}. Submission #${submission.id.substring(0, 8)}`,
           entered_by_user_id: user.id,
         })
         .select("id")
@@ -107,17 +186,50 @@ Deno.serve(async (req) => {
 
       confirmedPaymentId = payment.id;
 
+      // Create allocations
+      for (const alloc of allocations) {
+        await supabase.from("payment_allocations").insert({
+          payment_id: payment.id,
+          schedule_id: alloc.schedule_id,
+          allocation_type: alloc.allocation_type,
+          allocated_amount: alloc.allocated_amount,
+        });
+      }
+
+      // Update penalty statuses
+      for (const pen of penaltyUpdates) {
+        await supabase.from("penalty_fees").update({ status: pen.status }).eq("id", pen.id);
+      }
+
+      // Update schedule items
+      for (const item of scheduleUpdates) {
+        await supabase.from("layaway_schedule").update({
+          paid_amount: item.paid_amount,
+          status: item.status,
+        }).eq("id", item.id);
+      }
+
       // Update account totals
-      const newTotalPaid = Number(account.total_paid) + Number(submission.submitted_amount);
-      const newRemaining = Number(account.remaining_balance) - Number(submission.submitted_amount);
+      const newTotalPaid = Number(account.total_paid) + amountPaid;
+      const { data: fullAccount } = await supabase
+        .from("layaway_accounts")
+        .select("total_amount")
+        .eq("id", accountId)
+        .single();
+      const totalAmount = Number(fullAccount?.total_amount || 0);
+      const newRemaining = Math.max(0, totalAmount - newTotalPaid);
+      const newStatus = newRemaining <= 0 ? "completed" : undefined;
+
+      const accountUpdate: Record<string, unknown> = {
+        total_paid: newTotalPaid,
+        remaining_balance: newRemaining,
+      };
+      if (newStatus) accountUpdate.status = newStatus;
 
       await supabase
         .from("layaway_accounts")
-        .update({
-          total_paid: Math.max(0, newTotalPaid),
-          remaining_balance: Math.max(0, newRemaining),
-        })
-        .eq("id", submission.account_id);
+        .update(accountUpdate)
+        .eq("id", accountId);
     }
 
     // Update submission status
