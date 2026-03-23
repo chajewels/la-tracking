@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { useAccounts } from '@/hooks/use-supabase-data';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const statusStyles: Record<string, string> = {
