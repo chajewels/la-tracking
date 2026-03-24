@@ -181,8 +181,8 @@ Deno.serve(async (req) => {
         for (const pen of unpaidPenalties) {
           if (remaining <= 0) break;
           const penAmount = Number(pen.penalty_amount);
-          const toPay = Math.min(remaining, penAmount);
-          remaining -= toPay;
+          const toPay = Math.round(Math.min(remaining, penAmount) * 100) / 100;
+          remaining = Math.round((remaining - toPay) * 100) / 100;
           paymentAllocations.push({
             schedule_id: pen.schedule_id,
             allocation_type: "penalty",
