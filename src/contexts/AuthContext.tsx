@@ -106,12 +106,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      // TOKEN_REFRESHED: just update the session reference silently — don't re-fetch user/roles
+      if (event === 'TOKEN_REFRESHED') {
+        if (nextSession) {
+          setSession(nextSession);
+        }
+        return;
+      }
+
       // On SIGNED_IN, show loading only if we haven't loaded yet
       if (event === 'SIGNED_IN' && !initialLoadDone) {
         setLoading(true);
       }
 
-      // For TOKEN_REFRESHED and other events, update session silently (no spinner)
+      // For SIGNED_IN and other events, do a full sync
       globalThis.setTimeout(() => {
         void syncSession(nextSession, !initialLoadDone);
       }, 0);
