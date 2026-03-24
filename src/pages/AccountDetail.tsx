@@ -1001,6 +1001,7 @@ export default function AccountDetail() {
                           </p>
                         )}
                       </div>
+                      </div>
                     </div>
                     {/* Mobile penalty detail */}
                     {penaltyAmt > 0 && (
