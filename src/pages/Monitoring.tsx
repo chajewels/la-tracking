@@ -345,18 +345,23 @@ export default function Monitoring() {
         {/* Summary Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
           {([
-            { label: 'Overdue', count: counts.overdue, color: 'text-destructive', borderColor: 'border-destructive/20', filter: 'overdue' as FilterTab, statsKey: null },
-            { label: 'Grace Period', count: counts.grace_period, color: 'text-amber-600', borderColor: 'border-amber-500/20', filter: 'grace_period' as FilterTab, statsKey: 'grace_period' as const },
-            { label: 'Due Today', count: counts.due_today, color: 'text-warning', borderColor: 'border-warning/20', filter: 'due_today' as FilterTab, statsKey: 'due_today' as const },
-            { label: 'Due in 3 Days', count: counts.due_3_days, color: 'text-info', borderColor: 'border-info/20', filter: 'due_3_days' as FilterTab, statsKey: 'due_3_days' as const },
-            { label: 'Due in 7 Days', count: counts.due_7_days, color: 'text-primary', borderColor: 'border-primary/20', filter: 'due_7_days' as FilterTab, statsKey: 'due_7_days' as const },
+            { label: 'Overdue', count: counts.overdue, color: 'text-destructive', borderColor: 'border-destructive/40', activeRing: 'ring-destructive/40', activeBorder: 'border-destructive', filter: 'overdue' as FilterTab, statsKey: null },
+            { label: 'Grace Period', count: counts.grace_period, color: 'text-amber-500', borderColor: 'border-amber-500/40', activeRing: 'ring-amber-500/40', activeBorder: 'border-amber-500', filter: 'grace_period' as FilterTab, statsKey: 'grace_period' as const },
+            { label: 'Due Today', count: counts.due_today, color: 'text-warning', borderColor: 'border-warning/40', activeRing: 'ring-warning/40', activeBorder: 'border-warning', filter: 'due_today' as FilterTab, statsKey: 'due_today' as const },
+            { label: 'Due in 3 Days', count: counts.due_3_days, color: 'text-info', borderColor: 'border-info/40', activeRing: 'ring-info/40', activeBorder: 'border-info', filter: 'due_3_days' as FilterTab, statsKey: 'due_3_days' as const },
+            { label: 'Due in 7 Days', count: counts.due_7_days, color: 'text-primary', borderColor: 'border-primary/40', activeRing: 'ring-primary/40', activeBorder: 'border-primary', filter: 'due_7_days' as FilterTab, statsKey: 'due_7_days' as const },
           ]).map(s => {
             const stat = s.statsKey ? notifStats[s.statsKey] : null;
+            const isActive = activeSummaryCard === s.filter;
             return (
               <button
                 key={s.label}
                 onClick={() => handleFilterChange(s.filter)}
-                className={`rounded-xl border bg-card p-4 text-center transition-colors hover:bg-muted/30 ${activeSummaryCard === s.filter ? 'border-primary ring-1 ring-primary/30' : s.borderColor}`}
+                className={`rounded-xl border bg-card p-4 text-center transition-all hover:bg-muted/30 ${
+                  isActive
+                    ? `${s.activeBorder} ring-1 ${s.activeRing} bg-muted/20`
+                    : `${s.borderColor} hover:${s.borderColor}`
+                }`}
               >
                 <p className={`text-3xl font-bold font-display ${s.color}`}>{isLoading ? '—' : s.count}</p>
                 <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
