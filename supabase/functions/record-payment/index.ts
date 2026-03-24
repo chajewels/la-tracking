@@ -140,7 +140,7 @@ Deno.serve(async (req) => {
       .order("penalty_date", { ascending: true });
 
     // Allocate payment: penalties first, then installments
-    let remaining = Number(amount_paid);
+    let remaining = Math.round(Number(amount_paid) * 100) / 100;
     const allocations: Array<{
       schedule_id: string;
       allocation_type: "penalty" | "installment";
