@@ -136,8 +136,43 @@ Deno.serve(async (req) => {
       });
     }
 
-    const recreatedAllocations: Array<{ schedule_id: string; allocation_type: "penalty" | "installment"; allocated_amount: number }> = [];
+    // ── PHASE 1: DRY-RUN — compute all changes without mutating anything ──
+    const plannedAllocations: Array<{ schedule_id: string; allocation_type: "penalty" | "installment"; allocated_amount: number }> = [];
+    const plannedScheduleUpdates: Array<{ id: string; paid_amount: number; status: string }> = [];
+    let dryRunRemaining = remainingInstallmentAmount;
 
+    for (const item of targetInstallments) {
+      if (dryRunRemaining <= 0) break;
+
+      const base = Number(item.base_installment_amount);
+      const paid = Number(item.paid_amount);
+      const due = Math.max(0, round2(base - paid));
+      if (due <= 0) continue;
+
+      const toApply = round2(Math.min(dryRunRemaining, due));
+      dryRunRemaining = round2(dryRunRemaining - toApply);
+
+      const newPaid = round2(paid + toApply);
+      const newStatus = scheduleStatusFor(base, newPaid, item.due_date);
+
+      plannedScheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: newStatus });
+      plannedAllocations.push({
+        schedule_id: item.id,
+        allocation_type: "installment",
+        allocated_amount: toApply,
+      });
+    }
+
+    // Validate: all installment amount must be covered
+    if (dryRunRemaining > 0.01) {
+      return new Response(JSON.stringify({ error: "Selected monthly dues do not fully cover this restored payment amount" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── PHASE 2: APPLY — all validation passed, now mutate ──
+
+    // Handle penalty allocations
     for (const alloc of originalPenaltyAllocations) {
       const { data: penaltyFees } = await supabase
         .from("penalty_fees")
@@ -150,7 +185,7 @@ Deno.serve(async (req) => {
 
       if (penaltyFees && penaltyFees.length > 0) {
         await supabase.from("penalty_fees").update({ status: "paid" }).eq("id", penaltyFees[0].id);
-        recreatedAllocations.push({
+        plannedAllocations.push({
           schedule_id: alloc.schedule_id,
           allocation_type: "penalty",
           allocated_amount: Number(alloc.allocated_amount),
@@ -158,40 +193,17 @@ Deno.serve(async (req) => {
       }
     }
 
-    for (const item of targetInstallments) {
-      if (remainingInstallmentAmount <= 0) break;
-
-      const base = Number(item.base_installment_amount);
-      const paid = Number(item.paid_amount);
-      const due = Math.max(0, base - paid);
-      if (due <= 0) continue;
-
-      const toApply = round2(Math.min(remainingInstallmentAmount, due));
-      remainingInstallmentAmount = round2(remainingInstallmentAmount - toApply);
-
-      const newPaid = round2(paid + toApply);
-      const newStatus = scheduleStatusFor(base, newPaid, item.due_date);
-
+    // Apply schedule updates
+    for (const update of plannedScheduleUpdates) {
       await supabase.from("layaway_schedule").update({
-        paid_amount: newPaid,
-        status: newStatus,
-      }).eq("id", item.id);
-
-      recreatedAllocations.push({
-        schedule_id: item.id,
-        allocation_type: "installment",
-        allocated_amount: toApply,
-      });
+        paid_amount: update.paid_amount,
+        status: update.status,
+      }).eq("id", update.id);
     }
 
-    if (remainingInstallmentAmount > 0.01) {
-      return new Response(JSON.stringify({ error: "Selected monthly dues do not fully cover this restored payment amount" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
+    // Recreate allocations
     await supabase.from("payment_allocations").delete().eq("payment_id", payment_id);
-    for (const alloc of recreatedAllocations) {
+    for (const alloc of plannedAllocations) {
       await supabase.from("payment_allocations").insert({
         payment_id,
         schedule_id: alloc.schedule_id,
@@ -200,6 +212,7 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Update account totals
     const { data: updatedSchedule } = await supabase
       .from("layaway_schedule")
       .select("*")
@@ -218,6 +231,7 @@ Deno.serve(async (req) => {
       }).eq("id", payment.account_id);
     }
 
+    // Clear voided flags — LAST step so everything is consistent
     await supabase.from("payments").update({
       voided_at: null,
       voided_by_user_id: null,
