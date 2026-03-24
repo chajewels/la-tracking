@@ -22,18 +22,22 @@ function determineAccountStatus(schedule: any[], currentStatus: string): string 
   return "active";
 }
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 function calcRemainingBalance(schedule: any[]): number {
   let remaining = 0;
   for (const item of schedule) {
     if (item.status !== "paid" && item.status !== "cancelled") {
-      remaining += Math.max(0, Number(item.base_installment_amount) + Number(item.penalty_amount || 0) - Number(item.paid_amount));
+      remaining += Math.max(0, round2(Number(item.base_installment_amount) + Number(item.penalty_amount || 0) - Number(item.paid_amount)));
     }
   }
-  return remaining;
+  return round2(remaining);
 }
 
 function scheduleStatusFor(base: number, paid: number, dueDate: string): string {
-  if (paid >= base) return "paid";
+  if (round2(paid) >= round2(base)) return "paid";
   if (paid > 0) return "partially_paid";
   const today = new Date().toISOString().split("T")[0];
   return dueDate <= today ? "overdue" : "pending";
