@@ -955,7 +955,7 @@ export default function NewAccount() {
       <Dialog open={!!splitMessageDialog} onOpenChange={(open) => {
         if (!open) {
           setSplitMessageDialog(null);
-          navigate('/accounts');
+          navigate(ROUTES.ACCOUNTS);
         }
       }}>
         <DialogContent className="max-w-lg">
