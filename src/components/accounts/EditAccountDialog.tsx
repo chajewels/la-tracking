@@ -204,13 +204,13 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
           });
         if (error) throw error;
 
-        await supabase.from('audit_logs').insert({
+        await (supabase.from('audit_logs') as any).insert([{
           entity_type: 'layaway_schedule',
           entity_id: account.id,
           action: 'add_schedule_item',
           new_value_json: { installment_number: nextNumber, due_date: newInst.due_date, base_installment_amount: roundedAmount },
-          performed_by_user_id: userId,
-        });
+          performed_by_user_id: userId || null,
+        }]);
       }
 
       // Invalidate relevant queries
