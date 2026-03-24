@@ -154,14 +154,29 @@ async function allocatePaymentToAccount(
   // Update account totals
   const { data: fullAccount } = await supabase
     .from("layaway_accounts")
-    .select("total_amount, total_paid")
+    .select("total_amount, total_paid, status")
     .eq("id", accountId)
     .single();
 
   const newTotalPaid = Number(fullAccount?.total_paid || 0) + amountPaid;
   const totalAmount = Number(fullAccount?.total_amount || 0);
   const newRemaining = Math.max(0, totalAmount - newTotalPaid);
-  const newStatus = newRemaining <= 0 ? "completed" : undefined;
+
+  // Recalculate correct status
+  const currentStatus = fullAccount?.status || "active";
+  let newStatus: string | undefined;
+  if (newRemaining <= 0) {
+    newStatus = "completed";
+  } else if (["active", "overdue"].includes(currentStatus)) {
+    const todayStr = new Date().toISOString().split("T")[0];
+    const { data: updatedSchedule } = await supabase
+      .from("layaway_schedule")
+      .select("due_date, status")
+      .eq("account_id", accountId)
+      .not("status", "in", '("paid","cancelled")');
+    const hasOverdue = (updatedSchedule || []).some((s: any) => s.due_date < todayStr);
+    newStatus = hasOverdue ? "overdue" : "active";
+  }
 
   const accountUpdate: Record<string, unknown> = {
     total_paid: newTotalPaid,
