@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { ROUTES } from '@/constants/routes';
 import { DollarSign, FileText, AlertTriangle, TrendingUp, CheckCircle2, Banknote, Users, ShieldAlert, Gem } from 'lucide-react';
 import PendingSubmissionsAlert from '@/components/dashboard/PendingSubmissionsAlert';
 import AppLayout from '@/components/layout/AppLayout';
@@ -126,7 +127,7 @@ export default function Dashboard() {
                 subtitle={formatCurrency(summary?.overdue_amount ?? 0, displayCurrency)}
                 icon={AlertTriangle}
                 variant="danger"
-                href="/monitoring?filter=overdue"
+                href={`${ROUTES.MONITORING}?filter=overdue`}
               />
               <StatCard
                 title="Completed"
@@ -134,7 +135,7 @@ export default function Dashboard() {
                 subtitle="This month"
                 icon={CheckCircle2}
                 variant="success"
-                href="/accounts?status=completed"
+                href={`${ROUTES.ACCOUNTS}?status=completed`}
               />
               <StatCard
                 title="Forfeited"
@@ -142,7 +143,7 @@ export default function Dashboard() {
                 subtitle="Inactive"
                 icon={ShieldAlert}
                 variant="danger"
-                href="/accounts?status=forfeited"
+                href={`${ROUTES.ACCOUNTS}?status=forfeited`}
               />
             </>
           )}
