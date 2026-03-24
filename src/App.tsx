@@ -49,6 +49,7 @@ const PaymentSubmissions = lazyWithRetry(() => import("./pages/PaymentSubmission
 const Reminders = lazyWithRetry(() => import("./pages/Reminders"));
 const NewAccount = lazyWithRetry(() => import("./pages/NewAccount"));
 const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
+const Unsubscribe = lazyWithRetry(() => import("./pages/Unsubscribe"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -84,6 +85,7 @@ const App = () => (
                 <Route path="/login" element={<Login />} />
                 <Route path="/statement" element={<CustomerStatement />} />
                 <Route path="/portal" element={<CustomerPortal />} />
+                <Route path="/unsubscribe" element={<Unsubscribe />} />
                 
                 <Route path="/" element={<Protected><Dashboard /></Protected>} />
                 <Route path="/accounts" element={<Protected><AccountList /></Protected>} />
