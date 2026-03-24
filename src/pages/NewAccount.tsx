@@ -387,9 +387,9 @@ export default function NewAccount() {
     <AppLayout>
       <div className="animate-fade-in max-w-2xl space-y-6">
         <div className="flex items-center gap-4">
-          <Link to="/accounts" onClick={(e) => {
+          <Link to={ROUTES.ACCOUNTS} onClick={(e) => {
             e.preventDefault();
-            guardedNavigate('/accounts');
+            guardedNavigate(ROUTES.ACCOUNTS);
           }}>
             <Button variant="ghost" size="icon" className="text-muted-foreground">
               <ArrowLeft className="h-4 w-4" />
