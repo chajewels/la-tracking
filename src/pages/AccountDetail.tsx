@@ -836,9 +836,29 @@ export default function AccountDetail() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Payment Schedule */}
           <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
-            <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-primary" /> Payment Schedule
-            </h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-primary" /> Payment Schedule
+              </h3>
+              {can('edit_schedule') && account?.status !== 'forfeited' && account?.status !== 'cancelled' && account?.status !== 'completed' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs border-primary/30 text-primary hover:bg-primary/10"
+                  onClick={() => {
+                    const lastItem = scheduleItems[scheduleItems.length - 1];
+                    const lastDate = lastItem ? new Date(lastItem.due_date) : new Date(account.order_date);
+                    const nextDate = new Date(lastDate);
+                    nextDate.setMonth(nextDate.getMonth() + 1);
+                    setNewInstDueDate(nextDate.toISOString().split('T')[0]);
+                    setNewInstAmount('');
+                    setAddingInstallment(true);
+                  }}
+                >
+                  <Plus className="h-3 w-3 mr-1" /> Add Installment
+                </Button>
+              )}
+            </div>
             <div className="space-y-2">
               {/* 30% Downpayment row */}
               {downpaymentAmount > 0 && (
