@@ -31,7 +31,7 @@ const menuItems = [
   { label: 'Reminders', icon: CalendarClock, path: '/reminders' },
   { label: 'Collections', icon: Wallet, path: '/collections' },
   { label: 'Finance', icon: Wallet, path: '/finance' },
-  { label: 'Payment Submissions', icon: FileText, path: '/payments' },
+  { label: 'Payment Submissions', icon: FileText, path: '/payment-submissions' },
   { label: 'Waivers', icon: FileText, path: '/waivers' },
   { label: 'Analytics', icon: BarChart3, path: '/analytics' },
   { label: 'Admin Audit', icon: ShieldCheck, path: '/audit' },
