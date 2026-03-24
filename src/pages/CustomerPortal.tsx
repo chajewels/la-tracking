@@ -563,76 +563,96 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
   const currency = account.currency;
   const colorClass = statusColor[account.status_label] || statusColor['Active'];
   const isOverdue = account.status_label === 'Overdue';
+  const isCompleted = account.status_label === 'Fully Paid';
   const pendingSubs = account.submissions?.filter(s => ['submitted', 'under_review'].includes(s.status)).length || 0;
 
   return (
-    <Card className={`shadow-sm hover:shadow-md transition-shadow cursor-pointer group ${isOverdue ? 'ring-1 ring-destructive/30' : ''}`} onClick={onViewDetails}>
-      <CardContent className="p-4 sm:p-5">
-        <div className="flex items-start justify-between mb-3">
-          <div>
-            <p className="text-xs text-muted-foreground font-medium">Invoice</p>
-            <p className="text-base font-bold font-display text-foreground">#{account.invoice_number}</p>
+    <div
+      onClick={onViewDetails}
+      className={`group relative cursor-pointer rounded-2xl border bg-[hsl(var(--card))] transition-all duration-200 hover:shadow-lg hover:shadow-black/20 ${
+        isOverdue
+          ? 'border-destructive/30 hover:border-destructive/50'
+          : isCompleted
+            ? 'border-success/20 hover:border-success/40'
+            : 'border-[hsl(var(--border)/0.5)] hover:border-[hsl(var(--gold)/0.4)]'
+      }`}
+    >
+      {/* Top accent line */}
+      <div className={`absolute top-0 left-6 right-6 h-[2px] rounded-b-full ${
+        isOverdue ? 'bg-destructive/60' : isCompleted ? 'bg-success/60' : 'bg-[hsl(var(--gold)/0.4)]'
+      }`} />
+
+      <div className="p-5 sm:p-6 space-y-4">
+        {/* Header: Invoice + Status */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/70 font-medium mb-0.5">Invoice</p>
+            <p className="text-lg font-bold font-display text-foreground truncate">#{account.invoice_number}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col items-end gap-1.5 shrink-0">
+            <Badge variant="outline" className={`text-[10px] font-semibold ${colorClass}`}>
+              {account.status_label}
+            </Badge>
             {pendingSubs > 0 && (
               <Badge variant="outline" className="bg-blue-500/10 text-blue-500 border-blue-500/20 text-[10px]">
                 {pendingSubs} pending
               </Badge>
             )}
-            <Badge variant="outline" className={`text-[10px] ${colorClass}`}>
-              {account.status_label}
-            </Badge>
           </div>
         </div>
 
-        {/* Progress */}
-        <div className="mb-3">
-          <div className="flex justify-between text-[10px] text-muted-foreground mb-1.5">
-            <span>{account.progress_percent}% paid</span>
-            <span>{account.paid_installments}/{account.total_installments} installments</span>
+        {/* Progress Bar */}
+        <div>
+          <div className="flex justify-between items-baseline mb-2">
+            <span className="text-xs font-medium text-foreground">{account.progress_percent}% paid</span>
+            <span className="text-[10px] text-muted-foreground">{account.paid_installments} of {account.total_installments} installments</span>
           </div>
-          <Progress value={account.progress_percent} className="h-2" />
+          <Progress value={account.progress_percent} className="h-2 rounded-full" />
         </div>
 
-        {/* Amounts */}
-        <div className="grid grid-cols-3 gap-2 mb-3">
-          <div>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Total</p>
-            <p className="text-sm font-semibold tabular-nums text-foreground">{fmt(account.total_amount, currency)}</p>
+        {/* Amounts Grid */}
+        <div className="grid grid-cols-3 gap-4">
+          <div className="space-y-0.5">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-medium">Total</p>
+            <p className="text-sm font-bold tabular-nums text-foreground">{fmt(account.total_amount, currency)}</p>
           </div>
-          <div>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Paid</p>
-            <p className="text-sm font-semibold tabular-nums text-success">{fmt(account.total_paid, currency)}</p>
+          <div className="space-y-0.5">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-medium">Paid</p>
+            <p className="text-sm font-bold tabular-nums text-success">{fmt(account.total_paid, currency)}</p>
           </div>
-          <div>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
-              {(account.outstanding_penalties ?? 0) > 0 ? 'Total Payable' : 'Remaining'}
+          <div className="space-y-0.5">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-medium">
+              {(account.outstanding_penalties ?? 0) > 0 ? 'Payable' : 'Balance'}
             </p>
-            <p className={`text-sm font-semibold tabular-nums ${(account.outstanding_penalties ?? 0) > 0 ? 'text-warning' : 'text-foreground'}`}>
+            <p className={`text-sm font-bold tabular-nums ${
+              isOverdue ? 'text-destructive' : (account.outstanding_penalties ?? 0) > 0 ? 'text-warning' : 'text-foreground'
+            }`}>
               {fmt((account.outstanding_penalties ?? 0) > 0 ? (account.current_total_payable ?? account.remaining_balance) : account.remaining_balance, currency)}
             </p>
           </div>
         </div>
 
-        {/* Next Due & Pay Now hint */}
-        <div className="flex items-center justify-between pt-2 border-t border-[hsl(var(--border))]">
+        {/* Footer: Next Due + Action */}
+        <div className="flex items-center justify-between pt-3 border-t border-[hsl(var(--border)/0.3)]">
           {account.next_due_date && account.remaining_balance > 0 ? (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Clock className="h-3.5 w-3.5" />
-              <span>Next due: <span className={`font-medium ${isOverdue ? 'text-destructive' : 'text-foreground'}`}>{fmtDate(account.next_due_date)}</span></span>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <span className="text-xs text-muted-foreground truncate">
+                Due: <span className={`font-semibold ${isOverdue ? 'text-destructive' : 'text-foreground'}`}>{fmtDate(account.next_due_date)}</span>
+              </span>
             </div>
           ) : (
-            <span className="text-xs text-muted-foreground">{account.remaining_balance <= 0 ? 'Fully paid' : 'No upcoming dues'}</span>
+            <span className="text-xs text-muted-foreground">{account.remaining_balance <= 0 ? '✓ Fully paid' : 'No upcoming dues'}</span>
           )}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1 shrink-0">
             {account.remaining_balance > 0 && (
-              <span className="text-[10px] text-primary font-medium">Pay Now →</span>
+              <span className="text-[10px] text-[hsl(var(--gold))] font-semibold group-hover:underline">Pay Now</span>
             )}
-            <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+            <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-[hsl(var(--gold))] group-hover:translate-x-0.5 transition-all" />
           </div>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
