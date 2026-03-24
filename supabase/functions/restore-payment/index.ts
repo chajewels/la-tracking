@@ -207,7 +207,7 @@ Deno.serve(async (req) => {
       .order("installment_number", { ascending: true });
 
     if (updatedSchedule) {
-      const newTotalPaid = Number(account.total_paid) + Number(payment.amount_paid);
+      const newTotalPaid = round2(Number(account.total_paid) + Number(payment.amount_paid));
       const newRemaining = calcRemainingBalance(updatedSchedule);
       const newStatus = determineAccountStatus(updatedSchedule, account.status);
 
