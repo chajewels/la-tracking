@@ -75,6 +75,10 @@ export default function AccountDetail() {
   const [invoiceInput, setInvoiceInput] = useState('');
   const [invoiceSaving, setInvoiceSaving] = useState(false);
   const [reactivating, setReactivating] = useState(false);
+  const [addingInstallment, setAddingInstallment] = useState(false);
+  const [newInstDueDate, setNewInstDueDate] = useState('');
+  const [newInstAmount, setNewInstAmount] = useState('');
+  const [newInstSaving, setNewInstSaving] = useState(false);
   const queryClient = useQueryClient();
   const { roles } = useAuth();
   const { can: canPerm } = usePermissions();
