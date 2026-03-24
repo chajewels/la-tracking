@@ -223,7 +223,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   const totalInstallmentAlloc = displayAllocs.reduce((s, a) => s + a.allocated_amount, 0);
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose(); else setOpen(true); }}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose(); else handleOpen(); }}>
       <DialogTrigger asChild>
         {payFullBalance ? (
           <Button variant="outline" className="border-primary/30 text-primary hover:bg-primary/10 font-medium">
