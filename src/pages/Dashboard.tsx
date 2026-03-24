@@ -135,7 +135,7 @@ export default function Dashboard() {
                 subtitle="This month"
                 icon={CheckCircle2}
                 variant="success"
-                href="/accounts?status=completed"
+                href={`${ROUTES.ACCOUNTS}?status=completed`}
               />
               <StatCard
                 title="Forfeited"
