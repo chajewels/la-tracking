@@ -92,8 +92,10 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
   const [featureToggles, setFeatureToggles] = useState<FeatureToggle[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const userId = user?.id;
+
   const fetchData = useCallback(async (retryCount = 0) => {
-    if (!user) {
+    if (!userId) {
       setAllPermissions([]);
       setFeatureToggles([]);
       setLoading(false);
@@ -125,7 +127,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [userId]);
 
   useEffect(() => {
     if (!authLoading) {

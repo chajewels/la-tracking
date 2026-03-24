@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Plus, ArrowRight, AlertTriangle, CheckCircle2, Clock } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, ArrowRight, AlertTriangle, CheckCircle2, Clock, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,6 +15,7 @@ import { useRecordPayment } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { type AppRole } from '@/lib/role-permissions';
+import { usePaymentDraft } from '@/hooks/use-payment-draft';
 
 interface Allocation {
   schedule_id: string;
@@ -65,6 +66,30 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   const { roles } = useAuth();
   const r = roles as AppRole[];
   const isAdminOrFinance = r.includes('admin') || r.includes('finance');
+  const { loadDraft, saveDraft, clearDraft, restoredDraft, setRestoredDraft } = usePaymentDraft(accountId);
+
+  // Auto-save draft whenever form fields change (only when dialog is open)
+  useEffect(() => {
+    if (open && !payFullBalance && step === 'input') {
+      saveDraft({ amount, paymentDate, paymentMethod, notes });
+    }
+  }, [amount, paymentDate, paymentMethod, notes, open, payFullBalance, step, saveDraft]);
+
+  // Restore draft when dialog opens
+  const handleOpen = () => {
+    setOpen(true);
+    if (!payFullBalance) {
+      const draft = loadDraft();
+      if (draft) {
+        setAmount(draft.amount);
+        setPaymentDate(draft.paymentDate);
+        setPaymentMethod(draft.paymentMethod);
+        setNotes(draft.notes);
+        setRestoredDraft(true);
+        toast.info('Draft restored', { duration: 2000 });
+      }
+    }
+  };
 
   // Calculate multi-month quick-fill amounts from unpaid schedule items
   const unpaidItems = (schedule || [])
@@ -173,6 +198,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     setPaymentDate(new Date().toISOString().split('T')[0]);
     setStep('input');
     setPreview(null);
+    clearDraft();
     setOpen(false);
   };
 
@@ -197,7 +223,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   const totalInstallmentAlloc = displayAllocs.reduce((s, a) => s + a.allocated_amount, 0);
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose(); else setOpen(true); }}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose(); else handleOpen(); }}>
       <DialogTrigger asChild>
         {payFullBalance ? (
           <Button variant="outline" className="border-primary/30 text-primary hover:bg-primary/10 font-medium">
@@ -226,6 +252,12 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
 
         {step === 'input' && (
           <form onSubmit={(e) => { e.preventDefault(); handlePreview(); }} className="space-y-4">
+            {restoredDraft && !payFullBalance && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 rounded-md px-2.5 py-1.5">
+                <Save className="h-3.5 w-3.5" />
+                Draft restored — your previous entries have been loaded.
+              </div>
+            )}
             {payFullBalance ? (
               <div className="space-y-2">
                 <Label className="text-card-foreground">Amount ({currency})</Label>
