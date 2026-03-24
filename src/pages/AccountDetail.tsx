@@ -1058,6 +1058,26 @@ export default function AccountDetail() {
                   </div>
                 );
               })}
+              {/* Add Installment inline form */}
+              {addingInstallment && (
+                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
+                  <p className="text-xs font-semibold text-primary flex items-center gap-1"><Plus className="h-3 w-3" /> New Installment</p>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-muted-foreground">Due Date</label>
+                      <Input type="date" value={newInstDueDate} onChange={e => setNewInstDueDate(e.target.value)} className="h-8 text-xs w-36 bg-background" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-muted-foreground">Amount ({currency})</label>
+                      <Input type="number" step="0.01" placeholder="Amount" value={newInstAmount} onChange={e => setNewInstAmount(e.target.value)} className="h-8 text-xs w-28 bg-background tabular-nums" />
+                    </div>
+                    <Button size="sm" className="h-8 text-xs gold-gradient text-primary-foreground" disabled={newInstSaving} onClick={handleAddInstallment}>
+                      {newInstSaving ? 'Saving…' : 'Save'}
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setAddingInstallment(false)}>Cancel</Button>
+                  </div>
+                </div>
+              )}
               {/* Schedule Totals Summary */}
               {scheduleItems.length > 0 && (
                 <div className="mt-3 pt-3 border-t border-border space-y-1.5">
