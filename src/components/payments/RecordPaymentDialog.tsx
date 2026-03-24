@@ -198,6 +198,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     setPaymentDate(new Date().toISOString().split('T')[0]);
     setStep('input');
     setPreview(null);
+    clearDraft();
     setOpen(false);
   };
 
