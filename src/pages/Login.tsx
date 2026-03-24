@@ -15,7 +15,7 @@ export default function Login() {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (session) navigate('/', { replace: true });
+    if (session) navigate(ROUTES.DASHBOARD, { replace: true });
   }, [session, navigate]);
 
   useEffect(() => {
