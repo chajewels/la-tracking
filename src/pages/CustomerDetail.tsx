@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { ROUTES } from '@/constants/routes';
 import { ArrowLeft, Copy, Check, CheckCircle2, MessageCircle, Calendar, AlertTriangle, MapPin, Pencil, X, Ban, Wrench, Save } from 'lucide-react';
 import CustomerPortalShareMenu from '@/components/customers/CustomerPortalShareMenu';
 import AppLayout from '@/components/layout/AppLayout';
@@ -336,7 +337,7 @@ export default function CustomerDetail() {
       <div className="animate-fade-in space-y-6 max-w-5xl">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-          <Link to="/customers">
+          <Link to={ROUTES.CUSTOMERS}>
             <Button variant="ghost" size="icon" className="text-muted-foreground">
               <ArrowLeft className="h-4 w-4" />
             </Button>

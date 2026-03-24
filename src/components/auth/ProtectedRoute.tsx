@@ -39,7 +39,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   }
 
   if (!session) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" replace />;  {/* /login is not in ROUTES — it's public */}
   }
 
   // Check dynamic role-based + feature-toggle page access

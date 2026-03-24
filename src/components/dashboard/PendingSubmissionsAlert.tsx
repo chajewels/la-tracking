@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { ROUTES } from '@/constants/routes';
 import { CreditCard, ArrowRight, Clock } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -45,7 +46,7 @@ export default function PendingSubmissionsAlert() {
             </div>
           </div>
         ))}
-        <Link to="/payment-submissions">
+        <Link to={ROUTES.PAYMENT_SUBMISSIONS}>
           <Button variant="outline" size="sm" className="w-full gap-1.5 mt-1 text-xs">
             Review All Submissions <ArrowRight className="h-3 w-3" />
           </Button>

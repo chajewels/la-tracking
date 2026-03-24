@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus, ArrowRight, AlertTriangle, CheckCircle2, Clock, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -62,6 +62,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   const [step, setStep] = useState<'input' | 'preview'>('input');
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const submittingRef = useRef(false); // duplicate-submission guard
   const recordPayment = useRecordPayment();
   const { roles } = useAuth();
   const r = roles as AppRole[];
@@ -148,6 +149,8 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   };
 
   const handleSubmitForConfirmation = async () => {
+    if (submittingRef.current) return; // prevent double-click
+    submittingRef.current = true;
     setLoadingPreview(true);
     try {
       const { data, error } = await supabase.functions.invoke('record-payment', {
@@ -171,10 +174,13 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
       toast.error(err.message || 'Failed to submit payment');
     } finally {
       setLoadingPreview(false);
+      submittingRef.current = false;
     }
   };
 
   const handleConfirm = async () => {
+    if (submittingRef.current) return; // prevent double-click
+    submittingRef.current = true;
     try {
       await recordPayment.mutateAsync({
         account_id: accountId,
@@ -188,6 +194,8 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
       resetAndClose();
     } catch (err: any) {
       toast.error(err.message || 'Failed to record payment');
+    } finally {
+      submittingRef.current = false;
     }
   };
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { ROUTES } from '@/constants/routes';
 import { Plus, Search, Eye, MessageCircle, FileText, ChevronRight, ChevronLeft } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -81,7 +82,7 @@ export default function AccountList() {
               <p className="text-sm text-muted-foreground">{(accounts || []).length} total accounts</p>
             </div>
           </div>
-          <Link to="/accounts/new">
+          <Link to={ROUTES.NEW_ACCOUNT}>
             <Button className="gold-gradient text-primary-foreground font-medium shadow-lg">
               <Plus className="h-4 w-4 mr-1.5" /> New Account
             </Button>

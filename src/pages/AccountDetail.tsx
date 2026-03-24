@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
+import { ROUTES } from '@/constants/routes';
 import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
@@ -437,7 +438,7 @@ export default function AccountDetail() {
       <div className="animate-fade-in space-y-6 max-w-5xl">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-          <Link to="/accounts">
+          <Link to={ROUTES.ACCOUNTS}>
             <Button variant="ghost" size="icon" className="text-muted-foreground">
               <ArrowLeft className="h-4 w-4" />
             </Button>
@@ -1335,7 +1336,7 @@ export default function AccountDetail() {
                   try {
                     await deleteAccount.mutateAsync(account.id);
                     toast.success(`Account INV #${account.invoice_number} deleted`);
-                    navigate('/accounts');
+                    navigate(ROUTES.ACCOUNTS);
                   } catch (err: any) {
                     toast.error(err.message || 'Failed to delete account');
                   }

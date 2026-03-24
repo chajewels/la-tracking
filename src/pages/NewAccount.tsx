@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { ROUTES } from '@/constants/routes';
 import { ArrowLeft, UserPlus, ChevronDown, ChevronUp, Banknote, Copy, Check, MessageCircle, Wand2, Save, AlertTriangle } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -367,7 +368,7 @@ export default function NewAccount() {
 
         setSplitMessageDialog(msg);
       } else {
-        navigate('/accounts');
+        navigate(ROUTES.ACCOUNTS);
       }
     } catch (err: any) {
       console.error('Create account error:', err);
@@ -386,9 +387,9 @@ export default function NewAccount() {
     <AppLayout>
       <div className="animate-fade-in max-w-2xl space-y-6">
         <div className="flex items-center gap-4">
-          <Link to="/accounts" onClick={(e) => {
+          <Link to={ROUTES.ACCOUNTS} onClick={(e) => {
             e.preventDefault();
-            guardedNavigate('/accounts');
+            guardedNavigate(ROUTES.ACCOUNTS);
           }}>
             <Button variant="ghost" size="icon" className="text-muted-foreground">
               <ArrowLeft className="h-4 w-4" />
@@ -903,7 +904,7 @@ export default function NewAccount() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => guardedNavigate('/accounts')}
+              onClick={() => guardedNavigate(ROUTES.ACCOUNTS)}
             >
               Cancel
             </Button>
@@ -940,7 +941,7 @@ export default function NewAccount() {
                 setShowLeaveDialog(false);
                 setFormDirty(false);
                 submittedRef.current = true;
-                navigate(pendingNavRef.current || '/accounts');
+                navigate(pendingNavRef.current || ROUTES.ACCOUNTS);
                 pendingNavRef.current = null;
               }}
             >
@@ -954,7 +955,7 @@ export default function NewAccount() {
       <Dialog open={!!splitMessageDialog} onOpenChange={(open) => {
         if (!open) {
           setSplitMessageDialog(null);
-          navigate('/accounts');
+          navigate(ROUTES.ACCOUNTS);
         }
       }}>
         <DialogContent className="max-w-lg">
@@ -975,7 +976,7 @@ export default function NewAccount() {
               variant="outline"
               onClick={() => {
                 setSplitMessageDialog(null);
-                navigate('/accounts');
+                navigate(ROUTES.ACCOUNTS);
               }}
             >
               Close

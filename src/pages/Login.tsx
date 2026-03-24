@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ROUTES } from '@/constants/routes';
 import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
 import luxuryHero from '@/assets/luxury-jewelry-hero.jpg';
 import { toast } from 'sonner';
@@ -15,7 +16,7 @@ export default function Login() {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (session) navigate('/', { replace: true });
+    if (session) navigate(ROUTES.DASHBOARD, { replace: true });
   }, [session, navigate]);
 
   useEffect(() => {
@@ -36,7 +37,7 @@ export default function Login() {
       return;
     }
     toast.success('Welcome to Cha Jewels');
-    navigate('/');
+    navigate(ROUTES.DASHBOARD);
   };
 
   return (
