@@ -937,7 +937,7 @@ export default function AccountDetail() {
                 </div>
               )}
               {/* Schedule Header */}
-              <div className="hidden sm:grid grid-cols-[2.5rem_1fr_5.5rem_5.5rem_5.5rem_5.5rem_2rem] gap-1 px-3 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+              <div className="hidden sm:grid grid-cols-[2.5rem_1fr_7rem_7rem_7rem_5.5rem_2.5rem] gap-2 px-3 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
                 <span>#</span>
                 <span>Due Date</span>
                 <span className="text-right">Base Amt</span>
@@ -1026,7 +1026,7 @@ export default function AccountDetail() {
                     )}
 
                     {/* Desktop layout: columnar */}
-                    <div className="hidden sm:grid grid-cols-[2.5rem_1fr_5.5rem_5.5rem_5.5rem_5.5rem_2rem] gap-1 items-center">
+                    <div className="hidden sm:grid grid-cols-[2.5rem_1fr_7rem_7rem_7rem_5.5rem_2.5rem] gap-2 items-center">
                       <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${
                         effPaid ? 'bg-success/20 text-success' : partial ? 'bg-warning/20 text-warning' : 'bg-muted text-muted-foreground'
                       }`}>
