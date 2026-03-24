@@ -518,7 +518,7 @@ export default function AccountDetail() {
   if (accountLoading) {
     return (
       <AppLayout>
-        <div className="space-y-6 max-w-5xl">
+        <div className="space-y-6">
           <Skeleton className="h-10 w-64" />
           <div className="grid grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
@@ -546,7 +546,7 @@ export default function AccountDetail() {
 
   return (
     <AppLayout>
-      <div className="animate-fade-in space-y-6 max-w-5xl">
+      <div className="animate-fade-in space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
           <Link to={ROUTES.ACCOUNTS}>
