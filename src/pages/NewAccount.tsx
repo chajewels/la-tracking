@@ -60,6 +60,7 @@ export default function NewAccount() {
   const [draftSavedIndicator, setDraftSavedIndicator] = useState(false);
   const [showLeaveDialog, setShowLeaveDialog] = useState(false);
   const submittedRef = useRef(false);
+  const pendingNavRef = useRef<string | null>(null);
 
   // Restore draft on mount
   useEffect(() => {
