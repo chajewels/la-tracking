@@ -155,7 +155,56 @@ export default function AccountDetail() {
     }
   }, [editScheduleAmount, id, queryClient]);
 
-  const currency = (account?.currency || 'PHP') as Currency;
+  const handleAddInstallment = useCallback(async () => {
+    const amount = parseFloat(newInstAmount);
+    if (isNaN(amount) || amount <= 0 || !newInstDueDate || !account) {
+      toast.error('Please enter a valid amount and due date');
+      return;
+    }
+    setNewInstSaving(true);
+    try {
+      const maxInstNumber = Math.max(...(schedule || []).map(s => s.installment_number), 0);
+      const nextNumber = maxInstNumber + 1;
+      const roundedAmount = Math.round(amount * 100) / 100;
+
+      const { error } = await supabase
+        .from('layaway_schedule')
+        .insert({
+          account_id: account.id,
+          installment_number: nextNumber,
+          due_date: newInstDueDate,
+          base_installment_amount: roundedAmount,
+          total_due_amount: roundedAmount,
+          currency: account.currency as 'PHP' | 'JPY',
+          status: 'pending',
+        });
+      if (error) throw error;
+
+      const userId = (await supabase.auth.getUser()).data.user?.id;
+      await supabase.from('audit_logs').insert({
+        entity_type: 'layaway_schedule',
+        entity_id: account.id,
+        action: 'add_schedule_item',
+        new_value_json: { installment_number: nextNumber, due_date: newInstDueDate, base_installment_amount: roundedAmount },
+        performed_by_user_id: userId || null,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['schedule', id] });
+      queryClient.invalidateQueries({ queryKey: ['account', id] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['customer-detail'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      toast.success(`Installment #${nextNumber} added`);
+      setAddingInstallment(false);
+      setNewInstDueDate('');
+      setNewInstAmount('');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to add installment');
+    } finally {
+      setNewInstSaving(false);
+    }
+  }, [newInstAmount, newInstDueDate, account, schedule, id, queryClient]);
+
   const principalTotal = Number(account?.total_amount || 0);
   const scheduleItems = schedule || [];
   const downpaymentAmount = Number((account as any)?.downpayment_amount || 0);
