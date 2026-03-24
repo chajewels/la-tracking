@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Plus, ArrowRight, AlertTriangle, CheckCircle2, Clock } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, ArrowRight, AlertTriangle, CheckCircle2, Clock, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,6 +15,7 @@ import { useRecordPayment } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { type AppRole } from '@/lib/role-permissions';
+import { usePaymentDraft } from '@/hooks/use-payment-draft';
 
 interface Allocation {
   schedule_id: string;
