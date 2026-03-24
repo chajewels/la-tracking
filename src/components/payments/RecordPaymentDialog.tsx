@@ -179,6 +179,8 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   };
 
   const handleConfirm = async () => {
+    if (submittingRef.current) return; // prevent double-click
+    submittingRef.current = true;
     try {
       await recordPayment.mutateAsync({
         account_id: accountId,
@@ -192,6 +194,8 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
       resetAndClose();
     } catch (err: any) {
       toast.error(err.message || 'Failed to record payment');
+    } finally {
+      submittingRef.current = false;
     }
   };
 
