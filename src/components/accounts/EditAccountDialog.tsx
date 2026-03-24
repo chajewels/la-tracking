@@ -117,7 +117,7 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
         if (error) throw error;
 
         // Audit log for account update
-        await supabase.from('audit_logs').insert([{
+        await (supabase.from('audit_logs') as any).insert([{
           entity_type: 'layaway_account',
           entity_id: account.id,
           action: 'update_account_details',
@@ -126,8 +126,8 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
             order_date: account.order_date,
             notes: account.notes,
             downpayment_amount: account.downpayment_amount,
-          } as Record<string, unknown>,
-          new_value_json: accountUpdates as Record<string, unknown>,
+          },
+          new_value_json: accountUpdates,
           performed_by_user_id: userId || null,
         }]);
       }
