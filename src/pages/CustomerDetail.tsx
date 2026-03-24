@@ -282,12 +282,14 @@ export default function CustomerDetail() {
       scheduleItems.forEach((item, idx) => {
         const totalDue = Number(item.total_due_amount);
         const coveredAmount = Math.min(messageScheduleCoverage[idx] || 0, totalDue);
-        const effPaid = isEffectivelyPaid(item) && totalDue > 0 && coveredAmount >= totalDue;
+        const dbPaid = item.status === 'paid';
+        // Trust the DB paid status — coverage recalculation can drift by fractions
+        const effPaid = dbPaid || (isEffectivelyPaid(item) && totalDue > 0 && coveredAmount >= totalDue);
         const partial = !effPaid && isPartiallyPaid(item) && coveredAmount > 0;
         const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
         const penalty = Number(item.penalty_amount);
         const baseAmt = Number(item.base_installment_amount);
-        const paidAmt = coveredAmount;
+        const paidAmt = dbPaid ? totalDue : coveredAmount;
         const displayAmt = effPaid ? Math.max(paidAmt, totalDue) : totalDue;
         const itemRemaining = remainingDue(item);
 
