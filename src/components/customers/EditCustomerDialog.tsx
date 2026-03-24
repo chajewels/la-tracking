@@ -81,6 +81,7 @@ export default function EditCustomerDialog({ open, onOpenChange, editId, editFor
       if (error) throw error;
       toast.success('Customer updated');
       queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'customer-detail' });
       onOpenChange(false);
     } catch (err: any) {
       toast.error(err.message || 'Failed to update');

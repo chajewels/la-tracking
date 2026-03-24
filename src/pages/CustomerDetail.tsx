@@ -395,6 +395,9 @@ export default function CustomerDetail() {
             </div>
           </div>
           <div className="flex gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={startEditCustomer} className="border-primary/30 text-primary hover:bg-primary/10">
+              <Pencil className="h-3.5 w-3.5 mr-1.5" /> Edit Details
+            </Button>
             <MultiInvoicePaymentDialog
               customerId={customer.id}
               customerName={customer.full_name}
@@ -417,6 +420,44 @@ export default function CustomerDetail() {
             )}
           </div>
         </div>
+
+        {/* Inline Customer Detail Editor */}
+        {editingCustomer && (
+          <div className="rounded-xl border border-primary/20 bg-card p-4 space-y-3 animate-fade-in">
+            <h3 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
+              <Pencil className="h-3.5 w-3.5 text-primary" /> Edit Customer Details
+              <span className="text-[10px] text-muted-foreground font-normal ml-auto">Changes will reflect in generated messages</span>
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Full Name *</label>
+                <Input value={editFields.full_name} onChange={e => setEditFields(f => ({ ...f, full_name: e.target.value }))} className="h-8 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Facebook Name</label>
+                <Input value={editFields.facebook_name} onChange={e => setEditFields(f => ({ ...f, facebook_name: e.target.value }))} className="h-8 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Messenger Link</label>
+                <Input value={editFields.messenger_link} onChange={e => setEditFields(f => ({ ...f, messenger_link: e.target.value }))} className="h-8 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Mobile Number</label>
+                <Input value={editFields.mobile_number} onChange={e => setEditFields(f => ({ ...f, mobile_number: e.target.value }))} className="h-8 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Email</label>
+                <Input type="email" value={editFields.email} onChange={e => setEditFields(f => ({ ...f, email: e.target.value }))} className="h-8 text-sm" />
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" size="sm" onClick={() => setEditingCustomer(false)} className="h-7 text-xs">Cancel</Button>
+              <Button size="sm" onClick={saveCustomerEdit} disabled={editSaving} className="h-7 text-xs gold-gradient text-primary-foreground">
+                <Save className="h-3 w-3 mr-1" /> {editSaving ? 'Saving…' : 'Save Changes'}
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Customer Portal Link */}
         <CustomerPortalShareMenu customerId={customer.id} customerName={customer.full_name} messengerLink={customer.messenger_link} />
