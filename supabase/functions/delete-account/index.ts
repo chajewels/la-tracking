@@ -70,19 +70,60 @@ Deno.serve(async (req) => {
       .eq("account_id", account_id);
     const paymentIds = (payments || []).map(p => p.id);
 
-    // Delete in order: allocations -> penalties -> waiver requests -> reminder logs -> payments -> schedule -> audit logs -> account
+    // Delete in dependency order to avoid FK constraint violations
+    // 1. Payment submission allocations (references payment_submissions + layaway_accounts)
+    await supabase.from("payment_submission_allocations").delete().eq("account_id", account_id);
+
+    // 2. Payment submissions (references layaway_accounts)
+    await supabase.from("payment_submissions").delete().eq("account_id", account_id);
+
+    // 3. Payment allocations (references payments + layaway_schedule)
     if (paymentIds.length > 0) {
       await supabase.from("payment_allocations").delete().in("payment_id", paymentIds);
     }
-    if (scheduleIds.length > 0) {
-      await supabase.from("penalty_fees").delete().in("schedule_id", scheduleIds);
-      await supabase.from("penalty_waiver_requests").delete().in("schedule_id", scheduleIds);
-      await supabase.from("reminder_logs").delete().eq("account_id", account_id);
-    }
+
+    // 4. Penalty waiver requests (references penalty_fees + layaway_schedule)
+    await supabase.from("penalty_waiver_requests").delete().eq("account_id", account_id);
+
+    // 5. Penalty fees (references layaway_schedule + layaway_accounts)
+    await supabase.from("penalty_fees").delete().eq("account_id", account_id);
+
+    // 6. CSR notifications (references layaway_accounts + layaway_schedule)
+    await supabase.from("csr_notifications").delete().eq("account_id", account_id);
+
+    // 7. Reminder logs (references layaway_accounts)
+    await supabase.from("reminder_logs").delete().eq("account_id", account_id);
+
+    // 8. Account services (references layaway_accounts)
+    await supabase.from("account_services").delete().eq("account_id", account_id);
+
+    // 9. Final settlement records (references layaway_accounts)
+    await supabase.from("final_settlement_records").delete().eq("account_id", account_id);
+
+    // 10. Penalty cap overrides (references layaway_accounts)
+    await supabase.from("penalty_cap_overrides").delete().eq("account_id", account_id);
+
+    // 11. Statement tokens (references layaway_accounts)
+    await supabase.from("statement_tokens").delete().eq("account_id", account_id);
+
+    // 12. Payments (references layaway_accounts)
     await supabase.from("payments").delete().eq("account_id", account_id);
+
+    // 13. Layaway schedule (references layaway_accounts)
     await supabase.from("layaway_schedule").delete().eq("account_id", account_id);
+
+    // 14. Audit logs for this entity
     await supabase.from("audit_logs").delete().eq("entity_id", account_id);
-    await supabase.from("layaway_accounts").delete().eq("id", account_id);
+
+    // 15. Finally, the account itself
+    const { error: delErr } = await supabase.from("layaway_accounts").delete().eq("id", account_id);
+    if (delErr) {
+      console.error("Failed to delete account:", delErr);
+      return new Response(JSON.stringify({ error: "Failed to delete account: " + delErr.message }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // Audit the deletion
     await supabase.from("audit_logs").insert({
