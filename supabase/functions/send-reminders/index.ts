@@ -18,6 +18,7 @@ interface AlertItem {
   messengerLink?: string | null;
   customerId: string;
   scheduleId: string;
+  customerEmail?: string | null;
 }
 
 function formatCurrency(amount: number, currency: string): string {
@@ -39,108 +40,6 @@ function generateMessengerMessage(alert: AlertItem): string {
   } else {
     return `Hi ${alert.customer}! 👋\n\nThis is a friendly heads-up from Cha Jewels — your next layaway payment for INV #${alert.invoice} is coming up on ${dueStr}.\n\nAmount due: ${formatCurrency(alert.amount, alert.currency)}\n\nThank you for staying on track! 💎`;
   }
-}
-
-function generateEmailHtml(alerts: AlertItem[], staffName: string): string {
-  const overdueAlerts = alerts.filter((a) => a.type === "overdue");
-  const dueTodayAlerts = alerts.filter((a) => a.type === "due_today");
-  const upcomingAlerts = alerts.filter((a) => a.type === "upcoming");
-
-  const renderAlertRows = (items: AlertItem[], color: string) =>
-    items
-      .map(
-        (a) =>
-          `<tr>
-        <td style="padding:8px;border-bottom:1px solid #eee;">${a.customer}</td>
-        <td style="padding:8px;border-bottom:1px solid #eee;">INV #${a.invoice}</td>
-        <td style="padding:8px;border-bottom:1px solid #eee;">${new Date(a.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</td>
-        <td style="padding:8px;border-bottom:1px solid #eee;font-weight:bold;color:${color};">${formatCurrency(a.amount, a.currency)}</td>
-        <td style="padding:8px;border-bottom:1px solid #eee;">${a.type === "overdue" ? a.daysOverdue + " days" : "—"}</td>
-      </tr>`
-      )
-      .join("");
-
-  let sections = "";
-
-  if (overdueAlerts.length > 0) {
-    sections += `
-      <h2 style="color:#dc2626;margin:24px 0 8px;">🚨 Overdue (${overdueAlerts.length})</h2>
-      <table style="width:100%;border-collapse:collapse;font-size:14px;">
-        <tr style="background:#fef2f2;">
-          <th style="padding:8px;text-align:left;">Customer</th>
-          <th style="padding:8px;text-align:left;">Invoice</th>
-          <th style="padding:8px;text-align:left;">Due Date</th>
-          <th style="padding:8px;text-align:left;">Amount</th>
-          <th style="padding:8px;text-align:left;">Overdue</th>
-        </tr>
-        ${renderAlertRows(overdueAlerts, "#dc2626")}
-      </table>`;
-  }
-
-  if (dueTodayAlerts.length > 0) {
-    sections += `
-      <h2 style="color:#d97706;margin:24px 0 8px;">⏰ Due Today (${dueTodayAlerts.length})</h2>
-      <table style="width:100%;border-collapse:collapse;font-size:14px;">
-        <tr style="background:#fffbeb;">
-          <th style="padding:8px;text-align:left;">Customer</th>
-          <th style="padding:8px;text-align:left;">Invoice</th>
-          <th style="padding:8px;text-align:left;">Due Date</th>
-          <th style="padding:8px;text-align:left;">Amount</th>
-          <th style="padding:8px;text-align:left;">Overdue</th>
-        </tr>
-        ${renderAlertRows(dueTodayAlerts, "#d97706")}
-      </table>`;
-  }
-
-  if (upcomingAlerts.length > 0) {
-    sections += `
-      <h2 style="color:#2563eb;margin:24px 0 8px;">📅 Upcoming (${upcomingAlerts.length})</h2>
-      <table style="width:100%;border-collapse:collapse;font-size:14px;">
-        <tr style="background:#eff6ff;">
-          <th style="padding:8px;text-align:left;">Customer</th>
-          <th style="padding:8px;text-align:left;">Invoice</th>
-          <th style="padding:8px;text-align:left;">Due Date</th>
-          <th style="padding:8px;text-align:left;">Amount</th>
-          <th style="padding:8px;text-align:left;">Overdue</th>
-        </tr>
-        ${renderAlertRows(upcomingAlerts, "#2563eb")}
-      </table>`;
-  }
-
-  return `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
-<body style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:20px;background:#f9fafb;">
-  <div style="background:white;border-radius:12px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-    <div style="text-align:center;margin-bottom:20px;">
-      <h1 style="color:#1a1a2e;margin:0;">💎 Cha Jewels</h1>
-      <p style="color:#6b7280;font-size:14px;margin:4px 0;">Daily Payment Alert Summary</p>
-      <p style="color:#6b7280;font-size:12px;">Hi ${staffName}, here's your daily update:</p>
-    </div>
-    
-    <div style="display:flex;gap:16px;margin:16px 0;text-align:center;">
-      <div style="flex:1;background:#fef2f2;border-radius:8px;padding:12px;">
-        <p style="font-size:24px;font-weight:bold;color:#dc2626;margin:0;">${overdueAlerts.length}</p>
-        <p style="font-size:11px;color:#6b7280;margin:4px 0 0;">Overdue</p>
-      </div>
-      <div style="flex:1;background:#fffbeb;border-radius:8px;padding:12px;">
-        <p style="font-size:24px;font-weight:bold;color:#d97706;margin:0;">${dueTodayAlerts.length}</p>
-        <p style="font-size:11px;color:#6b7280;margin:4px 0 0;">Due Today</p>
-      </div>
-      <div style="flex:1;background:#eff6ff;border-radius:8px;padding:12px;">
-        <p style="font-size:24px;font-weight:bold;color:#2563eb;margin:0;">${upcomingAlerts.length}</p>
-        <p style="font-size:11px;color:#6b7280;margin:4px 0 0;">Upcoming</p>
-      </div>
-    </div>
-
-    ${sections}
-
-    <p style="color:#9ca3af;font-size:11px;text-align:center;margin-top:24px;">
-      Sent from Cha Jewels Layaway Management System · ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
-    </p>
-  </div>
-</body>
-</html>`;
 }
 
 Deno.serve(async (req) => {
@@ -207,6 +106,7 @@ Deno.serve(async (req) => {
           messengerLink: acc.customers?.messenger_link,
           customerId: acc.customer_id,
           scheduleId: s.id,
+          customerEmail: acc.customers?.email,
         } as AlertItem;
       })
       .filter(Boolean) as AlertItem[];
@@ -227,19 +127,7 @@ Deno.serve(async (req) => {
       message: generateMessengerMessage(a),
     }));
 
-    // 5. Get all staff profiles for email notifications
-    const { data: profiles } = await supabase.from("profiles").select("*");
-    const { data: roles } = await supabase.from("user_roles").select("*");
-
-    const staffEmails: { email: string; name: string }[] = [];
-    for (const p of profiles || []) {
-      const hasRole = (roles || []).some((r: any) => r.user_id === p.user_id);
-      if (hasRole && p.email) {
-        staffEmails.push({ email: p.email, name: p.full_name });
-      }
-    }
-
-    // 6. Log reminders
+    // 5. Log reminders
     const reminderLogs = alerts.map((a) => ({
       account_id: a.accountId,
       schedule_id: a.scheduleId,
@@ -254,33 +142,64 @@ Deno.serve(async (req) => {
       await supabase.from("reminder_logs").insert(reminderLogs);
     }
 
-    // 7. Send email to each staff member (if email infra is available)
+    // 6. Send per-customer emails via transactional email system
     let emailsSent = 0;
-    const emailHtml = generateEmailHtml(alerts, "Team");
+    let emailsFailed = 0;
+    const emailAlerts = alerts.filter((a) => a.customerEmail);
 
-    // Try sending via Lovable email API if available
-    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
-    if (lovableApiKey && staffEmails.length > 0) {
-      for (const staff of staffEmails) {
-        try {
-          const personalHtml = generateEmailHtml(alerts, staff.name);
-          // Use Supabase Edge Function invocation for email
-          const emailResponse = await fetch(`${supabaseUrl}/functions/v1/send-notification-email`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${serviceRoleKey}`,
+    // Deduplicate: one email per customer+invoice (avoid sending multiple for same account)
+    const sentKeys = new Set<string>();
+
+    for (const alert of emailAlerts) {
+      const key = `${alert.customerId}-${alert.invoice}`;
+      if (sentKeys.has(key)) continue;
+      sentKeys.add(key);
+
+      const dueStr = new Date(alert.dueDate).toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      });
+
+      try {
+        const { error } = await supabase.functions.invoke("send-transactional-email", {
+          body: {
+            templateName: "payment-reminder",
+            recipientEmail: alert.customerEmail,
+            idempotencyKey: `reminder-${alert.scheduleId}-${today}`,
+            templateData: {
+              customerName: alert.customer,
+              invoiceNumber: alert.invoice,
+              dueDate: dueStr,
+              amountDue: Math.round(alert.amount).toLocaleString("en-US"),
+              currency: alert.currency,
+              type: alert.type,
+              daysOverdue: alert.daysOverdue,
             },
-            body: JSON.stringify({
-              to: staff.email,
-              subject: `💎 Cha Jewels Daily Alert — ${alerts.filter((a) => a.type === "overdue").length} Overdue, ${alerts.filter((a) => a.type === "due_today").length} Due Today`,
-              html: personalHtml,
-            }),
-          });
-          if (emailResponse.ok) emailsSent++;
-        } catch (e) {
-          console.error(`Failed to send email to ${staff.email}:`, e);
+          },
+        });
+        if (error) {
+          console.error(`Email failed for ${alert.customer}:`, error);
+          emailsFailed++;
+        } else {
+          emailsSent++;
+          // Update reminder log for this alert
+          await supabase
+            .from("reminder_logs")
+            .update({ channel: "email", delivery_status: "sent", recipient: alert.customerEmail })
+            .eq("schedule_id", alert.scheduleId)
+            .eq("customer_id", alert.customerId)
+            .order("created_at", { ascending: false })
+            .limit(1);
         }
+      } catch (e) {
+        console.error(`Email exception for ${alert.customer}:`, e);
+        emailsFailed++;
+      }
+
+      // Small delay between sends to avoid rate limits
+      if (emailAlerts.length > 1) {
+        await new Promise((r) => setTimeout(r, 500));
       }
     }
 
@@ -293,7 +212,8 @@ Deno.serve(async (req) => {
           upcoming: alerts.filter((a) => a.type === "upcoming").length,
           totalAlerts: alerts.length,
           emailsSent,
-          staffNotified: staffEmails.length,
+          emailsFailed,
+          customersWithEmail: emailAlerts.length,
         },
         alerts,
         messengerMessages,
