@@ -153,7 +153,7 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
           // Use the edit-schedule-item edge function for amount changes to preserve business logic
           if (scheduleUpdate.base_installment_amount !== undefined) {
             const { data, error } = await supabase.functions.invoke('edit-schedule-item', {
-              body: { schedule_id: scheduleId, new_base_amount: scheduleUpdate.base_installment_amount },
+              body: { schedule_id: scheduleId, new_base_amount: scheduleUpdate.base_installment_amount as number },
             });
             if (error) throw error;
             if (data?.error) throw new Error(data.error);
@@ -163,18 +163,18 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
           if (scheduleUpdate.due_date !== undefined) {
             const { error } = await supabase
               .from('layaway_schedule')
-              .update({ due_date: scheduleUpdate.due_date })
+              .update({ due_date: scheduleUpdate.due_date as string })
               .eq('id', scheduleId);
             if (error) throw error;
 
-            await supabase.from('audit_logs').insert({
+            await supabase.from('audit_logs').insert([{
               entity_type: 'layaway_schedule',
               entity_id: scheduleId,
               action: 'update_due_date',
-              old_value_json: { due_date: original.due_date },
-              new_value_json: { due_date: scheduleUpdate.due_date },
-              performed_by_user_id: userId,
-            });
+              old_value_json: { due_date: original.due_date } as Record<string, unknown>,
+              new_value_json: { due_date: scheduleUpdate.due_date } as Record<string, unknown>,
+              performed_by_user_id: userId || null,
+            }]);
           }
         }
       }
