@@ -633,7 +633,7 @@ export default function AccountDetail() {
                     if (error) throw error;
                     if (data?.error) throw new Error(data.error);
                     toast.success(data.message || 'Account reactivated');
-                    queryClient.invalidateQueries({ queryKey: ['accounts', account.id] });
+                    queryClient.invalidateQueries({ queryKey: ['account', account.id] });
                     queryClient.invalidateQueries({ queryKey: ['accounts'] });
                     queryClient.invalidateQueries({ queryKey: ['schedule', id] });
                     queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
