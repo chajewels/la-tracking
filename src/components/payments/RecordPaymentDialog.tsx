@@ -66,6 +66,30 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   const { roles } = useAuth();
   const r = roles as AppRole[];
   const isAdminOrFinance = r.includes('admin') || r.includes('finance');
+  const { loadDraft, saveDraft, clearDraft, restoredDraft, setRestoredDraft } = usePaymentDraft(accountId);
+
+  // Auto-save draft whenever form fields change (only when dialog is open)
+  useEffect(() => {
+    if (open && !payFullBalance && step === 'input') {
+      saveDraft({ amount, paymentDate, paymentMethod, notes });
+    }
+  }, [amount, paymentDate, paymentMethod, notes, open, payFullBalance, step, saveDraft]);
+
+  // Restore draft when dialog opens
+  const handleOpen = () => {
+    setOpen(true);
+    if (!payFullBalance) {
+      const draft = loadDraft();
+      if (draft) {
+        setAmount(draft.amount);
+        setPaymentDate(draft.paymentDate);
+        setPaymentMethod(draft.paymentMethod);
+        setNotes(draft.notes);
+        setRestoredDraft(true);
+        toast.info('Draft restored', { duration: 2000 });
+      }
+    }
+  };
 
   // Calculate multi-month quick-fill amounts from unpaid schedule items
   const unpaidItems = (schedule || [])
