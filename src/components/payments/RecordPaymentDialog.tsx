@@ -252,6 +252,12 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
 
         {step === 'input' && (
           <form onSubmit={(e) => { e.preventDefault(); handlePreview(); }} className="space-y-4">
+            {restoredDraft && !payFullBalance && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 rounded-md px-2.5 py-1.5">
+                <Save className="h-3.5 w-3.5" />
+                Draft restored — your previous entries have been loaded.
+              </div>
+            )}
             {payFullBalance ? (
               <div className="space-y-2">
                 <Label className="text-card-foreground">Amount ({currency})</Label>
