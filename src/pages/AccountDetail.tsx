@@ -205,6 +205,7 @@ export default function AccountDetail() {
     }
   }, [newInstAmount, newInstDueDate, account, schedule, id, queryClient]);
 
+  const currency = (account?.currency || 'PHP') as Currency;
   const principalTotal = Number(account?.total_amount || 0);
   const scheduleItems = schedule || [];
   const downpaymentAmount = Number((account as any)?.downpayment_amount || 0);
