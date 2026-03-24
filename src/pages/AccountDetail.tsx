@@ -180,12 +180,22 @@ export default function AccountDetail() {
         });
       if (error) throw error;
 
+      // Auto-update total_amount and remaining_balance to include the new installment
+      const newTotal = Math.round((Number(account.total_amount) + roundedAmount) * 100) / 100;
+      const newRemaining = Math.round((Number(account.remaining_balance) + roundedAmount) * 100) / 100;
+      const { error: accErr } = await supabase
+        .from('layaway_accounts')
+        .update({ total_amount: newTotal, remaining_balance: newRemaining })
+        .eq('id', account.id);
+      if (accErr) throw accErr;
+
       const userId = (await supabase.auth.getUser()).data.user?.id;
       await supabase.from('audit_logs').insert({
         entity_type: 'layaway_schedule',
         entity_id: account.id,
         action: 'add_schedule_item',
-        new_value_json: { installment_number: nextNumber, due_date: newInstDueDate, base_installment_amount: roundedAmount },
+        new_value_json: { installment_number: nextNumber, due_date: newInstDueDate, base_installment_amount: roundedAmount, total_amount_updated: newTotal, remaining_balance_updated: newRemaining },
+        old_value_json: { total_amount: Number(account.total_amount), remaining_balance: Number(account.remaining_balance) },
         performed_by_user_id: userId || null,
       });
 
