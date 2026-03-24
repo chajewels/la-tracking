@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { useNavigate, Link, useBlocker } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, UserPlus, ChevronDown, ChevronUp, Banknote, Copy, Check, MessageCircle, Wand2, Save, AlertTriangle } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -60,6 +60,7 @@ export default function NewAccount() {
   const [draftSavedIndicator, setDraftSavedIndicator] = useState(false);
   const [showLeaveDialog, setShowLeaveDialog] = useState(false);
   const submittedRef = useRef(false);
+  const pendingNavRef = useRef<string | null>(null);
 
   // Restore draft on mount
   useEffect(() => {
@@ -128,17 +129,15 @@ export default function NewAccount() {
     return () => window.removeEventListener('beforeunload', handler);
   }, [formDirty]);
 
-  // React Router navigation blocker
-  const blocker = useBlocker(
-    ({ currentLocation, nextLocation }) =>
-      formDirty && !submittedRef.current && currentLocation.pathname !== nextLocation.pathname
-  );
-
-  useEffect(() => {
-    if (blocker.state === 'blocked') {
+  // Navigation guard helper
+  const guardedNavigate = useCallback((path: string) => {
+    if (formDirty && !submittedRef.current) {
+      pendingNavRef.current = path;
       setShowLeaveDialog(true);
+    } else {
+      navigate(path);
     }
-  }, [blocker.state]);
+  }, [formDirty, navigate]);
 
   const amount = parseInt(totalAmount) || 0;
   const downpaymentAmount = parseInt(downpaymentInput) || 0;
@@ -383,10 +382,8 @@ export default function NewAccount() {
       <div className="animate-fade-in max-w-2xl space-y-6">
         <div className="flex items-center gap-4">
           <Link to="/accounts" onClick={(e) => {
-            if (formDirty && !submittedRef.current) {
-              e.preventDefault();
-              setShowLeaveDialog(true);
-            }
+            e.preventDefault();
+            guardedNavigate('/accounts');
           }}>
             <Button variant="ghost" size="icon" className="text-muted-foreground">
               <ArrowLeft className="h-4 w-4" />
@@ -901,13 +898,7 @@ export default function NewAccount() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => {
-                if (formDirty) {
-                  setShowLeaveDialog(true);
-                } else {
-                  navigate('/accounts');
-                }
-              }}
+              onClick={() => guardedNavigate('/accounts')}
             >
               Cancel
             </Button>
@@ -944,11 +935,8 @@ export default function NewAccount() {
                 setShowLeaveDialog(false);
                 setFormDirty(false);
                 submittedRef.current = true;
-                if (blocker.state === 'blocked') {
-                  blocker.proceed();
-                } else {
-                  navigate('/accounts');
-                }
+                navigate(pendingNavRef.current || '/accounts');
+                pendingNavRef.current = null;
               }}
             >
               Leave Page
