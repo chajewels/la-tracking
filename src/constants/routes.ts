@@ -1,0 +1,17 @@
+export const ROUTES = {
+  DASHBOARD: "/",
+  ACCOUNTS: "/accounts",
+  NEW_ACCOUNT: "/accounts/new",
+  ACCOUNT_DETAIL: "/accounts/:id",
+  CUSTOMERS: "/customers",
+  CUSTOMER_DETAIL: "/customers/:customerId",
+  MONITORING: "/monitoring",
+  COLLECTIONS: "/collections",
+  FINANCE: "/finance",
+  ANALYTICS: "/analytics",
+  REMINDERS: "/reminders",
+  WAIVERS: "/waivers",
+  ADMIN_AUDIT: "/admin-audit",
+  SETTINGS: "/settings",
+  PAYMENT_SUBMISSIONS: "/payment-submissions",
+};

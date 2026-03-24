@@ -1,3 +1,5 @@
+
+import { ROUTES } from "@/constants/routes";
 import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -24,18 +26,18 @@ import {
 } from '@/components/ui/sidebar';
 
 const menuItems = [
-  { label: 'Dashboard', icon: LayoutDashboard, path: '/' },
-  { label: 'Layaway Accounts', icon: Wallet, path: '/accounts' },
-  { label: 'Customers', icon: Users, path: '/customers' },
-  { label: 'CSR Monitoring', icon: Bell, path: '/monitoring' },
-  { label: 'Reminders', icon: CalendarClock, path: '/reminders' },
-  { label: 'Collections', icon: Wallet, path: '/collections' },
-  { label: 'Finance', icon: Wallet, path: '/finance' },
-  { label: 'Payment Submissions', icon: FileText, path: '/payment-submissions' },
-  { label: 'Waivers', icon: FileText, path: '/waivers' },
-  { label: 'Analytics', icon: BarChart3, path: '/analytics' },
-  { label: 'Admin Audit', icon: ShieldCheck, path: '/admin-audit' },
-  { label: 'Settings', icon: Settings, path: '/settings' },
+  { label: 'Dashboard', icon: LayoutDashboard, path: ROUTES.DASHBOARD },
+  { label: 'Layaway Accounts', icon: Wallet, path: ROUTES.ACCOUNTS },
+  { label: 'Customers', icon: Users, path: ROUTES.CUSTOMERS },
+  { label: 'CSR Monitoring', icon: Bell, path: ROUTES.MONITORING },
+  { label: 'Reminders', icon: CalendarClock, path: ROUTES.REMINDERS },
+  { label: 'Collections', icon: Wallet, path: ROUTES.COLLECTIONS },
+  { label: 'Finance', icon: Wallet, path: ROUTES.FINANCE },
+  { label: 'Payment Submissions', icon: FileText, path: ROUTES.PAYMENT_SUBMISSIONS },
+  { label: 'Waivers', icon: FileText, path: ROUTES.WAIVERS },
+  { label: 'Analytics', icon: BarChart3, path: ROUTES.ANALYTICS },
+  { label: 'Admin Audit', icon: ShieldCheck, path: ROUTES.ADMIN_AUDIT },
+  { label: 'Settings', icon: Settings, path: ROUTES.SETTINGS },
 ];
 
 export default function AppSidebar() {
