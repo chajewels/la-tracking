@@ -143,7 +143,7 @@ export default function Dashboard() {
                 subtitle="Inactive"
                 icon={ShieldAlert}
                 variant="danger"
-                href="/accounts?status=forfeited"
+                href={`${ROUTES.ACCOUNTS}?status=forfeited`}
               />
             </>
           )}

@@ -378,14 +378,14 @@ export default function Monitoring() {
           {/* Total Notified / Pending */}
           <button
             onClick={() => handleNotifCardClick('notified')}
-            className={`rounded-xl border bg-card p-4 text-center transition-colors hover:bg-muted/30 ${activeSummaryCard === 'notified' ? 'border-success ring-1 ring-success/30' : 'border-success/20'}`}
+            className={`rounded-xl border bg-card p-4 text-center transition-all hover:bg-muted/30 ${activeSummaryCard === 'notified' ? 'border-success ring-1 ring-success/40 bg-muted/20' : 'border-success/40'}`}
           >
             <p className="text-3xl font-bold font-display text-success">{isLoading ? '—' : totalNotified}</p>
             <p className="text-xs text-muted-foreground mt-1">Notified</p>
           </button>
           <button
             onClick={() => handleNotifCardClick('not_notified')}
-            className={`rounded-xl border bg-card p-4 text-center transition-colors hover:bg-muted/30 ${activeSummaryCard === 'not_notified' ? 'border-warning ring-1 ring-warning/30' : 'border-warning/20'}`}
+            className={`rounded-xl border bg-card p-4 text-center transition-all hover:bg-muted/30 ${activeSummaryCard === 'not_notified' ? 'border-warning ring-1 ring-warning/40 bg-muted/20' : 'border-warning/40'}`}
           >
             <p className="text-3xl font-bold font-display text-warning">{isLoading ? '—' : totalPending}</p>
             <p className="text-xs text-muted-foreground mt-1">Pending</p>
