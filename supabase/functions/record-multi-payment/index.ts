@@ -211,10 +211,10 @@ Deno.serve(async (req) => {
           const due = Math.max(0, baseAmount - currentPaid);
           if (due <= 0) continue;
 
-          const toApply = Math.min(remaining, due);
-          remaining -= toApply;
+          const toApply = Math.round(Math.min(remaining, due) * 100) / 100;
+          remaining = Math.round((remaining - toApply) * 100) / 100;
 
-          const newPaid = currentPaid + toApply;
+          const newPaid = Math.round((currentPaid + toApply) * 100) / 100;
           const newStatus = newPaid >= baseAmount ? "paid" : "partially_paid";
 
           paymentAllocations.push({
