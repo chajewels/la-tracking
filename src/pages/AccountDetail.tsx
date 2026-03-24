@@ -1507,6 +1507,27 @@ export default function AccountDetail() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Delete Schedule Item Confirmation */}
+        <AlertDialog open={!!deleteScheduleTarget} onOpenChange={(open) => { if (!open) setDeleteScheduleTarget(null); }}>
+          <AlertDialogContent className="bg-card border-border">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-card-foreground">Delete Installment?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will remove Installment #{deleteScheduleTarget?.installment_number} ({formatCurrency(deleteScheduleTarget?.amount || 0, currency)}) and deduct its amount from the total layaway amount and remaining balance. This cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deleteScheduleLoading}
+                onClick={handleDeleteInstallment}>
+                {deleteScheduleLoading ? 'Deleting…' : 'Delete Installment'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </AppLayout>
   );
