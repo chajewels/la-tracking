@@ -980,7 +980,18 @@ export default function AccountDetail() {
                           </p>
                         </div>
                       </div>
-                      <div className="text-right">
+                      <div className="flex items-center gap-2">
+                        {!effPaid && !partial && canEdit && can('edit_schedule') && item.status !== 'cancelled' && (
+                          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                            title="Delete installment"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteScheduleTarget({ id: item.id, amount: baseAmt, installment_number: item.installment_number });
+                            }}>
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        )}
+                        <div className="text-right">
                         <p className={`text-xs font-semibold tabular-nums ${effPaid ? 'text-success' : partial ? 'text-warning' : 'text-card-foreground'}`}>
                           {formatCurrency(effPaid ? Math.max(paidAmt, totalDue) : totalDue, currency)}
                         </p>
