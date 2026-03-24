@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
-import { CheckCircle, XCircle, Loader2, MailOff } from 'lucide-react';
+import { CheckCircle, XCircle, Loader2, MailX } from 'lucide-react';
 
 export default function Unsubscribe() {
   const [searchParams] = useSearchParams();
@@ -60,7 +60,7 @@ export default function Unsubscribe() {
 
         {status === 'valid' && (
           <div className="space-y-4">
-            <MailOff className="h-12 w-12 mx-auto text-warning" />
+            <MailX className="h-12 w-12 mx-auto text-warning" />
             <h2 className="text-lg font-semibold text-foreground">Unsubscribe from emails?</h2>
             <p className="text-sm text-muted-foreground">
               You will no longer receive payment reminder emails from Cha Jewels.
