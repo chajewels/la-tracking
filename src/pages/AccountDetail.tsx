@@ -49,6 +49,7 @@ export default function AccountDetail() {
   const { data: penaltyCapOverride } = usePenaltyCapOverride(id);
   const [copied, setCopied] = useState(false);
   const voidPayment = useVoidPayment();
+  const editPaymentAmount = useEditPaymentAmount();
   const editPayment = useEditPayment();
   const restorePayment = useRestorePayment();
   const deleteAccount = useDeleteAccount();
