@@ -61,6 +61,8 @@ export default function AccountDetail() {
   const [editDate, setEditDate] = useState('');
   const [editMethod, setEditMethod] = useState('');
   const [editRemarks, setEditRemarks] = useState('');
+  const [editAmount, setEditAmount] = useState('');
+  const [editAmountReason, setEditAmountReason] = useState('');
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<{ id: string; amount: number; date: string } | null>(null);
   const [forfeitConfirmOpen, setForfeitConfirmOpen] = useState(false);
