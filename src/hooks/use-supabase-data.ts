@@ -22,13 +22,13 @@ const MONITORING_KEYS = ['monitoring-schedules', 'csr-notifications', 'penalty-f
 const SUBMISSION_KEYS = ['pending-submission-count', 'pending-submissions-summary', 'payment-submissions'] as const;
 
 function invalidateAll(qc: ReturnType<typeof useQueryClient>) {
-  for (const key of [...CORE_KEYS, ...PAYMENT_KEYS]) {
+  for (const key of [...CORE_KEYS, ...PAYMENT_KEYS, 'account']) {
     qc.invalidateQueries({ queryKey: [key] });
   }
 }
 
 function invalidatePaymentRelated(qc: ReturnType<typeof useQueryClient>) {
-  for (const key of [...CORE_KEYS, ...PAYMENT_KEYS, ...MONITORING_KEYS]) {
+  for (const key of [...CORE_KEYS, ...PAYMENT_KEYS, ...MONITORING_KEYS, 'account']) {
     qc.invalidateQueries({ queryKey: [key] });
   }
 }
@@ -82,7 +82,7 @@ export function useAccounts() {
 
 export function useAccount(id: string | undefined) {
   return useQuery({
-    queryKey: ['accounts', id],
+    queryKey: ['account', id],
     enabled: !!id,
     staleTime: STALE_SHORT,
     queryFn: async () => {

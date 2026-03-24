@@ -214,7 +214,7 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
       }
 
       // Invalidate relevant queries
-      queryClient.invalidateQueries({ queryKey: ['accounts', account.id] });
+      queryClient.invalidateQueries({ queryKey: ['account', account.id] });
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
       queryClient.invalidateQueries({ queryKey: ['schedule', account.id] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
