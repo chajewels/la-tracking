@@ -22,7 +22,7 @@ const MONITORING_KEYS = ['monitoring-schedules', 'csr-notifications', 'penalty-f
 const SUBMISSION_KEYS = ['pending-submission-count', 'pending-submissions-summary', 'payment-submissions'] as const;
 
 function invalidateAll(qc: ReturnType<typeof useQueryClient>) {
-  for (const key of [...CORE_KEYS, ...PAYMENT_KEYS, 'account']) {
+  for (const key of [...CORE_KEYS, ...PAYMENT_KEYS, 'account', 'customer-detail']) {
     qc.invalidateQueries({ queryKey: [key] });
   }
 }
