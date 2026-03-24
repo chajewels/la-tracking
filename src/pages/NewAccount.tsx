@@ -935,11 +935,8 @@ export default function NewAccount() {
                 setShowLeaveDialog(false);
                 setFormDirty(false);
                 submittedRef.current = true;
-                if (blocker.state === 'blocked') {
-                  blocker.proceed();
-                } else {
-                  navigate('/accounts');
-                }
+                navigate(pendingNavRef.current || '/accounts');
+                pendingNavRef.current = null;
               }}
             >
               Leave Page
