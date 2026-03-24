@@ -8,6 +8,7 @@ import RestorePaymentDialog from '@/components/payments/RestorePaymentDialog';
 import ReassignOwnerDialog from '@/components/accounts/ReassignOwnerDialog';
 import AddServiceDialog from '@/components/services/AddServiceDialog';
 import ServicesList, { AccountService } from '@/components/services/ServicesList';
+import EditAccountDialog from '@/components/accounts/EditAccountDialog';
 import AddPenaltyDialog from '@/components/penalties/AddPenaltyDialog';
 import ApplyPenaltyCapDialog from '@/components/penalties/ApplyPenaltyCapDialog';
 import AppLayout from '@/components/layout/AppLayout';
