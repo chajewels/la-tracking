@@ -129,17 +129,15 @@ export default function NewAccount() {
     return () => window.removeEventListener('beforeunload', handler);
   }, [formDirty]);
 
-  // React Router navigation blocker
-  const blocker = useBlocker(
-    ({ currentLocation, nextLocation }) =>
-      formDirty && !submittedRef.current && currentLocation.pathname !== nextLocation.pathname
-  );
-
-  useEffect(() => {
-    if (blocker.state === 'blocked') {
+  // Navigation guard helper
+  const guardedNavigate = useCallback((path: string) => {
+    if (formDirty && !submittedRef.current) {
+      pendingNavRef.current = path;
       setShowLeaveDialog(true);
+    } else {
+      navigate(path);
     }
-  }, [blocker.state]);
+  }, [formDirty, navigate]);
 
   const amount = parseInt(totalAmount) || 0;
   const downpaymentAmount = parseInt(downpaymentInput) || 0;
