@@ -242,7 +242,7 @@ Deno.serve(async (req) => {
         const todayStr = new Date().toISOString().split("T")[0];
         // Check if there will still be overdue items after applying scheduleUpdates
         const paidIds = new Set(scheduleUpdates.filter((u: any) => u.status === "paid").map((u: any) => u.id));
-        const stillOverdue = acctSchedule.some((s: any) =>
+        const stillOverdue = (schedule || []).some((s: any) =>
           s.status !== "paid" && s.status !== "cancelled" && !paidIds.has(s.id) && s.due_date < todayStr
         );
         newStatus = stillOverdue ? "overdue" : "active";
