@@ -900,7 +900,7 @@ export default function AccountDetail() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Payment Schedule */}
-          <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
+          <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 overflow-hidden">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
                 <Calendar className="h-4 w-4 text-primary" /> Payment Schedule

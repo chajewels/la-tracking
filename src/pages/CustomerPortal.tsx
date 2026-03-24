@@ -535,19 +535,21 @@ function SummaryTile({ label, value, icon, accent, danger, success, sub }: {
   label: string; value: string; icon: React.ReactNode; accent?: boolean; danger?: boolean; success?: boolean; sub?: string;
 }) {
   const borderBg = danger
-    ? 'border-destructive/20 bg-destructive/5'
+    ? 'border-destructive/20 bg-destructive/5 hover:border-destructive/40'
     : success
-      ? 'border-success/20 bg-success/5'
+      ? 'border-success/20 bg-success/5 hover:border-success/40'
       : accent
-        ? 'border-primary/20 bg-primary/5'
-        : 'bg-[hsl(var(--card))] border-[hsl(var(--border))]';
+        ? 'border-primary/20 bg-primary/5 hover:border-primary/40'
+        : 'bg-[hsl(var(--card))] border-[hsl(var(--border))] hover:border-[hsl(var(--gold)/0.3)]';
   const iconColor = danger ? 'text-destructive' : success ? 'text-success' : 'text-muted-foreground';
   const valueColor = danger ? 'text-destructive' : success ? 'text-success' : accent ? 'text-primary' : 'text-foreground';
+  const accentBar = danger ? 'bg-destructive/60' : success ? 'bg-success/60' : accent ? 'bg-gradient-to-r from-[hsl(var(--gold)/0.4)] via-[hsl(var(--gold))] to-[hsl(var(--gold)/0.4)]' : 'bg-[hsl(var(--border))]';
 
   return (
-    <div className={`rounded-xl border p-3.5 ${borderBg}`}>
+    <div className={`group relative overflow-hidden rounded-xl border p-3.5 card-hover transition-all ${borderBg}`}>
+      <div className={`absolute top-0 left-3 right-3 h-[2px] rounded-b-full ${accentBar}`} />
       <div className="flex items-center gap-1.5 mb-1.5">
-        <span className={iconColor}>{icon}</span>
+        <span className={`${iconColor} transition-transform group-hover:scale-110`}>{icon}</span>
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">{label}</span>
       </div>
       <p className={`text-base sm:text-lg font-bold font-display tabular-nums ${valueColor}`}>
