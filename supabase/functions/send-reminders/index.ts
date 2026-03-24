@@ -187,6 +187,7 @@ Deno.serve(async (req) => {
           headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${anonKey}`,
+            "apikey": anonKey,
           },
           body: JSON.stringify({
             templateName: "payment-reminder",
