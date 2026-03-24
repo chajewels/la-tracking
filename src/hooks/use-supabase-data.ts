@@ -373,11 +373,23 @@ export function useCreateAccount() {
       const { data, error } = await supabase.functions.invoke('create-layaway-account', {
         body: payload,
       });
-      if (error) throw error;
+      if (error) {
+        // Extract detailed error from FunctionsHttpError response body
+        let detailedMsg = error.message || 'Failed to create account';
+        try {
+          if ('context' in error && (error as any).context?.body) {
+            const body = await new Response((error as any).context.body).json();
+            if (body?.error) detailedMsg = body.error;
+          }
+        } catch {
+          // Fallback to generic message
+        }
+        throw new Error(detailedMsg);
+      }
       if (data?.error) {
-        const msg = data.error.includes('duplicate key') && data.error.includes('invoice_number')
+        const msg = (typeof data.error === 'string' && data.error.includes('duplicate key') && data.error.includes('invoice_number'))
           ? `Invoice number "${payload.invoice_number}" already exists. Please use a different invoice number.`
-          : data.error;
+          : (typeof data.error === 'string' ? data.error : JSON.stringify(data.error));
         throw new Error(msg);
       }
       return data;
