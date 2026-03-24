@@ -82,7 +82,7 @@ export function useAccounts() {
 
 export function useAccount(id: string | undefined) {
   return useQuery({
-    queryKey: ['accounts', id],
+    queryKey: ['account', id],
     enabled: !!id,
     staleTime: STALE_SHORT,
     queryFn: async () => {
