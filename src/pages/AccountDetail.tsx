@@ -558,6 +558,29 @@ export default function AccountDetail() {
             )}
           </div>
           <div className="flex gap-2 flex-wrap">
+            {can('edit_invoice') && (
+              <EditAccountDialog
+                account={{
+                  id: account.id,
+                  invoice_number: account.invoice_number,
+                  total_amount: Number(account.total_amount),
+                  order_date: account.order_date,
+                  payment_plan_months: account.payment_plan_months,
+                  notes: account.notes,
+                  downpayment_amount: Number((account as any).downpayment_amount || 0),
+                  currency: account.currency,
+                  status: account.status,
+                }}
+                schedule={scheduleItems.map(s => ({
+                  id: s.id,
+                  installment_number: s.installment_number,
+                  due_date: s.due_date,
+                  base_installment_amount: Number(s.base_installment_amount),
+                  status: s.status,
+                  paid_amount: Number(s.paid_amount),
+                }))}
+              />
+            )}
             {can('reassign_owner') && (
             <ReassignOwnerDialog
               accountId={account.id}
