@@ -224,7 +224,7 @@ export default function CustomerPortal() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[hsl(var(--background))]">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-transparent">
         <Diamond className="h-8 w-8 text-primary animate-pulse mb-3" />
         <p className="text-sm text-muted-foreground">Loading your accounts…</p>
       </div>
@@ -234,7 +234,7 @@ export default function CustomerPortal() {
   if (error || !data) {
     const isExpired = error?.toLowerCase().includes('expired');
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[hsl(var(--background))] p-4">
+      <div className="min-h-screen flex items-center justify-center bg-transparent p-4">
         <Card className="max-w-md w-full shadow-lg">
           <CardContent className="pt-10 pb-10 text-center">
             <Diamond className="h-8 w-8 text-primary mx-auto mb-2" />
@@ -277,7 +277,7 @@ export default function CustomerPortal() {
   const overdueCount = data.accounts.filter(a => a.status_label === 'Overdue').length;
 
   return (
-    <div className="min-h-screen bg-[hsl(var(--background))]">
+    <div className="min-h-screen bg-transparent">
       {/* Header */}
       <div className="bg-[hsl(var(--card))] border-b border-[hsl(var(--border))]">
         <div className="max-w-3xl mx-auto px-4 py-5 sm:py-6">

@@ -1,3 +1,4 @@
+import luxuryHero from '@/assets/luxury-jewelry-hero.jpg';
 import { ReactNode } from 'react';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { Link } from 'react-router-dom';
@@ -8,59 +9,78 @@ import { useAuth } from '@/contexts/AuthContext';
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { profile, roles, signOut } = useAuth();
+
   const initials = profile?.full_name
-    ? profile.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+    ? profile.full_name
+        .split(' ')
+        .map((n) => n[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2)
     : '??';
-  const roleLabel = roles.length > 0 ? roles[0].charAt(0).toUpperCase() + roles[0].slice(1) : 'User';
+
+  const roleLabel =
+    roles.length > 0
+      ? roles[0].charAt(0).toUpperCase() + roles[0].slice(1)
+      : 'User';
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full dark">
-        <AppSidebar />
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Top Header */}
-          <header className="h-12 flex items-center justify-between border-b border-border px-4 shrink-0 bg-card/80 glass-panel sticky top-0 z-30">
-            <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
-            <div className="flex items-center gap-3">
-              <Link to="/monitoring">
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground relative">
-                  <Bell className="h-4 w-4" />
-                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
-                </Button>
-              </Link>
-              <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-full gold-gradient text-[10px] font-bold text-primary-foreground">
-                  {initials}
+      <div
+        className="min-h-screen flex w-full text-white bg-cover bg-center bg-no-repeat"
+        style={{ backgroundImage: `url(${luxuryHero})` }}
+      >
+        <div className="min-h-screen w-full flex bg-black/72">
+          <AppSidebar />
+
+          <div className="flex min-h-screen flex-1 flex-col">
+            {/* Top Header */}
+            <header className="h-14 flex items-center justify-between border-b border-[#D4AF37]/25 px-4 shrink-0 bg-black/55 backdrop-blur-md sticky top-0 z-30">
+              <SidebarTrigger className="text-[#D4AF37] hover:text-white" />
+
+              <div className="flex items-center gap-3">
+                <Link to="/monitoring">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-[#D4AF37] hover:text-white hover:bg-white/10 relative"
+                  >
+                    <Bell className="h-4 w-4" />
+                    <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500" />
+                  </Button>
+                </Link>
+
+                <div className="flex items-center gap-2">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#F7E7A1] via-[#D4AF37] to-[#8C6A00] text-black text-[10px] font-bold shadow-md">
+                    {initials}
+                  </div>
+
+                  <div className="hidden sm:flex flex-col leading-tight">
+                    <span className="text-sm font-semibold text-white">
+                      {profile?.full_name || 'User'}
+                    </span>
+                    <span className="text-[11px] text-[#E7D7A2]">
+                      {roleLabel}
+                    </span>
+                  </div>
+
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={signOut}
+                    className="h-8 w-8 text-[#D4AF37] hover:text-red-400 hover:bg-white/10"
+                  >
+                    <LogOut className="h-4 w-4" />
+                  </Button>
                 </div>
-                <div className="hidden sm:block">
-                  <p className="text-xs font-medium text-foreground leading-none">{profile?.full_name ?? 'User'}</p>
-                  <p className="text-[10px] text-muted-foreground">{roleLabel}</p>
-                </div>
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={signOut}>
-                  <LogOut className="h-4 w-4" />
-                </Button>
               </div>
-            </div>
-          </header>
+            </header>
 
-          {/* Main Content */}
-          <main className="flex-1 overflow-auto custom-scrollbar">
-            <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
+            {/* Main Content */}
+            <main className="flex-1 p-4 md:p-6">
               {children}
-            </div>
-          </main>
-
-          {/* Brand Footer */}
-          <footer className="border-t border-border px-4 py-3 bg-card/50">
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-1 text-center sm:text-left">
-              <p className="text-[10px] text-muted-foreground font-medium">
-                © {new Date().getFullYear()} Cha Jewels Co., Ltd.
-              </p>
-              <p className="text-[10px] text-muted-foreground/60">
-                Layaway Payment Management System
-              </p>
-            </div>
-          </footer>
+            </main>
+          </div>
         </div>
       </div>
     </SidebarProvider>

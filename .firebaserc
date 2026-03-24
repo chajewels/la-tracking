@@ -1,5 +1,15 @@
 {
   "projects": {
     "default": "cha-jewels-la-tracking"
-  }
+  },
+  "targets": {
+    "cha-jewels-la-tracking": {
+      "hosting": {
+        "main": [
+          "chajewelslayaway"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }

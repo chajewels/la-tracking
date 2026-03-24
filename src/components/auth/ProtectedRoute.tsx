@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 
 function AccessDenied() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
+    <div className="min-h-screen flex items-center justify-center bg-transparent">
       <div className="text-center space-y-4 p-8">
         <div className="flex justify-center">
           <div className="h-16 w-16 rounded-full bg-destructive/10 flex items-center justify-center">
@@ -32,7 +32,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
 
   if (loading || permLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex items-center justify-center bg-transparent">
         <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
       </div>
     );

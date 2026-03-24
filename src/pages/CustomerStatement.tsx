@@ -160,7 +160,7 @@ export default function CustomerStatement() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex items-center justify-center bg-transparent">
         <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
       </div>
     );
@@ -169,7 +169,7 @@ export default function CustomerStatement() {
   if (error || !data) {
     const isExpired = error?.toLowerCase().includes('expired');
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="min-h-screen flex items-center justify-center bg-transparent p-4">
         <Card className="max-w-md w-full">
           <CardContent className="pt-8 pb-8 text-center">
             <div className="text-2xl font-bold text-foreground mb-1">✨ Cha Jewels</div>
@@ -197,7 +197,7 @@ export default function CustomerStatement() {
   const currentTotalPayable = data.current_total_payable ?? (data.computed_remaining + data.total_active_penalties);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-transparent">
       {/* Action buttons - hidden on print */}
       <div className="print:hidden fixed top-4 right-4 z-50 flex gap-2">
         <Button variant="outline" size="sm" onClick={() => window.print()}>

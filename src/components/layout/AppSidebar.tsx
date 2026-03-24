@@ -1,119 +1,118 @@
 import { Link, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, FileText, Users, Bell, DollarSign, BarChart3, Activity, Settings, Send, LogOut, Scale, Shield, CreditCard,
+  LayoutDashboard,
+  Wallet,
+  Users,
+  Bell,
+  CalendarClock,
+  FileText,
+  BarChart3,
+  ShieldCheck,
+  Settings,
+  LogOut,
 } from 'lucide-react';
-import { NavLink } from '@/components/NavLink';
-import {
-  Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
-  SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarFooter, SidebarHeader,
-  useSidebar,
-} from '@/components/ui/sidebar';
-import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { usePermissions } from '@/contexts/PermissionsContext';
-import { usePendingSubmissionCount } from '@/hooks/use-pending-submissions';
-import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
+import { cn } from '@/lib/utils';
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from '@/components/ui/sidebar';
 
-const allNavItems = [
-  { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
-  { icon: FileText, label: 'Layaway Accounts', path: '/accounts' },
-  { icon: Users, label: 'Customers', path: '/customers' },
-  { icon: Bell, label: 'CSR Monitoring', path: '/monitoring' },
-  { icon: Send, label: 'Reminders', path: '/reminders' },
-  { icon: Activity, label: 'Collections', path: '/collections' },
-  { icon: DollarSign, label: 'Finance', path: '/finance' },
-  { icon: CreditCard, label: 'Payment Submissions', path: '/payment-submissions' },
-  { icon: Scale, label: 'Waivers', path: '/waivers' },
-  { icon: BarChart3, label: 'Analytics', path: '/analytics' },
-  { icon: Shield, label: 'Admin Audit', path: '/admin-audit' },
-  { icon: Settings, label: 'Settings', path: '/settings' },
+const menuItems = [
+  { label: 'Dashboard', icon: LayoutDashboard, path: '/' },
+  { label: 'Layaway Accounts', icon: Wallet, path: '/accounts' },
+  { label: 'Customers', icon: Users, path: '/customers' },
+  { label: 'CSR Monitoring', icon: Bell, path: '/monitoring' },
+  { label: 'Reminders', icon: CalendarClock, path: '/reminders' },
+  { label: 'Collections', icon: Wallet, path: '/collections' },
+  { label: 'Finance', icon: Wallet, path: '/finance' },
+  { label: 'Payment Submissions', icon: FileText, path: '/payments' },
+  { label: 'Waivers', icon: FileText, path: '/waivers' },
+  { label: 'Analytics', icon: BarChart3, path: '/analytics' },
+  { label: 'Admin Audit', icon: ShieldCheck, path: '/audit' },
+  { label: 'Settings', icon: Settings, path: '/settings' },
 ];
 
 export default function AppSidebar() {
-  const { state } = useSidebar();
-  const collapsed = state === 'collapsed';
   const location = useLocation();
-  const { profile, roles, signOut } = useAuth();
-  const { canSeeNav } = usePermissions();
-  const navItems = allNavItems.filter(item => canSeeNav(item.path));
-  const { data: pendingCount } = usePendingSubmissionCount();
+  const { profile, signOut } = useAuth();
 
   const initials = profile?.full_name
-    ? profile.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
-    : '??';
-  const roleLabel = roles.length > 0 ? roles.map(r => r.charAt(0).toUpperCase() + r.slice(1)).join(', ') : 'No role';
+    ? profile.full_name
+        .split(' ')
+        .map((n) => n[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2)
+    : 'CJ';
 
   return (
-    <Sidebar collapsible="icon" className="border-r border-sidebar-border">
-      <SidebarHeader className="border-b border-sidebar-border px-3 py-3">
-        <Link to="/" className="flex items-center gap-3 group">
-          <img
-            src={chaJewelsLogo}
-            alt="Cha Jewels"
-            className="h-9 w-9 shrink-0 rounded-lg object-cover"
-          />
-          {!collapsed && (
-            <div>
-              <h1 className="text-sm font-bold text-sidebar-accent-foreground font-display tracking-wide">
-                CHA JEWELS
-              </h1>
-              <p className="text-[10px] text-sidebar-foreground/50 font-medium tracking-wider">
-                LAYAWAY SYSTEM
-              </p>
-            </div>
-          )}
-        </Link>
+    <Sidebar className="border-r border-[#D4AF37]/20 bg-black/90 text-white backdrop-blur-md">
+      <SidebarHeader className="border-b border-[#D4AF37]/20 px-5 py-5">
+        <div>
+          <h1 className="text-lg font-semibold tracking-wide text-[#D4AF37]">
+            CHA JEWELS
+          </h1>
+          <p className="text-[10px] tracking-[0.24em] text-[#E7D7A2]">
+            LAYAWAY SYSTEM
+          </p>
+        </div>
       </SidebarHeader>
 
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-sidebar-foreground/40 text-[10px] font-semibold tracking-widest">
-            MENU
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {navItems.map((item) => (
-                <SidebarMenuItem key={item.path}>
-                  <SidebarMenuButton asChild tooltip={item.label}>
-                    <NavLink
-                      to={item.path}
-                      end={item.path === '/'}
-                      className="hover:bg-sidebar-accent"
-                      activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                    >
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.label}</span>
-                      {item.label === 'Payment Submissions' && !!pendingCount && pendingCount > 0 && (
-                        <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-warning text-[10px] font-bold text-warning-foreground px-1.5">
-                          {pendingCount}
-                        </span>
-                      )}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+      <SidebarContent className="px-3 py-4">
+        <SidebarMenu>
+          {menuItems.map((item) => {
+            const isActive = location.pathname === item.path;
+            const Icon = item.icon;
+
+            return (
+              <SidebarMenuItem key={item.label}>
+                <SidebarMenuButton
+                  asChild
+                  className={cn(
+                    'mb-1 h-11 rounded-lg px-3 text-sm transition-all',
+                    isActive
+                      ? 'border border-[#D4AF37]/30 bg-[#D4AF37]/15 text-[#D4AF37] hover:bg-[#D4AF37]/20 hover:text-[#D4AF37]'
+                      : 'text-white/75 hover:bg-white/5 hover:text-white'
+                  )}
+                >
+                  <Link to={item.path}>
+                    <Icon className="h-4 w-4" />
+                    <span>{item.label}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            );
+          })}
+        </SidebarMenu>
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-sidebar-border p-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full gold-gradient text-xs font-bold text-primary-foreground">
+      <SidebarFooter className="border-t border-[#D4AF37]/20 bg-black/60 p-4 backdrop-blur-md">
+        <div className="mb-3 flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#F7E7A1] via-[#D4AF37] to-[#8C6A00] text-xs font-bold text-black">
             {initials}
           </div>
-          {!collapsed && (
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-sidebar-accent-foreground truncate">{profile?.full_name ?? 'User'}</p>
-              <p className="text-[10px] text-sidebar-foreground/50">{roleLabel}</p>
+
+          <div className="min-w-0 flex-1 leading-tight">
+            <div className="truncate text-sm font-medium text-white">
+              {profile?.full_name || 'Cha Jewels'}
             </div>
-          )}
-          {!collapsed && (
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-sidebar-foreground/50 hover:text-destructive" onClick={signOut}>
-              <LogOut className="h-3.5 w-3.5" />
-            </Button>
-          )}
+            <div className="text-[11px] text-[#E7D7A2]">Admin</div>
+          </div>
         </div>
+
+        <button
+          onClick={signOut}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-red-500/30 px-3 py-2 text-sm text-red-400 transition hover:bg-red-500/10"
+        >
+          <LogOut className="h-4 w-4" />
+          Logout
+        </button>
       </SidebarFooter>
     </Sidebar>
   );

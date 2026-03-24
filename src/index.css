@@ -6,158 +6,135 @@
 
 @layer base {
   :root {
-    --background: 0 0% 5.5%;
-    --foreground: 0 0% 93%;
+    --background: 0 0% 6%;
+    --foreground: 48 100% 97%;
 
     --card: 0 0% 8%;
-    --card-foreground: 0 0% 93%;
+    --card-foreground: 48 100% 97%;
 
-    --popover: 0 0% 9%;
-    --popover-foreground: 0 0% 93%;
+    --popover: 0 0% 8%;
+    --popover-foreground: 48 100% 97%;
 
-    --primary: 44 72% 47%;
-    --primary-foreground: 0 0% 4.3%;
+    --primary: 43 74% 52%;
+    --primary-foreground: 0 0% 5%;
 
     --secondary: 0 0% 12%;
-    --secondary-foreground: 0 0% 80%;
+    --secondary-foreground: 48 100% 97%;
 
-    --muted: 0 0% 11%;
-    --muted-foreground: 0 0% 50%;
+    --muted: 0 0% 10%;
+    --muted-foreground: 40 30% 75%;
 
-    --accent: 44 30% 14%;
-    --accent-foreground: 44 55% 65%;
+    --accent: 43 74% 52%;
+    --accent-foreground: 0 0% 5%;
 
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 98%;
 
-    --border: 0 0% 15%;
-    --input: 0 0% 15%;
-    --ring: 44 72% 47%;
+    --border: 43 45% 28%;
+    --input: 0 0% 11%;
+    --ring: 43 74% 52%;
 
-    --radius: 0.625rem;
+    --radius: 1rem;
 
-    --sidebar-background: 0 0% 3.5%;
-    --sidebar-foreground: 0 0% 65%;
-    --sidebar-primary: 44 72% 47%;
-    --sidebar-primary-foreground: 0 0% 4.3%;
-    --sidebar-accent: 0 0% 8%;
-    --sidebar-accent-foreground: 0 0% 90%;
-    --sidebar-border: 0 0% 11%;
-    --sidebar-ring: 44 72% 47%;
-
-    --gold: 44 72% 47%;
-    --gold-light: 44 55% 65%;
-    --gold-dark: 44 80% 35%;
-    --success: 152 55% 40%;
-    --success-foreground: 0 0% 100%;
-    --warning: 38 92% 50%;
-    --warning-foreground: 0 0% 4.3%;
-    --info: 210 70% 50%;
-    --info-foreground: 0 0% 100%;
-
-    --font-display: 'Montserrat', sans-serif;
-    --font-body: 'Inter', sans-serif;
+    --sidebar-background: 0 0% 5%;
+    --sidebar-foreground: 48 100% 96%;
+    --sidebar-primary: 43 74% 52%;
+    --sidebar-primary-foreground: 0 0% 5%;
+    --sidebar-accent: 0 0% 10%;
+    --sidebar-accent-foreground: 48 100% 96%;
+    --sidebar-border: 43 45% 28%;
+    --sidebar-ring: 43 74% 52%;
   }
 
   .dark {
-    --background: 0 0% 5.5%;
-    --foreground: 0 0% 93%;
+    --background: 0 0% 6%;
+    --foreground: 48 100% 97%;
 
     --card: 0 0% 8%;
-    --card-foreground: 0 0% 93%;
+    --card-foreground: 48 100% 97%;
 
-    --popover: 0 0% 9%;
-    --popover-foreground: 0 0% 93%;
+    --popover: 0 0% 8%;
+    --popover-foreground: 48 100% 97%;
 
-    --primary: 44 72% 47%;
-    --primary-foreground: 0 0% 4.3%;
+    --primary: 43 74% 52%;
+    --primary-foreground: 0 0% 5%;
 
     --secondary: 0 0% 12%;
-    --secondary-foreground: 0 0% 80%;
+    --secondary-foreground: 48 100% 97%;
 
-    --muted: 0 0% 11%;
-    --muted-foreground: 0 0% 50%;
+    --muted: 0 0% 10%;
+    --muted-foreground: 40 30% 75%;
 
-    --accent: 44 30% 14%;
-    --accent-foreground: 44 55% 65%;
+    --accent: 43 74% 52%;
+    --accent-foreground: 0 0% 5%;
 
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 98%;
 
-    --border: 0 0% 15%;
-    --input: 0 0% 15%;
-    --ring: 44 72% 47%;
+    --border: 43 45% 28%;
+    --input: 0 0% 11%;
+    --ring: 43 74% 52%;
 
-    --sidebar-background: 0 0% 3.5%;
-    --sidebar-foreground: 0 0% 65%;
-    --sidebar-primary: 44 72% 47%;
-    --sidebar-primary-foreground: 0 0% 4.3%;
-    --sidebar-accent: 0 0% 8%;
-    --sidebar-accent-foreground: 0 0% 90%;
-    --sidebar-border: 0 0% 11%;
-    --sidebar-ring: 44 72% 47%;
+    --sidebar-background: 0 0% 5%;
+    --sidebar-foreground: 48 100% 96%;
+    --sidebar-primary: 43 74% 52%;
+    --sidebar-primary-foreground: 0 0% 5%;
+    --sidebar-accent: 0 0% 10%;
+    --sidebar-accent-foreground: 48 100% 96%;
+    --sidebar-border: 43 45% 28%;
+    --sidebar-ring: 43 74% 52%;
   }
-}
 
-@layer base {
   * {
     @apply border-border;
   }
 
+  html {
+    background: hsl(var(--background));
+  }
+
   body {
     @apply bg-background text-foreground;
-    font-family: var(--font-body);
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+    font-family: 'Inter', sans-serif;
+
+    /* Luxury dark overlay base */
+    background:
+      linear-gradient(rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0.78)),
+      hsl(var(--background));
   }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: var(--font-display);
-    letter-spacing: -0.01em;
+    font-family: 'Montserrat', sans-serif;
+    letter-spacing: -0.02em;
   }
 }
 
 @layer components {
-  .gold-gradient {
-    background: linear-gradient(135deg, hsl(44 72% 47%), hsl(44 55% 65%));
-  }
-
-  .gold-text {
-    background: linear-gradient(135deg, hsl(44 72% 47%), hsl(44 55% 65%));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-
-  .card-hover {
-    @apply transition-all duration-200;
-  }
-
-  .card-hover:hover {
-    @apply shadow-lg;
-    transform: translateY(-2px);
-  }
-
-  .brand-footer {
-    font-family: var(--font-body);
-    color: hsl(var(--muted-foreground));
-  }
-
-  /* Subtle glass effect for header */
+  /* Glass luxury panels */
   .glass-panel {
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: rgba(10, 10, 10, 0.75);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(212, 175, 55, 0.2);
+    box-shadow:
+      0 10px 40px rgba(0, 0, 0, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.04);
   }
 
-  /* Smooth scrollbar styling */
-  .custom-scrollbar::-webkit-scrollbar {
-    width: 4px;
+  /* Gold gradient */
+  .gold-gradient {
+    background: linear-gradient(135deg, #f7e7a1 0%, #d4af37 45%, #8c6a00 100%);
   }
-  .custom-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
+
+  /* Gold border accent */
+  .gold-border {
+    border: 1px solid rgba(212, 175, 55, 0.3);
   }
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: hsl(var(--border));
-    border-radius: 2px;
+
+  /* Luxury card override */
+  .luxury-card {
+    background: rgba(15, 15, 15, 0.75);
+    border: 1px solid rgba(212, 175, 55, 0.18);
+    backdrop-filter: blur(14px);
   }
 }
