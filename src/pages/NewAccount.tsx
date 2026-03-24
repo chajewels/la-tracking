@@ -367,7 +367,7 @@ export default function NewAccount() {
 
         setSplitMessageDialog(msg);
       } else {
-        navigate('/accounts');
+        navigate(ROUTES.ACCOUNTS);
       }
     } catch (err: any) {
       console.error('Create account error:', err);
