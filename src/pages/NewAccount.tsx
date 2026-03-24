@@ -371,7 +371,12 @@ export default function NewAccount() {
       }
     } catch (err: any) {
       console.error('Create account error:', err);
-      toast.error(err.message || 'Failed to create account');
+      const msg = err.message || 'Failed to create account';
+      if (msg.includes('duplicate key') || msg.includes('invoice_number')) {
+        toast.error(`Invoice number "${invoiceNumber}" already exists. Please use a different invoice number.`);
+      } else {
+        toast.error(msg);
+      }
     }
   };
 
