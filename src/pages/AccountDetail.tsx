@@ -79,6 +79,8 @@ export default function AccountDetail() {
   const [newInstDueDate, setNewInstDueDate] = useState('');
   const [newInstAmount, setNewInstAmount] = useState('');
   const [newInstSaving, setNewInstSaving] = useState(false);
+  const [deleteScheduleTarget, setDeleteScheduleTarget] = useState<{ id: string; amount: number; installment_number: number } | null>(null);
+  const [deleteScheduleLoading, setDeleteScheduleLoading] = useState(false);
   const queryClient = useQueryClient();
   const { roles } = useAuth();
   const { can: canPerm } = usePermissions();
@@ -214,6 +216,51 @@ export default function AccountDetail() {
       setNewInstSaving(false);
     }
   }, [newInstAmount, newInstDueDate, account, schedule, id, queryClient]);
+
+  const handleDeleteInstallment = useCallback(async () => {
+    if (!deleteScheduleTarget || !account) return;
+    setDeleteScheduleLoading(true);
+    try {
+      // Cancel the schedule item (set status to cancelled, zero out amounts)
+      const { error } = await supabase
+        .from('layaway_schedule')
+        .update({ status: 'cancelled' as any, base_installment_amount: 0, total_due_amount: 0, penalty_amount: 0 })
+        .eq('id', deleteScheduleTarget.id);
+      if (error) throw error;
+
+      // Deduct from account totals
+      const deductAmt = deleteScheduleTarget.amount;
+      const newTotal = Math.round((Number(account.total_amount) - deductAmt) * 100) / 100;
+      const newRemaining = Math.round((Number(account.remaining_balance) - deductAmt) * 100) / 100;
+      const { error: accErr } = await supabase
+        .from('layaway_accounts')
+        .update({ total_amount: Math.max(0, newTotal), remaining_balance: Math.max(0, newRemaining) })
+        .eq('id', account.id);
+      if (accErr) throw accErr;
+
+      const userId = (await supabase.auth.getUser()).data.user?.id;
+      await supabase.from('audit_logs').insert({
+        entity_type: 'layaway_schedule',
+        entity_id: account.id,
+        action: 'delete_schedule_item',
+        old_value_json: { installment_number: deleteScheduleTarget.installment_number, base_installment_amount: deductAmt, total_amount: Number(account.total_amount), remaining_balance: Number(account.remaining_balance) },
+        new_value_json: { total_amount_updated: Math.max(0, newTotal), remaining_balance_updated: Math.max(0, newRemaining) },
+        performed_by_user_id: userId || null,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['schedule', id] });
+      queryClient.invalidateQueries({ queryKey: ['account', id] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['customer-detail'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      toast.success(`Installment #${deleteScheduleTarget.installment_number} removed`);
+      setDeleteScheduleTarget(null);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete installment');
+    } finally {
+      setDeleteScheduleLoading(false);
+    }
+  }, [deleteScheduleTarget, account, id, queryClient]);
 
   const currency = (account?.currency || 'PHP') as Currency;
   const principalTotal = Number(account?.total_amount || 0);
