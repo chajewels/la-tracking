@@ -362,6 +362,11 @@ Deno.serve(async (req) => {
     const completedAccounts = accountCards.filter((a: any) => a.status_label === 'Fully Paid');
     const totalOutstanding = activeAccounts.reduce((s: number, a: any) => s + a.remaining_balance, 0);
 
+    // Accumulated amount spent: sum of total_paid for non-forfeited, non-cancelled accounts
+    const accumulatedAmountSpent = accountCards
+      .filter((a: any) => !['forfeited', 'final_forfeited', 'cancelled'].includes(a.status))
+      .reduce((s: number, a: any) => s + a.total_paid, 0);
+
     const allNextDues = accountCards
       .filter((a: any) => a.next_due_date)
       .sort((a: any, b: any) => a.next_due_date.localeCompare(b.next_due_date));
@@ -383,6 +388,7 @@ Deno.serve(async (req) => {
         total_active: activeAccounts.length,
         total_completed: completedAccounts.length,
         total_outstanding: totalOutstanding,
+        accumulated_amount_spent: accumulatedAmountSpent,
         total_accounts: accountCards.length,
         next_due_date: allNextDues[0]?.next_due_date || null,
         next_due_invoice: allNextDues[0]?.invoice_number || null,

@@ -109,6 +109,7 @@ interface PortalData {
     total_active: number;
     total_completed: number;
     total_outstanding: number;
+    accumulated_amount_spent: number;
     total_accounts: number;
     next_due_date: string | null;
     next_due_invoice: string | null;
@@ -335,10 +336,11 @@ export default function CustomerPortal() {
         ) : (
           <>
             {/* Summary Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               <SummaryTile label="Active Accounts" value={String(data.summary.total_active)} icon={<TrendingUp className="h-4 w-4" />} />
               <SummaryTile label="Overdue" value={String(overdueCount)} icon={<AlertTriangle className="h-4 w-4" />} danger={overdueCount > 0} />
               <SummaryTile label="Outstanding" value={fmt(data.summary.total_outstanding, currency)} icon={<CreditCard className="h-4 w-4" />} accent />
+              <SummaryTile label="Amount Spent" value={fmt(data.summary.accumulated_amount_spent || 0, currency)} icon={<Wallet className="h-4 w-4" />} success />
               <SummaryTile label="Completed" value={String(data.summary.total_completed)} icon={<Check className="h-4 w-4" />} />
               <SummaryTile
                 label="Next Due"
@@ -529,16 +531,18 @@ export default function CustomerPortal() {
 }
 
 /* ─── Summary Tile ─── */
-function SummaryTile({ label, value, icon, accent, danger, sub }: {
-  label: string; value: string; icon: React.ReactNode; accent?: boolean; danger?: boolean; sub?: string;
+function SummaryTile({ label, value, icon, accent, danger, success, sub }: {
+  label: string; value: string; icon: React.ReactNode; accent?: boolean; danger?: boolean; success?: boolean; sub?: string;
 }) {
   const borderBg = danger
     ? 'border-destructive/20 bg-destructive/5'
-    : accent
-      ? 'border-primary/20 bg-primary/5'
-      : 'bg-[hsl(var(--card))] border-[hsl(var(--border))]';
-  const iconColor = danger ? 'text-destructive' : 'text-muted-foreground';
-  const valueColor = danger ? 'text-destructive' : accent ? 'text-primary' : 'text-foreground';
+    : success
+      ? 'border-success/20 bg-success/5'
+      : accent
+        ? 'border-primary/20 bg-primary/5'
+        : 'bg-[hsl(var(--card))] border-[hsl(var(--border))]';
+  const iconColor = danger ? 'text-destructive' : success ? 'text-success' : 'text-muted-foreground';
+  const valueColor = danger ? 'text-destructive' : success ? 'text-success' : accent ? 'text-primary' : 'text-foreground';
 
   return (
     <div className={`rounded-xl border p-3.5 ${borderBg}`}>
