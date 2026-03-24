@@ -116,9 +116,19 @@ export default function CustomerDetail() {
     return new Date(b.date_paid).getTime() - new Date(a.date_paid).getTime();
   };
 
-  // Build consolidated message across all accounts
+  // Build consolidated message across only active/open accounts
   const buildConsolidatedMessage = () => {
-    const allActivePayments = accounts.flatMap((acct) =>
+    // If no active accounts, return a clean completion message
+    if (activeAccounts.length === 0) {
+      let msg = `✨ Cha Jewels Layaway Payment Summary\n\n`;
+      msg += `Dear ${customer.full_name},\n\n`;
+      msg += `All your layaway accounts have been completed. 🎉\n\n`;
+      msg += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
+      return msg;
+    }
+
+    // Use activeAccounts for payment lookup (only from open invoices)
+    const allActivePayments = activeAccounts.flatMap((acct) =>
       (acct.payments || [])
         .filter((p: any) => !p.voided_at)
         .map((p: any) => ({
@@ -167,11 +177,11 @@ export default function CustomerDetail() {
       }
     }
 
-    for (const acct of accounts) {
+    // Only iterate active accounts (excludes completed/cancelled)
+    for (const acct of activeAccounts) {
       const currency = acct.account.currency as Currency;
       const scheduleItems = acct.schedule || [];
 
-      // Derive totals from schedule (single source of truth)
       const downpayment = Number((acct.account as any).downpayment_amount || 0);
       const schedBaseSum = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
       const schedPenaltySum = scheduleItems.reduce((s, i) => s + Number(i.penalty_amount), 0);
@@ -192,7 +202,6 @@ export default function CustomerDetail() {
           return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
         });
 
-      // Build payment breakdown with split-payment annotations
       const paymentParts = activePayments.map((p: any) => {
         const amt = formatCurrency(Number(p.amount_paid), currency);
         const isSplit = p.remarks && typeof p.remarks === 'string' && p.remarks.startsWith('[Multi-invoice]');
@@ -203,16 +212,14 @@ export default function CustomerDetail() {
         : formatCurrency(totalPaid, currency);
       const messageScheduleCoverage = getMessageSchedulePaymentCoverage(scheduleItems, totalPaid, downpayment);
 
-      // Collect split payment batches for this account
       const splitPayments = activePayments.filter(
         (p: any) => p.remarks && typeof p.remarks === 'string' && p.remarks.startsWith('[Multi-invoice]') && p.reference_number
       );
-      // Group by batch reference_number to find sibling invoices
       const batchRefs = [...new Set(splitPayments.map((p: any) => p.reference_number as string))];
-      // Find sibling payments in other accounts that share the same batch ref
       const batchSiblings: Array<{ date: string; totalBatch: number; invoices: string[] }> = [];
       for (const ref of batchRefs) {
         const allBatchPayments: Array<{ invoice: string; amount: number; date: string }> = [];
+        // Look across all accounts (including completed) for split payment siblings
         for (const otherAcct of accounts) {
           const match = (otherAcct.payments || []).find(
             (op: any) => !op.voided_at && op.reference_number === ref
@@ -240,7 +247,6 @@ export default function CustomerDetail() {
 
       msg += `━━━━━━━━━━━━━━━━━━\n`;
       msg += `📋 Inv # ${acct.account.invoice_number}\n`;
-      // Build Total Layaway Amount line from schedule
       const amountParts: string[] = [formatCurrency(originalPrincipal, currency)];
       if (totalSvcAmt > 0) amountParts.push(`${formatCurrency(totalSvcAmt, currency)} (Services)`);
       if (schedPenaltySum > 0) amountParts.push(`${formatCurrency(schedPenaltySum, currency)} (Penalty)`);
@@ -249,7 +255,6 @@ export default function CustomerDetail() {
       msg += `\n`;
       msg += `Amount Paid: ${paymentBreakdownText}\n`;
 
-      // Services in message
       if (acctServicesList.length > 0) {
         msg += `\n🔧 Additional Services:\n`;
         acctServicesList.forEach((svc: any) => {
@@ -259,7 +264,6 @@ export default function CustomerDetail() {
         msg += `  Services Total: ${formatCurrency(totalSvcAmt, currency)}\n`;
       }
 
-      // Show split payment allocation details
       if (batchSiblings.length > 0) {
         for (const batch of batchSiblings) {
           msg += `💳 Split payment (${batch.date}): ${formatCurrency(batch.totalBatch, currency)} total\n`;
