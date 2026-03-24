@@ -336,9 +336,14 @@ export default function CustomerPortal() {
         ) : (
           <>
             {/* Summary Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              <SummaryTile label="Active Accounts" value={String(data.summary.total_active)} icon={<TrendingUp className="h-4 w-4" />} />
-              <SummaryTile label="Overdue" value={String(overdueCount)} icon={<AlertTriangle className="h-4 w-4" />} danger={overdueCount > 0} />
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              <SummaryTile
+                label="Accounts"
+                value={String(data.summary.total_active)}
+                icon={<TrendingUp className="h-4 w-4" />}
+                sub={overdueCount > 0 ? `${overdueCount} overdue` : 'All on track'}
+                danger={overdueCount > 0}
+              />
               <SummaryTile label="Outstanding" value={fmt(data.summary.total_outstanding, currency)} icon={<CreditCard className="h-4 w-4" />} accent />
               <SummaryTile label="Amount Spent" value={fmt(data.summary.accumulated_amount_spent || 0, currency)} icon={<Wallet className="h-4 w-4" />} success />
               <SummaryTile label="Completed" value={String(data.summary.total_completed)} icon={<Check className="h-4 w-4" />} />
@@ -552,7 +557,7 @@ function SummaryTile({ label, value, icon, accent, danger, success, sub }: {
         <span className={`${iconColor} transition-transform group-hover:scale-110`}>{icon}</span>
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">{label}</span>
       </div>
-      <p className={`text-base sm:text-lg font-bold font-display tabular-nums ${valueColor}`}>
+      <p className={`text-sm sm:text-base font-bold font-display tabular-nums truncate ${valueColor}`} title={value}>
         {value}
       </p>
       {sub && <p className="text-[10px] text-muted-foreground mt-0.5">{sub}</p>}
