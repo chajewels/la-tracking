@@ -863,38 +863,43 @@ function OverviewTab({ account, statementUrl, today }: {
 
             return (
               <div key={item.installment_number}
-                className={`flex items-center gap-3 p-3 rounded-lg border ${
-                  isPaid ? 'bg-success/5 border-success/10' :
-                  isOverdue ? 'bg-destructive/5 border-destructive/10' :
-                  isDueSoon ? 'bg-warning/5 border-warning/10' :
-                  'bg-[hsl(var(--card))] border-[hsl(var(--border))]'
+                className={`flex items-center gap-3 p-3 rounded-lg border transition-all duration-200 hover:shadow-md ${
+                  isPaid ? 'bg-success/5 border-success/10 hover:border-success/20' :
+                  isOverdue ? 'bg-destructive/5 border-destructive/10 hover:border-destructive/20 overdue-pulse' :
+                  isDueSoon ? 'bg-warning/5 border-warning/10 hover:border-warning/20' :
+                  'bg-[hsl(var(--card))] border-[hsl(var(--border))] hover:border-[hsl(var(--gold)/0.3)]'
                 }`}
               >
-                <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold shrink-0 ${
+                <div className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold shrink-0 transition-transform hover:scale-105 ${
                   isPaid ? 'bg-success/20 text-success' :
                   isOverdue ? 'bg-destructive/20 text-destructive' :
+                  isDueSoon ? 'bg-warning/20 text-warning' :
                   'bg-muted text-muted-foreground'
                 }`}>
                   {isPaid ? <Check className="h-3.5 w-3.5" /> : item.installment_number}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-sm font-medium text-foreground">Month {item.installment_number}</p>
                     <Badge variant="outline" className={`text-[9px] py-0 h-4 ${sColor}`}>
-                      {isDueSoon ? 'Due Soon' : sLabel}
+                      {isDueSoon ? `Due in ${diffDays}d` : sLabel}
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground">{fmtDate(item.due_date)}</p>
                   {item.penalty_amount > 0 && (
-                    <p className="text-[10px] text-destructive mt-0.5">+{fmt(item.penalty_amount, currency)} penalty</p>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <Badge variant="outline" className="bg-purple-500/10 text-purple-400 border-purple-500/20 text-[9px] py-0 h-4">
+                        +{fmt(item.penalty_amount, currency)} penalty
+                      </Badge>
+                    </div>
                   )}
                 </div>
                 <div className="text-right shrink-0">
-                  <p className={`text-sm font-semibold tabular-nums ${isPaid ? 'text-success' : 'text-foreground'}`}>
+                  <p className={`text-sm font-semibold tabular-nums ${isPaid ? 'text-success' : isOverdue ? 'text-destructive' : 'text-foreground'}`}>
                     {fmt(item.base_amount, currency)}
                   </p>
                   {!isPaid && item.paid_amount > 0 && (
-                    <p className="text-[10px] text-muted-foreground">Paid: {fmt(item.paid_amount, currency)}</p>
+                    <p className="text-[10px] text-warning">Paid: {fmt(item.paid_amount, currency)}</p>
                   )}
                 </div>
               </div>
