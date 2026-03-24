@@ -58,7 +58,53 @@ export default function CustomerDetail() {
   }
 
   const { customer, accounts } = data;
-  
+
+  // --- Inline customer detail editing ---
+  const [editingCustomer, setEditingCustomer] = useState(false);
+  const [editFields, setEditFields] = useState({
+    full_name: '', facebook_name: '', messenger_link: '', mobile_number: '', email: '',
+  });
+  const [editSaving, setEditSaving] = useState(false);
+
+  const startEditCustomer = useCallback(() => {
+    setEditFields({
+      full_name: customer.full_name || '',
+      facebook_name: customer.facebook_name || '',
+      messenger_link: customer.messenger_link || '',
+      mobile_number: customer.mobile_number || '',
+      email: customer.email || '',
+    });
+    setEditingCustomer(true);
+  }, [customer]);
+
+  const saveCustomerEdit = useCallback(async () => {
+    if (!editFields.full_name.trim()) { toast.error('Name is required'); return; }
+    setEditSaving(true);
+    try {
+      const { error } = await supabase.from('customers').update({
+        full_name: editFields.full_name.trim(),
+        facebook_name: editFields.facebook_name.trim() || null,
+        messenger_link: editFields.messenger_link.trim() || null,
+        mobile_number: editFields.mobile_number.trim() || null,
+        email: editFields.email.trim() || null,
+      }).eq('id', customer.id);
+      if (error) throw error;
+      toast.success('Customer details updated — message will reflect changes');
+      queryClient.invalidateQueries({ queryKey: ['customer-detail', customerId] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      setEditingCustomer(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update');
+    } finally {
+      setEditSaving(false);
+    }
+  }, [editFields, customer.id, customerId, queryClient]);
+
+  // Filter accounts: only include active/open invoices for consolidated message
+  const activeAccounts = accounts.filter(a => 
+    !['completed', 'cancelled'].includes(a.account.status)
+  );
+
 
   const sortPaymentsNewestFirst = (a: any, b: any) => {
     const createdDiff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
