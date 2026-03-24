@@ -123,7 +123,7 @@ Deno.serve(async (req) => {
     const originalInstallmentAllocations = (originalAllocations || []).filter((alloc) => alloc.allocation_type === "installment");
     const originalPenaltyAllocations = (originalAllocations || []).filter((alloc) => alloc.allocation_type === "penalty");
 
-    let remainingInstallmentAmount = originalInstallmentAllocations.reduce((sum, alloc) => sum + Number(alloc.allocated_amount), 0);
+    let remainingInstallmentAmount = round2(originalInstallmentAllocations.reduce((sum, alloc) => sum + Number(alloc.allocated_amount), 0));
 
     const targetInstallments = (selectedIds.length > 0
       ? schedule.filter((item) => selectedIds.includes(item.id))
