@@ -826,34 +826,39 @@ export default function AccountDetail() {
 
         {/* Summary Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
-          <div className="rounded-xl border border-border bg-card p-3 sm:p-4">
+          <div className="group relative overflow-hidden rounded-xl border border-border bg-card p-3 sm:p-4 card-hover">
+            <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-border" />
             <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Total Layaway Amount</p>
             <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
               {formatCurrency(summary.principalTotal, currency)}
             </p>
           </div>
           {downpaymentAmount > 0 && (
-            <div className="rounded-xl border border-primary/20 bg-card p-3 sm:p-4">
+            <div className="group relative overflow-hidden rounded-xl border border-primary/20 bg-card p-3 sm:p-4 card-hover hover:border-primary/40">
+              <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-gradient-to-r from-primary/40 via-primary to-primary/40" />
               <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">30% Downpayment</p>
               <p className="text-lg sm:text-xl font-bold text-primary font-display tabular-nums">
                 {formatCurrency(downpaymentAmount, currency)}
               </p>
             </div>
           )}
-          <div className="rounded-xl border border-success/20 bg-card p-3 sm:p-4">
+          <div className="group relative overflow-hidden rounded-xl border border-success/20 bg-card p-3 sm:p-4 card-hover hover:border-success/40">
+            <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-success/60" />
             <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Total Paid</p>
             <p className="text-lg sm:text-xl font-bold text-success font-display tabular-nums">
               {formatCurrency(summary.totalPaid, currency)}
             </p>
           </div>
-          <div className="rounded-xl border border-primary/20 bg-card p-3 sm:p-4">
+          <div className="group relative overflow-hidden rounded-xl border border-primary/20 bg-card p-3 sm:p-4 card-hover hover:border-primary/40">
+            <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-gradient-to-r from-primary/40 via-primary to-primary/40" />
             <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Remaining Balance</p>
             <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
               {formatCurrency(summary.remainingPrincipal, currency)}
             </p>
           </div>
           {summary.outstandingPenalties > 0 && (
-            <div className="rounded-xl border border-destructive/20 bg-card p-3 sm:p-4">
+            <div className="group relative overflow-hidden rounded-xl border border-destructive/20 bg-card p-3 sm:p-4 card-hover penalty-glow hover:border-destructive/40">
+              <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-destructive/60" />
               <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Outstanding Penalties</p>
               <p className="text-lg sm:text-xl font-bold text-destructive font-display tabular-nums">
                 {formatCurrency(summary.outstandingPenalties, currency)}
@@ -861,7 +866,8 @@ export default function AccountDetail() {
             </div>
           )}
           {totalServicesAmount > 0 && (
-            <div className="rounded-xl border border-border bg-card p-3 sm:p-4">
+            <div className="group relative overflow-hidden rounded-xl border border-border bg-card p-3 sm:p-4 card-hover">
+              <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-border" />
               <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Services</p>
               <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
                 {formatCurrency(summary.totalServices, currency)}
@@ -869,7 +875,8 @@ export default function AccountDetail() {
             </div>
           )}
           {(summary.outstandingPenalties > 0 || summary.totalServices > 0) && (
-          <div className="rounded-xl border border-warning/30 bg-warning/5 p-3 sm:p-4">
+          <div className="group relative overflow-hidden rounded-xl border border-warning/30 bg-warning/5 p-3 sm:p-4 card-hover hover:border-warning/50">
+            <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-warning/60" />
             <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Current Total Payable</p>
             <p className="text-lg sm:text-xl font-bold font-display tabular-nums text-warning">
               {formatCurrency(summary.currentTotalPayable, currency)}
@@ -881,18 +888,19 @@ export default function AccountDetail() {
             </p>
           </div>
           )}
-          <div className="rounded-xl border border-border bg-card p-3 sm:p-4">
+          <div className="group relative overflow-hidden rounded-xl border border-border bg-card p-3 sm:p-4 card-hover">
+            <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-gradient-to-r from-primary/40 via-primary to-primary/40" />
             <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Progress</p>
             <p className="text-lg sm:text-xl font-bold text-primary font-display">{Math.round(progress)}%</p>
             <div className="mt-2 h-2 rounded-full bg-muted overflow-hidden">
-              <div className="h-full gold-gradient rounded-full transition-all" style={{ width: `${progress}%` }} />
+              <div className="h-full rounded-full transition-all duration-500 ease-out" style={{ width: `${progress}%`, background: 'linear-gradient(90deg, hsl(43 74% 42%), hsl(43 74% 52%), hsl(43 74% 62%))' }} />
             </div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Payment Schedule */}
-          <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
+          <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 overflow-hidden">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
                 <Calendar className="h-4 w-4 text-primary" /> Payment Schedule
@@ -959,8 +967,12 @@ export default function AccountDetail() {
                 const overCap = penaltyCapOverride && isPenaltyOverCap(currency as 'PHP' | 'JPY', item.installment_number, penaltyAmt, account.payment_plan_months);
                 return (
                   <div key={item.id}
-                    className={`group rounded-lg border p-2.5 sm:p-3 ${
-                      effPaid ? 'bg-success/5 border-success/10' : partial ? 'bg-warning/5 border-warning/10' : 'bg-card border-border'
+                    className={`group rounded-xl border p-2.5 sm:p-3 transition-all duration-200 hover:shadow-md ${
+                      effPaid ? 'bg-success/5 border-success/10 hover:border-success/20' :
+                      partial ? 'bg-warning/5 border-warning/10 hover:border-warning/20' :
+                      item.status === 'overdue' ? 'bg-destructive/5 border-destructive/10 hover:border-destructive/20' :
+                      penaltyAmt > 0 ? 'bg-card border-purple-500/20 hover:border-purple-500/30 penalty-glow' :
+                      'bg-card border-border hover:border-primary/20'
                     }`}
                   >
                     {/* Mobile layout */}

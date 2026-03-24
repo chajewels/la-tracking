@@ -126,6 +126,14 @@
     background: linear-gradient(135deg, #f7e7a1 0%, #d4af37 45%, #8c6a00 100%);
   }
 
+  /* Gold text shimmer */
+  .gold-text {
+    background: linear-gradient(135deg, #f7e7a1 0%, #d4af37 50%, #8c6a00 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
   /* Gold border accent */
   .gold-border {
     border: 1px solid rgba(212, 175, 55, 0.3);
@@ -136,5 +144,37 @@
     background: rgba(15, 15, 15, 0.75);
     border: 1px solid rgba(212, 175, 55, 0.18);
     backdrop-filter: blur(14px);
+  }
+
+  /* Premium card hover */
+  .card-hover {
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(212, 175, 55, 0.12);
+  }
+
+  /* Status glow pulse for overdue */
+  .overdue-pulse {
+    animation: overduePulse 2.5s ease-in-out infinite;
+  }
+  @keyframes overduePulse {
+    0%, 100% { box-shadow: 0 0 0 0 hsl(0 72% 55% / 0.15); }
+    50% { box-shadow: 0 0 16px 4px hsl(0 72% 55% / 0.08); }
+  }
+
+  /* Penalty glow */
+  .penalty-glow {
+    animation: penaltyGlow 2s ease-in-out infinite;
+  }
+  @keyframes penaltyGlow {
+    0%, 100% { box-shadow: inset 0 0 0 0 hsl(270 60% 55% / 0.05); }
+    50% { box-shadow: inset 0 0 12px 0 hsl(270 60% 55% / 0.08); }
+  }
+
+  /* Progress bar gold gradient */
+  .progress-gold > div {
+    background: linear-gradient(90deg, hsl(43 74% 42%), hsl(43 74% 52%), hsl(43 74% 62%));
   }
 }
