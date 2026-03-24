@@ -2,6 +2,7 @@ import luxuryHero from '@/assets/luxury-jewelry-hero.jpg';
 import { ReactNode } from 'react';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { Link } from 'react-router-dom';
+import { ROUTES } from '@/constants/routes';
 import AppSidebar from './AppSidebar';
 import { Bell, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';

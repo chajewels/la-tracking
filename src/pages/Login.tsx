@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ROUTES } from '@/constants/routes';
 import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
 import luxuryHero from '@/assets/luxury-jewelry-hero.jpg';
 import { toast } from 'sonner';

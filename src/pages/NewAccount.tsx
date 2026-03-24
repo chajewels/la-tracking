@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { ROUTES } from '@/constants/routes';
 import { ArrowLeft, UserPlus, ChevronDown, ChevronUp, Banknote, Copy, Check, MessageCircle, Wand2, Save, AlertTriangle } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
