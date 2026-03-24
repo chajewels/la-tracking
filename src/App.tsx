@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, ComponentType } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -18,18 +18,35 @@ import CustomerDetail from "./pages/CustomerDetail";
 import Monitoring from "./pages/Monitoring";
 import CustomerPortal from "./pages/CustomerPortal";
 
+// Retry wrapper for lazy imports — handles stale chunks after dev server restart
+function lazyWithRetry(factory: () => Promise<{ default: ComponentType<any> }>) {
+  return lazy(() =>
+    factory().catch(() => {
+      // Chunk failed to load (stale hash) — force one reload
+      const key = 'chunk-reload';
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, '1');
+        window.location.reload();
+      } else {
+        sessionStorage.removeItem(key);
+      }
+      return factory();
+    })
+  );
+}
+
 // Secondary pages — lazy loaded (visited less frequently)
-const Collections = lazy(() => import("./pages/Collections"));
-const Finance = lazy(() => import("./pages/Finance"));
-const Analytics = lazy(() => import("./pages/Analytics"));
-const SettingsPage = lazy(() => import("./pages/SettingsPage"));
-const Waivers = lazy(() => import("./pages/Waivers"));
-const AdminAudit = lazy(() => import("./pages/AdminAudit"));
-const CustomerStatement = lazy(() => import("./pages/CustomerStatement"));
-const PaymentSubmissions = lazy(() => import("./pages/PaymentSubmissions"));
-const Reminders = lazy(() => import("./pages/Reminders"));
-const NewAccount = lazy(() => import("./pages/NewAccount"));
-const NotFound = lazy(() => import("./pages/NotFound"));
+const Collections = lazyWithRetry(() => import("./pages/Collections"));
+const Finance = lazyWithRetry(() => import("./pages/Finance"));
+const Analytics = lazyWithRetry(() => import("./pages/Analytics"));
+const SettingsPage = lazyWithRetry(() => import("./pages/SettingsPage"));
+const Waivers = lazyWithRetry(() => import("./pages/Waivers"));
+const AdminAudit = lazyWithRetry(() => import("./pages/AdminAudit"));
+const CustomerStatement = lazyWithRetry(() => import("./pages/CustomerStatement"));
+const PaymentSubmissions = lazyWithRetry(() => import("./pages/PaymentSubmissions"));
+const Reminders = lazyWithRetry(() => import("./pages/Reminders"));
+const NewAccount = lazyWithRetry(() => import("./pages/NewAccount"));
+const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
