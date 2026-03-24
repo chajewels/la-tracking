@@ -1335,7 +1335,7 @@ export default function AccountDetail() {
                   try {
                     await deleteAccount.mutateAsync(account.id);
                     toast.success(`Account INV #${account.invoice_number} deleted`);
-                    navigate('/accounts');
+                    navigate(ROUTES.ACCOUNTS);
                   } catch (err: any) {
                     toast.error(err.message || 'Failed to delete account');
                   }

@@ -36,7 +36,7 @@ export default function Login() {
       return;
     }
     toast.success('Welcome to Cha Jewels');
-    navigate('/');
+    navigate(ROUTES.DASHBOARD);
   };
 
   return (

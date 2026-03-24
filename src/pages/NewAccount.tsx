@@ -975,7 +975,7 @@ export default function NewAccount() {
               variant="outline"
               onClick={() => {
                 setSplitMessageDialog(null);
-                navigate('/accounts');
+                navigate(ROUTES.ACCOUNTS);
               }}
             >
               Close

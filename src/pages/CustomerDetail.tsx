@@ -336,7 +336,7 @@ export default function CustomerDetail() {
       <div className="animate-fade-in space-y-6 max-w-5xl">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-          <Link to="/customers">
+          <Link to={ROUTES.CUSTOMERS}>
             <Button variant="ghost" size="icon" className="text-muted-foreground">
               <ArrowLeft className="h-4 w-4" />
             </Button>

@@ -81,7 +81,7 @@ export default function AccountList() {
               <p className="text-sm text-muted-foreground">{(accounts || []).length} total accounts</p>
             </div>
           </div>
-          <Link to="/accounts/new">
+          <Link to={ROUTES.NEW_ACCOUNT}>
             <Button className="gold-gradient text-primary-foreground font-medium shadow-lg">
               <Plus className="h-4 w-4 mr-1.5" /> New Account
             </Button>

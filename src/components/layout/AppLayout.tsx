@@ -39,7 +39,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               <SidebarTrigger className="text-[#D4AF37] hover:text-white" />
 
               <div className="flex items-center gap-3">
-                <Link to="/monitoring">
+                <Link to={ROUTES.MONITORING}>
                   <Button
                     variant="ghost"
                     size="icon"
