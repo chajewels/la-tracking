@@ -167,12 +167,12 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
               .eq('id', scheduleId);
             if (error) throw error;
 
-            await supabase.from('audit_logs').insert([{
+            await (supabase.from('audit_logs') as any).insert([{
               entity_type: 'layaway_schedule',
               entity_id: scheduleId,
               action: 'update_due_date',
-              old_value_json: { due_date: original.due_date } as Record<string, unknown>,
-              new_value_json: { due_date: scheduleUpdate.due_date } as Record<string, unknown>,
+              old_value_json: { due_date: original.due_date },
+              new_value_json: { due_date: scheduleUpdate.due_date },
               performed_by_user_id: userId || null,
             }]);
           }
