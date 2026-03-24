@@ -903,7 +903,7 @@ export default function NewAccount() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => guardedNavigate('/accounts')}
+              onClick={() => guardedNavigate(ROUTES.ACCOUNTS)}
             >
               Cancel
             </Button>
