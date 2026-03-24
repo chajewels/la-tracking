@@ -181,8 +181,13 @@ Deno.serve(async (req) => {
       });
 
       try {
-        const { error } = await supabase.functions.invoke("send-transactional-email", {
-          body: {
+        const emailRes = await fetch(`${supabaseUrl}/functions/v1/send-transactional-email`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${serviceRoleKey}`,
+          },
+          body: JSON.stringify({
             templateName: "payment-reminder",
             recipientEmail: alert.customerEmail,
             idempotencyKey: `reminder-${alert.scheduleId}-${alert.stage}-${today}`,
@@ -195,10 +200,11 @@ Deno.serve(async (req) => {
               stage: alert.stage,
               daysOverdue: alert.daysOverdue,
             },
-          },
+          }),
         });
-        if (error) {
-          console.error(`Email failed for ${alert.customer}:`, error);
+        const emailBody = await emailRes.text();
+        if (!emailRes.ok) {
+          console.error(`Email failed for ${alert.customer}: ${emailRes.status} ${emailBody}`);
           emailsFailed++;
         } else {
           emailsSent++;
