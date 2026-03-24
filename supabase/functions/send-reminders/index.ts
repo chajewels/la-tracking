@@ -186,7 +186,7 @@ Deno.serve(async (req) => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${serviceRoleKey}`,
+            "Authorization": `Bearer ${anonKey}`,
           },
           body: JSON.stringify({
             templateName: "payment-reminder",
