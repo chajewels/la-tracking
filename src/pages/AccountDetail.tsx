@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
-import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings } from 'lucide-react';
+import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import StatementShareMenu from '@/components/statement/StatementShareMenu';
@@ -75,6 +75,10 @@ export default function AccountDetail() {
   const [invoiceInput, setInvoiceInput] = useState('');
   const [invoiceSaving, setInvoiceSaving] = useState(false);
   const [reactivating, setReactivating] = useState(false);
+  const [addingInstallment, setAddingInstallment] = useState(false);
+  const [newInstDueDate, setNewInstDueDate] = useState('');
+  const [newInstAmount, setNewInstAmount] = useState('');
+  const [newInstSaving, setNewInstSaving] = useState(false);
   const queryClient = useQueryClient();
   const { roles } = useAuth();
   const { can: canPerm } = usePermissions();
@@ -150,6 +154,56 @@ export default function AccountDetail() {
       setEditScheduleLoading(false);
     }
   }, [editScheduleAmount, id, queryClient]);
+
+  const handleAddInstallment = useCallback(async () => {
+    const amount = parseFloat(newInstAmount);
+    if (isNaN(amount) || amount <= 0 || !newInstDueDate || !account) {
+      toast.error('Please enter a valid amount and due date');
+      return;
+    }
+    setNewInstSaving(true);
+    try {
+      const maxInstNumber = Math.max(...(schedule || []).map(s => s.installment_number), 0);
+      const nextNumber = maxInstNumber + 1;
+      const roundedAmount = Math.round(amount * 100) / 100;
+
+      const { error } = await supabase
+        .from('layaway_schedule')
+        .insert({
+          account_id: account.id,
+          installment_number: nextNumber,
+          due_date: newInstDueDate,
+          base_installment_amount: roundedAmount,
+          total_due_amount: roundedAmount,
+          currency: account.currency as 'PHP' | 'JPY',
+          status: 'pending',
+        });
+      if (error) throw error;
+
+      const userId = (await supabase.auth.getUser()).data.user?.id;
+      await supabase.from('audit_logs').insert({
+        entity_type: 'layaway_schedule',
+        entity_id: account.id,
+        action: 'add_schedule_item',
+        new_value_json: { installment_number: nextNumber, due_date: newInstDueDate, base_installment_amount: roundedAmount },
+        performed_by_user_id: userId || null,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['schedule', id] });
+      queryClient.invalidateQueries({ queryKey: ['account', id] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['customer-detail'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      toast.success(`Installment #${nextNumber} added`);
+      setAddingInstallment(false);
+      setNewInstDueDate('');
+      setNewInstAmount('');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to add installment');
+    } finally {
+      setNewInstSaving(false);
+    }
+  }, [newInstAmount, newInstDueDate, account, schedule, id, queryClient]);
 
   const currency = (account?.currency || 'PHP') as Currency;
   const principalTotal = Number(account?.total_amount || 0);
@@ -782,9 +836,29 @@ export default function AccountDetail() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Payment Schedule */}
           <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
-            <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-primary" /> Payment Schedule
-            </h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-primary" /> Payment Schedule
+              </h3>
+              {can('edit_schedule') && account?.status !== 'forfeited' && account?.status !== 'cancelled' && account?.status !== 'completed' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs border-primary/30 text-primary hover:bg-primary/10"
+                  onClick={() => {
+                    const lastItem = scheduleItems[scheduleItems.length - 1];
+                    const lastDate = lastItem ? new Date(lastItem.due_date) : new Date(account.order_date);
+                    const nextDate = new Date(lastDate);
+                    nextDate.setMonth(nextDate.getMonth() + 1);
+                    setNewInstDueDate(nextDate.toISOString().split('T')[0]);
+                    setNewInstAmount('');
+                    setAddingInstallment(true);
+                  }}
+                >
+                  <Plus className="h-3 w-3 mr-1" /> Add Installment
+                </Button>
+              )}
+            </div>
             <div className="space-y-2">
               {/* 30% Downpayment row */}
               {downpaymentAmount > 0 && (
@@ -984,6 +1058,26 @@ export default function AccountDetail() {
                   </div>
                 );
               })}
+              {/* Add Installment inline form */}
+              {addingInstallment && (
+                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
+                  <p className="text-xs font-semibold text-primary flex items-center gap-1"><Plus className="h-3 w-3" /> New Installment</p>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-muted-foreground">Due Date</label>
+                      <Input type="date" value={newInstDueDate} onChange={e => setNewInstDueDate(e.target.value)} className="h-8 text-xs w-36 bg-background" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-muted-foreground">Amount ({currency})</label>
+                      <Input type="number" step="0.01" placeholder="Amount" value={newInstAmount} onChange={e => setNewInstAmount(e.target.value)} className="h-8 text-xs w-28 bg-background tabular-nums" />
+                    </div>
+                    <Button size="sm" className="h-8 text-xs gold-gradient text-primary-foreground" disabled={newInstSaving} onClick={handleAddInstallment}>
+                      {newInstSaving ? 'Saving…' : 'Save'}
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setAddingInstallment(false)}>Cancel</Button>
+                  </div>
+                </div>
+              )}
               {/* Schedule Totals Summary */}
               {scheduleItems.length > 0 && (
                 <div className="mt-3 pt-3 border-t border-border space-y-1.5">
