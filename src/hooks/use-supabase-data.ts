@@ -28,7 +28,7 @@ function invalidateAll(qc: ReturnType<typeof useQueryClient>) {
 }
 
 function invalidatePaymentRelated(qc: ReturnType<typeof useQueryClient>) {
-  for (const key of [...CORE_KEYS, ...PAYMENT_KEYS, ...MONITORING_KEYS]) {
+  for (const key of [...CORE_KEYS, ...PAYMENT_KEYS, ...MONITORING_KEYS, 'account']) {
     qc.invalidateQueries({ queryKey: [key] });
   }
 }
