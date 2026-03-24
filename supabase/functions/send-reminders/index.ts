@@ -30,13 +30,11 @@ function formatCurrency(amount: number, currency: string): string {
 }
 
 function classifyAlert(daysOverdue: number, hasPenalties: boolean): ReminderStage | null {
-  // daysOverdue > 0 means past due, < 0 means upcoming
   if (daysOverdue >= 7 || hasPenalties) return "penalty";
   if (daysOverdue >= 1 && daysOverdue <= 6) return "overdue";
   if (daysOverdue === 0) return "due_today";
   if (daysOverdue === -3) return "due_3_days";
   if (daysOverdue === -7) return "due_7_days";
-  // Any other day (e.g., -1, -2, -4, -5, -6) → no email
   return null;
 }
 
@@ -71,82 +69,77 @@ Deno.serve(async (req) => {
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-    // 1. Get active/overdue accounts with customer info
-    const { data: accounts, error: acctErr } = await supabase
-      .from("layaway_accounts")
-      .select("*, customers(*)")
-      .in("status", ["active", "overdue"]);
-    if (acctErr) throw acctErr;
+    const today = new Date().toISOString().split("T")[0];
 
-    const accountIds = (accounts || []).map((a: any) => a.id);
-    if (accountIds.length === 0) {
-      return new Response(
-        JSON.stringify({ success: true, message: "No active accounts", alerts: [], messengerMessages: [] }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // 2. Get unpaid schedule items (no date ceiling — penalty items can be far overdue)
-    const { data: scheduleItems, error: schedErr } = await supabase
+    // Use RPC or direct query to avoid .in() with hundreds of IDs
+    // Fetch schedule items with their account and customer data in one go
+    // Only get the EARLIEST unpaid installment per account to avoid flooding
+    const { data: rawItems, error: queryErr } = await supabase
       .from("layaway_schedule")
-      .select("*")
-      .in("account_id", accountIds)
+      .select("id, due_date, total_due_amount, paid_amount, status, account_id, layaway_accounts!inner(id, invoice_number, currency, customer_id, status, customers!inner(id, full_name, email, messenger_link))")
       .in("status", ["pending", "overdue", "partially_paid"])
-      .order("due_date", { ascending: true });
-    if (schedErr) throw schedErr;
+      .in("layaway_accounts.status", ["active", "overdue"])
+      .order("due_date", { ascending: true })
+      .limit(1000);
 
-    // 3. Get penalty fees to identify accounts with active penalties
+    if (queryErr) throw queryErr;
+
+    // Get all unpaid penalty fees to identify penalty-stage items
     const { data: penaltyFees } = await supabase
       .from("penalty_fees")
-      .select("schedule_id, status")
-      .in("account_id", accountIds)
+      .select("schedule_id")
       .eq("status", "unpaid");
 
     const scheduleIdsWithPenalties = new Set(
       (penaltyFees || []).map((p: any) => p.schedule_id)
     );
 
-    // 4. Build alert items — only for the 5 allowed stages
-    const today = new Date().toISOString().split("T")[0];
-    const accountMap = new Map((accounts || []).map((a: any) => [a.id, a]));
+    // Deduplicate: only take earliest unpaid installment per account
+    const seenAccounts = new Set<string>();
     const alerts: AlertItem[] = [];
 
-    for (const s of (scheduleItems || [])) {
-      const acc = accountMap.get(s.account_id);
+    for (const s of (rawItems || [])) {
+      const acc = (s as any).layaway_accounts;
       if (!acc) continue;
+      
+      // One alert per account (earliest unpaid installment)
+      if (seenAccounts.has(acc.id)) continue;
 
       const diffMs = new Date(today).getTime() - new Date(s.due_date).getTime();
       const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
       const hasPenalties = scheduleIdsWithPenalties.has(s.id);
 
       const stage = classifyAlert(diffDays, hasPenalties);
-      if (!stage) continue; // Skip days that don't match any trigger stage
+      if (!stage) continue;
 
+      seenAccounts.add(acc.id);
+
+      const cust = acc.customers;
       alerts.push({
         stage,
-        customer: acc.customers?.full_name || "Unknown",
+        customer: cust?.full_name || "Unknown",
         invoice: acc.invoice_number,
         dueDate: s.due_date,
         amount: Number(s.total_due_amount) - Number(s.paid_amount),
         currency: acc.currency,
         daysOverdue: diffDays,
         accountId: acc.id,
-        messengerLink: acc.customers?.messenger_link,
+        messengerLink: cust?.messenger_link,
         customerId: acc.customer_id,
         scheduleId: s.id,
-        customerEmail: acc.customers?.email,
+        customerEmail: cust?.email,
         hasPenalties,
       });
     }
 
     if (alerts.length === 0) {
       return new Response(
-        JSON.stringify({ success: true, message: "No alerts to send", alerts: [], messengerMessages: [] }),
+        JSON.stringify({ success: true, message: "No alerts matching trigger stages", alerts: [], messengerMessages: [] }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // 5. Generate Messenger messages
+    // Generate Messenger messages
     const messengerMessages = alerts.map((a) => ({
       customer: a.customer,
       invoice: a.invoice,
@@ -155,7 +148,7 @@ Deno.serve(async (req) => {
       message: generateMessengerMessage(a),
     }));
 
-    // 6. Log reminders
+    // Log reminders
     const reminderLogs = alerts.map((a) => ({
       account_id: a.accountId,
       schedule_id: a.scheduleId,
@@ -170,7 +163,7 @@ Deno.serve(async (req) => {
       await supabase.from("reminder_logs").insert(reminderLogs);
     }
 
-    // 7. Send per-customer emails
+    // Send per-customer emails (deduplicated by customer+invoice+stage)
     let emailsSent = 0;
     let emailsFailed = 0;
     const emailAlerts = alerts.filter((a) => a.customerEmail);
@@ -227,7 +220,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 8. Build summary
+    // Build summary
     const summary: Record<string, number> = { due_7_days: 0, due_3_days: 0, due_today: 0, overdue: 0, penalty: 0 };
     for (const a of alerts) summary[a.stage]++;
 
