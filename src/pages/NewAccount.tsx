@@ -898,13 +898,7 @@ export default function NewAccount() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => {
-                if (formDirty) {
-                  setShowLeaveDialog(true);
-                } else {
-                  navigate('/accounts');
-                }
-              }}
+              onClick={() => guardedNavigate('/accounts')}
             >
               Cancel
             </Button>
