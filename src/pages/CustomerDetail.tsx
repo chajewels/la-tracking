@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Copy, Check, CheckCircle2, MessageCircle, Calendar, AlertTriangle, MapPin, Pencil, X, Ban, Wrench } from 'lucide-react';
+import { ArrowLeft, Copy, Check, CheckCircle2, MessageCircle, Calendar, AlertTriangle, MapPin, Pencil, X, Ban, Wrench, Save } from 'lucide-react';
 import CustomerPortalShareMenu from '@/components/customers/CustomerPortalShareMenu';
 import AppLayout from '@/components/layout/AppLayout';
 import CountrySelect from '@/components/customers/CountrySelect';
@@ -34,6 +34,51 @@ export default function CustomerDetail() {
   const queryClient = useQueryClient();
   const forfeitAccount = useForfeitAccount();
 
+  // --- Inline customer detail editing (hooks must be before early returns) ---
+  const [editingCustomer, setEditingCustomer] = useState(false);
+  const [editFields, setEditFields] = useState({
+    full_name: '', facebook_name: '', messenger_link: '', mobile_number: '', email: '',
+  });
+  const [editSaving, setEditSaving] = useState(false);
+
+  const customer = data?.customer;
+
+  const startEditCustomer = useCallback(() => {
+    if (!customer) return;
+    setEditFields({
+      full_name: customer.full_name || '',
+      facebook_name: customer.facebook_name || '',
+      messenger_link: customer.messenger_link || '',
+      mobile_number: customer.mobile_number || '',
+      email: customer.email || '',
+    });
+    setEditingCustomer(true);
+  }, [customer]);
+
+  const saveCustomerEdit = useCallback(async () => {
+    if (!customer) return;
+    if (!editFields.full_name.trim()) { toast.error('Name is required'); return; }
+    setEditSaving(true);
+    try {
+      const { error } = await supabase.from('customers').update({
+        full_name: editFields.full_name.trim(),
+        facebook_name: editFields.facebook_name.trim() || null,
+        messenger_link: editFields.messenger_link.trim() || null,
+        mobile_number: editFields.mobile_number.trim() || null,
+        email: editFields.email.trim() || null,
+      }).eq('id', customer.id);
+      if (error) throw error;
+      toast.success('Customer details updated — message will reflect changes');
+      queryClient.invalidateQueries({ queryKey: ['customer-detail', customerId] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      setEditingCustomer(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update');
+    } finally {
+      setEditSaving(false);
+    }
+  }, [editFields, customer, customerId, queryClient]);
+
   if (isLoading) {
     return (
       <AppLayout>
@@ -47,7 +92,7 @@ export default function CustomerDetail() {
     );
   }
 
-  if (!data || !data.customer) {
+  if (!data || !customer) {
     return (
       <AppLayout>
         <div className="flex items-center justify-center h-64">
@@ -57,8 +102,13 @@ export default function CustomerDetail() {
     );
   }
 
-  const { customer, accounts } = data;
-  
+  const { accounts } = data;
+
+  // Filter accounts: only include active/open invoices for consolidated message
+  const activeAccounts = accounts.filter(a => 
+    !['completed', 'cancelled'].includes(a.account.status)
+  );
+
 
   const sortPaymentsNewestFirst = (a: any, b: any) => {
     const createdDiff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
@@ -66,9 +116,19 @@ export default function CustomerDetail() {
     return new Date(b.date_paid).getTime() - new Date(a.date_paid).getTime();
   };
 
-  // Build consolidated message across all accounts
+  // Build consolidated message across only active/open accounts
   const buildConsolidatedMessage = () => {
-    const allActivePayments = accounts.flatMap((acct) =>
+    // If no active accounts, return a clean completion message
+    if (activeAccounts.length === 0) {
+      let msg = `✨ Cha Jewels Layaway Payment Summary\n\n`;
+      msg += `Dear ${customer.full_name},\n\n`;
+      msg += `All your layaway accounts have been completed. 🎉\n\n`;
+      msg += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
+      return msg;
+    }
+
+    // Use activeAccounts for payment lookup (only from open invoices)
+    const allActivePayments = activeAccounts.flatMap((acct) =>
       (acct.payments || [])
         .filter((p: any) => !p.voided_at)
         .map((p: any) => ({
@@ -117,11 +177,11 @@ export default function CustomerDetail() {
       }
     }
 
-    for (const acct of accounts) {
+    // Only iterate active accounts (excludes completed/cancelled)
+    for (const acct of activeAccounts) {
       const currency = acct.account.currency as Currency;
       const scheduleItems = acct.schedule || [];
 
-      // Derive totals from schedule (single source of truth)
       const downpayment = Number((acct.account as any).downpayment_amount || 0);
       const schedBaseSum = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
       const schedPenaltySum = scheduleItems.reduce((s, i) => s + Number(i.penalty_amount), 0);
@@ -142,7 +202,6 @@ export default function CustomerDetail() {
           return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
         });
 
-      // Build payment breakdown with split-payment annotations
       const paymentParts = activePayments.map((p: any) => {
         const amt = formatCurrency(Number(p.amount_paid), currency);
         const isSplit = p.remarks && typeof p.remarks === 'string' && p.remarks.startsWith('[Multi-invoice]');
@@ -153,16 +212,14 @@ export default function CustomerDetail() {
         : formatCurrency(totalPaid, currency);
       const messageScheduleCoverage = getMessageSchedulePaymentCoverage(scheduleItems, totalPaid, downpayment);
 
-      // Collect split payment batches for this account
       const splitPayments = activePayments.filter(
         (p: any) => p.remarks && typeof p.remarks === 'string' && p.remarks.startsWith('[Multi-invoice]') && p.reference_number
       );
-      // Group by batch reference_number to find sibling invoices
       const batchRefs = [...new Set(splitPayments.map((p: any) => p.reference_number as string))];
-      // Find sibling payments in other accounts that share the same batch ref
       const batchSiblings: Array<{ date: string; totalBatch: number; invoices: string[] }> = [];
       for (const ref of batchRefs) {
         const allBatchPayments: Array<{ invoice: string; amount: number; date: string }> = [];
+        // Look across all accounts (including completed) for split payment siblings
         for (const otherAcct of accounts) {
           const match = (otherAcct.payments || []).find(
             (op: any) => !op.voided_at && op.reference_number === ref
@@ -190,7 +247,6 @@ export default function CustomerDetail() {
 
       msg += `━━━━━━━━━━━━━━━━━━\n`;
       msg += `📋 Inv # ${acct.account.invoice_number}\n`;
-      // Build Total Layaway Amount line from schedule
       const amountParts: string[] = [formatCurrency(originalPrincipal, currency)];
       if (totalSvcAmt > 0) amountParts.push(`${formatCurrency(totalSvcAmt, currency)} (Services)`);
       if (schedPenaltySum > 0) amountParts.push(`${formatCurrency(schedPenaltySum, currency)} (Penalty)`);
@@ -199,7 +255,6 @@ export default function CustomerDetail() {
       msg += `\n`;
       msg += `Amount Paid: ${paymentBreakdownText}\n`;
 
-      // Services in message
       if (acctServicesList.length > 0) {
         msg += `\n🔧 Additional Services:\n`;
         acctServicesList.forEach((svc: any) => {
@@ -209,7 +264,6 @@ export default function CustomerDetail() {
         msg += `  Services Total: ${formatCurrency(totalSvcAmt, currency)}\n`;
       }
 
-      // Show split payment allocation details
       if (batchSiblings.length > 0) {
         for (const batch of batchSiblings) {
           msg += `💳 Split payment (${batch.date}): ${formatCurrency(batch.totalBatch, currency)} total\n`;
@@ -341,6 +395,9 @@ export default function CustomerDetail() {
             </div>
           </div>
           <div className="flex gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={startEditCustomer} className="border-primary/30 text-primary hover:bg-primary/10">
+              <Pencil className="h-3.5 w-3.5 mr-1.5" /> Edit Details
+            </Button>
             <MultiInvoicePaymentDialog
               customerId={customer.id}
               customerName={customer.full_name}
@@ -363,6 +420,44 @@ export default function CustomerDetail() {
             )}
           </div>
         </div>
+
+        {/* Inline Customer Detail Editor */}
+        {editingCustomer && (
+          <div className="rounded-xl border border-primary/20 bg-card p-4 space-y-3 animate-fade-in">
+            <h3 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
+              <Pencil className="h-3.5 w-3.5 text-primary" /> Edit Customer Details
+              <span className="text-[10px] text-muted-foreground font-normal ml-auto">Changes will reflect in generated messages</span>
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Full Name *</label>
+                <Input value={editFields.full_name} onChange={e => setEditFields(f => ({ ...f, full_name: e.target.value }))} className="h-8 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Facebook Name</label>
+                <Input value={editFields.facebook_name} onChange={e => setEditFields(f => ({ ...f, facebook_name: e.target.value }))} className="h-8 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Messenger Link</label>
+                <Input value={editFields.messenger_link} onChange={e => setEditFields(f => ({ ...f, messenger_link: e.target.value }))} className="h-8 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Mobile Number</label>
+                <Input value={editFields.mobile_number} onChange={e => setEditFields(f => ({ ...f, mobile_number: e.target.value }))} className="h-8 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Email</label>
+                <Input type="email" value={editFields.email} onChange={e => setEditFields(f => ({ ...f, email: e.target.value }))} className="h-8 text-sm" />
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" size="sm" onClick={() => setEditingCustomer(false)} className="h-7 text-xs">Cancel</Button>
+              <Button size="sm" onClick={saveCustomerEdit} disabled={editSaving} className="h-7 text-xs gold-gradient text-primary-foreground">
+                <Save className="h-3 w-3 mr-1" /> {editSaving ? 'Saving…' : 'Save Changes'}
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Customer Portal Link */}
         <CustomerPortalShareMenu customerId={customer.id} customerName={customer.full_name} messengerLink={customer.messenger_link} />
