@@ -1098,7 +1098,7 @@ export default function AccountDetail() {
                           </Button>
                         ) : null}
                         {!effPaid && !partial && canEdit && can('edit_schedule') && item.status !== 'cancelled' ? (
-                          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive transition-opacity"
                             title="Delete installment"
                             onClick={(e) => {
                               e.stopPropagation();
