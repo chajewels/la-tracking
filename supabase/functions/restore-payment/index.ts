@@ -166,10 +166,10 @@ Deno.serve(async (req) => {
       const due = Math.max(0, base - paid);
       if (due <= 0) continue;
 
-      const toApply = Math.min(remainingInstallmentAmount, due);
-      remainingInstallmentAmount -= toApply;
+      const toApply = round2(Math.min(remainingInstallmentAmount, due));
+      remainingInstallmentAmount = round2(remainingInstallmentAmount - toApply);
 
-      const newPaid = paid + toApply;
+      const newPaid = round2(paid + toApply);
       const newStatus = scheduleStatusFor(base, newPaid, item.due_date);
 
       await supabase.from("layaway_schedule").update({
