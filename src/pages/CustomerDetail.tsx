@@ -34,39 +34,17 @@ export default function CustomerDetail() {
   const queryClient = useQueryClient();
   const forfeitAccount = useForfeitAccount();
 
-  if (isLoading) {
-    return (
-      <AppLayout>
-        <div className="space-y-6 max-w-5xl">
-          <Skeleton className="h-10 w-64" />
-          <div className="grid grid-cols-3 gap-4">
-            {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
-          </div>
-        </div>
-      </AppLayout>
-    );
-  }
-
-  if (!data || !data.customer) {
-    return (
-      <AppLayout>
-        <div className="flex items-center justify-center h-64">
-          <p className="text-muted-foreground">Customer not found</p>
-        </div>
-      </AppLayout>
-    );
-  }
-
-  const { customer, accounts } = data;
-
-  // --- Inline customer detail editing ---
+  // --- Inline customer detail editing (hooks must be before early returns) ---
   const [editingCustomer, setEditingCustomer] = useState(false);
   const [editFields, setEditFields] = useState({
     full_name: '', facebook_name: '', messenger_link: '', mobile_number: '', email: '',
   });
   const [editSaving, setEditSaving] = useState(false);
 
+  const customer = data?.customer;
+
   const startEditCustomer = useCallback(() => {
+    if (!customer) return;
     setEditFields({
       full_name: customer.full_name || '',
       facebook_name: customer.facebook_name || '',
@@ -78,6 +56,7 @@ export default function CustomerDetail() {
   }, [customer]);
 
   const saveCustomerEdit = useCallback(async () => {
+    if (!customer) return;
     if (!editFields.full_name.trim()) { toast.error('Name is required'); return; }
     setEditSaving(true);
     try {
@@ -98,7 +77,32 @@ export default function CustomerDetail() {
     } finally {
       setEditSaving(false);
     }
-  }, [editFields, customer.id, customerId, queryClient]);
+  }, [editFields, customer, customerId, queryClient]);
+
+  if (isLoading) {
+    return (
+      <AppLayout>
+        <div className="space-y-6 max-w-5xl">
+          <Skeleton className="h-10 w-64" />
+          <div className="grid grid-cols-3 gap-4">
+            {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (!data || !customer) {
+    return (
+      <AppLayout>
+        <div className="flex items-center justify-center h-64">
+          <p className="text-muted-foreground">Customer not found</p>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  const { accounts } = data;
 
   // Filter accounts: only include active/open invoices for consolidated message
   const activeAccounts = accounts.filter(a => 
