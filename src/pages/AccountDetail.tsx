@@ -1073,8 +1073,8 @@ export default function AccountDetail() {
                           <Badge variant="outline" className="text-[9px] h-4 px-1 bg-muted text-muted-foreground border-border">Pending</Badge>
                         )}
                       </div>
-                      {/* Edit button */}
-                      <div>
+                      {/* Edit / Delete buttons */}
+                      <div className="flex items-center gap-0.5">
                         {!isEditingThis && canEdit && can('edit_schedule') ? (
                           <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
                             title="Edit installment amount"
@@ -1083,6 +1083,16 @@ export default function AccountDetail() {
                               setEditScheduleAmount(String(baseAmt));
                             }}>
                             <Pencil className="h-3 w-3" />
+                          </Button>
+                        ) : null}
+                        {!effPaid && !partial && canEdit && can('edit_schedule') && item.status !== 'cancelled' ? (
+                          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Delete installment"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteScheduleTarget({ id: item.id, amount: baseAmt, installment_number: item.installment_number });
+                            }}>
+                            <Trash2 className="h-3 w-3" />
                           </Button>
                         ) : null}
                       </div>
