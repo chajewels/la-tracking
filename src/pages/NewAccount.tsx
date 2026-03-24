@@ -382,10 +382,8 @@ export default function NewAccount() {
       <div className="animate-fade-in max-w-2xl space-y-6">
         <div className="flex items-center gap-4">
           <Link to="/accounts" onClick={(e) => {
-            if (formDirty && !submittedRef.current) {
-              e.preventDefault();
-              setShowLeaveDialog(true);
-            }
+            e.preventDefault();
+            guardedNavigate('/accounts');
           }}>
             <Button variant="ghost" size="icon" className="text-muted-foreground">
               <ArrowLeft className="h-4 w-4" />
