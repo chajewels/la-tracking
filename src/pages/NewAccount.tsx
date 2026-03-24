@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, UserPlus, ChevronDown, ChevronUp, Banknote, Copy, Check, MessageCircle, Wand2 } from 'lucide-react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useNavigate, Link, useBlocker } from 'react-router-dom';
+import { ArrowLeft, UserPlus, ChevronDown, ChevronUp, Banknote, Copy, Check, MessageCircle, Wand2, Save, AlertTriangle } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { useCustomers, useAccounts, useCreateAccount, DbCustomer } from '@/hooks/use-supabase-data';
 import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
 import { Badge } from '@/components/ui/badge';
+import { useAccountDraft, clearAccountDraft } from '@/hooks/use-account-draft';
 
 type RemainingDpOption = 'split' | 'add_to_installments';
 type InstallmentMode = 'equal' | 'custom';
@@ -29,6 +30,8 @@ export default function NewAccount() {
   const { data: customers } = useCustomers();
   const { data: allAccounts } = useAccounts();
   const createAccount = useCreateAccount();
+  const { initialDraft, persistDraft, clearDraft, restored, markRestored } = useAccountDraft();
+  const draftRestoredRef = useRef(false);
 
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [customerId, setCustomerId] = useState('');
@@ -51,6 +54,91 @@ export default function NewAccount() {
   const [splitExpanded, setSplitExpanded] = useState(true);
   const [splitMessageDialog, setSplitMessageDialog] = useState<string | null>(null);
   const [splitMsgCopied, setSplitMsgCopied] = useState(false);
+
+  // Track if form has unsaved changes
+  const [formDirty, setFormDirty] = useState(false);
+  const [draftSavedIndicator, setDraftSavedIndicator] = useState(false);
+  const [showLeaveDialog, setShowLeaveDialog] = useState(false);
+  const submittedRef = useRef(false);
+
+  // Restore draft on mount
+  useEffect(() => {
+    if (initialDraft && !draftRestoredRef.current) {
+      draftRestoredRef.current = true;
+      setInvoiceNumber(initialDraft.invoiceNumber || '');
+      setCustomerId(initialDraft.customerId || '');
+      setCurrency(initialDraft.currency || 'PHP');
+      setTotalAmount(initialDraft.totalAmount || '');
+      setOrderDate(initialDraft.orderDate || '');
+      setPaymentPlan(initialDraft.paymentPlan || 3);
+      setDownpaymentInput(initialDraft.downpaymentInput || '');
+      setDownpaymentPaid(initialDraft.downpaymentPaid || '');
+      setRemainingDpOption(initialDraft.remainingDpOption || 'split');
+      setInstallmentMode(initialDraft.installmentMode || 'equal');
+      setCustomAmounts(initialDraft.customAmounts || []);
+      setEnableSplitPayment(initialDraft.enableSplitPayment || false);
+      setLumpSumInput(initialDraft.lumpSumInput || '');
+      setFormDirty(true);
+      markRestored();
+    }
+  }, [initialDraft, markRestored]);
+
+  // Auto-save draft on changes
+  useEffect(() => {
+    if (!formDirty && !invoiceNumber && !customerId && !totalAmount) return;
+    
+    const timer = setTimeout(() => {
+      persistDraft({
+        invoiceNumber,
+        customerId,
+        currency,
+        totalAmount,
+        orderDate,
+        paymentPlan,
+        downpaymentInput,
+        downpaymentPaid,
+        remainingDpOption,
+        installmentMode,
+        customAmounts,
+        enableSplitPayment,
+        lumpSumInput,
+      });
+      if (formDirty) {
+        setDraftSavedIndicator(true);
+        setTimeout(() => setDraftSavedIndicator(false), 2000);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [invoiceNumber, customerId, currency, totalAmount, orderDate, paymentPlan, downpaymentInput, downpaymentPaid, remainingDpOption, installmentMode, customAmounts, enableSplitPayment, lumpSumInput, formDirty, persistDraft]);
+
+  // Mark form as dirty on any change
+  const markDirty = useCallback(() => {
+    if (!formDirty) setFormDirty(true);
+  }, [formDirty]);
+
+  // Browser beforeunload protection
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (formDirty && !submittedRef.current) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [formDirty]);
+
+  // React Router navigation blocker
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      formDirty && !submittedRef.current && currentLocation.pathname !== nextLocation.pathname
+  );
+
+  useEffect(() => {
+    if (blocker.state === 'blocked') {
+      setShowLeaveDialog(true);
+    }
+  }, [blocker.state]);
 
   const amount = parseInt(totalAmount) || 0;
   const downpaymentAmount = parseInt(downpaymentInput) || 0;
@@ -139,6 +227,7 @@ export default function NewAccount() {
       next[index] = value;
       return next;
     });
+    markDirty();
   };
 
   const autoAdjustLastMonth = () => {
@@ -150,6 +239,7 @@ export default function NewAccount() {
       next[next.length - 1] = String(lastAmount);
       return next;
     });
+    markDirty();
   };
 
   // Toggle an existing account in the split allocation list
@@ -159,12 +249,14 @@ export default function NewAccount() {
       if (exists) return prev.filter(a => a.account_id !== accountId);
       return [...prev, { account_id: accountId, amount: '' }];
     });
+    markDirty();
   };
 
   const updateAllocationAmount = (accountId: string, value: string) => {
     setSplitAllocations(prev =>
       prev.map(a => a.account_id === accountId ? { ...a, amount: value } : a)
     );
+    markDirty();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -234,6 +326,12 @@ export default function NewAccount() {
           ? customAmounts.map(v => parseInt(v) || 0)
           : undefined,
       });
+
+      // Mark as submitted to allow navigation
+      submittedRef.current = true;
+      clearDraft();
+      setFormDirty(false);
+
       toast.success(`Layaway account #${invoiceNumber} created successfully`);
 
       // Generate consolidated split payment message
@@ -273,6 +371,7 @@ export default function NewAccount() {
         navigate('/accounts');
       }
     } catch (err: any) {
+      console.error('Create account error:', err);
       toast.error(err.message || 'Failed to create account');
     }
   };
@@ -283,14 +382,39 @@ export default function NewAccount() {
     <AppLayout>
       <div className="animate-fade-in max-w-2xl space-y-6">
         <div className="flex items-center gap-4">
-          <Link to="/accounts">
+          <Link to="/accounts" onClick={(e) => {
+            if (formDirty && !submittedRef.current) {
+              e.preventDefault();
+              setShowLeaveDialog(true);
+            }
+          }}>
             <Button variant="ghost" size="icon" className="text-muted-foreground">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
-          <div>
+          <div className="flex-1">
             <h1 className="text-2xl font-bold text-foreground font-display">New Layaway Account</h1>
             <p className="text-sm text-muted-foreground mt-0.5">Create a new payment plan</p>
+          </div>
+          {/* Draft status indicators */}
+          <div className="flex items-center gap-2">
+            {restored && (
+              <Badge variant="outline" className="text-xs border-primary/40 text-primary gap-1 animate-fade-in">
+                <Save className="h-3 w-3" />
+                Draft restored
+              </Badge>
+            )}
+            {draftSavedIndicator && !restored && (
+              <Badge variant="outline" className="text-xs border-muted-foreground/30 text-muted-foreground gap-1 animate-fade-in">
+                <Save className="h-3 w-3" />
+                Draft saved
+              </Badge>
+            )}
+            {formDirty && !draftSavedIndicator && !restored && (
+              <Badge variant="outline" className="text-xs border-accent/40 text-accent-foreground/60 gap-1">
+                Unsaved changes
+              </Badge>
+            )}
           </div>
         </div>
 
@@ -301,7 +425,7 @@ export default function NewAccount() {
                 <Label className="text-card-foreground">Invoice Number *</Label>
                 <Input
                   value={invoiceNumber}
-                  onChange={(e) => setInvoiceNumber(e.target.value)}
+                  onChange={(e) => { setInvoiceNumber(e.target.value); markDirty(); }}
                   placeholder="e.g. 19200"
                   className="bg-background border-border"
                 />
@@ -313,6 +437,7 @@ export default function NewAccount() {
                     setCustomerId(v);
                     setSplitAllocations([]);
                     setEnableSplitPayment(false);
+                    markDirty();
                   }}>
                     <SelectTrigger className="bg-background border-border flex-1">
                       <SelectValue placeholder="Select customer" />
@@ -324,7 +449,7 @@ export default function NewAccount() {
                     </SelectContent>
                   </Select>
                   <NewCustomerDialog
-                    onCreated={(c) => setCustomerId(c.id)}
+                    onCreated={(c) => { setCustomerId(c.id); markDirty(); }}
                     trigger={
                       <Button type="button" variant="outline" size="icon" className="shrink-0" title="Add new customer">
                         <UserPlus className="h-4 w-4" />
@@ -338,7 +463,7 @@ export default function NewAccount() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-card-foreground">Currency *</Label>
-                <Select value={currency} onValueChange={(v) => setCurrency(v as Currency)}>
+                <Select value={currency} onValueChange={(v) => { setCurrency(v as Currency); markDirty(); }}>
                   <SelectTrigger className="bg-background border-border">
                     <SelectValue />
                   </SelectTrigger>
@@ -353,7 +478,7 @@ export default function NewAccount() {
                 <Input
                   type="number"
                   value={totalAmount}
-                  onChange={(e) => setTotalAmount(e.target.value)}
+                  onChange={(e) => { setTotalAmount(e.target.value); markDirty(); }}
                   placeholder="e.g. 83311"
                   className="bg-background border-border"
                 />
@@ -366,7 +491,7 @@ export default function NewAccount() {
                 <Input
                   type="number"
                   value={downpaymentInput}
-                  onChange={(e) => setDownpaymentInput(e.target.value)}
+                  onChange={(e) => { setDownpaymentInput(e.target.value); markDirty(); }}
                   placeholder="Enter downpayment amount"
                   className="bg-background border-border"
                 />
@@ -377,7 +502,7 @@ export default function NewAccount() {
                   <Input
                     type="number"
                     value={downpaymentPaid}
-                    onChange={(e) => setDownpaymentPaid(e.target.value)}
+                    onChange={(e) => { setDownpaymentPaid(e.target.value); markDirty(); }}
                     placeholder={downpaymentAmount > 0 ? `e.g. ${downpaymentAmount}` : 'Amount actually paid'}
                     className="bg-background border-border"
                   />
@@ -402,7 +527,7 @@ export default function NewAccount() {
                 <Input
                   type="date"
                   value={orderDate}
-                  onChange={(e) => setOrderDate(e.target.value)}
+                  onChange={(e) => { setOrderDate(e.target.value); markDirty(); }}
                   className="bg-background border-border"
                 />
               </div>
@@ -418,6 +543,7 @@ export default function NewAccount() {
                         if (installmentMode === 'custom') {
                           setCustomAmounts(Array(plan).fill('0'));
                         }
+                        markDirty();
                       }}
                       className={`flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors ${
                         paymentPlan === plan
@@ -438,7 +564,7 @@ export default function NewAccount() {
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setInstallmentMode('equal')}
+                  onClick={() => { setInstallmentMode('equal'); markDirty(); }}
                   className={`flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors ${
                     installmentMode === 'equal'
                       ? 'border-primary bg-primary/10 text-primary'
@@ -452,6 +578,7 @@ export default function NewAccount() {
                   onClick={() => {
                     setInstallmentMode('custom');
                     initCustomAmounts();
+                    markDirty();
                   }}
                   className={`flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors ${
                     installmentMode === 'custom'
@@ -488,6 +615,7 @@ export default function NewAccount() {
                         setSplitAllocations([]);
                         setLumpSumInput('');
                       }
+                      markDirty();
                     }}
                   />
                   <Label htmlFor="enable-split" className="text-sm cursor-pointer text-card-foreground">Enable</Label>
@@ -502,7 +630,7 @@ export default function NewAccount() {
                     <Input
                       type="number"
                       value={lumpSumInput}
-                      onChange={(e) => setLumpSumInput(e.target.value)}
+                      onChange={(e) => { setLumpSumInput(e.target.value); markDirty(); }}
                       placeholder="Total amount customer is paying"
                       className="bg-background border-border text-lg font-semibold"
                     />
@@ -668,7 +796,7 @@ export default function NewAccount() {
                   </p>
                   <RadioGroup
                     value={remainingDpOption}
-                    onValueChange={(v) => setRemainingDpOption(v as RemainingDpOption)}
+                    onValueChange={(v) => { setRemainingDpOption(v as RemainingDpOption); markDirty(); }}
                     className="space-y-2"
                   >
                     <div className="flex items-start gap-3 rounded-lg border border-border bg-background p-3">
@@ -770,9 +898,19 @@ export default function NewAccount() {
           )}
 
           <div className="flex justify-end gap-3">
-            <Link to="/accounts">
-              <Button variant="outline">Cancel</Button>
-            </Link>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                if (formDirty) {
+                  setShowLeaveDialog(true);
+                } else {
+                  navigate('/accounts');
+                }
+              }}
+            >
+              Cancel
+            </Button>
             <Button
               type="submit"
               disabled={createAccount.isPending}
@@ -783,6 +921,41 @@ export default function NewAccount() {
           </div>
         </form>
       </div>
+
+      {/* Leave Confirmation Dialog */}
+      <Dialog open={showLeaveDialog} onOpenChange={setShowLeaveDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Unsaved Changes
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            You have unsaved changes. Are you sure you want to leave? Your draft will be saved and can be restored when you return.
+          </p>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowLeaveDialog(false)}>
+              Stay
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setShowLeaveDialog(false);
+                setFormDirty(false);
+                submittedRef.current = true;
+                if (blocker.state === 'blocked') {
+                  blocker.proceed();
+                } else {
+                  navigate('/accounts');
+                }
+              }}
+            >
+              Leave Page
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Split Payment Consolidated Message Dialog */}
       <Dialog open={!!splitMessageDialog} onOpenChange={(open) => {
