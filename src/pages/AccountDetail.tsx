@@ -967,8 +967,12 @@ export default function AccountDetail() {
                 const overCap = penaltyCapOverride && isPenaltyOverCap(currency as 'PHP' | 'JPY', item.installment_number, penaltyAmt, account.payment_plan_months);
                 return (
                   <div key={item.id}
-                    className={`group rounded-lg border p-2.5 sm:p-3 ${
-                      effPaid ? 'bg-success/5 border-success/10' : partial ? 'bg-warning/5 border-warning/10' : 'bg-card border-border'
+                    className={`group rounded-xl border p-2.5 sm:p-3 transition-all duration-200 hover:shadow-md ${
+                      effPaid ? 'bg-success/5 border-success/10 hover:border-success/20' :
+                      partial ? 'bg-warning/5 border-warning/10 hover:border-warning/20' :
+                      item.status === 'overdue' ? 'bg-destructive/5 border-destructive/10 hover:border-destructive/20' :
+                      penaltyAmt > 0 ? 'bg-card border-purple-500/20 hover:border-purple-500/30 penalty-glow' :
+                      'bg-card border-border hover:border-primary/20'
                     }`}
                   >
                     {/* Mobile layout */}
