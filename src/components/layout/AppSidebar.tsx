@@ -34,7 +34,7 @@ const menuItems = [
   { label: 'Payment Submissions', icon: FileText, path: '/payment-submissions' },
   { label: 'Waivers', icon: FileText, path: '/waivers' },
   { label: 'Analytics', icon: BarChart3, path: '/analytics' },
-  { label: 'Admin Audit', icon: ShieldCheck, path: '/audit' },
+  { label: 'Admin Audit', icon: ShieldCheck, path: '/admin-audit' },
   { label: 'Settings', icon: Settings, path: '/settings' },
 ];
 
