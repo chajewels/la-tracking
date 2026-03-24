@@ -940,7 +940,7 @@ export default function NewAccount() {
                 setShowLeaveDialog(false);
                 setFormDirty(false);
                 submittedRef.current = true;
-                navigate(pendingNavRef.current || '/accounts');
+                navigate(pendingNavRef.current || ROUTES.ACCOUNTS);
                 pendingNavRef.current = null;
               }}
             >
