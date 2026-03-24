@@ -62,6 +62,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   const [step, setStep] = useState<'input' | 'preview'>('input');
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const submittingRef = useRef(false); // duplicate-submission guard
   const recordPayment = useRecordPayment();
   const { roles } = useAuth();
   const r = roles as AppRole[];
