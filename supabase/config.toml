@@ -38,7 +38,7 @@ project_id = "pfoicalpzdcmyxzvwyhz"
   [functions.void-payment]
     verify_jwt = false
   [functions.send-transactional-email]
-    verify_jwt = true
+    verify_jwt = false
   [functions.preview-transactional-email]
     verify_jwt = false
   [functions.handle-email-unsubscribe]
