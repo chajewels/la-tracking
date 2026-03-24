@@ -275,7 +275,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder={`Max ${remainingBalance.toLocaleString()}`}
                   className="bg-background border-border"
-                  min={1}
+                  min={0.01}
                   max={remainingBalance}
                   step="any"
                 />

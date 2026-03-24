@@ -163,7 +163,7 @@ Deno.serve(async (req) => {
         .order("penalty_date", { ascending: true });
 
       // Allocate: penalties first, then installments
-      let remaining = amountForAccount;
+      let remaining = Math.round(amountForAccount * 100) / 100;
       const paymentAllocations: Array<{
         schedule_id: string;
         allocation_type: "penalty" | "installment";
@@ -181,8 +181,8 @@ Deno.serve(async (req) => {
         for (const pen of unpaidPenalties) {
           if (remaining <= 0) break;
           const penAmount = Number(pen.penalty_amount);
-          const toPay = Math.min(remaining, penAmount);
-          remaining -= toPay;
+          const toPay = Math.round(Math.min(remaining, penAmount) * 100) / 100;
+          remaining = Math.round((remaining - toPay) * 100) / 100;
           paymentAllocations.push({
             schedule_id: pen.schedule_id,
             allocation_type: "penalty",
@@ -211,10 +211,10 @@ Deno.serve(async (req) => {
           const due = Math.max(0, baseAmount - currentPaid);
           if (due <= 0) continue;
 
-          const toApply = Math.min(remaining, due);
-          remaining -= toApply;
+          const toApply = Math.round(Math.min(remaining, due) * 100) / 100;
+          remaining = Math.round((remaining - toApply) * 100) / 100;
 
-          const newPaid = currentPaid + toApply;
+          const newPaid = Math.round((currentPaid + toApply) * 100) / 100;
           const newStatus = newPaid >= baseAmount ? "paid" : "partially_paid";
 
           paymentAllocations.push({

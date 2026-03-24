@@ -114,7 +114,7 @@ Deno.serve(async (req) => {
       if (sched) {
         const base = Number(sched.base_installment_amount);
         const today = new Date().toISOString().split("T")[0];
-        const newSchedStatus = recalcPaid >= base ? "paid"
+        const newSchedStatus = Math.round(recalcPaid * 100) / 100 >= Math.round(base * 100) / 100 ? "paid"
           : recalcPaid > 0 ? "partially_paid"
           : sched.due_date <= today ? "overdue"
           : "pending";

@@ -6,7 +6,14 @@ import { Currency, ScheduleItem } from './types';
  */
 export function formatCurrency(amount: number, currency: Currency): string {
   const symbol = currency === 'PHP' ? '₱' : '¥';
-  const formatted = Math.round(amount).toLocaleString('en-US');
+  // PHP may have decimals; JPY is always whole units
+  if (currency === 'JPY') {
+    return `${symbol} ${Math.round(amount).toLocaleString('en-US')}`;
+  }
+  const rounded = Math.round(amount * 100) / 100;
+  const formatted = rounded % 1 === 0
+    ? rounded.toLocaleString('en-US')
+    : rounded.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return `${symbol} ${formatted}`;
 }
 
