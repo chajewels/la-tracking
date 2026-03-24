@@ -507,6 +507,28 @@ export function useEditPayment() {
 }
 
 // ──────────────────────────────────────────────
+// EDIT PAYMENT AMOUNT (via edge function — full reallocation)
+// ──────────────────────────────────────────────
+export function useEditPaymentAmount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      payment_id: string;
+      new_amount: number;
+      reason?: string;
+    }) => {
+      const { data, error } = await supabase.functions.invoke('edit-payment-amount', {
+        body: payload,
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => invalidatePaymentRelated(qc),
+  });
+}
+
+// ──────────────────────────────────────────────
 // RESTORE PAYMENT (un-void)
 // ──────────────────────────────────────────────
 export function useRestorePayment() {

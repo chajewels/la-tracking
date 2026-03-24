@@ -25,7 +25,7 @@ import PenaltyWaiverPanel from '@/components/penalties/PenaltyWaiverPanel';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
-import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useRestorePayment, useDeleteAccount, useForfeitAccount, useAccountServices, usePenaltyCapOverride } from '@/hooks/use-supabase-data';
+import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useEditPaymentAmount, useRestorePayment, useDeleteAccount, useForfeitAccount, useAccountServices, usePenaltyCapOverride } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -49,6 +49,7 @@ export default function AccountDetail() {
   const { data: penaltyCapOverride } = usePenaltyCapOverride(id);
   const [copied, setCopied] = useState(false);
   const voidPayment = useVoidPayment();
+  const editPaymentAmount = useEditPaymentAmount();
   const editPayment = useEditPayment();
   const restorePayment = useRestorePayment();
   const deleteAccount = useDeleteAccount();
@@ -60,6 +61,8 @@ export default function AccountDetail() {
   const [editDate, setEditDate] = useState('');
   const [editMethod, setEditMethod] = useState('');
   const [editRemarks, setEditRemarks] = useState('');
+  const [editAmount, setEditAmount] = useState('');
+  const [editAmountReason, setEditAmountReason] = useState('');
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<{ id: string; amount: number; date: string } | null>(null);
   const [forfeitConfirmOpen, setForfeitConfirmOpen] = useState(false);
@@ -1053,9 +1056,13 @@ export default function AccountDetail() {
                 const isEditing = editingId === p.id;
 
                 if (isEditing) {
+                  const originalAmount = Number(p.amount_paid);
+                  const amountChanged = editAmount !== '' && Math.round(parseFloat(editAmount) * 100) / 100 !== originalAmount;
+                  const isSaving = editPayment.isPending || editPaymentAmount.isPending;
+
                   return (
                     <div key={p.id} className="p-3 rounded-lg border border-primary/30 bg-muted/30 space-y-2">
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                         <div>
                           <label className="text-[10px] text-muted-foreground uppercase">Date</label>
                           <Input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} className="h-8 text-xs bg-background" />
@@ -1073,28 +1080,66 @@ export default function AccountDetail() {
                           </Select>
                         </div>
                         <div>
-                          <label className="text-[10px] text-muted-foreground uppercase">Amount (read-only)</label>
-                          <Input disabled value={formatCurrency(Number(p.amount_paid), p.currency as Currency)} className="h-8 text-xs bg-muted" />
+                          <label className="text-[10px] text-muted-foreground uppercase">
+                            Amount {amountChanged && <span className="text-warning">(changed)</span>}
+                          </label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            value={editAmount}
+                            onChange={(e) => setEditAmount(e.target.value)}
+                            className={`h-8 text-xs bg-background tabular-nums ${amountChanged ? 'border-warning' : ''}`}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-muted-foreground uppercase">Original</label>
+                          <Input disabled value={formatCurrency(originalAmount, p.currency as Currency)} className="h-8 text-xs bg-muted" />
                         </div>
                       </div>
+                      {amountChanged && (
+                        <div>
+                          <label className="text-[10px] text-muted-foreground uppercase">Reason for amount change *</label>
+                          <Input value={editAmountReason} onChange={(e) => setEditAmountReason(e.target.value)} placeholder="e.g. Wrong amount recorded" className="h-8 text-xs bg-background" />
+                        </div>
+                      )}
                       <div>
                         <label className="text-[10px] text-muted-foreground uppercase">Notes</label>
                         <Textarea value={editRemarks} onChange={(e) => setEditRemarks(e.target.value)} rows={1} className="text-xs bg-background resize-none" />
                       </div>
+                      {amountChanged && (
+                        <p className="text-[10px] text-warning flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3" />
+                          Changing the amount will reallocate this payment across the schedule. This is audit-logged.
+                        </p>
+                      )}
                       <div className="flex gap-2 justify-end">
                         <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>
                           <X className="h-3 w-3 mr-1" /> Cancel
                         </Button>
-                        <Button size="sm" className="gold-gradient text-primary-foreground" disabled={editPayment.isPending}
+                        <Button size="sm" className="gold-gradient text-primary-foreground" disabled={isSaving || (amountChanged && !editAmountReason.trim())}
                           onClick={async () => {
                             try {
+                              // Save metadata changes (date, method, notes)
                               await editPayment.mutateAsync({
                                 id: p.id,
                                 date_paid: editDate,
                                 payment_method: editMethod,
                                 remarks: editRemarks || undefined,
                               });
-                              toast.success('Payment updated');
+
+                              // If amount changed, call the edge function for full reallocation
+                              if (amountChanged) {
+                                const newAmt = Math.round(parseFloat(editAmount) * 100) / 100;
+                                await editPaymentAmount.mutateAsync({
+                                  payment_id: p.id,
+                                  new_amount: newAmt,
+                                  reason: editAmountReason.trim(),
+                                });
+                                toast.success(`Payment amount updated: ${formatCurrency(originalAmount, p.currency as Currency)} → ${formatCurrency(newAmt, p.currency as Currency)}`);
+                              } else {
+                                toast.success('Payment updated');
+                              }
                               setEditingId(null);
                             } catch (err: any) {
                               toast.error(err.message || 'Failed to update');
@@ -1131,6 +1176,8 @@ export default function AccountDetail() {
                               setEditDate(p.date_paid);
                               setEditMethod(p.payment_method || 'cash');
                               setEditRemarks(p.remarks || '');
+                              setEditAmount(String(Number(p.amount_paid)));
+                              setEditAmountReason('');
                             }}>
                             <Pencil className="h-3 w-3" />
                           </Button>
