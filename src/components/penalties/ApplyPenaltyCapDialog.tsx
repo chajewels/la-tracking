@@ -153,7 +153,7 @@ export default function ApplyPenaltyCapDialog({ accountId, invoiceNumber, curren
       queryClient.invalidateQueries({ queryKey: ['penalty-cap-override', accountId] });
       queryClient.invalidateQueries({ queryKey: ['penalties', accountId] });
       queryClient.invalidateQueries({ queryKey: ['schedule', accountId] });
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId] });
+      queryClient.invalidateQueries({ queryKey: ['account', accountId] });
       queryClient.invalidateQueries({ queryKey: ['account', accountId] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
 
