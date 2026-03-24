@@ -127,7 +127,7 @@ export default function Dashboard() {
                 subtitle={formatCurrency(summary?.overdue_amount ?? 0, displayCurrency)}
                 icon={AlertTriangle}
                 variant="danger"
-                href="/monitoring?filter=overdue"
+                href={`${ROUTES.MONITORING}?filter=overdue`}
               />
               <StatCard
                 title="Completed"
