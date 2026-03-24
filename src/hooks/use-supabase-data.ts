@@ -567,7 +567,21 @@ export function useDeleteAccount() {
       const { data, error } = await supabase.functions.invoke('delete-account', {
         body: { account_id: accountId },
       });
-      if (error) throw error;
+      if (error) {
+        // Extract detailed error from FunctionsHttpError response body
+        let detailedMsg = error.message || 'Failed to delete account';
+        try {
+          if ('context' in error && (error as any).context?.body) {
+            const body = await new Response((error as any).context.body).json();
+            if (body?.error) detailedMsg = body.error;
+          }
+        } catch {
+          // Fallback to generic message
+        }
+        throw new Error(detailedMsg);
+      }
+      if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : JSON.stringify(data.error));
+      if (!data?.success) throw new Error('Delete operation did not complete successfully');
       return data;
     },
     onSuccess: () => invalidateAll(qc),
