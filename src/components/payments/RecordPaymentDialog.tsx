@@ -149,6 +149,8 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   };
 
   const handleSubmitForConfirmation = async () => {
+    if (submittingRef.current) return; // prevent double-click
+    submittingRef.current = true;
     setLoadingPreview(true);
     try {
       const { data, error } = await supabase.functions.invoke('record-payment', {
@@ -172,6 +174,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
       toast.error(err.message || 'Failed to submit payment');
     } finally {
       setLoadingPreview(false);
+      submittingRef.current = false;
     }
   };
 
