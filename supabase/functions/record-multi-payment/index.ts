@@ -233,7 +233,22 @@ Deno.serve(async (req) => {
 
       const newTotalPaid = Number(acct.total_paid) + amountForAccount;
       const newRemainingBalance = Number(acct.total_amount) - newTotalPaid;
-      const newStatus = newRemainingBalance <= 0 ? "completed" : acct.status;
+
+      // Recalculate correct status based on updated schedule state
+      let newStatus: string;
+      if (newRemainingBalance <= 0) {
+        newStatus = "completed";
+      } else if (["active", "overdue"].includes(acct.status)) {
+        const todayStr = new Date().toISOString().split("T")[0];
+        // Check if there will still be overdue items after applying scheduleUpdates
+        const paidIds = new Set(scheduleUpdates.filter((u: any) => u.status === "paid").map((u: any) => u.id));
+        const stillOverdue = acctSchedule.some((s: any) =>
+          s.status !== "paid" && s.status !== "cancelled" && !paidIds.has(s.id) && s.due_date < todayStr
+        );
+        newStatus = stillOverdue ? "overdue" : "active";
+      } else {
+        newStatus = acct.status;
+      }
 
       results.push({
         account_id: inputAlloc.account_id,

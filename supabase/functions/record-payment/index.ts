@@ -292,7 +292,22 @@ Deno.serve(async (req) => {
       .is("voided_at", null);
     const verifiedTotalPaid = (postInsertPayments || []).reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
     const verifiedRemaining = Math.max(0, Number(account.total_amount) - verifiedTotalPaid);
-    const verifiedStatus = verifiedRemaining <= 0 ? "completed" : account.status;
+
+    // Recalculate correct status based on updated schedule state
+    let verifiedStatus = account.status;
+    if (verifiedRemaining <= 0) {
+      verifiedStatus = "completed";
+    } else if (["active", "overdue"].includes(account.status)) {
+      // Check if any unpaid schedule items are still past due
+      const todayStr = new Date().toISOString().split("T")[0];
+      const { data: updatedSchedule } = await supabase
+        .from("layaway_schedule")
+        .select("due_date, status")
+        .eq("account_id", account_id)
+        .not("status", "in", '("paid","cancelled")');
+      const hasOverdue = (updatedSchedule || []).some((s: any) => s.due_date < todayStr);
+      verifiedStatus = hasOverdue ? "overdue" : "active";
+    }
 
     await supabase.from("layaway_accounts").update({
       total_paid: verifiedTotalPaid,
