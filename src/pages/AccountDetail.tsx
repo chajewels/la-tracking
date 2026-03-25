@@ -429,7 +429,7 @@ export default function AccountDetail() {
           msg += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(rowTotal, currency)} (PAID)\n`;
         }
       } else if (penalty > 0) {
-        msg += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${fmtVal(penalty)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
+        msg += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
       } else {
         // BUG 4: no penalty portion shown when penalty == 0
         msg += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)}\n`;
