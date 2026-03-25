@@ -297,14 +297,17 @@ export default function AccountDetail() {
     scheduleItems,
   });
 
-  const remainingBalance = summary.remainingPrincipal;
+  const principalRemaining = summary.remainingPrincipal;
+  const displayBalance = summary.currentTotalPayable;
+  const paymentEligibleBalance = summary.remainingPrincipal + summary.outstandingPenalties;
+  const hasAdditionalCharges = summary.outstandingPenalties > 0 || summary.totalServices > 0;
 
   const scheduleBaseSum = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
   const schedulePenaltySum = scheduleItems.reduce((s, i) => s + Number(i.penalty_amount), 0);
   const originalPrincipal = downpaymentAmount + scheduleBaseSum;
   const progress = summary.progressPercent;
 
-  const reconciliationValid = Math.abs(principalTotal - totalPaid - remainingBalance) < 1;
+  const reconciliationValid = Math.abs(principalTotal - totalPaid - principalRemaining) < 1;
 
   const unpaidSchedule = getUnpaidScheduleItems(scheduleItems);
   const activePayments = [...confirmedActivePayments]
@@ -714,12 +717,12 @@ export default function AccountDetail() {
               invoiceNumber={account.invoice_number}
             />
             )}
-            {remainingBalance > 0 && canAcceptPayment(account.status) && can('record_payment') && (
+            {paymentEligibleBalance > 0 && canAcceptPayment(account.status) && can('record_payment') && (
               <>
                 <RecordPaymentDialog
                   accountId={account.id}
                   currency={currency}
-                  remainingBalance={remainingBalance}
+                  remainingBalance={paymentEligibleBalance}
                   schedule={scheduleItems}
                   invoiceNumber={account.invoice_number}
                   downpaymentRemaining={dpRemainingAmount}
@@ -727,7 +730,7 @@ export default function AccountDetail() {
                 <RecordPaymentDialog
                   accountId={account.id}
                   currency={currency}
-                  remainingBalance={remainingBalance}
+                  remainingBalance={paymentEligibleBalance}
                   payFullBalance
                   schedule={scheduleItems}
                   invoiceNumber={account.invoice_number}
@@ -813,7 +816,7 @@ export default function AccountDetail() {
               invoiceNumber={account.invoice_number}
               customerName={account.customers?.full_name || 'Customer'}
               currency={currency}
-              remainingBalance={remainingBalance}
+              remainingBalance={displayBalance}
               totalPaid={totalPaid}
               totalAmount={principalTotal}
               scheduleItems={scheduleItems}
@@ -836,7 +839,7 @@ export default function AccountDetail() {
           <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0" />
             <p className="text-xs text-destructive font-medium">
-              Reconciliation Error: Total ({formatCurrency(principalTotal, currency)}) − Paid ({formatCurrency(totalPaid, currency)}) = {formatCurrency(principalTotal - totalPaid, currency)} ≠ Remaining ({formatCurrency(remainingBalance, currency)})
+              Principal Reconciliation Error: Total ({formatCurrency(principalTotal, currency)}) − Paid ({formatCurrency(totalPaid, currency)}) = {formatCurrency(principalTotal - totalPaid, currency)} ≠ Principal Remaining ({formatCurrency(principalRemaining, currency)})
             </p>
           </div>
         )}
@@ -876,12 +879,19 @@ export default function AccountDetail() {
               {formatCurrency(summary.totalPaid, currency)}
             </p>
           </div>
-          <div className="group relative overflow-hidden rounded-xl border border-primary/20 bg-card p-3 sm:p-4 card-hover hover:border-primary/40">
-            <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-gradient-to-r from-primary/40 via-primary to-primary/40" />
-            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Remaining Balance</p>
-            <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
-              {formatCurrency(summary.remainingPrincipal, currency)}
+          <div className={`group relative overflow-hidden rounded-xl border bg-card p-3 sm:p-4 card-hover ${hasAdditionalCharges ? 'border-warning/30 hover:border-warning/50 bg-warning/5' : 'border-primary/20 hover:border-primary/40'}`}>
+            <div className={`absolute top-0 left-4 right-4 h-[2px] rounded-b-full ${hasAdditionalCharges ? 'bg-warning/60' : 'bg-gradient-to-r from-primary/40 via-primary to-primary/40'}`} />
+            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Balance Now</p>
+            <p className={`text-lg sm:text-xl font-bold font-display tabular-nums ${hasAdditionalCharges ? 'text-warning' : 'text-card-foreground'}`}>
+              {formatCurrency(displayBalance, currency)}
             </p>
+            {hasAdditionalCharges && (
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                Principal {formatCurrency(summary.remainingPrincipal, currency)}
+                {summary.outstandingPenalties > 0 ? ` + Penalties ${formatCurrency(summary.outstandingPenalties, currency)}` : ''}
+                {summary.totalServices > 0 ? ` + Services ${formatCurrency(summary.totalServices, currency)}` : ''}
+              </p>
+            )}
           </div>
           {summary.outstandingPenalties > 0 && (
             <div className="group relative overflow-hidden rounded-xl border border-destructive/20 bg-card p-3 sm:p-4 card-hover penalty-glow hover:border-destructive/40">
@@ -901,18 +911,14 @@ export default function AccountDetail() {
               </p>
             </div>
           )}
-          {(summary.outstandingPenalties > 0 || summary.totalServices > 0) && (
-          <div className="group relative overflow-hidden rounded-xl border border-warning/30 bg-warning/5 p-3 sm:p-4 card-hover hover:border-warning/50">
-            <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-warning/60" />
-            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Current Total Payable</p>
-            <p className="text-lg sm:text-xl font-bold font-display tabular-nums text-warning">
-              {formatCurrency(summary.currentTotalPayable, currency)}
+          {hasAdditionalCharges && (
+          <div className="group relative overflow-hidden rounded-xl border border-primary/20 bg-card p-3 sm:p-4 card-hover hover:border-primary/40">
+            <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-gradient-to-r from-primary/40 via-primary to-primary/40" />
+            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Principal Remaining</p>
+            <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
+              {formatCurrency(summary.remainingPrincipal, currency)}
             </p>
-            <p className="text-[10px] text-muted-foreground mt-0.5">
-              = Balance {formatCurrency(summary.remainingPrincipal, currency)}
-              {summary.outstandingPenalties > 0 ? ` + Penalties ${formatCurrency(summary.outstandingPenalties, currency)}` : ''}
-              {summary.totalServices > 0 ? ` + Services ${formatCurrency(summary.totalServices, currency)}` : ''}
-            </p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">Excludes penalties and services</p>
           </div>
           )}
           <div className="group relative overflow-hidden rounded-xl border border-border bg-card p-3 sm:p-4 card-hover">
