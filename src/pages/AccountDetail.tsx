@@ -1350,7 +1350,7 @@ export default function AccountDetail() {
                   <ShieldCheck className="h-3.5 w-3.5 mr-1" />
                   {showVerify ? 'Hide' : 'Verify'} Calculations {allPass ? '✅' : '❌'}
                 </Button>
-                {showVerify && (
+                {(showVerify || isTestAccount) && (
                   <div className="mt-2 rounded-lg border border-border bg-muted/30 p-3 space-y-1.5">
                     <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Calculation Audit</p>
                     {checks.map((c, i) => (
