@@ -4,7 +4,7 @@ import { ROUTES } from '@/constants/routes';
 import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
-import StatementShareMenu from '@/components/statement/StatementShareMenu';
+
 import RestorePaymentDialog from '@/components/payments/RestorePaymentDialog';
 import ReassignOwnerDialog from '@/components/accounts/ReassignOwnerDialog';
 import AddServiceDialog from '@/components/services/AddServiceDialog';
@@ -832,17 +832,6 @@ export default function AccountDetail() {
                 )}
               </>
             )}
-            <StatementShareMenu
-              accountId={account.id}
-              invoiceNumber={account.invoice_number}
-              customerName={account.customers?.full_name || 'Customer'}
-              currency={currency}
-              remainingBalance={displayBalance}
-              totalPaid={totalPaid}
-              totalAmount={principalTotal}
-              scheduleItems={scheduleItems}
-              messengerLink={account.customers?.messenger_link}
-            />
             {can('delete_account') && (
             <Button
               variant="outline"
