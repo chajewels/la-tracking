@@ -747,7 +747,7 @@ export default function AccountDetail() {
               ) : (
                 <div className="flex items-center gap-2">
                   <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">INV #{account.invoice_number}</h1>
-                  {can('edit_invoice') && !isTestAccount && (
+                  {can('edit_invoice') && !isLockedTest && (
                   <Button
                     size="icon"
                     variant="ghost"
@@ -843,7 +843,7 @@ export default function AccountDetail() {
               </div>
             )}
           </div>
-          {!isTestAccount && (
+          {!isLockedTest && (
           <div className="flex gap-2 flex-wrap">
             {can('edit_invoice') && (
               <EditAccountDialog
