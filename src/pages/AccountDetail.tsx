@@ -1261,7 +1261,7 @@ export default function AccountDetail() {
                         Grand Total ({formatCurrency(grandTotal, currency)}) ≠ Total LA Amount ({formatCurrency(summary.totalLAAmount, currency)})
                       </span>
                     </div>
-                  )
+                  )}
                   {penaltyCapOverride && (
                     <div className="flex items-center gap-1.5 px-1 pt-1">
                       <ShieldCheck className="h-3.5 w-3.5 text-primary" />
@@ -1271,7 +1271,8 @@ export default function AccountDetail() {
                     </div>
                   )}
                 </div>
-              )}
+                );
+              })()}
               {scheduleItems.length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-4">No schedule generated yet</p>
               )}
