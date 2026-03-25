@@ -962,18 +962,26 @@ function OverviewTab({ account, statementUrl, today }: {
             <CreditCard className="h-4 w-4 text-primary" /> Payment History
           </h3>
           <div className="space-y-1.5">
-            {account.payments.map((p, idx) => (
+            {account.payments.map((p, idx) => {
+              const isDp = (p.reference && String(p.reference).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment');
+              return (
               <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-[hsl(var(--card))] border border-[hsl(var(--border))]">
                 <div>
-                  <p className="text-sm font-medium text-foreground">{fmtDate(p.date)}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-foreground">{fmtDate(p.date)}</p>
+                    {isDp && (
+                      <Badge variant="outline" className="text-[9px] py-0 h-4 bg-primary/10 text-primary border-primary/20">Downpayment</Badge>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2 mt-0.5">
                     {p.method && <span className="text-[10px] text-muted-foreground capitalize">{p.method}</span>}
-                    {p.reference && <span className="text-[10px] text-muted-foreground">Ref: {p.reference}</span>}
+                    {p.reference && !isDp && <span className="text-[10px] text-muted-foreground">Ref: {p.reference}</span>}
                   </div>
                 </div>
                 <p className="text-sm font-semibold text-success tabular-nums">{fmt(p.amount, account.currency)}</p>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
