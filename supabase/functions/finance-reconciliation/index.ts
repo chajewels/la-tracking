@@ -146,15 +146,20 @@ Deno.serve(async (req) => {
         });
       };
 
-      // 1. Balance reconciliation — SINGLE SOURCE OF TRUTH: remaining = total_amount - SUM(actual payments)
-      // Downpayment must be represented by a real payment row.
-      const totalPayments = pays.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+      // 1. Balance reconciliation — SINGLE SOURCE OF TRUTH: remaining_balance = SUM(unpaid principal in schedule)
+      // remaining_balance tracks PRINCIPAL only; penalty payments do NOT reduce it.
+      const unpaidPrincipal = scheds.reduce((s: number, si: any) => {
+        if (si.status === 'paid' || si.status === 'cancelled') return s;
+        const base = Number(si.base_installment_amount);
+        const paid = Number(si.paid_amount);
+        // paid_amount on schedule reflects principal allocated, not penalty
+        return s + Math.max(0, base - paid);
+      }, 0);
 
-      const expectedRemaining = Math.max(0, Number(acct.total_amount) - totalPayments);
       const storedBalance = Number(acct.remaining_balance);
 
-      if (Math.abs(expectedRemaining - storedBalance) > 1) {
-        addEx("balance_mismatch", `Stored remaining ${storedBalance} vs computed ${expectedRemaining}`, expectedRemaining, storedBalance);
+      if (Math.abs(unpaidPrincipal - storedBalance) > 1) {
+        addEx("balance_mismatch", `Stored remaining ${storedBalance} vs schedule unpaid principal ${Math.round(unpaidPrincipal * 100) / 100}`, unpaidPrincipal, storedBalance);
         balanceExceptions++;
       }
 
