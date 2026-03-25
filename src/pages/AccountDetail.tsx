@@ -859,7 +859,7 @@ export default function AccountDetail() {
           <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0" />
             <p className="text-xs text-destructive font-medium">
-              Principal Reconciliation Error: Total ({formatCurrency(principalTotal, currency)}) − Paid ({formatCurrency(totalPaid, currency)}) = {formatCurrency(principalTotal - totalPaid, currency)} ≠ Principal Remaining ({formatCurrency(principalRemaining, currency)})
+              Reconciliation Error: Total LA ({formatCurrency(summary.totalLAAmount, currency)}) − Paid ({formatCurrency(totalPaid, currency)}) = {formatCurrency(summary.totalLAAmount - totalPaid, currency)} ≠ Remaining ({formatCurrency(summary.remainingBalance, currency)})
             </p>
           </div>
         )}
@@ -1294,6 +1294,56 @@ export default function AccountDetail() {
               )}
             </div>
           </div>
+
+          {/* ═══ Verification Debug Panel (hidden by default) ═══ */}
+          {(() => {
+            const [showVerify, setShowVerify] = useState(false);
+            const sumPendingMonths = unpaidSchedule.reduce((s, i) => s + Number(i.total_due_amount) - Number(i.paid_amount), 0);
+            const sumAllBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
+            const baseIntegrity = Math.round((downpaymentAmount + sumAllBases) * 100) / 100;
+            const checks = [
+              { label: 'activePenalties (non-waived)', expected: summary.activePenalties, actual: activePenaltyTotal, pass: Math.abs(summary.activePenalties - activePenaltyTotal) < 0.01 },
+              { label: 'totalLAAmount (base + penalties + svc)', expected: summary.totalLAAmount, actual: principalTotal + activePenaltyTotal + totalServicesAmount, pass: Math.abs(summary.totalLAAmount - (principalTotal + activePenaltyTotal + totalServicesAmount)) < 0.01 },
+              { label: 'amountPaid (all confirmed payments)', expected: summary.totalPaid, actual: totalPaid, pass: Math.abs(summary.totalPaid - totalPaid) < 0.01 },
+              { label: 'remainingBalance (totalLA - paid)', expected: summary.remainingBalance, actual: Math.max(0, summary.totalLAAmount - totalPaid), pass: Math.abs(summary.remainingBalance - Math.max(0, summary.totalLAAmount - totalPaid)) < 0.01 },
+              { label: 'monthsRemaining', expected: summary.unpaidCount, actual: unpaidSchedule.length, pass: summary.unpaidCount === unpaidSchedule.length },
+              { label: 'sumOfPendingMonths ≈ remainingBalance', expected: summary.remainingBalance, actual: Math.round(sumPendingMonths * 100) / 100, pass: Math.abs(sumPendingMonths - summary.remainingBalance) < 2 },
+              { label: 'DP + sumBases = principalTotal', expected: principalTotal, actual: baseIntegrity, pass: Math.abs(baseIntegrity - principalTotal) < 2 },
+            ];
+            const allPass = checks.every(c => c.pass);
+            return (
+              <div className="mt-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={`text-xs ${allPass ? 'border-success/30 text-success' : 'border-destructive/30 text-destructive'}`}
+                  onClick={() => setShowVerify(!showVerify)}
+                >
+                  <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                  {showVerify ? 'Hide' : 'Verify'} Calculations {allPass ? '✅' : '❌'}
+                </Button>
+                {showVerify && (
+                  <div className="mt-2 rounded-lg border border-border bg-muted/30 p-3 space-y-1.5">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Calculation Audit</p>
+                    {checks.map((c, i) => (
+                      <div key={i} className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">{c.pass ? '✅' : '❌'} {c.label}</span>
+                        <span className={`tabular-nums font-mono ${c.pass ? 'text-success' : 'text-destructive'}`}>
+                          {typeof c.actual === 'number' ? fmtVal(c.actual) : c.actual}
+                          {!c.pass && ` (expected: ${typeof c.expected === 'number' ? fmtVal(c.expected) : c.expected})`}
+                        </span>
+                      </div>
+                    ))}
+                    <div className="pt-2 border-t border-border mt-2">
+                      <p className={`text-xs font-semibold ${allPass ? 'text-success' : 'text-destructive'}`}>
+                        {allPass ? '✅ All checks passed' : '❌ Some checks failed — investigate'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Penalty Waiver Panel */}
