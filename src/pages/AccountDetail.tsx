@@ -828,7 +828,7 @@ export default function AccountDetail() {
             <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-border" />
             <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Total Layaway Amount</p>
             <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
-              {formatCurrency(summary.principalTotal, currency)}
+              {formatCurrency(summary.principalTotal + schedulePenaltySum + summary.totalServices, currency)}
             </p>
           </div>
           {downpaymentAmount > 0 && (
