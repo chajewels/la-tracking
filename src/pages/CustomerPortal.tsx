@@ -654,6 +654,27 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
           </div>
         </div>
 
+        {/* Downpayment Info */}
+        {account.downpayment_amount > 0 && (() => {
+          const dpPaid = account.payments
+            .filter(p => p.reference && String(p.reference).startsWith('DP-') || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment'))
+            .reduce((s, p) => s + p.amount, 0);
+          const dpFull = dpPaid >= account.downpayment_amount;
+          return (
+            <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border text-xs ${dpFull ? 'bg-success/5 border-success/10' : dpPaid > 0 ? 'bg-warning/5 border-warning/10' : 'bg-muted/30 border-border'}`}>
+              <div className={`flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-bold shrink-0 ${dpFull ? 'bg-success/20 text-success' : 'bg-primary/20 text-primary'}`}>
+                {dpFull ? <Check className="h-2.5 w-2.5" /> : 'DP'}
+              </div>
+              <div className="flex-1">
+                <span className="font-medium text-foreground">Downpayment: {fmt(account.downpayment_amount, currency)}</span>
+              </div>
+              <span className={`font-semibold ${dpFull ? 'text-success' : dpPaid > 0 ? 'text-warning' : 'text-muted-foreground'}`}>
+                {dpFull ? 'Paid ✅' : dpPaid > 0 ? `${fmt(dpPaid, currency)} paid` : 'Unpaid'}
+              </span>
+            </div>
+          );
+        })()}
+
         {/* Due Date Countdown */}
         {account.next_due_date && account.remaining_balance > 0 && (() => {
           const todayDate = new Date();
@@ -845,16 +866,37 @@ function OverviewTab({ account, statementUrl, today }: {
           <Calendar className="h-4 w-4 text-primary" /> Payment Schedule
         </h3>
         <div className="space-y-1.5">
-          {account.downpayment_amount > 0 && (
-            <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/5 border border-primary/10">
-              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/20 text-primary text-xs font-bold shrink-0">DP</div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground">Downpayment</p>
-                <p className="text-xs text-muted-foreground">Due on order</p>
+          {account.downpayment_amount > 0 && (() => {
+            const dpPaid = account.payments
+              .filter(p => (p.reference && String(p.reference).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment'))
+              .reduce((s, p) => s + p.amount, 0);
+            const dpFull = dpPaid >= account.downpayment_amount;
+            const dpPartial = dpPaid > 0 && !dpFull;
+            return (
+              <div className={`flex items-center gap-3 p-3 rounded-lg border ${dpFull ? 'bg-success/5 border-success/10' : dpPartial ? 'bg-warning/5 border-warning/10' : 'bg-primary/5 border-primary/10'}`}>
+                <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold shrink-0 ${dpFull ? 'bg-success/20 text-success' : dpPartial ? 'bg-warning/20 text-warning' : 'bg-primary/20 text-primary'}`}>
+                  {dpFull ? <Check className="h-3.5 w-3.5" /> : 'DP'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground">Downpayment</p>
+                  <p className="text-xs text-muted-foreground">
+                    {dpFull ? 'Paid' : dpPartial ? `Partial — ${fmt(dpPaid, currency)} paid` : 'Due on order'}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className={`text-sm font-semibold tabular-nums ${dpFull ? 'text-success' : 'text-primary'}`}>
+                    {fmt(account.downpayment_amount, currency)}
+                  </p>
+                  {dpPartial && (
+                    <p className="text-[10px] text-warning">Rem: {fmt(account.downpayment_amount - dpPaid, currency)}</p>
+                  )}
+                  {dpFull && (
+                    <Badge variant="outline" className="text-[9px] py-0 h-4 bg-success/10 text-success border-success/20">Paid</Badge>
+                  )}
+                </div>
               </div>
-              <p className="text-sm font-semibold text-primary tabular-nums">{fmt(account.downpayment_amount, currency)}</p>
-            </div>
-          )}
+            );
+          })()}
           {account.schedule.map((item) => {
             const isPaid = item.status === 'paid';
             const isOverdue = !isPaid && item.due_date < today && item.status !== 'cancelled';
@@ -920,18 +962,26 @@ function OverviewTab({ account, statementUrl, today }: {
             <CreditCard className="h-4 w-4 text-primary" /> Payment History
           </h3>
           <div className="space-y-1.5">
-            {account.payments.map((p, idx) => (
+            {account.payments.map((p, idx) => {
+              const isDp = (p.reference && String(p.reference).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment');
+              return (
               <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-[hsl(var(--card))] border border-[hsl(var(--border))]">
                 <div>
-                  <p className="text-sm font-medium text-foreground">{fmtDate(p.date)}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-foreground">{fmtDate(p.date)}</p>
+                    {isDp && (
+                      <Badge variant="outline" className="text-[9px] py-0 h-4 bg-primary/10 text-primary border-primary/20">Downpayment</Badge>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2 mt-0.5">
                     {p.method && <span className="text-[10px] text-muted-foreground capitalize">{p.method}</span>}
-                    {p.reference && <span className="text-[10px] text-muted-foreground">Ref: {p.reference}</span>}
+                    {p.reference && !isDp && <span className="text-[10px] text-muted-foreground">Ref: {p.reference}</span>}
                   </div>
                 </div>
                 <p className="text-sm font-semibold text-success tabular-nums">{fmt(p.amount, account.currency)}</p>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
