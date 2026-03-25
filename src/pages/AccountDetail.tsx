@@ -605,15 +605,15 @@ export default function AccountDetail() {
         message += `\n\nThank you for your continued trust in Cha Jewels! 🧡`;
       } else {
         // ── TEMPLATE B — SPLIT PAYMENT ──
-        const sessionTotal = sessionPayments.reduce((s, p) => s + p.amount, 0);
-        const count = sessionPayments.length;
+        // Only include actual session payments (never DP — it's recorded at account creation, not in-session)
+        const sessionOnly = sessionPayments.filter(sp => sp.monthLabel !== 'Down Payment');
+        const sessionTotal = sessionOnly.reduce((s, p) => s + p.amount, 0);
+        const count = sessionOnly.length;
 
         message += `Thank you for your payments. A total of ${formatCurrency(sessionTotal, currency)} has been received across ${count} payments:\n\n`;
 
-        sessionPayments.forEach((sp) => {
-          if (sp.monthLabel === 'Down Payment') {
-            message += `  ${formatCurrency(sp.amount, currency)} — Down Payment\n`;
-          } else if (sp.monthLabel && sp.ordinal) {
+        sessionOnly.forEach((sp) => {
+          if (sp.monthLabel && sp.ordinal) {
             message += `  ${formatCurrency(sp.amount, currency)} — ${sp.monthLabel} (${sp.ordinal} month)\n`;
           } else {
             message += `  ${formatCurrency(sp.amount, currency)}\n`;
