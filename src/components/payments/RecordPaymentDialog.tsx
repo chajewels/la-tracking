@@ -185,6 +185,8 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
       } else {
         toast.success(`Payment of ${formatCurrency(parsedAmount, currency)} recorded successfully`);
       }
+      const info = buildSessionPaymentInfo();
+      onPaymentRecorded?.(info);
       resetAndClose();
     } catch (err: any) {
       toast.error(err.message || 'Failed to submit payment');
@@ -210,6 +212,8 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
         remarks: dpRemarks,
       });
       toast.success(`Payment of ${formatCurrency(parsedAmount, currency)} recorded successfully`);
+      const info = buildSessionPaymentInfo();
+      onPaymentRecorded?.(info);
       resetAndClose();
     } catch (err: any) {
       toast.error(err.message || 'Failed to record payment');
