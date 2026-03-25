@@ -26,11 +26,12 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-function calcRemainingBalance(schedule: any[]): number {
+function calcPrincipalRemaining(schedule: any[]): number {
   let remaining = 0;
   for (const item of schedule) {
     if (item.status !== "paid" && item.status !== "cancelled") {
-      remaining += Math.max(0, round2(Number(item.base_installment_amount) + Number(item.penalty_amount || 0) - Number(item.paid_amount)));
+      // PRINCIPAL-ONLY: exclude penalty_amount from remaining balance
+      remaining += Math.max(0, round2(Number(item.base_installment_amount) - Number(item.paid_amount)));
     }
   }
   return round2(remaining);
@@ -230,7 +231,7 @@ Deno.serve(async (req) => {
 
     if (updatedSchedule) {
       const newTotalPaid = round2(Number(account.total_paid) + Number(payment.amount_paid));
-      const newRemaining = calcRemainingBalance(updatedSchedule);
+      const newRemaining = calcPrincipalRemaining(updatedSchedule);
       const newStatus = determineAccountStatus(updatedSchedule, account.status);
 
       await supabase.from("layaway_accounts").update({

@@ -160,7 +160,20 @@ async function allocatePaymentToAccount(
 
   const newTotalPaid = Number(fullAccount?.total_paid || 0) + amountPaid;
   const totalAmount = Number(fullAccount?.total_amount || 0);
-  const newRemaining = Math.max(0, totalAmount - newTotalPaid);
+
+  // PRINCIPAL-ONLY remaining: exclude penalty payments
+  const { data: paidPenaltyFees } = await supabase
+    .from("penalty_fees")
+    .select("penalty_amount")
+    .eq("account_id", accountId)
+    .eq("status", "paid");
+  const penaltyPaidForAccount = (paidPenaltyFees || []).reduce((s: number, f: any) => s + Number(f.penalty_amount), 0);
+  // Add penalties being paid in this allocation that haven't been committed yet
+  const newPenaltyInAlloc = allocations
+    .filter(a => a.allocation_type === "penalty")
+    .reduce((s, a) => s + a.allocated_amount, 0);
+  const totalPenaltyPaid = penaltyPaidForAccount + newPenaltyInAlloc;
+  const newRemaining = Math.max(0, totalAmount - (newTotalPaid - totalPenaltyPaid));
 
   // Recalculate correct status
   const currentStatus = fullAccount?.status || "active";
