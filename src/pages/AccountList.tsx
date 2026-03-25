@@ -139,6 +139,16 @@ export default function AccountList() {
               </button>
             ))}
           </div>
+          <button
+            onClick={() => setHideTest(!hideTest)}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors border ${
+              hideTest
+                ? 'border-border text-muted-foreground hover:text-foreground'
+                : 'border-info/30 bg-info/10 text-info'
+            }`}
+          >
+            🧪 {hideTest ? 'Show Test' : 'Hide Test'}
+          </button>
         </div>
 
         {/* Loading */}
@@ -178,9 +188,16 @@ export default function AccountList() {
                           {account.customers?.full_name || 'Unknown'}
                         </p>
                       </div>
-                      <Badge variant="outline" className={`text-[10px] shrink-0 ${statusStyles[account.status] || ''}`}>
-                        {statusLabel[account.status] || account.status}
-                      </Badge>
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant="outline" className={`text-[10px] shrink-0 ${statusStyles[account.status] || ''}`}>
+                          {statusLabel[account.status] || account.status}
+                        </Badge>
+                        {account.invoice_number === TEST_INVOICE && (
+                          <Badge variant="outline" className="text-[10px] shrink-0 bg-info/10 text-info border-info/20 font-bold">
+                            🧪 TEST
+                          </Badge>
+                        )}
+                      </div>
                     </div>
 
                     {/* Progress bar */}
