@@ -853,9 +853,13 @@ export const SERVICE_LABELS: Record<string, string> = {
 export interface AccountSummaryValues {
   /** Original contract principal (never includes penalties) */
   principalTotal: number;
-  /** Sum of all confirmed payments */
+  /** Sum of all confirmed payments (principal + penalty) */
   totalPaid: number;
-  /** Principal remaining: principalTotal - totalPaid (never negative) */
+  /** Sum of penalty payments only (from penalty_fees with status='paid') */
+  penaltyPaid: number;
+  /** Principal-only paid: totalPaid - penaltyPaid */
+  principalPaid: number;
+  /** Principal remaining: principalTotal - principalPaid (never negative) */
   remainingPrincipal: number;
   /** Sum of unpaid penalties from penalty_fees table */
   outstandingPenalties: number;
@@ -897,6 +901,8 @@ export function computeAccountSummary(params: {
   totalPaid: number;
   unpaidPenaltySum: number;
   totalServicesAmount: number;
+  /** Sum of penalty_fees with status='paid' — used to separate principal-paid from penalty-paid */
+  penaltyPaidSum?: number;
   scheduleItems?: Array<{
     installment_number: number;
     due_date: string;
@@ -907,10 +913,12 @@ export function computeAccountSummary(params: {
     status: string;
   }>;
 }): AccountSummaryValues {
-  const { principalTotal, totalPaid, unpaidPenaltySum, totalServicesAmount, scheduleItems } = params;
-  const remainingPrincipal = Math.max(0, principalTotal - totalPaid);
+  const { principalTotal, totalPaid, unpaidPenaltySum, totalServicesAmount, penaltyPaidSum = 0, scheduleItems } = params;
+  // PRINCIPAL-ONLY remaining: totalPaid includes penalty payments, subtract them
+  const principalPaid = totalPaid - penaltyPaidSum;
+  const remainingPrincipal = Math.max(0, principalTotal - principalPaid);
   const currentTotalPayable = remainingPrincipal + unpaidPenaltySum + totalServicesAmount;
-  const progressPercent = accountProgress(totalPaid, principalTotal);
+  const progressPercent = accountProgress(principalPaid, principalTotal);
 
   // Derive schedule states from actual DB paid_amount (single source of truth)
   const scheduleStates: ScheduleLineState[] = (scheduleItems || [])
