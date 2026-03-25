@@ -81,6 +81,7 @@ export default function AccountDetail() {
   const [newInstSaving, setNewInstSaving] = useState(false);
   const [deleteScheduleTarget, setDeleteScheduleTarget] = useState<{ id: string; amount: number; installment_number: number } | null>(null);
   const [deleteScheduleLoading, setDeleteScheduleLoading] = useState(false);
+  const [showVerify, setShowVerify] = useState(false);
   const queryClient = useQueryClient();
   const { roles } = useAuth();
   const { can: canPerm } = usePermissions();
@@ -287,6 +288,8 @@ export default function AccountDetail() {
   const unpaidPenaltySum = unpaidPenalties.reduce((sum, penalty) => sum + Number(penalty.penalty_amount), 0);
   // Penalty-paid = sum of penalty_fees with status='paid' (principal/penalty separation)
   const paidPenaltySum = (penalties || []).filter(p => p.status === 'paid').reduce((sum, p) => sum + Number(p.penalty_amount), 0);
+  // Active (non-waived) penalties = paid + unpaid (excludes waived)
+  const activePenaltyTotal = paidPenaltySum + unpaidPenaltySum;
 
   const summary = computeAccountSummary({
     principalTotal,
@@ -294,20 +297,20 @@ export default function AccountDetail() {
     unpaidPenaltySum,
     totalServicesAmount,
     penaltyPaidSum: paidPenaltySum,
+    activePenaltySum: activePenaltyTotal,
     scheduleItems,
   });
 
   const principalRemaining = summary.remainingPrincipal;
-  const displayBalance = summary.currentTotalPayable;
-  const paymentEligibleBalance = summary.remainingPrincipal + summary.outstandingPenalties;
-  const hasAdditionalCharges = summary.outstandingPenalties > 0 || summary.totalServices > 0;
+  const displayBalance = summary.remainingBalance;
+  const paymentEligibleBalance = summary.remainingBalance;
+  const hasAdditionalCharges = summary.activePenalties > 0 || summary.totalServices > 0;
 
   const scheduleBaseSum = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
-  const schedulePenaltySum = scheduleItems.reduce((s, i) => s + Number(i.penalty_amount), 0);
   const originalPrincipal = downpaymentAmount + scheduleBaseSum;
   const progress = summary.progressPercent;
 
-  const reconciliationValid = Math.abs(principalTotal - totalPaid - principalRemaining) < 1;
+  const reconciliationValid = Math.abs(summary.totalLAAmount - totalPaid - summary.remainingBalance) < 1;
 
   const unpaidSchedule = getUnpaidScheduleItems(scheduleItems);
   const activePayments = [...confirmedActivePayments]
@@ -316,16 +319,32 @@ export default function AccountDetail() {
       if (dateDiff !== 0) return dateDiff;
       return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
     });
-  const paymentBreakdownText = activePayments.length > 0
-    ? `${activePayments.map(payment => {
-        const amt = Number(payment.amount_paid);
-        if (currency === 'JPY') return Math.round(amt).toLocaleString('en-US');
-        const rounded = Math.round(amt * 100) / 100;
-        return rounded % 1 === 0
-          ? rounded.toLocaleString('en-US')
-          : rounded.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      }).join(' + ')} = ${formatCurrency(totalPaid, currency)}`
-    : formatCurrency(totalPaid, currency);
+
+  // Smart currency formatter: drop .00 for whole numbers, keep decimals when present
+  const fmtVal = (amt: number): string => {
+    if (currency === 'JPY') return Math.round(amt).toLocaleString('en-US');
+    const rounded = Math.round(amt * 100) / 100;
+    return rounded % 1 === 0
+      ? rounded.toLocaleString('en-US')
+      : rounded.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  // Build payment breakdown text: DP + paid months = total (BUG 2 & 7 fix)
+  const buildPaymentBreakdown = (): string => {
+    const parts: string[] = [];
+    // Always include DP as first value if > 0
+    if (downpaymentAmount > 0 && dpPaidAmount > 0) {
+      parts.push(fmtVal(dpPaidAmount));
+    }
+    // Add non-DP payments in chronological order
+    const nonDpPayments = activePayments.filter(p => !isDownpaymentPayment(p));
+    nonDpPayments.forEach(p => parts.push(fmtVal(Number(p.amount_paid))));
+    if (parts.length > 1) {
+      return `${parts.join(' + ')} = ${formatCurrency(totalPaid, currency)}`;
+    }
+    return formatCurrency(totalPaid, currency);
+  };
+  const paymentBreakdownText = buildPaymentBreakdown();
 
   const getMessageScheduleState = (item: any, idx: number) => {
     const state = summary.scheduleStates.find(s => s.installmentNumber === item.installment_number);
@@ -363,19 +382,20 @@ export default function AccountDetail() {
   //    Future fixes must adjust VALUES ONLY, never the format.
   // ══════════════════════════════════════════════════════════════════════
 
-  // Total Layaway Amount = Base + Penalties + Services (official rule)
-  const totalLayawayAmount = summary.principalTotal + schedulePenaltySum + summary.totalServices;
+  // Use computed values from summary (BUG 1, 3, 6 fix)
+  const totalLayawayAmount = summary.totalLAAmount;
+  const activePenaltyAmt = summary.activePenalties;
 
   // LA month label from last schedule item (e.g. "LA APR")
   const lastScheduleDate = scheduleItems.length > 0 ? new Date(scheduleItems[scheduleItems.length - 1].due_date) : null;
   const laMonthLabel = lastScheduleDate ? `LA ${lastScheduleDate.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}` : 'LA';
 
-  // Build Total LA Amount display with breakdown
+  // Build Total LA Amount display with breakdown (BUG 6: auto-sync from penalty_fees)
   const buildTotalLALine = () => {
     const base = summary.principalTotal;
     const parts: string[] = [];
-    if (schedulePenaltySum > 0) parts.push(`${formatCurrency(schedulePenaltySum, currency).replace(/^[₱¥]\s*/, '')} (Penalty)`);
-    if (summary.totalServices > 0) parts.push(`${formatCurrency(summary.totalServices, currency).replace(/^[₱¥]\s*/, '')} (Service)`);
+    if (activePenaltyAmt > 0) parts.push(`${fmtVal(activePenaltyAmt)} (Penalty)`);
+    if (summary.totalServices > 0) parts.push(`${fmtVal(summary.totalServices)} (Service)`);
     if (parts.length > 0) {
       return `Total LA Amount: ${formatCurrency(base, currency)} + ${parts.join(' + ')} = ${formatCurrency(totalLayawayAmount, currency)}`;
     }
@@ -384,13 +404,13 @@ export default function AccountDetail() {
 
   // Shared message blocks (reused across status variants)
   const appendSummaryBlock = (msg: string) => {
-    // Total LA Amount line with breakdown
     msg += `${buildTotalLALine()}\n`;
-    // Amount Paid line — sequential payment amounts with "+"
+    // Amount Paid: DP + payments = total (BUG 2 & 7 fix)
     msg += `Amount Paid: ${paymentBreakdownText}\n`;
     return msg;
   };
 
+  // BUG 4 fix: never show penalty if zero or waived
   const appendScheduleLines = (msg: string) => {
     scheduleItems.forEach((item, idx) => {
       const messageState = getMessageScheduleState(item, idx);
@@ -401,14 +421,17 @@ export default function AccountDetail() {
       const totalDue = messageState.totalDue;
 
       if (effPaid) {
+        // BUG 5: use actual paid amount for paid rows
+        const actualPaid = messageState.coveredAmount > 0 ? messageState.coveredAmount : totalDue;
         if (penalty > 0) {
-          msg += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)} (PAID)\n`;
+          msg += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${fmtVal(penalty)} (Penalty) = ${formatCurrency(actualPaid, currency)} (PAID)\n`;
         } else {
-          msg += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} (PAID)\n`;
+          msg += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(actualPaid, currency)} (PAID)\n`;
         }
       } else if (penalty > 0) {
-        msg += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
+        msg += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${fmtVal(penalty)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
       } else {
+        // BUG 4: no penalty portion shown when penalty == 0
         msg += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)}\n`;
       }
     });
@@ -440,11 +463,10 @@ export default function AccountDetail() {
     message += `No further extensions will be allowed.\n\n`;
     message = appendSummaryBlock(message);
     message += `================\n`;
-    message += `Remaining Balance: ${formatCurrency(summary.remainingPrincipal, currency)}\n`;
+    message += `Remaining Balance: ${formatCurrency(summary.remainingBalance, currency)}\n`;
     if (summary.outstandingPenalties > 0 || summary.totalServices > 0) {
       if (summary.outstandingPenalties > 0) message += `Outstanding Penalties: ${formatCurrency(summary.outstandingPenalties, currency)}\n`;
       if (summary.totalServices > 0) message += `Additional Services: ${formatCurrency(summary.totalServices, currency)}\n`;
-      message += `Current Total Payable: ${formatCurrency(summary.currentTotalPayable, currency)}\n`;
     }
     message += `\nMonthly Payment:\n`;
     message = appendScheduleLines(message);
@@ -455,17 +477,17 @@ export default function AccountDetail() {
     message += `Your account has reached final settlement.\nThe total amount is final and must be settled.\n\n`;
     message = appendSummaryBlock(message);
     message += `================\n`;
-    message += `Remaining Balance: ${formatCurrency(summary.remainingPrincipal, currency)}\n`;
+    message += `Remaining Balance: ${formatCurrency(summary.remainingBalance, currency)}\n`;
     if (summary.outstandingPenalties > 0) {
       if (summary.totalServices > 0) message += `Additional Services: ${formatCurrency(summary.totalServices, currency)}\n`;
-      message += `⚠️ FINAL SETTLEMENT AMOUNT: ${formatCurrency(summary.currentTotalPayable, currency)}\n\n`;
+      message += `⚠️ FINAL SETTLEMENT AMOUNT: ${formatCurrency(summary.remainingBalance, currency)}\n\n`;
       message += `This amount includes:\n`;
-      message += `  • Remaining balance: ${formatCurrency(summary.remainingPrincipal, currency)}\n`;
+      message += `  • Remaining principal: ${formatCurrency(summary.remainingPrincipal, currency)}\n`;
       message += `  • Outstanding penalties: ${formatCurrency(summary.outstandingPenalties, currency)}\n`;
       if (summary.totalServices > 0) message += `  • Additional services: ${formatCurrency(summary.totalServices, currency)}\n`;
     } else {
       if (summary.totalServices > 0) message += `Additional Services: ${formatCurrency(summary.totalServices, currency)}\n`;
-      message += `⚠️ FINAL SETTLEMENT AMOUNT: ${formatCurrency(summary.currentTotalPayable, currency)}\n\n`;
+      message += `⚠️ FINAL SETTLEMENT AMOUNT: ${formatCurrency(summary.remainingBalance, currency)}\n\n`;
     }
     message += `\nRegular installment schedule is no longer active.\n`;
     message += `Please settle the full amount above to complete your layaway.\n\n`;
@@ -484,12 +506,12 @@ export default function AccountDetail() {
       if (effPaid) {
         message += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(displayAmt, currency)} (PAID)\n`;
       } else if (partial) {
-        const principalRemaining = Math.max(0, baseAmt - paidAmt);
+        const principalRem = Math.max(0, baseAmt - paidAmt);
         message += `🔶 ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)}`;
-        if (penalty > 0) message += ` + ${formatCurrency(penalty, currency)} (Penalty)`;
-        message += ` — ${formatCurrency(paidAmt, currency)} paid, ${formatCurrency(principalRemaining, currency)} remaining (PARTIAL)\n`;
+        if (penalty > 0) message += ` + ${fmtVal(penalty)} (Penalty)`;
+        message += ` — ${formatCurrency(paidAmt, currency)} paid, ${formatCurrency(principalRem, currency)} remaining (PARTIAL)\n`;
       } else if (penalty > 0) {
-        message += `❌ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(itemRemaining, currency)} (UNPAID)\n`;
+        message += `❌ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${fmtVal(penalty)} (Penalty) = ${formatCurrency(itemRemaining, currency)} (UNPAID)\n`;
       } else {
         message += `❌ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(itemRemaining, currency)} (UNPAID)\n`;
       }
@@ -498,9 +520,7 @@ export default function AccountDetail() {
   } else {
     // ═══════════════════════════════════════════════════════════════
     // 🔒 STANDARD ACTIVE/OVERDUE MESSAGE — OFFICIAL LOCKED FORMAT
-    // DO NOT REMOVE ANY LINE. ALL LINES ARE MANDATORY.
     // ═══════════════════════════════════════════════════════════════
-    // Mandatory greeting line — must always be present
     if (mostRecentPayment) {
       message += `Thank you for your payment. ${formatCurrency(Number(mostRecentPayment.amount_paid), currency)} has been received.\n\n`;
     }
@@ -508,7 +528,8 @@ export default function AccountDetail() {
     message = appendSummaryBlock(message);
     message += `================\n`;
     const unpaidCount = unpaidSchedule.length;
-    message += `${laMonthLabel} remaining balance - ${formatCurrency(summary.remainingPrincipal, currency)} to pay in ${unpaidCount} month${unpaidCount !== 1 ? 's' : ''}\n`;
+    // BUG 3: use remainingBalance (totalLA - paid), not principal-only
+    message += `${laMonthLabel} remaining balance - ${formatCurrency(summary.remainingBalance, currency)} to pay in ${unpaidCount} month${unpaidCount !== 1 ? 's' : ''}\n`;
     message += `\nMonthly Payment:\n`;
     message = appendScheduleLines(message);
 
@@ -528,7 +549,7 @@ export default function AccountDetail() {
     message += `\nThank you for your continued trust in Cha Jewels. We appreciate your business! 🧡`;
   }
   return message;
-  }, [account?.id, account?.status, summary, scheduleItems, currency, mostRecentPayment?.id, paymentBreakdownText, accountServices, unpaidSchedule, penaltyCapOverride, schedulePenaltySum, downpaymentAmount, dpPaidAmount]);
+  }, [account?.id, account?.status, summary, scheduleItems, currency, mostRecentPayment?.id, paymentBreakdownText, accountServices, unpaidSchedule, penaltyCapOverride, downpaymentAmount, dpPaidAmount]);
 
 
   if (accountLoading) {
@@ -839,23 +860,24 @@ export default function AccountDetail() {
           <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0" />
             <p className="text-xs text-destructive font-medium">
-              Principal Reconciliation Error: Total ({formatCurrency(principalTotal, currency)}) − Paid ({formatCurrency(totalPaid, currency)}) = {formatCurrency(principalTotal - totalPaid, currency)} ≠ Principal Remaining ({formatCurrency(principalRemaining, currency)})
+              Reconciliation Error: Total LA ({formatCurrency(summary.totalLAAmount, currency)}) − Paid ({formatCurrency(totalPaid, currency)}) = {formatCurrency(summary.totalLAAmount - totalPaid, currency)} ≠ Remaining ({formatCurrency(summary.remainingBalance, currency)})
             </p>
           </div>
         )}
 
         {/* Summary Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+          {/* Card 1: Total LA Amount — uses activePenalties from penalty_fees (BUG 6) */}
           <div className="group relative overflow-hidden rounded-xl border border-border bg-card p-3 sm:p-4 card-hover">
             <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-border" />
-            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Total Layaway Amount</p>
+            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Total LA Amount</p>
             <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
-              {formatCurrency(summary.principalTotal + schedulePenaltySum + summary.totalServices, currency)}
+              {formatCurrency(summary.totalLAAmount, currency)}
             </p>
-            {(schedulePenaltySum > 0 || summary.totalServices > 0) && (
+            {(summary.activePenalties > 0 || summary.totalServices > 0) && (
               <p className="text-[10px] mt-0.5 text-muted-foreground">
                 Base: {formatCurrency(summary.principalTotal, currency)}
-                {schedulePenaltySum > 0 && ` + Penalty: ${formatCurrency(schedulePenaltySum, currency)}`}
+                {summary.activePenalties > 0 && ` + Penalty: ${formatCurrency(summary.activePenalties, currency)}`}
                 {summary.totalServices > 0 && ` + Svc: ${formatCurrency(summary.totalServices, currency)}`}
               </p>
             )}
@@ -872,18 +894,25 @@ export default function AccountDetail() {
               </p>
             </div>
           )}
+          {/* Card 2: Total Paid — with payment breakdown sub-line (BUG 2 & 7) */}
           <div className="group relative overflow-hidden rounded-xl border border-success/20 bg-card p-3 sm:p-4 card-hover hover:border-success/40">
             <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-success/60" />
-            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Total Paid</p>
+            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Amount Paid</p>
             <p className="text-lg sm:text-xl font-bold text-success font-display tabular-nums">
               {formatCurrency(summary.totalPaid, currency)}
             </p>
+            {activePayments.length > 1 && (
+              <p className="text-[10px] mt-0.5 text-muted-foreground truncate" title={paymentBreakdownText}>
+                {paymentBreakdownText}
+              </p>
+            )}
           </div>
+          {/* Card 3: Remaining Balance — totalLAAmount - totalPaid (BUG 3) */}
           <div className={`group relative overflow-hidden rounded-xl border bg-card p-3 sm:p-4 card-hover ${hasAdditionalCharges ? 'border-warning/30 hover:border-warning/50 bg-warning/5' : 'border-primary/20 hover:border-primary/40'}`}>
             <div className={`absolute top-0 left-4 right-4 h-[2px] rounded-b-full ${hasAdditionalCharges ? 'bg-warning/60' : 'bg-gradient-to-r from-primary/40 via-primary to-primary/40'}`} />
-            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Balance Now</p>
+            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Remaining Balance</p>
             <p className={`text-lg sm:text-xl font-bold font-display tabular-nums ${hasAdditionalCharges ? 'text-warning' : 'text-card-foreground'}`}>
-              {formatCurrency(displayBalance, currency)}
+              {formatCurrency(summary.remainingBalance, currency)}
             </p>
             {hasAdditionalCharges && (
               <p className="text-[10px] text-muted-foreground mt-0.5">
@@ -910,16 +939,6 @@ export default function AccountDetail() {
                 {formatCurrency(summary.totalServices, currency)}
               </p>
             </div>
-          )}
-          {hasAdditionalCharges && (
-          <div className="group relative overflow-hidden rounded-xl border border-primary/20 bg-card p-3 sm:p-4 card-hover hover:border-primary/40">
-            <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-gradient-to-r from-primary/40 via-primary to-primary/40" />
-            <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Principal Remaining</p>
-            <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
-              {formatCurrency(summary.remainingPrincipal, currency)}
-            </p>
-            <p className="text-[10px] text-muted-foreground mt-0.5">Excludes penalties and services</p>
-          </div>
           )}
           <div className="group relative overflow-hidden rounded-xl border border-border bg-card p-3 sm:p-4 card-hover">
             <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-gradient-to-r from-primary/40 via-primary to-primary/40" />
@@ -1074,11 +1093,7 @@ export default function AccountDetail() {
                         )}
                       </div>
                     )}
-                    {penaltyAmt === 0 && !effPaid && (
-                      <div className="sm:hidden mt-1 ml-8 text-[10px] text-muted-foreground">
-                        Penalty: {formatCurrency(0, currency)}
-                      </div>
-                    )}
+                    {/* BUG 4: No penalty row shown when penalty is 0 */}
 
                     {/* Desktop layout: columnar */}
                     <div className="hidden sm:grid grid-cols-[2rem_minmax(4rem,1fr)_minmax(4.5rem,1.2fr)_minmax(4rem,1fr)_minmax(4.5rem,1.2fr)_3.5rem_3rem] gap-1 items-center">
@@ -1280,6 +1295,55 @@ export default function AccountDetail() {
               )}
             </div>
           </div>
+
+          {/* ═══ Verification Debug Panel (hidden by default) ═══ */}
+          {(() => {
+            const sumPendingMonths = unpaidSchedule.reduce((s, i) => s + Number(i.total_due_amount) - Number(i.paid_amount), 0);
+            const sumAllBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
+            const baseIntegrity = Math.round((downpaymentAmount + sumAllBases) * 100) / 100;
+            const checks = [
+              { label: 'activePenalties (non-waived)', expected: summary.activePenalties, actual: activePenaltyTotal, pass: Math.abs(summary.activePenalties - activePenaltyTotal) < 0.01 },
+              { label: 'totalLAAmount (base + penalties + svc)', expected: summary.totalLAAmount, actual: principalTotal + activePenaltyTotal + totalServicesAmount, pass: Math.abs(summary.totalLAAmount - (principalTotal + activePenaltyTotal + totalServicesAmount)) < 0.01 },
+              { label: 'amountPaid (all confirmed payments)', expected: summary.totalPaid, actual: totalPaid, pass: Math.abs(summary.totalPaid - totalPaid) < 0.01 },
+              { label: 'remainingBalance (totalLA - paid)', expected: summary.remainingBalance, actual: Math.max(0, summary.totalLAAmount - totalPaid), pass: Math.abs(summary.remainingBalance - Math.max(0, summary.totalLAAmount - totalPaid)) < 0.01 },
+              { label: 'monthsRemaining', expected: summary.unpaidCount, actual: unpaidSchedule.length, pass: summary.unpaidCount === unpaidSchedule.length },
+              { label: 'sumOfPendingMonths ≈ remainingBalance', expected: summary.remainingBalance, actual: Math.round(sumPendingMonths * 100) / 100, pass: Math.abs(sumPendingMonths - summary.remainingBalance) < 2 },
+              { label: 'DP + sumBases = principalTotal', expected: principalTotal, actual: baseIntegrity, pass: Math.abs(baseIntegrity - principalTotal) < 2 },
+            ];
+            const allPass = checks.every(c => c.pass);
+            return (
+              <div className="mt-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={`text-xs ${allPass ? 'border-success/30 text-success' : 'border-destructive/30 text-destructive'}`}
+                  onClick={() => setShowVerify(!showVerify)}
+                >
+                  <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                  {showVerify ? 'Hide' : 'Verify'} Calculations {allPass ? '✅' : '❌'}
+                </Button>
+                {showVerify && (
+                  <div className="mt-2 rounded-lg border border-border bg-muted/30 p-3 space-y-1.5">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Calculation Audit</p>
+                    {checks.map((c, i) => (
+                      <div key={i} className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">{c.pass ? '✅' : '❌'} {c.label}</span>
+                        <span className={`tabular-nums font-mono ${c.pass ? 'text-success' : 'text-destructive'}`}>
+                          {typeof c.actual === 'number' ? fmtVal(c.actual) : c.actual}
+                          {!c.pass && ` (expected: ${typeof c.expected === 'number' ? fmtVal(c.expected) : c.expected})`}
+                        </span>
+                      </div>
+                    ))}
+                    <div className="pt-2 border-t border-border mt-2">
+                      <p className={`text-xs font-semibold ${allPass ? 'text-success' : 'text-destructive'}`}>
+                        {allPass ? '✅ All checks passed' : '❌ Some checks failed — investigate'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Penalty Waiver Panel */}
