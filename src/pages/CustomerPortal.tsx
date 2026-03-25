@@ -869,9 +869,11 @@ function OverviewTab({ account, statementUrl, today }: {
         </h3>
         <div className="space-y-1.5">
           {account.downpayment_amount > 0 && (() => {
-            const dpPaid = account.payments
+            const taggedDpPaid2 = account.payments
               .filter(p => (p.reference && String(p.reference).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment'))
               .reduce((s, p) => s + p.amount, 0);
+            const totalPaidAll2 = account.payments.reduce((s, p) => s + p.amount, 0);
+            const dpPaid = taggedDpPaid2 > 0 ? taggedDpPaid2 : (account.downpayment_amount > 0 && totalPaidAll2 >= account.downpayment_amount ? account.downpayment_amount : 0);
             const dpFull = dpPaid >= account.downpayment_amount;
             const dpPartial = dpPaid > 0 && !dpFull;
             return (
