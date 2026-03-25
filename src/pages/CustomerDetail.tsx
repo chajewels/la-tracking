@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
 import { ArrowLeft, Copy, Check, CheckCircle2, MessageCircle, Calendar, AlertTriangle, MapPin, Pencil, X, Ban, Wrench, Save } from 'lucide-react';
@@ -34,6 +34,25 @@ export default function CustomerDetail() {
   const [country, setCountry] = useState('');
   const queryClient = useQueryClient();
   const forfeitAccount = useForfeitAccount();
+
+  // Portal link for split payment confirmation message
+  const [portalLink, setPortalLink] = useState<string | null>(null);
+  useEffect(() => {
+    if (!customerId) return;
+    (async () => {
+      const { data: tokenRow } = await (supabase as any)
+        .from('customer_portal_tokens')
+        .select('token')
+        .eq('customer_id', customerId)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (tokenRow?.token) {
+        setPortalLink(`https://chajewelslayaway.web.app/portal?token=${tokenRow.token}`);
+      }
+    })();
+  }, [customerId]);
 
   // --- Inline customer detail editing (hooks must be before early returns) ---
   const [editingCustomer, setEditingCustomer] = useState(false);
