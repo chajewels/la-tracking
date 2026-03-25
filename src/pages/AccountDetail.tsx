@@ -735,6 +735,8 @@ export default function AccountDetail() {
                   currency={currency}
                   remainingBalance={remainingBalance}
                   schedule={scheduleItems}
+                  invoiceNumber={account.invoice_number}
+                  downpaymentRemaining={dpRemainingAmount}
                 />
                 <RecordPaymentDialog
                   accountId={account.id}
@@ -742,6 +744,8 @@ export default function AccountDetail() {
                   remainingBalance={remainingBalance}
                   payFullBalance
                   schedule={scheduleItems}
+                  invoiceNumber={account.invoice_number}
+                  downpaymentRemaining={dpRemainingAmount}
                 />
               </>
             )}
