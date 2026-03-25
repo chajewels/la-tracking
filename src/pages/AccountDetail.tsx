@@ -329,16 +329,16 @@ export default function AccountDetail() {
       : rounded.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  // Build payment breakdown text: DP + paid months = total (BUG 2 & 7 fix)
+  // Build payment breakdown text: DP + paid months = total (BUG A fix: DP once only)
   const buildPaymentBreakdown = (): string => {
     const parts: string[] = [];
     // Always include DP as first value if > 0
     if (downpaymentAmount > 0 && dpPaidAmount > 0) {
       parts.push(fmtVal(dpPaidAmount));
     }
-    // Add non-DP payments in chronological order
-    const nonDpPayments = activePayments.filter(p => !isDownpaymentPayment(p));
-    nonDpPayments.forEach(p => parts.push(fmtVal(Number(p.amount_paid))));
+    // Add schedule paid amounts (not raw payment records) to avoid DP double-counting
+    const paidSchedules = scheduleItems.filter(s => Number(s.paid_amount) > 0);
+    paidSchedules.forEach(s => parts.push(fmtVal(Number(s.paid_amount))));
     if (parts.length > 1) {
       return `${parts.join(' + ')} = ${formatCurrency(totalPaid, currency)}`;
     }
@@ -421,15 +421,15 @@ export default function AccountDetail() {
       const totalDue = messageState.totalDue;
 
       if (effPaid) {
-        // BUG 5: use actual paid amount for paid rows
-        const actualPaid = messageState.coveredAmount > 0 ? messageState.coveredAmount : totalDue;
+        // BUG B fix: show base + penalty as the = total, not just base
+        const rowTotal = penalty > 0 ? baseAmt + penalty : baseAmt;
         if (penalty > 0) {
-          msg += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${fmtVal(penalty)} (Penalty) = ${formatCurrency(actualPaid, currency)} (PAID)\n`;
+          msg += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(rowTotal, currency)} (PAID)\n`;
         } else {
-          msg += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(actualPaid, currency)} (PAID)\n`;
+          msg += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(rowTotal, currency)} (PAID)\n`;
         }
       } else if (penalty > 0) {
-        msg += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${fmtVal(penalty)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
+        msg += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
       } else {
         // BUG 4: no penalty portion shown when penalty == 0
         msg += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)}\n`;
@@ -914,13 +914,9 @@ export default function AccountDetail() {
             <p className={`text-lg sm:text-xl font-bold font-display tabular-nums ${hasAdditionalCharges ? 'text-warning' : 'text-card-foreground'}`}>
               {formatCurrency(summary.remainingBalance, currency)}
             </p>
-            {hasAdditionalCharges && (
-              <p className="text-[10px] text-muted-foreground mt-0.5">
-                Principal {formatCurrency(summary.remainingPrincipal, currency)}
-                {summary.outstandingPenalties > 0 ? ` + Penalties ${formatCurrency(summary.outstandingPenalties, currency)}` : ''}
-                {summary.totalServices > 0 ? ` + Services ${formatCurrency(summary.totalServices, currency)}` : ''}
-              </p>
-            )}
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              {formatCurrency(summary.remainingBalance, currency)} remaining
+            </p>
           </div>
           {summary.outstandingPenalties > 0 && (
             <div className="group relative overflow-hidden rounded-xl border border-destructive/20 bg-card p-3 sm:p-4 card-hover penalty-glow hover:border-destructive/40">
@@ -1296,7 +1292,7 @@ export default function AccountDetail() {
             </div>
           </div>
 
-          {/* ═══ Verification Debug Panel (hidden by default) ═══ */}
+          {/* ═══ Verification Debug Panel ═══ */}
           {(() => {
             const sumPendingMonths = unpaidSchedule.reduce((s, i) => s + Number(i.total_due_amount) - Number(i.paid_amount), 0);
             const sumAllBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
