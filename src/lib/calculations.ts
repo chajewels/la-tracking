@@ -106,7 +106,10 @@ export function buildSchedule(
 }
 
 /**
- * Generate customer Messenger message.
+ * 🔒 OFFICIAL CHA JEWELS CUSTOMER MESSAGE TEMPLATE — LOCKED
+ * DO NOT modify structure, wording, order, spacing, or symbols.
+ * This function is a legacy fallback; primary message generation
+ * lives in AccountDetail.tsx and CustomerDetail.tsx.
  */
 export function generateCustomerMessage(
   invoiceNumber: string,
@@ -123,17 +126,20 @@ export function generateCustomerMessage(
 
   let message = `✨ Cha Jewels Layaway Payment Summary\n\n`;
   message += `Inv # ${invoiceNumber}\n`;
-  
+
+  // Total Layaway Amount = Base + Penalties (official rule)
   if (totalPenalty > 0) {
-    message += `Total Layaway Amount: ${formatCurrency(totalAmount, currency)} + ${formatCurrency(totalPenalty, currency)} (Penalty)\n`;
+    const totalLayaway = totalAmount + totalPenalty;
+    message += `Total Layaway Amount: ${formatCurrency(totalAmount, currency)} + ${formatCurrency(totalPenalty, currency)} (Penalty) = ${formatCurrency(totalLayaway, currency)}\n`;
   } else {
     message += `Total Layaway Amount: ${formatCurrency(totalAmount, currency)}\n`;
   }
-  
-  message += `Amount Paid: ${formatCurrency(totalPaid, currency)}\n\n`;
-  message += `================\n\n`;
-  message += `${customerName} remaining balance - ${formatCurrency(remaining, currency)} to pay in ${remainingMonths} months\n\n`;
-  message += `Monthly Payment:\n\n`;
+
+  message += `Amount Paid: ${formatCurrency(totalPaid, currency)} (Principal: ${formatCurrency(totalPaid, currency)}, Penalties: ${formatCurrency(0, currency)})\n`;
+  message += `================\n`;
+  message += `Remaining Balance: ${formatCurrency(remaining, currency)}\n`;
+  message += `${remainingMonths} month${remainingMonths !== 1 ? 's' : ''} remaining\n`;
+  message += `\nMonthly Payment:\n`;
 
   const ordinals = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th'];
 
@@ -147,13 +153,12 @@ export function generateCustomerMessage(
   });
 
   if (unpaidItems.length > 0) {
-    // Next-due +14 day rule: if the next item has penalty and is overdue, shift by 14 days
     const nextItem = unpaidItems[0];
     const now = new Date();
     const dueDate = new Date(nextItem.due_date);
     const isOverdue = dueDate < now;
     const hasPenalty = nextItem.penalty_amount > 0;
-    
+
     let displayDate: Date;
     if (hasPenalty && isOverdue) {
       displayDate = new Date(dueDate);
@@ -161,10 +166,10 @@ export function generateCustomerMessage(
     } else {
       displayDate = dueDate;
     }
-    
+
     const nextDate = displayDate.toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
     message += `\nPlease note your next monthly payment is on ${nextDate}. Please expect another payment reminder from us.\n\n`;
-    message += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
+    message += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 🧡`;
   }
 
   return message;
