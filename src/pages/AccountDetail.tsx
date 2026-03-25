@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
 import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus } from 'lucide-react';
@@ -29,7 +29,7 @@ import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
 import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useEditPaymentAmount, useRestorePayment, useDeleteAccount, useForfeitAccount, useAccountServices, usePenaltyCapOverride } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   isEffectivelyPaid, isPartiallyPaid, remainingDue, remainingPrincipalDue, computeRemainingBalance,
@@ -52,6 +52,39 @@ export default function AccountDetail() {
   const { data: services } = useAccountServices(id);
   const { data: penaltyCapOverride } = usePenaltyCapOverride(id);
   const [copied, setCopied] = useState(false);
+
+  // ── Session payment tracking ──
+  // Snapshot payment IDs on first load to detect new payments recorded during this session
+  const initialPaymentIdsRef = useRef<Set<string> | null>(null);
+  const confirmedPayments = (payments || []).filter((p: any) => !p.voided_at);
+  useEffect(() => {
+    if (confirmedPayments.length > 0 && initialPaymentIdsRef.current === null) {
+      initialPaymentIdsRef.current = new Set(confirmedPayments.map((p: any) => p.id));
+    }
+  }, [confirmedPayments]);
+  const sessionPayments = useMemo(() => {
+    if (!initialPaymentIdsRef.current) return [];
+    return confirmedPayments.filter((p: any) => !initialPaymentIdsRef.current!.has(p.id));
+  }, [confirmedPayments]);
+
+  // ── Portal token for customer ──
+  const customerId = account?.customer_id;
+  const { data: portalToken } = useQuery({
+    queryKey: ['portal-token', customerId],
+    enabled: !!customerId,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('customer_portal_tokens')
+        .select('token')
+        .eq('customer_id', customerId!)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return data?.token || null;
+    },
+  });
   const voidPayment = useVoidPayment();
   const editPaymentAmount = useEditPaymentAmount();
   const editPayment = useEditPayment();
@@ -524,37 +557,129 @@ export default function AccountDetail() {
     message += `\nFor any questions, please contact Cha Jewels directly. 💛`;
   } else {
     // ═══════════════════════════════════════════════════════════════
-    // 🔒 STANDARD ACTIVE/OVERDUE MESSAGE — OFFICIAL LOCKED FORMAT
+    // 🔒 STANDARD ACTIVE/OVERDUE MESSAGE — SESSION-AWARE TEMPLATES
+    //    Template A = single payment, Template B = split payment
     // ═══════════════════════════════════════════════════════════════
-    if (mostRecentPayment) {
-      message += `Thank you for your payment. ${formatCurrency(Number(mostRecentPayment.amount_paid), currency)} has been received.\n\n`;
-    }
-    message += `Inv # ${account.invoice_number}\n`;
-    message = appendSummaryBlock(message);
-    message += `================\n`;
-    const unpaidCount = unpaidSchedule.length;
-    // BUG 3: use remainingBalance (totalLA - paid), not principal-only
-    message += `${laMonthLabel} remaining balance - ${formatCurrency(summary.remainingBalance, currency)} to pay in ${unpaidCount} month${unpaidCount !== 1 ? 's' : ''}\n`;
-    message += `\nMonthly Payment:\n`;
-    message = appendScheduleLines(message);
 
-    // Next due date
-    const forfeitWarning = getForfeitureWarning(account.status, scheduleItems);
-    const followUpDates = getUpcomingFollowUpDates(account.status, scheduleItems, 1);
-    const nextStatement = getNextPaymentStatementDate(scheduleItems);
-    let nextDueDateStr: string | null = null;
-    if (followUpDates && followUpDates.dates.length > 0 && forfeitWarning && forfeitWarning.monthsOverdue >= 2) {
-      nextDueDateStr = followUpDates.dates[0].toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
-    } else if (nextStatement) {
-      nextDueDateStr = new Date(nextStatement.date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+    const PORTAL_BASE = 'https://chajewelslayaway.web.app';
+    const portalUrl = portalToken ? `${PORTAL_BASE}/portal?token=${portalToken}` : null;
+
+    // Determine next due month info
+    const nextUnpaidItem = summary.scheduleStates.find(s => !s.isPaid);
+    const fullyPaid = summary.remainingBalance === 0;
+
+    // Build next-payment / fully-paid line
+    const buildNextPaymentLine = (isDownpaymentOnly: boolean): string => {
+      if (fullyPaid) {
+        return `\n🎉 Your layaway is now fully paid! Thank you!`;
+      }
+      if (isDownpaymentOnly && nextUnpaidItem) {
+        const monthLabel = new Date(nextUnpaidItem.dueDate).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+        return `\nFirst payment: ${monthLabel} — ${formatCurrency(nextUnpaidItem.totalDue, currency)}`;
+      }
+      if (nextUnpaidItem) {
+        const monthLabel = new Date(nextUnpaidItem.dueDate).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+        // For partial months, show remaining amount
+        const nextAmt = nextUnpaidItem.isPartial
+          ? Math.max(0, nextUnpaidItem.totalDue - nextUnpaidItem.paidAmount)
+          : nextUnpaidItem.totalDue;
+        return `\nNext payment: ${monthLabel} — ${formatCurrency(nextAmt, currency)}`;
+      }
+      return '';
+    };
+
+    // Check if session payments exist and classify
+    const hasSessionPayments = sessionPayments.length > 0;
+    const isDownpaymentOnly = hasSessionPayments && sessionPayments.length === 1 &&
+      ((sessionPayments[0] as any).reference_number?.startsWith('DP-') ||
+       (sessionPayments[0] as any).remarks?.toLowerCase() === 'downpayment');
+
+    if (hasSessionPayments) {
+      if (sessionPayments.length === 1) {
+        // ── TEMPLATE A — SINGLE PAYMENT ──
+        const payment = sessionPayments[0] as any;
+        const amt = Number(payment.amount_paid);
+        message += `Thank you for your payment. ${formatCurrency(amt, currency)} has been received.\n\n`;
+        message += `Inv # ${account.invoice_number}\n`;
+        if (portalUrl) {
+          message += `\nView your updated account and payment schedule here:\n🔗 ${portalUrl}\n`;
+        }
+        message += buildNextPaymentLine(isDownpaymentOnly);
+        message += `\n\nThank you for your continued trust in Cha Jewels! 🧡`;
+      } else {
+        // ── TEMPLATE B — SPLIT PAYMENT ──
+        const sessionTotal = sessionPayments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+        const count = sessionPayments.length;
+
+        message += `Thank you for your payments. A total of ${formatCurrency(sessionTotal, currency)} has been received across ${count} payments:\n\n`;
+
+        // Map each session payment to its schedule month
+        // Sort by date_paid then created_at for consistent ordering
+        const sortedSessionPayments = [...sessionPayments].sort((a: any, b: any) => {
+          const dateDiff = new Date(a.date_paid).getTime() - new Date(b.date_paid).getTime();
+          if (dateDiff !== 0) return dateDiff;
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        });
+
+        sortedSessionPayments.forEach((p: any) => {
+          const amt = Number(p.amount_paid);
+          const isDP = (p.reference_number?.startsWith('DP-')) || (p.remarks?.toLowerCase() === 'downpayment');
+          if (isDP) {
+            message += `  ${formatCurrency(amt, currency)} — Down Payment\n`;
+          } else {
+            // Try to match payment to a schedule month by allocation or sequential order
+            // Use remarks if it contains month info, otherwise find by paid amounts
+            const matchedState = summary.scheduleStates.find(s => {
+              // Match by paid_amount for the most recently covered month
+              return s.paidAmount > 0 && Math.abs(s.paidAmount - amt) < 1;
+            });
+            if (matchedState) {
+              const monthLabel = new Date(matchedState.dueDate).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+              message += `  ${formatCurrency(amt, currency)} — ${monthLabel} (${ordinal(matchedState.installmentNumber - 1)} month)\n`;
+            } else {
+              message += `  ${formatCurrency(amt, currency)}\n`;
+            }
+          }
+        });
+
+        message += `\nInv # ${account.invoice_number}\n`;
+        if (portalUrl) {
+          message += `\nView your updated account and payment schedule here:\n🔗 ${portalUrl}\n`;
+        }
+        message += buildNextPaymentLine(false);
+        message += `\n\nThank you for your continued trust in Cha Jewels! 🧡`;
+      }
+    } else {
+      // ── FALLBACK — no session payments (page loaded without new payments) ──
+      // Use the previous standard format
+      if (mostRecentPayment) {
+        message += `Thank you for your payment. ${formatCurrency(Number(mostRecentPayment.amount_paid), currency)} has been received.\n\n`;
+      }
+      message += `Inv # ${account.invoice_number}\n`;
+      message = appendSummaryBlock(message);
+      message += `================\n`;
+      const unpaidCount = unpaidSchedule.length;
+      message += `${laMonthLabel} remaining balance - ${formatCurrency(summary.remainingBalance, currency)} to pay in ${unpaidCount} month${unpaidCount !== 1 ? 's' : ''}\n`;
+      message += `\nMonthly Payment:\n`;
+      message = appendScheduleLines(message);
+
+      const forfeitWarning = getForfeitureWarning(account.status, scheduleItems);
+      const followUpDates = getUpcomingFollowUpDates(account.status, scheduleItems, 1);
+      const nextStatement = getNextPaymentStatementDate(scheduleItems);
+      let nextDueDateStr: string | null = null;
+      if (followUpDates && followUpDates.dates.length > 0 && forfeitWarning && forfeitWarning.monthsOverdue >= 2) {
+        nextDueDateStr = followUpDates.dates[0].toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+      } else if (nextStatement) {
+        nextDueDateStr = new Date(nextStatement.date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+      }
+      if (nextDueDateStr) {
+        message += `\nPlease note your next monthly payment is on ${nextDueDateStr}. Please expect another payment reminder from us.\n`;
+      }
+      message += `\nThank you for your continued trust in Cha Jewels. We appreciate your business! 🧡`;
     }
-    if (nextDueDateStr) {
-      message += `\nPlease note your next monthly payment is on ${nextDueDateStr}. Please expect another payment reminder from us.\n`;
-    }
-    message += `\nThank you for your continued trust in Cha Jewels. We appreciate your business! 🧡`;
   }
   return message;
-  }, [account?.id, account?.status, summary, scheduleItems, currency, mostRecentPayment?.id, paymentBreakdownText, accountServices, unpaidSchedule, penaltyCapOverride, downpaymentAmount, dpPaidAmount]);
+  }, [account?.id, account?.status, summary, scheduleItems, currency, mostRecentPayment?.id, paymentBreakdownText, accountServices, unpaidSchedule, penaltyCapOverride, downpaymentAmount, dpPaidAmount, sessionPayments, portalToken]);
 
 
   if (accountLoading) {
