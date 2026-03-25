@@ -51,14 +51,17 @@ interface RecordPaymentDialogProps {
   remainingBalance: number;
   payFullBalance?: boolean;
   schedule?: ScheduleItem[];
+  invoiceNumber?: string;
+  downpaymentRemaining?: number;
 }
 
-export default function RecordPaymentDialog({ accountId, currency, remainingBalance, payFullBalance, schedule }: RecordPaymentDialogProps) {
+export default function RecordPaymentDialog({ accountId, currency, remainingBalance, payFullBalance, schedule, invoiceNumber, downpaymentRemaining }: RecordPaymentDialogProps) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [paymentType, setPaymentType] = useState<'installment' | 'downpayment'>('installment');
   const [step, setStep] = useState<'input' | 'preview'>('input');
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -128,13 +131,16 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
 
     setLoadingPreview(true);
     try {
+      const dpRef = paymentType === 'downpayment' && invoiceNumber ? `DP-${invoiceNumber}` : undefined;
+      const dpRemarks = paymentType === 'downpayment' ? 'Downpayment' : (notes || undefined);
       const { data, error } = await supabase.functions.invoke('record-payment', {
         body: {
           account_id: accountId,
           amount_paid: parsedAmount,
           date_paid: paymentDate,
           payment_method: paymentMethod,
-          remarks: notes || undefined,
+          reference_number: dpRef,
+          remarks: dpRemarks,
           preview_only: true,
         },
       });
@@ -153,14 +159,16 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     submittingRef.current = true;
     setLoadingPreview(true);
     try {
+      const dpRef = paymentType === 'downpayment' && invoiceNumber ? `DP-${invoiceNumber}` : undefined;
+      const dpRemarks = paymentType === 'downpayment' ? 'Downpayment' : (notes || undefined);
       const { data, error } = await supabase.functions.invoke('record-payment', {
         body: {
           account_id: accountId,
           amount_paid: parsedAmount,
           date_paid: paymentDate,
           payment_method: paymentMethod,
-          reference_number: undefined,
-          remarks: notes || undefined,
+          reference_number: dpRef,
+          remarks: dpRemarks,
         },
       });
       if (error) throw error;
@@ -182,13 +190,16 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     if (submittingRef.current) return; // prevent double-click
     submittingRef.current = true;
     try {
+      const dpRef = paymentType === 'downpayment' && invoiceNumber ? `DP-${invoiceNumber}` : undefined;
+      const dpRemarks = paymentType === 'downpayment' ? 'Downpayment' : (notes || undefined);
       await recordPayment.mutateAsync({
         account_id: accountId,
         amount: parsedAmount,
         currency,
         date_paid: paymentDate,
         payment_method: paymentMethod,
-        remarks: notes || undefined,
+        reference_number: dpRef,
+        remarks: dpRemarks,
       });
       toast.success(`Payment of ${formatCurrency(parsedAmount, currency)} recorded successfully`);
       resetAndClose();
@@ -203,6 +214,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     setAmount('');
     setNotes('');
     setPaymentMethod('cash');
+    setPaymentType('installment');
     setPaymentDate(new Date().toISOString().split('T')[0]);
     setStep('input');
     setPreview(null);
@@ -264,6 +276,42 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 rounded-md px-2.5 py-1.5">
                 <Save className="h-3.5 w-3.5" />
                 Draft restored — your previous entries have been loaded.
+              </div>
+            )}
+            {/* Payment Type Selector — only show when not pay-full and DP remaining exists */}
+            {!payFullBalance && downpaymentRemaining != null && downpaymentRemaining > 0 && (
+              <div className="space-y-2">
+                <Label className="text-card-foreground">Payment Type</Label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentType('installment')}
+                    className={`flex-1 px-3 py-2 rounded-md text-xs font-medium border transition-colors ${
+                      paymentType === 'installment'
+                        ? 'bg-primary/15 border-primary/30 text-primary'
+                        : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted'
+                    }`}
+                  >
+                    Installment
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPaymentType('downpayment');
+                      if (!amount) setAmount(String(downpaymentRemaining));
+                    }}
+                    className={`flex-1 px-3 py-2 rounded-md text-xs font-medium border transition-colors ${
+                      paymentType === 'downpayment'
+                        ? 'bg-primary/15 border-primary/30 text-primary'
+                        : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted'
+                    }`}
+                  >
+                    Downpayment
+                    <span className="block text-[10px] opacity-75">
+                      Remaining: {formatCurrency(downpaymentRemaining, currency)}
+                    </span>
+                  </button>
+                </div>
               </div>
             )}
             {payFullBalance ? (
