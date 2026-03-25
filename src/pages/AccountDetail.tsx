@@ -842,6 +842,7 @@ export default function AccountDetail() {
                   schedule={scheduleItems}
                   invoiceNumber={account.invoice_number}
                   downpaymentRemaining={dpRemainingAmount}
+                  onPaymentRecorded={handlePaymentRecorded}
                 />
                 <RecordPaymentDialog
                   accountId={account.id}
@@ -851,6 +852,7 @@ export default function AccountDetail() {
                   schedule={scheduleItems}
                   invoiceNumber={account.invoice_number}
                   downpaymentRemaining={dpRemainingAmount}
+                  onPaymentRecorded={handlePaymentRecorded}
                 />
               </>
             )}
