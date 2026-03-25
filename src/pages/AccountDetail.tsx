@@ -373,11 +373,9 @@ export default function AccountDetail() {
     scheduleItems.forEach((item, idx) => {
       const messageState = getMessageScheduleState(item, idx);
       const effPaid = messageState.effPaid;
-      const partial = messageState.partial;
       const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
       const penalty = Number(item.penalty_amount);
       const baseAmt = Number(item.base_installment_amount);
-      const paidAmt = messageState.coveredAmount;
       const totalDue = messageState.totalDue;
 
       if (effPaid) {
@@ -386,13 +384,8 @@ export default function AccountDetail() {
         } else {
           msg += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} (PAID)\n`;
         }
-      } else if (partial) {
-        const principalRemaining = Math.max(0, baseAmt - paidAmt);
-        msg += `🔶 ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)}`;
-        if (penalty > 0) msg += ` + ${formatCurrency(penalty, currency)} (Penalty)`;
-        msg += ` — ${formatCurrency(paidAmt, currency)} paid, ${formatCurrency(principalRemaining, currency)} remaining\n`;
       } else if (penalty > 0) {
-        msg += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)}  + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
+        msg += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
       } else {
         msg += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)}\n`;
       }
