@@ -45,6 +45,13 @@ interface ScheduleItem {
   status: string;
 }
 
+export interface SessionPaymentInfo {
+  amount: number;
+  monthLabel: string;
+  ordinal: string;
+  method: string;
+}
+
 interface RecordPaymentDialogProps {
   accountId: string;
   currency: Currency;
@@ -53,9 +60,10 @@ interface RecordPaymentDialogProps {
   schedule?: ScheduleItem[];
   invoiceNumber?: string;
   downpaymentRemaining?: number;
+  onPaymentRecorded?: (info: SessionPaymentInfo) => void;
 }
 
-export default function RecordPaymentDialog({ accountId, currency, remainingBalance, payFullBalance, schedule, invoiceNumber, downpaymentRemaining }: RecordPaymentDialogProps) {
+export default function RecordPaymentDialog({ accountId, currency, remainingBalance, payFullBalance, schedule, invoiceNumber, downpaymentRemaining, onPaymentRecorded }: RecordPaymentDialogProps) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
