@@ -124,7 +124,7 @@ export default function CustomerDetail() {
       let msg = `✨ Cha Jewels Layaway Payment Summary\n\n`;
       msg += `Dear ${customer.full_name},\n\n`;
       msg += `All your layaway accounts have been completed. 🎉\n\n`;
-      msg += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
+      msg += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 🧡`;
       return msg;
     }
 
@@ -331,7 +331,7 @@ export default function CustomerDetail() {
       msg += `\n`;
     }
 
-    msg += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
+    msg += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 🧡`;
     return msg;
   };
 
