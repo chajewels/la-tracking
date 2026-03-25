@@ -1415,7 +1415,7 @@ export default function AccountDetail() {
             const baseIntegrity = Math.round((downpaymentAmount + sumAllBases) * 100) / 100;
             // Verify totalPaid = DP + Σ(actualPaid per paid month)
             const paidOrPartialScheds = scheduleItems.filter(s => isEffectivelyPaid(s) || isPartiallyPaid(s));
-            const computedPaid = dpPaidAmount + paidOrPartialScheds.reduce((s, i) => s + Number(i.paid_amount) + Number(i.penalty_amount), 0);
+            const computedPaid = dpPaidAmount + paidOrPartialScheds.reduce((s, i) => s + Number(i.paid_amount), 0);
             const checks = [
               { label: 'activePenalties (non-waived)', expected: summary.activePenalties, actual: activePenaltyTotal, pass: Math.abs(summary.activePenalties - activePenaltyTotal) < 0.01 },
               { label: 'totalLAAmount (base + penalties + svc)', expected: summary.totalLAAmount, actual: principalTotal + activePenaltyTotal + totalServicesAmount, pass: Math.abs(summary.totalLAAmount - (principalTotal + activePenaltyTotal + totalServicesAmount)) < 0.01 },
