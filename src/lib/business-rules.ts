@@ -865,10 +865,16 @@ export interface AccountSummaryValues {
   outstandingPenalties: number;
   /** Sum of additional services */
   totalServices: number;
-  /** What the customer owes right now: remainingPrincipal + outstandingPenalties + totalServices */
+  /** What the customer owes right now: totalLAAmount - totalPaid (never negative) */
   currentTotalPayable: number;
-  /** Payment progress as percentage (0–100), based on principal only */
+  /** Payment progress as percentage (0–100), based on totalLA */
   progressPercent: number;
+  /** Total non-waived penalties (paid + unpaid) from penalty_fees */
+  activePenalties: number;
+  /** Total LA Amount = principalTotal + activePenalties + services */
+  totalLAAmount: number;
+  /** Customer remaining balance: totalLAAmount - totalPaid (never negative) */
+  remainingBalance: number;
   /** Schedule line items with derived paid state (for message/statement sync) */
   scheduleStates: ScheduleLineState[];
   /** Next unpaid due date or null if fully paid */
@@ -903,6 +909,8 @@ export function computeAccountSummary(params: {
   totalServicesAmount: number;
   /** Sum of penalty_fees with status='paid' — used to separate principal-paid from penalty-paid */
   penaltyPaidSum?: number;
+  /** Sum of all non-waived penalty_fees (paid + unpaid). Used for Total LA Amount. */
+  activePenaltySum?: number;
   scheduleItems?: Array<{
     installment_number: number;
     due_date: string;
@@ -913,12 +921,26 @@ export function computeAccountSummary(params: {
     status: string;
   }>;
 }): AccountSummaryValues {
-  const { principalTotal, totalPaid, unpaidPenaltySum, totalServicesAmount, penaltyPaidSum = 0, scheduleItems } = params;
-  // PRINCIPAL-ONLY remaining: totalPaid includes penalty payments, subtract them
+  const { principalTotal, totalPaid, unpaidPenaltySum, totalServicesAmount, penaltyPaidSum = 0, activePenaltySum, scheduleItems } = params;
+
+  // Non-waived penalties: prefer explicit activePenaltySum, fallback to paid+unpaid
+  const activePenalties = activePenaltySum ?? (penaltyPaidSum + unpaidPenaltySum);
+
+  // Total LA Amount = base principal + all active (non-waived) penalties + services
+  const totalLAAmount = principalTotal + activePenalties + totalServicesAmount;
+
+  // Remaining balance: simple formula — what the customer still owes
+  const remainingBalance = Math.max(0, totalLAAmount - totalPaid);
+
+  // PRINCIPAL-ONLY remaining (kept for backward compat & audit)
   const principalPaid = totalPaid - penaltyPaidSum;
   const remainingPrincipal = Math.max(0, principalTotal - principalPaid);
-  const currentTotalPayable = remainingPrincipal + unpaidPenaltySum + totalServicesAmount;
-  const progressPercent = accountProgress(principalPaid, principalTotal);
+
+  // currentTotalPayable now equals remainingBalance (unified formula)
+  const currentTotalPayable = remainingBalance;
+
+  // Progress based on total LA (not just principal)
+  const progressPercent = totalLAAmount > 0 ? Math.min(100, Math.round((totalPaid / totalLAAmount) * 100)) : 0;
 
   // Derive schedule states from actual DB paid_amount (single source of truth)
   const scheduleStates: ScheduleLineState[] = (scheduleItems || [])
@@ -962,6 +984,9 @@ export function computeAccountSummary(params: {
     totalServices: totalServicesAmount,
     currentTotalPayable,
     progressPercent,
+    activePenalties,
+    totalLAAmount,
+    remainingBalance,
     scheduleStates,
     nextDueDate,
     unpaidCount: unpaidStates.length,
