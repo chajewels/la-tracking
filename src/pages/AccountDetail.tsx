@@ -64,6 +64,7 @@ export default function AccountDetail() {
   }, [id]);
 
   const handlePaymentRecorded = useCallback((info: SessionPaymentInfo) => {
+    if (info.monthLabel === 'Down Payment' || info.ordinal === 'DP') return;
     setSessionPayments(prev => [...prev, info]);
   }, []);
 
