@@ -41,7 +41,8 @@ import {
   computeAccountSummary,
 } from '@/lib/business-rules';
 
-const TEST_INVOICE = 'TEST-001';
+const TEST_INVOICES = new Set(['TEST-001', 'TEST-002']);
+const LOCKED_TEST_INVOICE = 'TEST-001';
 
 export default function AccountDetail() {
   const { id } = useParams();
@@ -116,7 +117,8 @@ export default function AccountDetail() {
   const [newInstSaving, setNewInstSaving] = useState(false);
   const [deleteScheduleTarget, setDeleteScheduleTarget] = useState<{ id: string; amount: number; installment_number: number } | null>(null);
   const [deleteScheduleLoading, setDeleteScheduleLoading] = useState(false);
-  const isTestAccount = account?.invoice_number === TEST_INVOICE;
+  const isTestAccount = TEST_INVOICES.has(account?.invoice_number || '');
+  const isLockedTest = account?.invoice_number === LOCKED_TEST_INVOICE;
   const [showVerify, setShowVerify] = useState(false);
   const queryClient = useQueryClient();
   const { roles } = useAuth();
@@ -745,7 +747,7 @@ export default function AccountDetail() {
               ) : (
                 <div className="flex items-center gap-2">
                   <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">INV #{account.invoice_number}</h1>
-                  {can('edit_invoice') && !isTestAccount && (
+                  {can('edit_invoice') && !isLockedTest && (
                   <Button
                     size="icon"
                     variant="ghost"
@@ -841,7 +843,7 @@ export default function AccountDetail() {
               </div>
             )}
           </div>
-          {!isTestAccount && (
+          {!isLockedTest && (
           <div className="flex gap-2 flex-wrap">
             {can('edit_invoice') && (
               <EditAccountDialog

@@ -38,7 +38,7 @@ const statusLabel: Record<string, string> = {
 
 const statusOptions = ['all', 'active', 'overdue', 'completed', 'forfeited', 'cancelled'] as const;
 
-const TEST_INVOICE = 'TEST-001';
+const TEST_INVOICES = new Set(['TEST-001', 'TEST-002']);
 
 export default function AccountList() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -65,7 +65,7 @@ export default function AccountList() {
       (a.customers?.full_name || '').toLowerCase().includes(debouncedSearch.toLowerCase());
     const matchesCurrency = filterCurrency === 'all' || a.currency === filterCurrency;
     const matchesStatus = filterStatus === 'all' || a.status === filterStatus;
-    const matchesTest = !hideTest || a.invoice_number !== TEST_INVOICE;
+    const matchesTest = !hideTest || !TEST_INVOICES.has(a.invoice_number);
     return matchesSearch && matchesCurrency && matchesStatus && matchesTest;
   }), [accounts, debouncedSearch, filterCurrency, filterStatus, hideTest]);
 
@@ -192,7 +192,7 @@ export default function AccountList() {
                         <Badge variant="outline" className={`text-[10px] shrink-0 ${statusStyles[account.status] || ''}`}>
                           {statusLabel[account.status] || account.status}
                         </Badge>
-                        {account.invoice_number === TEST_INVOICE && (
+                        {TEST_INVOICES.has(account.invoice_number) && (
                           <Badge variant="outline" className="text-[10px] shrink-0 bg-info/10 text-info border-info/20 font-bold">
                             🧪 TEST
                           </Badge>
