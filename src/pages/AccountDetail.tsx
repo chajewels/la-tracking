@@ -1215,26 +1215,53 @@ export default function AccountDetail() {
                 </div>
               )}
               {/* Schedule Totals Summary */}
-              {scheduleItems.length > 0 && (
+              {scheduleItems.length > 0 && (() => {
+                const sumBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
+                const sumPenalties = scheduleItems.reduce((s, i) => s + Number(i.penalty_amount), 0);
+                const grandTotal = downpaymentAmount + sumBases + sumPenalties + totalServicesAmount;
+                const mismatch = Math.abs(grandTotal - summary.totalLAAmount) >= 1;
+                return (
                 <div className="mt-3 pt-3 border-t border-border space-y-1.5">
+                  {downpaymentAmount > 0 && (
+                    <div className="flex justify-between text-xs text-muted-foreground px-1">
+                      <span>Down Payment</span>
+                      <span className="tabular-nums font-medium">{formatCurrency(downpaymentAmount, currency)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-xs text-muted-foreground px-1">
                     <span>Sum of Base Installments</span>
-                    <span className="tabular-nums font-medium">{formatCurrency(scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0), currency)}</span>
+                    <span className="tabular-nums font-medium">{formatCurrency(sumBases, currency)}</span>
                   </div>
-                  <div className="flex justify-between text-xs px-1">
-                    <span className="text-destructive/80 flex items-center gap-1">
-                      <AlertTriangle className="h-3 w-3" /> Total Penalties in Schedule
-                    </span>
-                    <span className="tabular-nums font-medium text-destructive">
-                      {formatCurrency(scheduleItems.reduce((s, i) => s + Number(i.penalty_amount), 0), currency)}
-                    </span>
-                  </div>
+                  {sumPenalties > 0 && (
+                    <div className="flex justify-between text-xs px-1">
+                      <span className="text-destructive/80 flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" /> Total Penalties in Schedule
+                      </span>
+                      <span className="tabular-nums font-medium text-destructive">
+                        {formatCurrency(sumPenalties, currency)}
+                      </span>
+                    </div>
+                  )}
+                  {totalServicesAmount > 0 && (
+                    <div className="flex justify-between text-xs text-muted-foreground px-1">
+                      <span>Service Charges</span>
+                      <span className="tabular-nums font-medium">{formatCurrency(totalServicesAmount, currency)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-sm font-semibold px-1 pt-1 border-t border-border">
-                    <span className="text-card-foreground">Grand Total (Schedule)</span>
+                    <span className="text-card-foreground">Grand Total</span>
                     <span className="tabular-nums text-card-foreground">
-                      {formatCurrency(scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount) + Number(i.penalty_amount), 0), currency)}
+                      {formatCurrency(grandTotal, currency)}
                     </span>
                   </div>
+                  {mismatch && (
+                    <div className="flex items-center gap-1.5 px-1 pt-0.5">
+                      <AlertTriangle className="h-3 w-3 text-destructive" />
+                      <span className="text-[10px] text-destructive font-medium">
+                        Grand Total ({formatCurrency(grandTotal, currency)}) ≠ Total LA Amount ({formatCurrency(summary.totalLAAmount, currency)})
+                      </span>
+                    </div>
+                  )}
                   {penaltyCapOverride && (
                     <div className="flex items-center gap-1.5 px-1 pt-1">
                       <ShieldCheck className="h-3.5 w-3.5 text-primary" />
@@ -1244,7 +1271,8 @@ export default function AccountDetail() {
                     </div>
                   )}
                 </div>
-              )}
+                );
+              })()}
               {scheduleItems.length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-4">No schedule generated yet</p>
               )}
