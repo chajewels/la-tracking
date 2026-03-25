@@ -476,7 +476,12 @@ export default function AccountDetail() {
   } else {
     // ═══════════════════════════════════════════════════════════════
     // 🔒 STANDARD ACTIVE/OVERDUE MESSAGE — OFFICIAL LOCKED FORMAT
+    // DO NOT REMOVE ANY LINE. ALL LINES ARE MANDATORY.
     // ═══════════════════════════════════════════════════════════════
+    // Mandatory greeting line — must always be present
+    if (mostRecentPayment) {
+      message += `Thank you for your payment. ${formatCurrency(Number(mostRecentPayment.amount_paid), currency)} has been received.\n\n`;
+    }
     message += `Inv # ${account.invoice_number}\n\n`;
     message = appendSummaryBlock(message);
     message += `================\n`;

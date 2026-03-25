@@ -131,7 +131,9 @@ export function generateCustomerMessage(
   // Total LA Amount = Base + Penalties (official rule)
   const totalLAAmount = totalAmount + totalPenalty;
 
-  let message = `Inv # ${invoiceNumber}\n\n`;
+  // 🔒 MANDATORY greeting line — must always be present
+  let message = `Thank you for your payment. ${formatCurrency(totalPaid, currency)} has been received.\n\n`;
+  message += `Inv # ${invoiceNumber}\n\n`;
   message += `Total LA Amount: ${formatCurrency(totalLAAmount, currency)}\n`;
   message += `Amount Paid: ${formatCurrency(totalPaid, currency)}\n`;
   message += `================\n`;
