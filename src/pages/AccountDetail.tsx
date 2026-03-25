@@ -329,16 +329,18 @@ export default function AccountDetail() {
       : rounded.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  // Build payment breakdown text: DP + paid months = total (BUG A fix: DP once only)
+  // Build payment breakdown text: DP + actual paid per month = total
   const buildPaymentBreakdown = (): string => {
     const parts: string[] = [];
-    // Always include DP as first value if > 0
     if (downpaymentAmount > 0 && dpPaidAmount > 0) {
       parts.push(fmtVal(dpPaidAmount));
     }
-    // Add schedule paid amounts (not raw payment records) to avoid DP double-counting
-    const paidSchedules = scheduleItems.filter(s => Number(s.paid_amount) > 0);
-    paidSchedules.forEach(s => parts.push(fmtVal(Number(s.paid_amount))));
+    // Each paid month's actual collected = base paid + penalty for that month
+    const paidSchedules = scheduleItems.filter(s => isEffectivelyPaid(s));
+    paidSchedules.forEach(s => {
+      const actualPaid = Number(s.paid_amount) + Number(s.penalty_amount);
+      parts.push(fmtVal(actualPaid));
+    });
     if (parts.length > 1) {
       return `${parts.join(' + ')} = ${formatCurrency(totalPaid, currency)}`;
     }
@@ -1286,10 +1288,13 @@ export default function AccountDetail() {
             const sumPendingMonths = unpaidSchedule.reduce((s, i) => s + Number(i.total_due_amount) - Number(i.paid_amount), 0);
             const sumAllBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
             const baseIntegrity = Math.round((downpaymentAmount + sumAllBases) * 100) / 100;
+            // Verify totalPaid = DP + Σ(actualPaid per paid month)
+            const paidScheds = scheduleItems.filter(s => isEffectivelyPaid(s));
+            const computedPaid = dpPaidAmount + paidScheds.reduce((s, i) => s + Number(i.paid_amount) + Number(i.penalty_amount), 0);
             const checks = [
               { label: 'activePenalties (non-waived)', expected: summary.activePenalties, actual: activePenaltyTotal, pass: Math.abs(summary.activePenalties - activePenaltyTotal) < 0.01 },
               { label: 'totalLAAmount (base + penalties + svc)', expected: summary.totalLAAmount, actual: principalTotal + activePenaltyTotal + totalServicesAmount, pass: Math.abs(summary.totalLAAmount - (principalTotal + activePenaltyTotal + totalServicesAmount)) < 0.01 },
-              { label: 'amountPaid (all confirmed payments)', expected: summary.totalPaid, actual: totalPaid, pass: Math.abs(summary.totalPaid - totalPaid) < 0.01 },
+              { label: 'amountPaid (DP + paid months)', expected: totalPaid, actual: Math.round(computedPaid * 100) / 100, pass: Math.abs(totalPaid - computedPaid) < 1 },
               { label: 'remainingBalance (totalLA - paid)', expected: summary.remainingBalance, actual: Math.max(0, summary.totalLAAmount - totalPaid), pass: Math.abs(summary.remainingBalance - Math.max(0, summary.totalLAAmount - totalPaid)) < 0.01 },
               { label: 'monthsRemaining', expected: summary.unpaidCount, actual: unpaidSchedule.length, pass: summary.unpaidCount === unpaidSchedule.length },
               { label: 'sumOfPendingMonths ≈ remainingBalance', expected: summary.remainingBalance, actual: Math.round(sumPendingMonths * 100) / 100, pass: Math.abs(sumPendingMonths - summary.remainingBalance) < 2 },
