@@ -229,7 +229,15 @@ export default function CustomerDetail() {
       const unpaidSchedule = getUnpaidScheduleItems(scheduleItems);
 
       msg += `Inv # ${acct.account.invoice_number}\n`;
-      msg += `Total LA Amount: ${formatCurrency(totalLayawayAmount, currency)}\n`;
+      // Total LA Amount with breakdown
+      const totalLAParts: string[] = [];
+      if (schedPenaltySum > 0) totalLAParts.push(`${formatCurrency(schedPenaltySum, currency).replace(/^[₱¥]\s*/, '')} (Penalty)`);
+      if (totalSvcAmt > 0) totalLAParts.push(`${formatCurrency(totalSvcAmt, currency).replace(/^[₱¥]\s*/, '')} (Service)`);
+      if (totalLAParts.length > 0) {
+        msg += `Total LA Amount: ${formatCurrency(originalPrincipal, currency)} + ${totalLAParts.join(' + ')} = ${formatCurrency(totalLayawayAmount, currency)}\n`;
+      } else {
+        msg += `Total LA Amount: ${formatCurrency(totalLayawayAmount, currency)}\n`;
+      }
       msg += `Amount Paid: ${paymentBreakdownText}\n`;
       msg += `================\n`;
       const unpaidCount = unpaidSchedule.length;
