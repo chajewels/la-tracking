@@ -218,17 +218,15 @@ export default function Waivers() {
           }
         }
 
-        // 4. Recalculate account remaining_balance
-        const { data: allSched } = await supabase
-          .from('layaway_schedule')
-          .select('total_due_amount, paid_amount, status')
-          .eq('account_id', group.accountId);
+        // 4. Recalculate account remaining_balance using canonical formula: principal - total_paid
+        const { data: accountData } = await supabase
+          .from('layaway_accounts')
+          .select('total_amount, total_paid')
+          .eq('id', group.accountId)
+          .single();
 
-        if (allSched) {
-          const newRemaining = allSched.reduce((sum, s) => {
-            if (s.status === 'paid' || s.status === 'cancelled') return sum;
-            return sum + Math.max(0, Number(s.total_due_amount) - Number(s.paid_amount));
-          }, 0);
+        if (accountData) {
+          const newRemaining = Math.max(0, Number(accountData.total_amount) - Number(accountData.total_paid));
           await supabase.from('layaway_accounts')
             .update({ remaining_balance: newRemaining })
             .eq('id', group.accountId);
