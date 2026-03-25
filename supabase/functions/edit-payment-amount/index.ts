@@ -262,7 +262,15 @@ Deno.serve(async (req) => {
       .eq("account_id", payment.account_id)
       .is("voided_at", null);
     const verifiedTotalPaid = round2((postEditPayments || []).reduce((s, p) => s + Number(p.amount_paid), 0));
-    const verifiedRemaining = round2(Math.max(0, Number(account.total_amount) - verifiedTotalPaid));
+
+    // PRINCIPAL-ONLY remaining: exclude penalty payments
+    const { data: paidPenaltyFees } = await supabase
+      .from("penalty_fees")
+      .select("penalty_amount")
+      .eq("account_id", payment.account_id)
+      .eq("status", "paid");
+    const penaltyPaidSum = (paidPenaltyFees || []).reduce((s: number, f: any) => s + Number(f.penalty_amount), 0);
+    const verifiedRemaining = round2(Math.max(0, Number(account.total_amount) - (verifiedTotalPaid - penaltyPaidSum)));
 
     const { data: finalSchedule } = await supabase
       .from("layaway_schedule")

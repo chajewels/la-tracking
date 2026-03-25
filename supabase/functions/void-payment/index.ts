@@ -155,7 +155,15 @@ Deno.serve(async (req) => {
           return (activePayments || []).reduce((s, p) => s + Number(p.amount_paid), 0);
         })()
       : 0;
-    const newRemainingBalance = Math.max(0, Number(account.total_amount) - newTotalPaid);
+
+    // PRINCIPAL-ONLY remaining: exclude penalty payments
+    const { data: paidPenaltyFees } = await supabase
+      .from("penalty_fees")
+      .select("penalty_amount")
+      .eq("account_id", payment.account_id)
+      .eq("status", "paid");
+    const penaltyPaidSum = (paidPenaltyFees || []).reduce((s: number, f: any) => s + Number(f.penalty_amount), 0);
+    const newRemainingBalance = Math.max(0, Number(account.total_amount) - (newTotalPaid - penaltyPaidSum));
 
     const { data: updatedSchedule } = await supabase
       .from("layaway_schedule")
