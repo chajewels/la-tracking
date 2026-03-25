@@ -101,7 +101,15 @@ Deno.serve(async (req) => {
         .is("voided_at", null);
 
       const actualTotalPaid = (payments || []).reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
-      const correctRemaining = Number(account.total_amount) - actualTotalPaid;
+
+      // PRINCIPAL-ONLY remaining: exclude penalty payments
+      const { data: paidPenalties } = await supabase
+        .from("penalty_fees")
+        .select("penalty_amount")
+        .eq("account_id", account_id)
+        .eq("status", "paid");
+      const penaltyPaidSum = (paidPenalties || []).reduce((s: number, f: any) => s + Number(f.penalty_amount), 0);
+      const correctRemaining = Math.max(0, Number(account.total_amount) - (actualTotalPaid - penaltyPaidSum));
 
       const updates: any = {};
       if (Math.abs(actualTotalPaid - Number(account.total_paid)) > 0.01) {
