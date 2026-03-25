@@ -314,7 +314,14 @@ export default function AccountDetail() {
       return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
     });
   const paymentBreakdownText = activePayments.length > 0
-    ? `${activePayments.map(payment => Math.round(Number(payment.amount_paid)).toLocaleString('en-US')).join(' + ')} = ${formatCurrency(totalPaid, currency)}`
+    ? `${activePayments.map(payment => {
+        const amt = Number(payment.amount_paid);
+        if (currency === 'JPY') return Math.round(amt).toLocaleString('en-US');
+        const rounded = Math.round(amt * 100) / 100;
+        return rounded % 1 === 0
+          ? rounded.toLocaleString('en-US')
+          : rounded.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }).join(' + ')} = ${formatCurrency(totalPaid, currency)}`
     : formatCurrency(totalPaid, currency);
 
   const getMessageScheduleState = (item: any, idx: number) => {

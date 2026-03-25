@@ -206,8 +206,12 @@ export default function CustomerDetail() {
         });
 
       const paymentParts = activePayments.map((p: any) => {
-        const raw = Math.round(Number(p.amount_paid));
-        return raw.toLocaleString('en-US');
+        const amt = Number(p.amount_paid);
+        if (currency === 'JPY') return Math.round(amt).toLocaleString('en-US');
+        const rounded = Math.round(amt * 100) / 100;
+        return rounded % 1 === 0
+          ? rounded.toLocaleString('en-US')
+          : rounded.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       });
       const paymentBreakdownText = activePayments.length > 0
         ? `${paymentParts.join(' + ')} = ${formatCurrency(totalPaid, currency)}`
