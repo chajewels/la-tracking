@@ -267,6 +267,14 @@ export default function AccountDetail() {
   const scheduleItems = schedule || [];
   const downpaymentAmount = Number((account as any)?.downpayment_amount || 0);
 
+  // Identify downpayment payments by reference_number pattern "DP-{invoice}" or remarks="Downpayment"
+  const isDownpaymentPayment = (p: any) =>
+    (p.reference_number && String(p.reference_number).startsWith('DP-')) ||
+    (p.remarks && String(p.remarks).toLowerCase() === 'downpayment');
+  const dpPayments = (payments || []).filter((p: any) => !p.voided_at && isDownpaymentPayment(p));
+  const dpPaidAmount = dpPayments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+  const dpRemainingAmount = Math.max(0, downpaymentAmount - dpPaidAmount);
+
   const confirmedActivePayments = getActivePayments(payments || []);
   const totalPaid = confirmedActivePayments.reduce((sum, p) => sum + Number(p.amount_paid), 0);
   const accountServices = ((services || []) as AccountService[]);
@@ -339,6 +347,17 @@ export default function AccountDetail() {
   // Shared message block for summary values (used across all statuses)
   const appendSummaryBlock = () => {
     message += `Total Layaway Amount: ${formatCurrency(summary.principalTotal, currency)}\n`;
+    if (downpaymentAmount > 0) {
+      message += `30% Downpayment: ${formatCurrency(downpaymentAmount, currency)}`;
+      if (dpPaidAmount > 0) {
+        message += ` (Paid: ${formatCurrency(dpPaidAmount, currency)}`;
+        if (dpRemainingAmount > 0) message += `, Remaining: ${formatCurrency(dpRemainingAmount, currency)}`;
+        message += `)`;
+      } else {
+        message += ` (Unpaid)`;
+      }
+      message += `\n`;
+    }
     if (summary.penaltyPaid > 0) {
       message += `Amount Paid: ${formatCurrency(summary.totalPaid, currency)} (Principal: ${formatCurrency(summary.principalPaid, currency)}, Penalties: ${formatCurrency(summary.penaltyPaid, currency)})\n`;
     } else {
@@ -842,11 +861,14 @@ export default function AccountDetail() {
             </p>
           </div>
           {downpaymentAmount > 0 && (
-            <div className="group relative overflow-hidden rounded-xl border border-primary/20 bg-card p-3 sm:p-4 card-hover hover:border-primary/40">
-              <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-gradient-to-r from-primary/40 via-primary to-primary/40" />
+            <div className={`group relative overflow-hidden rounded-xl border bg-card p-3 sm:p-4 card-hover ${dpRemainingAmount > 0 ? 'border-warning/20 hover:border-warning/40' : 'border-primary/20 hover:border-primary/40'}`}>
+              <div className={`absolute top-0 left-4 right-4 h-[2px] rounded-b-full ${dpRemainingAmount > 0 ? 'bg-warning/60' : 'bg-gradient-to-r from-primary/40 via-primary to-primary/40'}`} />
               <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">30% Downpayment</p>
               <p className="text-lg sm:text-xl font-bold text-primary font-display tabular-nums">
                 {formatCurrency(downpaymentAmount, currency)}
+              </p>
+              <p className={`text-[10px] mt-0.5 ${dpPaidAmount >= downpaymentAmount ? 'text-success' : dpPaidAmount > 0 ? 'text-warning' : 'text-muted-foreground'}`}>
+                {dpPaidAmount >= downpaymentAmount ? `✅ Paid: ${formatCurrency(dpPaidAmount, currency)}` : dpPaidAmount > 0 ? `Paid: ${formatCurrency(dpPaidAmount, currency)} · Remaining: ${formatCurrency(dpRemainingAmount, currency)}` : 'Not yet paid'}
               </p>
             </div>
           )}
@@ -935,20 +957,30 @@ export default function AccountDetail() {
             <div className="space-y-2">
               {/* 30% Downpayment row */}
               {downpaymentAmount > 0 && (
-                <div className="flex items-center justify-between p-2.5 sm:p-3 rounded-lg border bg-primary/5 border-primary/10">
+                <div className={`flex items-center justify-between p-2.5 sm:p-3 rounded-lg border ${dpPaidAmount >= downpaymentAmount ? 'bg-success/5 border-success/10' : dpPaidAmount > 0 ? 'bg-warning/5 border-warning/10' : 'bg-primary/5 border-primary/10'}`}>
                   <div className="flex items-center gap-2 sm:gap-3">
-                    <div className="flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-full text-[10px] sm:text-xs font-bold bg-primary/20 text-primary">
-                      DP
+                    <div className={`flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-full text-[10px] sm:text-xs font-bold ${dpPaidAmount >= downpaymentAmount ? 'bg-success/20 text-success' : dpPaidAmount > 0 ? 'bg-warning/20 text-warning' : 'bg-primary/20 text-primary'}`}>
+                      {dpPaidAmount >= downpaymentAmount ? <Check className="h-3 w-3" /> : 'DP'}
                     </div>
                     <div>
                       <p className="text-xs sm:text-sm font-medium text-card-foreground">30% Downpayment</p>
-                      <p className="text-[10px] sm:text-xs text-muted-foreground">Due on order date</p>
+                      <p className="text-[10px] sm:text-xs text-muted-foreground">
+                        {dpPaidAmount >= downpaymentAmount ? 'Paid' : dpPaidAmount > 0 ? `Partial — ${formatCurrency(dpPaidAmount, currency)} paid` : 'Due on order date'}
+                      </p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-xs sm:text-sm font-semibold tabular-nums text-primary">
+                    <p className={`text-xs sm:text-sm font-semibold tabular-nums ${dpPaidAmount >= downpaymentAmount ? 'text-success' : 'text-primary'}`}>
                       {formatCurrency(downpaymentAmount, currency)}
                     </p>
+                    {dpPaidAmount > 0 && dpPaidAmount < downpaymentAmount && (
+                      <p className="text-[10px] text-warning tabular-nums">
+                        Remaining: {formatCurrency(dpRemainingAmount, currency)}
+                      </p>
+                    )}
+                    {dpPaidAmount >= downpaymentAmount && (
+                      <Badge variant="outline" className="text-[9px] h-4 px-1 bg-success/10 text-success border-success/20">Paid</Badge>
+                    )}
                   </div>
                 </div>
               )}
@@ -1370,15 +1402,21 @@ export default function AccountDetail() {
                   );
                 }
 
+                const isDpPayment = isDownpaymentPayment(p);
                 return (
                   <div key={p.id} className={`flex items-center justify-between py-2 px-2 rounded-lg border-b border-border last:border-0 ${isVoided ? 'opacity-50 line-through' : ''}`}>
                     <div className="flex-1">
-                      <p className="text-xs sm:text-sm text-card-foreground">
-                        {new Date(p.date_paid).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs sm:text-sm text-card-foreground">
+                          {new Date(p.date_paid).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                        </p>
+                        {isDpPayment && !isVoided && (
+                          <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-primary/10 text-primary border-primary/20">Downpayment</Badge>
+                        )}
+                      </div>
                       <p className="text-[10px] sm:text-xs text-muted-foreground">
                         {p.payment_method || 'Cash'}
-                        {p.remarks && ` · ${p.remarks}`}
+                        {p.remarks && !isDpPayment && ` · ${p.remarks}`}
                         {isVoided && ` · VOIDED${(p as any).void_reason ? `: ${(p as any).void_reason}` : ''}`}
                       </p>
                     </div>
