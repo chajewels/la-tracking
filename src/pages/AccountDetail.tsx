@@ -830,6 +830,13 @@ export default function AccountDetail() {
             <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
               {formatCurrency(summary.principalTotal + schedulePenaltySum + summary.totalServices, currency)}
             </p>
+            {(schedulePenaltySum > 0 || summary.totalServices > 0) && (
+              <p className="text-[10px] mt-0.5 text-muted-foreground">
+                Base: {formatCurrency(summary.principalTotal, currency)}
+                {schedulePenaltySum > 0 && ` + Penalty: ${formatCurrency(schedulePenaltySum, currency)}`}
+                {summary.totalServices > 0 && ` + Svc: ${formatCurrency(summary.totalServices, currency)}`}
+              </p>
+            )}
           </div>
           {downpaymentAmount > 0 && (
             <div className={`group relative overflow-hidden rounded-xl border bg-card p-3 sm:p-4 card-hover ${dpRemainingAmount > 0 ? 'border-warning/20 hover:border-warning/40' : 'border-primary/20 hover:border-primary/40'}`}>
