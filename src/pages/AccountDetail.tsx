@@ -1313,7 +1313,7 @@ export default function AccountDetail() {
 
           {/* ═══ Verification Debug Panel ═══ */}
           {(() => {
-            const sumPendingMonths = unpaidSchedule.reduce((s, i) => s + Number(i.total_due_amount) - Number(i.paid_amount), 0);
+            const sumPendingMonths = scheduleItems.filter(i => !isEffectivelyPaid(i)).reduce((s, i) => s + Number(i.total_due_amount), 0);
             const sumAllBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
             const baseIntegrity = Math.round((downpaymentAmount + sumAllBases) * 100) / 100;
             // Verify totalPaid = DP + Σ(actualPaid per paid month)
