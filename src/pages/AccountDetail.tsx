@@ -52,6 +52,39 @@ export default function AccountDetail() {
   const { data: services } = useAccountServices(id);
   const { data: penaltyCapOverride } = usePenaltyCapOverride(id);
   const [copied, setCopied] = useState(false);
+
+  // ── Session payment tracking ──
+  // Snapshot payment IDs on first load to detect new payments recorded during this session
+  const initialPaymentIdsRef = useRef<Set<string> | null>(null);
+  const confirmedPayments = (payments || []).filter((p: any) => !p.voided_at);
+  useEffect(() => {
+    if (confirmedPayments.length > 0 && initialPaymentIdsRef.current === null) {
+      initialPaymentIdsRef.current = new Set(confirmedPayments.map((p: any) => p.id));
+    }
+  }, [confirmedPayments]);
+  const sessionPayments = useMemo(() => {
+    if (!initialPaymentIdsRef.current) return [];
+    return confirmedPayments.filter((p: any) => !initialPaymentIdsRef.current!.has(p.id));
+  }, [confirmedPayments]);
+
+  // ── Portal token for customer ──
+  const customerId = account?.customer_id;
+  const { data: portalToken } = useQuery({
+    queryKey: ['portal-token', customerId],
+    enabled: !!customerId,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('customer_portal_tokens')
+        .select('token')
+        .eq('customer_id', customerId!)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return data?.token || null;
+    },
+  });
   const voidPayment = useVoidPayment();
   const editPaymentAmount = useEditPaymentAmount();
   const editPayment = useEditPayment();
