@@ -955,6 +955,8 @@ export function computeAccountSummary(params: {
   return {
     principalTotal,
     totalPaid,
+    penaltyPaid: penaltyPaidSum,
+    principalPaid,
     remainingPrincipal,
     outstandingPenalties: unpaidPenaltySum,
     totalServices: totalServicesAmount,
