@@ -175,6 +175,11 @@ export default function CustomerDetail() {
       msg += `\n`;
     }
 
+    // Single-invoice single-payment: add "Thank you" greeting if not already added by multi-invoice header
+    if (latestPaymentEvent.length <= 1 && thankYouParts.length > 0) {
+      msg += `Thank you for your payment. ${thankYouParts.join(' and ')} has been received.\n\n`;
+    }
+
     // Only iterate active accounts (excludes completed/cancelled)
     for (const acct of activeAccounts) {
       const currency = acct.account.currency as Currency;
