@@ -131,13 +131,16 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
 
     setLoadingPreview(true);
     try {
+      const dpRef = paymentType === 'downpayment' && invoiceNumber ? `DP-${invoiceNumber}` : undefined;
+      const dpRemarks = paymentType === 'downpayment' ? 'Downpayment' : (notes || undefined);
       const { data, error } = await supabase.functions.invoke('record-payment', {
         body: {
           account_id: accountId,
           amount_paid: parsedAmount,
           date_paid: paymentDate,
           payment_method: paymentMethod,
-          remarks: notes || undefined,
+          reference_number: dpRef,
+          remarks: dpRemarks,
           preview_only: true,
         },
       });
@@ -156,14 +159,16 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     submittingRef.current = true;
     setLoadingPreview(true);
     try {
+      const dpRef = paymentType === 'downpayment' && invoiceNumber ? `DP-${invoiceNumber}` : undefined;
+      const dpRemarks = paymentType === 'downpayment' ? 'Downpayment' : (notes || undefined);
       const { data, error } = await supabase.functions.invoke('record-payment', {
         body: {
           account_id: accountId,
           amount_paid: parsedAmount,
           date_paid: paymentDate,
           payment_method: paymentMethod,
-          reference_number: undefined,
-          remarks: notes || undefined,
+          reference_number: dpRef,
+          remarks: dpRemarks,
         },
       });
       if (error) throw error;
@@ -185,13 +190,16 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     if (submittingRef.current) return; // prevent double-click
     submittingRef.current = true;
     try {
+      const dpRef = paymentType === 'downpayment' && invoiceNumber ? `DP-${invoiceNumber}` : undefined;
+      const dpRemarks = paymentType === 'downpayment' ? 'Downpayment' : (notes || undefined);
       await recordPayment.mutateAsync({
         account_id: accountId,
         amount: parsedAmount,
         currency,
         date_paid: paymentDate,
         payment_method: paymentMethod,
-        remarks: notes || undefined,
+        reference_number: dpRef,
+        remarks: dpRemarks,
       });
       toast.success(`Payment of ${formatCurrency(parsedAmount, currency)} recorded successfully`);
       resetAndClose();
@@ -206,6 +214,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     setAmount('');
     setNotes('');
     setPaymentMethod('cash');
+    setPaymentType('installment');
     setPaymentDate(new Date().toISOString().split('T')[0]);
     setStep('input');
     setPreview(null);
