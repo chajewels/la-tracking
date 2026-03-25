@@ -367,10 +367,22 @@ export default function AccountDetail() {
   const lastScheduleDate = scheduleItems.length > 0 ? new Date(scheduleItems[scheduleItems.length - 1].due_date) : null;
   const laMonthLabel = lastScheduleDate ? `LA ${lastScheduleDate.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}` : 'LA';
 
+  // Build Total LA Amount display with breakdown
+  const buildTotalLALine = () => {
+    const base = summary.principalTotal;
+    const parts: string[] = [];
+    if (schedulePenaltySum > 0) parts.push(`${formatCurrency(schedulePenaltySum, currency).replace(/^[₱¥]\s*/, '')} (Penalty)`);
+    if (summary.totalServices > 0) parts.push(`${formatCurrency(summary.totalServices, currency).replace(/^[₱¥]\s*/, '')} (Service)`);
+    if (parts.length > 0) {
+      return `Total LA Amount: ${formatCurrency(base, currency)} + ${parts.join(' + ')} = ${formatCurrency(totalLayawayAmount, currency)}`;
+    }
+    return `Total LA Amount: ${formatCurrency(totalLayawayAmount, currency)}`;
+  };
+
   // Shared message blocks (reused across status variants)
   const appendSummaryBlock = (msg: string) => {
-    // Total LA Amount line
-    msg += `Total LA Amount: ${formatCurrency(totalLayawayAmount, currency)}\n`;
+    // Total LA Amount line with breakdown
+    msg += `${buildTotalLALine()}\n`;
     // Amount Paid line — sequential payment amounts with "+"
     msg += `Amount Paid: ${paymentBreakdownText}\n`;
     return msg;
