@@ -571,22 +571,18 @@ export default function AccountDetail() {
 
     // Build next-payment / fully-paid line
     const buildNextPaymentLine = (isDownpaymentOnly: boolean): string => {
-      if (fullyPaid) {
+      if (fullyPaid || !nextUnpaidItem) {
         return `\n🎉 Your layaway is now fully paid! Thank you!`;
       }
-      if (isDownpaymentOnly && nextUnpaidItem) {
+      if (isDownpaymentOnly) {
         const monthLabel = new Date(nextUnpaidItem.dueDate).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
         return `\nFirst payment: ${monthLabel} — ${formatCurrency(nextUnpaidItem.totalDue, currency)}`;
       }
-      if (nextUnpaidItem) {
-        const monthLabel = new Date(nextUnpaidItem.dueDate).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-        // For partial months, show remaining amount
-        const nextAmt = nextUnpaidItem.isPartial
-          ? Math.max(0, nextUnpaidItem.totalDue - nextUnpaidItem.paidAmount)
-          : nextUnpaidItem.totalDue;
-        return `\nNext payment: ${monthLabel} — ${formatCurrency(nextAmt, currency)}`;
-      }
-      return '';
+      const monthLabel = new Date(nextUnpaidItem.dueDate).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+      const nextAmt = nextUnpaidItem.isPartial
+        ? Math.max(0, nextUnpaidItem.totalDue - nextUnpaidItem.paidAmount)
+        : nextUnpaidItem.totalDue;
+      return `\nNext payment: ${monthLabel} — ${formatCurrency(nextAmt, currency)}`;
     };
 
     // Check if session payments exist and classify
