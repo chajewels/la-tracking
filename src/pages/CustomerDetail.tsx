@@ -224,7 +224,7 @@ export default function CustomerDetail() {
 
       const unpaidSchedule = getUnpaidScheduleItems(scheduleItems);
 
-      msg += `Inv # ${acct.account.invoice_number}\n\n`;
+      msg += `Inv # ${acct.account.invoice_number}\n`;
       msg += `Total LA Amount: ${formatCurrency(totalLayawayAmount, currency)}\n`;
       msg += `Amount Paid: ${paymentBreakdownText}\n`;
       msg += `================\n`;
