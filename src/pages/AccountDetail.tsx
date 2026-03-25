@@ -41,7 +41,7 @@ import {
   computeAccountSummary,
 } from '@/lib/business-rules';
 
-const TEST_INVOICES = new Set(['TEST-001', 'TEST-002']);
+const TEST_INVOICES = new Set(['TEST-001', 'TEST-002', 'TEST-003']);
 const LOCKED_TEST_INVOICE = 'TEST-001';
 
 export default function AccountDetail() {
