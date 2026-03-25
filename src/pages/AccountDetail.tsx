@@ -54,19 +54,13 @@ export default function AccountDetail() {
   const { data: penaltyCapOverride } = usePenaltyCapOverride(id);
   const [copied, setCopied] = useState(false);
 
-  // ── Session payment tracking ──
-  // Snapshot payment IDs on first load to detect new payments recorded during this session
-  const initialPaymentIdsRef = useRef<Set<string> | null>(null);
+  // ── Session payment tracking (state-based) ──
+  const [sessionPayments, setSessionPayments] = useState<SessionPaymentInfo[]>([]);
   const confirmedPayments = (payments || []).filter((p: any) => !p.voided_at);
-  useEffect(() => {
-    if (confirmedPayments.length > 0 && initialPaymentIdsRef.current === null) {
-      initialPaymentIdsRef.current = new Set(confirmedPayments.map((p: any) => p.id));
-    }
-  }, [confirmedPayments]);
-  const sessionPayments = useMemo(() => {
-    if (!initialPaymentIdsRef.current) return [];
-    return confirmedPayments.filter((p: any) => !initialPaymentIdsRef.current!.has(p.id));
-  }, [confirmedPayments]);
+
+  const handlePaymentRecorded = useCallback((info: SessionPaymentInfo) => {
+    setSessionPayments(prev => [...prev, info]);
+  }, []);
 
   // ── Portal token for customer ──
   const customerId = account?.customer_id;
