@@ -482,7 +482,7 @@ export default function AccountDetail() {
     if (mostRecentPayment) {
       message += `Thank you for your payment. ${formatCurrency(Number(mostRecentPayment.amount_paid), currency)} has been received.\n\n`;
     }
-    message += `Inv # ${account.invoice_number}\n\n`;
+    message += `Inv # ${account.invoice_number}\n`;
     message = appendSummaryBlock(message);
     message += `================\n`;
     const unpaidCount = unpaidSchedule.length;
