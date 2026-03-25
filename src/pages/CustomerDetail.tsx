@@ -121,8 +121,7 @@ export default function CustomerDetail() {
   const buildConsolidatedMessage = () => {
     // If no active accounts, return a clean completion message
     if (activeAccounts.length === 0) {
-      let msg = `✨ Cha Jewels Layaway Payment Summary\n\n`;
-      msg += `Dear ${customer.full_name},\n\n`;
+      let msg = `Dear ${customer.full_name},\n\n`;
       msg += `All your layaway accounts have been completed. 🎉\n\n`;
       msg += `Thank you for your continued trust in Cha Jewels. We appreciate your business! 🧡`;
       return msg;
@@ -165,17 +164,15 @@ export default function CustomerDetail() {
       .filter(([, amt]) => amt > 0)
       .map(([cur, amt]) => formatCurrency(amt, cur));
 
-    let msg = `✨ Cha Jewels Layaway Payment Summary\n\n`;
-    msg += `Dear ${customer.full_name},\n\n`;
-    if (thankYouParts.length > 0) {
-      msg += `Thank you for your payment. ${thankYouParts.join(' and ')} has been received.\n\n`;
+    let msg = ``;
 
-      if (latestPaymentEvent.length > 1) {
-        latestPaymentEvent.forEach((payment: any) => {
-          msg += `Inv # ${payment.invoice_number} - ${formatCurrency(Number(payment.amount_paid), payment.currency)}\n`;
-        });
-        msg += `\n`;
-      }
+    // Multi-invoice payment header
+    if (latestPaymentEvent.length > 1 && thankYouParts.length > 0) {
+      msg += `Thank you for your payment. ${thankYouParts.join(' and ')} has been received.\n\n`;
+      latestPaymentEvent.forEach((payment: any) => {
+        msg += `Inv # ${payment.invoice_number} - ${formatCurrency(Number(payment.amount_paid), payment.currency)}\n`;
+      });
+      msg += `\n`;
     }
 
     // Only iterate active accounts (excludes completed/cancelled)
@@ -189,7 +186,7 @@ export default function CustomerDetail() {
       const originalPrincipal = downpayment + schedBaseSum;
       const acctServicesList = (acct as any).services || [];
       const totalSvcAmt = acctServicesList.reduce((s: number, svc: any) => s + Number(svc.amount), 0);
-      const totalAmount = originalPrincipal + totalSvcAmt + schedPenaltySum;
+      const totalLayawayAmount = originalPrincipal + schedPenaltySum + totalSvcAmt;
       const totalPaid = Number(acct.account.total_paid);
       const remainingBalance = scheduleItems
         .filter(s => s.status !== 'paid' && s.status !== 'cancelled')
@@ -204,94 +201,30 @@ export default function CustomerDetail() {
         });
 
       const paymentParts = activePayments.map((p: any) => {
-        const amt = formatCurrency(Number(p.amount_paid), currency);
-        const isSplit = p.remarks && typeof p.remarks === 'string' && p.remarks.startsWith('[Multi-invoice]');
-        return isSplit ? `${amt} (split)` : amt;
+        const raw = Math.round(Number(p.amount_paid));
+        return raw.toLocaleString('en-US');
       });
       const paymentBreakdownText = activePayments.length > 0
         ? `${paymentParts.join(' + ')} = ${formatCurrency(totalPaid, currency)}`
         : formatCurrency(totalPaid, currency);
       const messageScheduleCoverage = getMessageSchedulePaymentCoverage(scheduleItems, totalPaid, downpayment);
 
-      const splitPayments = activePayments.filter(
-        (p: any) => p.remarks && typeof p.remarks === 'string' && p.remarks.startsWith('[Multi-invoice]') && p.reference_number
-      );
-      const batchRefs = [...new Set(splitPayments.map((p: any) => p.reference_number as string))];
-      const batchSiblings: Array<{ date: string; totalBatch: number; invoices: string[] }> = [];
-      for (const ref of batchRefs) {
-        const allBatchPayments: Array<{ invoice: string; amount: number; date: string }> = [];
-        // Look across all accounts (including completed) for split payment siblings
-        for (const otherAcct of accounts) {
-          const match = (otherAcct.payments || []).find(
-            (op: any) => !op.voided_at && op.reference_number === ref
-          );
-          if (match) {
-            allBatchPayments.push({
-              invoice: otherAcct.account.invoice_number,
-              amount: Number((match as any).amount_paid),
-              date: (match as any).date_paid,
-            });
-          }
-        }
-        if (allBatchPayments.length > 1) {
-          batchSiblings.push({
-            date: new Date(allBatchPayments[0].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            totalBatch: allBatchPayments.reduce((s, b) => s + b.amount, 0),
-            invoices: allBatchPayments.map(
-              (b) => `#${b.invoice} → ${formatCurrency(b.amount, currency)}`
-            ),
-          });
-        }
-      }
+      // LA month label from last schedule item
+      const lastSchedDate = scheduleItems.length > 0 ? new Date(scheduleItems[scheduleItems.length - 1].due_date) : null;
+      const laMonthLabel = lastSchedDate ? `LA ${lastSchedDate.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}` : 'LA';
 
       // ══════════════════════════════════════════════════════════════════════
       // 🔒 OFFICIAL CHA JEWELS CUSTOMER MESSAGE TEMPLATE — LOCKED
-      //    DO NOT modify structure, wording, order, spacing, or symbols.
-      //    Future fixes must adjust VALUES ONLY, never the format.
       // ══════════════════════════════════════════════════════════════════════
 
       const unpaidSchedule = getUnpaidScheduleItems(scheduleItems);
 
-      // Penalty paid for this account
-      const acctPenalties = (acct as any).penalties || [];
-      const penaltyPaidSum = acctPenalties.filter((p: any) => p.status === 'paid').reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
-      const principalPaid = totalPaid - penaltyPaidSum;
-
-      // Total Layaway Amount = Base + Penalties + Services (official rule)
-      const totalLayawayAmount = originalPrincipal + schedPenaltySum + totalSvcAmt;
-
-      msg += `━━━━━━━━━━━━━━━━━━\n`;
-      msg += `📋 Inv # ${acct.account.invoice_number}\n`;
-
-      // Total Layaway Amount line with breakdown when components exist
-      if (schedPenaltySum > 0 || totalSvcAmt > 0) {
-        const parts: string[] = [formatCurrency(originalPrincipal, currency)];
-        if (schedPenaltySum > 0) parts.push(`${formatCurrency(schedPenaltySum, currency)} (Penalty)`);
-        if (totalSvcAmt > 0) parts.push(`${formatCurrency(totalSvcAmt, currency)} (Services)`);
-        msg += `Total Layaway Amount: ${parts.join(' + ')} = ${formatCurrency(totalLayawayAmount, currency)}\n`;
-      } else {
-        msg += `Total Layaway Amount: ${formatCurrency(totalLayawayAmount, currency)}\n`;
-      }
-
-      // 30% Downpayment line
-      if (downpayment > 0) {
-        const dpPaymentsList = (acct.payments || []).filter(
-          (p: any) => !p.voided_at && ((p.reference_number && String(p.reference_number).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment'))
-        );
-        const taggedDpPaid = dpPaymentsList.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
-        const allActive = (acct.payments || []).filter((p: any) => !p.voided_at);
-        const totalPaidAll = allActive.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
-        const dpPaid = taggedDpPaid > 0 ? taggedDpPaid : (downpayment > 0 && totalPaidAll >= downpayment ? downpayment : 0);
-        msg += `30% Downpayment: ${formatCurrency(downpayment, currency)} (Paid: ${formatCurrency(dpPaid, currency)})\n`;
-      }
-
-      // Amount Paid line — always show principal/penalty split
-      msg += `Amount Paid: ${formatCurrency(totalPaid, currency)} (Principal: ${formatCurrency(principalPaid, currency)}, Penalties: ${formatCurrency(penaltyPaidSum, currency)})\n`;
-
+      msg += `Inv # ${acct.account.invoice_number}\n\n`;
+      msg += `Total LA Amount: ${formatCurrency(totalLayawayAmount, currency)}\n`;
+      msg += `Amount Paid: ${paymentBreakdownText}\n`;
       msg += `================\n`;
-      msg += `Remaining Balance: ${formatCurrency(remainingBalance, currency)}\n`;
       const unpaidCount = unpaidSchedule.length;
-      msg += `${unpaidCount} month${unpaidCount !== 1 ? 's' : ''} remaining\n`;
+      msg += `${laMonthLabel} remaining balance - ${formatCurrency(remainingBalance, currency)} to pay in ${unpaidCount} month${unpaidCount !== 1 ? 's' : ''}\n`;
 
       msg += `\nMonthly Payment:\n`;
       scheduleItems.forEach((item, idx) => {
@@ -299,23 +232,16 @@ export default function CustomerDetail() {
         const coveredAmount = Math.min(messageScheduleCoverage[idx] || 0, totalDue);
         const dbPaid = item.status === 'paid';
         const effPaid = dbPaid || (isEffectivelyPaid(item) && totalDue > 0 && coveredAmount >= totalDue);
-        const partial = !effPaid && isPartiallyPaid(item) && coveredAmount > 0;
         const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
         const penalty = Number(item.penalty_amount);
         const baseAmt = Number(item.base_installment_amount);
-        const paidAmt = dbPaid ? totalDue : coveredAmount;
-        const displayAmt = effPaid ? Math.max(paidAmt, totalDue) : totalDue;
 
         if (effPaid) {
           if (penalty > 0) {
-            msg += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(displayAmt, currency)} (PAID)\n`;
+            msg += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)} (PAID)\n`;
           } else {
-            msg += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(displayAmt, currency)} (PAID)\n`;
+            msg += `✅ ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} (PAID)\n`;
           }
-        } else if (partial) {
-          msg += `🔶 ${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)}`;
-          if (penalty > 0) msg += ` + ${formatCurrency(penalty, currency)} (Penalty)`;
-          msg += ` — ${formatCurrency(paidAmt, currency)} paid, ${formatCurrency(Math.max(0, totalDue - paidAmt), currency)} remaining\n`;
         } else if (penalty > 0) {
           msg += `${ordinal(idx)} month ${dateStr}: ${formatCurrency(baseAmt, currency)} + ${formatCurrency(penalty, currency)} (Penalty) = ${formatCurrency(totalDue, currency)}\n`;
         } else {

@@ -177,21 +177,15 @@ export default function MultiInvoicePaymentDialog({
       // Generate consolidated message
       const results: AccountResult[] = data?.results || [];
       const primaryCurrency = (selectedAccounts[0]?.currency || 'PHP') as Currency;
-      let msg = `Dear ${customerName},\n\n`;
-      msg += `Thank you for your payment. ${formatCurrency(totalAllocated, primaryCurrency)} has been received.\n\n`;
+      let msg = `Thank you for your payment. ${formatCurrency(totalAllocated, primaryCurrency)} has been received.\n\n`;
       
       for (const acct of selectedAccounts) {
         const amt = parseFloat(amounts[acct.id] || '0') || 0;
-        const result = results.find(r => r.account_id === acct.id);
-        const isCompleted = result?.new_status === 'completed';
         const acctCurrency = (acct.currency || 'PHP') as Currency;
-        msg += `Inv # ${acct.invoice_number} - ${formatCurrency(amt, acctCurrency)}`;
-        if (isCompleted) msg += ` (PAID OFF)`;
-        msg += `\n`;
+        msg += `Inv # ${acct.invoice_number} - ${formatCurrency(amt, acctCurrency)}\n`;
       }
       
-      msg += `\n━━━━━━━━━━━━━━━━━━\n`;
-      msg += `\nThank you for your continued trust in Cha Jewels. We appreciate your business! 💛`;
+      msg += `\nThank you for your continued trust in Cha Jewels. We appreciate your business! 🧡`;
       
       setConsolidatedMessage(msg);
       setStep('message');

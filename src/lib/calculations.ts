@@ -124,31 +124,34 @@ export function generateCustomerMessage(
   const unpaidItems = schedule.filter(s => !s.is_paid);
   const remainingMonths = unpaidItems.length;
 
-  let message = `✨ Cha Jewels Layaway Payment Summary\n\n`;
-  message += `Inv # ${invoiceNumber}\n`;
+  // LA month label from last schedule item
+  const lastSchedDate = schedule.length > 0 ? new Date(schedule[schedule.length - 1].due_date) : null;
+  const laMonthLabel = lastSchedDate ? `LA ${lastSchedDate.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}` : 'LA';
 
-  // Total Layaway Amount = Base + Penalties (official rule)
-  if (totalPenalty > 0) {
-    const totalLayaway = totalAmount + totalPenalty;
-    message += `Total Layaway Amount: ${formatCurrency(totalAmount, currency)} + ${formatCurrency(totalPenalty, currency)} (Penalty) = ${formatCurrency(totalLayaway, currency)}\n`;
-  } else {
-    message += `Total Layaway Amount: ${formatCurrency(totalAmount, currency)}\n`;
-  }
+  // Total LA Amount = Base + Penalties (official rule)
+  const totalLAAmount = totalAmount + totalPenalty;
 
-  message += `Amount Paid: ${formatCurrency(totalPaid, currency)} (Principal: ${formatCurrency(totalPaid, currency)}, Penalties: ${formatCurrency(0, currency)})\n`;
+  let message = `Inv # ${invoiceNumber}\n\n`;
+  message += `Total LA Amount: ${formatCurrency(totalLAAmount, currency)}\n`;
+  message += `Amount Paid: ${formatCurrency(totalPaid, currency)}\n`;
   message += `================\n`;
-  message += `Remaining Balance: ${formatCurrency(remaining, currency)}\n`;
-  message += `${remainingMonths} month${remainingMonths !== 1 ? 's' : ''} remaining\n`;
+  message += `${laMonthLabel} remaining balance - ${formatCurrency(remaining, currency)} to pay in ${remainingMonths} month${remainingMonths !== 1 ? 's' : ''}\n`;
   message += `\nMonthly Payment:\n`;
 
   const ordinals = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th'];
 
-  unpaidItems.forEach((item, idx) => {
+  schedule.forEach((item, idx) => {
     const dateStr = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
-    if (item.penalty_amount > 0) {
-      message += `${ordinals[idx]} month ${dateStr}: ${formatCurrency(item.base_amount, currency)} + ${formatCurrency(item.penalty_amount, currency)} (Penalty) = ${formatCurrency(item.total_due, currency)}\n`;
+    if (item.is_paid) {
+      if (item.penalty_amount > 0) {
+        message += `✅ ${ordinals[idx] || `${idx+1}th`} month ${dateStr}: ${formatCurrency(item.base_amount, currency)} + ${formatCurrency(item.penalty_amount, currency)} (Penalty) = ${formatCurrency(item.total_due, currency)} (PAID)\n`;
+      } else {
+        message += `✅ ${ordinals[idx] || `${idx+1}th`} month ${dateStr}: ${formatCurrency(item.base_amount, currency)} (PAID)\n`;
+      }
+    } else if (item.penalty_amount > 0) {
+      message += `${ordinals[idx] || `${idx+1}th`} month ${dateStr}: ${formatCurrency(item.base_amount, currency)} + ${formatCurrency(item.penalty_amount, currency)} (Penalty) = ${formatCurrency(item.total_due, currency)}\n`;
     } else {
-      message += `${ordinals[idx]} month ${dateStr}: ${formatCurrency(item.base_amount, currency)}\n`;
+      message += `${ordinals[idx] || `${idx+1}th`} month ${dateStr}: ${formatCurrency(item.base_amount, currency)}\n`;
     }
   });
 
