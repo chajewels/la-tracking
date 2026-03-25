@@ -378,7 +378,8 @@ export default function CustomerDetail() {
             <MultiInvoicePaymentDialog
               customerId={customer.id}
               customerName={customer.full_name}
-              accounts={accounts.map(({ account }) => ({
+              portalLink={portalLink}
+              accounts={accounts.map(({ account, schedule }) => ({
                 id: account.id,
                 invoice_number: account.invoice_number,
                 currency: account.currency,
@@ -386,6 +387,17 @@ export default function CustomerDetail() {
                 total_amount: Number(account.total_amount),
                 total_paid: Number(account.total_paid),
                 status: account.status,
+                notes: account.notes,
+                schedule: schedule.map(s => ({
+                  id: s.id,
+                  installment_number: s.installment_number,
+                  due_date: s.due_date,
+                  base_installment_amount: Number(s.base_installment_amount),
+                  penalty_amount: Number(s.penalty_amount),
+                  total_due_amount: Number(s.total_due_amount),
+                  paid_amount: Number(s.paid_amount),
+                  status: s.status,
+                })),
               }))}
             />
             {customer.messenger_link && (
