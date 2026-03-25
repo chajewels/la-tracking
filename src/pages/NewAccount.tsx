@@ -296,11 +296,6 @@ export default function NewAccount() {
           return;
         }
       }
-    } else {
-      if (downpaymentAmount > 0 && !downpaymentPaid) {
-        toast.error('Please enter the downpayment amount paid');
-        return;
-      }
     }
 
     try {
