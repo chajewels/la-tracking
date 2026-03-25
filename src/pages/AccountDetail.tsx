@@ -314,7 +314,7 @@ export default function AccountDetail() {
       return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
     });
   const paymentBreakdownText = activePayments.length > 0
-    ? `${activePayments.map(payment => formatCurrency(Number(payment.amount_paid), payment.currency as Currency)).join(' + ')} = ${formatCurrency(totalPaid, currency)}`
+    ? `${activePayments.map(payment => Math.round(Number(payment.amount_paid)).toLocaleString('en-US')).join(' + ')} = ${formatCurrency(totalPaid, currency)}`
     : formatCurrency(totalPaid, currency);
 
   const getMessageScheduleState = (item: any, idx: number) => {
