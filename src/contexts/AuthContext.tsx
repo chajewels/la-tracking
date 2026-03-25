@@ -74,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!nextSession?.access_token) {
         if (!isMounted) return;
         clearAuthState();
-        if (isInitial) { setLoading(false); setInitialLoadDone(true); }
+        if (isInitial) { setLoading(false); setInitialLoadDone(true); initialLoadDoneRef.current = true; }
         return;
       }
 
@@ -84,7 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await supabase.auth.signOut({ scope: 'local' });
         if (!isMounted) return;
         clearAuthState();
-        if (isInitial) { setLoading(false); setInitialLoadDone(true); }
+        if (isInitial) { setLoading(false); setInitialLoadDone(true); initialLoadDoneRef.current = true; }
         return;
       }
 
@@ -95,7 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(data.user);
       setRoles(nextRoles);
       setProfile(nextProfile);
-      if (isInitial) { setLoading(false); setInitialLoadDone(true); }
+      if (isInitial) { setLoading(false); setInitialLoadDone(true); initialLoadDoneRef.current = true; }
     };
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
@@ -116,13 +116,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // On SIGNED_IN, show loading only if we haven't loaded yet
-      if (event === 'SIGNED_IN' && !initialLoadDone) {
+      if (event === 'SIGNED_IN' && !initialLoadDoneRef.current) {
         setLoading(true);
       }
 
       // For SIGNED_IN and other events, do a full sync
       globalThis.setTimeout(() => {
-        void syncSession(nextSession, !initialLoadDone);
+        void syncSession(nextSession, !initialLoadDoneRef.current);
       }, 0);
     });
 
