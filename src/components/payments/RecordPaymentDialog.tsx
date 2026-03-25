@@ -218,6 +218,29 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     }
   };
 
+  const buildSessionPaymentInfo = (): SessionPaymentInfo => {
+    const isDP = paymentType === 'downpayment';
+    if (isDP) {
+      return { amount: parsedAmount, monthLabel: 'Down Payment', ordinal: '', method: paymentMethod };
+    }
+    // Find which schedule item this payment was allocated to from preview
+    const firstInstallmentAlloc = preview?.allocations.find(a => a.allocation_type === 'installment');
+    const matchedSchedule = firstInstallmentAlloc && schedule
+      ? schedule.find(s => s.id === firstInstallmentAlloc.schedule_id)
+      : null;
+    const monthLabel = matchedSchedule
+      ? new Date(matchedSchedule.due_date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+      : '';
+    const ord = matchedSchedule ? formatOrdinal(matchedSchedule.installment_number) : '';
+    return { amount: parsedAmount, monthLabel, ordinal: ord, method: paymentMethod };
+  };
+
+  const formatOrdinal = (n: number): string => {
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  };
+
   const resetAndClose = () => {
     setAmount('');
     setNotes('');
