@@ -356,23 +356,16 @@ export default function AccountDetail() {
   // Total Layaway Amount = Base + Penalties + Services (official rule)
   const totalLayawayAmount = summary.principalTotal + schedulePenaltySum + summary.totalServices;
 
+  // LA month label from last schedule item (e.g. "LA APR")
+  const lastScheduleDate = scheduleItems.length > 0 ? new Date(scheduleItems[scheduleItems.length - 1].due_date) : null;
+  const laMonthLabel = lastScheduleDate ? `LA ${lastScheduleDate.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}` : 'LA';
+
   // Shared message blocks (reused across status variants)
   const appendSummaryBlock = (msg: string) => {
-    // Total Layaway Amount line with breakdown when components exist
-    if (schedulePenaltySum > 0 || summary.totalServices > 0) {
-      const parts: string[] = [formatCurrency(summary.principalTotal, currency)];
-      if (schedulePenaltySum > 0) parts.push(`${formatCurrency(schedulePenaltySum, currency)} (Penalty)`);
-      if (summary.totalServices > 0) parts.push(`${formatCurrency(summary.totalServices, currency)} (Services)`);
-      msg += `Total Layaway Amount: ${parts.join(' + ')} = ${formatCurrency(totalLayawayAmount, currency)}\n`;
-    } else {
-      msg += `Total Layaway Amount: ${formatCurrency(totalLayawayAmount, currency)}\n`;
-    }
-    // 30% Downpayment line
-    if (downpaymentAmount > 0) {
-      msg += `30% Downpayment: ${formatCurrency(downpaymentAmount, currency)} (Paid: ${formatCurrency(dpPaidAmount, currency)})\n`;
-    }
-    // Amount Paid line — always show principal/penalty split
-    msg += `Amount Paid: ${formatCurrency(summary.totalPaid, currency)} (Principal: ${formatCurrency(summary.principalPaid, currency)}, Penalties: ${formatCurrency(summary.penaltyPaid, currency)})\n`;
+    // Total LA Amount line
+    msg += `Total LA Amount: ${formatCurrency(totalLayawayAmount, currency)}\n`;
+    // Amount Paid line — sequential payment amounts with "+"
+    msg += `Amount Paid: ${paymentBreakdownText}\n`;
     return msg;
   };
 
@@ -407,7 +400,7 @@ export default function AccountDetail() {
     return msg;
   };
 
-  let message = `✨ Cha Jewels Layaway Payment Summary\n\n`;
+  let message = ``;
 
   if (isFinalForfeit) {
     message += `🚫 PERMANENT FORFEITURE NOTICE\n\n`;
@@ -491,15 +484,11 @@ export default function AccountDetail() {
     // ═══════════════════════════════════════════════════════════════
     // 🔒 STANDARD ACTIVE/OVERDUE MESSAGE — OFFICIAL LOCKED FORMAT
     // ═══════════════════════════════════════════════════════════════
-    if (mostRecentPayment) {
-      message += `Thank you for your payment. ${formatCurrency(Number((mostRecentPayment as any).amount_paid), currency)} has been received.\n\n`;
-    }
-    message += `Inv # ${account.invoice_number}\n`;
+    message += `Inv # ${account.invoice_number}\n\n`;
     message = appendSummaryBlock(message);
     message += `================\n`;
-    message += `Remaining Balance: ${formatCurrency(summary.remainingPrincipal, currency)}\n`;
     const unpaidCount = unpaidSchedule.length;
-    message += `${unpaidCount} month${unpaidCount !== 1 ? 's' : ''} remaining\n`;
+    message += `${laMonthLabel} remaining balance - ${formatCurrency(summary.remainingPrincipal, currency)} to pay in ${unpaidCount} month${unpaidCount !== 1 ? 's' : ''}\n`;
     message += `\nMonthly Payment:\n`;
     message = appendScheduleLines(message);
 
@@ -516,15 +505,7 @@ export default function AccountDetail() {
     if (nextDueDateStr) {
       message += `\nPlease note your next monthly payment is on ${nextDueDateStr}. Please expect another payment reminder from us.\n`;
     }
-    if (forfeitWarning && forfeitWarning.monthsOverdue >= 2) {
-      message += `\n⚠️ IMPORTANT NOTICE: Your account is ${forfeitWarning.monthsOverdue} months overdue.`;
-      if (forfeitWarning.daysUntilForfeit > 0) {
-        message += ` If payment is not received by ${new Date(forfeitWarning.forfeitDate).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}, your account will be subject to forfeiture.`;
-      }
-      message += `\nPlease settle your outstanding balance immediately to avoid forfeiture. 💛`;
-    } else {
-      message += `\nThank you for your continued trust in Cha Jewels. We appreciate your business! 🧡`;
-    }
+    message += `\nThank you for your continued trust in Cha Jewels. We appreciate your business! 🧡`;
   }
   return message;
   }, [account?.id, account?.status, summary, scheduleItems, currency, mostRecentPayment?.id, paymentBreakdownText, accountServices, unpaidSchedule, penaltyCapOverride, schedulePenaltySum, downpaymentAmount, dpPaidAmount]);
