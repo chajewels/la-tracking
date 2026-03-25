@@ -117,7 +117,8 @@ export default function AccountDetail() {
   const [newInstSaving, setNewInstSaving] = useState(false);
   const [deleteScheduleTarget, setDeleteScheduleTarget] = useState<{ id: string; amount: number; installment_number: number } | null>(null);
   const [deleteScheduleLoading, setDeleteScheduleLoading] = useState(false);
-  const isTestAccount = account?.invoice_number === TEST_INVOICE;
+  const isTestAccount = TEST_INVOICES.has(account?.invoice_number || '');
+  const isLockedTest = account?.invoice_number === LOCKED_TEST_INVOICE;
   const [showVerify, setShowVerify] = useState(false);
   const queryClient = useQueryClient();
   const { roles } = useAuth();
