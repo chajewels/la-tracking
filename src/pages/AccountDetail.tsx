@@ -1298,7 +1298,6 @@ export default function AccountDetail() {
 
           {/* ═══ Verification Debug Panel (hidden by default) ═══ */}
           {(() => {
-            const [showVerify, setShowVerify] = useState(false);
             const sumPendingMonths = unpaidSchedule.reduce((s, i) => s + Number(i.total_due_amount) - Number(i.paid_amount), 0);
             const sumAllBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
             const baseIntegrity = Math.round((downpaymentAmount + sumAllBases) * 100) / 100;
