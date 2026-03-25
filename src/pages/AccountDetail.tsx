@@ -54,9 +54,14 @@ export default function AccountDetail() {
   const { data: penaltyCapOverride } = usePenaltyCapOverride(id);
   const [copied, setCopied] = useState(false);
 
-  // ── Session payment tracking (state-based) ──
+  // ── Session payment tracking (state-based, per-account) ──
   const [sessionPayments, setSessionPayments] = useState<SessionPaymentInfo[]>([]);
   const confirmedPayments = (payments || []).filter((p: any) => !p.voided_at);
+
+  // Reset session payments when navigating to a different account
+  useEffect(() => {
+    setSessionPayments([]);
+  }, [id]);
 
   const handlePaymentRecorded = useCallback((info: SessionPaymentInfo) => {
     setSessionPayments(prev => [...prev, info]);
