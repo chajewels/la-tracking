@@ -254,6 +254,25 @@ export default function CustomerDetail() {
       msg += `Total Layaway Amount: ${amountParts.join(' + ')}`;
       if (amountParts.length > 1) msg += ` = ${formatCurrency(totalAmount, currency)}`;
       msg += `\n`;
+
+      // Downpayment info
+      if (downpayment > 0) {
+        const dpPaymentsList = (acct.payments || []).filter(
+          (p: any) => !p.voided_at && ((p.reference_number && String(p.reference_number).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment'))
+        );
+        const dpPaid = dpPaymentsList.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+        const dpRemaining = Math.max(0, downpayment - dpPaid);
+        msg += `30% Downpayment: ${formatCurrency(downpayment, currency)}`;
+        if (dpPaid > 0) {
+          msg += ` (Paid: ${formatCurrency(dpPaid, currency)}`;
+          if (dpRemaining > 0) msg += `, Remaining: ${formatCurrency(dpRemaining, currency)}`;
+          msg += `)`;
+        } else {
+          msg += ` (Unpaid)`;
+        }
+        msg += `\n`;
+      }
+
       msg += `Amount Paid: ${paymentBreakdownText}\n`;
 
       if (acctServicesList.length > 0) {
@@ -551,6 +570,23 @@ export default function CustomerDetail() {
                   <p className="text-[10px] text-muted-foreground uppercase">Total</p>
                   <p className="text-sm font-bold text-card-foreground tabular-nums">{formatCurrency(totalAmount, currency)}</p>
                 </div>
+                {(() => {
+                  const dpAmt = Number((account as any).downpayment_amount || 0);
+                  if (dpAmt <= 0) return null;
+                  const dpPays = (data.accounts.find(a => a.account.id === account.id)?.payments || []).filter(
+                    (p: any) => !p.voided_at && ((p.reference_number && String(p.reference_number).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment'))
+                  );
+                  const dpPd = dpPays.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+                  return (
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase">Downpayment</p>
+                      <p className="text-sm font-bold text-primary tabular-nums">{formatCurrency(dpAmt, currency)}</p>
+                      <p className={`text-[10px] ${dpPd >= dpAmt ? 'text-success' : dpPd > 0 ? 'text-warning' : 'text-muted-foreground'}`}>
+                        {dpPd >= dpAmt ? '✅ Paid' : dpPd > 0 ? `Paid: ${formatCurrency(dpPd, currency)}` : 'Unpaid'}
+                      </p>
+                    </div>
+                  );
+                })()}
                 <div>
                   <p className="text-[10px] text-muted-foreground uppercase">Paid</p>
                   <p className="text-sm font-bold text-success tabular-nums">{formatCurrency(totalPaid, currency)}</p>
