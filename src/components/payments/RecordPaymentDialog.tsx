@@ -278,6 +278,42 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
                 Draft restored — your previous entries have been loaded.
               </div>
             )}
+            {/* Payment Type Selector — only show when not pay-full and DP remaining exists */}
+            {!payFullBalance && downpaymentRemaining != null && downpaymentRemaining > 0 && (
+              <div className="space-y-2">
+                <Label className="text-card-foreground">Payment Type</Label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentType('installment')}
+                    className={`flex-1 px-3 py-2 rounded-md text-xs font-medium border transition-colors ${
+                      paymentType === 'installment'
+                        ? 'bg-primary/15 border-primary/30 text-primary'
+                        : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted'
+                    }`}
+                  >
+                    Installment
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPaymentType('downpayment');
+                      if (!amount) setAmount(String(downpaymentRemaining));
+                    }}
+                    className={`flex-1 px-3 py-2 rounded-md text-xs font-medium border transition-colors ${
+                      paymentType === 'downpayment'
+                        ? 'bg-primary/15 border-primary/30 text-primary'
+                        : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted'
+                    }`}
+                  >
+                    Downpayment
+                    <span className="block text-[10px] opacity-75">
+                      Remaining: {formatCurrency(downpaymentRemaining, currency)}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            )}
             {payFullBalance ? (
               <div className="space-y-2">
                 <Label className="text-card-foreground">Amount ({currency})</Label>
