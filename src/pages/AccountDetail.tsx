@@ -620,7 +620,7 @@ export default function AccountDetail() {
               ) : (
                 <div className="flex items-center gap-2">
                   <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">INV #{account.invoice_number}</h1>
-                  {can('edit_invoice') && (
+                  {can('edit_invoice') && !isTestAccount && (
                   <Button
                     size="icon"
                     variant="ghost"
