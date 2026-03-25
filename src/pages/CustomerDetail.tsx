@@ -260,7 +260,10 @@ export default function CustomerDetail() {
         const dpPaymentsList = (acct.payments || []).filter(
           (p: any) => !p.voided_at && ((p.reference_number && String(p.reference_number).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment'))
         );
-        const dpPaid = dpPaymentsList.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+        const taggedDpPaid = dpPaymentsList.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+        const allActive = (acct.payments || []).filter((p: any) => !p.voided_at);
+        const totalPaidAll = allActive.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+        const dpPaid = taggedDpPaid > 0 ? taggedDpPaid : (downpayment > 0 && totalPaidAll >= downpayment ? downpayment : 0);
         const dpRemaining = Math.max(0, downpayment - dpPaid);
         msg += `30% Downpayment: ${formatCurrency(downpayment, currency)}`;
         if (dpPaid > 0) {

@@ -272,7 +272,11 @@ export default function AccountDetail() {
     (p.reference_number && String(p.reference_number).startsWith('DP-')) ||
     (p.remarks && String(p.remarks).toLowerCase() === 'downpayment');
   const dpPayments = (payments || []).filter((p: any) => !p.voided_at && isDownpaymentPayment(p));
-  const dpPaidAmount = dpPayments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+  const taggedDpPaid = dpPayments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+  // For legacy accounts without tagged DP payments, infer DP as paid when total_paid covers it
+  const allActivePayments = (payments || []).filter((p: any) => !p.voided_at);
+  const totalPaidAll = allActivePayments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+  const dpPaidAmount = taggedDpPaid > 0 ? taggedDpPaid : (downpaymentAmount > 0 && totalPaidAll >= downpaymentAmount ? downpaymentAmount : 0);
   const dpRemainingAmount = Math.max(0, downpaymentAmount - dpPaidAmount);
 
   const confirmedActivePayments = getActivePayments(payments || []);

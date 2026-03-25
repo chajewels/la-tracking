@@ -656,9 +656,11 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
 
         {/* Downpayment Info */}
         {account.downpayment_amount > 0 && (() => {
-          const dpPaid = account.payments
-            .filter(p => p.reference && String(p.reference).startsWith('DP-') || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment'))
+          const taggedDpPaid = account.payments
+            .filter(p => (p.reference && String(p.reference).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment'))
             .reduce((s, p) => s + p.amount, 0);
+          const totalPaidAll = account.payments.reduce((s, p) => s + p.amount, 0);
+          const dpPaid = taggedDpPaid > 0 ? taggedDpPaid : (account.downpayment_amount > 0 && totalPaidAll >= account.downpayment_amount ? account.downpayment_amount : 0);
           const dpFull = dpPaid >= account.downpayment_amount;
           return (
             <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border text-xs ${dpFull ? 'bg-success/5 border-success/10' : dpPaid > 0 ? 'bg-warning/5 border-warning/10' : 'bg-muted/30 border-border'}`}>
@@ -867,9 +869,11 @@ function OverviewTab({ account, statementUrl, today }: {
         </h3>
         <div className="space-y-1.5">
           {account.downpayment_amount > 0 && (() => {
-            const dpPaid = account.payments
+            const taggedDpPaid2 = account.payments
               .filter(p => (p.reference && String(p.reference).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment'))
               .reduce((s, p) => s + p.amount, 0);
+            const totalPaidAll2 = account.payments.reduce((s, p) => s + p.amount, 0);
+            const dpPaid = taggedDpPaid2 > 0 ? taggedDpPaid2 : (account.downpayment_amount > 0 && totalPaidAll2 >= account.downpayment_amount ? account.downpayment_amount : 0);
             const dpFull = dpPaid >= account.downpayment_amount;
             const dpPartial = dpPaid > 0 && !dpFull;
             return (
