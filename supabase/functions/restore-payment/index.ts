@@ -125,13 +125,22 @@ Deno.serve(async (req) => {
 
     let remainingInstallmentAmount = round2(originalInstallmentAllocations.reduce((sum, alloc) => sum + Number(alloc.allocated_amount), 0));
 
-    const targetInstallments = (selectedIds.length > 0
+    // Primary targets: selected items first, then all unpaid items for overflow
+    const selectedTargets = (selectedIds.length > 0
       ? schedule.filter((item) => selectedIds.includes(item.id))
       : schedule.filter((item) => item.status !== "paid" && item.status !== "cancelled")
     ).sort((a, b) => a.installment_number - b.installment_number);
 
-    if (targetInstallments.length === 0 && remainingInstallmentAmount > 0) {
-      return new Response(JSON.stringify({ error: "No valid monthly dues selected for restore" }), {
+    // Overflow targets: all remaining unpaid items not already in selectedTargets
+    const selectedIdSet = new Set(selectedTargets.map((t) => t.id));
+    const overflowTargets = schedule
+      .filter((item) => !selectedIdSet.has(item.id) && item.status !== "paid" && item.status !== "cancelled")
+      .sort((a, b) => a.installment_number - b.installment_number);
+
+    const allTargets = [...selectedTargets, ...overflowTargets];
+
+    if (allTargets.length === 0 && remainingInstallmentAmount > 0) {
+      return new Response(JSON.stringify({ error: "No valid monthly dues available for restore" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -141,7 +150,7 @@ Deno.serve(async (req) => {
     const plannedScheduleUpdates: Array<{ id: string; paid_amount: number; status: string }> = [];
     let dryRunRemaining = remainingInstallmentAmount;
 
-    for (const item of targetInstallments) {
+    for (const item of allTargets) {
       if (dryRunRemaining <= 0) break;
 
       const base = Number(item.base_installment_amount);
@@ -165,7 +174,7 @@ Deno.serve(async (req) => {
 
     // Validate: all installment amount must be covered
     if (dryRunRemaining > 0.01) {
-      return new Response(JSON.stringify({ error: "Selected monthly dues do not fully cover this restored payment amount" }), {
+      return new Response(JSON.stringify({ error: "Not enough unpaid monthly dues to fully restore this payment amount" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
