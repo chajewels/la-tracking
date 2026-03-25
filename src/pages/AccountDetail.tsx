@@ -664,6 +664,9 @@ export default function AccountDetail() {
       message += `${laMonthLabel} remaining balance - ${formatCurrency(summary.remainingBalance, currency)} to pay in ${unpaidCount} month${unpaidCount !== 1 ? 's' : ''}\n`;
       message += `\nMonthly Payment:\n`;
       message = appendScheduleLines(message);
+      if (portalUrl) {
+        message += `\nView your updated account and payment schedule here:\n🔗 ${portalUrl}\n`;
+      }
 
       const forfeitWarning = getForfeitureWarning(account.status, scheduleItems);
       const followUpDates = getUpcomingFollowUpDates(account.status, scheduleItems, 1);
