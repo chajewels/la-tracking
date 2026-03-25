@@ -587,15 +587,13 @@ export default function AccountDetail() {
     // Check if session payments exist and classify
     const hasSessionPayments = sessionPayments.length > 0;
     const isDownpaymentOnly = hasSessionPayments && sessionPayments.length === 1 &&
-      ((sessionPayments[0] as any).reference_number?.startsWith('DP-') ||
-       (sessionPayments[0] as any).remarks?.toLowerCase() === 'downpayment');
+      sessionPayments[0].monthLabel === 'Down Payment';
 
     if (hasSessionPayments) {
       if (sessionPayments.length === 1) {
         // ── TEMPLATE A — SINGLE PAYMENT ──
-        const payment = sessionPayments[0] as any;
-        const amt = Number(payment.amount_paid);
-        message += `Thank you for your payment. ${formatCurrency(amt, currency)} has been received.\n\n`;
+        const sp = sessionPayments[0];
+        message += `Thank you for your payment. ${formatCurrency(sp.amount, currency)} has been received.\n\n`;
         message += `Inv # ${account.invoice_number}\n`;
         if (portalUrl) {
           message += `\nView your updated account and payment schedule here:\n🔗 ${portalUrl}\n`;
@@ -604,37 +602,18 @@ export default function AccountDetail() {
         message += `\n\nThank you for your continued trust in Cha Jewels! 🧡`;
       } else {
         // ── TEMPLATE B — SPLIT PAYMENT ──
-        const sessionTotal = sessionPayments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+        const sessionTotal = sessionPayments.reduce((s, p) => s + p.amount, 0);
         const count = sessionPayments.length;
 
         message += `Thank you for your payments. A total of ${formatCurrency(sessionTotal, currency)} has been received across ${count} payments:\n\n`;
 
-        // Map each session payment to its schedule month
-        // Sort by date_paid then created_at for consistent ordering
-        const sortedSessionPayments = [...sessionPayments].sort((a: any, b: any) => {
-          const dateDiff = new Date(a.date_paid).getTime() - new Date(b.date_paid).getTime();
-          if (dateDiff !== 0) return dateDiff;
-          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-        });
-
-        sortedSessionPayments.forEach((p: any) => {
-          const amt = Number(p.amount_paid);
-          const isDP = (p.reference_number?.startsWith('DP-')) || (p.remarks?.toLowerCase() === 'downpayment');
-          if (isDP) {
-            message += `  ${formatCurrency(amt, currency)} — Down Payment\n`;
+        sessionPayments.forEach((sp) => {
+          if (sp.monthLabel === 'Down Payment') {
+            message += `  ${formatCurrency(sp.amount, currency)} — Down Payment\n`;
+          } else if (sp.monthLabel && sp.ordinal) {
+            message += `  ${formatCurrency(sp.amount, currency)} — ${sp.monthLabel} (${sp.ordinal} month)\n`;
           } else {
-            // Try to match payment to a schedule month by allocation or sequential order
-            // Use remarks if it contains month info, otherwise find by paid amounts
-            const matchedState = summary.scheduleStates.find(s => {
-              // Match by paid_amount for the most recently covered month
-              return s.paidAmount > 0 && Math.abs(s.paidAmount - amt) < 1;
-            });
-            if (matchedState) {
-              const monthLabel = new Date(matchedState.dueDate).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-              message += `  ${formatCurrency(amt, currency)} — ${monthLabel} (${ordinal(matchedState.installmentNumber - 1)} month)\n`;
-            } else {
-              message += `  ${formatCurrency(amt, currency)}\n`;
-            }
+            message += `  ${formatCurrency(sp.amount, currency)}\n`;
           }
         });
 
@@ -646,35 +625,16 @@ export default function AccountDetail() {
         message += `\n\nThank you for your continued trust in Cha Jewels! 🧡`;
       }
     } else {
-      // ── FALLBACK — no session payments (page loaded without new payments) ──
-      // Use the previous standard format
+      // ── FALLBACK — no session payments, use most recent payment from history ──
       if (mostRecentPayment) {
         message += `Thank you for your payment. ${formatCurrency(Number(mostRecentPayment.amount_paid), currency)} has been received.\n\n`;
       }
       message += `Inv # ${account.invoice_number}\n`;
-      message = appendSummaryBlock(message);
-      message += `================\n`;
-      const unpaidCount = unpaidSchedule.length;
-      message += `${laMonthLabel} remaining balance - ${formatCurrency(summary.remainingBalance, currency)} to pay in ${unpaidCount} month${unpaidCount !== 1 ? 's' : ''}\n`;
-      message += `\nMonthly Payment:\n`;
-      message = appendScheduleLines(message);
       if (portalUrl) {
         message += `\nView your updated account and payment schedule here:\n🔗 ${portalUrl}\n`;
       }
-
-      const forfeitWarning = getForfeitureWarning(account.status, scheduleItems);
-      const followUpDates = getUpcomingFollowUpDates(account.status, scheduleItems, 1);
-      const nextStatement = getNextPaymentStatementDate(scheduleItems);
-      let nextDueDateStr: string | null = null;
-      if (followUpDates && followUpDates.dates.length > 0 && forfeitWarning && forfeitWarning.monthsOverdue >= 2) {
-        nextDueDateStr = followUpDates.dates[0].toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
-      } else if (nextStatement) {
-        nextDueDateStr = new Date(nextStatement.date).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
-      }
-      if (nextDueDateStr) {
-        message += `\nPlease note your next monthly payment is on ${nextDueDateStr}. Please expect another payment reminder from us.\n`;
-      }
-      message += `\nThank you for your continued trust in Cha Jewels. We appreciate your business! 🧡`;
+      message += buildNextPaymentLine(false);
+      message += `\n\nThank you for your continued trust in Cha Jewels! 🧡`;
     }
   }
   return message;
