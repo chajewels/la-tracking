@@ -81,6 +81,7 @@ export default function AccountDetail() {
   const [newInstSaving, setNewInstSaving] = useState(false);
   const [deleteScheduleTarget, setDeleteScheduleTarget] = useState<{ id: string; amount: number; installment_number: number } | null>(null);
   const [deleteScheduleLoading, setDeleteScheduleLoading] = useState(false);
+  const [showVerify, setShowVerify] = useState(false);
   const queryClient = useQueryClient();
   const { roles } = useAuth();
   const { can: canPerm } = usePermissions();
