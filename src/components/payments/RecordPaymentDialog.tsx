@@ -51,14 +51,17 @@ interface RecordPaymentDialogProps {
   remainingBalance: number;
   payFullBalance?: boolean;
   schedule?: ScheduleItem[];
+  invoiceNumber?: string;
+  downpaymentRemaining?: number;
 }
 
-export default function RecordPaymentDialog({ accountId, currency, remainingBalance, payFullBalance, schedule }: RecordPaymentDialogProps) {
+export default function RecordPaymentDialog({ accountId, currency, remainingBalance, payFullBalance, schedule, invoiceNumber, downpaymentRemaining }: RecordPaymentDialogProps) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [paymentType, setPaymentType] = useState<'installment' | 'downpayment'>('installment');
   const [step, setStep] = useState<'input' | 'preview'>('input');
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);

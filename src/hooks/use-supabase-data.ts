@@ -411,6 +411,7 @@ export function useRecordPayment() {
       date_paid?: string;
       payment_method?: string;
       remarks?: string;
+      reference_number?: string;
       preview_only?: boolean;
     }) => {
       const { amount, ...rest } = payload;
