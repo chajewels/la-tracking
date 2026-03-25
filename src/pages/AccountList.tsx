@@ -38,7 +38,7 @@ const statusLabel: Record<string, string> = {
 
 const statusOptions = ['all', 'active', 'overdue', 'completed', 'forfeited', 'cancelled'] as const;
 
-const TEST_INVOICES = new Set(['TEST-001', 'TEST-002']);
+const TEST_INVOICES = new Set(['TEST-001', 'TEST-002', 'TEST-003']);
 
 export default function AccountList() {
   const [searchParams, setSearchParams] = useSearchParams();
