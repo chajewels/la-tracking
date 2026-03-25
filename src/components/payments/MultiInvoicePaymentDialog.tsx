@@ -1,9 +1,8 @@
-import { useState, useMemo } from 'react';
-import { Layers, ArrowRight, CheckCircle2, AlertTriangle, Copy, Check, MessageCircle, Clock } from 'lucide-react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { Layers, CheckCircle2, Copy, Check, MessageCircle, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -17,6 +16,17 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import { type AppRole } from '@/lib/role-permissions';
 
+interface ScheduleItem {
+  id: string;
+  installment_number: number;
+  due_date: string;
+  base_installment_amount: number;
+  penalty_amount: number;
+  total_due_amount: number;
+  paid_amount: number;
+  status: string;
+}
+
 interface AccountInfo {
   id: string;
   invoice_number: string;
@@ -25,12 +35,15 @@ interface AccountInfo {
   total_amount: number;
   total_paid: number;
   status: string;
+  schedule?: ScheduleItem[];
+  notes?: string | null;
 }
 
 interface MultiInvoicePaymentDialogProps {
   customerId: string;
   customerName: string;
   accounts: AccountInfo[];
+  portalLink?: string | null;
 }
 
 interface AccountResult {
@@ -46,40 +59,78 @@ interface AccountResult {
   }>;
 }
 
-interface PreviewResult {
-  preview: boolean;
-  batch_id: string;
-  total_amount: number;
-  account_results: AccountResult[];
+function getNextUnpaidItem(schedule?: ScheduleItem[]) {
+  if (!schedule) return null;
+  return [...schedule]
+    .sort((a, b) => a.installment_number - b.installment_number)
+    .find(s => s.status !== 'paid' && s.status !== 'cancelled');
 }
+
+function getNextDueInfo(schedule?: ScheduleItem[]) {
+  const item = getNextUnpaidItem(schedule);
+  if (!item) return null;
+  const due = Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
+  return {
+    date: item.due_date,
+    amount: due,
+    dateLabel: new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+  };
+}
+
+function getLabelFromNotes(notes?: string | null, invoiceNumber?: string): string {
+  if (notes && notes.startsWith('LA ')) return notes;
+  return `INV #${invoiceNumber}`;
+}
+
+// Conditionally show reference number for these methods
+const METHODS_WITH_REF = ['gcash', 'bdo', 'bpi', 'metrobank', 'rakuten', 'sumitomo', 'jp_bank', 'paypay', 'credit_card'];
 
 export default function MultiInvoicePaymentDialog({
   customerId,
   customerName,
   accounts,
+  portalLink,
 }: MultiInvoicePaymentDialogProps) {
   const queryClient = useQueryClient();
   const { roles } = useAuth();
   const r = roles as AppRole[];
   const isAdminOrFinance = r.includes('admin') || r.includes('finance');
+  const submittingRef = useRef(false);
+
   const [open, setOpen] = useState(false);
-  const [step, setStep] = useState<'select' | 'allocate' | 'preview' | 'message'>('select');
+  const [step, setStep] = useState<'input' | 'message'>('input');
   const [consolidatedMessage, setConsolidatedMessage] = useState('');
   const [msgCopied, setMsgCopied] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   const [paymentMethod, setPaymentMethod] = useState('cash');
-  const [remarks, setRemarks] = useState('');
-  const [preview, setPreview] = useState<PreviewResult | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [referenceNumber, setReferenceNumber] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const payableAccounts = accounts.filter(
-    (a) => (a.status === 'active' || a.status === 'overdue') && a.remaining_balance > 0
+  const payableAccounts = useMemo(() =>
+    accounts.filter(a => (a.status === 'active' || a.status === 'overdue') && a.remaining_balance > 0),
+    [accounts]
   );
 
-  const selectedAccounts = payableAccounts.filter((a) => selectedIds.has(a.id));
+  // Initialize: pre-check all, pre-fill amounts
+  useEffect(() => {
+    if (open && payableAccounts.length > 0) {
+      const ids = new Set(payableAccounts.map(a => a.id));
+      setSelectedIds(ids);
+      const amts: Record<string, string> = {};
+      for (const a of payableAccounts) {
+        const nextDue = getNextDueInfo(a.schedule);
+        amts[a.id] = nextDue ? String(nextDue.amount) : String(a.remaining_balance);
+      }
+      setAmounts(amts);
+    }
+  }, [open, payableAccounts]);
+
+  const selectedAccounts = useMemo(() =>
+    payableAccounts.filter(a => selectedIds.has(a.id)),
+    [payableAccounts, selectedIds]
+  );
 
   const totalAllocated = useMemo(
     () => selectedAccounts.reduce((s, a) => s + (parseFloat(amounts[a.id] || '0') || 0), 0),
@@ -91,18 +142,20 @@ export default function MultiInvoicePaymentDialog({
     for (const a of selectedAccounts) {
       const val = parseFloat(amounts[a.id] || '0') || 0;
       if (val <= 0) errs[a.id] = 'Enter an amount';
-      else if (val > a.remaining_balance) errs[a.id] = 'Exceeds balance';
+      else if (val > a.remaining_balance + 1) errs[a.id] = 'Exceeds balance';
     }
     return errs;
   }, [selectedAccounts, amounts]);
 
-  const canPreview =
-    selectedAccounts.length >= 2 &&
+  const canSubmit =
+    selectedAccounts.length >= 1 &&
     Object.keys(allocationErrors).length === 0 &&
     totalAllocated > 0;
 
+  const showRefField = METHODS_WITH_REF.includes(paymentMethod);
+
   const toggleAccount = (id: string) => {
-    setSelectedIds((prev) => {
+    setSelectedIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -110,39 +163,12 @@ export default function MultiInvoicePaymentDialog({
     });
   };
 
-  const handlePreview = async () => {
-    if (!canPreview) return;
-    setLoading(true);
-    try {
-      const allocations = selectedAccounts.map((a) => ({
-        account_id: a.id,
-        amount: parseFloat(amounts[a.id] || '0'),
-      }));
-      const { data, error } = await supabase.functions.invoke('record-multi-payment', {
-        body: {
-          customer_id: customerId,
-          total_amount_paid: totalAllocated,
-          date_paid: paymentDate,
-          payment_method: paymentMethod,
-          remarks: remarks || undefined,
-          preview_only: true,
-          allocations,
-        },
-      });
-      if (error) throw error;
-      setPreview(data as PreviewResult);
-      setStep('preview');
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to generate preview');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleConfirm = async () => {
+    if (submittingRef.current || !canSubmit) return;
+    submittingRef.current = true;
     setSubmitting(true);
     try {
-      const allocations = selectedAccounts.map((a) => ({
+      const allocations = selectedAccounts.map(a => ({
         account_id: a.id,
         amount: parseFloat(amounts[a.id] || '0'),
       }));
@@ -152,7 +178,7 @@ export default function MultiInvoicePaymentDialog({
           total_amount_paid: totalAllocated,
           date_paid: paymentDate,
           payment_method: paymentMethod,
-          remarks: remarks || undefined,
+          remarks: referenceNumber ? `Ref: ${referenceNumber}` : undefined,
           preview_only: false,
           allocations,
         },
@@ -164,55 +190,89 @@ export default function MultiInvoicePaymentDialog({
         return;
       }
       toast.success(
-        `Split payment of ${totalAllocated.toLocaleString()} recorded across ${selectedAccounts.length} invoices`
+        `Split payment of ${totalAllocated.toLocaleString()} recorded across ${selectedAccounts.length} account${selectedAccounts.length !== 1 ? 's' : ''}`
       );
-      // Invalidate all relevant queries
-      queryClient.invalidateQueries({ queryKey: ['accounts'] });
-      queryClient.invalidateQueries({ queryKey: ['payments'] });
-      queryClient.invalidateQueries({ queryKey: ['schedule'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
-      queryClient.invalidateQueries({ queryKey: ['payments-with-accounts'] });
+      // Invalidate queries
+      for (const key of ['accounts', 'payments', 'schedule', 'dashboard-summary', 'payments-with-accounts']) {
+        queryClient.invalidateQueries({ queryKey: [key] });
+      }
       queryClient.invalidateQueries({ queryKey: ['customer-detail', customerId] });
 
-      // Generate consolidated message
-      const results: AccountResult[] = data?.results || [];
-      const primaryCurrency = (selectedAccounts[0]?.currency || 'PHP') as Currency;
-      let msg = `Thank you for your payment. ${formatCurrency(totalAllocated, primaryCurrency)} has been received.\n\n`;
-      
-      for (const acct of selectedAccounts) {
-        const amt = parseFloat(amounts[acct.id] || '0') || 0;
-        const acctCurrency = (acct.currency || 'PHP') as Currency;
-        msg += `Inv # ${acct.invoice_number} - ${formatCurrency(amt, acctCurrency)}\n`;
-      }
-      
-      msg += `\nThank you for your continued trust in Cha Jewels. We appreciate your business! 🧡`;
-      
+      // Build confirmation message
+      const msg = buildConfirmationMessage(data?.account_results || []);
       setConsolidatedMessage(msg);
       setStep('message');
     } catch (err: any) {
-      toast.error(err.message || 'Failed to record multi-invoice payment');
+      toast.error(err.message || 'Failed to record split payment');
     } finally {
       setSubmitting(false);
+      submittingRef.current = false;
     }
+  };
+
+  const buildConfirmationMessage = (results: AccountResult[]) => {
+    const primaryCurrency = (selectedAccounts[0]?.currency || 'PHP') as Currency;
+    const N = selectedAccounts.length;
+    let msg = `Thank you for your payment. A total of ${formatCurrency(totalAllocated, primaryCurrency)} has been received across ${N} account${N !== 1 ? 's' : ''}:\n\n`;
+
+    // Line per paid account
+    const fullyPaidIds: string[] = [];
+    for (const acct of selectedAccounts) {
+      const amt = parseFloat(amounts[acct.id] || '0') || 0;
+      const cur = (acct.currency || 'PHP') as Currency;
+      const label = getLabelFromNotes(acct.notes, acct.invoice_number);
+      const result = results.find(r => r.account_id === acct.id);
+      const isNowFullyPaid = result ? result.new_remaining_balance <= 0 : false;
+      if (isNowFullyPaid) fullyPaidIds.push(acct.id);
+      msg += `  Inv #${acct.invoice_number} — ${label}: ${formatCurrency(amt, cur)}`;
+      if (isNowFullyPaid) msg += ` (Fully Paid ✅)`;
+      msg += `\n`;
+    }
+
+    // Portal link
+    if (portalLink) {
+      msg += `\nView your accounts here:\n🔗 ${portalLink}\n`;
+    }
+
+    // Next payments
+    const nextPayments: string[] = [];
+    for (const acct of selectedAccounts) {
+      if (fullyPaidIds.includes(acct.id)) continue;
+      // After payment, find the next unpaid item
+      // We need to look at schedule - the next due may have shifted
+      const nextDue = getNextDueInfo(acct.schedule);
+      if (nextDue) {
+        const cur = (acct.currency || 'PHP') as Currency;
+        const label = getLabelFromNotes(acct.notes, acct.invoice_number);
+        const dateStr = new Date(nextDue.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        nextPayments.push(`  ${label} — ${dateStr}: ${formatCurrency(nextDue.amount, cur)}`);
+      }
+    }
+
+    if (fullyPaidIds.length === selectedAccounts.length) {
+      msg += `\n🎉 All your layaway accounts are now fully paid! Thank you!\n`;
+    } else if (nextPayments.length > 0) {
+      msg += `\nNext payments:\n`;
+      msg += nextPayments.join('\n') + '\n';
+    }
+
+    msg += `\nThank you for your continued trust in Cha Jewels! 🧡`;
+    return msg;
   };
 
   const resetAndClose = () => {
     setSelectedIds(new Set());
     setAmounts({});
-    setRemarks('');
+    setReferenceNumber('');
     setPaymentMethod('cash');
     setPaymentDate(new Date().toISOString().split('T')[0]);
-    setStep('select');
-    setPreview(null);
+    setStep('input');
     setConsolidatedMessage('');
     setMsgCopied(false);
     setOpen(false);
   };
 
-  if (payableAccounts.length < 2) return null;
-
-  // Determine shared currency (only show if all same, else show per-account)
-  const currencies = [...new Set(payableAccounts.map((a) => a.currency))];
+  if (payableAccounts.length < 1) return null;
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose(); else setOpen(true); }}>
@@ -222,282 +282,167 @@ export default function MultiInvoicePaymentDialog({
         </Button>
       </DialogTrigger>
       <DialogContent className="bg-card border-border max-w-lg max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="font-display text-card-foreground">
-            Multi-Invoice Payment
-          </DialogTitle>
-          <DialogDescription>
-            Split one payment across multiple invoices for {customerName}
-          </DialogDescription>
-        </DialogHeader>
+        {step === 'input' && (
+          <>
+            <DialogHeader>
+              <DialogTitle className="font-display text-card-foreground">
+                Split Payment — {customerName}
+              </DialogTitle>
+              <DialogDescription>
+                Record one payment split across multiple accounts
+              </DialogDescription>
+            </DialogHeader>
 
-        {/* Step 1: Select Invoices */}
-        {step === 'select' && (
-          <div className="space-y-4">
-            <p className="text-xs text-muted-foreground">
-              Select 2 or more invoices to split a payment across.
-            </p>
-            <div className="space-y-2">
-              {payableAccounts.map((a) => {
-                const cur = a.currency as Currency;
-                const checked = selectedIds.has(a.id);
-                return (
-                  <label
-                    key={a.id}
-                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                      checked
-                        ? 'border-primary/40 bg-primary/5'
-                        : 'border-border bg-background hover:bg-muted/50'
-                    }`}
+            <div className="space-y-4">
+              <p className="text-xs text-muted-foreground font-medium">Select accounts to include:</p>
+              <div className="space-y-2">
+                {payableAccounts.map(a => {
+                  const cur = a.currency as Currency;
+                  const checked = selectedIds.has(a.id);
+                  const nextDue = getNextDueInfo(a.schedule);
+                  const label = getLabelFromNotes(a.notes, a.invoice_number);
+                  return (
+                    <div
+                      key={a.id}
+                      className={`rounded-lg border p-3 transition-colors ${
+                        checked
+                          ? 'border-primary/40 bg-primary/5'
+                          : 'border-border bg-background'
+                      }`}
+                    >
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={() => toggleAccount(a.id)}
+                          className="mt-0.5"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium text-card-foreground">
+                              Inv #{a.invoice_number} — {label}
+                            </span>
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] ${
+                                a.status === 'overdue'
+                                  ? 'bg-destructive/10 text-destructive border-destructive/20'
+                                  : 'bg-primary/10 text-primary border-primary/20'
+                              }`}
+                            >
+                              {a.status}
+                            </Badge>
+                          </div>
+                          {nextDue && (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Next due: {nextDue.dateLabel} — {formatCurrency(nextDue.amount, cur)}
+                            </p>
+                          )}
+                        </div>
+                      </label>
+                      <div className="mt-2 pl-7">
+                        <Label className="text-xs text-muted-foreground">Amount to apply:</Label>
+                        <Input
+                          type="number"
+                          value={checked ? (amounts[a.id] || '') : ''}
+                          onChange={e => setAmounts(prev => ({ ...prev, [a.id]: e.target.value }))}
+                          disabled={!checked}
+                          placeholder="0"
+                          className="bg-background border-border tabular-nums mt-1 h-8"
+                          min={0.01}
+                          max={a.remaining_balance}
+                          step="any"
+                        />
+                        {checked && allocationErrors[a.id] && (
+                          <p className="text-xs text-destructive mt-0.5">{allocationErrors[a.id]}</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Payment Details */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-card-foreground text-xs">Payment Method</Label>
+                  <select
+                    value={paymentMethod}
+                    onChange={e => setPaymentMethod(e.target.value)}
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
                   >
-                    <Checkbox
-                      checked={checked}
-                      onCheckedChange={() => toggleAccount(a.id)}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-card-foreground">
-                          INV #{a.invoice_number}
-                        </span>
-                        <Badge
-                          variant="outline"
-                          className={`text-[10px] ${
-                            a.status === 'overdue'
-                              ? 'bg-destructive/10 text-destructive border-destructive/20'
-                              : 'bg-primary/10 text-primary border-primary/20'
-                          }`}
-                        >
-                          {a.status}
-                        </Badge>
-                        <Badge variant="outline" className="text-[10px]">
-                          {a.currency}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Balance: {formatCurrency(a.remaining_balance, cur)}
-                      </p>
-                    </div>
-                  </label>
-                );
-              })}
-            </div>
-
-            <DialogFooter>
-              <Button variant="outline" onClick={resetAndClose}>
-                Cancel
-              </Button>
-              <Button
-                disabled={selectedIds.size < 2}
-                onClick={() => setStep('allocate')}
-                className="gold-gradient text-primary-foreground"
-              >
-                Next: Allocate Amounts
-                <ArrowRight className="h-4 w-4 ml-1" />
-              </Button>
-            </DialogFooter>
-          </div>
-        )}
-
-        {/* Step 2: Allocate Amounts */}
-        {step === 'allocate' && (
-          <div className="space-y-4">
-            <div className="space-y-3">
-              {selectedAccounts.map((a) => {
-                const cur = a.currency as Currency;
-                const err = allocationErrors[a.id];
-                return (
-                  <div key={a.id} className="rounded-lg border border-border bg-background p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-card-foreground">
-                        INV #{a.invoice_number}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        Max: {formatCurrency(a.remaining_balance, cur)}
-                      </span>
-                    </div>
-                    <Input
-                      type="number"
-                      value={amounts[a.id] || ''}
-                      onChange={(e) =>
-                        setAmounts((prev) => ({ ...prev, [a.id]: e.target.value }))
-                      }
-                      placeholder="0"
-                      className="bg-card border-border tabular-nums"
-                      min={1}
-                      max={a.remaining_balance}
-                    />
-                    {err && <p className="text-xs text-destructive">{err}</p>}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Total */}
-            <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 flex items-center justify-between">
-              <span className="text-sm font-medium text-card-foreground">Total Payment</span>
-              <span className="text-lg font-bold text-card-foreground tabular-nums">
-                {totalAllocated.toLocaleString()}
-              </span>
-            </div>
-
-            {/* Payment details */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-card-foreground text-xs">Date *</Label>
-                <Input
-                  type="date"
-                  value={paymentDate}
-                  onChange={(e) => setPaymentDate(e.target.value)}
-                  className="bg-background border-border"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-card-foreground text-xs">Method</Label>
-                <select
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
-                >
-                  <option value="cash">Cash Payment</option>
-                  <option value="bdo">BDO</option>
-                  <option value="bpi">BPI</option>
-                  <option value="metrobank">METROBANK</option>
-                  <option value="gcash">GCash</option>
-                  <option value="cash_pickup">Cash Pick Up</option>
-                  <option value="rakuten">Rakuten</option>
-                  <option value="sumitomo">Sumitomo</option>
-                  <option value="genkin_kaketome">Genkin Kaketome</option>
-                  <option value="credit_card">Credit Card</option>
-                  <option value="paypay">PayPay</option>
-                  <option value="jp_bank">JP Bank</option>
-                  <option value="cod">COD</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-card-foreground text-xs">Remarks</Label>
-              <Textarea
-                value={remarks}
-                onChange={(e) => setRemarks(e.target.value)}
-                placeholder="Optional notes..."
-                className="bg-background border-border resize-none"
-                rows={2}
-              />
-            </div>
-
-            <DialogFooter className="gap-2">
-              <Button variant="outline" onClick={() => setStep('select')}>
-                Back
-              </Button>
-              <Button
-                disabled={!canPreview || loading}
-                onClick={handlePreview}
-                className="gold-gradient text-primary-foreground"
-              >
-                {loading ? 'Loading…' : 'Preview Allocation'}
-                <ArrowRight className="h-4 w-4 ml-1" />
-              </Button>
-            </DialogFooter>
-          </div>
-        )}
-
-        {/* Step 3: Preview */}
-        {step === 'preview' && preview && (
-          <div className="space-y-4">
-            <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-center">
-              <p className="text-xs text-muted-foreground">Total Split Payment</p>
-              <p className="text-2xl font-bold text-card-foreground tabular-nums">
-                {preview.total_amount.toLocaleString()}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                across {preview.account_results.length} invoices
-              </p>
-            </div>
-
-            {preview.account_results.map((r) => {
-              const acct = payableAccounts.find((a) => a.id === r.account_id);
-              const cur = (acct?.currency || 'PHP') as Currency;
-              const penaltyAlloc = r.payment_allocations
-                .filter((a) => a.allocation_type === 'penalty')
-                .reduce((s, a) => s + a.allocated_amount, 0);
-              const installAlloc = r.payment_allocations
-                .filter((a) => a.allocation_type === 'installment')
-                .reduce((s, a) => s + a.allocated_amount, 0);
-              return (
-                <div
-                  key={r.account_id}
-                  className="rounded-lg border border-border bg-background p-3 space-y-2"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold text-card-foreground">
-                      INV #{r.invoice_number}
-                    </span>
-                    <span className="text-sm font-bold text-card-foreground tabular-nums">
-                      {formatCurrency(r.amount_allocated, cur)}
-                    </span>
-                  </div>
-                  <div className="space-y-1 text-xs">
-                    {penaltyAlloc > 0 && (
-                      <div className="flex justify-between text-destructive">
-                        <span className="flex items-center gap-1">
-                          <AlertTriangle className="h-3 w-3" /> Penalties
-                        </span>
-                        <span>{formatCurrency(penaltyAlloc, cur)}</span>
-                      </div>
-                    )}
-                    {installAlloc > 0 && (
-                      <div className="flex justify-between text-muted-foreground">
-                        <span>Installments</span>
-                        <span>{formatCurrency(installAlloc, cur)}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between pt-1 border-t border-border">
-                      <span className="text-muted-foreground">New Balance</span>
-                      <span className="font-medium text-card-foreground">
-                        {formatCurrency(r.new_remaining_balance, cur)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Status</span>
-                      <Badge
-                        variant={r.new_status === 'completed' ? 'default' : 'secondary'}
-                        className="capitalize text-[10px]"
-                      >
-                        {r.new_status}
-                      </Badge>
-                    </div>
-                  </div>
+                    <option value="cash">Cash Payment</option>
+                    <option value="bdo">BDO</option>
+                    <option value="bpi">BPI</option>
+                    <option value="metrobank">METROBANK</option>
+                    <option value="gcash">GCash</option>
+                    <option value="cash_pickup">Cash Pick Up</option>
+                    <option value="rakuten">Rakuten</option>
+                    <option value="sumitomo">Sumitomo</option>
+                    <option value="genkin_kaketome">Genkin Kaketome</option>
+                    <option value="credit_card">Credit Card</option>
+                    <option value="paypay">PayPay</option>
+                    <option value="jp_bank">JP Bank</option>
+                    <option value="cod">COD</option>
+                    <option value="other">Other</option>
+                  </select>
                 </div>
-              );
-            })}
+                <div className="space-y-1.5">
+                  <Label className="text-card-foreground text-xs">Payment Date</Label>
+                  <Input
+                    type="date"
+                    value={paymentDate}
+                    onChange={e => setPaymentDate(e.target.value)}
+                    className="bg-background border-border"
+                  />
+                </div>
+              </div>
 
-            <DialogFooter className="gap-2">
-              <Button variant="outline" onClick={() => setStep('allocate')}>
-                Edit Amounts
-              </Button>
-              <Button
-                onClick={handleConfirm}
-                disabled={submitting}
-                className="gold-gradient text-primary-foreground"
-              >
-                {submitting ? 'Processing…' : isAdminOrFinance ? 'Confirm Payment' : 'Submit for Confirmation'}
-                {isAdminOrFinance ? <CheckCircle2 className="h-4 w-4 ml-1" /> : <Clock className="h-4 w-4 ml-1" />}
-              </Button>
-            </DialogFooter>
-          </div>
+              {showRefField && (
+                <div className="space-y-1.5">
+                  <Label className="text-card-foreground text-xs">Reference No.</Label>
+                  <Input
+                    value={referenceNumber}
+                    onChange={e => setReferenceNumber(e.target.value)}
+                    placeholder="Transaction reference number"
+                    className="bg-background border-border"
+                  />
+                </div>
+              )}
+
+              {/* Total */}
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 flex items-center justify-between">
+                <span className="text-sm font-medium text-card-foreground">Total Payment</span>
+                <span className="text-lg font-bold text-card-foreground tabular-nums">
+                  {formatCurrency(totalAllocated, (selectedAccounts[0]?.currency || 'PHP') as Currency)}
+                </span>
+              </div>
+
+              <DialogFooter className="gap-2">
+                <Button variant="outline" onClick={resetAndClose}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleConfirm}
+                  disabled={!canSubmit || submitting}
+                  className="gold-gradient text-primary-foreground"
+                >
+                  {submitting ? 'Processing…' : 'Confirm Payment →'}
+                </Button>
+              </DialogFooter>
+            </div>
+          </>
         )}
 
-        {/* Message Step */}
+        {/* Confirmation Message */}
         {step === 'message' && (
           <div className="space-y-4">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-card-foreground">
-                <MessageCircle className="h-5 w-5 text-primary" />
-                Payment Confirmation Message
+                <CheckCircle2 className="h-5 w-5 text-success" />
+                Payment Confirmed
               </DialogTitle>
             </DialogHeader>
-            <p className="text-sm text-muted-foreground">Copy this message to send to the customer via Messenger:</p>
+            <p className="text-sm text-muted-foreground">Customer message:</p>
             <div className="rounded-lg border border-border bg-muted/30 p-4 max-h-[350px] overflow-y-auto">
               <pre className="text-sm text-card-foreground whitespace-pre-wrap font-sans leading-relaxed">
                 {consolidatedMessage}
@@ -505,8 +450,21 @@ export default function MultiInvoicePaymentDialog({
             </div>
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={resetAndClose}>
-                Close
+                Done
               </Button>
+              {customerName && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const messengerLink = accounts[0] && (accounts[0] as any).messengerLink;
+                    if (messengerLink) window.open(messengerLink, '_blank');
+                    else toast.info('No Messenger link set for this customer');
+                  }}
+                  className="gap-1.5"
+                >
+                  <MessageCircle className="h-4 w-4" /> Send via Messenger
+                </Button>
+              )}
               <Button
                 onClick={() => {
                   navigator.clipboard.writeText(consolidatedMessage);
@@ -514,7 +472,7 @@ export default function MultiInvoicePaymentDialog({
                   toast.success('Message copied to clipboard');
                   setTimeout(() => setMsgCopied(false), 2000);
                 }}
-                className="gap-2"
+                className="gap-1.5"
               >
                 {msgCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 {msgCopied ? 'Copied!' : 'Copy Message'}
