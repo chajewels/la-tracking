@@ -41,6 +41,8 @@ import {
   computeAccountSummary,
 } from '@/lib/business-rules';
 
+const TEST_INVOICE = 'TEST-001';
+
 export default function AccountDetail() {
   const { id } = useParams();
   const { data: account, isLoading: accountLoading } = useAccount(id);
@@ -81,6 +83,7 @@ export default function AccountDetail() {
   const [newInstSaving, setNewInstSaving] = useState(false);
   const [deleteScheduleTarget, setDeleteScheduleTarget] = useState<{ id: string; amount: number; installment_number: number } | null>(null);
   const [deleteScheduleLoading, setDeleteScheduleLoading] = useState(false);
+  const isTestAccount = account?.invoice_number === TEST_INVOICE;
   const [showVerify, setShowVerify] = useState(false);
   const queryClient = useQueryClient();
   const { roles } = useAuth();
@@ -617,7 +620,7 @@ export default function AccountDetail() {
               ) : (
                 <div className="flex items-center gap-2">
                   <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">INV #{account.invoice_number}</h1>
-                  {can('edit_invoice') && (
+                  {can('edit_invoice') && !isTestAccount && (
                   <Button
                     size="icon"
                     variant="ghost"
@@ -644,6 +647,11 @@ export default function AccountDetail() {
                  account.status === 'final_forfeited' ? 'PERMANENTLY FORFEITED' :
                  account.status.toUpperCase()}
               </Badge>
+              {isTestAccount && (
+                <Badge variant="outline" className="bg-info/10 text-info border-info/20 text-xs font-bold">
+                  🧪 TEST
+                </Badge>
+              )}
               {(account as any).is_reactivated && (
                 <Badge variant="outline" className="bg-info/10 text-info border-info/20 text-xs">
                   🔄 Reactivated
@@ -708,6 +716,7 @@ export default function AccountDetail() {
               </div>
             )}
           </div>
+          {!isTestAccount && (
           <div className="flex gap-2 flex-wrap">
             {can('edit_invoice') && (
               <EditAccountDialog
@@ -844,6 +853,7 @@ export default function AccountDetail() {
             </Button>
             )}
           </div>
+          )}
         </div>
 
         {/* Reconciliation Warning */}
@@ -1340,7 +1350,7 @@ export default function AccountDetail() {
                   <ShieldCheck className="h-3.5 w-3.5 mr-1" />
                   {showVerify ? 'Hide' : 'Verify'} Calculations {allPass ? '✅' : '❌'}
                 </Button>
-                {showVerify && (
+                {(showVerify || isTestAccount) && (
                   <div className="mt-2 rounded-lg border border-border bg-muted/30 p-3 space-y-1.5">
                     <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Calculation Audit</p>
                     {checks.map((c, i) => (

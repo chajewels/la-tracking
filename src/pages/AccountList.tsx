@@ -38,12 +38,15 @@ const statusLabel: Record<string, string> = {
 
 const statusOptions = ['all', 'active', 'overdue', 'completed', 'forfeited', 'cancelled'] as const;
 
+const TEST_INVOICE = 'TEST-001';
+
 export default function AccountList() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebouncedValue(search, 250);
   const [filterCurrency, setFilterCurrency] = useState<Currency | 'all'>('all');
   const [filterStatus, setFilterStatus] = useState<string>(searchParams.get('status') || 'all');
+  const [hideTest, setHideTest] = useState(true);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 30;
   const navigate = useNavigate();
@@ -55,15 +58,16 @@ export default function AccountList() {
   }, [searchParams]);
 
   // Reset page on filter change
-  useEffect(() => { setPage(0); }, [debouncedSearch, filterCurrency, filterStatus]);
+  useEffect(() => { setPage(0); }, [debouncedSearch, filterCurrency, filterStatus, hideTest]);
 
   const filtered = useMemo(() => (accounts || []).filter(a => {
     const matchesSearch = !debouncedSearch || a.invoice_number.includes(debouncedSearch) ||
       (a.customers?.full_name || '').toLowerCase().includes(debouncedSearch.toLowerCase());
     const matchesCurrency = filterCurrency === 'all' || a.currency === filterCurrency;
     const matchesStatus = filterStatus === 'all' || a.status === filterStatus;
-    return matchesSearch && matchesCurrency && matchesStatus;
-  }), [accounts, debouncedSearch, filterCurrency, filterStatus]);
+    const matchesTest = !hideTest || a.invoice_number !== TEST_INVOICE;
+    return matchesSearch && matchesCurrency && matchesStatus && matchesTest;
+  }), [accounts, debouncedSearch, filterCurrency, filterStatus, hideTest]);
 
   const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
@@ -135,6 +139,16 @@ export default function AccountList() {
               </button>
             ))}
           </div>
+          <button
+            onClick={() => setHideTest(!hideTest)}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors border ${
+              hideTest
+                ? 'border-border text-muted-foreground hover:text-foreground'
+                : 'border-info/30 bg-info/10 text-info'
+            }`}
+          >
+            🧪 {hideTest ? 'Show Test' : 'Hide Test'}
+          </button>
         </div>
 
         {/* Loading */}
@@ -174,9 +188,16 @@ export default function AccountList() {
                           {account.customers?.full_name || 'Unknown'}
                         </p>
                       </div>
-                      <Badge variant="outline" className={`text-[10px] shrink-0 ${statusStyles[account.status] || ''}`}>
-                        {statusLabel[account.status] || account.status}
-                      </Badge>
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant="outline" className={`text-[10px] shrink-0 ${statusStyles[account.status] || ''}`}>
+                          {statusLabel[account.status] || account.status}
+                        </Badge>
+                        {account.invoice_number === TEST_INVOICE && (
+                          <Badge variant="outline" className="text-[10px] shrink-0 bg-info/10 text-info border-info/20 font-bold">
+                            🧪 TEST
+                          </Badge>
+                        )}
+                      </div>
                     </div>
 
                     {/* Progress bar */}
