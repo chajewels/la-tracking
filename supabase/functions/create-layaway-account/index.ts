@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
 
     const totalAmountNum = Number(total_amount);
     const downpaymentTarget = dpAmountInput ? Math.round(Number(dpAmountInput)) : 0;
-    const downpaymentPaid = dpPaidInput ? Math.round(Number(dpPaidInput)) : downpaymentTarget;
+    const downpaymentPaid = dpPaidInput != null && dpPaidInput !== '' && dpPaidInput !== 0 ? Math.round(Number(dpPaidInput)) : 0;
     const remainingDp = Math.max(0, downpaymentTarget - downpaymentPaid);
     const hasShortDp = remainingDp > 0;
 
