@@ -90,20 +90,31 @@ async function allocatePaymentToAccount(
       if (remaining <= 0) break;
       const currentPaid = Number(item.paid_amount);
       const baseAmount = Number(item.base_installment_amount);
-      const due = Math.max(0, baseAmount - currentPaid);
+      // Use total_due_amount for partially_paid items (ghost prevention — same as record-payment)
+      const targetAmount = item.status === "partially_paid"
+        ? Number(item.total_due_amount)
+        : baseAmount;
+      const due = Math.max(0, targetAmount - currentPaid);
       if (due <= 0) continue;
 
       const toApply = Math.min(remaining, due);
       remaining -= toApply;
       const newPaid = currentPaid + toApply;
-      const newStatus = newPaid >= baseAmount ? "paid" : "partially_paid";
+      const isNowFullyPaid = newPaid >= targetAmount;
+      const newStatus = isNowFullyPaid ? "paid" : "partially_paid";
 
       allocations.push({
         schedule_id: item.id,
         allocation_type: "installment",
         allocated_amount: toApply,
       });
-      scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: newStatus });
+      scheduleUpdates.push({
+        id: item.id,
+        paid_amount: isNowFullyPaid ? targetAmount : newPaid,
+        status: newStatus,
+      });
+      // Stop after one installment — never cascade to next months
+      remaining = 0;
     }
   }
 
