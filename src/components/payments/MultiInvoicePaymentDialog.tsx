@@ -444,7 +444,7 @@ export default function MultiInvoicePaymentDialog({
             </DialogHeader>
             <p className="text-sm text-muted-foreground">Customer message:</p>
             <div className="rounded-lg border border-border bg-muted/30 p-4 max-h-[350px] overflow-y-auto">
-              <pre className="text-sm text-card-foreground whitespace-pre-wrap font-sans leading-relaxed">
+              <pre className="text-sm text-card-foreground whitespace-pre-wrap break-all font-sans leading-relaxed" style={{ overflowWrap: 'anywhere' }}>
                 {consolidatedMessage}
               </pre>
             </div>
