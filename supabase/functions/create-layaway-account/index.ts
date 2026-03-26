@@ -193,7 +193,7 @@ Deno.serve(async (req) => {
     });
 
     // ── Process split allocations to existing accounts ──
-    const splitResults: Array<{ account_id: string; invoice_number: string; amount: number; payment_id: string }> = [];
+    const splitResults: Array<{ account_id: string; invoice_number: string; amount: number; payment_id: string; completed?: boolean }> = [];
 
     if (Array.isArray(split_allocations) && split_allocations.length > 0) {
       for (const alloc of split_allocations) {
@@ -349,9 +349,9 @@ Deno.serve(async (req) => {
       JSON.stringify({ account, schedule: scheduleRows, split_payments: splitResults }),
       { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('create-layaway-account error:', error);
-    return new Response(JSON.stringify({ error: error.message || 'Internal server error' }), {
+    return new Response(JSON.stringify({ error: (error as Error).message || 'Internal server error' }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
