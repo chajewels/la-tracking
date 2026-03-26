@@ -629,16 +629,28 @@ export default function AccountDetail() {
         message += `\n\nThank you for your continued trust in Cha Jewels! 🧡`;
       }
     } else {
-      // ── FALLBACK — no session payments, use most recent payment from history ──
-      if (mostRecentPayment) {
-        message += `Thank you for your payment. ${formatCurrency(Number(mostRecentPayment.amount_paid), currency)} has been received.\n\n`;
+      // ── FALLBACK — no session payments ──
+      // If last payment was from a multi-invoice batch, show simple update message
+      const isLastPaymentFromBatch = mostRecentPayment?.remarks?.includes('Multi-invoice batch:');
+
+      if (isLastPaymentFromBatch) {
+        message += `Your account has been updated.\n\n`;
+        message += `Inv # ${account.invoice_number}\n`;
+        if (portalUrl) {
+          message += `\nView your account here:\n🔗 ${portalUrl}\n`;
+        }
+        message += `\n\nThank you for your continued trust in Cha Jewels! 🧡`;
+      } else {
+        if (mostRecentPayment) {
+          message += `Thank you for your payment. ${formatCurrency(Number(mostRecentPayment.amount_paid), currency)} has been received.\n\n`;
+        }
+        message += `Inv # ${account.invoice_number}\n`;
+        if (portalUrl) {
+          message += `\nView your updated account and payment schedule here:\n🔗 ${portalUrl}\n`;
+        }
+        message += buildNextPaymentLine(false);
+        message += `\n\nThank you for your continued trust in Cha Jewels! 🧡`;
       }
-      message += `Inv # ${account.invoice_number}\n`;
-      if (portalUrl) {
-        message += `\nView your updated account and payment schedule here:\n🔗 ${portalUrl}\n`;
-      }
-      message += buildNextPaymentLine(false);
-      message += `\n\nThank you for your continued trust in Cha Jewels! 🧡`;
     }
   }
   return message;
@@ -1392,7 +1404,7 @@ export default function AccountDetail() {
               <MessageCircle className="h-4 w-4 text-info" /> Customer Message
             </h3>
             <div className="rounded-lg bg-muted/50 p-3 sm:p-4 border border-border">
-              <pre className="text-[10px] sm:text-xs text-card-foreground whitespace-pre-wrap font-body leading-relaxed">
+              <pre className="text-[10px] sm:text-xs text-card-foreground whitespace-pre-wrap break-all font-body leading-relaxed" style={{ overflowWrap: 'anywhere' }}>
                 {message}
               </pre>
             </div>
