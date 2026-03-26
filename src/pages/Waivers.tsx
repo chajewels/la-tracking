@@ -167,95 +167,18 @@ export default function Waivers() {
       const selectedWaivers = group.waivers.filter(w => selectedWaiverIds.has(w.id));
 
       if (action === 'approve') {
-        for (const waiver of selectedWaivers) {
-          // 1. Update waiver status
-          const { error: waiverErr } = await supabase
-            .from('penalty_waiver_requests')
-            .update({
-              status: 'approved' as any,
-              approved_by_user_id: user.id,
-              approved_at: new Date().toISOString(),
-            })
-            .eq('id', waiver.id);
-          if (waiverErr) throw waiverErr;
-
-          // 2. Waive the penalty fee (only if still unpaid)
-          if (waiver.penalty_fees?.status === 'unpaid') {
-            const { error: penErr } = await supabase
-              .from('penalty_fees')
-              .update({
-                status: 'waived' as any,
-                waived_at: new Date().toISOString(),
-              })
-              .eq('id', waiver.penalty_fee_id)
-              .eq('status', 'unpaid'); // safety: only waive if still unpaid
-            if (penErr) throw penErr;
-          }
-        }
-
-        // 3. Recalculate affected schedule items
-        const affectedScheduleIds = [...new Set(selectedWaivers.map(w => w.schedule_id))];
-        for (const schedId of affectedScheduleIds) {
-          // Include paid + unpaid (all non-waived) so penalty_amount stays consistent
-          // with activePenaltyTotal (which counts paid + unpaid, excludes waived)
-          const { data: remainingPens } = await supabase
-            .from('penalty_fees')
-            .select('penalty_amount')
-            .eq('schedule_id', schedId)
-            .not('status', 'eq', 'waived');
-
-          const totalActivePenalty = (remainingPens || []).reduce((s, p) => s + Number(p.penalty_amount), 0);
-
-          const { data: schedItem } = await supabase
-            .from('layaway_schedule')
-            .select('base_installment_amount')
-            .eq('id', schedId)
-            .single();
-
-          if (schedItem) {
-            await supabase.from('layaway_schedule').update({
-              penalty_amount: totalActivePenalty,
-              total_due_amount: Number(schedItem.base_installment_amount) + totalActivePenalty,
-            }).eq('id', schedId);
-          }
-        }
-
-        // 4. Recalculate account remaining_balance:
-        //    remaining = principal + activePenalties (non-waived) + services - totalPaid
-        const [{ data: accountData }, { data: activePens }, { data: accountSvcs }] = await Promise.all([
-          supabase.from('layaway_accounts').select('total_amount, total_paid').eq('id', group.accountId).single(),
-          supabase.from('penalty_fees').select('penalty_amount').eq('account_id', group.accountId).not('status', 'eq', 'waived'),
-          supabase.from('account_services').select('amount').eq('account_id', group.accountId),
-        ]);
-
-        if (accountData) {
-          const activePenaltySum = (activePens || []).reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
-          const servicesSum = (accountSvcs || []).reduce((s: number, sv: any) => s + Number(sv.amount), 0);
-          const newRemaining = Math.max(0, Number(accountData.total_amount) + activePenaltySum + servicesSum - Number(accountData.total_paid));
-          await supabase.from('layaway_accounts')
-            .update({ remaining_balance: newRemaining })
-            .eq('id', group.accountId);
-        }
-
-        // 5. Audit log with full penalty breakdown
-        await supabase.from('audit_logs').insert({
-          entity_type: 'penalty_waiver',
-          entity_id: group.accountId,
-          action: 'batch_waiver_approved',
-          performed_by_user_id: user.id,
-          new_value_json: {
-            waiver_ids: selectedWaivers.map(w => w.id),
-            penalty_fee_ids: selectedWaivers.map(w => w.penalty_fee_id),
-            penalties_waived: selectedWaivers.map(w => ({
-              penalty_fee_id: w.penalty_fee_id,
-              stage: w.penalty_fees?.penalty_stage,
-              cycle: w.penalty_fees?.penalty_cycle,
-              amount: w.penalty_amount,
-            })),
-            total_waived: selectedTotal,
-            notes: notes.trim() || null,
+        // Delegate all approval logic to the server-side edge function.
+        // This ensures penalty_fees, layaway_schedule, and layaway_accounts
+        // are always updated atomically regardless of which UI path is used.
+        const { data: { session } } = await supabase.auth.getSession();
+        const { data: fnData, error: fnErr } = await supabase.functions.invoke('approve-waiver', {
+          body: {
+            waiver_request_ids: selectedWaivers.map(w => w.id),
+            notes: notes.trim() || undefined,
           },
+          headers: { Authorization: `Bearer ${session?.access_token}` },
         });
+        if (fnErr || fnData?.error) throw new Error(fnData?.error || fnErr?.message || 'Approval failed');
 
         toast.success(`${selectedWaivers.length} penalty waiver(s) approved — balances recalculated`);
       } else {
