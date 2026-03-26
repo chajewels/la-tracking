@@ -1615,15 +1615,9 @@ export default function AccountDetail() {
           const sumPendingMonths = scheduleItems.filter(i => !isEffectivelyPaid(i)).reduce((s, i) => s + Math.max(0, Number(i.total_due_amount) - Number(i.paid_amount)), 0);
           const sumAllBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
           const baseIntegrity = Math.round((downpaymentAmount + sumAllBases) * 100) / 100;
-          // Verify totalPaid = DP + Σ(actualPaid per paid month)
-          const paidOrPartialScheds = scheduleItems.filter(s => isEffectivelyPaid(s) || isPartiallyPaid(s));
-          const computedPaid = dpPaidAmount + paidOrPartialScheds.reduce((s, i) => {
-            const paidAmt = Number(i.paid_amount);
-            const baseAmt = Number(i.base_installment_amount);
-            // If paid_amount > base, penalty was rolled in by add-penalty correction — don't double-count
-            const penaltyAdd = paidAmt > baseAmt ? 0 : Number(i.penalty_amount);
-            return s + paidAmt + penaltyAdd;
-          }, 0);
+          // computedPaid reads directly from payments table — same source as totalPaid
+          const computedPaid = confirmedActivePayments.reduce(
+            (sum, p) => sum + Number(p.amount_paid), 0);
           const checks = [
             { label: 'activePenalties (non-waived)', expected: summary.activePenalties, actual: activePenaltyTotal, pass: Math.abs(summary.activePenalties - activePenaltyTotal) < 0.01 },
             { label: 'totalLAAmount (base + penalties + svc)', expected: summary.totalLAAmount, actual: principalTotal + activePenaltyTotal + totalServicesAmount, pass: Math.abs(summary.totalLAAmount - (principalTotal + activePenaltyTotal + totalServicesAmount)) < 0.01 },

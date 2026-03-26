@@ -186,7 +186,11 @@ Deno.serve(async (req) => {
 
         const currentPaid = Number(item.paid_amount);
         const baseAmount = Number(item.base_installment_amount);
-        const due = Math.max(0, baseAmount - currentPaid);
+        // For partially_paid items, use total_due_amount as target to include any penalties
+        const targetAmount = item.status === "partially_paid"
+          ? Number(item.total_due_amount)
+          : baseAmount;
+        const due = Math.max(0, targetAmount - currentPaid);
 
         if (due <= 0) continue;
 
@@ -194,7 +198,8 @@ Deno.serve(async (req) => {
         remaining = Math.round((remaining - toApply) * 100) / 100;
 
         const newPaid = Math.round((currentPaid + toApply) * 100) / 100;
-        const newStatus = newPaid >= baseAmount ? "paid" : "partially_paid";
+        const isNowFullyPaid = newPaid >= targetAmount;
+        const newStatus = isNowFullyPaid ? "paid" : "partially_paid";
 
         allocations.push({
           schedule_id: item.id,
@@ -204,9 +209,14 @@ Deno.serve(async (req) => {
 
         scheduleUpdates.push({
           id: item.id,
-          paid_amount: newPaid,
+          paid_amount: isNowFullyPaid ? targetAmount : newPaid,
           status: newStatus,
         });
+
+        // Completing a partial month — do not spill remainder to next month
+        if (item.status === "partially_paid" && isNowFullyPaid) {
+          remaining = 0;
+        }
       }
     }
 
