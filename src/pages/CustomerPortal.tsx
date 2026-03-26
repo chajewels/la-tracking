@@ -190,6 +190,12 @@ const submissionStatusConfig: Record<string, { label: string; color: string; ico
   needs_clarification: { label: 'Needs Clarification',    color: 'text-[#E8C96D] border-[#C9A84C]/30 bg-transparent', icon: <MessageSquare className="h-3 w-3" /> },
 };
 
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
 export default function CustomerPortal() {
   const [params] = useSearchParams();
   const token = params.get('token');
@@ -645,46 +651,108 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
         ))}
       </div>
 
-      {/* Downpayment Info */}
-      {account.downpayment_amount > 0 && (() => {
-        const taggedDpPaid = account.payments
+      {/* Full Schedule List */}
+      {(() => {
+        const today = new Date().toISOString().split('T')[0];
+        const unpaid = account.schedule.filter(s => s.status !== 'cancelled' && s.status !== 'paid');
+        const nextDueId = unpaid.length > 0 ? unpaid[0].installment_number : -1;
+
+        const dpTaggedPaid = account.payments
           .filter(p => (p.reference && String(p.reference).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment'))
           .reduce((s, p) => s + p.amount, 0);
         const totalPaidAll = account.payments.reduce((s, p) => s + p.amount, 0);
-        const dpPaid = taggedDpPaid > 0 ? taggedDpPaid : (account.downpayment_amount > 0 && totalPaidAll >= account.downpayment_amount ? account.downpayment_amount : 0);
+        const dpPaid = dpTaggedPaid > 0 ? dpTaggedPaid
+          : (account.downpayment_amount > 0 && totalPaidAll >= account.downpayment_amount ? account.downpayment_amount : 0);
         const dpFull = dpPaid >= account.downpayment_amount;
-        return (
-          <div className="flex items-center gap-2.5 mt-3" style={{padding:'8px 10px',background:P.s2,borderLeft:`3px solid ${dpFull ? '#5CB86A' : P.gd}`}}>
-            <div style={{width:'18px',height:'18px',display:'flex',alignItems:'center',justifyContent:'center',background:dpFull ? 'rgba(92,184,106,0.15)' : `rgba(201,168,76,0.15)`,color:dpFull ? '#5CB86A' : P.gp,fontSize:'8px',fontWeight:700,shrink:0}}>
-              {dpFull ? <Check className="h-2.5 w-2.5" /> : 'DP'}
-            </div>
-            <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,flex:1}}>Downpayment: <span style={{color:P.tp}}>{fmt(account.downpayment_amount, currency)}</span></span>
-            <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',fontWeight:600,color:dpFull ? '#5CB86A' : P.gp}}>
-              {dpFull ? 'Paid ✓' : dpPaid > 0 ? `${fmt(dpPaid, currency)} paid` : 'Unpaid'}
-            </span>
-          </div>
-        );
-      })()}
 
-      {/* Due Date / Next Payment Banner */}
-      {account.next_due_date && account.remaining_balance > 0 && (() => {
-        const todayDate = new Date();
-        const dueDate = new Date(account.next_due_date + 'T00:00:00Z');
-        const diffDays = Math.ceil((dueDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
-        const urgencyColor = diffDays < 0 ? '#E74C3C' : diffDays === 0 ? '#E8916A' : diffDays <= 3 ? P.gl : P.gp;
-        const urgencyLabel = diffDays < 0 ? `${Math.abs(diffDays)}d overdue`
-          : diffDays === 0 ? 'Due today'
-          : `Due in ${diffDays}d`;
         return (
-          <div className="flex items-center justify-between mt-3" style={{background:'#0F0D00',border:`1px solid ${P.br}`,borderLeft:`3px solid ${urgencyColor}`,padding:'8px 12px'}}>
-            <div className="flex items-center gap-2">
-              <Clock className="h-3 w-3 shrink-0" style={{color:urgencyColor}} />
-              <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',fontWeight:600,color:urgencyColor}}>{urgencyLabel}</span>
-              <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts}}>{fmtDate(account.next_due_date)}</span>
-            </div>
-            <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.gp}}>
-              {account.next_due_amount ? `${fmt(account.next_due_amount, currency)}` : ''} →
-            </span>
+          <div style={{marginTop:'12px'}}>
+            {/* DP row */}
+            {account.downpayment_amount > 0 && (
+              <div className="flex items-center gap-2 py-2.5" style={{borderBottom:`1px solid ${P.s2}`}}>
+                <span style={{width:'16px',flexShrink:0,textAlign:'center' as const,fontSize:'13px'}}>
+                  {dpFull ? '✅' : dpPaid > 0 ? '◐' : ''}
+                </span>
+                <span style={{fontFamily:"Inter,sans-serif",fontSize:'12px',flex:1,color:dpFull ? P.gd : P.tp}}>
+                  Downpayment: {fmt(account.downpayment_amount, currency)}
+                </span>
+                <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',flexShrink:0,
+                  color:dpFull ? P.gd : dpPaid > 0 ? P.gl : P.ts}}>
+                  {dpFull ? 'Paid ✓' : dpPaid > 0 ? `${fmt(dpPaid, currency)} paid` : 'Unpaid'}
+                </span>
+              </div>
+            )}
+
+            {/* Installment rows */}
+            {account.schedule.map((item) => {
+              if (item.status === 'cancelled') return null;
+              const isPaid = item.status === 'paid';
+              const isPartial = item.status === 'partially_paid';
+              const isNextDue = item.installment_number === nextDueId;
+              const ord = ordinal(item.installment_number);
+              const dateLabel = new Date(item.due_date + 'T00:00:00Z')
+                .toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+              if (isPaid) return (
+                <div key={item.installment_number} className="flex items-center gap-2 py-2"
+                  style={{borderBottom:`1px solid ${P.s2}`}}>
+                  <span style={{width:'16px',flexShrink:0,textAlign:'center' as const,fontSize:'13px'}}>✅</span>
+                  <span style={{fontFamily:"Inter,sans-serif",fontSize:'12px',flex:1,color:P.gd}}>
+                    {ord} month {dateLabel}: {fmt(item.base_amount, currency)}
+                  </span>
+                  <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.gd,flexShrink:0}}>Paid ✓</span>
+                </div>
+              );
+
+              if (isPartial) return (
+                <div key={item.installment_number} className="py-2"
+                  style={{borderBottom:`1px solid ${P.s2}`,borderLeft:`3px solid ${P.gp}`,paddingLeft:'10px'}}>
+                  <div className="flex items-center gap-2">
+                    <span style={{width:'16px',flexShrink:0,textAlign:'center' as const,color:P.gp,fontSize:'13px'}}>◐</span>
+                    <span style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:P.tp}}>
+                      {ord} month {dateLabel}:
+                    </span>
+                  </div>
+                  <div style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.gl,marginLeft:'24px',marginTop:'2px'}}>
+                    {fmt(item.paid_amount, currency)} of {fmt(item.total_due, currency)}
+                  </div>
+                </div>
+              );
+
+              if (isNextDue) {
+                const dueDate = new Date(item.due_date + 'T00:00:00Z');
+                const diffDays = Math.ceil((dueDate.getTime() - new Date(today + 'T00:00:00Z').getTime()) / 86400000);
+                const urgencyColor = diffDays < 0 ? '#E74C3C' : diffDays === 0 ? '#E8916A' : P.gp;
+                const dueLabel = diffDays < 0 ? `${Math.abs(diffDays)}d overdue`
+                  : diffDays === 0 ? 'Due today' : `Due in ${diffDays}d`;
+                return (
+                  <div key={item.installment_number} className="py-2.5"
+                    style={{borderBottom:`1px solid ${P.s2}`,borderLeft:`3px solid ${urgencyColor}`,paddingLeft:'10px'}}>
+                    <div className="flex items-center gap-2">
+                      <span style={{width:'16px',flexShrink:0,textAlign:'center' as const,fontSize:'13px'}}>⏰</span>
+                      <span style={{fontFamily:"Inter,sans-serif",fontSize:'13px',fontWeight:600,color:urgencyColor,flex:1}}>
+                        {ord} month {dateLabel}: {fmt(item.base_amount, currency)}
+                      </span>
+                      <span style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:urgencyColor,flexShrink:0}}>→</span>
+                    </div>
+                    <div style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,marginLeft:'24px',marginTop:'2px'}}>
+                      {dueLabel}
+                    </div>
+                  </div>
+                );
+              }
+
+              // Future pending
+              return (
+                <div key={item.installment_number} className="flex items-center gap-2 py-2"
+                  style={{borderBottom:`1px solid ${P.s2}`}}>
+                  <span style={{width:'16px',flexShrink:0}} />
+                  <span style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:P.ts,flex:1}}>
+                    {ord} month {dateLabel}: {fmt(item.base_amount, currency)}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         );
       })()}
