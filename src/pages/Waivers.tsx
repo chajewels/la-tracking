@@ -220,15 +220,18 @@ export default function Waivers() {
           }
         }
 
-        // 4. Recalculate account remaining_balance using canonical formula: principal - total_paid
-        const { data: accountData } = await supabase
-          .from('layaway_accounts')
-          .select('total_amount, total_paid')
-          .eq('id', group.accountId)
-          .single();
+        // 4. Recalculate account remaining_balance:
+        //    remaining = principal + activePenalties (non-waived) + services - totalPaid
+        const [{ data: accountData }, { data: activePens }, { data: accountSvcs }] = await Promise.all([
+          supabase.from('layaway_accounts').select('total_amount, total_paid').eq('id', group.accountId).single(),
+          supabase.from('penalty_fees').select('penalty_amount').eq('account_id', group.accountId).not('status', 'eq', 'waived'),
+          supabase.from('account_services').select('amount').eq('account_id', group.accountId),
+        ]);
 
         if (accountData) {
-          const newRemaining = Math.max(0, Number(accountData.total_amount) - Number(accountData.total_paid));
+          const activePenaltySum = (activePens || []).reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
+          const servicesSum = (accountSvcs || []).reduce((s: number, sv: any) => s + Number(sv.amount), 0);
+          const newRemaining = Math.max(0, Number(accountData.total_amount) + activePenaltySum + servicesSum - Number(accountData.total_paid));
           await supabase.from('layaway_accounts')
             .update({ remaining_balance: newRemaining })
             .eq('id', group.accountId);

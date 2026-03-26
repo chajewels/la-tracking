@@ -819,6 +819,7 @@ export const MUTATION_INVALIDATION_KEYS = [
   'all-schedules-analytics',
   'waivers',
   'waivers-page',
+  'penalties',
   'overdue-schedule',
   'penalty-followup-alerts',
   'csr-notifications-penalty',
