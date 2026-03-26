@@ -72,7 +72,8 @@ Deno.serve(async (req) => {
     const monthStartStr = monthStart.toISOString().split("T")[0];
 
     // ── Build all queries in parallel ──
-    let accountsQ = supabase.from("layaway_accounts").select("*").in("status", ["active", "overdue"]);
+    // Active statuses must match ACTIVE_STATUSES in business-rules.ts
+    let accountsQ = supabase.from("layaway_accounts").select("*").in("status", ["active", "overdue", "final_settlement", "extension_active"]);
     if (currencyWhere) accountsQ = accountsQ.eq("currency", currencyWhere);
 
     let todayPayQ = supabase.from("payments").select("*").eq("date_paid", today).is("voided_at", null);
@@ -87,7 +88,8 @@ Deno.serve(async (req) => {
       .eq("status", "completed")
       .gte("updated_at", monthStartStr);
 
-    let forfeitedQ = supabase.from("layaway_accounts").select("id").eq("status", "forfeited");
+    // Include both forfeited and final_forfeited — both represent forfeited accounts
+    let forfeitedQ = supabase.from("layaway_accounts").select("id").in("status", ["forfeited", "final_forfeited"]);
     if (currencyWhere) forfeitedQ = forfeitedQ.eq("currency", currencyWhere);
 
     const penaltiesTodayQ = supabase

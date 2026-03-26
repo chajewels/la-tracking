@@ -34,14 +34,16 @@ export default function Reminders() {
     queryFn: async () => {
       const today = new Date().toISOString().split('T')[0];
       const in7days = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
-      const past30 = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+      // 730-day lookback so all overdue accounts are captured regardless of age,
+      // matching the dashboard's overdue definition (no lower-bound cutoff).
+      const past730 = new Date(Date.now() - 730 * 86400000).toISOString().split('T')[0];
 
       const { data, error } = await supabase
         .from('layaway_schedule')
         .select('*, layaway_accounts!inner(id, status, currency, invoice_number, customer_id, customers(full_name, messenger_link))')
         .in('layaway_accounts.status', ['active', 'overdue'])
         .in('status', ['pending', 'partially_paid', 'overdue'])
-        .gte('due_date', past30)
+        .gte('due_date', past730)
         .lte('due_date', in7days)
         .order('due_date', { ascending: true });
       if (error) throw error;
