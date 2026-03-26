@@ -304,6 +304,14 @@ export default function AccountDetail() {
   const currency = (account?.currency || 'PHP') as Currency;
   const principalTotal = Number(account?.total_amount || 0);
   const scheduleItems = schedule || [];
+  // Override DB status: account is only truly overdue if an unpaid month has a past due_date
+  const todayStr = new Date().toISOString().split('T')[0];
+  const hasUnpaidPastDue = scheduleItems.some(
+    item => !isEffectivelyPaid(item) && item.due_date < todayStr
+  );
+  const effectiveStatus = account?.status === 'overdue' && !hasUnpaidPastDue
+    ? 'active'
+    : (account?.status ?? 'active');
   const downpaymentAmount = Number((account as any)?.downpayment_amount || 0);
 
   // Identify downpayment payments — check multiple fields since import sources vary
@@ -741,18 +749,18 @@ export default function AccountDetail() {
                 </div>
               )}
               <Badge variant="outline" className={
-                account.status === 'final_forfeited' ? 'bg-destructive/10 text-destructive border-destructive/20 text-xs' :
-                account.status === 'forfeited' ? 'bg-orange-500/10 text-orange-500 border-orange-500/20 text-xs' :
-                account.status === 'extension_active' ? 'bg-info/10 text-info border-info/20 text-xs' :
-                account.status === 'final_settlement' ? 'bg-amber-600/10 text-amber-600 border-amber-600/20 text-xs' :
-                account.status === 'overdue' ? 'bg-destructive/10 text-destructive border-destructive/20 text-xs' :
-                account.status === 'completed' ? 'bg-primary/10 text-primary border-primary/20 text-xs' :
+                effectiveStatus === 'final_forfeited' ? 'bg-destructive/10 text-destructive border-destructive/20 text-xs' :
+                effectiveStatus === 'forfeited' ? 'bg-orange-500/10 text-orange-500 border-orange-500/20 text-xs' :
+                effectiveStatus === 'extension_active' ? 'bg-info/10 text-info border-info/20 text-xs' :
+                effectiveStatus === 'final_settlement' ? 'bg-amber-600/10 text-amber-600 border-amber-600/20 text-xs' :
+                effectiveStatus === 'overdue' ? 'bg-destructive/10 text-destructive border-destructive/20 text-xs' :
+                effectiveStatus === 'completed' ? 'bg-primary/10 text-primary border-primary/20 text-xs' :
                 'bg-success/10 text-success border-success/20 text-xs'
               }>
-                {account.status === 'final_settlement' ? 'FINAL SETTLEMENT' :
-                 account.status === 'extension_active' ? 'EXTENSION ACTIVE' :
-                 account.status === 'final_forfeited' ? 'PERMANENTLY FORFEITED' :
-                 account.status.toUpperCase()}
+                {effectiveStatus === 'final_settlement' ? 'FINAL SETTLEMENT' :
+                 effectiveStatus === 'extension_active' ? 'EXTENSION ACTIVE' :
+                 effectiveStatus === 'final_forfeited' ? 'PERMANENTLY FORFEITED' :
+                 effectiveStatus.toUpperCase()}
               </Badge>
               {isTestAccount && (
                 <Badge variant="outline" className="bg-info/10 text-info border-info/20 text-xs font-bold">
