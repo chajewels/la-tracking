@@ -175,7 +175,19 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 2. Allocate remaining to installments sequentially (FIXED SCHEDULE MODEL)
+    // 2a. Absorb remaining DP balance before touching any installment months
+    //     DP has no schedule row — tracked via account.total_paid.
+    if (remaining > 0) {
+      const dpTarget = Number(account.downpayment_amount || 0);
+      const existingTotalPaid = Number(account.total_paid || 0);
+      const dpRemaining = Math.max(0, dpTarget - existingTotalPaid);
+      if (dpRemaining > 0) {
+        const dpAbsorbed = Math.round(Math.min(remaining, dpRemaining) * 100) / 100;
+        remaining = Math.round((remaining - dpAbsorbed) * 100) / 100;
+      }
+    }
+
+    // 2b. Allocate remaining to installments sequentially (FIXED SCHEDULE MODEL)
     if (remaining > 0 && schedule) {
       const unpaidItems = schedule.filter(
         item => item.status !== "paid" && item.status !== "cancelled"

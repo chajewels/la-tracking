@@ -80,7 +80,27 @@ async function allocatePaymentToAccount(
     }
   }
 
-  // 2. Allocate remaining to installments
+  // 2a. Absorb remaining DP balance before touching any installment months
+  //     DP has no schedule row — tracked via account.total_paid.
+  //     If this payment covers the DP shortfall, it must NOT cascade into Month 1+.
+  if (remaining > 0) {
+    const { data: acctForDp } = await supabase
+      .from("layaway_accounts")
+      .select("downpayment_amount, total_paid")
+      .eq("id", accountId)
+      .single();
+    const dpTarget = Number(acctForDp?.downpayment_amount || 0);
+    const existingTotalPaid = Number(acctForDp?.total_paid || 0);
+    const dpRemaining = Math.max(0, dpTarget - existingTotalPaid);
+    if (dpRemaining > 0) {
+      // Absorb however much of this payment goes toward the outstanding DP.
+      // Any amount beyond the DP shortfall will proceed to installment months below.
+      const dpAbsorbed = Math.min(remaining, dpRemaining);
+      remaining -= dpAbsorbed;
+    }
+  }
+
+  // 2b. Allocate remaining to installments
   if (remaining > 0 && schedule) {
     const unpaidItems = schedule
       .filter((item: any) => item.status !== "paid" && item.status !== "cancelled")
