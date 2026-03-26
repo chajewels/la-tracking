@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { daysOverdueFromToday, isEffectivelyPaid, getNextUnpaidDueDate } from '@/lib/business-rules';
 import { Link } from 'react-router-dom';
 import PenaltyCapAuditPanel from '@/components/dashboard/PenaltyCapAuditPanel';
+import SystemHealthCheckPanel from '@/components/admin/SystemHealthCheckPanel';
 
 // ── System Health ──
 interface AffectedAccount {
@@ -983,6 +984,7 @@ export default function AdminAudit() {
             <TabsTrigger value="penalties" className="gap-1.5"><Gavel className="h-3.5 w-3.5" /> Penalty Audit</TabsTrigger>
             <TabsTrigger value="overdue" className="gap-1.5"><AlertTriangle className="h-3.5 w-3.5" /> Overdue Debug</TabsTrigger>
             <TabsTrigger value="waivers" className="gap-1.5"><Shield className="h-3.5 w-3.5" /> Waiver History</TabsTrigger>
+            <TabsTrigger value="health-check" className="gap-1.5"><CheckCircle className="h-3.5 w-3.5" /> Health Check</TabsTrigger>
           </TabsList>
 
           <TabsContent value="reconciliation"><ReconciliationTab /></TabsContent>
@@ -991,6 +993,7 @@ export default function AdminAudit() {
           <TabsContent value="penalties"><PenaltyAuditTab /></TabsContent>
           <TabsContent value="overdue"><OverdueDebugTab /></TabsContent>
           <TabsContent value="waivers"><WaiverAuditTab /></TabsContent>
+          <TabsContent value="health-check"><SystemHealthCheckPanel /></TabsContent>
         </Tabs>
       </div>
     </AppLayout>
