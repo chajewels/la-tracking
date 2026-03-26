@@ -1,5 +1,10 @@
 # Cha Jewels Layaway System — Claude Code Context
 
+## Git Workflow
+
+- Commit and push all changes directly to **main** branch
+- Do NOT create feature branches unless explicitly asked
+
 ## Project Overview
 
 Jewelry layaway management system built with:
