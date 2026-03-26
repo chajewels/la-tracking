@@ -62,12 +62,13 @@ export default function Monitoring() {
       next7.setDate(next7.getDate() + 7);
       const next7Str = next7.toISOString().split('T')[0];
 
+      const ACTIVE_STATUSES = ['active', 'overdue', 'final_settlement', 'extension_active'];
       const [overdueRes, upcomingRes] = await Promise.all([
         supabase
           .from('layaway_schedule')
           .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, remaining_balance, customers(full_name, messenger_link))')
           .in('status', ['pending', 'overdue', 'partially_paid'])
-          .in('layaway_accounts.status', ['active', 'overdue'])
+          .in('layaway_accounts.status', ACTIVE_STATUSES)
           .lt('due_date', new Date().toISOString().split('T')[0])
           .order('due_date', { ascending: true })
           .limit(500),
@@ -75,7 +76,7 @@ export default function Monitoring() {
           .from('layaway_schedule')
           .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, remaining_balance, customers(full_name, messenger_link))')
           .in('status', ['pending', 'overdue', 'partially_paid'])
-          .in('layaway_accounts.status', ['active', 'overdue'])
+          .in('layaway_accounts.status', ACTIVE_STATUSES)
           .gte('due_date', new Date().toISOString().split('T')[0])
           .lte('due_date', next7Str)
           .order('due_date', { ascending: true })
@@ -432,7 +433,10 @@ export default function Monitoring() {
         </div>
 
         {/* Penalty Follow-Up Stages */}
-        <PenaltyFollowUpSection />
+        <PenaltyFollowUpSection
+          totalOverdue={counts.overdue + counts.grace_period}
+          gracePeriodCount={counts.grace_period}
+        />
 
         {/* Alert List */}
         {isLoading ? (

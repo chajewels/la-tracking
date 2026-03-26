@@ -154,8 +154,15 @@ interface StageBucket {
 
 type PenaltyNotifFilter = 'all' | 'not_notified' | 'notified';
 
+interface PenaltyFollowUpSectionProps {
+  /** Total overdue accounts (overdue + grace period) — passed from Monitoring page */
+  totalOverdue?: number;
+  /** Accounts in grace period (1–6 days past due) — passed from Monitoring page */
+  gracePeriodCount?: number;
+}
+
 // ── Component ──
-export default function PenaltyFollowUpSection() {
+export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount = 0 }: PenaltyFollowUpSectionProps) {
   const { user, profile } = useAuth();
   const queryClient = useQueryClient();
   const [activeStage, setActiveStage] = useState<PenaltyStage | null>(null);
@@ -490,6 +497,23 @@ export default function PenaltyFollowUpSection() {
           )}
         </div>
       </div>
+
+      {/* Overdue breakdown summary — unified totals across all panels */}
+      {totalOverdue !== undefined && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs">
+          <span className="font-semibold text-destructive">{totalOverdue} total overdue</span>
+          <span className="text-muted-foreground">·</span>
+          <span className="text-foreground">{totalAccounts} with active penalties (P1–P8)</span>
+          <span className="text-muted-foreground">·</span>
+          <span className="text-amber-600">{gracePeriodCount} in grace period (1–6d)</span>
+          {totalOverdue - totalAccounts - gracePeriodCount > 0 && (
+            <>
+              <span className="text-muted-foreground">·</span>
+              <span className="text-muted-foreground">{totalOverdue - totalAccounts - gracePeriodCount} newly overdue (no penalty yet)</span>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Stage Cards Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
