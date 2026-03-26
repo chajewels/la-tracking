@@ -1398,82 +1398,173 @@ export default function AccountDetail() {
             </div>
           )}
 
-          {/* Customer Message */}
+          {/* Payment History */}
           <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
-            <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2">
-              <MessageCircle className="h-4 w-4 text-info" /> Customer Message
-            </h3>
-            <div className="rounded-lg bg-muted/50 p-3 sm:p-4 border border-border" style={{ maxWidth: '100%', overflow: 'hidden' }}>
-              <pre className="text-[10px] sm:text-xs text-card-foreground font-body leading-relaxed" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', overflowWrap: 'anywhere', maxWidth: '100%' }}>
-                {message}
-              </pre>
-            </div>
-            <div className="flex gap-2 mt-4 flex-wrap">
-              <Button onClick={handleCopy} variant="outline" size="sm" className="border-primary/30 text-primary hover:bg-primary/10">
-                {copied ? <Check className="h-3.5 w-3.5 mr-1" /> : <Copy className="h-3.5 w-3.5 mr-1" />}
-                {copied ? 'Copied!' : 'Copy Message'}
-              </Button>
-              {account.customers?.messenger_link && (
-                <a href={account.customers.messenger_link} target="_blank" rel="noopener noreferrer">
-                  <Button variant="outline" size="sm" className="border-info/30 text-info hover:bg-info/10">
-                    <MessageCircle className="h-3.5 w-3.5 mr-1" /> Messenger
-                  </Button>
-                </a>
-              )}
-            </div>
-          </div>
+            <h3 className="text-sm font-semibold text-card-foreground mb-4">Payment History</h3>
+            {(!payments || payments.length === 0) ? (
+              <p className="text-sm text-muted-foreground">No payments recorded yet</p>
+            ) : (
+              <div className="space-y-2">
+                {payments.map((p) => {
+                  const isVoided = !!(p as any).voided_at;
+                  const isEditing = editingId === p.id;
 
-          {/* ═══ Verification Debug Panel ═══ */}
-          {(() => {
-            const sumPendingMonths = scheduleItems.filter(i => !isEffectivelyPaid(i)).reduce((s, i) => s + Math.max(0, Number(i.total_due_amount) - Number(i.paid_amount)), 0);
-            const sumAllBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
-            const baseIntegrity = Math.round((downpaymentAmount + sumAllBases) * 100) / 100;
-            // Verify totalPaid = DP + Σ(actualPaid per paid month)
-            const paidOrPartialScheds = scheduleItems.filter(s => isEffectivelyPaid(s) || isPartiallyPaid(s));
-            const computedPaid = dpPaidAmount + paidOrPartialScheds.reduce((s, i) => s + Number(i.paid_amount) + Number(i.penalty_amount), 0);
-            const checks = [
-              { label: 'activePenalties (non-waived)', expected: summary.activePenalties, actual: activePenaltyTotal, pass: Math.abs(summary.activePenalties - activePenaltyTotal) < 0.01 },
-              { label: 'totalLAAmount (base + penalties + svc)', expected: summary.totalLAAmount, actual: principalTotal + activePenaltyTotal + totalServicesAmount, pass: Math.abs(summary.totalLAAmount - (principalTotal + activePenaltyTotal + totalServicesAmount)) < 0.01 },
-              { label: 'amountPaid (DP + paid months)', expected: totalPaid, actual: Math.round(computedPaid * 100) / 100, pass: Math.abs(totalPaid - computedPaid) < 1 },
-              { label: 'remainingBalance (totalLA - paid)', expected: summary.remainingBalance, actual: Math.max(0, summary.totalLAAmount - totalPaid), pass: Math.abs(summary.remainingBalance - Math.max(0, summary.totalLAAmount - totalPaid)) < 0.01 },
-              { label: 'monthsRemaining', expected: summary.unpaidCount, actual: unpaidSchedule.length, pass: summary.unpaidCount === unpaidSchedule.length },
-              { label: 'sumOfPendingMonths ≈ remainingBalance', expected: summary.remainingBalance, actual: Math.round(sumPendingMonths * 100) / 100, pass: Math.abs(sumPendingMonths - summary.remainingBalance) < 2 },
-              { label: 'DP + sumBases = principalTotal', expected: principalTotal, actual: baseIntegrity, pass: Math.abs(baseIntegrity - principalTotal) < 2 },
-            ];
-            const allPass = checks.every(c => c.pass);
-            return (
-              <div className="mt-4">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className={`text-xs ${allPass ? 'border-success/30 text-success' : 'border-destructive/30 text-destructive'}`}
-                  onClick={() => setShowVerify(!showVerify)}
-                >
-                  <ShieldCheck className="h-3.5 w-3.5 mr-1" />
-                  {showVerify ? 'Hide' : 'Verify'} Calculations {allPass ? '✅' : '❌'}
-                </Button>
-                {(showVerify || isTestAccount) && (
-                  <div className="mt-2 rounded-lg border border-border bg-muted/30 p-3 space-y-1.5">
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Calculation Audit</p>
-                    {checks.map((c, i) => (
-                      <div key={i} className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">{c.pass ? '✅' : '❌'} {c.label}</span>
-                        <span className={`tabular-nums font-mono ${c.pass ? 'text-success' : 'text-destructive'}`}>
-                          {typeof c.actual === 'number' ? fmtVal(c.actual) : c.actual}
-                          {!c.pass && ` (expected: ${typeof c.expected === 'number' ? fmtVal(c.expected) : c.expected})`}
-                        </span>
+                  if (isEditing) {
+                    const originalAmount = Number(p.amount_paid);
+                    const amountChanged = editAmount !== '' && Math.round(parseFloat(editAmount) * 100) / 100 !== originalAmount;
+                    const isSaving = editPayment.isPending || editPaymentAmount.isPending;
+
+                    return (
+                      <div key={p.id} className="p-3 rounded-lg border border-primary/30 bg-muted/30 space-y-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                          <div>
+                            <label className="text-[10px] text-muted-foreground uppercase">Date</label>
+                            <Input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} className="h-8 text-xs bg-background" />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-muted-foreground uppercase">Method</label>
+                            <Select value={editMethod} onValueChange={setEditMethod}>
+                              <SelectTrigger className="h-8 text-xs bg-background"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="cash">Cash</SelectItem>
+                                <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                                <SelectItem value="gcash">GCash</SelectItem>
+                                <SelectItem value="other">Other</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-muted-foreground uppercase">
+                              Amount {amountChanged && <span className="text-warning">(changed)</span>}
+                            </label>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0.01"
+                              value={editAmount}
+                              onChange={(e) => setEditAmount(e.target.value)}
+                              className={`h-8 text-xs bg-background tabular-nums ${amountChanged ? 'border-warning' : ''}`}
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-muted-foreground uppercase">Original</label>
+                            <Input disabled value={formatCurrency(originalAmount, p.currency as Currency)} className="h-8 text-xs bg-muted" />
+                          </div>
+                        </div>
+                        {amountChanged && (
+                          <div>
+                            <label className="text-[10px] text-muted-foreground uppercase">Reason for amount change *</label>
+                            <Input value={editAmountReason} onChange={(e) => setEditAmountReason(e.target.value)} placeholder="e.g. Wrong amount recorded" className="h-8 text-xs bg-background" />
+                          </div>
+                        )}
+                        <div>
+                          <label className="text-[10px] text-muted-foreground uppercase">Notes</label>
+                          <Textarea value={editRemarks} onChange={(e) => setEditRemarks(e.target.value)} rows={1} className="text-xs bg-background resize-none" />
+                        </div>
+                        {amountChanged && (
+                          <p className="text-[10px] text-warning flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            Changing the amount will reallocate this payment across the schedule. This is audit-logged.
+                          </p>
+                        )}
+                        <div className="flex gap-2 justify-end">
+                          <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>
+                            <X className="h-3 w-3 mr-1" /> Cancel
+                          </Button>
+                          <Button size="sm" className="gold-gradient text-primary-foreground" disabled={isSaving || (amountChanged && !editAmountReason.trim())}
+                            onClick={async () => {
+                              try {
+                                // Save metadata changes (date, method, notes)
+                                await editPayment.mutateAsync({
+                                  id: p.id,
+                                  date_paid: editDate,
+                                  payment_method: editMethod,
+                                  remarks: editRemarks || undefined,
+                                });
+
+                                // If amount changed, call the edge function for full reallocation
+                                if (amountChanged) {
+                                  const newAmt = Math.round(parseFloat(editAmount) * 100) / 100;
+                                  await editPaymentAmount.mutateAsync({
+                                    payment_id: p.id,
+                                    new_amount: newAmt,
+                                    reason: editAmountReason.trim(),
+                                  });
+                                  toast.success(`Payment amount updated: ${formatCurrency(originalAmount, p.currency as Currency)} → ${formatCurrency(newAmt, p.currency as Currency)}`);
+                                } else {
+                                  toast.success('Payment updated');
+                                }
+                                setEditingId(null);
+                              } catch (err: any) {
+                                toast.error(err.message || 'Failed to update');
+                              }
+                            }}>
+                            <Save className="h-3 w-3 mr-1" /> Save
+                          </Button>
+                        </div>
                       </div>
-                    ))}
-                    <div className="pt-2 border-t border-border mt-2">
-                      <p className={`text-xs font-semibold ${allPass ? 'text-success' : 'text-destructive'}`}>
-                        {allPass ? '✅ All checks passed' : '❌ Some checks failed — investigate'}
-                      </p>
+                    );
+                  }
+
+                  const isDpPayment = isDownpaymentPayment(p);
+                  return (
+                    <div key={p.id} className={`flex items-center justify-between py-2 px-2 rounded-lg border-b border-border last:border-0 ${isVoided ? 'opacity-50 line-through' : ''}`}>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs sm:text-sm text-card-foreground">
+                            {new Date(p.date_paid).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                          </p>
+                          {isDpPayment && !isVoided && (
+                            <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-primary/10 text-primary border-primary/20">Downpayment</Badge>
+                          )}
+                        </div>
+                        <p className="text-[10px] sm:text-xs text-muted-foreground">
+                          {p.payment_method || 'Cash'}
+                          {p.remarks && !isDpPayment && ` · ${p.remarks}`}
+                          {isVoided && ` · VOIDED${(p as any).void_reason ? `: ${(p as any).void_reason}` : ''}`}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isVoided ? 'text-muted-foreground' : 'text-success'}`}>
+                          {isVoided ? '' : '+'}{formatCurrency(Number(p.amount_paid), p.currency as Currency)}
+                        </p>
+                        {!isVoided && (
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                              onClick={() => {
+                                setEditingId(p.id);
+                                setEditDate(p.date_paid);
+                                setEditMethod(p.payment_method || 'cash');
+                                setEditRemarks(p.remarks || '');
+                                setEditAmount(String(Number(p.amount_paid)));
+                                setEditAmountReason('');
+                              }}>
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                            {can('void_payment') && (
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                              onClick={() => { setVoidTarget(p.id); setVoidReason(''); }}>
+                              <Ban className="h-3 w-3" />
+                            </Button>
+                            )}
+                          </div>
+                        )}
+                        {isVoided && can('restore_payment') && (
+                          <Button variant="ghost" size="sm"
+                            className="h-7 text-xs text-muted-foreground hover:text-success"
+                            style={{ textDecoration: 'none' }}
+                            onClick={() => setRestoreTarget({ id: p.id, amount: Number(p.amount_paid), date: p.date_paid })}>
+                            <RotateCcw className="h-3 w-3 mr-1" />
+                            Restore
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })}
               </div>
-            );
-          })()}
+            )}
+          </div>
         </div>
 
         {/* Penalty Waiver Panel */}
@@ -1491,173 +1582,82 @@ export default function AccountDetail() {
           />
         )}
 
-        {/* Payment History */}
+        {/* Customer Message */}
         <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
-          <h3 className="text-sm font-semibold text-card-foreground mb-4">Payment History</h3>
-          {(!payments || payments.length === 0) ? (
-            <p className="text-sm text-muted-foreground">No payments recorded yet</p>
-          ) : (
-            <div className="space-y-2">
-              {payments.map((p) => {
-                const isVoided = !!(p as any).voided_at;
-                const isEditing = editingId === p.id;
-
-                if (isEditing) {
-                  const originalAmount = Number(p.amount_paid);
-                  const amountChanged = editAmount !== '' && Math.round(parseFloat(editAmount) * 100) / 100 !== originalAmount;
-                  const isSaving = editPayment.isPending || editPaymentAmount.isPending;
-
-                  return (
-                    <div key={p.id} className="p-3 rounded-lg border border-primary/30 bg-muted/30 space-y-2">
-                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-                        <div>
-                          <label className="text-[10px] text-muted-foreground uppercase">Date</label>
-                          <Input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} className="h-8 text-xs bg-background" />
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-muted-foreground uppercase">Method</label>
-                          <Select value={editMethod} onValueChange={setEditMethod}>
-                            <SelectTrigger className="h-8 text-xs bg-background"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="cash">Cash</SelectItem>
-                              <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                              <SelectItem value="gcash">GCash</SelectItem>
-                              <SelectItem value="other">Other</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-muted-foreground uppercase">
-                            Amount {amountChanged && <span className="text-warning">(changed)</span>}
-                          </label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0.01"
-                            value={editAmount}
-                            onChange={(e) => setEditAmount(e.target.value)}
-                            className={`h-8 text-xs bg-background tabular-nums ${amountChanged ? 'border-warning' : ''}`}
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-muted-foreground uppercase">Original</label>
-                          <Input disabled value={formatCurrency(originalAmount, p.currency as Currency)} className="h-8 text-xs bg-muted" />
-                        </div>
-                      </div>
-                      {amountChanged && (
-                        <div>
-                          <label className="text-[10px] text-muted-foreground uppercase">Reason for amount change *</label>
-                          <Input value={editAmountReason} onChange={(e) => setEditAmountReason(e.target.value)} placeholder="e.g. Wrong amount recorded" className="h-8 text-xs bg-background" />
-                        </div>
-                      )}
-                      <div>
-                        <label className="text-[10px] text-muted-foreground uppercase">Notes</label>
-                        <Textarea value={editRemarks} onChange={(e) => setEditRemarks(e.target.value)} rows={1} className="text-xs bg-background resize-none" />
-                      </div>
-                      {amountChanged && (
-                        <p className="text-[10px] text-warning flex items-center gap-1">
-                          <AlertTriangle className="h-3 w-3" />
-                          Changing the amount will reallocate this payment across the schedule. This is audit-logged.
-                        </p>
-                      )}
-                      <div className="flex gap-2 justify-end">
-                        <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>
-                          <X className="h-3 w-3 mr-1" /> Cancel
-                        </Button>
-                        <Button size="sm" className="gold-gradient text-primary-foreground" disabled={isSaving || (amountChanged && !editAmountReason.trim())}
-                          onClick={async () => {
-                            try {
-                              // Save metadata changes (date, method, notes)
-                              await editPayment.mutateAsync({
-                                id: p.id,
-                                date_paid: editDate,
-                                payment_method: editMethod,
-                                remarks: editRemarks || undefined,
-                              });
-
-                              // If amount changed, call the edge function for full reallocation
-                              if (amountChanged) {
-                                const newAmt = Math.round(parseFloat(editAmount) * 100) / 100;
-                                await editPaymentAmount.mutateAsync({
-                                  payment_id: p.id,
-                                  new_amount: newAmt,
-                                  reason: editAmountReason.trim(),
-                                });
-                                toast.success(`Payment amount updated: ${formatCurrency(originalAmount, p.currency as Currency)} → ${formatCurrency(newAmt, p.currency as Currency)}`);
-                              } else {
-                                toast.success('Payment updated');
-                              }
-                              setEditingId(null);
-                            } catch (err: any) {
-                              toast.error(err.message || 'Failed to update');
-                            }
-                          }}>
-                          <Save className="h-3 w-3 mr-1" /> Save
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                }
-
-                const isDpPayment = isDownpaymentPayment(p);
-                return (
-                  <div key={p.id} className={`flex items-center justify-between py-2 px-2 rounded-lg border-b border-border last:border-0 ${isVoided ? 'opacity-50 line-through' : ''}`}>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="text-xs sm:text-sm text-card-foreground">
-                          {new Date(p.date_paid).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-                        </p>
-                        {isDpPayment && !isVoided && (
-                          <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-primary/10 text-primary border-primary/20">Downpayment</Badge>
-                        )}
-                      </div>
-                      <p className="text-[10px] sm:text-xs text-muted-foreground">
-                        {p.payment_method || 'Cash'}
-                        {p.remarks && !isDpPayment && ` · ${p.remarks}`}
-                        {isVoided && ` · VOIDED${(p as any).void_reason ? `: ${(p as any).void_reason}` : ''}`}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isVoided ? 'text-muted-foreground' : 'text-success'}`}>
-                        {isVoided ? '' : '+'}{formatCurrency(Number(p.amount_paid), p.currency as Currency)}
-                      </p>
-                      {!isVoided && (
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                            onClick={() => {
-                              setEditingId(p.id);
-                              setEditDate(p.date_paid);
-                              setEditMethod(p.payment_method || 'cash');
-                              setEditRemarks(p.remarks || '');
-                              setEditAmount(String(Number(p.amount_paid)));
-                              setEditAmountReason('');
-                            }}>
-                            <Pencil className="h-3 w-3" />
-                          </Button>
-                          {can('void_payment') && (
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                            onClick={() => { setVoidTarget(p.id); setVoidReason(''); }}>
-                            <Ban className="h-3 w-3" />
-                          </Button>
-                          )}
-                        </div>
-                      )}
-                      {isVoided && can('restore_payment') && (
-                        <Button variant="ghost" size="sm"
-                          className="h-7 text-xs text-muted-foreground hover:text-success"
-                          style={{ textDecoration: 'none' }}
-                          onClick={() => setRestoreTarget({ id: p.id, amount: Number(p.amount_paid), date: p.date_paid })}>
-                          <RotateCcw className="h-3 w-3 mr-1" />
-                          Restore
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2">
+            <MessageCircle className="h-4 w-4 text-info" /> Customer Message
+          </h3>
+          <div className="rounded-lg bg-muted/50 p-3 sm:p-4 border border-border" style={{ maxWidth: '100%', overflow: 'hidden' }}>
+            <pre className="text-[10px] sm:text-xs text-card-foreground font-body leading-relaxed" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', overflowWrap: 'anywhere', maxWidth: '100%' }}>
+              {message}
+            </pre>
+          </div>
+          <div className="flex gap-2 mt-4 flex-wrap">
+            <Button onClick={handleCopy} variant="outline" size="sm" className="border-primary/30 text-primary hover:bg-primary/10">
+              {copied ? <Check className="h-3.5 w-3.5 mr-1" /> : <Copy className="h-3.5 w-3.5 mr-1" />}
+              {copied ? 'Copied!' : 'Copy Message'}
+            </Button>
+            {account.customers?.messenger_link && (
+              <a href={account.customers.messenger_link} target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" size="sm" className="border-info/30 text-info hover:bg-info/10">
+                  <MessageCircle className="h-3.5 w-3.5 mr-1" /> Messenger
+                </Button>
+              </a>
+            )}
+          </div>
         </div>
+
+        {/* ═══ Verification Debug Panel ═══ */}
+        {(() => {
+          const sumPendingMonths = scheduleItems.filter(i => !isEffectivelyPaid(i)).reduce((s, i) => s + Math.max(0, Number(i.total_due_amount) - Number(i.paid_amount)), 0);
+          const sumAllBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
+          const baseIntegrity = Math.round((downpaymentAmount + sumAllBases) * 100) / 100;
+          // Verify totalPaid = DP + Σ(actualPaid per paid month)
+          const paidOrPartialScheds = scheduleItems.filter(s => isEffectivelyPaid(s) || isPartiallyPaid(s));
+          const computedPaid = dpPaidAmount + paidOrPartialScheds.reduce((s, i) => s + Number(i.paid_amount) + Number(i.penalty_amount), 0);
+          const checks = [
+            { label: 'activePenalties (non-waived)', expected: summary.activePenalties, actual: activePenaltyTotal, pass: Math.abs(summary.activePenalties - activePenaltyTotal) < 0.01 },
+            { label: 'totalLAAmount (base + penalties + svc)', expected: summary.totalLAAmount, actual: principalTotal + activePenaltyTotal + totalServicesAmount, pass: Math.abs(summary.totalLAAmount - (principalTotal + activePenaltyTotal + totalServicesAmount)) < 0.01 },
+            { label: 'amountPaid (DP + paid months)', expected: totalPaid, actual: Math.round(computedPaid * 100) / 100, pass: Math.abs(totalPaid - computedPaid) < 1 },
+            { label: 'remainingBalance (totalLA - paid)', expected: summary.remainingBalance, actual: Math.max(0, summary.totalLAAmount - totalPaid), pass: Math.abs(summary.remainingBalance - Math.max(0, summary.totalLAAmount - totalPaid)) < 0.01 },
+            { label: 'monthsRemaining', expected: summary.unpaidCount, actual: unpaidSchedule.length, pass: summary.unpaidCount === unpaidSchedule.length },
+            { label: 'sumOfPendingMonths ≈ remainingBalance', expected: summary.remainingBalance, actual: Math.round(sumPendingMonths * 100) / 100, pass: Math.abs(sumPendingMonths - summary.remainingBalance) < 2 },
+            { label: 'DP + sumBases = principalTotal', expected: principalTotal, actual: baseIntegrity, pass: Math.abs(baseIntegrity - principalTotal) < 2 },
+          ];
+          const allPass = checks.every(c => c.pass);
+          return (
+            <div className="mt-4">
+              <Button
+                variant="outline"
+                size="sm"
+                className={`text-xs ${allPass ? 'border-success/30 text-success' : 'border-destructive/30 text-destructive'}`}
+                onClick={() => setShowVerify(!showVerify)}
+              >
+                <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                {showVerify ? 'Hide' : 'Verify'} Calculations {allPass ? '✅' : '❌'}
+              </Button>
+              {(showVerify || isTestAccount) && (
+                <div className="mt-2 rounded-lg border border-border bg-muted/30 p-3 space-y-1.5">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Calculation Audit</p>
+                  {checks.map((c, i) => (
+                    <div key={i} className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">{c.pass ? '✅' : '❌'} {c.label}</span>
+                      <span className={`tabular-nums font-mono ${c.pass ? 'text-success' : 'text-destructive'}`}>
+                        {typeof c.actual === 'number' ? fmtVal(c.actual) : c.actual}
+                        {!c.pass && ` (expected: ${typeof c.expected === 'number' ? fmtVal(c.expected) : c.expected})`}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="pt-2 border-t border-border mt-2">
+                    <p className={`text-xs font-semibold ${allPass ? 'text-success' : 'text-destructive'}`}>
+                      {allPass ? '✅ All checks passed' : '❌ Some checks failed — investigate'}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Restore Payment Dialog */}
         <RestorePaymentDialog
