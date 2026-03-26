@@ -67,7 +67,7 @@ Deno.serve(async (req) => {
     const startTime = Date.now();
 
     // ── Fetch all data in parallel ──
-    const [accounts, schedules, penalties, payments, services] = await Promise.all([
+    const [accounts, schedules, penalties, payments, services, allSchedRows] = await Promise.all([
       fetchAll(supabase, "layaway_accounts",
         "id, invoice_number, status, currency, total_amount, total_paid, remaining_balance, downpayment_amount, payment_plan_months, statement_token, customers!inner(full_name)"),
       fetchAll(supabase, "layaway_schedule",
@@ -79,6 +79,8 @@ Deno.serve(async (req) => {
         "id, account_id, amount_paid, payment_type, is_downpayment, reference_number, remarks, voided_at"),
       fetchAll(supabase, "account_services",
         "id, account_id, amount"),
+      // All schedule rows including cancelled — used by check 12 to detect accounts with zero rows
+      fetchAll(supabase, "layaway_schedule", "account_id"),
     ]);
 
     // ── Index by account_id ──
@@ -88,6 +90,9 @@ Deno.serve(async (req) => {
     const svcByAcct   = index(services,  s => s.account_id);
     const schedById: Record<string, any> = {};
     for (const s of schedules) schedById[s.id] = s;
+
+    // All account IDs that have at least one schedule row of any status (for check 12)
+    const acctIdsWithAnySchedule = new Set<string>(allSchedRows.map((s: any) => s.account_id));
 
     const activeAccounts = accounts.filter((a: any) => !CLOSED_STATUSES.includes(a.status));
     const acctById: Record<string, any> = {};
@@ -340,18 +345,23 @@ Deno.serve(async (req) => {
     }
 
     // Check 12: Schedule Completeness
+    // Mirrors: SELECT ... FROM layaway_accounts la LEFT JOIN layaway_schedule ls ON ls.account_id = la.id
+    //          WHERE la.status NOT IN ('completed','forfeited','voided','cancelled')
+    //          GROUP BY la.id HAVING COUNT(ls.id) = 0
     {
       const affected: CheckResult["affectedAccounts"] = [];
-      for (const acct of activeAccounts) {
-        if ((schedByAcct[acct.id] || []).length === 0) {
+      const check12Excl = new Set(["completed", "forfeited", "voided", "cancelled"]);
+      const check12Accounts = accounts.filter((a: any) => !check12Excl.has(a.status));
+      for (const acct of check12Accounts) {
+        if (!acctIdsWithAnySchedule.has(acct.id)) {
           affected.push({ account_id: acct.id, invoice_number: acct.invoice_number,
             customer_name: acct.customers?.full_name || "Unknown",
-            detail: "Active account has no schedule rows" });
+            detail: "Account has no schedule rows — schedule was never generated" });
         }
       }
       checks.push({ id: 12, section: "system", label: "Schedule Completeness",
-        description: "Every active account has at least one non-cancelled schedule row",
-        status: affected.length === 0 ? "pass" : "fail", expected: "0 incomplete schedules",
+        description: "Every non-completed account has at least one schedule row",
+        status: affected.length === 0 ? "pass" : "fail", expected: "0 accounts missing schedule",
         affectedCount: affected.length, affectedAccounts: affected });
     }
 
