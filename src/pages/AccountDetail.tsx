@@ -581,10 +581,10 @@ export default function AccountDetail() {
         return `\n🎉 Your layaway is now fully paid! Thank you!`;
       }
       if (isDownpaymentOnly) {
-        const monthLabel = new Date(nextUnpaidItem.dueDate).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+        const monthLabel = new Date(nextUnpaidItem.dueDate + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
         return `\nFirst payment: ${monthLabel} — ${formatCurrency(nextUnpaidItem.totalDue, currency)}`;
       }
-      const monthLabel = new Date(nextUnpaidItem.dueDate).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+      const monthLabel = new Date(nextUnpaidItem.dueDate + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       const nextAmt = nextUnpaidItem.isPartial
         ? Math.max(0, nextUnpaidItem.totalDue - nextUnpaidItem.paidAmount)
         : nextUnpaidItem.totalDue;
