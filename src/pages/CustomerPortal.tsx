@@ -591,7 +591,7 @@ function SummaryTile({ label, value, financial, danger, success, sub }: {
       <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'6px'}}>
         {label}
       </p>
-      <p style={{fontFamily:CG,fontSize:'20px',fontWeight:600,color:valueColor,lineHeight:1.1,tabularNums:true as any}} title={value}>
+      <p style={{fontFamily:CG,fontSize:'20px',fontWeight:600,color:valueColor,lineHeight:1.1,fontVariantNumeric:'tabular-nums'}} title={value}>
         {value}
       </p>
       {sub && <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,marginTop:'3px'}}>{sub}</p>}
