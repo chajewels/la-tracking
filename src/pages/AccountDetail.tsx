@@ -1403,8 +1403,8 @@ export default function AccountDetail() {
             <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2">
               <MessageCircle className="h-4 w-4 text-info" /> Customer Message
             </h3>
-            <div className="rounded-lg bg-muted/50 p-3 sm:p-4 border border-border">
-              <pre className="text-[10px] sm:text-xs text-card-foreground whitespace-pre-wrap break-all font-body leading-relaxed" style={{ overflowWrap: 'anywhere' }}>
+            <div className="rounded-lg bg-muted/50 p-3 sm:p-4 border border-border" style={{ maxWidth: '100%', overflow: 'hidden' }}>
+              <pre className="text-[10px] sm:text-xs text-card-foreground font-body leading-relaxed" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', overflowWrap: 'anywhere', maxWidth: '100%' }}>
                 {message}
               </pre>
             </div>
