@@ -196,13 +196,15 @@ export default function Waivers() {
         // 3. Recalculate affected schedule items
         const affectedScheduleIds = [...new Set(selectedWaivers.map(w => w.schedule_id))];
         for (const schedId of affectedScheduleIds) {
+          // Include paid + unpaid (all non-waived) so penalty_amount stays consistent
+          // with activePenaltyTotal (which counts paid + unpaid, excludes waived)
           const { data: remainingPens } = await supabase
             .from('penalty_fees')
             .select('penalty_amount')
             .eq('schedule_id', schedId)
-            .eq('status', 'unpaid');
+            .not('status', 'eq', 'waived');
 
-          const totalUnpaidPenalty = (remainingPens || []).reduce((s, p) => s + Number(p.penalty_amount), 0);
+          const totalActivePenalty = (remainingPens || []).reduce((s, p) => s + Number(p.penalty_amount), 0);
 
           const { data: schedItem } = await supabase
             .from('layaway_schedule')
@@ -212,8 +214,8 @@ export default function Waivers() {
 
           if (schedItem) {
             await supabase.from('layaway_schedule').update({
-              penalty_amount: totalUnpaidPenalty,
-              total_due_amount: Number(schedItem.base_installment_amount) + totalUnpaidPenalty,
+              penalty_amount: totalActivePenalty,
+              total_due_amount: Number(schedItem.base_installment_amount) + totalActivePenalty,
             }).eq('id', schedId);
           }
         }
