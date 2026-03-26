@@ -102,14 +102,22 @@ Deno.serve(async (req) => {
 
       const actualTotalPaid = (payments || []).reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
 
-      // PRINCIPAL-ONLY remaining: exclude penalty payments
-      const { data: paidPenalties } = await supabase
+      // remainingBalance = total_amount + activePenalties + services - totalPaid
+      // activePenalties = non-waived penalty_fees (paid + unpaid, excludes waived)
+      const { data: activePens } = await supabase
         .from("penalty_fees")
         .select("penalty_amount")
         .eq("account_id", account_id)
-        .eq("status", "paid");
-      const penaltyPaidSum = (paidPenalties || []).reduce((s: number, f: any) => s + Number(f.penalty_amount), 0);
-      const correctRemaining = Math.max(0, Number(account.total_amount) - (actualTotalPaid - penaltyPaidSum));
+        .not("status", "eq", "waived");
+      const activePenaltySum = (activePens || []).reduce((s: number, f: any) => s + Number(f.penalty_amount), 0);
+
+      const { data: accountSvcs } = await supabase
+        .from("account_services")
+        .select("amount")
+        .eq("account_id", account_id);
+      const servicesSum = (accountSvcs || []).reduce((s: number, sv: any) => s + Number(sv.amount), 0);
+
+      const correctRemaining = Math.max(0, Number(account.total_amount) + activePenaltySum + servicesSum - actualTotalPaid);
 
       const updates: any = {};
       if (Math.abs(actualTotalPaid - Number(account.total_paid)) > 0.01) {

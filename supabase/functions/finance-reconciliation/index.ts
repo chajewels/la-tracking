@@ -104,6 +104,20 @@ Deno.serve(async (req) => {
       from += PAGE;
     }
 
+    // Fetch account services
+    let allServices: any[] = [];
+    from = 0;
+    while (true) {
+      const { data } = await supabase
+        .from("account_services")
+        .select("account_id, amount")
+        .range(from, from + PAGE - 1);
+      if (!data || data.length === 0) break;
+      allServices = allServices.concat(data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+
     // Index by account
     const schedByAcct: Record<string, any[]> = {};
     for (const s of allSchedules) {
@@ -116,6 +130,10 @@ Deno.serve(async (req) => {
     const payByAcct: Record<string, any[]> = {};
     for (const p of allPayments) {
       (payByAcct[p.account_id] ||= []).push(p);
+    }
+    const svcByAcct: Record<string, any[]> = {};
+    for (const s of allServices) {
+      (svcByAcct[s.account_id] ||= []).push(s);
     }
 
     let cleanCount = 0;
@@ -146,20 +164,21 @@ Deno.serve(async (req) => {
         });
       };
 
-      // 1. Balance reconciliation — SINGLE SOURCE OF TRUTH: remaining_balance = SUM(unpaid principal in schedule)
-      // remaining_balance tracks PRINCIPAL only; penalty payments do NOT reduce it.
-      const unpaidPrincipal = scheds.reduce((s: number, si: any) => {
-        if (si.status === 'paid' || si.status === 'cancelled') return s;
-        const base = Number(si.base_installment_amount);
-        const paid = Number(si.paid_amount);
-        // paid_amount on schedule reflects principal allocated, not penalty
-        return s + Math.max(0, base - paid);
-      }, 0);
+      // 1. Balance reconciliation
+      // computedBalance = total_amount + activePenalties + services - totalPaid
+      // activePenalties = non-waived penalty_fees (paid + unpaid, excludes waived)
+      const svcs = svcByAcct[acct.id] || [];
+      const servicesSum = svcs.reduce((s: number, sv: any) => s + Number(sv.amount), 0);
+      const activePenaltySum = pens
+        .filter((p: any) => p.status !== "waived")
+        .reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
+      const actualTotalPaid = pays.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+      const computedBalance = Math.max(0, Number(acct.total_amount) + activePenaltySum + servicesSum - actualTotalPaid);
 
       const storedBalance = Number(acct.remaining_balance);
 
-      if (Math.abs(unpaidPrincipal - storedBalance) > 1) {
-        addEx("balance_mismatch", `Stored remaining ${storedBalance} vs schedule unpaid principal ${Math.round(unpaidPrincipal * 100) / 100}`, unpaidPrincipal, storedBalance);
+      if (Math.abs(computedBalance - storedBalance) > 1) {
+        addEx("balance_mismatch", `Stored remaining ${storedBalance} vs computed ${Math.round(computedBalance * 100) / 100}`, computedBalance, storedBalance);
         balanceExceptions++;
       }
 
