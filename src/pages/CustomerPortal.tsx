@@ -120,8 +120,10 @@ interface PortalData {
 }
 
 function fmt(amount: number, currency: string): string {
-  if (currency === 'JPY') return `¥${amount.toLocaleString('en-US', { minimumFractionDigits: 0 })}`;
-  return `₱${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+  const n = Number(amount);
+  const isWhole = n % 1 === 0;
+  if (currency === 'JPY') return `¥${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  return `₱${n.toLocaleString('en-US', { minimumFractionDigits: isWhole ? 0 : 2, maximumFractionDigits: isWhole ? 0 : 2 })}`;
 }
 
 function fmtDate(dateStr: string): string {
@@ -382,6 +384,12 @@ export default function CustomerPortal() {
                   value={data.summary.next_due_date ? fmtDate(data.summary.next_due_date) : '—'}
                   sub={data.summary.next_due_invoice ? `#${data.summary.next_due_invoice}` : undefined}
                 />
+                {(() => {
+                  const spent = data.summary.accumulated_amount_spent || 0;
+                  const total = spent + data.summary.total_outstanding;
+                  const pct = total > 0 ? Math.round(spent / total * 100) : 0;
+                  return <SummaryTile label="Progress" value={`${pct}%`} />;
+                })()}
               </div>
               <div style={{height:'1px',background:P.gd}} />
             </div>
@@ -654,7 +662,8 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
       {/* Full Schedule List */}
       {(() => {
         const today = new Date().toISOString().split('T')[0];
-        const unpaid = account.schedule.filter(s => s.status !== 'cancelled' && s.status !== 'paid');
+        const sorted = [...account.schedule].sort((a, b) => a.installment_number - b.installment_number);
+        const unpaid = sorted.filter(s => s.status !== 'cancelled' && s.status !== 'paid');
         const nextDueId = unpaid.length > 0 ? unpaid[0].installment_number : -1;
 
         const dpTaggedPaid = account.payments
@@ -684,7 +693,7 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
             )}
 
             {/* Installment rows */}
-            {account.schedule.map((item) => {
+            {sorted.map((item) => {
               if (item.status === 'cancelled') return null;
               const isPaid = item.status === 'paid';
               const isPartial = item.status === 'partially_paid';
