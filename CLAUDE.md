@@ -135,6 +135,16 @@ When completing a partially_paid month:
   - Never carry over excess to next month
   - Next month stays pending with paid_amount = 0
 
+## Known Issues
+
+  DP payments may be recorded with various payment_type values
+  depending on how they were imported. Always check multiple fields
+  when identifying DP payments:
+    - payment_type === 'downpayment' or 'dp'
+    - is_downpayment === true
+    - reference_number starts with 'DP-'
+    - remarks contains 'down' or 'dp' (case-insensitive)
+
 ## Known Fixed Bugs (do not reintroduce)
 
   - DP must never be counted twice in totalPaid

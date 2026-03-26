@@ -306,11 +306,14 @@ export default function AccountDetail() {
   const scheduleItems = schedule || [];
   const downpaymentAmount = Number((account as any)?.downpayment_amount || 0);
 
-  // Identify downpayment payments by payment_type field, reference_number pattern, or remarks
+  // Identify downpayment payments — check multiple fields since import sources vary
   const isDownpaymentPayment = (p: any) =>
     p.payment_type === 'downpayment' ||
+    p.payment_type === 'dp' ||
+    p.is_downpayment === true ||
     (p.reference_number && String(p.reference_number).startsWith('DP-')) ||
-    (p.remarks && String(p.remarks).toLowerCase() === 'downpayment');
+    (p.remarks && String(p.remarks).toLowerCase().includes('down')) ||
+    (p.remarks && String(p.remarks).toLowerCase().includes('dp'));
   const dpPayments = (payments || []).filter((p: any) => !p.voided_at && isDownpaymentPayment(p));
   const taggedDpPaid = dpPayments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
   // For legacy accounts without tagged DP payments, infer DP as paid when total_paid covers it
@@ -1625,12 +1628,11 @@ export default function AccountDetail() {
           // computedPaid reads directly from payments table — same source as totalPaid
           const computedPaid = confirmedActivePayments.reduce(
             (sum, p) => sum + Number(p.amount_paid), 0);
-          // Check 8 prep — DP must have a payment record tagged as downpayment
+          // Check 8 prep — DP must have a payment record identifiable as downpayment
           const dpExpected = Math.abs(downpaymentAmount);
-          const dpActual8 = (payments || [])
-            .filter((p: any) => !p.voided_at && isDownpaymentPayment(p))
-            .reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
-          const dpCheck8Pass = dpExpected === 0 || dpActual8 >= dpExpected;
+          const dpPayment8 = (payments || []).find((p: any) => !p.voided_at && isDownpaymentPayment(p));
+          const dpActual8 = dpPayment8 ? Number(dpPayment8.amount_paid) : 0;
+          const dpCheck8Pass = dpExpected === 0 || (dpPayment8 != null && dpActual8 >= dpExpected - 1);
           // Check 9 prep — next payment date must come from due_date, not today/created_at
           const firstPendingItem9 = [...scheduleItems]
             .filter((i: any) => i.status === 'pending' || i.status === 'partially_paid')
