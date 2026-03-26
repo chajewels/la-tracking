@@ -120,7 +120,7 @@ export function isPartiallyPaid(item: {
   total_due_amount: number | string;
 }): boolean {
   if (isEffectivelyPaid(item)) return false;
-  return Number(item.paid_amount) > 0;
+  return item.status === 'partially_paid' || Number(item.paid_amount) > 0;
 }
 
 /** Remaining amount due on a schedule item (never negative). */
