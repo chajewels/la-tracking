@@ -139,8 +139,9 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
 
     setLoadingPreview(true);
     try {
-      const dpRef = paymentType === 'downpayment' && invoiceNumber ? `DP-${invoiceNumber}` : undefined;
-      const dpRemarks = paymentType === 'downpayment' ? 'Downpayment' : (notes || undefined);
+      const isDP = paymentType === 'downpayment';
+      const dpRef = isDP && invoiceNumber ? `DP-${invoiceNumber}` : undefined;
+      const dpRemarks = isDP ? 'Downpayment' : (notes || undefined);
       const { data, error } = await supabase.functions.invoke('record-payment', {
         body: {
           account_id: accountId,
@@ -149,6 +150,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
           payment_method: paymentMethod,
           reference_number: dpRef,
           remarks: dpRemarks,
+          is_downpayment: isDP,
           preview_only: true,
         },
       });
@@ -167,8 +169,9 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     submittingRef.current = true;
     setLoadingPreview(true);
     try {
-      const dpRef = paymentType === 'downpayment' && invoiceNumber ? `DP-${invoiceNumber}` : undefined;
-      const dpRemarks = paymentType === 'downpayment' ? 'Downpayment' : (notes || undefined);
+      const isDP = paymentType === 'downpayment';
+      const dpRef = isDP && invoiceNumber ? `DP-${invoiceNumber}` : undefined;
+      const dpRemarks = isDP ? 'Downpayment' : (notes || undefined);
       const { data, error } = await supabase.functions.invoke('record-payment', {
         body: {
           account_id: accountId,
@@ -177,6 +180,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
           payment_method: paymentMethod,
           reference_number: dpRef,
           remarks: dpRemarks,
+          is_downpayment: isDP,
         },
       });
       if (error) throw error;
@@ -202,8 +206,9 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     if (submittingRef.current) return; // prevent double-click
     submittingRef.current = true;
     try {
-      const dpRef = paymentType === 'downpayment' && invoiceNumber ? `DP-${invoiceNumber}` : undefined;
-      const dpRemarks = paymentType === 'downpayment' ? 'Downpayment' : (notes || undefined);
+      const isDP = paymentType === 'downpayment';
+      const dpRef = isDP && invoiceNumber ? `DP-${invoiceNumber}` : undefined;
+      const dpRemarks = isDP ? 'Downpayment' : (notes || undefined);
       await recordPayment.mutateAsync({
         account_id: accountId,
         amount: parsedAmount,
@@ -212,6 +217,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
         payment_method: paymentMethod,
         reference_number: dpRef,
         remarks: dpRemarks,
+        is_downpayment: isDP,
       });
       toast.success(`Payment of ${formatCurrency(parsedAmount, currency)} recorded successfully`);
       if (paymentType !== 'downpayment') {

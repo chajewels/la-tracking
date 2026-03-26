@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
       payment_method?: string;
       remarks?: string;
       preview_only?: boolean;
-      allocations: Array<{ account_id: string; amount: number }>;
+      allocations: Array<{ account_id: string; amount: number; is_downpayment?: boolean }>;
     };
 
     // Validate input
@@ -178,7 +178,10 @@ Deno.serve(async (req) => {
         status: string;
       }> = [];
 
-      if (unpaidPenalties) {
+      // DP payments skip all schedule and penalty allocation.
+      const isDP = !!inputAlloc.is_downpayment;
+
+      if (!isDP && unpaidPenalties) {
         for (const pen of unpaidPenalties) {
           if (remaining <= 0) break;
           const penAmount = Number(pen.penalty_amount);
@@ -197,9 +200,8 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Allocate remaining to installments sequentially (FIXED SCHEDULE MODEL)
-      // base_installment_amount is NEVER modified.
-      if (schedule && remaining > 0) {
+      // Allocate remaining to installments sequentially — not for DP payments.
+      if (!isDP && schedule && remaining > 0) {
         const unpaidItems = schedule.filter(
           item => item.status !== "paid" && item.status !== "cancelled"
         ).sort((a, b) => a.installment_number - b.installment_number);

@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { account_id, amount_paid, date_paid, payment_method, reference_number, remarks, preview_only } = body;
+    const { account_id, amount_paid, date_paid, payment_method, reference_number, remarks, preview_only, is_downpayment } = body;
 
     if (!account_id || !amount_paid || amount_paid <= 0) {
       return new Response(JSON.stringify({ error: "Invalid payment data" }), {
@@ -154,8 +154,8 @@ Deno.serve(async (req) => {
       status: string;
     }> = [];
 
-    // 1. Pay unpaid penalties first
-    if (unpaidPenalties) {
+    // 1. Pay unpaid penalties first (not applicable for DP payments)
+    if (!is_downpayment && unpaidPenalties) {
       for (const pen of unpaidPenalties) {
         if (remaining <= 0) break;
         const penAmount = Number(pen.penalty_amount);
@@ -175,20 +175,10 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 2a. Absorb remaining DP balance before touching any installment months
-    //     DP has no schedule row — tracked via account.total_paid.
-    if (remaining > 0) {
-      const dpTarget = Number(account.downpayment_amount || 0);
-      const existingTotalPaid = Number(account.total_paid || 0);
-      const dpRemaining = Math.max(0, dpTarget - existingTotalPaid);
-      if (dpRemaining > 0) {
-        const dpAbsorbed = Math.round(Math.min(remaining, dpRemaining) * 100) / 100;
-        remaining = Math.round((remaining - dpAbsorbed) * 100) / 100;
-      }
-    }
-
-    // 2b. Allocate remaining to installments sequentially (FIXED SCHEDULE MODEL)
-    if (remaining > 0 && schedule) {
+    // 2. Allocate to installments — only for non-DP payments.
+    //    DP payments NEVER touch schedule rows; they are recorded purely
+    //    as a payment entry and reflected in total_paid/remaining_balance.
+    if (!is_downpayment && remaining > 0 && schedule) {
       const unpaidItems = schedule.filter(
         item => item.status !== "paid" && item.status !== "cancelled"
       ).sort((a, b) => a.installment_number - b.installment_number);

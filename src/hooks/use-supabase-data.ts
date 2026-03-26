@@ -412,6 +412,7 @@ export function useRecordPayment() {
       payment_method?: string;
       remarks?: string;
       reference_number?: string;
+      is_downpayment?: boolean;
       preview_only?: boolean;
     }) => {
       const { amount, ...rest } = payload;
