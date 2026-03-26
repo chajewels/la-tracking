@@ -1618,6 +1618,18 @@ export default function AccountDetail() {
           // computedPaid reads directly from payments table — same source as totalPaid
           const computedPaid = confirmedActivePayments.reduce(
             (sum, p) => sum + Number(p.amount_paid), 0);
+          // Check 8 prep — DP must have an explicit tagged payment record
+          const dpCheck8Pass = downpaymentAmount === 0 ||
+            (dpPayments.length > 0 && Math.abs(taggedDpPaid - downpaymentAmount) < 1);
+          // Check 9 prep — next payment date must come from due_date, not today/created_at
+          const firstPendingItem9 = [...scheduleItems]
+            .filter((i: any) => i.status === 'pending' || i.status === 'partially_paid')
+            .sort((a: any, b: any) => a.installment_number - b.installment_number)[0] as any;
+          const nextUnpaidState9 = [...summary.scheduleStates]
+            .sort((a, b) => a.installmentNumber - b.installmentNumber)
+            .find(s => !s.isPaid);
+          const check9Exp = firstPendingItem9?.due_date ?? '—';
+          const check9Act = nextUnpaidState9?.dueDate ?? '—';
           const checks = [
             { label: 'activePenalties (non-waived)', expected: summary.activePenalties, actual: activePenaltyTotal, pass: Math.abs(summary.activePenalties - activePenaltyTotal) < 0.01 },
             { label: 'totalLAAmount (base + penalties + svc)', expected: summary.totalLAAmount, actual: principalTotal + activePenaltyTotal + totalServicesAmount, pass: Math.abs(summary.totalLAAmount - (principalTotal + activePenaltyTotal + totalServicesAmount)) < 0.01 },
@@ -1626,6 +1638,8 @@ export default function AccountDetail() {
             { label: 'monthsRemaining', expected: summary.unpaidCount, actual: unpaidSchedule.length, pass: summary.unpaidCount === unpaidSchedule.length },
             { label: 'sumOfPendingMonths ≈ remainingBalance', expected: summary.remainingBalance, actual: Math.round(sumPendingMonths * 100) / 100, pass: Math.abs(sumPendingMonths - summary.remainingBalance) < 2 },
             { label: 'DP + sumBases = principalTotal', expected: principalTotal, actual: baseIntegrity, pass: Math.abs(baseIntegrity - principalTotal) < 2 },
+            { label: 'downPayment recorded and marked paid', expected: downpaymentAmount, actual: taggedDpPaid, pass: dpCheck8Pass },
+            { label: 'nextPaymentDate uses due_date not payment date', expected: check9Exp, actual: check9Act, pass: !firstPendingItem9 || check9Exp === check9Act },
           ];
           const allPass = checks.every(c => c.pass);
           return (
