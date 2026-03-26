@@ -726,119 +726,81 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
         </>
       ) : (
       <>
-      {/* Full Schedule List */}
+      {/* Active: compact next-payment row */}
       {(() => {
         const today = new Date().toISOString().split('T')[0];
         const sorted = [...account.schedule].sort((a, b) => a.installment_number - b.installment_number);
-        const unpaid = sorted.filter(s => s.status !== 'cancelled' && s.status !== 'paid');
-        const nextDueId = unpaid.length > 0 ? unpaid[0].installment_number : -1;
+        const nextItem = sorted.find(s => s.status !== 'cancelled' && s.status !== 'paid');
 
-        const dpTaggedPaid = account.payments
-          .filter(p => (p.reference && String(p.reference).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment'))
-          .reduce((s, p) => s + p.amount, 0);
-        const totalPaidAll = account.payments.reduce((s, p) => s + p.amount, 0);
-        const dpPaid = dpTaggedPaid > 0 ? dpTaggedPaid
-          : (account.downpayment_amount > 0 && totalPaidAll >= account.downpayment_amount ? account.downpayment_amount : 0);
-        const dpFull = dpPaid >= account.downpayment_amount;
+        if (!nextItem) return (
+          <div style={{marginTop:'12px',borderTop:`1px solid ${P.s2}`,paddingTop:'12px'}}>
+            <p style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:'#5CB86A',display:'flex',alignItems:'center',gap:'6px'}}>
+              🎉 <span>Fully paid!</span>
+            </p>
+          </div>
+        );
+
+        const dueDate = new Date(nextItem.due_date + 'T00:00:00Z');
+        const diffDays = Math.ceil((dueDate.getTime() - new Date(today + 'T00:00:00Z').getTime()) / 86400000);
+        const isItemOverdue = diffDays < 0;
+        const urgencyColor = isItemOverdue ? '#E74C3C' : diffDays === 0 ? '#E8916A' : P.tp;
+        const dueLabel = isItemOverdue ? `${Math.abs(diffDays)}d overdue` : diffDays === 0 ? 'Due today' : `Due in ${diffDays}d`;
+        const amount = nextItem.total_due > 0 ? nextItem.total_due : nextItem.base_amount;
+        const dateLabel = dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
         return (
           <div style={{marginTop:'12px'}}>
-            {/* DP row */}
-            {account.downpayment_amount > 0 && (
-              <div className="flex items-center gap-2 py-2.5" style={{borderBottom:`1px solid ${P.s2}`}}>
-                <span style={{width:'16px',flexShrink:0,textAlign:'center' as const,fontSize:'13px'}}>
-                  {dpFull ? '✅' : dpPaid > 0 ? '◐' : ''}
+            <div className="py-3" style={{borderLeft:`3px solid ${urgencyColor}`,paddingLeft:'10px'}}>
+              <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'6px'}}>
+                {isItemOverdue ? '⚠️ Overdue Payment' : '⏰ Next Payment'}
+              </p>
+              <div className="flex items-baseline justify-between gap-2">
+                <span style={{fontFamily:"Inter,sans-serif",fontSize:'15px',fontWeight:600,color:urgencyColor}}>
+                  {fmt(amount, currency)}
                 </span>
-                <span style={{fontFamily:"Inter,sans-serif",fontSize:'12px',flex:1,color:dpFull ? P.gd : P.tp}}>
-                  Downpayment: {fmt(account.downpayment_amount, currency)}
-                </span>
-                <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',flexShrink:0,
-                  color:dpFull ? P.gd : dpPaid > 0 ? P.gl : P.ts}}>
-                  {dpFull ? 'Paid ✓' : dpPaid > 0 ? `${fmt(dpPaid, currency)} paid` : 'Unpaid'}
+                <span style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:urgencyColor}}>
+                  {dateLabel}
                 </span>
               </div>
-            )}
-
-            {/* Installment rows */}
-            {sorted.map((item) => {
-              if (item.status === 'cancelled') return null;
-              const isPaid = item.status === 'paid';
-              const isPartial = item.status === 'partially_paid';
-              const isNextDue = item.installment_number === nextDueId;
-              const ord = ordinal(item.installment_number);
-              const dateLabel = new Date(item.due_date + 'T00:00:00Z')
-                .toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-
-              if (isPaid) return (
-                <div key={item.installment_number} className="flex items-center gap-2 py-2"
-                  style={{borderBottom:`1px solid ${P.s2}`}}>
-                  <span style={{width:'16px',flexShrink:0,textAlign:'center' as const,fontSize:'13px'}}>✅</span>
-                  <span style={{fontFamily:"Inter,sans-serif",fontSize:'12px',flex:1,color:P.gd}}>
-                    {ord} month {dateLabel}: {fmt(item.base_amount, currency)}
-                  </span>
-                  <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.gd,flexShrink:0}}>Paid ✓</span>
-                </div>
-              );
-
-              if (isPartial) return (
-                <div key={item.installment_number} className="py-2"
-                  style={{borderBottom:`1px solid ${P.s2}`,borderLeft:`3px solid ${P.gp}`,paddingLeft:'10px'}}>
-                  <div className="flex items-center gap-2">
-                    <span style={{width:'16px',flexShrink:0,textAlign:'center' as const,color:P.gp,fontSize:'13px'}}>◐</span>
-                    <span style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:P.tp}}>
-                      {ord} month {dateLabel}:
-                    </span>
-                  </div>
-                  <div style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.gl,marginLeft:'24px',marginTop:'2px'}}>
-                    {fmt(item.paid_amount, currency)} of {fmt(item.total_due, currency)}
-                  </div>
-                </div>
-              );
-
-              if (isNextDue) {
-                const dueDate = new Date(item.due_date + 'T00:00:00Z');
-                const diffDays = Math.ceil((dueDate.getTime() - new Date(today + 'T00:00:00Z').getTime()) / 86400000);
-                const urgencyColor = diffDays < 0 ? '#E74C3C' : diffDays === 0 ? '#E8916A' : P.gp;
-                const dueLabel = diffDays < 0 ? `${Math.abs(diffDays)}d overdue`
-                  : diffDays === 0 ? 'Due today' : `Due in ${diffDays}d`;
-                return (
-                  <div key={item.installment_number} className="py-2.5"
-                    style={{borderBottom:`1px solid ${P.s2}`,borderLeft:`3px solid ${urgencyColor}`,paddingLeft:'10px'}}>
-                    <div className="flex items-center gap-2">
-                      <span style={{width:'16px',flexShrink:0,textAlign:'center' as const,fontSize:'13px'}}>⏰</span>
-                      <span style={{fontFamily:"Inter,sans-serif",fontSize:'13px',fontWeight:600,color:urgencyColor,flex:1}}>
-                        {ord} month {dateLabel}: {fmt(item.base_amount, currency)}
-                      </span>
-                      <span style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:urgencyColor,flexShrink:0}}>→</span>
-                    </div>
-                    <div style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,marginLeft:'24px',marginTop:'2px'}}>
-                      {dueLabel}
-                    </div>
-                  </div>
-                );
-              }
-
-              // Future pending
-              return (
-                <div key={item.installment_number} className="flex items-center gap-2 py-2"
-                  style={{borderBottom:`1px solid ${P.s2}`}}>
-                  <span style={{width:'16px',flexShrink:0}} />
-                  <span style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:P.ts,flex:1}}>
-                    {ord} month {dateLabel}: {fmt(item.base_amount, currency)}
-                  </span>
-                </div>
-              );
-            })}
+              <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,marginTop:'3px'}}>{dueLabel}</p>
+            </div>
           </div>
         );
       })()}
 
-      {/* Footer */}
-      <div className="flex items-center justify-end mt-4 pt-3" style={{borderTop:`1px solid ${P.br}`}}>
+      {/* Footer: view history (left) + view details (right) */}
+      <div className="flex items-center justify-between mt-3 pt-3" style={{borderTop:`1px solid ${P.br}`}}>
+        <button
+          onClick={(e) => { e.stopPropagation(); setHistoryOpen(o => !o); }}
+          style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,display:'flex',alignItems:'center',gap:'3px',background:'none',border:'none',cursor:'pointer',padding:0}}
+        >
+          {historyOpen ? 'Hide history' : 'View history'}
+        </button>
         <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.gp,letterSpacing:'0.08em',display:'flex',alignItems:'center',gap:'4px'}}>
-          View details <ChevronRight className="h-3.5 w-3.5" />
+          View <ChevronRight className="h-3.5 w-3.5" />
         </span>
       </div>
+      {historyOpen && account.payments.length > 0 && (
+        <div style={{marginTop:'8px',borderTop:`1px solid ${P.s2}`,paddingTop:'8px'}} onClick={e => e.stopPropagation()}>
+          {account.payments
+            .slice()
+            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+            .map((pay, i) => (
+              <div key={i} className="flex items-center gap-2 py-1.5" style={{borderBottom:`1px solid ${P.s2}`}}>
+                <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:'#5CB86A',flexShrink:0,width:'90px'}}>
+                  {fmt(pay.amount, currency)}
+                </span>
+                <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,flex:1}}>
+                  {fmtDate(pay.date.split('T')[0])}
+                </span>
+                {pay.method && (
+                  <span style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.gd,flexShrink:0}}>{pay.method}</span>
+                )}
+              </div>
+            ))
+          }
+        </div>
+      )}
       </>
       )}
     </div>
