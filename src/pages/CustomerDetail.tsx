@@ -614,10 +614,7 @@ export default function CustomerDetail() {
                   const penaltyAmt = Number(item.penalty_amount);
                   const baseAmt = Number(item.base_installment_amount);
                   const paidAmt = Number(item.paid_amount);
-                  const actualPayDate = schedulePaymentDates?.[item.id];
-                  const displayDate = effPaid && actualPayDate
-                    ? new Date(actualPayDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                    : new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                  const displayDate = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
                   return (
                     <div key={item.id}
                       className={`flex items-center justify-between p-2.5 rounded-lg border ${
