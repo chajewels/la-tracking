@@ -146,6 +146,7 @@ Deno.serve(async (req) => {
 
       const acct = accounts.find((a) => a.id === inputAlloc.account_id)!;
       const amountForAccount = Number(inputAlloc.amount);
+      console.log(`[multi-pay] Processing account ${acct.invoice_number}: amount=${amountForAccount}`);
 
       // Fetch schedule
       const { data: schedule } = await supabase
@@ -291,6 +292,8 @@ Deno.serve(async (req) => {
           performed_by_user_id: userId,
         });
       } else if (!preview_only && canConfirm) {
+        console.log(`[multi-pay] Persisting payment for ${acct.invoice_number}: ${amountForAccount}, scheduleUpdates=${JSON.stringify(scheduleUpdates)}`);
+        
         // Create payment record
         const { data: payment, error: payErr } = await supabase
           .from("payments")
@@ -307,33 +310,50 @@ Deno.serve(async (req) => {
           .select()
           .single();
 
-        if (payErr) throw payErr;
+        if (payErr) {
+          console.error(`[multi-pay] Payment insert error for ${acct.invoice_number}:`, payErr);
+          throw payErr;
+        }
+        console.log(`[multi-pay] Payment inserted: ${payment.id}`);
 
         // Create allocations
         for (const alloc of paymentAllocations) {
-          await supabase.from("payment_allocations").insert({
+          const { error: allocErr } = await supabase.from("payment_allocations").insert({
             payment_id: payment.id,
             schedule_id: alloc.schedule_id,
             allocation_type: alloc.allocation_type,
             allocated_amount: alloc.allocated_amount,
           });
+          if (allocErr) {
+            console.error(`[multi-pay] Allocation insert error:`, allocErr);
+            throw allocErr;
+          }
         }
 
         // Update penalties
         for (const pen of penaltyUpdates) {
-          await supabase.from("penalty_fees").update({ status: pen.status }).eq("id", pen.id);
+          const { error: penErr } = await supabase.from("penalty_fees").update({ status: pen.status }).eq("id", pen.id);
+          if (penErr) {
+            console.error(`[multi-pay] Penalty update error:`, penErr);
+            throw penErr;
+          }
         }
 
         // Update schedule (only paid_amount and status — base_installment_amount is IMMUTABLE)
         for (const item of scheduleUpdates) {
-          await supabase.from("layaway_schedule").update({
+          const { error: schedErr } = await supabase.from("layaway_schedule").update({
             paid_amount: item.paid_amount,
             status: item.status,
           }).eq("id", item.id);
+          if (schedErr) {
+            console.error(`[multi-pay] Schedule update error:`, schedErr);
+            throw schedErr;
+          }
         }
+        console.log(`[multi-pay] Schedule updated for ${acct.invoice_number}`);
 
         // Update account
-        await supabase
+        const { error: acctErr } = await supabase
           .from("layaway_accounts")
           .update({
             total_paid: newTotalPaid,
@@ -341,6 +361,11 @@ Deno.serve(async (req) => {
             status: newStatus,
           })
           .eq("id", inputAlloc.account_id);
+        if (acctErr) {
+          console.error(`[multi-pay] Account update error:`, acctErr);
+          throw acctErr;
+        }
+        console.log(`[multi-pay] Account updated: total_paid=${newTotalPaid}, remaining=${Math.max(0, newRemainingBalance)}, status=${newStatus}`);
 
         // Audit log
         await supabase.from("audit_logs").insert({
