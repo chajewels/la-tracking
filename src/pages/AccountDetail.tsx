@@ -1522,6 +1522,8 @@ export default function AccountDetail() {
                   }
 
                   const isDpPayment = isDownpaymentPayment(p);
+                  const senderType = (p as any).submitted_by_type as string | null;
+                  const senderName = (p as any).submitted_by_name as string | null;
                   return (
                     <div key={p.id} className={`flex items-center justify-between py-2 px-2 rounded-lg border-b border-border last:border-0 ${isVoided ? 'opacity-50 line-through' : ''}`}>
                       <div className="flex-1">
@@ -1532,9 +1534,16 @@ export default function AccountDetail() {
                           {isDpPayment && !isVoided && (
                             <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-primary/10 text-primary border-primary/20">Downpayment</Badge>
                           )}
+                          {senderType === 'customer' && (
+                            <span title={senderName ? `Customer: ${senderName}` : 'Customer submission'} className="text-[11px] cursor-default" style={{color:'#7B9EC9'}}>👤</span>
+                          )}
+                          {senderType === 'staff' && (
+                            <span title={senderName ? `Staff: ${senderName}` : 'Staff recorded'} className="text-[11px] cursor-default" style={{color:'#C9A84C'}}>🏢</span>
+                          )}
                         </div>
                         <p className="text-[10px] sm:text-xs text-muted-foreground">
                           {p.payment_method || 'Cash'}
+                          {senderName && ` · ${senderName}`}
                           {p.remarks && !isDpPayment && ` · ${p.remarks}`}
                           {isVoided && ` · VOIDED${(p as any).void_reason ? `: ${(p as any).void_reason}` : ''}`}
                         </p>

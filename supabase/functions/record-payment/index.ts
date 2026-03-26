@@ -276,6 +276,8 @@ Deno.serve(async (req) => {
         reference_number,
         remarks,
         entered_by_user_id: user.id,
+        submitted_by_type: "staff",
+        submitted_by_name: (user.user_metadata as any)?.full_name || user.email || null,
       })
       .select()
       .single();

@@ -1465,6 +1465,7 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
       if (nonZero.length === 0) { setFormError('Please allocate amounts to at least one invoice.'); return; }
     }
 
+    if (!proofFile) { setFormError('Please upload your proof of payment (screenshot or receipt).'); return; }
     if (!paymentDate) { setFormError('Please select a payment date.'); return; }
     if (!selectedMethodName) { setFormError('Please select a payment method.'); return; }
 
@@ -1751,20 +1752,22 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
           </div>
 
           <div>
-            <Label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts}}>Proof of Payment</Label>
+            <Label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts}}>
+              Proof of Payment <span style={{color:'#E74C3C'}}>*</span>
+            </Label>
             <div className="mt-1.5">
               <input ref={fileInputRef} type="file" accept="image/*,.pdf" onChange={handleFileChange} className="hidden" />
               {proofPreview ? (
                 <div className="relative">
-                  <img src={proofPreview} alt="Proof" className="w-full h-40 object-cover" style={{border:`1px solid ${P.br}`}} />
+                  <img src={proofPreview} alt="Proof" className="w-full h-40 object-cover" style={{border:`2px solid ${P.gp}`,borderRadius:'2px'}} />
                   <button onClick={() => { setProofFile(null); setProofPreview(null); }}
                     className="absolute top-2 right-2 h-6 w-6 flex items-center justify-center" style={{background:'rgba(10,10,10,0.7)',color:P.tp,border:'none',cursor:'pointer'}}>
                     <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
               ) : proofFile ? (
-                <div className="flex items-center gap-2 p-3" style={{border:`1px solid ${P.br}`,background:P.s2}}>
-                  <FileText className="h-4 w-4" style={{color:P.ts}} />
+                <div className="flex items-center gap-2 p-3" style={{border:`2px solid ${P.gp}`,background:P.s2,borderRadius:'2px'}}>
+                  <FileText className="h-4 w-4" style={{color:P.gp}} />
                   <span style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:P.tp}} className="truncate flex-1">{proofFile.name}</span>
                   <button onClick={() => { setProofFile(null); setProofPreview(null); }} style={{background:'transparent',border:'none',cursor:'pointer',color:P.ts}}>
                     <X className="h-3.5 w-3.5" />
@@ -1773,10 +1776,10 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
               ) : (
                 <button onClick={() => fileInputRef.current?.click()}
                   className="w-full p-6 flex flex-col items-center gap-2 transition-all"
-                  style={{background:'transparent',border:`1px dashed ${P.gd}`,borderRadius:'2px',cursor:'pointer'}}>
-                  <Upload className="h-6 w-6" style={{color:P.ts}} />
-                  <span style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:P.ts}}>Tap to upload screenshot or receipt</span>
-                  <span style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,opacity:0.6}}>JPG, PNG, or PDF · Max 10MB</span>
+                  style={{background:`rgba(201,168,76,0.04)`,border:`2px dashed ${P.gp}`,borderRadius:'2px',cursor:'pointer'}}>
+                  <Upload className="h-7 w-7" style={{color:P.gp}} />
+                  <span style={{fontFamily:"Inter,sans-serif",fontSize:'13px',fontWeight:600,color:P.gp}}>Upload Proof of Payment</span>
+                  <span style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts}}>Required · JPG, PNG, or PDF · Max 10MB</span>
                 </button>
               )}
             </div>
@@ -1796,9 +1799,9 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
 
           <button
             className="w-full flex items-center justify-center gap-2 h-12 transition-opacity"
-            style={{background:submitting?P.s2:P.gr,border:'none',borderRadius:'2px',color:submitting?P.ts:P.bg,fontFamily:"Inter,sans-serif",fontSize:'12px',fontWeight:700,letterSpacing:'0.15em',textTransform:'uppercase' as const,cursor:submitting?'not-allowed':'pointer',opacity:submitting?0.7:1}}
+            style={{background:(submitting||!proofFile)?P.s2:P.gr,border:'none',borderRadius:'2px',color:(submitting||!proofFile)?P.ts:P.bg,fontFamily:"Inter,sans-serif",fontSize:'12px',fontWeight:700,letterSpacing:'0.15em',textTransform:'uppercase' as const,cursor:(submitting||!proofFile)?'not-allowed':'pointer',opacity:(submitting||!proofFile)?0.5:1}}
             onClick={handleSubmit}
-            disabled={submitting}
+            disabled={submitting || !proofFile}
           >
             {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
             {submitting ? 'Submitting…' : paymentMode === 'split' ? `Submit Split Payment (${fmt(splitTotal, currency)})` : 'Submit Payment'}

@@ -311,13 +311,32 @@ export default function PaymentSubmissions() {
                             <p className="text-xs text-foreground">{sub.reviewer_notes}</p>
                           </div>
                         )}
+
+                        {/* Inline proof preview */}
+                        {sub.proof_url && (
+                          <div className="mt-1">
+                            <p className="text-[10px] text-muted-foreground mb-1 font-medium">Proof of Payment</p>
+                            {sub.proof_url.match(/\.pdf$/i) ? (
+                              <a href={sub.proof_url} target="_blank" rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 text-xs text-primary underline p-2 rounded border border-primary/20 bg-primary/5">
+                                <FileText className="h-3.5 w-3.5" /> Open PDF
+                              </a>
+                            ) : (
+                              <button onClick={() => setProofDialog(sub.proof_url!)} className="block w-full text-left">
+                                <img src={sub.proof_url} alt="Proof of payment"
+                                  className="w-full max-h-40 object-cover rounded border border-[hsl(var(--border))] hover:opacity-90 transition-opacity cursor-zoom-in" />
+                                <p className="text-[9px] text-muted-foreground mt-0.5">Click to view full size</p>
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {/* Right: Actions */}
                       <div className="flex flex-row sm:flex-col gap-1.5 shrink-0">
-                        {sub.proof_url && (
+                        {sub.proof_url && !sub.proof_url.match(/\.pdf$/i) && (
                           <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setProofDialog(sub.proof_url!)}>
-                            <ImageIcon className="h-3.5 w-3.5" /> Proof
+                            <ImageIcon className="h-3.5 w-3.5" /> Expand
                           </Button>
                         )}
                         {isPending && canModerate && (

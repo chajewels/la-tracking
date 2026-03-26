@@ -308,6 +308,8 @@ Deno.serve(async (req) => {
             reference_number: batchId,
             remarks: remarks ? `[Multi-invoice] ${remarks}` : `[Multi-invoice batch: ${batchId}]`,
             entered_by_user_id: userId,
+            submitted_by_type: "staff",
+            submitted_by_name: (claimsData.user.user_metadata as any)?.full_name || claimsData.user.email || null,
           })
           .select()
           .single();

@@ -35,7 +35,9 @@ async function allocatePaymentToAccount(
   remarks: string,
   userId: string,
   currency: string,
-  isDownpayment: boolean = false
+  isDownpayment: boolean = false,
+  submittedByType: "customer" | "staff" = "staff",
+  submittedByName: string | null = null
 ): Promise<{ paymentId: string; error?: string }> {
   // Fetch schedule (only needed for installment payments)
   const { data: schedule } = isDownpayment ? { data: null } : await supabase
@@ -135,6 +137,8 @@ async function allocatePaymentToAccount(
       reference_number: referenceNumber,
       remarks,
       entered_by_user_id: userId,
+      submitted_by_type: submittedByType,
+      submitted_by_name: submittedByName,
     })
     .select("id")
     .single();
@@ -318,6 +322,17 @@ Deno.serve(async (req) => {
         subRef.toUpperCase().startsWith('DP-') ||
         /\bdown(payment)?\b|\bdp\b/i.test(subNotes);
 
+      // Fetch customer name for submitted_by_name
+      let customerName: string | null = null;
+      if (submission.customer_id) {
+        const { data: customer } = await supabase
+          .from("customers")
+          .select("full_name")
+          .eq("id", submission.customer_id)
+          .single();
+        customerName = customer?.full_name || null;
+      }
+
       if (allocs.length === 0) {
         // Fallback: single payment with account_id from submission
         const { data: account } = await supabase
@@ -336,7 +351,9 @@ Deno.serve(async (req) => {
           `Payment submitted${submission.notes ? ': ' + submission.notes : ''}. Submission #${submission.id.substring(0, 8)}`,
           user.id,
           account?.currency || "PHP",
-          submissionIsDP
+          submissionIsDP,
+          "customer",
+          customerName
         );
 
         if (result.error) {
@@ -365,7 +382,9 @@ Deno.serve(async (req) => {
             `Payment submitted${submission.notes ? ': ' + submission.notes : ''}. Submission #${submission.id.substring(0, 8)} (${alloc.invoice_number})`,
             user.id,
             account?.currency || "PHP",
-            submissionIsDP
+            submissionIsDP,
+            "customer",
+            customerName
           );
 
           if (result.error) {
