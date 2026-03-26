@@ -862,6 +862,8 @@ export type Database = {
           payment_method: string | null
           reference_number: string | null
           remarks: string | null
+          submitted_by_name: string | null
+          submitted_by_type: string | null
           void_reason: string | null
           voided_at: string | null
           voided_by_user_id: string | null
@@ -877,6 +879,8 @@ export type Database = {
           payment_method?: string | null
           reference_number?: string | null
           remarks?: string | null
+          submitted_by_name?: string | null
+          submitted_by_type?: string | null
           void_reason?: string | null
           voided_at?: string | null
           voided_by_user_id?: string | null
@@ -892,6 +896,8 @@ export type Database = {
           payment_method?: string | null
           reference_number?: string | null
           remarks?: string | null
+          submitted_by_name?: string | null
+          submitted_by_type?: string | null
           void_reason?: string | null
           voided_at?: string | null
           voided_by_user_id?: string | null
