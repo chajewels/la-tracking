@@ -365,6 +365,86 @@ Deno.serve(async (req) => {
         affectedCount: affected.length, affectedAccounts: affected });
     }
 
+    // Check 13: Unallocated Bulk Import Payments
+    // Accounts where installment payments exist (sum > 0) but no schedule row
+    // has been updated — indicates payments were imported but never allocated.
+    {
+      const affected: CheckResult["affectedAccounts"] = [];
+      for (const acct of activeAccounts) {
+        const pays   = (payByAcct[acct.id] || []).filter((p: any) => !p.voided_at);
+        const scheds = schedByAcct[acct.id] || [];
+
+        // Sum non-DP payments (installment payments only)
+        const installmentPaid = pays
+          .filter((p: any) => !isDPPayment(p))
+          .reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+
+        if (installmentPaid <= 0) continue; // no installment payments at all — not an issue
+
+        // Check if schedule has any paid/partial rows
+        const anyAllocated = scheds.some(
+          (s: any) => Number(s.paid_amount) > 0 || s.status === "paid" || s.status === "partially_paid"
+        );
+
+        if (!anyAllocated) {
+          affected.push({
+            account_id: acct.id,
+            invoice_number: acct.invoice_number,
+            customer_name: acct.customers?.full_name || "Unknown",
+            detail: `₱${Math.round(installmentPaid).toLocaleString()} in installment payments but all schedule rows show 0 paid`,
+          });
+        }
+      }
+      checks.push({
+        id: 13, section: "data", label: "Unallocated Bulk Import Payments",
+        description: "Accounts with installment payments recorded but zero allocation on any schedule row",
+        status: affected.length === 0 ? "pass" : "fail", expected: "0 unallocated accounts",
+        affectedCount: affected.length, affectedAccounts: affected,
+      });
+    }
+
+    // Check 14: Overdue Accounts Missing Penalties (7+ days overdue, no active penalty)
+    // More sensitive than Check 11 (30+ days) — catches accounts the penalty engine missed early.
+    // Excludes TEST accounts.
+    {
+      const affected: CheckResult["affectedAccounts"] = [];
+      for (const acct of activeAccounts) {
+        if (acct.invoice_number && String(acct.invoice_number).startsWith("TEST-")) continue;
+
+        const scheds = schedByAcct[acct.id] || [];
+        const pens   = penByAcct[acct.id] || [];
+
+        const overdueUnpaid = scheds
+          .filter((s: any) => s.due_date < today && !isEffectivelyPaid(s))
+          .sort((a: any, b: any) => a.due_date.localeCompare(b.due_date));
+
+        if (overdueUnpaid.length === 0) continue;
+
+        const earliestDue = overdueUnpaid[0].due_date;
+        const daysOverdue = Math.floor(
+          (Date.now() - new Date(earliestDue + "T00:00:00Z").getTime()) / 86400000
+        );
+
+        if (daysOverdue < 7) continue; // still in grace period
+
+        const hasActivePen = pens.some((p: any) => p.status !== "waived");
+        if (!hasActivePen) {
+          affected.push({
+            account_id: acct.id,
+            invoice_number: acct.invoice_number,
+            customer_name: acct.customers?.full_name || "Unknown",
+            detail: `${daysOverdue}d overdue since ${earliestDue} — no active penalty recorded`,
+          });
+        }
+      }
+      checks.push({
+        id: 14, section: "system", label: "Overdue Missing Penalties",
+        description: "Non-test accounts 7+ days overdue with no active penalty fees (penalty engine missed them)",
+        status: affected.length === 0 ? "pass" : "fail", expected: "0 overdue accounts missing penalty",
+        affectedCount: affected.length, affectedAccounts: affected,
+      });
+    }
+
     const passed  = checks.filter(c => c.status === "pass").length;
     const skipped = checks.filter(c => c.status === "skip").length;
     const failed  = checks.filter(c => c.status === "fail").length;
