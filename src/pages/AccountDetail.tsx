@@ -376,7 +376,10 @@ export default function AccountDetail() {
     // Each paid/partial month's actual collected = base paid + penalty for that month
     const paidOrPartialSchedules = scheduleItems.filter(s => isEffectivelyPaid(s) || isPartiallyPaid(s));
     paidOrPartialSchedules.forEach(s => {
-      const actualPaid = Number(s.paid_amount) + Number(s.penalty_amount);
+      const paidAmt = Number(s.paid_amount);
+      const baseAmt = Number(s.base_installment_amount);
+      const penaltyAdd = paidAmt > baseAmt ? 0 : Number(s.penalty_amount);
+      const actualPaid = paidAmt + penaltyAdd;
       parts.push(fmtVal(actualPaid));
     });
     if (parts.length > 1) {
@@ -1614,7 +1617,13 @@ export default function AccountDetail() {
           const baseIntegrity = Math.round((downpaymentAmount + sumAllBases) * 100) / 100;
           // Verify totalPaid = DP + Σ(actualPaid per paid month)
           const paidOrPartialScheds = scheduleItems.filter(s => isEffectivelyPaid(s) || isPartiallyPaid(s));
-          const computedPaid = dpPaidAmount + paidOrPartialScheds.reduce((s, i) => s + Number(i.paid_amount) + Number(i.penalty_amount), 0);
+          const computedPaid = dpPaidAmount + paidOrPartialScheds.reduce((s, i) => {
+            const paidAmt = Number(i.paid_amount);
+            const baseAmt = Number(i.base_installment_amount);
+            // If paid_amount > base, penalty was rolled in by add-penalty correction — don't double-count
+            const penaltyAdd = paidAmt > baseAmt ? 0 : Number(i.penalty_amount);
+            return s + paidAmt + penaltyAdd;
+          }, 0);
           const checks = [
             { label: 'activePenalties (non-waived)', expected: summary.activePenalties, actual: activePenaltyTotal, pass: Math.abs(summary.activePenalties - activePenaltyTotal) < 0.01 },
             { label: 'totalLAAmount (base + penalties + svc)', expected: summary.totalLAAmount, actual: principalTotal + activePenaltyTotal + totalServicesAmount, pass: Math.abs(summary.totalLAAmount - (principalTotal + activePenaltyTotal + totalServicesAmount)) < 0.01 },
