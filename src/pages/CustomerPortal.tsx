@@ -300,7 +300,14 @@ export default function CustomerPortal() {
     return true;
   });
 
+  const accountIsCompleted = (a: PortalAccount) =>
+    a.status_label === 'Fully Paid' || a.status === 'completed'
+    || (a.remaining_balance <= 0 && a.schedule.length > 0 && a.schedule.every(s => s.status === 'paid' || s.status === 'cancelled'));
+
   filtered = [...filtered].sort((a, b) => {
+    const aC = accountIsCompleted(a) ? 1 : 0;
+    const bC = accountIsCompleted(b) ? 1 : 0;
+    if (aC !== bC) return aC - bC;
     switch (sortBy) {
       case 'oldest': return a.order_date.localeCompare(b.order_date);
       case 'due_soon': return (a.next_due_date || 'z').localeCompare(b.next_due_date || 'z');
@@ -601,10 +608,12 @@ function SummaryTile({ label, value, financial, danger, success, sub }: {
 
 /* ─── Account Card ─── */
 function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount; onViewDetails: () => void; onPay: () => void }) {
+  const [historyOpen, setHistoryOpen] = useState(false);
   const currency = account.currency;
   const colorClass = statusColor[account.status_label] || statusColor['Active'];
   const isOverdue = account.status_label === 'Overdue';
-  const isCompleted = account.status_label === 'Fully Paid';
+  const isCompleted = account.status_label === 'Fully Paid' || account.status === 'completed'
+    || (account.remaining_balance <= 0 && account.schedule.length > 0 && account.schedule.every(s => s.status === 'paid' || s.status === 'cancelled'));
   const pendingSubs = account.submissions?.filter(s => ['submitted', 'under_review'].includes(s.status)).length || 0;
 
   return (
@@ -674,6 +683,49 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
         ))}
       </div>
 
+      {/* Completed: compact summary + collapsible payment history */}
+      {isCompleted ? (
+        <>
+          <div style={{marginTop:'12px',borderTop:`1px solid ${P.s2}`,paddingTop:'12px'}}>
+            <p style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:'#5CB86A',display:'flex',alignItems:'center',gap:'6px'}}>
+              🎉 <span>Fully paid — Thank you!</span>
+            </p>
+          </div>
+          <div className="flex items-center justify-between mt-3 pt-3" style={{borderTop:`1px solid ${P.br}`}}>
+            <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:'#5CB86A',display:'flex',alignItems:'center',gap:'4px'}}>
+              <Check className="h-3 w-3" /> Fully paid
+            </span>
+            <button
+              onClick={(e) => { e.stopPropagation(); setHistoryOpen(o => !o); }}
+              style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.gp,letterSpacing:'0.08em',display:'flex',alignItems:'center',gap:'4px',background:'none',border:'none',cursor:'pointer',padding:0}}
+            >
+              {historyOpen ? 'Hide history' : 'View history'} <ChevronRight className={`h-3.5 w-3.5 transition-transform ${historyOpen ? 'rotate-90' : ''}`} />
+            </button>
+          </div>
+          {historyOpen && account.payments.length > 0 && (
+            <div style={{marginTop:'8px',borderTop:`1px solid ${P.s2}`,paddingTop:'8px'}} onClick={e => e.stopPropagation()}>
+              {account.payments
+                .slice()
+                .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+                .map((pay, i) => (
+                  <div key={i} className="flex items-center gap-2 py-1.5" style={{borderBottom:`1px solid ${P.s2}`}}>
+                    <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:'#5CB86A',flexShrink:0,width:'90px'}}>
+                      {fmt(pay.amount, currency)}
+                    </span>
+                    <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,flex:1}}>
+                      {fmtDate(pay.date.split('T')[0])}
+                    </span>
+                    {pay.method && (
+                      <span style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.gd,flexShrink:0}}>{pay.method}</span>
+                    )}
+                  </div>
+                ))
+              }
+            </div>
+          )}
+        </>
+      ) : (
+      <>
       {/* Full Schedule List */}
       {(() => {
         const today = new Date().toISOString().split('T')[0];
@@ -783,16 +835,12 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
 
       {/* Footer */}
       <div className="flex items-center justify-end mt-4 pt-3" style={{borderTop:`1px solid ${P.br}`}}>
-        {account.remaining_balance <= 0 ? (
-          <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:'#5CB86A',display:'flex',alignItems:'center',gap:'4px'}}>
-            <Check className="h-3 w-3" /> Fully paid
-          </span>
-        ) : (
-          <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.gp,letterSpacing:'0.08em',display:'flex',alignItems:'center',gap:'4px'}}>
-            View details <ChevronRight className="h-3.5 w-3.5" />
-          </span>
-        )}
+        <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.gp,letterSpacing:'0.08em',display:'flex',alignItems:'center',gap:'4px'}}>
+          View details <ChevronRight className="h-3.5 w-3.5" />
+        </span>
       </div>
+      </>
+      )}
     </div>
   );
 }
