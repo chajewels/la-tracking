@@ -285,6 +285,19 @@ export default function NewAccount() {
             .map(a => ({ account_id: a.account_id, amount: parseInt(a.amount) || 0 }))
         : undefined;
 
+      // Always send an explicit installments array so the edge function never has
+      // to infer amounts. For equal mode: build Math.floor distribution matching
+      // the edge function's own algorithm. For custom mode: use user-entered amounts.
+      const installmentsToSend: number[] = installmentMode === 'custom'
+        ? customAmounts.map(v => parseInt(v) || 0)
+        : (() => {
+            const base = Math.floor(baseForInstallments / paymentPlan);
+            const rem  = baseForInstallments - base * paymentPlan;
+            return Array.from({ length: paymentPlan }, (_, i) =>
+              i === paymentPlan - 1 ? base + rem : base
+            );
+          })();
+
       const result = await createAccount.mutateAsync({
         customer_id: customerId,
         invoice_number: invoiceNumber,
@@ -296,9 +309,7 @@ export default function NewAccount() {
         downpayment_paid: 0,
         split_allocations: validAllocations,
         lump_sum_total: enableSplitPayment ? lumpSum : undefined,
-        custom_installments: installmentMode === 'custom'
-          ? customAmounts.map(v => parseInt(v) || 0)
-          : undefined,
+        custom_installments: installmentsToSend,
       });
 
       // Mark as submitted to allow navigation
