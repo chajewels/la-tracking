@@ -1,5 +1,14 @@
 # Cha Jewels Layaway System — Claude Code Context
 
+## Account Creation Rules
+
+- Downpayment is NEVER marked paid at creation
+- `dp_paid` always starts at 0; `total_paid = 0` on new accounts
+- DP is only marked paid after payment submission is validated by staff
+- Never bypass the payment validation flow
+- The "Downpayment Paid" input field does NOT exist on the creation form
+- DP redistribution into installments is NOT supported (removed)
+
 ## Git Workflow
 
 - Commit and push all changes directly to **main** branch
