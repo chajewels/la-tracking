@@ -239,7 +239,22 @@ export default function CustomerPortal() {
       );
       const json = await res.json();
       if (!res.ok) { setError(json.error || 'Access denied'); return; }
-      setData(json);
+      // Override stale 'Overdue' status_label: account is only truly overdue if
+      // an unpaid schedule row has due_date < today (same logic as admin view)
+      const portalToday = new Date().toISOString().split('T')[0];
+      const normalizedJson = {
+        ...json,
+        accounts: (json.accounts || []).map((a: PortalAccount) => {
+          if (a.status_label === 'Overdue') {
+            const hasUnpaidPastDue = (a.schedule || []).some(
+              (s: { status: string; due_date: string }) => s.status !== 'paid' && s.due_date < portalToday
+            );
+            if (!hasUnpaidPastDue) return { ...a, status_label: 'Active' };
+          }
+          return a;
+        }),
+      };
+      setData(normalizedJson);
     } catch { setError('Unable to load your accounts. Please try again.'); }
     finally { setLoading(false); }
   };
