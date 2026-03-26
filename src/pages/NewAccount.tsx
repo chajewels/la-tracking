@@ -175,37 +175,21 @@ export default function NewAccount() {
   const initCustomAmounts = useCallback(() => {
     const equalAmts = (() => {
       if (installmentTotal <= 0) return Array(paymentPlan).fill(0);
-      if (hasShortDp && remainingDpOption === 'split') {
-        const baseInstallments = calculateInstallments(baseForInstallments, paymentPlan);
-        const dpPerMonth = Math.floor(remainingDp / paymentPlan);
-        const dpRemainder = remainingDp - dpPerMonth * paymentPlan;
-        return baseInstallments.map((base, i) => base + dpPerMonth + (i === paymentPlan - 1 ? dpRemainder : 0));
-      }
-      if (hasShortDp && remainingDpOption === 'add_to_installments') {
-        const installments = calculateInstallments(baseForInstallments, paymentPlan);
-        if (installments.length > 0) installments[0] += remainingDp;
-        return installments;
+      if (hasShortDp) {
+        return calculateInstallments(installmentTotal, paymentPlan);
       }
       return calculateInstallments(installmentTotal, paymentPlan);
     })();
     setCustomAmounts(equalAmts.map(String));
-  }, [installmentTotal, paymentPlan, hasShortDp, remainingDpOption, baseForInstallments, remainingDp]);
+  }, [installmentTotal, paymentPlan, hasShortDp]);
 
   const previewInstallments = (() => {
     if (installmentMode === 'custom' && customAmounts.length === paymentPlan) {
       return customAmounts.map(v => parseInt(v) || 0);
     }
     if (installmentTotal <= 0) return [];
-    if (hasShortDp && remainingDpOption === 'split') {
-      const baseInstallments = calculateInstallments(baseForInstallments, paymentPlan);
-      const dpPerMonth = Math.floor(remainingDp / paymentPlan);
-      const dpRemainder = remainingDp - dpPerMonth * paymentPlan;
-      return baseInstallments.map((base, i) => base + dpPerMonth + (i === paymentPlan - 1 ? dpRemainder : 0));
-    }
-    if (hasShortDp && remainingDpOption === 'add_to_installments') {
-      const installments = calculateInstallments(baseForInstallments, paymentPlan);
-      if (installments.length > 0) installments[0] += remainingDp;
-      return installments;
+    if (hasShortDp) {
+      return calculateInstallments(installmentTotal, paymentPlan);
     }
     return calculateInstallments(installmentTotal, paymentPlan);
   })();
