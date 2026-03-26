@@ -146,6 +146,7 @@ Deno.serve(async (req) => {
 
       const acct = accounts.find((a) => a.id === inputAlloc.account_id)!;
       const amountForAccount = Number(inputAlloc.amount);
+      console.log(`[multi-pay] Processing account ${acct.invoice_number}: amount=${amountForAccount}`);
 
       // Fetch schedule
       const { data: schedule } = await supabase
