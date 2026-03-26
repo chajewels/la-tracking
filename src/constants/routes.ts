@@ -12,6 +12,7 @@ export const ROUTES = {
   REMINDERS: "/reminders",
   WAIVERS: "/waivers",
   ADMIN_AUDIT: "/admin-audit",
+  SYSTEM_AUDIT: "/system-audit",
   SETTINGS: "/settings",
   PAYMENT_SUBMISSIONS: "/payment-submissions",
 };
