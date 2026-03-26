@@ -631,7 +631,7 @@ export default function AccountDetail() {
     } else {
       // ── FALLBACK — no session payments ──
       // If last payment was from a multi-invoice batch, show simple update message
-      const isLastPaymentFromBatch = mostRecentPayment?.remarks?.includes('Multi-invoice batch:');
+      const isLastPaymentFromBatch = mostRecentPayment?.remarks?.includes('[Multi-invoice');
 
       if (isLastPaymentFromBatch) {
         message += `Your account has been updated.\n\n`;
