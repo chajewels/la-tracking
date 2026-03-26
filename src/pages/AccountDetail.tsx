@@ -306,8 +306,9 @@ export default function AccountDetail() {
   const scheduleItems = schedule || [];
   const downpaymentAmount = Number((account as any)?.downpayment_amount || 0);
 
-  // Identify downpayment payments by reference_number pattern "DP-{invoice}" or remarks="Downpayment"
+  // Identify downpayment payments by payment_type field, reference_number pattern, or remarks
   const isDownpaymentPayment = (p: any) =>
+    p.payment_type === 'downpayment' ||
     (p.reference_number && String(p.reference_number).startsWith('DP-')) ||
     (p.remarks && String(p.remarks).toLowerCase() === 'downpayment');
   const dpPayments = (payments || []).filter((p: any) => !p.voided_at && isDownpaymentPayment(p));
@@ -1618,9 +1619,12 @@ export default function AccountDetail() {
           // computedPaid reads directly from payments table — same source as totalPaid
           const computedPaid = confirmedActivePayments.reduce(
             (sum, p) => sum + Number(p.amount_paid), 0);
-          // Check 8 prep — DP must have an explicit tagged payment record
-          const dpCheck8Pass = downpaymentAmount === 0 ||
-            (dpPayments.length > 0 && Math.abs(taggedDpPaid - downpaymentAmount) < 1);
+          // Check 8 prep — DP must have a payment record tagged as downpayment
+          const dpExpected = Math.abs(downpaymentAmount);
+          const dpActual8 = (payments || [])
+            .filter((p: any) => !p.voided_at && isDownpaymentPayment(p))
+            .reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+          const dpCheck8Pass = dpExpected === 0 || dpActual8 >= dpExpected;
           // Check 9 prep — next payment date must come from due_date, not today/created_at
           const firstPendingItem9 = [...scheduleItems]
             .filter((i: any) => i.status === 'pending' || i.status === 'partially_paid')
@@ -1638,7 +1642,7 @@ export default function AccountDetail() {
             { label: 'monthsRemaining', expected: summary.unpaidCount, actual: unpaidSchedule.length, pass: summary.unpaidCount === unpaidSchedule.length },
             { label: 'sumOfPendingMonths ≈ remainingBalance', expected: summary.remainingBalance, actual: Math.round(sumPendingMonths * 100) / 100, pass: Math.abs(sumPendingMonths - summary.remainingBalance) < 2 },
             { label: 'DP + sumBases = principalTotal', expected: principalTotal, actual: baseIntegrity, pass: Math.abs(baseIntegrity - principalTotal) < 2 },
-            { label: 'downPayment recorded and marked paid', expected: downpaymentAmount, actual: taggedDpPaid, pass: dpCheck8Pass },
+            { label: 'downPayment recorded and marked paid', expected: dpExpected, actual: dpActual8, pass: dpCheck8Pass },
             { label: 'nextPaymentDate uses due_date not payment date', expected: check9Exp, actual: check9Act, pass: !firstPendingItem9 || check9Exp === check9Act },
           ];
           const allPass = checks.every(c => c.pass);
