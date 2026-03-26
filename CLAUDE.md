@@ -107,6 +107,25 @@ After ANY change to calculation or display logic:
   3. All 7 checks must be green ✅
   4. If any check is red, the change broke something
 
+## Payment Recording Rules
+
+Every payment operation must update ALL 3 tables atomically:
+  1. payments table — insert actual cash received
+  2. schedule_items — update paid_amount and status
+  3. penalty_fees — update status if penalty was paid
+
+Never update one without the others.
+Use edge functions with transactions to ensure atomicity.
+If any of the 3 updates fail, roll back all of them.
+
+## Ghost Amount Prevention
+
+When completing a partially_paid month:
+  - Set paid_amount = total_due_amount exactly
+  - Set status = 'paid'
+  - Never carry over excess to next month
+  - Next month stays pending with paid_amount = 0
+
 ## Known Fixed Bugs (do not reintroduce)
 
   - DP must never be counted twice in totalPaid
