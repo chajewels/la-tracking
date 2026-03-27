@@ -1875,6 +1875,7 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
   const [editProofFile, setEditProofFile] = useState<File | null>(null);
   const [editProofPreview, setEditProofPreview] = useState<string | null>(null);
   const [editProofCurrent, setEditProofCurrent] = useState<string | null>(null);
+  const [editProofCurrentBroken, setEditProofCurrentBroken] = useState(false);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
@@ -1889,6 +1890,7 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
     setEditProofFile(null);
     setEditProofPreview(null);
     setEditProofCurrent(sub.proof_url);
+    setEditProofCurrentBroken(false);
     setEditError(null);
   };
 
@@ -2122,11 +2124,21 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
                 <div>
                   <label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,display:'block',marginBottom:'4px'}}>Proof of Payment</label>
                   {editProofCurrent && !editProofFile && (
-                    <a href={editProofCurrent} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 hover:underline mb-2"
-                      style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.gp}}>
-                      <ImageIcon className="h-3 w-3" /> Current proof (tap to view) — or upload new below
-                    </a>
+                    <div style={{marginBottom:'8px'}}>
+                      {!editProofCurrentBroken && !editProofCurrent.match(/\.pdf$/i) && (
+                        <img
+                          src={editProofCurrent}
+                          alt="Current proof"
+                          style={{width:'100%',maxHeight:'120px',objectFit:'cover',borderRadius:'2px',marginBottom:'6px',display:'block'}}
+                          onError={() => setEditProofCurrentBroken(true)}
+                        />
+                      )}
+                      <a href={editProofCurrent} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 hover:underline"
+                        style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.gp}}>
+                        <ImageIcon className="h-3 w-3" /> {editProofCurrentBroken ? 'View current proof' : 'View full size'} — or upload new below
+                      </a>
+                    </div>
                   )}
                   {editProofPreview && (
                     <img src={editProofPreview} alt="New proof preview" style={{width:'100%',maxHeight:'120px',objectFit:'cover',borderRadius:'2px',marginBottom:'6px'}} />
