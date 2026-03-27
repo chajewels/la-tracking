@@ -106,11 +106,12 @@ export default function Collections() {
     const rows: ForecastRow[] = [];
     forecastMonths.forEach(m => {
       const d = agg[m.key];
+      // Always include all 6 months per currency (even if amount = 0) so the full window is visible
       if (isAllMode || currencyFilter === 'PHP') {
-        if (d.php > 0) rows.push({ monthKey: m.key, label: m.label, daysAway: m.daysAway, amount: d.php, count: d.phpCount, currency: 'PHP' });
+        rows.push({ monthKey: m.key, label: m.label, daysAway: m.daysAway, amount: d.php, count: d.phpCount, currency: 'PHP' });
       }
       if (isAllMode || currencyFilter === 'JPY') {
-        if (d.jpy > 0) rows.push({ monthKey: m.key, label: m.label, daysAway: m.daysAway, amount: d.jpy, count: d.jpyCount, currency: 'JPY' });
+        rows.push({ monthKey: m.key, label: m.label, daysAway: m.daysAway, amount: d.jpy, count: d.jpyCount, currency: 'JPY' });
       }
     });
     return rows;
@@ -195,8 +196,6 @@ export default function Collections() {
 
           {forecastLoading ? (
             <div className="space-y-2">{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}</div>
-          ) : forecastRows.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">No scheduled receivables in the next 6 months</p>
           ) : (
             <>
               <table className="w-full">
