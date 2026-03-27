@@ -18,7 +18,7 @@ interface Props {
 function generateActivationMessage(customerName: string, portalUrl: string): string {
   return `✨ Cha Jewels Customer Portal is Ready
 
-Hi Ma'am/Sir ${customerName} 💛
+Hi ${customerName} 💛
 
 Your Cha Jewels Layaway Portal has been successfully created.
 
