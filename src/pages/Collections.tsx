@@ -28,8 +28,11 @@ export default function Collections() {
 
   // ── 6-month receivables forecast (server-side RPC avoids .in() URL limit) ──
   const { data: forecastSchedule, isLoading: forecastLoading } = useQuery({
-    queryKey: ['collections-forecast-6m'],
+    queryKey: ['collections-forecast-6m', format(new Date(), 'yyyy-MM-dd')],
     staleTime: 0,
+    refetchInterval: 60 * 1000,
+    refetchOnWindowFocus: true,
+    refetchIntervalInBackground: false,
     queryFn: async () => {
       const { data, error } = await supabase.rpc('get_forecast_6m');
       if (error) throw error;
@@ -38,7 +41,8 @@ export default function Collections() {
     },
   });
 
-  // Build ordered month slots for the forecast window
+  // Build ordered month slots — keyed on today so labels recalculate on day/month rollover
+  const today = format(new Date(), 'yyyy-MM-dd');
   const forecastMonths = useMemo(() => {
     const now = new Date();
     return Array.from({ length: 6 }, (_, i) => {
@@ -48,7 +52,7 @@ export default function Collections() {
       const daysAway = Math.ceil((d.getTime() - now.getTime()) / 86_400_000);
       return { key, label, daysAway };
     });
-  }, []);
+  }, [today]);
 
   // Aggregate RPC rows by month — PHP converted to JPY, sum with JPY rows
   const forecastCards = useMemo(() => {
