@@ -118,7 +118,7 @@ function SystemHealthTab() {
 
   const checks = health?.checks || {};
   const statusColor = (s: string) => s === 'pass' ? 'text-success' : s === 'fail' ? 'text-destructive' : s === 'error' ? 'text-destructive' : 'text-muted-foreground';
-  const statusBg = (s: string) => s === 'pass' ? 'bg-success/10' : s === 'fail' ? 'bg-destructive/10' : 'bg-muted/30';
+  const statusBg = (s: string) => s === 'pass' ? 'bg-zinc-900 border-success/30' : s === 'fail' ? 'bg-zinc-900 border-destructive/30' : 'bg-zinc-900';
 
   const drilldownCheck = drilldownKey ? checks[drilldownKey] : null;
   const drilldownAccounts = (drilldownCheck?.affected_accounts || []).filter(acc => {
@@ -159,7 +159,7 @@ function SystemHealthTab() {
       </div>
 
       {(health?.issues || []).length > 0 && (
-        <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 space-y-1">
+        <div className="rounded-lg border border-destructive/40 bg-zinc-900 p-3 space-y-1">
           <p className="text-xs font-semibold text-destructive">Issues Found</p>
           {health!.issues.map((issue, i) => <p key={i} className="text-xs text-destructive/80">• {issue}</p>)}
         </div>
@@ -171,7 +171,7 @@ function SystemHealthTab() {
           return (
             <div
               key={key}
-              className={`rounded-lg border border-border p-4 ${statusBg(check.status)} ${hasAffected ? 'cursor-pointer hover:border-primary/40 transition-colors' : ''} ${drilldownKey === key ? 'ring-2 ring-primary/30' : ''}`}
+              className={`rounded-lg border border-zinc-700 p-4 ${statusBg(check.status)} ${hasAffected ? 'cursor-pointer hover:border-primary/40 transition-colors' : ''} ${drilldownKey === key ? 'ring-2 ring-primary/30' : ''}`}
               onClick={() => hasAffected && setDrilldownKey(drilldownKey === key ? null : key)}
             >
               <div className="flex items-center justify-between mb-1">
@@ -189,7 +189,7 @@ function SystemHealthTab() {
 
       {/* Drilldown Panel */}
       {drilldownKey && drilldownCheck && (drilldownCheck.affected_accounts || []).length > 0 && (
-        <div className="rounded-xl border border-primary/20 bg-card p-5 space-y-4 animate-fade-in">
+        <div className="rounded-xl border border-primary/20 bg-zinc-900 p-5 space-y-4 animate-fade-in">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-warning" />
@@ -222,11 +222,11 @@ function SystemHealthTab() {
             />
           </div>
 
-          <div className="rounded-lg border border-border overflow-hidden">
+          <div className="rounded-lg border border-zinc-700 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border bg-muted/30">
+                  <tr className="border-b border-border bg-zinc-800">
                     <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Invoice</th>
                     <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Customer</th>
                     {drilldownKey === 'false_overdue' && (
@@ -253,7 +253,7 @@ function SystemHealthTab() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {drilldownAccounts.map((acc, idx) => (
-                    <tr key={`${acc.account_id}-${idx}`} className="hover:bg-muted/10">
+                    <tr key={`${acc.account_id}-${idx}`} className="hover:bg-zinc-800/60">
                       <td className="px-3 py-2">
                         <Link to={`/accounts/${acc.account_id}`} className="font-mono text-xs font-semibold text-primary hover:underline">
                           #{acc.invoice_number}
@@ -368,11 +368,11 @@ function PenaltyAuditTab() {
   if (isLoading) return <div className="space-y-2">{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-12 rounded-lg" />)}</div>;
 
   return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden">
+    <div className="rounded-xl border border-zinc-700 bg-zinc-900 overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-border bg-muted/30">
+            <tr className="border-b border-border bg-zinc-800">
               <th className="text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Invoice</th>
               <th className="text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Customer</th>
               <th className="text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Inst#</th>
@@ -392,7 +392,7 @@ function PenaltyAuditTab() {
               const currency = (acc?.currency || 'PHP') as Currency;
               const waiver = waiverMap.get(p.id);
               return (
-                <tr key={p.id} className="hover:bg-muted/10">
+                <tr key={p.id} className="hover:bg-zinc-800/60">
                   <td className="px-3 py-2">
                     <Link to={`/accounts/${p.account_id}`} className="font-mono text-xs font-semibold text-primary hover:underline">
                       #{acc?.invoice_number}
@@ -464,7 +464,7 @@ function OverdueDebugTab() {
         const currency = acc.currency as Currency;
 
         return (
-          <div key={acc.id} className="rounded-xl border border-destructive/20 bg-card p-4 space-y-3">
+          <div key={acc.id} className="rounded-xl border border-destructive/20 bg-zinc-900 p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div>
                 <Link to={`/accounts/${acc.id}`} className="font-mono font-semibold text-primary hover:underline">
@@ -478,19 +478,19 @@ function OverdueDebugTab() {
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-              <div className="rounded-lg bg-muted/30 p-2">
+              <div className="rounded-lg bg-zinc-800 p-2">
                 <p className="text-muted-foreground">Next Due</p>
                 <p className="font-semibold text-card-foreground">{nextDue ? new Date(nextDue + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Fully paid'}</p>
               </div>
-              <div className="rounded-lg bg-muted/30 p-2">
+              <div className="rounded-lg bg-zinc-800 p-2">
                 <p className="text-muted-foreground">Remaining</p>
                 <p className="font-semibold text-card-foreground">{formatCurrency(Number(acc.remaining_balance), currency)}</p>
               </div>
-              <div className="rounded-lg bg-muted/30 p-2">
+              <div className="rounded-lg bg-zinc-800 p-2">
                 <p className="text-muted-foreground">Active Penalties</p>
                 <p className="font-semibold text-destructive">{unpaidPenalties.length} ({formatCurrency(unpaidPenalties.reduce((s: number, p: any) => s + Number(p.penalty_amount), 0), currency)})</p>
               </div>
-              <div className="rounded-lg bg-muted/30 p-2">
+              <div className="rounded-lg bg-zinc-800 p-2">
                 <p className="text-muted-foreground">Waived</p>
                 <p className="font-semibold text-muted-foreground">{waivedPenalties.length}</p>
               </div>
@@ -538,8 +538,8 @@ function WaiverAuditTab() {
   return (
     <div className="space-y-3">
       {(auditLogs || []).length === 0 ? (
-        <div className="rounded-xl border border-border bg-card p-8 text-center">
-          <p className="text-sm text-muted-foreground">No waiver audit entries yet</p>
+        <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-8 text-center">
+          <p className="text-sm text-zinc-400">No waiver audit entries yet</p>
         </div>
       ) : (
         (auditLogs || []).map((log: any) => {
@@ -548,7 +548,7 @@ function WaiverAuditTab() {
           const isBatch = log.action.startsWith('batch_');
           const penaltiesWaived = details.penalties_waived || [];
           return (
-            <div key={log.id} className={`rounded-lg border p-4 space-y-2 ${isApproval ? 'border-success/20 bg-success/5' : 'border-destructive/20 bg-destructive/5'}`}>
+            <div key={log.id} className={`rounded-lg border p-4 space-y-2 ${isApproval ? 'border-success/40 bg-zinc-900' : 'border-destructive/40 bg-zinc-900'}`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   {isApproval ? <CheckCircle className="h-3.5 w-3.5 text-success" /> : <XCircle className="h-3.5 w-3.5 text-destructive" />}
@@ -564,7 +564,7 @@ function WaiverAuditTab() {
               {penaltiesWaived.length > 0 && (
                 <div className="text-[10px] text-muted-foreground space-y-0.5">
                   {penaltiesWaived.map((p: any, i: number) => (
-                    <span key={i} className="inline-block mr-2 px-1.5 py-0.5 rounded bg-muted">
+                    <span key={i} className="inline-block mr-2 px-1.5 py-0.5 rounded bg-zinc-700">
                       {p.stage} C{p.cycle}: {typeof p.amount === 'number' ? `₱${p.amount.toLocaleString()}` : p.amount}
                     </span>
                   ))}
@@ -624,9 +624,9 @@ const ISSUE_META: Record<string, { severity: Severity; label: string; fixInstruc
 };
 
 const SEVERITY_STYLES: Record<Severity, string> = {
-  critical: 'bg-destructive/10 text-destructive border-destructive/20',
-  warning: 'bg-warning/10 text-warning border-warning/20',
-  minor: 'bg-muted text-muted-foreground border-border',
+  critical: 'bg-zinc-900 text-destructive border-destructive/40',
+  warning: 'bg-zinc-900 text-warning border-warning/40',
+  minor: 'bg-zinc-900 text-zinc-400 border-zinc-700',
 };
 
 const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, warning: 1, minor: 2 };
@@ -760,36 +760,36 @@ function ReconciliationTab() {
       {/* Summary Cards */}
       {s && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <div className="rounded-lg border border-border bg-card p-3">
+          <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Active Accounts</p>
             <p className="text-lg font-bold text-card-foreground tabular-nums">{s.total_accounts}</p>
           </div>
-          <div className="rounded-lg border border-success/20 bg-success/5 p-3">
+          <div className="rounded-lg border border-success/40 bg-zinc-900 p-3">
             <p className="text-[10px] text-success uppercase tracking-wider">Clean</p>
             <p className="text-lg font-bold text-success tabular-nums">{s.clean_accounts}</p>
           </div>
-          <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3">
+          <div className="rounded-lg border border-destructive/40 bg-zinc-900 p-3">
             <p className="text-[10px] text-destructive uppercase tracking-wider">Exceptions</p>
             <p className="text-lg font-bold text-destructive tabular-nums">{s.exception_accounts}</p>
           </div>
-          <div className="rounded-lg border border-border bg-card p-3">
+          <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Balance Issues</p>
             <p className="text-lg font-bold text-card-foreground tabular-nums">{s.balance_exceptions}</p>
           </div>
-          <div className="rounded-lg border border-border bg-card p-3">
+          <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Penalty Issues</p>
             <p className="text-lg font-bold text-card-foreground tabular-nums">{s.penalty_exceptions}</p>
           </div>
-          <div className="rounded-lg border border-muted bg-muted/20 p-3">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Closed (Excluded)</p>
-            <p className="text-lg font-bold text-muted-foreground tabular-nums">{s.closed_accounts_excluded ?? 0}</p>
+          <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3">
+            <p className="text-[10px] text-zinc-400 uppercase tracking-wider">Closed (Excluded)</p>
+            <p className="text-lg font-bold text-zinc-400 tabular-nums">{s.closed_accounts_excluded ?? 0}</p>
           </div>
         </div>
       )}
 
       {/* Issue Type Breakdown with Bulk Actions */}
       {typeBreakdown.length > 0 && (
-        <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+        <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-4 space-y-3">
           <p className="text-xs font-semibold text-card-foreground">Issue Breakdown</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
             {typeBreakdown.map(({ type, count, meta }) => (
@@ -827,14 +827,14 @@ function ReconciliationTab() {
 
       {/* Reference Invoice Status */}
       {s?.reference_invoices && (
-        <div className="rounded-lg border border-border bg-card p-4">
+        <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-4">
           <p className="text-xs font-semibold text-card-foreground mb-2">Reference Invoice Validation</p>
           <div className="flex gap-3 flex-wrap">
             {Object.entries(s.reference_invoices).map(([inv, status]) => (
               <div key={inv} className="flex items-center gap-1.5">
                 {status === 'CLEAN' ? <CheckCircle className="h-3.5 w-3.5 text-success" /> : status === 'EXCEPTION' ? <XCircle className="h-3.5 w-3.5 text-destructive" /> : <Clock className="h-3.5 w-3.5 text-muted-foreground" />}
                 <span className="text-xs font-mono font-semibold text-card-foreground">#{inv}</span>
-                <Badge variant="outline" className={`text-[10px] ${status === 'CLEAN' ? 'bg-success/10 text-success' : status === 'EXCEPTION' ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground'}`}>
+                <Badge variant="outline" className={`text-[10px] ${status === 'CLEAN' ? 'bg-zinc-900 text-success border-success/30' : status === 'EXCEPTION' ? 'bg-zinc-900 text-destructive border-destructive/30' : 'bg-zinc-700 text-zinc-400'}`}>
                   {status}
                 </Badge>
               </div>
@@ -872,11 +872,11 @@ function ReconciliationTab() {
           </div>
 
           {/* Exception Table */}
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="rounded-xl border border-zinc-700 bg-zinc-900 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border bg-muted/30">
+                  <tr className="border-b border-border bg-zinc-800">
                     <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Invoice</th>
                     <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Customer</th>
                     <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Severity</th>
@@ -894,7 +894,7 @@ function ReconciliationTab() {
                     const severity = meta?.severity || 'minor';
                     const cur = ex.currency as Currency;
                     return (
-                      <tr key={`${ex.account_id}-${ex.type}-${idx}`} className="hover:bg-muted/10">
+                      <tr key={`${ex.account_id}-${ex.type}-${idx}`} className="hover:bg-zinc-800/60">
                         <td className="px-3 py-2">
                           <Link to={`/accounts/${ex.account_id}`} className="font-mono text-xs font-semibold text-primary hover:underline">
                             #{ex.invoice_number}
@@ -955,7 +955,7 @@ function ReconciliationTab() {
       )}
 
       {(data?.exceptions || []).length === 0 && s && (
-        <div className="rounded-xl border border-success/20 bg-success/5 p-8 text-center">
+        <div className="rounded-xl border border-success/40 bg-zinc-900 p-8 text-center">
           <CheckCircle className="h-8 w-8 text-success mx-auto mb-2" />
           <p className="text-sm font-semibold text-success">All {s.total_accounts} accounts pass reconciliation</p>
           <p className="text-xs text-muted-foreground mt-1">No balance mismatches, over-cap penalties, or chronology issues found</p>
@@ -969,7 +969,8 @@ function ReconciliationTab() {
 export default function AdminAudit() {
   return (
     <AppLayout>
-      <div className="animate-fade-in space-y-6">
+      <div className="animate-fade-in space-y-6 relative">
+        <div className="absolute inset-0 -z-10 bg-zinc-950/90 backdrop-blur-sm rounded-xl pointer-events-none" />
         <div>
           <p className="text-xs font-semibold text-primary uppercase tracking-widest mb-1">Admin</p>
           <h1 className="text-2xl font-bold text-foreground font-display">Audit & Monitoring</h1>
@@ -977,7 +978,7 @@ export default function AdminAudit() {
         </div>
 
         <Tabs defaultValue="reconciliation" className="space-y-4">
-          <TabsList className="bg-muted/50 flex-wrap">
+          <TabsList className="bg-zinc-800 flex-wrap border border-zinc-700">
             <TabsTrigger value="reconciliation" className="gap-1.5"><DollarSign className="h-3.5 w-3.5" /> Reconciliation</TabsTrigger>
             <TabsTrigger value="penalty-cap" className="gap-1.5"><ShieldCheck className="h-3.5 w-3.5" /> Penalty Cap Audit</TabsTrigger>
             <TabsTrigger value="health" className="gap-1.5"><Activity className="h-3.5 w-3.5" /> System Health</TabsTrigger>
