@@ -1634,8 +1634,9 @@ export default function AccountDetail() {
           const dpActual8 = dpPayment8 ? Number(dpPayment8.amount_paid) : 0;
           const dpCheck8Pass = dpExpected === 0 || (dpPayment8 != null && dpActual8 >= dpExpected - 1);
           // Check 9 prep — next payment date must come from due_date, not today/created_at
+          // Use isEffectivelyPaid consistently (matches overdue unpaid months, not just 'pending')
           const firstPendingItem9 = [...scheduleItems]
-            .filter((i: any) => i.status === 'pending' || i.status === 'partially_paid')
+            .filter((i: any) => !isEffectivelyPaid(i) && i.status !== 'cancelled')
             .sort((a: any, b: any) => a.installment_number - b.installment_number)[0] as any;
           const nextUnpaidState9 = [...summary.scheduleStates]
             .sort((a, b) => a.installmentNumber - b.installmentNumber)
