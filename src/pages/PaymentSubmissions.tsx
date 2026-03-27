@@ -21,7 +21,7 @@ import { formatCurrency } from '@/lib/calculations';
 import { Link } from 'react-router-dom';
 import { usePermissions } from '@/contexts/PermissionsContext';
 
-type SubmissionStatus = 'submitted' | 'under_review' | 'confirmed' | 'rejected' | 'needs_clarification';
+type SubmissionStatus = 'submitted' | 'under_review' | 'confirmed' | 'rejected' | 'needs_clarification' | 'cancelled';
 
 interface SubmissionRow {
   id: string;
