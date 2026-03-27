@@ -1879,6 +1879,7 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<{ id: string; message: string } | null>(null);
   const editFileRef = useRef<HTMLInputElement>(null);
 
   const startEdit = (sub: Submission) => {
@@ -1968,11 +1969,15 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
         headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
         body: JSON.stringify({ portal_token: portalToken, submission_id: sub.id, action: 'cancel' }),
       });
-      const json = await res.json();
-      if (!res.ok) { alert(json.error || 'Could not cancel. Please try again.'); return; }
+      let json: any = {};
+      try { json = await res.json(); } catch { /* no-op */ }
+      if (!res.ok) {
+        setCancelError({ id: sub.id, message: json.error || `Cancel failed (HTTP ${res.status}). Please try again.` });
+        return;
+      }
       onRefresh();
     } catch {
-      alert('Something went wrong. Please try again.');
+      setCancelError({ id: sub.id, message: 'Network error — please check your connection and try again.' });
     } finally {
       setCancellingId(null);
     }
@@ -2062,6 +2067,9 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
                   {isCancellingThis ? 'Cancelling…' : 'Cancel Submission'}
                 </button>
               </div>
+            )}
+            {isEditable && !isEditingThis && cancelError?.id === sub.id && cancellingId === null && (
+              <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:'#E74C3C',paddingTop:'4px'}}>{cancelError.message}</p>
             )}
 
             {/* Inline Edit Form */}
