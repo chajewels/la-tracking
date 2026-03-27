@@ -119,8 +119,7 @@ async function allocatePaymentToAccount(
           paid_amount: isNowFullyPaid ? targetAmount : newPaid,
           status: newStatus,
         });
-        // Stop after one installment — never cascade to next months
-        remaining = 0;
+        // Loop continues — remaining excess cascades to the next installment
       }
     }
   }
