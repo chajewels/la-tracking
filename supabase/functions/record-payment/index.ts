@@ -196,12 +196,23 @@ Deno.serve(async (req) => {
 
         if (due <= 0) continue;
 
+        const availableForThisMonth = remaining; // save before deduction
         const toApply = Math.round(Math.min(remaining, due) * 100) / 100;
         remaining = Math.round((remaining - toApply) * 100) / 100;
 
         const newPaid = Math.round((currentPaid + toApply) * 100) / 100;
         const isNowFullyPaid = newPaid >= targetAmount;
         const newStatus = isNowFullyPaid ? "paid" : "partially_paid";
+
+        // Store actual cash received for display:
+        // - pending month fully/overpaid: store full available (shows actual receipt)
+        // - partially_paid month completing: cap at targetAmount (CLAUDE.md ghost prevention)
+        // - partial payment: store amount paid so far
+        const storedPaid = isNowFullyPaid && item.status !== "partially_paid"
+          ? Math.round((currentPaid + availableForThisMonth) * 100) / 100
+          : isNowFullyPaid
+            ? targetAmount
+            : newPaid;
 
         allocations.push({
           schedule_id: item.id,
@@ -211,7 +222,7 @@ Deno.serve(async (req) => {
 
         scheduleUpdates.push({
           id: item.id,
-          paid_amount: isNowFullyPaid ? targetAmount : newPaid,
+          paid_amount: storedPaid,
           status: newStatus,
         });
 

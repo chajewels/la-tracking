@@ -103,11 +103,22 @@ async function allocatePaymentToAccount(
         const due = Math.max(0, targetAmount - currentPaid);
         if (due <= 0) continue;
 
+        const availableForThisMonth = remaining; // save before deduction
         const toApply = Math.min(remaining, due);
         remaining -= toApply;
         const newPaid = currentPaid + toApply;
         const isNowFullyPaid = newPaid >= targetAmount;
         const newStatus = isNowFullyPaid ? "paid" : "partially_paid";
+
+        // Store actual cash received for display:
+        // - pending month fully/overpaid: store full available (shows actual receipt)
+        // - partially_paid month completing: cap at targetAmount (CLAUDE.md ghost prevention)
+        // - partial payment: store amount paid so far
+        const storedPaid = isNowFullyPaid && item.status !== "partially_paid"
+          ? currentPaid + availableForThisMonth
+          : isNowFullyPaid
+            ? targetAmount
+            : newPaid;
 
         allocations.push({
           schedule_id: item.id,
@@ -116,7 +127,7 @@ async function allocatePaymentToAccount(
         });
         scheduleUpdates.push({
           id: item.id,
-          paid_amount: isNowFullyPaid ? targetAmount : newPaid,
+          paid_amount: storedPaid,
           status: newStatus,
         });
         // Loop continues — remaining excess cascades to the next installment
