@@ -358,8 +358,13 @@ Deno.serve(async (req) => {
         customerName = customer?.full_name || null;
       }
 
-      if (allocs.length === 0) {
-        // Fallback: single payment with account_id from submission
+      // Single-account: either no allocations, or exactly one matching the submission account.
+      // Always use submission.submitted_amount as the authoritative amount (handles edits correctly).
+      const isSingleAccount =
+        allocs.length === 0 ||
+        (allocs.length === 1 && allocs[0].account_id === submission.account_id);
+
+      if (isSingleAccount) {
         const { data: account } = await supabase
           .from("layaway_accounts")
           .select("currency")
@@ -389,7 +394,8 @@ Deno.serve(async (req) => {
         }
         confirmedPaymentIds.push(result.paymentId);
       } else {
-        // Process each allocation as a separate payment
+        // Multi-account split: process each allocation separately.
+        // For these, alloc.allocated_amount is the per-account split amount.
         for (const alloc of allocs) {
           const { data: account } = await supabase
             .from("layaway_accounts")
