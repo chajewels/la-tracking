@@ -1880,6 +1880,7 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
   const [editError, setEditError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<{ id: string; message: string } | null>(null);
+  const [cancelledIds, setCancelledIds] = useState<Set<string>>(new Set());
   const editFileRef = useRef<HTMLInputElement>(null);
 
   const startEdit = (sub: Submission) => {
@@ -1975,6 +1976,7 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
         setCancelError({ id: sub.id, message: json.error || `Cancel failed (HTTP ${res.status}). Please try again.` });
         return;
       }
+      setCancelledIds(prev => new Set([...prev, sub.id]));
       onRefresh();
     } catch {
       setCancelError({ id: sub.id, message: 'Network error — please check your connection and try again.' });
@@ -1996,7 +1998,7 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
   return (
     <div className="space-y-3">
       <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts}}>Payment Submissions</p>
-      {submissions.map((sub) => {
+      {submissions.filter(s => !cancelledIds.has(s.id)).map((sub) => {
         const cfg = submissionStatusConfig[sub.status] || submissionStatusConfig.submitted;
         const isEditable = sub.status === 'submitted';
         const isEditingThis = editingId === sub.id;
