@@ -192,6 +192,7 @@ const submissionStatusConfig: Record<string, { label: string; color: string; ico
   confirmed:           { label: 'Confirmed by Cha Jewels',color: 'text-[#5CB86A] border-[#5CB86A]/30 bg-transparent', icon: <CheckCircle className="h-3 w-3" /> },
   rejected:            { label: 'Rejected',               color: 'text-[#E74C3C] border-[#E74C3C]/30 bg-transparent', icon: <XCircle className="h-3 w-3" /> },
   needs_clarification: { label: 'Needs Clarification',    color: 'text-[#E8C96D] border-[#C9A84C]/30 bg-transparent', icon: <MessageSquare className="h-3 w-3" /> },
+  cancelled:           { label: 'Cancelled',               color: 'text-[#888] border-[#888]/30 bg-transparent',       icon: <X className="h-3 w-3" /> },
 };
 
 function ordinal(n: number): string {
@@ -1881,6 +1882,7 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<{ id: string; message: string } | null>(null);
   const [cancelledIds, setCancelledIds] = useState<Set<string>>(new Set());
+  const [justCancelledId, setJustCancelledId] = useState<string | null>(null);
   const editFileRef = useRef<HTMLInputElement>(null);
 
   const startEdit = (sub: Submission) => {
@@ -1976,7 +1978,11 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
         setCancelError({ id: sub.id, message: json.error || `Cancel failed (HTTP ${res.status}). Please try again.` });
         return;
       }
-      setCancelledIds(prev => new Set([...prev, sub.id]));
+      setJustCancelledId(sub.id);
+      setTimeout(() => {
+        setCancelledIds(prev => new Set([...prev, sub.id]));
+        setJustCancelledId(null);
+      }, 2000);
       onRefresh();
     } catch {
       setCancelError({ id: sub.id, message: 'Network error — please check your connection and try again.' });
@@ -1999,15 +2005,18 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
     <div className="space-y-3">
       <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts}}>Payment Submissions</p>
       {submissions.filter(s => !cancelledIds.has(s.id)).map((sub) => {
-        const cfg = submissionStatusConfig[sub.status] || submissionStatusConfig.submitted;
-        const isEditable = sub.status === 'submitted';
+        const isCancelled = justCancelledId === sub.id;
+        const cfg = isCancelled
+          ? submissionStatusConfig.cancelled
+          : (submissionStatusConfig[sub.status] || submissionStatusConfig.submitted);
+        const isEditable = sub.status === 'submitted' && !isCancelled;
         const isEditingThis = editingId === sub.id;
         const isCancellingThis = cancellingId === sub.id;
         return (
-          <div key={sub.id} style={{background:P.s,border:`1px solid ${P.br}`,borderTop:`2px solid ${P.gp}`,borderRadius:'2px',padding:'1rem'}} className="space-y-2.5">
+          <div key={sub.id} style={{background:P.s,border:`1px solid ${isCancelled?'#555':P.br}`,borderTop:`2px solid ${isCancelled?'#666':P.gp}`,borderRadius:'2px',padding:'1rem',opacity:isCancelled?0.5:1,transition:'opacity 0.4s ease'}} className="space-y-2.5">
             <div className="flex items-start justify-between">
               <div>
-                <p style={{fontFamily:"Inter,sans-serif",fontSize:'16px',fontWeight:700,color:P.gp}}>{fmt(sub.submitted_amount, currency)}</p>
+                <p style={{fontFamily:"Inter,sans-serif",fontSize:'16px',fontWeight:700,color:isCancelled?'#888':P.gp}}>{fmt(sub.submitted_amount, currency)}</p>
                 <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,marginTop:'2px'}}>{fmtDateTime(sub.created_at)}</p>
               </div>
               <Badge variant="outline" className={`text-[9px] gap-1 ${cfg.color}`} style={{borderRadius:'2px',letterSpacing:'0.08em'}}>
@@ -2015,43 +2024,49 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
               </Badge>
             </div>
 
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1" style={{borderTop:`1px solid ${P.s2}`,paddingTop:'8px'}}>
-              <div>
-                <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts}}>Method: </span>
-                <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.tp}}>{sub.payment_method}</span>
+            {isCancelled && (
+              <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:'#888',fontStyle:'italic'}}>This submission has been cancelled.</p>
+            )}
+
+            {!isCancelled && (<>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1" style={{borderTop:`1px solid ${P.s2}`,paddingTop:'8px'}}>
+                <div>
+                  <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts}}>Method: </span>
+                  <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.tp}}>{sub.payment_method}</span>
+                </div>
+                <div>
+                  <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts}}>Date: </span>
+                  <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.tp}}>{fmtDate(sub.payment_date)}</span>
+                </div>
+                {sub.reference_number && (
+                  <div className="col-span-2">
+                    <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts}}>Ref: </span>
+                    <span style={{fontFamily:'monospace',fontSize:'11px',color:P.tp}}>{sub.reference_number}</span>
+                  </div>
+                )}
               </div>
-              <div>
-                <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts}}>Date: </span>
-                <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.tp}}>{fmtDate(sub.payment_date)}</span>
-              </div>
-              {sub.reference_number && (
-                <div className="col-span-2">
-                  <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts}}>Ref: </span>
-                  <span style={{fontFamily:'monospace',fontSize:'11px',color:P.tp}}>{sub.reference_number}</span>
+
+              {sub.proof_url && (
+                <a href={sub.proof_url} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 hover:underline"
+                  style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.gp}}>
+                  <ImageIcon className="h-3 w-3" /> View proof of payment
+                </a>
+              )}
+
+              {sub.customer_edited_at && (
+                <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,fontStyle:'italic'}}>
+                  Edited {fmtDateTime(sub.customer_edited_at)}
+                </p>
+              )}
+
+              {sub.reviewer_notes && (
+                <div style={{padding:'8px 10px',background:P.s2,borderLeft:`3px solid ${sub.status==='rejected'?'#E74C3C':P.gp}`}}>
+                  <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',fontWeight:600,color:P.ts,marginBottom:'4px',letterSpacing:'0.1em',textTransform:'uppercase' as const}}>Message from Cha Jewels:</p>
+                  <p style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:P.tp}}>{sub.reviewer_notes}</p>
                 </div>
               )}
-            </div>
-
-            {sub.proof_url && (
-              <a href={sub.proof_url} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1.5 hover:underline"
-                style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.gp}}>
-                <ImageIcon className="h-3 w-3" /> View proof of payment
-              </a>
-            )}
-
-            {sub.customer_edited_at && (
-              <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,fontStyle:'italic'}}>
-                Edited {fmtDateTime(sub.customer_edited_at)}
-              </p>
-            )}
-
-            {sub.reviewer_notes && (
-              <div style={{padding:'8px 10px',background:P.s2,borderLeft:`3px solid ${sub.status==='rejected'?'#E74C3C':P.gp}`}}>
-                <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',fontWeight:600,color:P.ts,marginBottom:'4px',letterSpacing:'0.1em',textTransform:'uppercase' as const}}>Message from Cha Jewels:</p>
-                <p style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:P.tp}}>{sub.reviewer_notes}</p>
-              </div>
-            )}
+            </>)}
 
             {/* Edit / Cancel buttons — only for 'submitted' status */}
             {isEditable && !isEditingThis && (
