@@ -1157,7 +1157,7 @@ export default function AccountDetail() {
                             {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                           </p>
                           <p className="text-[10px] text-muted-foreground">
-                            {effPaid ? 'Paid' : partial ? `Partial — ${formatCurrency(paidAmt, currency)} paid` : `Month ${item.installment_number}`}
+                            {effPaid ? 'Paid' : partial ? 'Partial' : `Month ${item.installment_number}`}
                           </p>
                         </div>
                       </div>
@@ -1174,13 +1174,8 @@ export default function AccountDetail() {
                         )}
                         <div className="text-right">
                         <p className={`text-xs font-semibold tabular-nums ${effPaid ? 'text-success' : partial ? 'text-warning' : 'text-card-foreground'}`}>
-                          {formatCurrency(effPaid ? Math.max(paidAmt, totalDue) : totalDue, currency)}
+                          {formatCurrency(partial ? itemRemaining : totalDue, currency)}
                         </p>
-                        {partial && (
-                          <p className="text-[10px] text-warning tabular-nums">
-                            Remaining: {formatCurrency(itemRemaining, currency)}
-                          </p>
-                        )}
                       </div>
                       </div>
                     </div>
@@ -1215,7 +1210,6 @@ export default function AccountDetail() {
                         </p>
                         <p className="text-xs text-muted-foreground">
                           Month {item.installment_number}
-                          {partial && <span className="text-warning ml-1">(Paid: {formatCurrency(paidAmt, currency)})</span>}
                         </p>
                       </div>
                       {/* Base Amount */}
@@ -1240,13 +1234,8 @@ export default function AccountDetail() {
                       {/* Total Due / Remaining */}
                       <div className="text-right">
                         <p className={`text-xs font-semibold tabular-nums ${effPaid ? 'text-success' : partial ? 'text-warning' : 'text-card-foreground'}`}>
-                          {formatCurrency(effPaid ? Math.max(paidAmt, totalDue) : totalDue, currency)}
+                          {formatCurrency(partial ? itemRemaining : totalDue, currency)}
                         </p>
-                        {partial && (
-                          <p className="text-[9px] text-warning tabular-nums">
-                            Rem: {formatCurrency(itemRemaining, currency)}
-                          </p>
-                        )}
                       </div>
                       {/* Status */}
                       <div className="text-right">
