@@ -61,7 +61,7 @@ async function allocatePaymentToAccount(
     allocated_amount: number;
   }> = [];
   const penaltyUpdates: Array<{ id: string; status: string }> = [];
-  const scheduleUpdates: Array<{ id: string; paid_amount: number; status: string }> = [];
+  const scheduleUpdates: Array<{ id: string; paid_amount: number; status: string; total_due_amount?: number }> = [];
 
   // DP payments skip all schedule and penalty allocation entirely.
   // They are recorded as a payment entry only; total_paid/remaining_balance
@@ -95,42 +95,58 @@ async function allocatePaymentToAccount(
       for (const item of unpaidItems) {
         if (remaining <= 0) break;
         const currentPaid = Number(item.paid_amount);
-        const baseAmount = Number(item.base_installment_amount);
-        // Use total_due_amount for partially_paid items (ghost prevention)
-        const targetAmount = item.status === "partially_paid"
-          ? Number(item.total_due_amount)
-          : baseAmount;
+        const targetAmount = Number(item.total_due_amount); // DB value — may be adjusted from prior rollover
         const due = Math.max(0, targetAmount - currentPaid);
         if (due <= 0) continue;
 
-        const availableForThisMonth = remaining; // save before deduction
+        const availableForThisMonth = remaining;
         const toApply = Math.min(remaining, due);
         remaining -= toApply;
         const newPaid = currentPaid + toApply;
         const isNowFullyPaid = newPaid >= targetAmount;
-        const newStatus = isNowFullyPaid ? "paid" : "partially_paid";
 
-        // Store actual cash received for display:
-        // - pending month fully/overpaid: store full available (shows actual receipt)
-        // - partially_paid month completing: cap at targetAmount (CLAUDE.md ghost prevention)
-        // - partial payment: store amount paid so far
-        const storedPaid = isNowFullyPaid && item.status !== "partially_paid"
-          ? currentPaid + availableForThisMonth
-          : isNowFullyPaid
-            ? targetAmount
-            : newPaid;
+        if (isNowFullyPaid && item.status === "partially_paid") {
+          // GHOST PREVENTION: topping up a partial month — cap at total_due, stop
+          allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
+          scheduleUpdates.push({ id: item.id, paid_amount: targetAmount, status: "paid" });
+          remaining = 0;
+          break;
 
-        allocations.push({
-          schedule_id: item.id,
-          allocation_type: "installment",
-          allocated_amount: toApply,
-        });
-        scheduleUpdates.push({
-          id: item.id,
-          paid_amount: storedPaid,
-          status: newStatus,
-        });
-        // Loop continues — remaining excess cascades to the next installment
+        } else if (isNowFullyPaid) {
+          // PENDING MONTH FULLY PAID — store actual cash; cascade excess to reduce subsequent months
+          const storedPaid = currentPaid + availableForThisMonth;
+          allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: availableForThisMonth });
+          scheduleUpdates.push({ id: item.id, paid_amount: storedPaid, status: "paid" });
+          if (remaining > 0) {
+            for (const nextItem of unpaidItems) {
+              if (remaining <= 0) break;
+              if (nextItem.installment_number <= item.installment_number) continue;
+              const nextDue = Number(nextItem.total_due_amount);
+              const creditAmt = Math.min(remaining, nextDue);
+              remaining -= creditAmt;
+              scheduleUpdates.push({ id: nextItem.id, paid_amount: 0, total_due_amount: Math.max(0, nextDue - creditAmt), status: "pending" });
+            }
+            remaining = 0;
+          }
+          break;
+
+        } else if (item.status !== "partially_paid") {
+          // PENDING MONTH UNDERPAID — roll shortfall to next pending month
+          const shortfall = due - toApply;
+          allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
+          scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid" });
+          const nextItem = unpaidItems.find((ni: any) => ni.installment_number > item.installment_number);
+          if (nextItem) {
+            scheduleUpdates.push({ id: nextItem.id, paid_amount: 0, total_due_amount: Number(nextItem.total_due_amount) + shortfall, status: "pending" });
+          }
+          // remaining=0 after toApply; outer loop stops naturally
+
+        } else {
+          // PARTIALLY_PAID MONTH — additional payment, not completing
+          allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
+          scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid" });
+          // remaining=0; outer loop stops naturally
+        }
       }
     }
   }
@@ -175,10 +191,9 @@ async function allocatePaymentToAccount(
 
   // Update schedule items
   for (const item of scheduleUpdates) {
-    await supabase.from("layaway_schedule").update({
-      paid_amount: item.paid_amount,
-      status: item.status,
-    }).eq("id", item.id);
+    const fields: any = { paid_amount: item.paid_amount, status: item.status };
+    if (item.total_due_amount !== undefined) fields.total_due_amount = item.total_due_amount;
+    await supabase.from("layaway_schedule").update(fields).eq("id", item.id);
   }
 
   // Update account totals

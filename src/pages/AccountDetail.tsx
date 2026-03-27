@@ -1129,7 +1129,7 @@ export default function AccountDetail() {
                 const penaltyAmt = Number(item.penalty_amount);
                 const paidAmt = Number(item.paid_amount);
                 const baseAmt = Number(item.base_installment_amount);
-                const totalDue = baseAmt + penaltyAmt;
+                const totalDue = Number(item.total_due_amount); // DB value — may be adjusted from rollover
                 const itemRemaining = remainingDue(item);
                 const isEditingThis = editingScheduleId === item.id;
                 const canEdit = account.status !== 'forfeited' && account.status !== 'cancelled' && item.status !== 'cancelled';
@@ -1157,7 +1157,7 @@ export default function AccountDetail() {
                             {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                           </p>
                           <p className="text-[10px] text-muted-foreground">
-                            {effPaid ? 'Paid' : partial ? 'Partial' : `Month ${item.installment_number}`}
+                            {effPaid ? 'Paid' : partial ? `Partial — ${formatCurrency(paidAmt, currency)} paid` : `Month ${item.installment_number}`}
                           </p>
                         </div>
                       </div>
@@ -1174,7 +1174,7 @@ export default function AccountDetail() {
                         )}
                         <div className="text-right">
                         <p className={`text-xs font-semibold tabular-nums ${effPaid ? 'text-success' : partial ? 'text-warning' : 'text-card-foreground'}`}>
-                          {formatCurrency(partial ? itemRemaining : totalDue, currency)}
+                          {formatCurrency(effPaid ? paidAmt : totalDue, currency)}
                         </p>
                       </div>
                       </div>
@@ -1210,6 +1210,7 @@ export default function AccountDetail() {
                         </p>
                         <p className="text-xs text-muted-foreground">
                           Month {item.installment_number}
+                          {partial && <span className="text-warning ml-1">(Paid: {formatCurrency(paidAmt, currency)})</span>}
                         </p>
                       </div>
                       {/* Base Amount */}
@@ -1234,7 +1235,7 @@ export default function AccountDetail() {
                       {/* Total Due / Remaining */}
                       <div className="text-right">
                         <p className={`text-xs font-semibold tabular-nums ${effPaid ? 'text-success' : partial ? 'text-warning' : 'text-card-foreground'}`}>
-                          {formatCurrency(partial ? itemRemaining : totalDue, currency)}
+                          {formatCurrency(effPaid ? paidAmt : totalDue, currency)}
                         </p>
                       </div>
                       {/* Status */}

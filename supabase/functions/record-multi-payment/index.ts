@@ -176,6 +176,7 @@ Deno.serve(async (req) => {
         id: string;
         paid_amount: number;
         status: string;
+        total_due_amount?: number;
       }> = [];
 
       // DP payments skip all schedule and penalty allocation.
@@ -210,27 +211,58 @@ Deno.serve(async (req) => {
           if (remaining <= 0) break;
 
           const currentPaid = Number(item.paid_amount);
-          const baseAmount = Number(item.base_installment_amount);
-          const due = Math.max(0, baseAmount - currentPaid);
+          const targetAmount = Number(item.total_due_amount); // DB value — may be adjusted from prior rollover
+          const due = Math.max(0, targetAmount - currentPaid);
           if (due <= 0) continue;
 
+          const availableForThisMonth = remaining;
           const toApply = Math.round(Math.min(remaining, due) * 100) / 100;
           remaining = Math.round((remaining - toApply) * 100) / 100;
-
           const newPaid = Math.round((currentPaid + toApply) * 100) / 100;
-          const newStatus = newPaid >= baseAmount ? "paid" : "partially_paid";
+          const isNowFullyPaid = newPaid >= targetAmount;
 
-          paymentAllocations.push({
-            schedule_id: item.id,
-            allocation_type: "installment",
-            allocated_amount: toApply,
-          });
+          if (isNowFullyPaid && item.status === "partially_paid") {
+            // GHOST PREVENTION: topping up a partial month — cap at total_due, stop
+            paymentAllocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
+            scheduleUpdates.push({ id: item.id, paid_amount: targetAmount, status: "paid" });
+            remaining = 0;
+            break;
 
-          scheduleUpdates.push({
-            id: item.id,
-            paid_amount: newPaid,
-            status: newStatus,
-          });
+          } else if (isNowFullyPaid) {
+            // PENDING MONTH FULLY PAID — store actual cash; cascade excess to reduce subsequent months
+            const storedPaid = Math.round((currentPaid + availableForThisMonth) * 100) / 100;
+            paymentAllocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: availableForThisMonth });
+            scheduleUpdates.push({ id: item.id, paid_amount: storedPaid, status: "paid" });
+            if (remaining > 0) {
+              for (const nextItem of unpaidItems) {
+                if (remaining <= 0) break;
+                if (nextItem.installment_number <= item.installment_number) continue;
+                const nextDue = Number(nextItem.total_due_amount);
+                const creditAmt = Math.round(Math.min(remaining, nextDue) * 100) / 100;
+                remaining = Math.round((remaining - creditAmt) * 100) / 100;
+                scheduleUpdates.push({ id: nextItem.id, paid_amount: 0, total_due_amount: Math.max(0, Math.round((nextDue - creditAmt) * 100) / 100), status: "pending" });
+              }
+              remaining = 0;
+            }
+            break;
+
+          } else if (item.status !== "partially_paid") {
+            // PENDING MONTH UNDERPAID — roll shortfall to next pending month
+            const shortfall = Math.round((due - toApply) * 100) / 100;
+            paymentAllocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
+            scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid" });
+            const nextItem = unpaidItems.find((ni: any) => ni.installment_number > item.installment_number);
+            if (nextItem) {
+              scheduleUpdates.push({ id: nextItem.id, paid_amount: 0, total_due_amount: Math.round((Number(nextItem.total_due_amount) + shortfall) * 100) / 100, status: "pending" });
+            }
+            // remaining=0 after toApply; outer loop stops naturally
+
+          } else {
+            // PARTIALLY_PAID MONTH — additional payment, not completing
+            paymentAllocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
+            scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid" });
+            // remaining=0; outer loop stops naturally
+          }
         }
       }
 
@@ -343,12 +375,11 @@ Deno.serve(async (req) => {
           }
         }
 
-        // Update schedule (only paid_amount and status — base_installment_amount is IMMUTABLE)
+        // Update schedule (base_installment_amount is IMMUTABLE; total_due_amount only updated for rollover)
         for (const item of scheduleUpdates) {
-          const { error: schedErr } = await supabase.from("layaway_schedule").update({
-            paid_amount: item.paid_amount,
-            status: item.status,
-          }).eq("id", item.id);
+          const schedFields: any = { paid_amount: item.paid_amount, status: item.status };
+          if (item.total_due_amount !== undefined) schedFields.total_due_amount = item.total_due_amount;
+          const { error: schedErr } = await supabase.from("layaway_schedule").update(schedFields).eq("id", item.id);
           if (schedErr) {
             console.error(`[multi-pay] Schedule update error:`, schedErr);
             throw schedErr;
