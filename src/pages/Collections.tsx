@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Activity, TrendingUp, Banknote, CalendarClock, AlertTriangle } from 'lucide-react';
+import { Activity, TrendingUp, Banknote, CalendarClock } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import StatCard from '@/components/dashboard/StatCard';
@@ -53,26 +53,6 @@ export default function Collections() {
     },
   });
 
-  // Total receivables per currency for cross-check
-  const { data: receivablesByCurrency } = useQuery({
-    queryKey: ['receivables-by-currency'],
-    staleTime: 0,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('layaway_accounts')
-        .select('currency, remaining_balance, invoice_number')
-        .in('status', [...ACTIVE_STATUSES]);
-      if (error) throw error;
-      let php = 0, jpy = 0;
-      (data || []).forEach(a => {
-        if (a.invoice_number?.startsWith('TEST-')) return;
-        if (a.currency === 'PHP') php += Number(a.remaining_balance);
-        else if (a.currency === 'JPY') jpy += Number(a.remaining_balance);
-      });
-      return { php, jpy };
-    },
-  });
-
   // Build ordered month slots for the forecast window
   const forecastMonths = useMemo(() => {
     const now = new Date();
@@ -85,44 +65,29 @@ export default function Collections() {
     });
   }, []);
 
-  // Aggregate forecast by month × currency
-  const forecastRows = useMemo(() => {
-    if (!forecastSchedule) return [];
+  // One card per month — all amounts in JPY (PHP converted via live rate)
+  const forecastCards = useMemo(() => {
+    if (!forecastSchedule) return null;
 
-    const agg: Record<string, { php: number; phpCount: number; jpy: number; jpyCount: number }> = {};
-    forecastMonths.forEach(m => { agg[m.key] = { php: 0, phpCount: 0, jpy: 0, jpyCount: 0 }; });
+    const agg: Record<string, { jpy: number; count: number }> = {};
+    forecastMonths.forEach(m => { agg[m.key] = { jpy: 0, count: 0 }; });
 
     forecastSchedule.forEach(item => {
       const monthKey = item.due_date.substring(0, 7);
       if (!agg[monthKey]) return;
       const remaining = Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
       if (remaining <= 0) return;
-      const cur = (item as any).layaway_accounts?.currency;
-      if (cur === 'PHP') { agg[monthKey].php += remaining; agg[monthKey].phpCount++; }
-      else if (cur === 'JPY') { agg[monthKey].jpy += remaining; agg[monthKey].jpyCount++; }
+      const cur = (item as any).layaway_accounts?.currency as Currency;
+      agg[monthKey].jpy += toJpy(remaining, cur);
+      agg[monthKey].count++;
     });
 
-    type ForecastRow = { monthKey: string; label: string; daysAway: number; amount: number; count: number; currency: 'PHP' | 'JPY' };
-    const rows: ForecastRow[] = [];
-    forecastMonths.forEach(m => {
-      const d = agg[m.key];
-      // Always include all 6 months per currency (even if amount = 0) so the full window is visible
-      if (isAllMode || currencyFilter === 'PHP') {
-        rows.push({ monthKey: m.key, label: m.label, daysAway: m.daysAway, amount: d.php, count: d.phpCount, currency: 'PHP' });
-      }
-      if (isAllMode || currencyFilter === 'JPY') {
-        rows.push({ monthKey: m.key, label: m.label, daysAway: m.daysAway, amount: d.jpy, count: d.jpyCount, currency: 'JPY' });
-      }
-    });
-    return rows;
-  }, [forecastSchedule, forecastMonths, currencyFilter, isAllMode]);
-
-  // 6-month totals per currency
-  const forecastTotals = useMemo(() => {
-    let php = 0, jpy = 0;
-    forecastRows.forEach(r => { if (r.currency === 'PHP') php += r.amount; else jpy += r.amount; });
-    return { php, jpy };
-  }, [forecastRows]);
+    return forecastMonths.map(m => ({
+      ...m,
+      jpy: Math.round(agg[m.key].jpy),
+      count: agg[m.key].count,
+    }));
+  }, [forecastSchedule, forecastMonths]);
 
   // Build account map for payment feed
   const accountMap = useMemo(() => {
@@ -189,89 +154,30 @@ export default function Collections() {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
               <CalendarClock className="h-4 w-4 text-primary" />
-              Upcoming Receivables Forecast
+              Upcoming Receivables
             </h3>
-            <span className="text-xs text-muted-foreground">Next 6 months · based on payment schedules</span>
+            <span className="text-xs text-muted-foreground">Next 6 months</span>
           </div>
 
-          {forecastLoading ? (
-            <div className="space-y-2">{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}</div>
+          {forecastLoading || !forecastCards ? (
+            <div className="flex gap-3 overflow-x-auto pb-1">
+              {[...Array(6)].map((_, i) => <Skeleton key={i} className="flex-none w-36 h-24 rounded-lg" />)}
+            </div>
           ) : (
-            <>
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left pb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Month</th>
-                    <th className="text-right pb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Scheduled</th>
-                    <th className="text-right pb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Accounts</th>
-                    <th className="text-right pb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Currency</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {forecastRows.map(row => (
-                    <tr key={`${row.monthKey}-${row.currency}`} className="border-b border-border/40 last:border-0 hover:bg-muted/20 transition-colors">
-                      <td className="py-2.5">
-                        <span className="font-medium text-sm text-foreground">{row.label}</span>
-                        {row.daysAway <= 35 && (
-                          <span className="ml-2 text-[10px] text-muted-foreground">Due in {row.daysAway}d</span>
-                        )}
-                      </td>
-                      <td className="py-2.5 text-right font-semibold tabular-nums text-sm text-foreground">
-                        {formatCurrency(Math.round(row.amount), row.currency)}
-                      </td>
-                      <td className="py-2.5 text-right text-sm text-muted-foreground tabular-nums">{row.count}</td>
-                      <td className="py-2.5 text-right">
-                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded tracking-wide ${
-                          row.currency === 'PHP'
-                            ? 'bg-blue-500/10 text-blue-400'
-                            : 'bg-orange-500/10 text-orange-400'
-                        }`}>
-                          {row.currency}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              {/* Cross-check vs total receivables */}
-              {receivablesByCurrency && (
-                <div className="mt-4 pt-4 border-t border-border grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {(isAllMode || currencyFilter === 'PHP') && receivablesByCurrency.php > 0 && (
-                    <div className="text-sm">
-                      <p className="text-xs text-muted-foreground mb-0.5">6-Month PHP Forecast</p>
-                      <p className="font-bold text-foreground">{formatCurrency(Math.round(forecastTotals.php), 'PHP')}</p>
-                      <p className="text-xs text-muted-foreground">
-                        vs {formatCurrency(Math.round(receivablesByCurrency.php), 'PHP')} total receivables
-                        {' '}({Math.round(forecastTotals.php / receivablesByCurrency.php * 100)}%)
-                      </p>
-                      {receivablesByCurrency.php > 0 && forecastTotals.php / receivablesByCurrency.php < 0.8 && (
-                        <p className="text-xs text-warning flex items-center gap-1 mt-0.5">
-                          <AlertTriangle className="h-3 w-3" />
-                          {Math.round((1 - forecastTotals.php / receivablesByCurrency.php) * 100)}% of PHP balance falls outside 6-month window
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  {(isAllMode || currencyFilter === 'JPY') && receivablesByCurrency.jpy > 0 && (
-                    <div className="text-sm">
-                      <p className="text-xs text-muted-foreground mb-0.5">6-Month JPY Forecast</p>
-                      <p className="font-bold text-foreground">{formatCurrency(Math.round(forecastTotals.jpy), 'JPY')}</p>
-                      <p className="text-xs text-muted-foreground">
-                        vs {formatCurrency(Math.round(receivablesByCurrency.jpy), 'JPY')} total receivables
-                        {' '}({Math.round(forecastTotals.jpy / receivablesByCurrency.jpy * 100)}%)
-                      </p>
-                      {receivablesByCurrency.jpy > 0 && forecastTotals.jpy / receivablesByCurrency.jpy < 0.8 && (
-                        <p className="text-xs text-warning flex items-center gap-1 mt-0.5">
-                          <AlertTriangle className="h-3 w-3" />
-                          {Math.round((1 - forecastTotals.jpy / receivablesByCurrency.jpy) * 100)}% of JPY balance falls outside 6-month window
-                        </p>
-                      )}
-                    </div>
+            <div className="flex gap-3 overflow-x-auto pb-1">
+              {forecastCards.map((card, i) => (
+                <div key={card.key} className="flex-none w-36 rounded-lg border border-border bg-muted/30 p-3">
+                  <div className="text-xs font-semibold text-muted-foreground mb-2">{card.label}</div>
+                  <div className="text-base font-bold text-foreground tabular-nums leading-tight">
+                    {formatCurrency(card.jpy, 'JPY')}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1.5">{card.count} accts</div>
+                  {i === 0 && (
+                    <div className="text-[10px] font-medium text-primary mt-1">Due in {card.daysAway}d</div>
                   )}
                 </div>
-              )}
-            </>
+              ))}
+            </div>
           )}
         </div>
 
