@@ -32,24 +32,36 @@ export default function Collections() {
     staleTime: 0,
     queryFn: async () => {
       const now = new Date();
-      // Next 6 full calendar months (starts 1st of next month)
       const start = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-      const end   = new Date(now.getFullYear(), now.getMonth() + 7, 0); // day 0 = last of 6th month
+      const end   = new Date(now.getFullYear(), now.getMonth() + 7, 0);
       const startStr = start.toISOString().split('T')[0];
       const endStr   = end.toISOString().split('T')[0];
 
+      // Step 1: get valid account IDs + currency (PostgREST can't filter on joined columns)
+      const { data: activeAccounts, error: acctErr } = await supabase
+        .from('layaway_accounts')
+        .select('id, currency')
+        .in('status', [...ACTIVE_STATUSES])
+        .not('invoice_number', 'like', 'TEST-%');
+      if (acctErr) throw acctErr;
+
+      const validIds = (activeAccounts || []).map(a => a.id);
+      const currencyById = new Map((activeAccounts || []).map(a => [a.id, a.currency]));
+
+      if (validIds.length === 0) return [];
+
+      // Step 2: fetch schedule rows for those accounts in the 6-month window
       const { data, error } = await supabase
         .from('layaway_schedule')
-        .select('id, account_id, due_date, total_due_amount, paid_amount, status, layaway_accounts!inner(status, currency, invoice_number)')
-        .in('layaway_accounts.status', [...ACTIVE_STATUSES])
+        .select('id, account_id, due_date, total_due_amount, paid_amount, status')
+        .in('account_id', validIds)
         .gte('due_date', startStr)
         .lte('due_date', endStr)
         .in('status', ['pending', 'partially_paid', 'overdue']);
       if (error) throw error;
-      // Exclude TEST-% accounts client-side
-      return (data || []).filter(
-        item => !((item as any).layaway_accounts?.invoice_number?.startsWith('TEST-'))
-      );
+
+      // Attach currency from the accounts map
+      return (data || []).map(item => ({ ...item, currency: currencyById.get(item.account_id) ?? 'JPY' }));
     },
   });
 
@@ -77,7 +89,7 @@ export default function Collections() {
       if (!agg[monthKey]) return;
       const remaining = Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
       if (remaining <= 0) return;
-      const cur = (item as any).layaway_accounts?.currency as Currency;
+      const cur = (item as any).currency as Currency;
       agg[monthKey].jpy += toJpy(remaining, cur);
       agg[monthKey].count++;
     });
