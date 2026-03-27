@@ -1398,6 +1398,7 @@ export type Database = {
         | "confirmed"
         | "rejected"
         | "needs_clarification"
+        | "cancelled"
       user_status: "active" | "inactive" | "suspended"
       waiver_status: "pending" | "approved" | "rejected"
     }
@@ -1558,6 +1559,7 @@ export const Constants = {
         "confirmed",
         "rejected",
         "needs_clarification",
+        "cancelled",
       ],
       user_status: ["active", "inactive", "suspended"],
       waiver_status: ["pending", "approved", "rejected"],
