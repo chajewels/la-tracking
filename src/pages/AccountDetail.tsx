@@ -645,27 +645,20 @@ export default function AccountDetail() {
       }
     } else {
       // ── FALLBACK — no session payments ──
-      // If last payment was from a multi-invoice batch, show simple update message
-      const isLastPaymentFromBatch = mostRecentPayment?.remarks?.includes('[Multi-invoice');
-
-      if (isLastPaymentFromBatch) {
-        message += `Your account has been updated.\n\n`;
-        message += `Inv # ${account.invoice_number}\n`;
-        if (portalUrl) {
-          message += `\nView your account here:\n🔗 ${portalUrl}\n`;
-        }
-        message += `\n\nThank you for your continued trust in Cha Jewels! 🧡`;
-      } else {
-        if (mostRecentPayment) {
-          message += `Thank you for your payment. ${formatCurrency(Number(mostRecentPayment.amount_paid), currency)} has been received.\n\n`;
-        }
-        message += `Inv # ${account.invoice_number}\n`;
-        if (portalUrl) {
-          message += `\nView your updated account and payment schedule here:\n🔗 ${portalUrl}\n`;
-        }
-        message += buildNextPaymentLine(false);
-        message += `\n\nThank you for your continued trust in Cha Jewels! 🧡`;
+      // Always show the standard template with next payment line.
+      // (Multi-invoice batch context is handled by MultiInvoicePaymentDialog's own
+      //  consolidated message — checking mostRecentPayment.remarks here caused the
+      //  next payment line to be permanently suppressed for any account whose last
+      //  payment was ever made via multi-invoice, regardless of when it happened.)
+      if (mostRecentPayment && !mostRecentPayment.remarks?.includes('[Multi-invoice')) {
+        message += `Thank you for your payment. ${formatCurrency(Number(mostRecentPayment.amount_paid), currency)} has been received.\n\n`;
       }
+      message += `Inv # ${account.invoice_number}\n`;
+      if (portalUrl) {
+        message += `\nView your updated account and payment schedule here:\n🔗 ${portalUrl}\n`;
+      }
+      message += buildNextPaymentLine(false);
+      message += `\n\nThank you for your continued trust in Cha Jewels! 🧡`;
     }
   }
   return message;
