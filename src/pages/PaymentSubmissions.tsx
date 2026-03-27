@@ -42,6 +42,7 @@ interface SubmissionRow {
   submission_type: string | null;
   created_at: string;
   updated_at: string;
+  customer_edited_at: string | null;
   customers: { full_name: string; customer_code: string } | null;
   layaway_accounts: { invoice_number: string; currency: string; remaining_balance: number; total_amount: number } | null;
 }
@@ -305,6 +306,15 @@ export default function PaymentSubmissions() {
                         {sub.notes && (
                           <p className="text-xs text-muted-foreground">Notes: <span className="text-foreground">{sub.notes}</span></p>
                         )}
+                        {sub.customer_edited_at && isPending && (
+                          <div className="flex items-center gap-1.5 p-2 rounded-md bg-warning/10 border border-warning/30">
+                            <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0" />
+                            <p className="text-xs text-warning font-medium">
+                              ⚠️ Customer edited this submission on {new Date(sub.customer_edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })} — re-check the proof.
+                            </p>
+                          </div>
+                        )}
+
                         {sub.reviewer_notes && (
                           <div className="p-2.5 rounded-lg bg-muted/30 border border-[hsl(var(--border))]">
                             <p className="text-[10px] text-muted-foreground mb-0.5 font-medium">Staff Note:</p>

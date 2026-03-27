@@ -230,7 +230,7 @@ Deno.serve(async (req) => {
         : Promise.resolve({ data: [], error: null }),
       supabase.from("payment_methods").select("*").eq("is_active", true).order("sort_order"),
       accountIds.length > 0
-        ? supabase.from("payment_submissions").select("id, account_id, submitted_amount, payment_date, payment_method, reference_number, sender_name, notes, proof_url, status, reviewer_notes, created_at").eq("customer_id", customerId).in("account_id", accountIds).order("created_at", { ascending: false })
+        ? supabase.from("payment_submissions").select("id, account_id, submitted_amount, payment_date, payment_method, reference_number, sender_name, notes, proof_url, status, reviewer_notes, created_at, customer_edited_at").eq("customer_id", customerId).in("account_id", accountIds).order("created_at", { ascending: false })
         : Promise.resolve({ data: [], error: null }),
       accountIds.length > 0
         ? supabase.from("penalty_fees").select("id, account_id, schedule_id, penalty_amount, status").in("account_id", accountIds)

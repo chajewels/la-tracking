@@ -38,6 +38,7 @@ interface PaymentMethod {
 
 interface Submission {
   id: string;
+  account_id: string;
   submitted_amount: number;
   payment_date: string;
   payment_method: string;
@@ -48,6 +49,7 @@ interface Submission {
   status: string;
   reviewer_notes: string | null;
   created_at: string;
+  customer_edited_at: string | null;
 }
 
 interface PortalAccount {
@@ -925,7 +927,7 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, onCl
           </div>
         )}
         {activeTab === 'submissions' && (
-          <SubmissionsTab submissions={account.submissions || []} currency={currency} />
+          <SubmissionsTab submissions={account.submissions || []} currency={currency} portalToken={portalToken} onRefresh={onRefresh} />
         )}
       </div>
     </div>
@@ -1855,7 +1857,125 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
 }
 
 /* ─── Submissions Tab ─── */
-function SubmissionsTab({ submissions, currency }: { submissions: Submission[]; currency: string }) {
+function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
+  submissions: Submission[];
+  currency: string;
+  portalToken: string;
+  onRefresh: () => void;
+}) {
+  const relevantGroup = currency === 'JPY' ? 'JP' : 'PH';
+  const availableMethods = CHA_PAYMENT_METHODS.filter(m => m.group === relevantGroup);
+
+  // Edit state
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editAmount, setEditAmount] = useState('');
+  const [editMethod, setEditMethod] = useState('');
+  const [editRef, setEditRef] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [editProofFile, setEditProofFile] = useState<File | null>(null);
+  const [editProofPreview, setEditProofPreview] = useState<string | null>(null);
+  const [editProofCurrent, setEditProofCurrent] = useState<string | null>(null);
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const editFileRef = useRef<HTMLInputElement>(null);
+
+  const startEdit = (sub: Submission) => {
+    setEditingId(sub.id);
+    setEditAmount(String(sub.submitted_amount));
+    setEditMethod(sub.payment_method);
+    setEditRef(sub.reference_number || '');
+    setEditNotes(sub.notes || '');
+    setEditProofFile(null);
+    setEditProofPreview(null);
+    setEditProofCurrent(sub.proof_url);
+    setEditError(null);
+  };
+
+  const handleEditProofChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { setEditError('File must be less than 10MB'); return; }
+    setEditProofFile(file);
+    setEditError(null);
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = () => setEditProofPreview(reader.result as string);
+      reader.readAsDataURL(file);
+    } else {
+      setEditProofPreview(null);
+    }
+  };
+
+  const handleEditSave = async (sub: Submission) => {
+    const parsedAmount = parseFloat(editAmount);
+    if (!parsedAmount || parsedAmount <= 0) { setEditError('Please enter a valid amount.'); return; }
+
+    setEditSubmitting(true);
+    setEditError(null);
+    try {
+      let proofUrl: string | undefined = undefined;
+      if (editProofFile) {
+        const ext = editProofFile.name.split('.').pop() || 'jpg';
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const filePath = `${sub.account_id}/${timestamp}_${editProofFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')}.${ext}`;
+        const uploadRes = await fetch(
+          `${SUPABASE_URL}/storage/v1/object/payment-proofs/${filePath}`,
+          {
+            method: 'POST',
+            headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': editProofFile.type },
+            body: editProofFile,
+          }
+        );
+        if (uploadRes.ok) {
+          proofUrl = `${SUPABASE_URL}/storage/v1/object/public/payment-proofs/${filePath}`;
+        }
+      }
+
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/edit-payment-submission`, {
+        method: 'POST',
+        headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          portal_token: portalToken,
+          submission_id: sub.id,
+          action: 'edit',
+          submitted_amount: parsedAmount,
+          payment_method: editMethod,
+          reference_number: editRef || null,
+          notes: editNotes || null,
+          ...(proofUrl !== undefined ? { proof_url: proofUrl } : {}),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setEditError(json.error || 'Edit failed. Please try again.'); return; }
+
+      setEditingId(null);
+      onRefresh();
+    } catch {
+      setEditError('Something went wrong. Please try again.');
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
+  const handleCancelSubmission = async (sub: Submission) => {
+    setCancellingId(sub.id);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/edit-payment-submission`, {
+        method: 'POST',
+        headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ portal_token: portalToken, submission_id: sub.id, action: 'cancel' }),
+      });
+      const json = await res.json();
+      if (!res.ok) { alert(json.error || 'Could not cancel. Please try again.'); return; }
+      onRefresh();
+    } catch {
+      alert('Something went wrong. Please try again.');
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
   if (submissions.length === 0) {
     return (
       <div className="text-center py-12">
@@ -1871,6 +1991,9 @@ function SubmissionsTab({ submissions, currency }: { submissions: Submission[]; 
       <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts}}>Payment Submissions</p>
       {submissions.map((sub) => {
         const cfg = submissionStatusConfig[sub.status] || submissionStatusConfig.submitted;
+        const isEditable = sub.status === 'submitted';
+        const isEditingThis = editingId === sub.id;
+        const isCancellingThis = cancellingId === sub.id;
         return (
           <div key={sub.id} style={{background:P.s,border:`1px solid ${P.br}`,borderTop:`2px solid ${P.gp}`,borderRadius:'2px',padding:'1rem'}} className="space-y-2.5">
             <div className="flex items-start justify-between">
@@ -1908,10 +2031,133 @@ function SubmissionsTab({ submissions, currency }: { submissions: Submission[]; 
               </a>
             )}
 
+            {sub.customer_edited_at && (
+              <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,fontStyle:'italic'}}>
+                Edited {fmtDateTime(sub.customer_edited_at)}
+              </p>
+            )}
+
             {sub.reviewer_notes && (
               <div style={{padding:'8px 10px',background:P.s2,borderLeft:`3px solid ${sub.status==='rejected'?'#E74C3C':P.gp}`}}>
                 <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',fontWeight:600,color:P.ts,marginBottom:'4px',letterSpacing:'0.1em',textTransform:'uppercase' as const}}>Message from Cha Jewels:</p>
                 <p style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:P.tp}}>{sub.reviewer_notes}</p>
+              </div>
+            )}
+
+            {/* Edit / Cancel buttons — only for 'submitted' status */}
+            {isEditable && !isEditingThis && (
+              <div className="flex gap-2" style={{paddingTop:'4px'}}>
+                <button
+                  onClick={() => startEdit(sub)}
+                  style={{flex:1,padding:'7px 0',background:'transparent',border:`1px solid ${P.gp}`,borderRadius:'2px',color:P.gp,fontFamily:"Inter,sans-serif",fontSize:'11px',letterSpacing:'0.08em',textTransform:'uppercase' as const,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:'5px'}}>
+                  <Pencil className="h-3 w-3" /> Edit
+                </button>
+                <button
+                  onClick={() => handleCancelSubmission(sub)}
+                  disabled={isCancellingThis}
+                  style={{flex:1,padding:'7px 0',background:'transparent',border:`1px solid #E74C3C`,borderRadius:'2px',color:'#E74C3C',fontFamily:"Inter,sans-serif",fontSize:'11px',letterSpacing:'0.08em',textTransform:'uppercase' as const,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:'5px',opacity:isCancellingThis?0.6:1}}>
+                  {isCancellingThis ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}
+                  {isCancellingThis ? 'Cancelling…' : 'Cancel Submission'}
+                </button>
+              </div>
+            )}
+
+            {/* Inline Edit Form */}
+            {isEditingThis && (
+              <div style={{background:P.s2,border:`1px solid ${P.br}`,borderRadius:'2px',padding:'12px',marginTop:'4px'}} className="space-y-3">
+                <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',fontWeight:600,letterSpacing:'0.15em',textTransform:'uppercase' as const,color:P.ts}}>Edit Submission</p>
+
+                {/* Amount */}
+                <div>
+                  <label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,display:'block',marginBottom:'4px'}}>Amount</label>
+                  <input
+                    type="number"
+                    value={editAmount}
+                    onChange={e => setEditAmount(e.target.value)}
+                    style={{width:'100%',padding:'7px 10px',background:P.s,border:`1px solid ${P.br}`,borderRadius:'2px',color:P.tp,fontFamily:"Inter,sans-serif",fontSize:'13px',outline:'none',boxSizing:'border-box' as const}}
+                  />
+                </div>
+
+                {/* Payment Method */}
+                <div>
+                  <label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,display:'block',marginBottom:'4px'}}>Payment Method</label>
+                  <select
+                    value={editMethod}
+                    onChange={e => setEditMethod(e.target.value)}
+                    style={{width:'100%',padding:'7px 10px',background:P.s,border:`1px solid ${P.br}`,borderRadius:'2px',color:P.tp,fontFamily:"Inter,sans-serif",fontSize:'13px',outline:'none',boxSizing:'border-box' as const}}>
+                    {availableMethods.map(m => (
+                      <option key={m.id} value={m.name}>{m.name}</option>
+                    ))}
+                    {/* Keep current if not in list */}
+                    {!availableMethods.find(m => m.name === editMethod) && (
+                      <option value={editMethod}>{editMethod}</option>
+                    )}
+                  </select>
+                </div>
+
+                {/* Reference Number */}
+                <div>
+                  <label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,display:'block',marginBottom:'4px'}}>Reference Number (optional)</label>
+                  <input
+                    type="text"
+                    value={editRef}
+                    onChange={e => setEditRef(e.target.value)}
+                    placeholder="Transaction / GCash ref"
+                    style={{width:'100%',padding:'7px 10px',background:P.s,border:`1px solid ${P.br}`,borderRadius:'2px',color:P.tp,fontFamily:"Inter,sans-serif",fontSize:'13px',outline:'none',boxSizing:'border-box' as const}}
+                  />
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,display:'block',marginBottom:'4px'}}>Notes (optional)</label>
+                  <textarea
+                    value={editNotes}
+                    onChange={e => setEditNotes(e.target.value)}
+                    rows={2}
+                    style={{width:'100%',padding:'7px 10px',background:P.s,border:`1px solid ${P.br}`,borderRadius:'2px',color:P.tp,fontFamily:"Inter,sans-serif",fontSize:'13px',outline:'none',resize:'none',boxSizing:'border-box' as const}}
+                  />
+                </div>
+
+                {/* Proof Upload */}
+                <div>
+                  <label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,display:'block',marginBottom:'4px'}}>Proof of Payment</label>
+                  {editProofCurrent && !editProofFile && (
+                    <a href={editProofCurrent} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 hover:underline mb-2"
+                      style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.gp}}>
+                      <ImageIcon className="h-3 w-3" /> Current proof (tap to view) — or upload new below
+                    </a>
+                  )}
+                  {editProofPreview && (
+                    <img src={editProofPreview} alt="New proof preview" style={{width:'100%',maxHeight:'120px',objectFit:'cover',borderRadius:'2px',marginBottom:'6px'}} />
+                  )}
+                  <input ref={editFileRef} type="file" accept="image/*,.pdf" style={{display:'none'}} onChange={handleEditProofChange} />
+                  <button
+                    onClick={() => editFileRef.current?.click()}
+                    style={{width:'100%',padding:'8px',background:'transparent',border:`1px dashed ${P.br}`,borderRadius:'2px',color:P.ts,fontFamily:"Inter,sans-serif",fontSize:'11px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:'5px'}}>
+                    <Upload className="h-3 w-3" /> {editProofFile ? editProofFile.name : 'Upload new proof (optional)'}
+                  </button>
+                </div>
+
+                {editError && (
+                  <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:'#E74C3C'}}>{editError}</p>
+                )}
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleEditSave(sub)}
+                    disabled={editSubmitting}
+                    style={{flex:1,padding:'8px 0',background:P.gp,border:'none',borderRadius:'2px',color:'#fff',fontFamily:"Inter,sans-serif",fontSize:'11px',letterSpacing:'0.08em',textTransform:'uppercase' as const,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:'5px',opacity:editSubmitting?0.7:1}}>
+                    {editSubmitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                    {editSubmitting ? 'Saving…' : 'Save Changes'}
+                  </button>
+                  <button
+                    onClick={() => setEditingId(null)}
+                    disabled={editSubmitting}
+                    style={{padding:'8px 16px',background:'transparent',border:`1px solid ${P.br}`,borderRadius:'2px',color:P.ts,fontFamily:"Inter,sans-serif",fontSize:'11px',cursor:'pointer'}}>
+                    Discard
+                  </button>
+                </div>
               </div>
             )}
           </div>
