@@ -101,20 +101,78 @@ All values come from computeLayaway() in business-rules.ts
     ✅ Nth month Mon YY: ₱ [base] (PAID)
   Never show "+ ₱0 (Penalty)"
 
-## Test Accounts (DO NOT DELETE)
+## Test Accounts (DO NOT DELETE OR MODIFY)
 
-  TEST-001 — Locked benchmark, never modify data
-             All 7 verify checks must always be green
-  TEST-003 — Split payment testing (can record payments)
+  TEST-001 — Locked benchmark (general baseline)
+             Never modify data. All 9 verify checks must always be green.
+
+  TEST-002 — Locked benchmark (waived penalty)
+             Never modify data. All 9 verify checks must always be green.
+             Purpose: catches bugs where waived penalties still affect
+             totalLAAmount or remainingBalance.
+
+             Setup:
+               Currency: PHP | Base LA: ₱20,000 | DP: ₱6,000 (paid)
+               3 months | Month 1 Jan 22 2026 PAID | Month 2 Feb 22 2026 PAID
+               Month 3 Mar 22 2026 PENDING
+               Penalty: ₱500 on Month 2, status=waived
+               penalty_amount on schedule row = 0
+
+             Expected verify values (all 9 must be green):
+               activePenalties:    0        (waived = excluded)
+               totalLAAmount:      20,000
+               amountPaid:         15,334   (6,000 + 4,667 + 4,667)
+               remainingBalance:   4,666
+               monthsRemaining:    1
+               sumOfPendingMonths: 4,666
+               DP + sumBases:      20,000   (6,000 + 14,000)
+               downPayment:        6,000    (ref: DP-TEST-002)
+               nextPaymentDate:    2026-03-22
+
+  TEST-003 — Locked benchmark (bulk import DP recognition)
+             Never modify data. All 9 verify checks must always be green.
+             Purpose: catches bugs where bulk import downpayments are not
+             recognized by the verify check or totalPaid calculation.
+
+             Setup:
+               Currency: PHP | Base LA: ₱15,000 | DP: ₱4,500 (paid)
+               3 months | Month 1 Feb 22 2026 PAID | Month 2 Mar 22 2026 PENDING
+               Month 3 Apr 22 2026 PENDING
+               DP payment remarks: "Downpayment (bulk import)"
+               (contains 'down' → recognized by isDownpaymentPayment)
+
+             Expected verify values (all 9 must be green):
+               activePenalties:    0
+               totalLAAmount:      15,000
+               amountPaid:         8,000    (4,500 + 3,500)
+               remainingBalance:   7,000
+               monthsRemaining:    2
+               sumOfPendingMonths: 7,000
+               DP + sumBases:      15,000   (4,500 + 10,500)
+               downPayment:        4,500    (remarks contains 'down')
+               nextPaymentDate:    2026-03-22
+
   TEST-004 — Split payment testing (can record payments)
+  TEST-005 — Split payment testing (can record payments)
 
 ## Verification Rule
 
 After ANY change to calculation or display logic:
-  1. Open TEST-001 in the app
-  2. Click Verify Calculations
-  3. All 7 checks must be green ✅
+  1. Open TEST-001 in the app → Verify Calculations → all 9 green ✅
+  2. Open TEST-002 in the app → Verify Calculations → all 9 green ✅
+  3. Open TEST-003 in the app → Verify Calculations → all 9 green ✅
   4. If any check is red, the change broke something
+
+There are 9 verify checks (not 7 — count was updated):
+  1. activePenalties (non-waived)
+  2. totalLAAmount (base + penalties + svc)
+  3. amountPaid (DP + paid months)
+  4. remainingBalance (totalLA - paid)
+  5. monthsRemaining
+  6. sumOfPendingMonths ≈ remainingBalance
+  7. DP + sumBases = principalTotal
+  8. downPayment recorded and marked paid
+  9. nextPaymentDate uses due_date not payment date
 
 ## Payment Recording Rules
 
