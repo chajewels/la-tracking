@@ -60,16 +60,21 @@ export default function Collections() {
     });
 
     const now = new Date();
-    // Candidate slots: current month + next 6 (7 total)
-    return Array.from({ length: 7 }, (_, i) => {
-      const d = startOfMonth(addMonths(now, i));
+    const currentMonthKey = format(startOfMonth(now), 'yyyy-MM');
+    const hasCurrentMonth = !!agg[currentMonthKey]?.count;
+
+    // If current month still has pending installments, start there; otherwise start next month
+    const startMonth = hasCurrentMonth ? startOfMonth(now) : startOfMonth(addMonths(now, 1));
+
+    // Always exactly 6 cards from startMonth
+    return Array.from({ length: 6 }, (_, i) => {
+      const d = addMonths(startMonth, i);
       const key = format(d, 'yyyy-MM');
       const label = format(endOfMonth(d), 'MMM d');
-      const daysAway = Math.ceil((d.getTime() - now.getTime()) / 86_400_000);
-      return { key, label, daysAway, ...agg[key] ?? { jpy: 0, count: 0 } };
+      const endDay = endOfMonth(d);
+      const daysAway = Math.ceil((endDay.getTime() - now.getTime()) / 86_400_000);
+      return { key, label, daysAway, ...(agg[key] ?? { jpy: 0, count: 0 }) };
     })
-    // Only keep months with actual pending installments
-    .filter(m => m.count > 0)
     .map(m => ({ ...m, jpy: Math.round(m.jpy) }));
   }, [forecastSchedule, today]);
 
