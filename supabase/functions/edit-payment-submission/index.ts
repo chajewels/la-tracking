@@ -171,6 +171,21 @@ serve(async (req) => {
     });
   }
 
+  // If amount was edited, sync the single allocation (if exactly one exists).
+  // Multi-account allocations are not auto-redistributed — admin handles those.
+  if (submitted_amount !== undefined) {
+    const { data: allocs } = await supabase
+      .from("payment_submission_allocations")
+      .select("id")
+      .eq("submission_id", submission_id);
+    if (allocs && allocs.length === 1) {
+      await supabase
+        .from("payment_submission_allocations")
+        .update({ allocated_amount: Number(submitted_amount) })
+        .eq("id", allocs[0].id);
+    }
+  }
+
   await supabase.from("audit_logs").insert({
     entity_type: "payment_submission",
     entity_id: submission_id,
