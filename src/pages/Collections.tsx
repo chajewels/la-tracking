@@ -61,12 +61,12 @@ export default function Collections() {
 
     const now = new Date();
     const todayDay = now.getDate();
-    const currentMonthKey = format(startOfMonth(now), 'yyyy-MM');
-    const hasCurrentMonth = !!(agg[currentMonthKey]?.count > 0);
+    const prevMonthKey = format(startOfMonth(addMonths(now, -1)), 'yyyy-MM');
+    const hasPrevMonth = !!(agg[prevMonthKey]?.count > 0);
 
-    // Current month pending → show it + next 6 = 7 cards; cleared → next 6 only
-    const startMonth = hasCurrentMonth ? startOfMonth(now) : startOfMonth(addMonths(now, 1));
-    const length = hasCurrentMonth ? 7 : 6;
+    // Always 6 cards from current month; prepend previous month if it still has pending (→ 7)
+    const startMonth = hasPrevMonth ? startOfMonth(addMonths(now, -1)) : startOfMonth(now);
+    const length = hasPrevMonth ? 7 : 6;
 
     return Array.from({ length }, (_, i) => {
       const monthStart = addMonths(startMonth, i);
