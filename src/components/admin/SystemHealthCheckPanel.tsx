@@ -55,9 +55,9 @@ function CheckRow({ check }: { check: CheckResult }) {
 
   return (
     <div className={`rounded-lg border transition-colors ${
-      check.status === 'pass' ? 'border-success/15 bg-success/3' :
-      check.status === 'fail' ? 'border-destructive/20 bg-destructive/3' :
-      'border-border bg-muted/20'
+      check.status === 'pass' ? 'border-success/40 bg-zinc-900' :
+      check.status === 'fail' ? 'border-destructive/40 bg-zinc-900' :
+      'border-zinc-700 bg-zinc-900'
     }`}>
       <div
         className={`flex items-start gap-3 p-3 ${hasFailed ? 'cursor-pointer' : ''}`}
@@ -68,12 +68,12 @@ function CheckRow({ check }: { check: CheckResult }) {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-card-foreground">{check.label}</span>
             {check.status === 'fail' && (
-              <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-destructive/10 text-destructive border-destructive/20">
+              <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-zinc-900 text-destructive border-destructive/40">
                 {check.affectedCount} affected
               </Badge>
             )}
             {check.status === 'skip' && (
-              <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-muted text-muted-foreground border-border">
+              <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-zinc-700 text-muted-foreground border-zinc-600">
                 skipped
               </Badge>
             )}
@@ -160,7 +160,7 @@ export default function SystemHealthCheckPanel() {
       </div>
 
       {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+        <div className="rounded-lg border border-destructive/40 bg-zinc-900 p-3 text-sm text-destructive">
           {error}
         </div>
       )}
@@ -169,8 +169,8 @@ export default function SystemHealthCheckPanel() {
       {data && (
         <div className={`rounded-xl border p-4 ${
           data.summary.failed === 0
-            ? 'border-success/20 bg-success/5'
-            : 'border-destructive/20 bg-destructive/5'
+            ? 'border-success/40 bg-zinc-900'
+            : 'border-destructive/40 bg-zinc-900'
         }`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -226,7 +226,7 @@ export default function SystemHealthCheckPanel() {
                 {meta.label}
               </h3>
               {sectionFailed > 0 && (
-                <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-destructive/10 text-destructive border-destructive/20">
+                <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-zinc-900 text-destructive border-destructive/40">
                   {sectionFailed} failed
                 </Badge>
               )}
@@ -240,7 +240,7 @@ export default function SystemHealthCheckPanel() {
 
       {/* Empty state */}
       {!data && !loading && !error && (
-        <div className="rounded-xl border border-border bg-muted/20 p-12 text-center">
+        <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-12 text-center">
           <RefreshCw className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
           <p className="text-sm font-medium text-card-foreground">No results yet</p>
           <p className="text-xs text-muted-foreground mt-1">Click "Run All Checks" to scan the system</p>
@@ -250,7 +250,7 @@ export default function SystemHealthCheckPanel() {
       {loading && (
         <div className="space-y-1.5">
           {Array.from({ length: 12 }).map((_, i) => (
-            <div key={i} className="h-14 rounded-lg border border-border bg-muted/20 animate-pulse" />
+            <div key={i} className="h-14 rounded-lg border border-zinc-700 bg-zinc-900 animate-pulse" />
           ))}
         </div>
       )}
