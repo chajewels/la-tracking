@@ -60,19 +60,22 @@ export default function Collections() {
     });
 
     const now = new Date();
+    const todayDay = now.getDate();
     const currentMonthKey = format(startOfMonth(now), 'yyyy-MM');
-    const hasCurrentMonth = !!agg[currentMonthKey]?.count;
+    const hasCurrentMonth = !!(agg[currentMonthKey]?.count > 0);
 
-    // If current month still has pending installments, start there; otherwise start next month
+    // Current month pending → show it + next 6 = 7 cards; cleared → next 6 only
     const startMonth = hasCurrentMonth ? startOfMonth(now) : startOfMonth(addMonths(now, 1));
+    const length = hasCurrentMonth ? 7 : 6;
 
-    // Always exactly 6 cards from startMonth
-    return Array.from({ length: 6 }, (_, i) => {
-      const d = addMonths(startMonth, i);
-      const key = format(d, 'yyyy-MM');
-      const label = format(endOfMonth(d), 'MMM d');
-      const endDay = endOfMonth(d);
-      const daysAway = Math.ceil((endDay.getTime() - now.getTime()) / 86_400_000);
+    return Array.from({ length }, (_, i) => {
+      const monthStart = addMonths(startMonth, i);
+      const key = format(monthStart, 'yyyy-MM');
+      const lastDay = endOfMonth(monthStart);
+      const cardDate = new Date(monthStart.getFullYear(), monthStart.getMonth(), todayDay);
+      const labelDate = cardDate > lastDay ? lastDay : cardDate;
+      const label = format(labelDate, 'MMM d');
+      const daysAway = Math.ceil((labelDate.getTime() - now.getTime()) / 86_400_000);
       return { key, label, daysAway, ...(agg[key] ?? { jpy: 0, count: 0 }) };
     })
     .map(m => ({ ...m, jpy: Math.round(m.jpy) }));
