@@ -468,29 +468,29 @@ export default function Monitoring() {
 
       {/* Messenger Message Dialog */}
       <Dialog open={!!messengerDialog} onOpenChange={(open) => !open && setMessengerDialog(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        <DialogContent className="max-w-lg flex flex-col max-h-[85vh]">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <MessageCircle className="h-5 w-5 text-info" />
               Reminder — {messengerDialog?.alert.customer}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="flex-1 overflow-y-auto min-h-0 py-1">
             <pre className="text-sm text-card-foreground whitespace-pre-wrap font-sans leading-relaxed">
               {messengerDialog?.message}
             </pre>
-            <div className="flex gap-2">
-              <Button variant="outline" className="flex-1 gap-2" onClick={handleCopyMessage}>
-                {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
-                {copied ? 'Copied!' : 'Copy Message'}
+          </div>
+          <div className="flex gap-2 pt-3 flex-shrink-0">
+            <Button variant="outline" className="flex-1 gap-2" onClick={handleCopyMessage}>
+              {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
+              {copied ? 'Copied!' : 'Copy Message'}
+            </Button>
+            {messengerDialog?.alert.messengerLink && (
+              <Button className="flex-1 gap-2" onClick={handleCopyAndOpenMessenger}>
+                <MessageCircle className="h-4 w-4" />
+                Copy & Open Messenger
               </Button>
-              {messengerDialog?.alert.messengerLink && (
-                <Button className="flex-1 gap-2" onClick={handleCopyAndOpenMessenger}>
-                  <MessageCircle className="h-4 w-4" />
-                  Copy & Open Messenger
-                </Button>
-              )}
-            </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>

@@ -724,22 +724,26 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
 
       {/* Messenger/Reminder Dialog */}
       <Dialog open={!!messengerDialog} onOpenChange={(open) => !open && setMessengerDialog(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        <DialogContent className="max-w-lg flex flex-col max-h-[85vh]">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <MessageCircle className="h-5 w-5 text-info" />
               {messengerDialog?.alert.stage} Penalty Reminder — {messengerDialog?.alert.customer}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            {messengerDialog && (
+          {messengerDialog && (
+            <div className="flex-shrink-0">
               <Badge variant="outline" className={`text-xs ${getStageConfig(messengerDialog.alert.stage).badgeClass}`}>
                 {getStageConfig(messengerDialog.alert.stage).label} · {getStageConfig(messengerDialog.alert.stage).tone}
               </Badge>
-            )}
-            <pre className="text-sm text-card-foreground whitespace-pre-wrap font-sans leading-relaxed max-h-[300px] overflow-y-auto">
+            </div>
+          )}
+          <div className="flex-1 overflow-y-auto min-h-0 py-1">
+            <pre className="text-sm text-card-foreground whitespace-pre-wrap font-sans leading-relaxed">
               {messengerDialog?.message}
             </pre>
+          </div>
+          <div className="space-y-2 pt-3 flex-shrink-0">
             <div className="grid grid-cols-2 gap-2">
               <Button variant="outline" className="gap-2 text-xs" onClick={handleCopyMessage}>
                 {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
@@ -768,7 +772,7 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
             </div>
             {messengerDialog && !penaltyNotifMap.has(`${messengerDialog.alert.scheduleId}_${messengerDialog.alert.stage}`) && (
               <Button
-                className="w-full gap-2"
+                className="w-full gap-2 gold-gradient text-primary-foreground"
                 onClick={handleMarkNotifiedFromDialog}
               >
                 <CheckCircle className="h-4 w-4" />
