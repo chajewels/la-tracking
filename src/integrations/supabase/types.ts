@@ -770,6 +770,7 @@ export type Database = {
           account_id: string
           confirmed_payment_id: string | null
           created_at: string
+          customer_edited_at: string | null
           customer_id: string
           id: string
           notes: string | null
@@ -790,6 +791,7 @@ export type Database = {
           account_id: string
           confirmed_payment_id?: string | null
           created_at?: string
+          customer_edited_at?: string | null
           customer_id: string
           id?: string
           notes?: string | null
@@ -810,6 +812,7 @@ export type Database = {
           account_id?: string
           confirmed_payment_id?: string | null
           created_at?: string
+          customer_edited_at?: string | null
           customer_id?: string
           id?: string
           notes?: string | null
