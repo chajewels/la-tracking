@@ -182,18 +182,21 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Update account remaining_balance
-    const { data: allSchedule } = await supabase
-      .from("layaway_schedule")
-      .select("total_due_amount, paid_amount, status")
-      .eq("account_id", account_id);
+    // Recalculate account remaining_balance using canonical formula:
+    // remaining = total_amount + Σ(non-waived penalty_fees) + Σ(services) − Σ(non-voided payments)
+    // This matches the reconciliation checker and business-rules.ts exactly.
+    const [{ data: accTotals }, { data: allActivePens }, { data: allSvcs }, { data: allPays }] = await Promise.all([
+      supabase.from("layaway_accounts").select("total_amount").eq("id", account_id).single(),
+      supabase.from("penalty_fees").select("penalty_amount").eq("account_id", account_id).not("status", "eq", "waived"),
+      supabase.from("account_services").select("amount").eq("account_id", account_id),
+      supabase.from("payments").select("amount_paid").eq("account_id", account_id).is("voided_at", null),
+    ]);
 
-    if (allSchedule) {
-      const newRemaining = allSchedule.reduce((sum, s) => {
-        if (s.status === 'paid' || s.status === 'cancelled') return sum;
-        return sum + Math.max(0, Number(s.total_due_amount) - Number(s.paid_amount));
-      }, 0);
-
+    if (accTotals) {
+      const penSum  = (allActivePens || []).reduce((s: number, p: any)  => s + Number(p.penalty_amount), 0);
+      const svcSum  = (allSvcs       || []).reduce((s: number, sv: any) => s + Number(sv.amount), 0);
+      const paidSum = (allPays       || []).reduce((s: number, p: any)  => s + Number(p.amount_paid), 0);
+      const newRemaining = Math.max(0, Number(accTotals.total_amount) + penSum + svcSum - paidSum);
       await supabase
         .from("layaway_accounts")
         .update({ remaining_balance: newRemaining })
