@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { endOfMonth, format } from 'date-fns';
+import { addMonths, endOfMonth, format, startOfMonth } from 'date-fns';
 import { Activity, TrendingUp, Banknote, CalendarClock } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
@@ -41,41 +41,37 @@ export default function Collections() {
     },
   });
 
-  // Build ordered month slots — keyed on today so labels recalculate on day/month rollover
+  // Keyed on today so month slots recalculate on rollover
   const today = format(new Date(), 'yyyy-MM-dd');
-  const forecastMonths = useMemo(() => {
-    const now = new Date();
-    return Array.from({ length: 6 }, (_, i) => {
-      const d = new Date(now.getFullYear(), now.getMonth() + 1 + i, 1);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      const label = format(endOfMonth(d), 'MMM d');
-      const daysAway = Math.ceil((d.getTime() - now.getTime()) / 86_400_000);
-      return { key, label, daysAway };
-    });
-  }, [today]);
 
-  // Aggregate RPC rows by month — PHP converted to JPY, sum with JPY rows
+  // Aggregate RPC rows by month — PHP converted to JPY, sum with JPY rows.
+  // Generates up to 7 candidate months (current + 6 forward), then filters
+  // to only months that have actual pending installments from the RPC.
   const forecastCards = useMemo(() => {
     if (!forecastSchedule) return null;
 
+    // Build lookup: monthKey → { jpy, count }
     const agg: Record<string, { jpy: number; count: number }> = {};
-    forecastMonths.forEach(m => { agg[m.key] = { jpy: 0, count: 0 }; });
-
     forecastSchedule.forEach(row => {
-      // RPC month is '2026-04-01' — take first 7 chars for key
       const monthKey = row.month.substring(0, 7);
-      if (!agg[monthKey]) return;
-      const amt = Number(row.remaining);
-      agg[monthKey].jpy += toJpy(amt, row.currency as Currency);
+      if (!agg[monthKey]) agg[monthKey] = { jpy: 0, count: 0 };
+      agg[monthKey].jpy += toJpy(Number(row.remaining), row.currency as Currency);
       agg[monthKey].count += Number(row.installments);
     });
 
-    return forecastMonths.map(m => ({
-      ...m,
-      jpy: Math.round(agg[m.key].jpy),
-      count: agg[m.key].count,
-    }));
-  }, [forecastSchedule, forecastMonths]);
+    const now = new Date();
+    // Candidate slots: current month + next 6 (7 total)
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = startOfMonth(addMonths(now, i));
+      const key = format(d, 'yyyy-MM');
+      const label = format(endOfMonth(d), 'MMM d');
+      const daysAway = Math.ceil((d.getTime() - now.getTime()) / 86_400_000);
+      return { key, label, daysAway, ...agg[key] ?? { jpy: 0, count: 0 } };
+    })
+    // Only keep months with actual pending installments
+    .filter(m => m.count > 0)
+    .map(m => ({ ...m, jpy: Math.round(m.jpy) }));
+  }, [forecastSchedule, today]);
 
   // Build account map for payment feed
   const accountMap = useMemo(() => {
