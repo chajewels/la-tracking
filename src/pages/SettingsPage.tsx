@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Settings, UserPlus, Users, Shield, Eye, EyeOff, RotateCcw,
   DollarSign, Bell, Info, ChevronDown, ChevronUp, AlertTriangle,
@@ -82,6 +83,7 @@ const ROLE_PERMISSIONS: Record<string, { label: string; description: string; per
 export default function SettingsPage() {
   const { roles } = useAuth();
   const isAdmin = roles.includes('admin');
+  const queryClient = useQueryClient();
   const [rate, setRate] = useState(getConversionRate().toString());
 
   // Team management state
@@ -132,13 +134,38 @@ export default function SettingsPage() {
     if (isAdmin) fetchMembers();
   }, [isAdmin]);
 
-  const handleSave = () => {
+  // On mount: seed localStorage from DB so all devices start with the same rate
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'php_jpy_rate')
+        .single();
+      if (data) {
+        const dbRate = Number(JSON.parse(String(data.value)));
+        if (!isNaN(dbRate) && dbRate > 0) {
+          setConversionRate(dbRate);
+          setRate(dbRate.toString());
+        }
+      }
+    })();
+  }, []);
+
+  const handleSave = async () => {
     const parsed = parseFloat(rate);
     if (isNaN(parsed) || parsed <= 0) {
       toast({ title: 'Invalid rate', description: 'Please enter a positive number.', variant: 'destructive' });
       return;
     }
+    // Write to localStorage (client-side conversions)
     setConversionRate(parsed);
+    // Write to DB (edge function reads this)
+    await supabase
+      .from('system_settings')
+      .upsert({ key: 'php_jpy_rate', value: JSON.stringify(parsed) }, { onConflict: 'key' });
+    // Invalidate dashboard cache so it refetches with the new rate immediately
+    queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
     toast({ title: 'Conversion rate updated', description: `PHP → JPY rate set to ${parsed}` });
   };
 
