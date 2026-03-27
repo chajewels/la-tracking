@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { endOfMonth, format } from 'date-fns';
 import { Activity, TrendingUp, Banknote, CalendarClock } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
@@ -43,7 +44,7 @@ export default function Collections() {
     return Array.from({ length: 6 }, (_, i) => {
       const d = new Date(now.getFullYear(), now.getMonth() + 1 + i, 1);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      const label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+      const label = format(endOfMonth(d), 'MMM d');
       const daysAway = Math.ceil((d.getTime() - now.getTime()) / 86_400_000);
       return { key, label, daysAway };
     });
@@ -143,13 +144,13 @@ export default function Collections() {
           </div>
 
           {forecastLoading || !forecastCards ? (
-            <div className="flex gap-3 overflow-x-auto pb-1">
-              {[...Array(6)].map((_, i) => <Skeleton key={i} className="flex-none w-36 h-24 rounded-lg" />)}
+            <div className="flex gap-3">
+              {[...Array(6)].map((_, i) => <Skeleton key={i} className="flex-1 h-24 rounded-lg" />)}
             </div>
           ) : (
-            <div className="flex gap-3 overflow-x-auto pb-1">
+            <div className="flex gap-3">
               {forecastCards.map((card, i) => (
-                <div key={card.key} className="flex-none w-36 rounded-lg border border-border bg-muted/30 p-3">
+                <div key={card.key} className="flex-1 rounded-lg border border-border bg-muted/30 p-3">
                   <div className="text-xs font-semibold text-muted-foreground mb-2">{card.label}</div>
                   <div className="text-base font-bold text-foreground tabular-nums leading-tight">
                     {formatCurrency(card.jpy, 'JPY')}
