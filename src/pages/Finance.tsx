@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { DollarSign, TrendingUp, BarChart3, Sparkles, CalendarClock } from 'lucide-react';
+import MonthlyAnalyticsChart from '@/components/MonthlyAnalyticsChart';
 import AppLayout from '@/components/layout/AppLayout';
 import StatCard from '@/components/dashboard/StatCard';
 import AgingBuckets from '@/components/dashboard/AgingBuckets';
@@ -147,6 +148,9 @@ export default function Finance() {
             </div>
           </div>
         </div>
+
+        {/* Monthly Performance Chart */}
+        <MonthlyAnalyticsChart />
 
         {/* Recent Completed */}
         {recentCompleted.length > 0 && (
