@@ -43,12 +43,14 @@ export default function Collections() {
         .select('id, currency')
         .in('status', [...ACTIVE_STATUSES])
         .not('invoice_number', 'like', 'TEST-%');
-      if (acctErr) throw acctErr;
+      if (acctErr) { console.error('[forecast] Step 1 error:', acctErr); throw acctErr; }
 
       const validIds = (activeAccounts || []).map(a => a.id);
       const currencyById = new Map((activeAccounts || []).map(a => [a.id, a.currency]));
+      console.log('[forecast] Step 1 validAccounts:', activeAccounts?.length, 'validIds:', validIds.length);
 
-      if (validIds.length === 0) return [];
+      if (validIds.length === 0) { console.warn('[forecast] No active accounts found'); return []; }
+      if (validIds.length > 100) console.warn('[forecast] validIds.length =', validIds.length, '— may exceed PostgREST IN limit');
 
       // Step 2: fetch schedule rows for those accounts in the 6-month window
       const { data, error } = await supabase
@@ -58,7 +60,8 @@ export default function Collections() {
         .gte('due_date', startStr)
         .lte('due_date', endStr)
         .in('status', ['pending', 'partially_paid', 'overdue']);
-      if (error) throw error;
+      if (error) { console.error('[forecast] Step 2 error:', error); throw error; }
+      console.log('[forecast] Step 2 rows:', data?.length, 'first:', data?.[0]);
 
       // Attach currency from the accounts map
       return (data || []).map(item => ({ ...item, currency: currencyById.get(item.account_id) ?? 'JPY' }));
@@ -77,8 +80,12 @@ export default function Collections() {
     });
   }, []);
 
+  // Log forecastLoading on every render to catch stuck states
+  console.log('[forecast] render — forecastLoading:', forecastLoading, 'forecastSchedule:', forecastSchedule?.length ?? 'undefined');
+
   // One card per month — all amounts in JPY (PHP converted via live rate)
   const forecastCards = useMemo(() => {
+    console.log('[forecast] memo — forecastSchedule length:', forecastSchedule?.length ?? 'undefined');
     if (!forecastSchedule) return null;
 
     const agg: Record<string, { jpy: number; count: number }> = {};
