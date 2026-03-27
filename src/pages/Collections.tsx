@@ -14,7 +14,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
 import { computeCollectionStats, todayStr } from '@/lib/business-rules';
 
-const ACTIVE_STATUSES = ['active', 'overdue', 'final_settlement', 'extension_active'] as const;
 
 export default function Collections() {
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
@@ -26,45 +25,15 @@ export default function Collections() {
   const { data: allPayments, isLoading: payLoading } = usePayments();
   const { data: accounts } = useAccounts();
 
-  // ── 6-month receivables forecast ──
+  // ── 6-month receivables forecast (server-side RPC avoids .in() URL limit) ──
   const { data: forecastSchedule, isLoading: forecastLoading } = useQuery({
     queryKey: ['collections-forecast-6m'],
     staleTime: 0,
     queryFn: async () => {
-      const now = new Date();
-      const start = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-      const end   = new Date(now.getFullYear(), now.getMonth() + 7, 0);
-      const startStr = start.toISOString().split('T')[0];
-      const endStr   = end.toISOString().split('T')[0];
-
-      // Step 1: get valid account IDs + currency (PostgREST can't filter on joined columns)
-      const { data: activeAccounts, error: acctErr } = await supabase
-        .from('layaway_accounts')
-        .select('id, currency')
-        .in('status', [...ACTIVE_STATUSES])
-        .not('invoice_number', 'like', 'TEST-%');
-      if (acctErr) { console.error('[forecast] Step 1 error:', acctErr); throw acctErr; }
-
-      const validIds = (activeAccounts || []).map(a => a.id);
-      const currencyById = new Map((activeAccounts || []).map(a => [a.id, a.currency]));
-      console.log('[forecast] Step 1 validAccounts:', activeAccounts?.length, 'validIds:', validIds.length);
-
-      if (validIds.length === 0) { console.warn('[forecast] No active accounts found'); return []; }
-      if (validIds.length > 100) console.warn('[forecast] validIds.length =', validIds.length, '— may exceed PostgREST IN limit');
-
-      // Step 2: fetch schedule rows for those accounts in the 6-month window
-      const { data, error } = await supabase
-        .from('layaway_schedule')
-        .select('id, account_id, due_date, total_due_amount, paid_amount, status')
-        .in('account_id', validIds)
-        .gte('due_date', startStr)
-        .lte('due_date', endStr)
-        .in('status', ['pending', 'partially_paid', 'overdue']);
-      if (error) { console.error('[forecast] Step 2 error:', error); throw error; }
-      console.log('[forecast] Step 2 rows:', data?.length, 'first:', data?.[0]);
-
-      // Attach currency from the accounts map
-      return (data || []).map(item => ({ ...item, currency: currencyById.get(item.account_id) ?? 'JPY' }));
+      const { data, error } = await supabase.rpc('get_forecast_6m');
+      if (error) throw error;
+      // Shape: { month: '2026-04-01', currency: 'PHP'|'JPY', installments: N, remaining: N }
+      return (data || []) as { month: string; currency: string; installments: number; remaining: number }[];
     },
   });
 
@@ -80,25 +49,20 @@ export default function Collections() {
     });
   }, []);
 
-  // Log forecastLoading on every render to catch stuck states
-  console.log('[forecast] render — forecastLoading:', forecastLoading, 'forecastSchedule:', forecastSchedule?.length ?? 'undefined');
-
-  // One card per month — all amounts in JPY (PHP converted via live rate)
+  // Aggregate RPC rows by month — PHP converted to JPY, sum with JPY rows
   const forecastCards = useMemo(() => {
-    console.log('[forecast] memo — forecastSchedule length:', forecastSchedule?.length ?? 'undefined');
     if (!forecastSchedule) return null;
 
     const agg: Record<string, { jpy: number; count: number }> = {};
     forecastMonths.forEach(m => { agg[m.key] = { jpy: 0, count: 0 }; });
 
-    forecastSchedule.forEach(item => {
-      const monthKey = item.due_date.substring(0, 7);
+    forecastSchedule.forEach(row => {
+      // RPC month is '2026-04-01' — take first 7 chars for key
+      const monthKey = row.month.substring(0, 7);
       if (!agg[monthKey]) return;
-      const remaining = Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
-      if (remaining <= 0) return;
-      const cur = (item as any).currency as Currency;
-      agg[monthKey].jpy += toJpy(remaining, cur);
-      agg[monthKey].count++;
+      const amt = Number(row.remaining);
+      agg[monthKey].jpy += toJpy(amt, row.currency as Currency);
+      agg[monthKey].count += Number(row.installments);
     });
 
     return forecastMonths.map(m => ({
