@@ -158,12 +158,19 @@ export default function SettingsPage() {
       toast({ title: 'Invalid rate', description: 'Please enter a positive number.', variant: 'destructive' });
       return;
     }
+    // Write to DB first (edge function reads this)
+    // Use .update() not .upsert() — the row is always seeded in migrations,
+    // and there is no INSERT RLS policy on system_settings (only UPDATE for admins)
+    const { error: dbError } = await supabase
+      .from('system_settings')
+      .update({ value: JSON.stringify(parsed) })
+      .eq('key', 'php_jpy_rate');
+    if (dbError) {
+      toast({ title: 'Save failed', description: dbError.message, variant: 'destructive' });
+      return;
+    }
     // Write to localStorage (client-side conversions)
     setConversionRate(parsed);
-    // Write to DB (edge function reads this)
-    await supabase
-      .from('system_settings')
-      .upsert({ key: 'php_jpy_rate', value: JSON.stringify(parsed) }, { onConflict: 'key' });
     // Invalidate dashboard cache so it refetches with the new rate immediately
     queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
     toast({ title: 'Conversion rate updated', description: `PHP → JPY rate set to ${parsed}` });
