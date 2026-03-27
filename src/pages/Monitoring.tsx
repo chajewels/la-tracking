@@ -476,11 +476,9 @@ export default function Monitoring() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="rounded-lg border border-border bg-muted/30 p-4">
-              <pre className="text-sm text-card-foreground whitespace-pre-wrap font-sans leading-relaxed">
-                {messengerDialog?.message}
-              </pre>
-            </div>
+            <pre className="text-sm text-card-foreground whitespace-pre-wrap font-sans leading-relaxed">
+              {messengerDialog?.message}
+            </pre>
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1 gap-2" onClick={handleCopyMessage}>
                 {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}

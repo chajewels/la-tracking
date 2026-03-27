@@ -737,11 +737,9 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
                 {getStageConfig(messengerDialog.alert.stage).label} · {getStageConfig(messengerDialog.alert.stage).tone}
               </Badge>
             )}
-            <div className="rounded-lg border border-border bg-muted/30 p-4 max-h-[300px] overflow-y-auto">
-              <pre className="text-sm text-card-foreground whitespace-pre-wrap font-sans leading-relaxed">
-                {messengerDialog?.message}
-              </pre>
-            </div>
+            <pre className="text-sm text-card-foreground whitespace-pre-wrap font-sans leading-relaxed max-h-[300px] overflow-y-auto">
+              {messengerDialog?.message}
+            </pre>
             <div className="grid grid-cols-2 gap-2">
               <Button variant="outline" className="gap-2 text-xs" onClick={handleCopyMessage}>
                 {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
