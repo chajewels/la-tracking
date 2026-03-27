@@ -62,7 +62,7 @@ export default function Monitoring() {
       next7.setDate(next7.getDate() + 7);
       const next7Str = next7.toISOString().split('T')[0];
 
-      const ACTIVE_STATUSES = ['active', 'overdue', 'final_settlement', 'extension_active'];
+      const ACTIVE_STATUSES = ['active', 'overdue', 'final_settlement', 'extension_active'] as const;
       const [overdueRes, upcomingRes] = await Promise.all([
         supabase
           .from('layaway_schedule')
