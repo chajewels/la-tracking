@@ -177,15 +177,27 @@ Deno.serve(async (req) => {
     const newlyPaidIds = new Set<string>();
 
     for (const sched of scheduleRows) {
-      const correctPaid = allocBySchedule[sched.id] || 0;
+      const allocSum = allocBySchedule[sched.id] || 0;
       const base = Number(sched.base_installment_amount);
+      const currentTotalDue = Number(sched.total_due_amount);
+
+      // A row is fully paid when EITHER:
+      //   (a) allocation sum covers the base installment amount, OR
+      //   (b) total_due_amount was reduced to 0 by an advance/overflow payment credit
+      //       (record-payment reduces total_due on subsequent rows when there's excess)
+      // In both cases: cap paid_amount at base — never store overflow in paid_amount.
+      const fullyPaid =
+        (base > 0 && allocSum >= base - 0.005) ||
+        (base > 0 && currentTotalDue <= 0.005);
+
+      const correctPaid = fullyPaid ? base : Math.min(allocSum, base);
 
       let correctStatus: string;
-      if (base > 0 && correctPaid >= base) {
+      if (fullyPaid) {
         correctStatus = "paid";
-      } else if (correctPaid > 0 && correctPaid < base) {
+      } else if (correctPaid > 0) {
         correctStatus = "partially_paid";
-      } else if (correctPaid === 0 && sched.due_date < today) {
+      } else if (sched.due_date < today) {
         correctStatus = "overdue";
       } else {
         correctStatus = "pending";
@@ -202,12 +214,15 @@ Deno.serve(async (req) => {
           updated_at: new Date().toISOString(),
         };
 
-        // When a row transitions to 'paid', strip the pending penalties from the schedule row
-        // (the penalty_fees themselves will be waived in step 3)
-        if (correctStatus === "paid" && !wasAlreadyPaid) {
-          update.penalty_amount = 0;
+        if (correctStatus === "paid") {
+          // Always normalise total_due_amount = base when paid
+          // (not just on transition — ensures a stale 0 or overflow value is corrected)
           update.total_due_amount = base;
-          newlyPaidIds.add(sched.id);
+          if (!wasAlreadyPaid) {
+            // Only strip pending penalties on the first transition to paid
+            update.penalty_amount = 0;
+            newlyPaidIds.add(sched.id);
+          }
         }
 
         await supabase.from("layaway_schedule").update(update).eq("id", sched.id);
