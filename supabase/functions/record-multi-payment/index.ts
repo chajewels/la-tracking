@@ -424,7 +424,22 @@ Deno.serve(async (req) => {
           performed_by_user_id: userId,
         });
 
-        console.warn(`[multi-pay] reconcile-account caller disabled for safety on ${acct.invoice_number}`);
+        // Trigger reconcile-account to sync schedule rows and verify totals
+        try {
+          await fetch(
+            `${Deno.env.get("SUPABASE_URL")}/functions/v1/reconcile-account`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+              },
+              body: JSON.stringify({ account_id: inputAlloc.account_id }),
+            }
+          );
+        } catch (reconcileErr) {
+          console.warn(`[multi-pay] reconcile-account call failed for ${acct.invoice_number}:`, reconcileErr);
+        }
 
       }
     }

@@ -386,7 +386,22 @@ Deno.serve(async (req) => {
       performed_by_user_id: user.id,
     });
 
-    console.warn(`[record-payment] reconcile-account caller disabled for safety on ${account_id}`);
+    // Trigger reconcile-account to sync schedule rows and verify totals
+    try {
+      await fetch(
+        `${Deno.env.get("SUPABASE_URL")}/functions/v1/reconcile-account`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({ account_id }),
+        }
+      );
+    } catch (reconcileErr) {
+      console.warn(`[record-payment] reconcile-account call failed for ${account_id}:`, reconcileErr);
+    }
 
     return new Response(JSON.stringify({
       payment,

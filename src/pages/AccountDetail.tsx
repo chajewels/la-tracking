@@ -63,6 +63,35 @@ export default function AccountDetail() {
     setSessionPayments([]);
   }, [id]);
 
+  // Auto-trigger reconcile-account on mount, but only if this account has
+  // at least one payment_allocations row (i.e. has real payment data to sync).
+  useEffect(() => {
+    if (!account?.id) return;
+    let cancelled = false;
+    (async () => {
+      // Check via payments table — simpler than joining through allocations
+      const { data: payRows } = await supabase
+        .from('payments')
+        .select('id')
+        .eq('account_id', account.id)
+        .is('voided_at', null)
+        .limit(1);
+      if (cancelled || !payRows || payRows.length === 0) return;
+      // Check at least one payment_allocations row exists for this account
+      const { data: allocRows } = await supabase
+        .from('payment_allocations')
+        .select('id')
+        .in('payment_id', payRows.map((p: any) => p.id))
+        .limit(1);
+      if (cancelled || !allocRows || allocRows.length === 0) return;
+      // Fire and forget — don't block UI or show errors to user
+      supabase.functions.invoke('reconcile-account', {
+        body: { account_id: account.id },
+      }).catch(() => { /* silent */ });
+    })();
+    return () => { cancelled = true; };
+  }, [account?.id]);
+
   const handlePaymentRecorded = useCallback((info: SessionPaymentInfo) => {
     if (info.monthLabel === 'Down Payment' || info.ordinal === 'DP') return;
     setSessionPayments(prev => [...prev, info]);
