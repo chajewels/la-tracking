@@ -13,13 +13,19 @@ const corsHeaders = {
  *
  * STATUS FLOW: OVERDUE → FORFEITED → EXTENSION_ACTIVE → FINAL_FORFEITED
  *
- * 1. Reference = FIRST UNPAID DUE DATE (never last paid)
+ * 1. Reference = FIRST of the last 3 consecutive zero-payment due installments
  * 2. FORFEITED at exactly 3 calendar months (day-level precision)
  * 3. ONE-TIME reactivation → EXTENSION_ACTIVE (1-month extension)
  * 4. Unpaid after extension → FINAL_FORFEITED (permanent, no override)
  * 5. FINAL_FORFEITED blocks all further negotiation/reactivation
  * 6. No account may become FINAL_FORFEITED before extension ends
  * 7. Penalty cycle continues through extension (no reset)
+ *
+ * FORFEITURE ELIGIBILITY RULES:
+ * - The last 3 due installments must ALL have paid_amount = 0 (zero engagement)
+ * - A partial payment (partially_paid status) counts as a payment — not non-payment
+ * - No payment recorded on the account within the last 90 days
+ * - The first of those 3 zero-payment months must be 3+ calendar months past due
  *
  * Also handles FINAL SETTLEMENT at 6th penalty occurrence.
  */
@@ -51,16 +57,28 @@ Deno.serve(async (req) => {
 
     const accountIds = accounts.map(a => a.id);
 
-    // Fetch all schedules, penalties, and customers in parallel
-    const [schedRes, penRes, custRes] = await Promise.all([
+    // Fetch schedules, penalties, customers, and recent payments in parallel
+    const [schedRes, penRes, custRes, paymentsRes] = await Promise.all([
       fetchAll(supabase, "layaway_schedule", accountIds),
       fetchAll(supabase, "penalty_fees", accountIds),
       supabase.from("customers").select("id, full_name").in("id", [...new Set(accounts.map(a => a.customer_id))]),
+      fetchAll(supabase, "payments", accountIds, "account_id, created_at, voided_at"),
     ]);
 
     const customerMap = new Map((custRes.data || []).map((c: any) => [c.id, c.full_name]));
     const schedByAccount = groupBy(schedRes, "account_id");
     const penByAccount = groupBy(penRes, "account_id");
+
+    // Build most recent non-voided payment date per account
+    const lastPaymentByAccount = new Map<string, Date>();
+    for (const p of paymentsRes) {
+      if (p.voided_at != null) continue;
+      const pDate = new Date(p.created_at);
+      const existing = lastPaymentByAccount.get(p.account_id);
+      if (!existing || pDate > existing) {
+        lastPaymentByAccount.set(p.account_id, pDate);
+      }
+    }
 
     // Check for existing settlement records
     const { data: existingSettlements } = await supabase
@@ -72,6 +90,7 @@ Deno.serve(async (req) => {
     const settlementResults: any[] = [];
     const forfeitResults: any[] = [];
     const finalForfeitResults: any[] = [];
+    const skippedResults: any[] = [];
     const auditEntries: any[] = [];
 
     for (const account of accounts) {
@@ -116,18 +135,13 @@ Deno.serve(async (req) => {
 
       if (schedItems.length === 0) continue;
 
-      // ── Determine FIRST UNPAID DUE DATE (forfeiture reference) ──
-      const paidItems = schedItems.filter((s: any) =>
-        s.status === "paid" || Number(s.paid_amount) >= Number(s.total_due_amount)
-      );
+      // ── Determine unpaid items (for penalty counting + schedule cancellation) ──
+      // "Unpaid" = not fully paid (includes partially_paid)
       const unpaidItems = schedItems.filter((s: any) =>
         s.status !== "paid" && Number(s.paid_amount) < Number(s.total_due_amount)
       );
 
       if (unpaidItems.length === 0) continue;
-
-      const firstUnpaid = unpaidItems.sort((a: any, b: any) => a.installment_number - b.installment_number)[0];
-      const firstUnpaidDueDate = firstUnpaid.due_date;
 
       // ── Count penalty occurrences on unpaid items ──
       const unpaidScheduleIds = new Set(unpaidItems.map((s: any) => s.id));
@@ -139,50 +153,104 @@ Deno.serve(async (req) => {
         (sum: number, p: any) => sum + Number(p.penalty_amount), 0
       );
 
-      // ── Calculate months overdue from FIRST UNPAID DUE DATE ──
-      const refDate = new Date(firstUnpaidDueDate + "T00:00:00Z");
-      const monthsOverdue = monthsDiff(refDate, now);
-
       const currency = account.currency;
 
-      // ── RULE 2: AUTO FORFEIT at 3 months overdue ──
-      if (monthsOverdue >= 3 && account.status !== "forfeited") {
-        await supabase.from("layaway_accounts").update({
-          status: "forfeited",
-          updated_at: now.toISOString(),
-        }).eq("id", account.id);
+      // ── RULE 2: AUTO FORFEIT ──
+      //
+      // An account is eligible for forfeiture only when ALL of the following are true:
+      //   1. The last 3 due installments all have paid_amount = 0 (no engagement whatsoever)
+      //      — a partial payment (partially_paid) has paid_amount > 0 → NOT eligible
+      //   2. No non-voided payment recorded on the account within the last 90 days
+      //   3. The due_date of the first of those 3 zero-payment months is 3+ calendar months ago
+      //
+      if (account.status !== "forfeited") {
+        // All schedule items with a due date on or before today, sorted oldest→newest
+        const dueItems = schedItems
+          .filter((s: any) => new Date(s.due_date + "T00:00:00Z") <= now)
+          .sort((a: any, b: any) => a.installment_number - b.installment_number);
 
-        // Cancel remaining schedule items
-        for (const item of unpaidItems) {
-          await supabase.from("layaway_schedule").update({
-            status: "cancelled",
-            updated_at: now.toISOString(),
-          }).eq("id", item.id);
+        if (dueItems.length >= 3) {
+          const lastThreeDue = dueItems.slice(-3);
+
+          // Check 1: All 3 have zero payment (paid_amount = 0 strictly)
+          const allZeroPayment = lastThreeDue.every(
+            (s: any) => Number(s.paid_amount) === 0
+          );
+
+          // Check 2: No payment within the last 90 days
+          const lastPayment = lastPaymentByAccount.get(account.id);
+          const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+          const hasRecentPayment = lastPayment != null && lastPayment >= ninetyDaysAgo;
+
+          if (allZeroPayment && !hasRecentPayment) {
+            // Check 3: First of the 3 zero-payment months is 3+ calendar months past due
+            const refDate = new Date(lastThreeDue[0].due_date + "T00:00:00Z");
+            const monthsOverdue = monthsDiff(refDate, now);
+
+            if (monthsOverdue >= 3) {
+              await supabase.from("layaway_accounts").update({
+                status: "forfeited",
+                updated_at: now.toISOString(),
+              }).eq("id", account.id);
+
+              // Cancel remaining unpaid schedule items
+              for (const item of unpaidItems) {
+                await supabase.from("layaway_schedule").update({
+                  status: "cancelled",
+                  updated_at: now.toISOString(),
+                }).eq("id", item.id);
+              }
+
+              const customerName = customerMap.get(account.customer_id) || "Unknown";
+              forfeitResults.push({
+                invoice_number: account.invoice_number,
+                customer_name: customerName,
+                forfeiture_ref_date: lastThreeDue[0].due_date,
+                overdue_month_count: monthsOverdue,
+                zero_payment_installments: lastThreeDue.map((s: any) => s.installment_number),
+                status: "FORFEITED",
+              });
+
+              auditEntries.push({
+                entity_type: "layaway_account",
+                entity_id: account.id,
+                action: "auto_forfeited",
+                new_value_json: {
+                  invoice_number: account.invoice_number,
+                  customer_name: customerName,
+                  forfeiture_ref_date: lastThreeDue[0].due_date,
+                  overdue_month_count: monthsOverdue,
+                  zero_payment_installments: lastThreeDue.map((s: any) => s.installment_number),
+                  timestamp: now.toISOString(),
+                },
+              });
+
+              continue;
+            }
+          } else if (!allZeroPayment) {
+            // Has payment activity in last 3 due months — log as skipped for diagnostics
+            const customerName = customerMap.get(account.customer_id) || "Unknown";
+            skippedResults.push({
+              invoice_number: account.invoice_number,
+              customer_name: customerName,
+              reason: "partial_or_full_payment_in_last_3_due_months",
+              last_three_due: lastThreeDue.map((s: any) => ({
+                installment: s.installment_number,
+                due_date: s.due_date,
+                paid_amount: Number(s.paid_amount),
+                status: s.status,
+              })),
+            });
+          } else if (hasRecentPayment) {
+            const customerName = customerMap.get(account.customer_id) || "Unknown";
+            skippedResults.push({
+              invoice_number: account.invoice_number,
+              customer_name: customerName,
+              reason: "payment_within_90_days",
+              last_payment_date: lastPayment?.toISOString(),
+            });
+          }
         }
-
-        const customerName = customerMap.get(account.customer_id) || "Unknown";
-        forfeitResults.push({
-          invoice_number: account.invoice_number,
-          customer_name: customerName,
-          first_unpaid_due_date: firstUnpaidDueDate,
-          overdue_month_count: monthsOverdue,
-          status: "FORFEITED",
-        });
-
-        auditEntries.push({
-          entity_type: "layaway_account",
-          entity_id: account.id,
-          action: "auto_forfeited",
-          new_value_json: {
-            invoice_number: account.invoice_number,
-            customer_name: customerName,
-            first_unpaid_due_date: firstUnpaidDueDate,
-            overdue_month_count: monthsOverdue,
-            timestamp: now.toISOString(),
-          },
-        });
-
-        continue;
       }
 
       // ── RULE 1: FINAL SETTLEMENT at 6th penalty occurrence ──
@@ -196,7 +264,7 @@ Deno.serve(async (req) => {
 
         await supabase.from("final_settlement_records").insert({
           account_id: account.id,
-          last_paid_month_date: firstUnpaidDueDate,
+          last_paid_month_date: unpaidItems[0]?.due_date,
           penalty_occurrence_count: penaltyOccurrenceCount,
           penalty_total_from_last_paid: penaltyTotalFromLastPaid,
           remaining_principal: Math.max(0, remainingPrincipal),
@@ -206,7 +274,7 @@ Deno.serve(async (req) => {
             penalty_total: penaltyTotalFromLastPaid,
             penalty_occurrences: penaltyOccurrenceCount,
             threshold_rule: "6th penalty occurrence",
-            first_unpaid_due_date: firstUnpaidDueDate,
+            first_unpaid_due_date: unpaidItems[0]?.due_date,
             unpaid_installments: unpaidItems.map((s: any) => ({
               installment: s.installment_number,
               base: Number(s.base_installment_amount),
@@ -226,7 +294,7 @@ Deno.serve(async (req) => {
         settlementResults.push({
           invoice_number: account.invoice_number,
           customer_name: customerName,
-          first_unpaid_due_date: firstUnpaidDueDate,
+          first_unpaid_due_date: unpaidItems[0]?.due_date,
           penalty_occurrence_count: penaltyOccurrenceCount,
           penalty_total: penaltyTotalFromLastPaid,
           remaining_principal: remainingPrincipal,
@@ -241,7 +309,7 @@ Deno.serve(async (req) => {
           new_value_json: {
             invoice_number: account.invoice_number,
             customer_name: customerName,
-            first_unpaid_due_date: firstUnpaidDueDate,
+            first_unpaid_due_date: unpaidItems[0]?.due_date,
             penalty_occurrence_count: penaltyOccurrenceCount,
             penalty_total: penaltyTotalFromLastPaid,
             final_settlement_amount: finalSettlementAmount,
@@ -265,9 +333,11 @@ Deno.serve(async (req) => {
       settlements_created: settlementResults.length,
       forfeitures_applied: forfeitResults.length,
       final_forfeitures_applied: finalForfeitResults.length,
+      skipped_forfeiture: skippedResults.length,
       settlement_details: settlementResults,
       forfeiture_details: forfeitResults,
       final_forfeiture_details: finalForfeitResults,
+      skipped_details: skippedResults,
     }, null, 2), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -280,12 +350,13 @@ Deno.serve(async (req) => {
   }
 });
 
-/** Fetch all rows from a table filtered by account_id IN (ids), paginated */
-async function fetchAll(supabase: any, table: string, accountIds: string[]): Promise<any[]> {
+/** Fetch all rows from a table filtered by account_id IN (ids), paginated.
+ *  Optionally pass a select string (defaults to "*"). */
+async function fetchAll(supabase: any, table: string, accountIds: string[], select = "*"): Promise<any[]> {
   let all: any[] = [];
   for (let i = 0; i < accountIds.length; i += 200) {
     const chunk = accountIds.slice(i, i + 200);
-    const { data } = await supabase.from(table).select("*").in("account_id", chunk);
+    const { data } = await supabase.from(table).select(select).in("account_id", chunk);
     if (data) all = all.concat(data);
   }
   return all;
