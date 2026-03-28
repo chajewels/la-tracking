@@ -66,6 +66,7 @@ interface RecordPaymentDialogProps {
 export default function RecordPaymentDialog({ accountId, currency, remainingBalance, payFullBalance, schedule, invoiceNumber, downpaymentRemaining, onPaymentRecorded }: RecordPaymentDialogProps) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState('');
+  const [carryOver, setCarryOver] = useState(false);
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
@@ -107,6 +108,24 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   const unpaidItems = (schedule || [])
     .filter(s => s.status !== 'paid' && s.status !== 'cancelled')
     .sort((a, b) => a.installment_number - b.installment_number);
+
+  // Underpayment detection — compare entered amount against first installment's effective remaining
+  const firstUnpaid = unpaidItems[0];
+  const firstUnpaidEffectiveDue = firstUnpaid
+    ? (firstUnpaid.status === 'partially_paid' && Number(firstUnpaid.paid_amount) > Number(firstUnpaid.total_due_amount)
+        ? Number(firstUnpaid.total_due_amount)  // new semantics: total_due IS remaining
+        : Math.max(0, Number(firstUnpaid.total_due_amount) - Number(firstUnpaid.paid_amount)))
+    : 0;
+  const secondUnpaid = unpaidItems[1];
+  const isUnderpayment =
+    paymentType === 'installment' &&
+    isAdminOrFinance &&
+    parsedAmount > 0 &&
+    !!firstUnpaid &&
+    parsedAmount < firstUnpaidEffectiveDue - 0.005;
+  const underpaymentShortfall = isUnderpayment
+    ? Math.round((firstUnpaidEffectiveDue - parsedAmount) * 100) / 100
+    : 0;
 
   const monthOptions: { months: number; amount: number; label: string; dueDate: string }[] = [];
   if (!payFullBalance && unpaidItems.length > 0) {
@@ -151,6 +170,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
           reference_number: dpRef,
           remarks: dpRemarks,
           is_downpayment: isDP,
+          carry_over: carryOver,
           preview_only: true,
         },
       });
@@ -181,6 +201,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
           reference_number: dpRef,
           remarks: dpRemarks,
           is_downpayment: isDP,
+          carry_over: carryOver,
         },
       });
       if (error) throw error;
@@ -218,6 +239,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
         reference_number: dpRef,
         remarks: dpRemarks,
         is_downpayment: isDP,
+        carry_over: carryOver,
       });
       toast.success(`Payment of ${formatCurrency(parsedAmount, currency)} recorded successfully`);
       if (paymentType !== 'downpayment') {
@@ -257,6 +279,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
 
   const resetAndClose = () => {
     setAmount('');
+    setCarryOver(false);
     setNotes('');
     setPaymentMethod('cash');
     setPaymentType('installment');
@@ -449,20 +472,52 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
                 rows={2}
               />
             </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={resetAndClose}>Cancel</Button>
-              {isAdminOrFinance ? (
-                <Button type="submit" disabled={!isValid || loadingPreview} className="gold-gradient text-primary-foreground">
-                  {loadingPreview ? 'Loading…' : 'Preview Allocation'}
-                  <ArrowRight className="h-4 w-4 ml-1" />
-                </Button>
-              ) : (
-                <Button type="submit" disabled={!isValid || loadingPreview} className="gold-gradient text-primary-foreground">
-                  {loadingPreview ? 'Submitting…' : 'Submit for Confirmation'}
-                  <Clock className="h-4 w-4 ml-1" />
-                </Button>
-              )}
-            </DialogFooter>
+            {/* Underpayment warning — shown instead of normal footer when amount < first installment due */}
+            {isUnderpayment ? (
+              <div className="rounded-lg border border-warning/40 bg-warning/5 p-3 space-y-2.5">
+                <div className="flex items-center gap-2 text-sm font-semibold text-warning">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  Underpayment detected
+                </div>
+                <div className="text-xs space-y-0.5 text-muted-foreground">
+                  <div className="flex justify-between"><span>Entered:</span><span className="tabular-nums">{formatCurrency(parsedAmount, currency)}</span></div>
+                  <div className="flex justify-between"><span>Due:</span><span className="tabular-nums">{formatCurrency(firstUnpaidEffectiveDue, currency)}</span></div>
+                  <div className="flex justify-between font-medium text-warning"><span>Shortfall:</span><span className="tabular-nums">{formatCurrency(underpaymentShortfall, currency)}</span></div>
+                </div>
+                <div className="flex gap-2 pt-0.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="flex-1 bg-warning/15 text-warning border border-warning/30 hover:bg-warning/25"
+                    disabled={loadingPreview}
+                    onClick={() => { setCarryOver(true); handlePreview(); }}
+                  >
+                    Pay Partial — carry {formatCurrency(underpaymentShortfall, currency)} to{' '}
+                    {secondUnpaid
+                      ? new Date(secondUnpaid.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                      : 'next month'}
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setAmount('')}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={resetAndClose}>Cancel</Button>
+                {isAdminOrFinance ? (
+                  <Button type="submit" disabled={!isValid || loadingPreview} className="gold-gradient text-primary-foreground">
+                    {loadingPreview ? 'Loading…' : 'Preview Allocation'}
+                    <ArrowRight className="h-4 w-4 ml-1" />
+                  </Button>
+                ) : (
+                  <Button type="submit" disabled={!isValid || loadingPreview} className="gold-gradient text-primary-foreground">
+                    {loadingPreview ? 'Submitting…' : 'Submit for Confirmation'}
+                    <Clock className="h-4 w-4 ml-1" />
+                  </Button>
+                )}
+              </DialogFooter>
+            )}
           </form>
         )}
 

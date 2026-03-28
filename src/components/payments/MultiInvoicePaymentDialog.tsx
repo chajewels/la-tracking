@@ -110,6 +110,7 @@ export default function MultiInvoicePaymentDialog({
 
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<'input' | 'message'>('input');
+  const [carryOverMap, setCarryOverMap] = useState<Record<string, boolean>>({});
   const [consolidatedMessage, setConsolidatedMessage] = useState('');
   const [msgCopied, setMsgCopied] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -182,6 +183,7 @@ export default function MultiInvoicePaymentDialog({
       const allocations = selectedAccounts.map(a => ({
         account_id: a.id,
         amount: parseFloat(amounts[a.id] || '0'),
+        carry_over: carryOverMap[a.id] || false,
       }));
       const { data, error } = await supabase.functions.invoke('record-multi-payment', {
         body: {
@@ -274,6 +276,7 @@ export default function MultiInvoicePaymentDialog({
   const resetAndClose = () => {
     setSelectedIds(new Set());
     setAmounts({});
+    setCarryOverMap({});
     setReferenceNumber('');
     setPaymentMethod('cash');
     setPaymentDate(new Date().toISOString().split('T')[0]);
@@ -312,6 +315,19 @@ export default function MultiInvoicePaymentDialog({
                   const checked = selectedIds.has(a.id);
                   const nextDue = getNextDueInfo(a.schedule);
                   const label = getLabelFromNotes(a.notes, a.invoice_number);
+                  // Underpayment detection for this account
+                  const enteredAmt = parseFloat(amounts[a.id] || '0') || 0;
+                  const firstUnpaidItem = getNextUnpaidItem(a.schedule);
+                  const firstItemEffDue = firstUnpaidItem
+                    ? (firstUnpaidItem.status === 'partially_paid' && Number(firstUnpaidItem.paid_amount) > Number(firstUnpaidItem.total_due_amount)
+                        ? Number(firstUnpaidItem.total_due_amount)
+                        : Math.max(0, Number(firstUnpaidItem.total_due_amount) - Number(firstUnpaidItem.paid_amount)))
+                    : 0;
+                  const acctIsUnderpayment = checked && isAdminOrFinance && enteredAmt > 0 && firstUnpaidItem && enteredAmt < firstItemEffDue - 0.005;
+                  const acctShortfall = acctIsUnderpayment ? Math.round((firstItemEffDue - enteredAmt) * 100) / 100 : 0;
+                  const acctSecondItem = a.schedule
+                    ? [...a.schedule].filter(s => s.status !== 'paid' && s.status !== 'cancelled').sort((x, y) => x.installment_number - y.installment_number)[1]
+                    : null;
                   return (
                     <div
                       key={a.id}
@@ -365,6 +381,41 @@ export default function MultiInvoicePaymentDialog({
                         />
                         {checked && allocationErrors[a.id] && (
                           <p className="text-xs text-destructive mt-0.5">{allocationErrors[a.id]}</p>
+                        )}
+                        {acctIsUnderpayment && !carryOverMap[a.id] && (
+                          <div className="mt-2 rounded-md border border-warning/40 bg-warning/5 p-2 space-y-1.5">
+                            <p className="text-[11px] font-semibold text-warning flex items-center gap-1">
+                              ⚠ Underpayment — shortfall {formatCurrency(acctShortfall, cur)}
+                            </p>
+                            <div className="flex gap-1.5">
+                              <button
+                                type="button"
+                                className="flex-1 rounded px-2 py-1 text-[11px] font-medium border border-warning/30 bg-warning/10 text-warning hover:bg-warning/20"
+                                onClick={() => setCarryOverMap(prev => ({ ...prev, [a.id]: true }))}
+                              >
+                                Carry to {acctSecondItem
+                                  ? new Date(acctSecondItem.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                  : 'next'}
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded px-2 py-1 text-[11px] font-medium border border-border text-muted-foreground hover:bg-muted"
+                                onClick={() => setAmounts(prev => ({ ...prev, [a.id]: '' }))}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {carryOverMap[a.id] && (
+                          <p className="text-[11px] text-warning mt-1.5 flex items-center gap-1">
+                            ⚡ Shortfall will carry to next month
+                            <button
+                              type="button"
+                              className="ml-1 text-muted-foreground underline hover:no-underline"
+                              onClick={() => setCarryOverMap(prev => ({ ...prev, [a.id]: false }))}
+                            >undo</button>
+                          </p>
                         )}
                       </div>
                     </div>

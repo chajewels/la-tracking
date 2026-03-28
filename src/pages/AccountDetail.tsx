@@ -117,6 +117,12 @@ export default function AccountDetail() {
   const [newInstSaving, setNewInstSaving] = useState(false);
   const [deleteScheduleTarget, setDeleteScheduleTarget] = useState<{ id: string; amount: number; installment_number: number } | null>(null);
   const [deleteScheduleLoading, setDeleteScheduleLoading] = useState(false);
+  const [acceptCarryTarget, setAcceptCarryTarget] = useState<{
+    rowId: string; paidAmount: number; shortfall: number;
+    currentMonthLabel: string; nextMonthLabel: string;
+  } | null>(null);
+  const [acceptCarryLoading, setAcceptCarryLoading] = useState(false);
+  const isAdmin = (roles as any[]).includes('admin');
   const isTestAccount = TEST_INVOICES.has(account?.invoice_number || '');
   const isLockedTest = account?.invoice_number === LOCKED_TEST_INVOICE;
   const [showVerify, setShowVerify] = useState(false);
@@ -300,6 +306,25 @@ export default function AccountDetail() {
       setDeleteScheduleLoading(false);
     }
   }, [deleteScheduleTarget, account, id, queryClient]);
+
+  const handleAcceptCarryConfirm = async () => {
+    if (!acceptCarryTarget || !account) return;
+    setAcceptCarryLoading(true);
+    try {
+      const { error } = await supabase.functions.invoke('accept-underpayment', {
+        body: { schedule_row_id: acceptCarryTarget.rowId, account_id: account.id },
+      });
+      if (error) throw error;
+      toast.success(`Carried over ${formatCurrency(acceptCarryTarget.shortfall, currency)} to ${acceptCarryTarget.nextMonthLabel}`);
+      queryClient.invalidateQueries({ queryKey: ['schedule', id] });
+      queryClient.invalidateQueries({ queryKey: ['account', id] });
+      setAcceptCarryTarget(null);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to accept carry over');
+    } finally {
+      setAcceptCarryLoading(false);
+    }
+  };
 
   const currency = (account?.currency || 'PHP') as Currency;
   const principalTotal = Number(account?.total_amount || 0);
@@ -1118,12 +1143,13 @@ export default function AccountDetail() {
                 </div>
               )}
               {/* Schedule Header */}
-              <div className="hidden sm:grid grid-cols-[2rem_minmax(4rem,1fr)_minmax(4.5rem,1.2fr)_minmax(4rem,1fr)_minmax(4.5rem,1.2fr)_3.5rem_3rem] gap-1 px-3 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+              <div className="hidden sm:grid grid-cols-[2rem_minmax(4rem,1fr)_minmax(4rem,1fr)_minmax(3.5rem,0.9fr)_minmax(3.5rem,0.9fr)_minmax(3.5rem,0.9fr)_3.5rem_auto] gap-1 px-3 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
                 <span>#</span>
                 <span>Due Date</span>
-                <span className="text-right">Base Amt</span>
+                <span className="text-right">Base</span>
                 <span className="text-right">Penalty</span>
-                <span className="text-right">Total Due</span>
+                <span className="text-right">Paid</span>
+                <span className="text-right">Remaining</span>
                 <span className="text-right">Status</span>
                 <span />
               </div>
@@ -1212,7 +1238,7 @@ export default function AccountDetail() {
                     {/* BUG 4: No penalty row shown when penalty is 0 */}
 
                     {/* Desktop layout: columnar */}
-                    <div className="hidden sm:grid grid-cols-[2rem_minmax(4rem,1fr)_minmax(4.5rem,1.2fr)_minmax(4rem,1fr)_minmax(4.5rem,1.2fr)_3.5rem_3rem] gap-1 items-center">
+                    <div className="hidden sm:grid grid-cols-[2rem_minmax(4rem,1fr)_minmax(4rem,1fr)_minmax(3.5rem,0.9fr)_minmax(3.5rem,0.9fr)_minmax(3.5rem,0.9fr)_3.5rem_auto] gap-1 items-center">
                       <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${
                         effPaid ? 'bg-success/20 text-success' : partial ? 'bg-warning/20 text-warning' : 'bg-muted text-muted-foreground'
                       }`}>
@@ -1253,18 +1279,24 @@ export default function AccountDetail() {
                           <p className="text-xs tabular-nums text-muted-foreground">—</p>
                         )}
                       </div>
-                      {/* Total Due / Remaining */}
+                      {/* Paid column */}
                       <div className="text-right">
-                        <p className={`text-xs font-semibold tabular-nums ${effPaid ? 'text-success' : partial ? 'text-warning' : 'text-card-foreground'}`}>
-                          {formatCurrency(effPaid ? paidAmt : totalDue, currency)}
+                        <p className={`text-xs tabular-nums ${effPaid ? 'text-success font-semibold' : partial ? 'text-warning font-medium' : 'text-muted-foreground'}`}>
+                          {paidAmt > 0 ? formatCurrency(paidAmt, currency) : '—'}
+                        </p>
+                      </div>
+                      {/* Remaining column */}
+                      <div className="text-right">
+                        <p className={`text-xs font-semibold tabular-nums ${effPaid ? 'text-muted-foreground' : partial ? 'text-warning' : 'text-card-foreground'}`}>
+                          {effPaid ? '—' : formatCurrency(totalDue, currency)}
                         </p>
                       </div>
                       {/* Status */}
                       <div className="text-right">
                         {effPaid ? (
                           <Badge variant="outline" className="text-[9px] h-4 px-1 bg-success/10 text-success border-success/20">Paid</Badge>
-                        ) : partial ? (
-                          <Badge variant="outline" className="text-[9px] h-4 px-1 bg-warning/10 text-warning border-warning/20">Partial</Badge>
+                        ) : item.status === 'partially_paid' ? (
+                          <Badge variant="outline" className="text-[9px] h-4 px-1 bg-amber-500/10 text-amber-500 border-amber-500/20">Partial</Badge>
                         ) : penaltyCapOverride && item.installment_number <= 5 && penaltyAmt > 0 ? (
                           <Badge variant="outline" className="text-[9px] h-4 px-1 bg-primary/10 text-primary border-primary/20">Capped</Badge>
                         ) : item.status === 'overdue' ? (
@@ -1273,7 +1305,7 @@ export default function AccountDetail() {
                           <Badge variant="outline" className="text-[9px] h-4 px-1 bg-muted text-muted-foreground border-border">Pending</Badge>
                         )}
                       </div>
-                      {/* Edit / Delete buttons */}
+                      {/* Actions: edit/delete + Accept & Carry Over */}
                       <div className="flex items-center gap-0.5">
                         {!isEditingThis && canEdit && can('edit_schedule') ? (
                           <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
@@ -1295,6 +1327,39 @@ export default function AccountDetail() {
                             <Trash2 className="h-3 w-3" />
                           </Button>
                         ) : null}
+                        {item.status === 'partially_paid' && isAdmin && (() => {
+                          // Show carry button only if next row hasn't been carried into yet
+                          const nextRow = scheduleItems.find(s => s.installment_number > item.installment_number && s.status !== 'cancelled');
+                          const carryAlreadyDone = nextRow && Number(nextRow.total_due_amount) > Number(nextRow.base_installment_amount) + 0.01;
+                          if (carryAlreadyDone) return null;
+                          const shortfall = Number(item.total_due_amount) < Number(item.paid_amount)
+                            ? Number(item.total_due_amount)
+                            : Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
+                          const nextUnpaid = scheduleItems
+                            .filter(s => (s.status === 'pending' || s.status === 'overdue' || s.status === 'partially_paid') && s.id !== item.id)
+                            .sort((a, b) => a.due_date.localeCompare(b.due_date))[0];
+                          const nextLabel = nextUnpaid
+                            ? new Date(nextUnpaid.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                            : '(none)';
+                          const currLabel = new Date(item.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                          return (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-1.5 text-[10px] text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap"
+                              title={`Accept ${formatCurrency(paidAmt, currency)} as full payment, carry ${formatCurrency(shortfall, currency)} to ${nextLabel}`}
+                              onClick={() => setAcceptCarryTarget({
+                                rowId: item.id,
+                                paidAmount: paidAmt,
+                                shortfall,
+                                currentMonthLabel: currLabel,
+                                nextMonthLabel: nextLabel,
+                              })}
+                            >
+                              Accept &amp; Carry
+                            </Button>
+                          );
+                        })()}
                       </div>
                     </div>
                     {/* Edit row - rendered below grid when editing */}
@@ -1829,6 +1894,29 @@ export default function AccountDetail() {
         </AlertDialog>
 
         {/* Delete Schedule Item Confirmation */}
+        {/* Accept & Carry Over confirmation */}
+        <AlertDialog open={!!acceptCarryTarget} onOpenChange={(open) => { if (!open) setAcceptCarryTarget(null); }}>
+          <AlertDialogContent className="bg-card border-border">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-card-foreground">Accept Partial Payment?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Accept {formatCurrency(acceptCarryTarget?.paidAmount ?? 0, currency)} as full payment for {acceptCarryTarget?.currentMonthLabel}?{' '}
+                {formatCurrency(acceptCarryTarget?.shortfall ?? 0, currency)} will be added to {acceptCarryTarget?.nextMonthLabel}.
+                This cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-amber-500 text-white hover:bg-amber-600"
+                disabled={acceptCarryLoading}
+                onClick={handleAcceptCarryConfirm}>
+                {acceptCarryLoading ? 'Processing…' : 'Accept & Carry Over'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         <AlertDialog open={!!deleteScheduleTarget} onOpenChange={(open) => { if (!open) setDeleteScheduleTarget(null); }}>
           <AlertDialogContent className="bg-card border-border">
             <AlertDialogHeader>

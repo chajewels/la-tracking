@@ -173,6 +173,45 @@ When checking whether a user can perform an action:
 ### schedule_status
   Valid values: 'pending' | 'partially_paid' | 'paid' | 'overdue' | 'cancelled'
 
+## PAYMENT ALLOCATION RULES
+
+  Exact payment:    status → paid. No carry. total_due_amount = base (unchanged).
+
+  Overpayment:      current month set to paid. Surplus waterfalls to next pending
+                    months (reduces their total_due_amount).
+
+  Underpayment:     status → partially_paid.
+                    paid_amount = amount received.
+                    total_due_amount = shortfall (= original_due - paid, i.e. the remaining).
+
+    carry_over=false (default):
+                    Shortfall stays on this row only. Next month unchanged.
+                    Row remains partially_paid until paid in full or post-hoc accepted.
+
+    carry_over=true (explicit admin action via "Pay Partial" button):
+                    As above PLUS: next pending month's total_due_amount += shortfall.
+                    Use only when admin explicitly confirms carry at payment time.
+
+  Accept carry:     Admin-only post-hoc action (accept-underpayment edge function).
+                    Forces current partially_paid row to 'paid'; total_due_amount → paid_amount.
+                    Shortfall added to next row's total_due_amount ONLY (never base_installment_amount).
+                    Canonical remaining_balance is unaffected — total_paid is unchanged.
+                    Guard: if no next row exists → error, record a new payment instead.
+
+  NEVER:
+    - Change base_installment_amount for any of the above
+    - Call reconcile-account in these flows
+    - Auto-carry without explicit admin confirmation
+
+  total_due_amount semantics by status:
+    pending / overdue:    base_installment_amount + penalty_amount (full amount owed)
+    partially_paid:       shortfall remaining (= base - paid, after underpayment recorded)
+    paid:                 amount actually paid (= paid_amount)
+
+  When processing an existing partially_paid row in edge functions:
+    If paid_amount > total_due_amount → "new semantics": due = total_due_amount (IS the remaining)
+    If paid_amount <= total_due_amount → "old semantics": due = total_due_amount - paid_amount
+
 ## Git Workflow
 
 - Commit and push all changes directly to **main** branch

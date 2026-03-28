@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
       payment_method?: string;
       remarks?: string;
       preview_only?: boolean;
-      allocations: Array<{ account_id: string; amount: number; is_downpayment?: boolean }>;
+      allocations: Array<{ account_id: string; amount: number; is_downpayment?: boolean; carry_over?: boolean }>;
     };
 
     // Validate input
@@ -146,6 +146,7 @@ Deno.serve(async (req) => {
 
       const acct = accounts.find((a) => a.id === inputAlloc.account_id)!;
       const amountForAccount = Number(inputAlloc.amount);
+      const carryOver = !!inputAlloc.carry_over;
       console.log(`[multi-pay] Processing account ${acct.invoice_number}: amount=${amountForAccount}`);
 
       // Fetch schedule
@@ -212,7 +213,12 @@ Deno.serve(async (req) => {
 
           const currentPaid = Number(item.paid_amount);
           const targetAmount = Number(item.total_due_amount); // DB value — may be adjusted from prior rollover
-          const due = Math.max(0, targetAmount - currentPaid);
+          // For partially_paid rows where total_due_amount was set to remaining (new semantics),
+          // paid_amount exceeds total_due_amount — use total_due_amount directly as the remaining.
+          const isNewPartialSemantics = item.status === "partially_paid" && currentPaid > targetAmount;
+          const due = isNewPartialSemantics
+            ? Math.max(0, targetAmount)
+            : Math.max(0, targetAmount - currentPaid);
           if (due <= 0) continue;
 
           const availableForThisMonth = remaining;
@@ -222,9 +228,9 @@ Deno.serve(async (req) => {
           const isNowFullyPaid = newPaid >= targetAmount;
 
           if (isNowFullyPaid && item.status === "partially_paid") {
-            // GHOST PREVENTION: topping up a partial month — cap at total_due, stop
+            // GHOST PREVENTION: topping up a partial month — mark paid with actual total paid
             paymentAllocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
-            scheduleUpdates.push({ id: item.id, paid_amount: targetAmount, status: "paid" });
+            scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "paid" });
             remaining = 0;
             break;
 
@@ -247,20 +253,24 @@ Deno.serve(async (req) => {
             break;
 
           } else if (item.status !== "partially_paid") {
-            // PENDING MONTH UNDERPAID — roll shortfall to next pending month
+            // PENDING MONTH UNDERPAID — set partial row; carry shortfall only if carry_over=true
             const shortfall = Math.round((due - toApply) * 100) / 100;
             paymentAllocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
-            scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid" });
-            const nextItem = unpaidItems.find((ni: any) => ni.installment_number > item.installment_number);
-            if (nextItem) {
-              scheduleUpdates.push({ id: nextItem.id, paid_amount: 0, total_due_amount: Math.round((Number(nextItem.total_due_amount) + shortfall) * 100) / 100, status: "pending" });
+            // Always set total_due_amount = shortfall (remaining) on the partial row
+            scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid", total_due_amount: shortfall });
+            if (carryOver) {
+              const nextItem = unpaidItems.find((ni: any) => ni.installment_number > item.installment_number);
+              if (nextItem) {
+                scheduleUpdates.push({ id: nextItem.id, paid_amount: 0, total_due_amount: Math.round((Number(nextItem.total_due_amount) + shortfall) * 100) / 100, status: "pending" });
+              }
             }
             // remaining=0 after toApply; outer loop stops naturally
 
           } else {
             // PARTIALLY_PAID MONTH — additional payment, not completing
+            const newRemaining = Math.max(0, Math.round((due - toApply) * 100) / 100);
             paymentAllocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
-            scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid" });
+            scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid", total_due_amount: newRemaining });
             // remaining=0; outer loop stops naturally
           }
         }

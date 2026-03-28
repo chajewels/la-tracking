@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { account_id, amount_paid, date_paid, payment_method, reference_number, remarks, preview_only, is_downpayment } = body;
+    const { account_id, amount_paid, date_paid, payment_method, reference_number, remarks, preview_only, is_downpayment, carry_over = false } = body;
 
     if (!account_id || !amount_paid || amount_paid <= 0) {
       return new Response(JSON.stringify({ error: "Invalid payment data" }), {
@@ -189,7 +189,12 @@ Deno.serve(async (req) => {
 
         const currentPaid = Number(item.paid_amount);
         const targetAmount = Number(item.total_due_amount); // DB value — may be adjusted from prior rollover
-        const due = Math.max(0, targetAmount - currentPaid);
+        // For partially_paid rows where total_due_amount was set to the remaining (new semantics),
+        // paid_amount exceeds total_due_amount — use total_due_amount directly as the remaining.
+        const isNewPartialSemantics = item.status === "partially_paid" && currentPaid > targetAmount;
+        const due = isNewPartialSemantics
+          ? Math.max(0, targetAmount)
+          : Math.max(0, targetAmount - currentPaid);
         if (due <= 0) continue;
 
         const availableForThisMonth = remaining;
@@ -199,9 +204,9 @@ Deno.serve(async (req) => {
         const isNowFullyPaid = newPaid >= targetAmount;
 
         if (isNowFullyPaid && item.status === "partially_paid") {
-          // GHOST PREVENTION: topping up a partial month — cap at total_due, stop
+          // GHOST PREVENTION: topping up a partial month — mark paid with actual total paid
           allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
-          scheduleUpdates.push({ id: item.id, paid_amount: targetAmount, status: "paid" });
+          scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "paid" });
           remaining = 0;
           break;
 
@@ -224,20 +229,24 @@ Deno.serve(async (req) => {
           break;
 
         } else if (item.status !== "partially_paid") {
-          // PENDING MONTH UNDERPAID — roll shortfall to next pending month
+          // PENDING MONTH UNDERPAID — set partial row; carry shortfall only if carry_over=true
           const shortfall = Math.round((due - toApply) * 100) / 100;
           allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
-          scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid" });
-          const nextItem = unpaidItems.find((ni: any) => ni.installment_number > item.installment_number);
-          if (nextItem) {
-            scheduleUpdates.push({ id: nextItem.id, paid_amount: 0, total_due_amount: Math.round((Number(nextItem.total_due_amount) + shortfall) * 100) / 100, status: "pending" });
+          // Always set total_due_amount = shortfall (remaining) on the partial row
+          scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid", total_due_amount: shortfall });
+          if (carry_over) {
+            const nextItem = unpaidItems.find((ni: any) => ni.installment_number > item.installment_number);
+            if (nextItem) {
+              scheduleUpdates.push({ id: nextItem.id, paid_amount: 0, total_due_amount: Math.round((Number(nextItem.total_due_amount) + shortfall) * 100) / 100, status: "pending" });
+            }
           }
           // remaining=0 after toApply; outer loop stops naturally
 
         } else {
           // PARTIALLY_PAID MONTH — additional payment, not completing
+          const newRemaining = Math.max(0, Math.round((due - toApply) * 100) / 100);
           allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
-          scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid" });
+          scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid", total_due_amount: newRemaining });
           // remaining=0; outer loop stops naturally
         }
       }

@@ -104,6 +104,7 @@ export function isEffectivelyPaid(item: {
   total_due_amount: number | string;
 }): boolean {
   if (item.status === 'paid') return true;
+  if (item.status === 'partially_paid') return false; // partially_paid is never fully paid
   const paid = Number(item.paid_amount);
   const due = Number(item.total_due_amount);
   return paid > 0 && paid >= due;
