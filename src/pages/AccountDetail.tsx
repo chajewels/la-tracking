@@ -1,7 +1,7 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
-import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus } from 'lucide-react';
+import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus, Zap } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 
@@ -973,6 +973,34 @@ export default function AccountDetail() {
             <p className="text-xs text-destructive font-medium">
               Reconciliation Error: Total LA ({formatCurrency(summary.totalLAAmount, currency)}) − Paid ({formatCurrency(totalPaid, currency)}) = {formatCurrency(summary.totalLAAmount - totalPaid, currency)} ≠ Remaining ({formatCurrency(summary.remainingBalance, currency)})
             </p>
+          </div>
+        )}
+
+        {/* Manual Reconcile Button + Results */}
+        {can('system_health') && !isTestAccount && (
+          <div className="space-y-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs border-info/30 text-info hover:bg-info/10"
+              disabled={reconcileLoading}
+              onClick={handleManualReconcile}
+            >
+              <Zap className="h-3.5 w-3.5 mr-1" />
+              {reconcileLoading ? 'Reconciling…' : '⚡ Reconcile Account'}
+            </Button>
+            {reconcileResult && (
+              <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">Reconciliation Result</p>
+                {reconcileResult.changes.length === 0 ? (
+                  <p className="text-xs text-success">✅ No discrepancies found</p>
+                ) : (
+                  reconcileResult.changes.map((c, i) => (
+                    <p key={i} className="text-xs text-muted-foreground font-mono">• {c}</p>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         )}
 
