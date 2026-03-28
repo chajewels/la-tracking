@@ -242,7 +242,7 @@ Deno.serve(async (req) => {
         action: `SYSTEM_HEALTH_FIX_${action.toUpperCase()}`,
         entity_type: "layaway_account",
         entity_id: account_id,
-        performed_by_user_id: user.id,
+        performed_by_user_id: userId,
         old_value_json: { status: oldStatus, changes_applied: results.changes.filter((c: any) => c.from !== undefined).map((c: any) => ({ field: c.field, old: c.from })) },
         new_value_json: { action, changes: results.changes },
       });
