@@ -331,17 +331,26 @@ export default function UnifiedSystemHealthTab() {
     setLoading(false);
   };
 
-  // Build unified counts
-  const v2Checks = (v2Data?.checks || []).filter(c => !V2_ID_EXCLUDED.has(c.id));
+  // Build unified counts — only count checks that are actually rendered
+  const RENDERED_SECTIONS = new Set(['data', 'benchmark', 'system']);
+  const v2Checks = (v2Data?.checks || []).filter(
+    c => !V2_ID_EXCLUDED.has(c.id) && RENDERED_SECTIONS.has(c.section),
+  );
   const opsChecks = Object.entries(opsData?.checks || {});
-  const totalV2Passed = v2Checks.filter(c => c.status === 'pass').length;
-  const totalV2Failed = v2Checks.filter(c => c.status === 'fail').length;
-  const totalOpsPassed = opsChecks.filter(([, c]) => c.status === 'pass').length;
-  const totalOpsFailed = opsChecks.filter(([, c]) => c.status === 'fail' || c.status === 'error').length;
-  const totalPassed = totalV2Passed + totalOpsPassed;
-  const totalFailed = totalV2Failed + totalOpsFailed;
-  const totalChecks = v2Checks.length + opsChecks.length;
-  const allGreen = totalFailed === 0 && totalChecks > 0;
+
+  const totalV2Skipped  = v2Checks.filter(c => c.status === 'skip').length;
+  const totalV2Passed   = v2Checks.filter(c => c.status === 'pass').length;
+  const totalV2Failed   = v2Checks.filter(c => c.status === 'fail').length;
+  const totalOpsPassed  = opsChecks.filter(([, c]) => c.status === 'pass').length;
+  const totalOpsFailed  = opsChecks.filter(([, c]) => c.status === 'fail' || c.status === 'error').length;
+
+  const totalChecks   = v2Checks.length + opsChecks.length;
+  const totalSkipped  = totalV2Skipped;
+  const totalPassed   = totalV2Passed + totalOpsPassed;
+  const totalFailed   = totalV2Failed + totalOpsFailed;
+  // Skipped checks are excluded from the pass/fail denominator
+  const activeChecks  = totalChecks - totalSkipped;
+  const allGreen      = totalFailed === 0 && activeChecks > 0;
 
   const hasData = v2Data || opsData;
   const isInitialLoading = !hasData && loading;
@@ -355,7 +364,8 @@ export default function UnifiedSystemHealthTab() {
         <div>
           <h2 className="text-base font-semibold text-card-foreground">System Health</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {totalChecks} automated checks across data integrity, benchmarks, and system functions
+            {activeChecks} active checks across data integrity, benchmarks, and system functions
+            {totalSkipped > 0 && ` · ${totalSkipped} skipped`}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -379,10 +389,15 @@ export default function UnifiedSystemHealthTab() {
               {allGreen ? <CheckCircle className="h-6 w-6 text-success" /> : <XCircle className="h-6 w-6 text-destructive" />}
               <div>
                 <p className="text-lg font-bold text-card-foreground font-display">
-                  {totalPassed}/{totalChecks} checks passed
+                  {totalPassed}/{activeChecks} checks passed
+                  {totalSkipped > 0 && (
+                    <span className="text-sm font-normal text-muted-foreground ml-2">— {totalSkipped} skipped</span>
+                  )}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {allGreen ? 'System healthy — no issues found' : `${totalFailed} issue${totalFailed > 1 ? 's' : ''} found — see details below`}
+                  {allGreen
+                    ? `System healthy — no issues found${totalSkipped > 0 ? ` (${totalSkipped} check${totalSkipped > 1 ? 's' : ''} not applicable)` : ''}`
+                    : `${totalFailed} issue${totalFailed > 1 ? 's' : ''} found — see details below`}
                 </p>
               </div>
             </div>
@@ -391,6 +406,12 @@ export default function UnifiedSystemHealthTab() {
                 <p className="text-xl font-bold text-success">{totalPassed}</p>
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Passed</p>
               </div>
+              {totalSkipped > 0 && (
+                <div>
+                  <p className="text-xl font-bold text-muted-foreground">{totalSkipped}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Skipped</p>
+                </div>
+              )}
               <div>
                 <p className={`text-xl font-bold ${totalFailed > 0 ? 'text-destructive' : 'text-muted-foreground'}`}>{totalFailed}</p>
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Failed</p>
