@@ -1171,6 +1171,17 @@ export default function AccountDetail() {
                 const paidAmt = Number(item.paid_amount);
                 const baseAmt = Number(item.base_installment_amount);
                 const totalDue = Number(item.total_due_amount); // DB value — may be adjusted from rollover
+                // Actual remaining for display — handles pre-reconcile and post-reconcile partially_paid rows:
+                //   pre-reconcile:  total_due = base (unreduced), remaining = total_due - paid_amount
+                //   post-reconcile: total_due = shortfall (already reduced), remaining = total_due
+                //   edge case:      remaining < 0 → total_due IS the shortfall; > base → use base - paid
+                const displayRemaining = (() => {
+                  if (item.status !== 'partially_paid') return totalDue;
+                  const rem = totalDue - paidAmt;
+                  if (rem < 0) return totalDue;        // post-reconcile: totalDue is already the shortfall
+                  if (rem > baseAmt) return Math.max(0, baseAmt - paidAmt); // stale/corrupt data
+                  return rem;                           // pre-reconcile: subtract what was paid
+                })();
                 // Penalty status from penalty_fees (paid/waived/unpaid) — drives label & color
                 const penaltyFee = (penalties || []).find((pf: any) => pf.schedule_id === item.id);
                 const penaltyFeeStatus = penaltyFee?.status ?? (penaltyAmt > 0 ? 'unpaid' : null);
@@ -1298,7 +1309,7 @@ export default function AccountDetail() {
                       {/* Remaining column */}
                       <div className="text-right">
                         <p className={`text-xs font-semibold tabular-nums ${effPaid ? 'text-muted-foreground' : partial ? 'text-warning' : 'text-card-foreground'}`}>
-                          {effPaid ? '—' : formatCurrency(totalDue, currency)}
+                          {effPaid ? '—' : formatCurrency(displayRemaining, currency)}
                         </p>
                       </div>
                       {/* Status */}
@@ -1713,7 +1724,18 @@ export default function AccountDetail() {
         {(() => {
           const sumPendingMonths = scheduleItems
             .filter(i => ['pending', 'overdue', 'partially_paid'].includes(i.status))
-            .reduce((s, i) => s + Math.max(0, Number(i.total_due_amount)), 0);
+            .reduce((s, i) => {
+              if (i.status === 'partially_paid') {
+                const due = Number(i.total_due_amount);
+                const paid = Number(i.paid_amount);
+                const base = Number(i.base_installment_amount);
+                let rem = due - paid;
+                if (rem < 0) rem = due;              // post-reconcile shortfall
+                if (rem > base) rem = Math.max(0, base - paid); // stale data
+                return s + rem;
+              }
+              return s + Math.max(0, Number(i.total_due_amount));
+            }, 0);
           const sumAllBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
           // Check both account models: DP separate (DP + installments = total) or DP-inclusive (installments = total)
           const baseIntegrityA = Math.round((downpaymentAmount + sumAllBases) * 100) / 100;
