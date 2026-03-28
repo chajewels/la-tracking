@@ -73,7 +73,7 @@ Deno.serve(async (req) => {
         .order("installment_number"),
       supabase
         .from("payments")
-        .select("id, amount_paid, date_paid, payment_type, is_downpayment, reference_number, remarks")
+        .select("id, amount_paid, date_paid, reference_number, remarks")
         .eq("account_id", account_id)
         .is("voided_at", null),
       supabase
@@ -341,7 +341,7 @@ async function ensureInstallmentAllocations(supabase: any, accountId: string) {
       .order("installment_number"),
     supabase
       .from("payments")
-      .select("id, amount_paid, date_paid, payment_type, is_downpayment, reference_number, remarks")
+      .select("id, amount_paid, date_paid, reference_number, remarks")
       .eq("account_id", accountId)
       .is("voided_at", null),
   ]);
@@ -443,9 +443,6 @@ function isDownpayment(p: any): boolean {
   const remarks = (p.remarks || "").toLowerCase();
   const ref = (p.reference_number || "").toLowerCase();
   return (
-    p.payment_type === "downpayment" ||
-    p.payment_type === "dp" ||
-    p.is_downpayment === true ||
     ref.startsWith("dp-") ||
     remarks.includes("down") ||
     remarks.includes("dp")
