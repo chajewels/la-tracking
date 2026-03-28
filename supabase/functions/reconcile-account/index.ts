@@ -93,33 +93,34 @@ Deno.serve(async (req) => {
     const penaltyRows: any[] = penalties || [];
     const serviceRows: any[] = services || [];
     const scheduleIds = scheduleRows.map((s) => s.id);
+    const scheduleIdSet = new Set(scheduleIds);
     const today = new Date().toISOString().split("T")[0];
 
-    // Load payment_allocations for this account — filter through payments table
-    // to ensure we only count allocations belonging to THIS account's payments.
-    // Without this filter, allocations from other accounts sharing schedule_ids
-    // would inflate paid_amount.
+    const validPaymentIds = new Set(paymentRows.map((p) => p.id));
+    const paymentIdList = paymentRows.map((p) => p.id);
+
+    // Load payment_allocations by PAYMENT_ID (not schedule_id) to guarantee
+    // we only count allocations from THIS account's payments.
+    // Previously loading by schedule_id caused cross-account inflation.
     const allocRows: any[] = [];
-    if (scheduleIds.length > 0) {
-      for (let i = 0; i < scheduleIds.length; i += 200) {
-        const chunk = scheduleIds.slice(i, i + 200);
+    if (paymentIdList.length > 0) {
+      for (let i = 0; i < paymentIdList.length; i += 200) {
+        const chunk = paymentIdList.slice(i, i + 200);
         const { data: allocs } = await supabase
           .from("payment_allocations")
-          .select("payment_id, schedule_id, allocated_amount, payments!inner(account_id)")
-          .in("schedule_id", chunk)
-          .eq("allocation_type", "installment")
-          .eq("payments.account_id", account_id);
+          .select("payment_id, schedule_id, allocated_amount")
+          .in("payment_id", chunk)
+          .eq("allocation_type", "installment");
         if (allocs) allocRows.push(...allocs);
       }
     }
 
-    const validPaymentIds = new Set(paymentRows.map((p) => p.id));
-
-    // Build allocation sums per schedule row AND per payment (non-voided payments only)
+    // Build allocation sums per schedule row AND per payment
+    // Only count allocations pointing to schedule rows that belong to this account
     const allocBySchedule: Record<string, number> = {};
     const allocByPayment: Record<string, number> = {};
     for (const a of allocRows) {
-      if (!validPaymentIds.has(a.payment_id)) continue;
+      if (!scheduleIdSet.has(a.schedule_id)) continue;
       allocBySchedule[a.schedule_id] = (allocBySchedule[a.schedule_id] || 0) + Number(a.allocated_amount);
       allocByPayment[a.payment_id]   = (allocByPayment[a.payment_id]   || 0) + Number(a.allocated_amount);
     }
