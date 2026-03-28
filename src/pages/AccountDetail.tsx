@@ -66,23 +66,24 @@ export default function AccountDetail() {
     setReconcileResult(null);
   }, [id]);
 
-  // ── Auto-reconcile if payments table is out of sync with account.total_paid ──
-  // Runs silently on page load when a discrepancy is detected.
-  // Skips locked test accounts to protect benchmark data.
-  useEffect(() => {
-    if (!account || !payments || TEST_INVOICES.has(account.invoice_number)) return;
-    const sumPayments = confirmedPayments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
-    const storedTotalPaid = Number(account.total_paid || 0);
-    if (Math.abs(storedTotalPaid - sumPayments) > 0.01) {
-      supabase.functions.invoke('reconcile-account', { body: { account_id: account.id } }).then(() => {
-        queryClient.invalidateQueries({ queryKey: ['account', account.id] });
-        queryClient.invalidateQueries({ queryKey: ['schedule', id] });
-        queryClient.invalidateQueries({ queryKey: ['payments', id] });
-        queryClient.invalidateQueries({ queryKey: ['penalties', id] });
-      });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [account?.id, account?.total_paid, payments?.length]);
+  // ── Auto-reconcile DISABLED — recurring paid_amount inflation bug ──
+  // reconcile-account was summing allocations from other accounts' payments,
+  // inflating paid_amounts (e.g. 3× on INV #17416, 2× on INV #17701).
+  // Disabled until root cause is fully confirmed fixed. Run manually via ⚡ button.
+  // useEffect(() => {
+  //   if (!account || !payments || TEST_INVOICES.has(account.invoice_number)) return;
+  //   const sumPayments = confirmedPayments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+  //   const storedTotalPaid = Number(account.total_paid || 0);
+  //   if (Math.abs(storedTotalPaid - sumPayments) > 0.01) {
+  //     supabase.functions.invoke('reconcile-account', { body: { account_id: account.id } }).then(() => {
+  //       queryClient.invalidateQueries({ queryKey: ['account', account.id] });
+  //       queryClient.invalidateQueries({ queryKey: ['schedule', id] });
+  //       queryClient.invalidateQueries({ queryKey: ['payments', id] });
+  //       queryClient.invalidateQueries({ queryKey: ['penalties', id] });
+  //     });
+  //   }
+  // // eslint-disable-next-line react-hooks/exhaustive-deps
+  // }, [account?.id, account?.total_paid, payments?.length]);
 
   const handlePaymentRecorded = useCallback((info: SessionPaymentInfo) => {
     if (info.monthLabel === 'Down Payment' || info.ordinal === 'DP') return;
@@ -1736,7 +1737,7 @@ export default function AccountDetail() {
               variant="outline"
               size="sm"
               className="text-xs border-amber-500/30 text-amber-600 hover:bg-amber-500/10"
-              disabled={reconciling}
+              disabled={true /* reconcile-account disabled — paid_amount inflation bug under investigation */}
               onClick={async () => {
                 setReconciling(true);
                 setReconcileResult(null);

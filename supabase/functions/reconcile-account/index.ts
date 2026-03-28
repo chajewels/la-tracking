@@ -93,21 +93,30 @@ Deno.serve(async (req) => {
     // query itself — prevents cross-account allocations (payment from another
     // account that was incorrectly allocated to this account's schedule rows)
     // from being counted in allocBySchedule and inflating paid_amounts.
+    //
+    // CRITICAL: Every place that sums payment_allocations MUST enforce that
+    //   payment_allocations.payment_id → payments.account_id = THIS account.
+    // We achieve this by:
+    //   (a) validPaymentIds: Set of non-voided payment IDs for THIS account only
+    //       (used as a guard in the in-memory allocBySchedule build loop)
+    //   (b) validPaymentIdList: deduplicated list used to filter the DB query
+    //       so allocRows never contains a cross-account allocation to begin with
     const validPaymentIds = new Set(paymentRows.map((p) => p.id));
-    const validPaymentIdList = paymentRows.map((p) => p.id);
+    // Deduplicate to prevent any payment appearing in multiple chunk windows,
+    // which would cause its allocations to be fetched and counted twice.
+    const validPaymentIdList = Array.from(validPaymentIds);
 
-    // Load payment_allocations scoped to BOTH this account's schedule rows
-    // AND this account's payments. The double filter is the critical guard:
-    //   .in("schedule_id", chunk)      → only rows belonging to this account
-    //   .in("payment_id", payChunk)    → only payments belonging to this account
-    // Without the payment_id filter, a cross-account allocation would be loaded
-    // and — if its payment_id were in validPaymentIds — inflate allocBySchedule.
+    // Load payment_allocations scoped to BOTH this account's schedule rows AND
+    // this account's payments. Both dimensions are chunked at 100 (conservative,
+    // well inside PostgREST URL limits even with long UUIDs).
+    // An allocation has exactly one schedule_id and one payment_id, so it will
+    // appear in exactly one (schedChunk × payChunk) combination — no duplicates.
     const allocRows: any[] = [];
     if (scheduleIds.length > 0 && validPaymentIdList.length > 0) {
-      for (let i = 0; i < scheduleIds.length; i += 200) {
-        const schedChunk = scheduleIds.slice(i, i + 200);
-        for (let j = 0; j < validPaymentIdList.length; j += 200) {
-          const payChunk = validPaymentIdList.slice(j, j + 200);
+      for (let i = 0; i < scheduleIds.length; i += 100) {
+        const schedChunk = scheduleIds.slice(i, i + 100);
+        for (let j = 0; j < validPaymentIdList.length; j += 100) {
+          const payChunk = validPaymentIdList.slice(j, j + 100);
           const { data: allocs } = await supabase
             .from("payment_allocations")
             .select("id, payment_id, schedule_id, allocated_amount")
@@ -229,14 +238,20 @@ Deno.serve(async (req) => {
       const currentTotalDue = Number(sched.total_due_amount);
       const currentPenalty = Number(sched.penalty_amount) || 0;
 
-      // A row is fully paid when EITHER:
-      //   (a) allocation sum covers the base installment amount, OR
-      //   (b) total_due_amount was reduced to 0 by an advance/overflow payment credit
-      //       (record-payment reduces total_due on subsequent rows when there's excess)
-      // In both cases: cap paid_amount at base — never store overflow in paid_amount.
-      const fullyPaid =
-        (base > 0 && allocSum >= base - 0.005) ||
-        (base > 0 && currentTotalDue <= 0.005);
+      // A row is fully paid when allocation sum covers the base installment amount.
+      // Cap paid_amount at base — never store overflow.
+      //
+      // NOTE: The old code had a second condition:
+      //   (base > 0 && currentTotalDue <= 0.005)
+      // This was meant to handle advance-credit rows where record-payment zeroed
+      // total_due_amount without creating an allocation. It has been REMOVED because:
+      //   1. Step 1 above now creates proper allocations for any unallocated payment,
+      //      including advance-credit rows — allocSum will be >= base after Step 1.
+      //   2. The condition caused a second inflation vector: if total_due_amount was
+      //      zeroed by a previous bad reconcile run (not by a real payment), the row
+      //      would be permanently marked 'paid' with paid_amount = base even with
+      //      zero allocations, inflating paid_amount on every reconcile call.
+      const fullyPaid = base > 0 && allocSum >= base - 0.005;
 
       const correctPaid = fullyPaid ? base : Math.min(allocSum, base);
 
