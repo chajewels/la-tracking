@@ -1201,7 +1201,7 @@ export default function AccountDetail() {
                             {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                           </p>
                           <p className="text-[10px] text-muted-foreground">
-                            {effPaid ? 'Paid' : partial ? `Partial — ${formatCurrency(paidAmt, currency)} paid` : `Month ${item.installment_number}`}
+                            {effPaid ? 'Paid' : `Month ${item.installment_number}`}
                           </p>
                         </div>
                       </div>
