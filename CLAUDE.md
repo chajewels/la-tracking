@@ -9,6 +9,12 @@
     ₱10,000 ÷ 0.42 = ¥23,810   ✓ CORRECT
     ₱10,000 × 0.42 = ¥4,200    ✗ WRONG
 
+  NEVER multiply PHP by rate to get JPY — this is always wrong.
+  NEVER divide JPY by rate to get PHP — this is always wrong.
+
+  This applies to ALL RPCs, edge functions, frontend calculations,
+  and business-rules.ts toJpy() function.
+
   The rate represents: ¥1 = ₱[rate]  (e.g. ¥1 = ₱0.42)
   Stored in: system_settings WHERE key = 'php_jpy_rate' (jsonb scalar)
 
