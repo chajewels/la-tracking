@@ -6,7 +6,7 @@
 -- The penalty engine then charged penalties on those months incorrectly.
 --
 -- Fix steps:
---   1. Waive all active/unpaid penalties on Month 4 and Month 5
+--   1. Waive all unpaid penalties on Month 4 and Month 5
 --   2. Reset penalty_amount = 0, total_due_amount = base on those rows
 --   3. Set paid_amount and status = 'paid' on Month 4 and Month 5
 --   4. Insert payment_allocations (idempotent — skips if already exists)
@@ -91,14 +91,15 @@ BEGIN
 
   RAISE NOTICE 'Feb 16 payment: %, Mar 16 payment: %', v_pay_feb_id, v_pay_mar_id;
 
-  -- ── 3. Waive all active/unpaid penalties on Month 4 and Month 5 ─────────────
+  -- ── 3. Waive all unpaid penalties on Month 4 and Month 5 ────────────────────
   -- These were incorrectly charged because those months appeared overdue.
+  -- NOTE: penalty_fee_status enum is 'unpaid'|'paid'|'waived' — 'active' does not exist.
   UPDATE public.penalty_fees
   SET status     = 'waived',
       waived_at  = now(),
       updated_at = now()
   WHERE schedule_id IN (v_month4_id, v_month5_id)
-    AND status IN ('unpaid', 'active');
+    AND status = 'unpaid';
 
   GET DIAGNOSTICS v_waived_count = ROW_COUNT;
   RAISE NOTICE 'Waived % penalty row(s) on Month 4 and Month 5', v_waived_count;

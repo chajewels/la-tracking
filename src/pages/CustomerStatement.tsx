@@ -430,7 +430,7 @@ export default function CustomerStatement() {
                         p.status === 'paid' ? 'bg-success/10 text-success border-success/20' :
                         'bg-destructive/10 text-destructive border-destructive/20'
                       }`}>
-                        {p.status === 'waived' ? 'Waived' : p.status === 'paid' ? 'Paid' : 'Active'}
+                        {p.status === 'waived' ? 'Waived' : p.status === 'paid' ? 'Paid' : 'Applied'}
                       </Badge>
                     </div>
                   </div>

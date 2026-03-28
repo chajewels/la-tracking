@@ -89,7 +89,7 @@ When checking whether a user can perform an action:
 ### Penalty display (admin + customer portal)
   penalty_fees.status = 'paid'         → green "Paid"
   penalty_fees.status = 'waived'       → gray strikethrough "Waived"
-  penalty_fees.status = 'active'/'unpaid' → red "Applied"
+  penalty_fees.status = 'unpaid'          → red "Applied"
 
 ## Account Creation Rules
 
@@ -99,6 +99,25 @@ When checking whether a user can perform an action:
 - Never bypass the payment validation flow
 - The "Downpayment Paid" input field does NOT exist on the creation form
 - DP redistribution into installments is NOT supported (removed)
+
+## ENUM VALUES — NON-NEGOTIABLE
+
+### penalty_fee_status
+  Valid values: 'unpaid' | 'paid' | 'waived'
+  - unpaid: penalty charged, not yet collected
+  - paid:   penalty charged and collected
+  - waived: penalty forgiven by admin — excluded from totals
+
+  NEVER use 'active' — it does not exist in this enum.
+  Any code filtering WHERE status = 'active' on penalty_fees is a bug.
+
+### account_status
+  Valid values: 'active' | 'overdue' | 'completed' | 'cancelled' |
+                'forfeited' | 'final_forfeited' | 'extension_active' |
+                'reactivated' | 'final_settlement'
+
+### schedule_status
+  Valid values: 'pending' | 'partially_paid' | 'paid' | 'overdue' | 'cancelled'
 
 ## Git Workflow
 
