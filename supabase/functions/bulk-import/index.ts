@@ -422,6 +422,22 @@ Deno.serve(async (req) => {
               performed_by_user_id: userId,
             });
 
+            // Real-time schedule sync: reconcile-account ensures allocations,
+            // schedule.paid_amount, and account totals are consistent after import.
+            try {
+              await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/reconcile-account`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                  "apikey": Deno.env.get("SUPABASE_ANON_KEY") || "",
+                },
+                body: JSON.stringify({ account_id: account.id }),
+              });
+            } catch (err: any) {
+              console.error(`[bulk-import] reconcile-account failed for ${a.invoice_number}:`, err.message);
+            }
+
           } catch (acctError) {
             results.errors.push(`Acct Inv#${a.invoice_number}: ${(acctError as Error).message}`);
           }
