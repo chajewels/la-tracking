@@ -95,16 +95,20 @@ Deno.serve(async (req) => {
     const scheduleIds = scheduleRows.map((s) => s.id);
     const today = new Date().toISOString().split("T")[0];
 
-    // Load payment_allocations for this account's schedule rows
+    // Load payment_allocations for this account — filter through payments table
+    // to ensure we only count allocations belonging to THIS account's payments.
+    // Without this filter, allocations from other accounts sharing schedule_ids
+    // would inflate paid_amount.
     const allocRows: any[] = [];
     if (scheduleIds.length > 0) {
       for (let i = 0; i < scheduleIds.length; i += 200) {
         const chunk = scheduleIds.slice(i, i + 200);
         const { data: allocs } = await supabase
           .from("payment_allocations")
-          .select("payment_id, schedule_id, allocated_amount")
+          .select("payment_id, schedule_id, allocated_amount, payments!inner(account_id)")
           .in("schedule_id", chunk)
-          .eq("allocation_type", "installment");
+          .eq("allocation_type", "installment")
+          .eq("payments.account_id", account_id);
         if (allocs) allocRows.push(...allocs);
       }
     }
