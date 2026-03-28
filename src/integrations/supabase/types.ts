@@ -1314,6 +1314,33 @@ export type Database = {
         }
         Relationships: []
       }
+      user_permission_overrides: {
+        Row: {
+          created_at: string | null
+          granted: boolean
+          id: string
+          permission_key: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          granted: boolean
+          id?: string
+          permission_key: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          granted?: boolean
+          id?: string
+          permission_key?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           id: string
@@ -1344,6 +1371,24 @@ export type Database = {
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
+      }
+      get_forecast_6m: {
+        Args: never
+        Returns: {
+          currency: string
+          installments: number
+          month: string
+          remaining: number
+        }[]
+      }
+      get_monthly_analytics: {
+        Args: never
+        Returns: {
+          collected_jpy: number
+          forfeited_jpy: number
+          month: string
+          penalties_jpy: number
+        }[]
       }
       has_role: {
         Args: {
