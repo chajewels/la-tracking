@@ -122,12 +122,12 @@ export default function AccountDetail() {
     currentMonthLabel: string; nextMonthLabel: string;
   } | null>(null);
   const [acceptCarryLoading, setAcceptCarryLoading] = useState(false);
-  const isAdmin = (roles as any[]).includes('admin');
-  const isTestAccount = TEST_INVOICES.has(account?.invoice_number || '');
-  const isLockedTest = account?.invoice_number === LOCKED_TEST_INVOICE;
   const [showVerify, setShowVerify] = useState(false);
   const queryClient = useQueryClient();
   const { roles } = useAuth();
+  const isAdmin = (roles as any[]).includes('admin');
+  const isTestAccount = TEST_INVOICES.has(account?.invoice_number || '');
+  const isLockedTest = account?.invoice_number === LOCKED_TEST_INVOICE;
   const { can: canPerm } = usePermissions();
   const can = (action: string) => canPerm(action);
 
