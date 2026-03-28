@@ -241,7 +241,8 @@ function WaiverAuditTab() {
       const { data } = await supabase
         .from('layaway_accounts')
         .select('id, invoice_number, customers(full_name)')
-        .in('id', accountIds);
+        .in('id', accountIds)
+        .not('invoice_number', 'ilike', 'TEST-%');
       return (data || []) as any[];
     },
   });
@@ -283,7 +284,9 @@ function WaiverAuditTab() {
           <p className="text-sm text-zinc-400">No waiver audit entries yet</p>
         </div>
       ) : (
-        (auditLogs || []).map((log: any) => {
+        (auditLogs || [])
+          .filter((log: any) => accounts === undefined || accountMap.has(log.entity_id))
+          .map((log: any) => {
           const details        = log.new_value_json || {};
           const isApproval     = log.action.includes('approved');
           const penaltiesWaived: any[] = details.penalties_waived || [];
