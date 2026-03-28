@@ -1261,7 +1261,6 @@ export default function AccountDetail() {
                         </p>
                         <p className="text-xs text-muted-foreground">
                           Month {item.installment_number}
-                          {partial && <span className="text-warning ml-1">(Paid: {formatCurrency(paidAmt, currency)})</span>}
                         </p>
                       </div>
                       {/* Base Amount */}
