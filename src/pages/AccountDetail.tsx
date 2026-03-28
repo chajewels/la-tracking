@@ -1355,8 +1355,7 @@ export default function AccountDetail() {
                           return (
                             <Button
                               variant="ghost"
-                              size="sm"
-                              className="h-6 px-1.5 text-[10px] text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap"
+                              className="h-6 px-1.5 text-[10px] text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap rounded-md"
                               title={`Accept ${formatCurrency(paidAmt, currency)} as full payment, carry ${formatCurrency(shortfall, currency)} to ${nextLabel}`}
                               onClick={() => setAcceptCarryTarget({
                                 rowId: item.id,
