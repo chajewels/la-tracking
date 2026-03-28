@@ -552,8 +552,9 @@ export function categorizeByDueDate(dueDate: string): AlertType {
 export function getNextUnpaidDueDate(
   scheduleItems: Array<{ due_date: string; status: string; paid_amount: number | string; total_due_amount: number | string }>
 ): string | null {
+  // Include partially_paid items even if isEffectivelyPaid returns true post-reconcile
   const unpaid = scheduleItems
-    .filter(s => !isEffectivelyPaid(s) && s.status !== 'cancelled')
+    .filter(s => s.status !== 'cancelled' && (s.status === 'partially_paid' || !isEffectivelyPaid(s)))
     .sort((a, b) => a.due_date.localeCompare(b.due_date));
   return unpaid.length > 0 ? unpaid[0].due_date : null;
 }
@@ -655,8 +656,10 @@ export function getUpcomingFollowUpDates(
 export function getNextPaymentStatementDate(
   scheduleItems: Array<{ due_date: string; status: string; paid_amount: number | string; total_due_amount: number | string; penalty_amount: number | string }>
 ): { date: string; isAdjusted: boolean } | null {
+  // Include items that are partially_paid in DB (even if isEffectivelyPaid returns true
+  // post-reconcile because paid_amount >= reduced total_due_amount)
   const unpaid = scheduleItems
-    .filter(s => !isEffectivelyPaid(s) && s.status !== 'cancelled')
+    .filter(s => s.status !== 'cancelled' && (s.status === 'partially_paid' || !isEffectivelyPaid(s)))
     .sort((a, b) => a.due_date.localeCompare(b.due_date));
   if (unpaid.length === 0) return null;
 

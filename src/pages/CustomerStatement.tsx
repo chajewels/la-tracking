@@ -96,16 +96,27 @@ function buildPenaltyCheckpoints(dueDateStr: string): Date[] {
 function getNextPaymentInfo(schedule: StatementData['schedule']): { date: string; amount: number; isAdjusted: boolean } | null {
   const today = new Date().toISOString().split('T')[0];
   const todayDate = new Date(today + 'T00:00:00Z');
+  // Detect partial items using BOTH DB status AND computed check:
+  // DB status may be stale ('paid'/'pending') while item actually has partial payment,
+  // OR post-reconcile total_due was reduced so paid_amount >= total_due looks "paid"
+  const isPartial = (s: typeof schedule[0]) =>
+    s.status === 'partially_paid' || (s.status !== 'paid' && s.status !== 'cancelled' && s.paid_amount > 0 && s.paid_amount < s.base_amount);
+  // Remaining amount: if paid < total_due, not yet reconciled → total_due - paid; otherwise total_due IS remaining
+  const computeRemaining = (s: typeof schedule[0]) => {
+    if (isPartial(s)) {
+      return s.paid_amount < s.total_due ? s.total_due - s.paid_amount : s.total_due;
+    }
+    return s.total_due;
+  };
   // Priority: partially_paid → overdue → pending
-  // total_due is already the remaining amount for partially_paid rows after reconcile fix
-  const pri: Record<string, number> = { partially_paid: 0, overdue: 1, pending: 2 };
+  const priOf = (s: typeof schedule[0]) => isPartial(s) ? 0 : s.status === 'overdue' ? 1 : 2;
   const unpaid = schedule
-    .filter(s => s.status === 'partially_paid' || s.status === 'overdue' || s.status === 'pending')
+    .filter(s => isPartial(s) || s.status === 'overdue' || s.status === 'pending')
     .sort((a, b) => {
-      const pa = pri[a.status] ?? 3, pb = pri[b.status] ?? 3;
+      const pa = priOf(a), pb = priOf(b);
       return pa !== pb ? pa - pb : a.due_date.localeCompare(b.due_date);
     });
-  console.log('[getNextPaymentInfo] schedule statuses:', schedule.map(s => `#${s.installment_number}:${s.status}(total_due=${s.total_due},paid=${s.paid_amount})`));
+  console.log('[getNextPaymentInfo] schedule statuses:', schedule.map(s => `#${s.installment_number}:${s.status}:isPartial=${isPartial(s)}(total_due=${s.total_due},paid=${s.paid_amount})`));
   console.log('[getNextPaymentInfo] unpaid after filter+sort:', unpaid.map(s => `#${s.installment_number}:${s.status}(total_due=${s.total_due})`));
   if (unpaid.length === 0) return null;
 
@@ -114,7 +125,7 @@ function getNextPaymentInfo(schedule: StatementData['schedule']): { date: string
   for (const item of unpaid) {
     const hasPenalty = (item.penalty_amount || 0) > 0;
     const isOverdue = item.due_date < today;
-    const amt = item.total_due;  // total_due IS the remaining for partial rows
+    const amt = computeRemaining(item);
 
     if (!isOverdue) {
       candidates.push({ date: new Date(item.due_date + 'T00:00:00Z'), amount: amt, isAdjusted: false });
@@ -130,7 +141,7 @@ function getNextPaymentInfo(schedule: StatementData['schedule']): { date: string
 
   if (candidates.length === 0) {
     const first = unpaid[0];
-    return { date: first.due_date, amount: first.total_due, isAdjusted: false };
+    return { date: first.due_date, amount: computeRemaining(first), isAdjusted: false };
   }
 
   candidates.sort((a, b) => a.date.getTime() - b.date.getTime());

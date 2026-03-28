@@ -607,14 +607,17 @@ export default function AccountDetail() {
     const portalUrl = portalToken ? `${PORTAL_BASE}/portal?token=${portalToken}` : null;
 
     // Determine next due month info — priority: partially_paid → overdue → pending
+    // Use BOTH DB status AND computed flags: DB status may be stale ('paid'/'pending')
+    // while computed isPartial may be wrong post-reconcile (paid_amount >= reduced total_due_amount)
     const sortedStates = [...summary.scheduleStates].sort((a, b) => a.installmentNumber - b.installmentNumber);
-    const partialItem = sortedStates.find(s => s.status === 'partially_paid');
-    console.log('[nextPayment] scheduleStates statuses:', sortedStates.map(s => `#${s.installmentNumber}:${s.status}(due=${s.totalDue})`));
-    console.log('[nextPayment] partialItem found:', partialItem ? `#${partialItem.installmentNumber} totalDue=${partialItem.totalDue}` : 'none');
+    const isPartialItem = (s: typeof sortedStates[0]) => s.status === 'partially_paid' || s.isPartial;
+    const partialItem = sortedStates.find(isPartialItem);
+    console.log('[nextPayment] scheduleStates statuses:', sortedStates.map(s => `#${s.installmentNumber}:${s.status}:isPaid=${s.isPaid}:isPartial=${s.isPartial}(due=${s.totalDue},paid=${s.paidAmount})`));
+    console.log('[nextPayment] partialItem found:', partialItem ? `#${partialItem.installmentNumber} totalDue=${partialItem.totalDue} paid=${partialItem.paidAmount}` : 'none');
     const nextUnpaidItem =
       partialItem ??
-      sortedStates.find(s => s.status === 'overdue') ??
-      sortedStates.find(s => s.status === 'pending');
+      sortedStates.find(s => !isPartialItem(s) && !s.isPaid && s.status === 'overdue') ??
+      sortedStates.find(s => !isPartialItem(s) && !s.isPaid && s.status !== 'paid' && s.status !== 'cancelled');
     const fullyPaid = summary.remainingBalance === 0;
 
     // Build next-payment / fully-paid line
@@ -622,13 +625,23 @@ export default function AccountDetail() {
       if (fullyPaid || !nextUnpaidItem) {
         return `\n🎉 Your layaway is now fully paid! Thank you!`;
       }
+      // For partial items: if paidAmount < totalDue, DB hasn't been reconciled yet
+      // → remaining = totalDue - paidAmount. If paidAmount >= totalDue, reconcile already
+      // reduced totalDue to the remaining shortfall → use totalDue directly.
+      const computeRemaining = (s: typeof nextUnpaidItem) => {
+        if (isPartialItem(s)) {
+          return s.paidAmount < s.totalDue
+            ? s.totalDue - s.paidAmount
+            : s.totalDue;
+        }
+        return s.totalDue;
+      };
       if (isDownpaymentOnly) {
         const monthLabel = new Date(nextUnpaidItem.dueDate + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        return `\nFirst payment: ${monthLabel} — ${formatCurrency(nextUnpaidItem.totalDue, currency)}`;
+        return `\nFirst payment: ${monthLabel} — ${formatCurrency(computeRemaining(nextUnpaidItem), currency)}`;
       }
       const monthLabel = new Date(nextUnpaidItem.dueDate + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      // totalDue is already the remaining amount for partially_paid rows after reconcile fix
-      const nextAmt = nextUnpaidItem.totalDue;
+      const nextAmt = computeRemaining(nextUnpaidItem);
       return `\nNext payment: ${monthLabel} — ${formatCurrency(nextAmt, currency)}`;
     };
 
