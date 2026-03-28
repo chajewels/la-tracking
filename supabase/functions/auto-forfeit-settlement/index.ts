@@ -41,6 +41,8 @@ Deno.serve(async (req) => {
     );
 
     const now = new Date();
+    // ISO date string for safe string-to-string due_date comparisons (avoids UTC midnight edge cases)
+    const todayStr = now.toISOString().split("T")[0]; // e.g. "2026-03-28"
 
     // Fetch all active/overdue/extension_active accounts
     const { data: accounts, error: accErr } = await supabase
@@ -170,12 +172,12 @@ Deno.serve(async (req) => {
         const customerName = customerMap.get(account.customer_id) || "Unknown";
 
         // STEP 1: 3 most recent due installments, ordered by due_date DESC
+        // Use string comparison (ISO dates sort lexicographically) to avoid UTC midnight edge cases
         const last3Due = schedItems
-          .filter((s: any) => new Date(s.due_date + "T00:00:00Z") <= now)
+          .filter((s: any) => s.due_date <= todayStr)
           .sort((a: any, b: any) => {
             // Primary: due_date DESC; secondary: installment_number DESC (tiebreak)
-            const dateDiff = new Date(b.due_date).getTime() - new Date(a.due_date).getTime();
-            if (dateDiff !== 0) return dateDiff;
+            if (b.due_date !== a.due_date) return b.due_date > a.due_date ? 1 : -1;
             return b.installment_number - a.installment_number;
           })
           .slice(0, 3);
@@ -191,7 +193,9 @@ Deno.serve(async (req) => {
           });
         } else {
           // STEP 2: All 3 must have paid_amount = 0
-          const allZero = last3Due.every((s: any) => Number(s.paid_amount) === 0);
+          // Use parseFloat() to handle Postgres numeric values returned as strings ("0.00")
+          // strict === 0 can fail for string "0.00"; parseFloat("0.00") === 0 is always true
+          const allZero = last3Due.every((s: any) => parseFloat(s.paid_amount) === 0);
 
           // STEP 4: Most recent date_paid must be > 90 days ago
           const lastPayment = lastPaymentByAccount.get(account.id);
@@ -201,12 +205,18 @@ Deno.serve(async (req) => {
           const last3Summary = last3Due.map((s: any) => ({
             installment: s.installment_number,
             due_date: s.due_date,
-            paid_amount: Number(s.paid_amount),
+            paid_amount: parseFloat(s.paid_amount),
             status: s.status,
           }));
 
+          // Always log the 3 rows evaluated so we can verify correct rows were selected
+          console.log(
+            `[CHECK] ${account.invoice_number} — evaluating last 3 due installments:`,
+            JSON.stringify(last3Summary)
+          );
+
           if (!allZero) {
-            console.log(`[SKIP] ${account.invoice_number} — payment found in last 3 due installments`);
+            console.log(`[SKIP] ${account.invoice_number} — payment found in last 3 due installments (allZero=false)`);
             skippedResults.push({
               invoice_number: account.invoice_number,
               customer_name: customerName,
