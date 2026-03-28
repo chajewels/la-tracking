@@ -1,5 +1,27 @@
 # Cha Jewels Layaway System — Claude Code Context
 
+## CURRENCY CONVERSION STANDARD — NON-NEGOTIABLE
+
+  JPY = PHP ÷ php_jpy_rate       ← divide to go PHP → JPY
+  PHP = JPY × php_jpy_rate       ← multiply to go JPY → PHP
+
+  Example (rate = 0.42):
+    ₱10,000 ÷ 0.42 = ¥23,810   ✓ CORRECT
+    ₱10,000 × 0.42 = ¥4,200    ✗ WRONG
+
+  The rate represents: ¥1 = ₱[rate]  (e.g. ¥1 = ₱0.42)
+  Stored in: system_settings WHERE key = 'php_jpy_rate' (jsonb scalar)
+
+  Frontend:  src/lib/currency-converter.ts → toJpy() / phpToJpy()
+             uses Math.round(phpAmount / rate)  ✓
+
+  SQL RPCs:  CASE WHEN currency = 'JPY' THEN amount
+                  WHEN currency = 'PHP' THEN amount / rate
+                  ELSE amount END              ✓
+
+  get_forecast_6m() returns raw (month, currency, remaining) rows —
+  NO conversion in SQL. Frontend calls toJpy() per row.
+
 ## PERMISSION RESOLUTION ORDER
 
 When checking whether a user can perform an action:
