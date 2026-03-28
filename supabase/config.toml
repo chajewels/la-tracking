@@ -49,3 +49,7 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = false
   [functions.handle-email-suppression]
     verify_jwt = false
+  [functions.reconcile-account]
+    verify_jwt = false
+  [functions.daily-reconciliation]
+    verify_jwt = false
