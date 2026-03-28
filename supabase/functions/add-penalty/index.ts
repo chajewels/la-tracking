@@ -97,7 +97,7 @@ Deno.serve(async (req) => {
       const allowed = Math.max(0, cap - currentPenalty);
       if (allowed <= 0) {
         return new Response(JSON.stringify({ 
-          error: `Penalty cap reached for month ${installmentNumber}. Max ${currency === "PHP" ? "₱1,000" : "¥2,000"} for months 1-5.` 
+          error: `Penalty cap reached for month ${installmentNumber}. Max ${currency === "PHP" ? "\u20b11,000" : "\u00a52,000"} for months 1-5.` 
         }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -167,24 +167,10 @@ Deno.serve(async (req) => {
       console.error("Failed to update schedule:", schedUpdateErr);
     }
 
-    // If item was paid, also update account total_paid to reflect the correction
-    if (isPaid) {
-      const { data: allSchedulePaid } = await supabase
-        .from("layaway_schedule")
-        .select("paid_amount, status")
-        .eq("account_id", account_id);
-      if (allSchedulePaid) {
-        const newTotalPaid = allSchedulePaid.reduce((sum, s) => sum + Number(s.paid_amount), 0);
-        await supabase
-          .from("layaway_accounts")
-          .update({ total_paid: newTotalPaid })
-          .eq("id", account_id);
-      }
-    }
-
-    // Recalculate account remaining_balance using canonical formula:
-    // remaining = total_amount + Σ(non-waived penalty_fees) + Σ(services) − Σ(non-voided payments)
-    // This matches the reconciliation checker and business-rules.ts exactly.
+    // Recalculate account totals using canonical formula:
+    // remaining_balance = total_amount + \u03a3(non-waived penalty_fees) + \u03a3(services) \u2212 \u03a3(non-voided payments)
+    // total_paid        = \u03a3(non-voided payments)  \u2190 payments table is SINGLE source of truth
+    // total_amount is NEVER touched \u2014 it is base principal only and never changes.
     const [{ data: accTotals }, { data: allActivePens }, { data: allSvcs }, { data: allPays }] = await Promise.all([
       supabase.from("layaway_accounts").select("total_amount").eq("id", account_id).single(),
       supabase.from("penalty_fees").select("penalty_amount").eq("account_id", account_id).not("status", "eq", "waived"),
@@ -199,7 +185,7 @@ Deno.serve(async (req) => {
       const newRemaining = Math.max(0, Number(accTotals.total_amount) + penSum + svcSum - paidSum);
       await supabase
         .from("layaway_accounts")
-        .update({ remaining_balance: newRemaining })
+        .update({ remaining_balance: newRemaining, total_paid: paidSum })
         .eq("id", account_id);
     }
 
