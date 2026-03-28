@@ -39,6 +39,7 @@ import {
   getForfeitureWarning, getUpcomingFollowUpDates,
   canReactivate, canAcceptPayment, canAddService, canAddPenalty,
   computeAccountSummary,
+  isRowPaid, isRowPartial, getRowAllocated, getRowRemaining, getRowStatus, sumPendingRows,
 } from '@/lib/business-rules';
 
 const TEST_INVOICES = new Set(['TEST-001', 'TEST-002', 'TEST-003']);
@@ -361,7 +362,7 @@ export default function AccountDetail() {
   // Override DB status: account is only truly overdue if an unpaid month has a past due_date
   const todayStr = new Date().toISOString().split('T')[0];
   const hasUnpaidPastDue = scheduleItems.some(
-    item => !isEffectivelyPaid(item) && item.due_date < todayStr
+    (item: any) => !isRowPaid(item) && item.due_date < todayStr
   );
   const effectiveStatus = account?.status === 'overdue' && !hasUnpaidPastDue
     ? 'active'
@@ -1194,26 +1195,13 @@ export default function AccountDetail() {
                 <span />
               </div>
               {scheduleItems.map((item) => {
-                const effPaid = isEffectivelyPaid(item);
-                const partial = isPartiallyPaid(item);
+                // Use canonical functions from business-rules.ts (operate on schedule_with_actuals fields)
+                const effPaid = isRowPaid(item as any);
+                const partial = isRowPartial(item as any);
                 const penaltyAmt = Number(item.penalty_amount);
-                const paidAmt = Number(item.paid_amount);
+                const paidAmt = getRowAllocated(item as any);
                 const baseAmt = Number(item.base_installment_amount);
-                const totalDue = Number(item.total_due_amount); // DB value — may be adjusted from rollover
-                // Actual remaining for display — handles pre-reconcile and post-reconcile partially_paid rows:
-                //   pre-reconcile:  total_due = base (unreduced), remaining = total_due - paid_amount
-                //   post-reconcile: total_due = shortfall (already reduced), remaining = total_due
-                //   edge case:      remaining < 0 → total_due IS the shortfall; > base → use base - paid
-                const displayRemaining = (() => {
-                  if (item.status === 'partially_paid') {
-                    const rem = totalDue - paidAmt;
-                    if (rem < 0) return totalDue;        // post-reconcile: totalDue is already the shortfall
-                    if (rem > baseAmt) return Math.max(0, baseAmt - paidAmt); // stale/corrupt data
-                    return rem;                           // pre-reconcile: subtract what was paid
-                  }
-                  // pending/overdue: use base + penalty, not total_due_amount which may be carry-inflated
-                  return baseAmt + penaltyAmt;
-                })();
+                const displayRemaining = getRowRemaining(item as any);
                 // Penalty status from penalty_fees (paid/waived/unpaid) — drives label & color
                 const penaltyFee = (penalties || []).find((pf: any) => pf.schedule_id === item.id);
                 const penaltyFeeStatus = penaltyFee?.status ?? (penaltyAmt > 0 ? 'unpaid' : null);
@@ -1754,21 +1742,7 @@ export default function AccountDetail() {
 
         {/* ═══ Verification Debug Panel ═══ */}
         {(() => {
-          const sumPendingMonths = scheduleItems
-            .filter(i => ['pending', 'overdue', 'partially_paid'].includes(i.status))
-            .reduce((s, i) => {
-              if (i.status === 'partially_paid') {
-                const due = Number(i.total_due_amount);
-                const paid = Number(i.paid_amount);
-                const base = Number(i.base_installment_amount);
-                let rem = due - paid;
-                if (rem < 0) rem = due;              // post-reconcile shortfall
-                if (rem > base) rem = Math.max(0, base - paid); // stale data
-                return s + rem;
-              }
-              // pending/overdue: base + penalty, not total_due_amount (may be carry-inflated)
-              return s + Number(i.base_installment_amount) + Number(i.penalty_amount);
-            }, 0);
+          const sumPendingMonths = sumPendingRows(scheduleItems as any[]);
           const sumAllBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
           // Check both account models: DP separate (DP + installments = total) or DP-inclusive (installments = total)
           const baseIntegrityA = Math.round((downpaymentAmount + sumAllBases) * 100) / 100;
@@ -1788,7 +1762,7 @@ export default function AccountDetail() {
           // Check 9 prep — next payment date must come from due_date, not today/created_at
           // Use isEffectivelyPaid consistently (matches overdue unpaid months, not just 'pending')
           const firstPendingItem9 = [...scheduleItems]
-            .filter((i: any) => !isEffectivelyPaid(i) && i.status !== 'cancelled')
+            .filter((i: any) => !isRowPaid(i as any) && getRowStatus(i as any) !== 'cancelled')
             .sort((a: any, b: any) => a.installment_number - b.installment_number)[0] as any;
           const nextUnpaidState9 = [...summary.scheduleStates]
             .sort((a, b) => a.installmentNumber - b.installmentNumber)

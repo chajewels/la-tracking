@@ -182,12 +182,23 @@ export function useSchedule(accountId: string | undefined) {
     staleTime: STALE_SHORT,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('layaway_schedule')
+        .from('schedule_with_actuals' as any)
         .select('*')
         .eq('account_id', accountId!)
         .order('installment_number', { ascending: true });
       if (error) throw error;
-      return data as DbSchedule[];
+      // Normalize view fields to maintain backward compat with existing code:
+      // - allocated (sum of payment_allocations) maps to paid_amount
+      // - actual_remaining maps to how much is still owed
+      // - computed_status is the authoritative status for display
+      // - db_status is the stored status (used for filtering/writes)
+      return ((data as any[]) || []).map((row: any) => ({
+        ...row,
+        // Legacy field aliases — prefer getRowAllocated/getRowRemaining/getRowStatus
+        paid_amount: row.allocated ?? 0,
+        status: row.computed_status ?? row.db_status,
+        // total_due_amount preserved for schedule edit UI (not for remaining calculations)
+      })) as any[];
     },
   });
 }

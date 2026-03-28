@@ -143,7 +143,7 @@ export default function SystemHealthCheckPanel() {
         <div>
           <h2 className="text-base font-semibold text-card-foreground">System Health Check</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Read-only — 12 automated checks across data integrity, benchmarks, and system functions
+            Read-only — 21 automated checks across data integrity, benchmarks, and system functions
           </p>
         </div>
         <div className="flex items-center gap-3">

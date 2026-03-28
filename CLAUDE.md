@@ -416,3 +416,98 @@ When completing a partially_paid month:
   - Split payment session tracking is per-account only
   - DP must never appear in split payment session list
   - Grand Total must include DP + base + penalties + services
+
+## SYSTEM INVARIANTS (permanent — never violate)
+
+  INVARIANT 1 — total_paid source:
+    ONLY: SUM(payments.amount_paid WHERE voided_at IS NULL)
+    NEVER: payment_allocations or layaway_schedule.paid_amount
+
+  INVARIANT 2 — per-row remaining source:
+    ONLY: schedule_with_actuals.actual_remaining
+    NEVER: layaway_schedule.total_due_amount or paid_amount
+
+  INVARIANT 3 — waterfall order:
+    ALWAYS: earliest actual_remaining > 0 first (due_date ASC)
+    NEVER: skip a month with actual_remaining > 0
+
+  INVARIANT 4 — payment ceiling:
+    NEVER accept payment > account.remaining_balance
+
+  INVARIANT 5 — carry-over storage:
+    ONLY: layaway_schedule.carried_amount via accept-underpayment
+    NEVER: inflate total_due_amount on any row
+
+  INVARIANT 6 — total_paid direction:
+    INCREASES: record-payment only
+    DECREASES: void-payment only
+    NEVER decreases via reconcile-account
+
+  INVARIANT 7 — base_installment_amount:
+    Set at schedule creation only
+    NEVER modified after creation under any circumstance
+    Enforced by DB trigger: prevent_base_amount_change
+
+## DISPLAY RULES (permanent)
+
+  ALL schedule display reads from schedule_with_actuals view
+  actual_remaining → only source for per-row remaining
+  allocated        → only source for per-row paid amount
+  computed_status  → only source for row status in display
+  paid_amount and total_due_amount → write-only caches, never read for display
+  All next-payment logic → getNextPaymentRow() from business-rules.ts
+  All pending sum logic  → sumPendingRows() from business-rules.ts
+  No inline reimplementation of canonical functions permitted
+
+## VIEW FIELD MAPPING
+
+  schedule_with_actuals vs layaway_schedule (write-only cache):
+    OLD paid_amount       → NEW allocated
+    OLD total_due_amount  → NEW actual_remaining (for display)
+    OLD status            → NEW computed_status (display) / db_status (writes)
+
+## CARRY-OVER RULES
+
+  Carry-over is stored as carried_amount on the NEXT row.
+  It is NEVER written by inflating total_due_amount.
+  Only accept-underpayment sets carried_amount.
+  When the row with carried_amount is fully paid:
+    reconcile-account sets carried_amount = 0 (consumed, cleared).
+  Voiding a payment that triggered a carry-over:
+    void-payment clears carried_amount on the next row.
+
+## DECIMAL RULES
+
+  DB: all money columns NUMERIC(12,2)
+  JS: use moneyAdd(), moneySub(), toInt(), fromInt() from business-rules.ts
+  Never use raw +/- on money values in JS
+  Money equality: always use moneyEqual() with EPSILON tolerance
+  JPY: always Math.round() — never display fractional yen
+  PHP: always exactly 2 decimal places
+
+## SCHEDULE EDIT RULES
+
+  Allowed edits: due_date only (via extend-schedule edge function)
+  Locked forever: base_installment_amount (DB trigger), installment_number (DB trigger)
+  Locked on completed/forfeited accounts: all edits rejected
+  Adding rows: only via add-installment edge function
+  Deleting rows: only via delete-installment edge function
+                 requires zero allocations and zero carried_amount
+  Every edit: requires reason, logged to schedule_audit_log
+
+## VOID/RESTORE RULES
+
+  Void: always deletes payment_allocations by payment_id (never by schedule_id)
+  Carry cascade: voiding a payment that triggered carry clears carried_amount on next row
+  Restore: validates allocation ceiling per row before recreating allocations
+           rejects if row already fully allocated
+
+## NEW HEALTH CHECKS (15-21, added in Phase 5 — 2026-03-29)
+
+  Check 15: total_paid drift — SUM(payments) matches account.total_paid
+  Check 16: allocation ceiling breach — no row over-allocated
+  Check 17: inflated schedule rows — no pending/overdue rows with inflated total_due_amount
+  Check 18: zero remaining not paid — all zero-remaining rows marked paid
+  Check 19: wrongful forfeit — no zero-balance forfeited accounts
+  Check 20: carried amount on paid row — no unconsumed carry on paid rows
+  Check 21: double carry — no account has carry on multiple rows

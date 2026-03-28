@@ -1043,3 +1043,186 @@ export function validateAccountConsistency(params: {
 
   return { isValid: errors.length === 0, errors };
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 7. CANONICAL FUNCTIONS — Phase 2 Architecture (2026-03-29)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// These functions operate on rows from schedule_with_actuals view.
+// NEVER use layaway_schedule.paid_amount or total_due_amount for display.
+// ALWAYS use these canonical functions for all calculations.
+
+// ── Integer arithmetic helpers ──
+
+export const MONEY_EPSILON = 0.01;
+
+/** Convert a money amount to integer cents to avoid floating point errors. */
+export const toInt = (amount: number): number =>
+  Math.round(amount * 100);
+
+/** Convert integer cents back to money amount. */
+export const fromInt = (amount: number): number =>
+  amount / 100;
+
+/** Check if two money amounts are equal within EPSILON tolerance. */
+export const moneyEqual = (a: number, b: number): boolean =>
+  Math.abs(a - b) < MONEY_EPSILON;
+
+/** Add two money amounts using integer arithmetic. */
+export const moneyAdd = (a: number, b: number): number =>
+  fromInt(toInt(a) + toInt(b));
+
+/** Subtract two money amounts using integer arithmetic. */
+export const moneySub = (a: number, b: number): number =>
+  fromInt(toInt(a) - toInt(b));
+
+// ── Row types for schedule_with_actuals view ──
+
+export interface ScheduleViewRow {
+  id: string;
+  account_id: string;
+  installment_number: number;
+  due_date: string;
+  base_installment_amount: number | string;
+  penalty_amount: number | string;
+  carried_amount?: number | string;
+  currency?: string;
+  db_status: string;
+  allocated: number | string;
+  actual_remaining: number | string;
+  computed_status: string;
+}
+
+export interface WaterfallAllocation {
+  scheduleId: string;
+  amount: number;
+}
+
+export interface WaterfallResult {
+  valid: boolean;
+  error?: string;
+  allocations: WaterfallAllocation[];
+  remainderCents?: number;
+}
+
+// ── Row calculation functions ──
+// All accept rows from schedule_with_actuals view
+
+/** Get the actual remaining amount for a schedule row. */
+export const getRowRemaining = (row: ScheduleViewRow): number =>
+  Math.max(0, Number(row.actual_remaining) || 0);
+
+/** Get the actual allocated (paid) amount for a schedule row. */
+export const getRowAllocated = (row: ScheduleViewRow): number =>
+  Number(row.allocated) || 0;
+
+/** Get the effective display status for a schedule row. */
+export const getRowStatus = (row: ScheduleViewRow): string =>
+  row.computed_status ?? row.db_status;
+
+/** Check if a row is effectively paid (status=paid OR actual_remaining ≈ 0). */
+export const isRowPaid = (row: ScheduleViewRow): boolean =>
+  getRowStatus(row) === 'paid' ||
+  moneyEqual(getRowRemaining(row), 0);
+
+/** Check if a row is partially paid. */
+export const isRowPartial = (row: ScheduleViewRow): boolean =>
+  getRowStatus(row) === 'partially_paid';
+
+// ── Account calculation functions ──
+
+/**
+ * Sum of all pending/partial rows' remaining amounts.
+ * This should equal account.remaining_balance within EPSILON tolerance.
+ */
+export const sumPendingRows = (rows: ScheduleViewRow[]): number =>
+  rows
+    .filter(r => !isRowPaid(r) && getRowStatus(r) !== 'cancelled')
+    .reduce((sum, r) => moneyAdd(sum, getRowRemaining(r)), 0);
+
+/**
+ * Find the next row that needs payment.
+ * Priority: partially_paid → overdue → pending
+ */
+export const getNextPaymentRow = (rows: ScheduleViewRow[]): ScheduleViewRow | null => {
+  const unpaid = rows.filter(
+    r => !isRowPaid(r) && getRowStatus(r) !== 'cancelled'
+  ).sort((a, b) => a.installment_number - b.installment_number);
+
+  return (
+    unpaid.find(r => getRowStatus(r) === 'partially_paid') ??
+    unpaid.find(r => getRowStatus(r) === 'overdue') ??
+    unpaid.find(r => getRowStatus(r) === 'pending') ??
+    null
+  );
+};
+
+/**
+ * Get the amount due for the next payment row.
+ * Returns 0 if no unpaid rows.
+ */
+export const getNextPaymentAmount = (rows: ScheduleViewRow[]): number => {
+  const row = getNextPaymentRow(rows);
+  if (!row) return 0;
+  const amount = getRowRemaining(row);
+  if (moneyEqual(amount, 0)) return 0;
+  return amount;
+};
+
+/**
+ * Compute the waterfall allocation for a payment.
+ * Distributes payment amount sequentially across rows ordered by due_date ASC.
+ *
+ * Rules:
+ *   - Payment cannot exceed total remaining across all rows
+ *   - Each row receives at most its actual_remaining
+ *   - Distributes from earliest unpaid row first
+ *
+ * @param paymentAmount  The total cash being paid
+ * @param rows           Rows from schedule_with_actuals, ordered by due_date ASC
+ */
+export const computeWaterfall = (
+  paymentAmount: number,
+  rows: ScheduleViewRow[]
+): WaterfallResult => {
+  const unpaidRows = rows
+    .filter(r => !isRowPaid(r) && getRowStatus(r) !== 'cancelled')
+    .sort((a, b) => {
+      const dateDiff = a.due_date.localeCompare(b.due_date);
+      if (dateDiff !== 0) return dateDiff;
+      return a.installment_number - b.installment_number;
+    });
+
+  const totalRemaining = toInt(sumPendingRows(unpaidRows));
+  const payInt = toInt(paymentAmount);
+
+  if (payInt > totalRemaining + toInt(MONEY_EPSILON)) {
+    return {
+      valid: false,
+      error: `Payment ${fromInt(payInt)} exceeds remaining balance ${fromInt(totalRemaining)}`,
+      allocations: [],
+    };
+  }
+
+  let remaining = payInt;
+  const allocations: WaterfallAllocation[] = [];
+
+  for (const row of unpaidRows) {
+    if (remaining <= 0) break;
+    const rowRemaining = toInt(getRowRemaining(row));
+    if (rowRemaining <= 0) continue;
+
+    const alloc = Math.min(remaining, rowRemaining);
+    allocations.push({ scheduleId: row.id, amount: fromInt(alloc) });
+    remaining -= alloc;
+  }
+
+  if (remaining > toInt(MONEY_EPSILON)) {
+    return {
+      valid: false,
+      error: 'Payment could not be fully distributed across schedule rows',
+      allocations: [],
+    };
+  }
+
+  return { valid: true, allocations, remainderCents: remaining };
+};

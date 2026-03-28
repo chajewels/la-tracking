@@ -196,12 +196,24 @@ Deno.serve(async (req) => {
       const paidChanged = Math.abs(Number(sched.paid_amount) - newPaidAmount) > 0.005;
 
       if (statusChanged || paidChanged) {
+        // When a row transitions to paid and it had a carried_amount, clear the carry
+        // fields — the carry was consumed by this payment.
+        const clearCarry =
+          newRowStatus === "paid" && Number(sched.carried_amount) > 0.005;
+
         await supabase
           .from("layaway_schedule")
           .update({
             paid_amount: newPaidAmount,
             status: newRowStatus,
             updated_at: new Date().toISOString(),
+            ...(clearCarry
+              ? {
+                  carried_amount: 0,
+                  carried_from_schedule_id: null,
+                  carried_by_payment_id: null,
+                }
+              : {}),
           })
           .eq("id", sched.id);
         rowsUpdated++;

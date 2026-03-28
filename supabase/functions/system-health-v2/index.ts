@@ -71,7 +71,7 @@ Deno.serve(async (req) => {
       fetchAll(supabase, "layaway_accounts",
         "id, invoice_number, status, currency, total_amount, total_paid, remaining_balance, downpayment_amount, payment_plan_months, statement_token, customers!inner(full_name)"),
       fetchAll(supabase, "layaway_schedule",
-        "id, account_id, installment_number, due_date, base_installment_amount, total_due_amount, paid_amount, status",
+        "id, account_id, installment_number, due_date, base_installment_amount, total_due_amount, paid_amount, status, carried_amount",
         q => q.neq("status", "cancelled")),
       fetchAll(supabase, "penalty_fees",
         "id, account_id, schedule_id, penalty_amount, status"),
@@ -441,6 +441,214 @@ Deno.serve(async (req) => {
         id: 14, section: "system", label: "Overdue Missing Penalties",
         description: "Non-test accounts 7+ days overdue with no active penalty fees (penalty engine missed them)",
         status: affected.length === 0 ? "pass" : "fail", expected: "0 overdue accounts missing penalty",
+        affectedCount: affected.length, affectedAccounts: affected,
+      });
+    }
+
+    // ══════════════════════════════════════
+    // SECTION 4 — ARCHITECTURE INTEGRITY (Phase 2 checks)
+    // ══════════════════════════════════════
+
+    // Check 15: total_paid drift
+    // SUM(non-voided payments) must equal account.total_paid within 0.01
+    {
+      const affected: CheckResult["affectedAccounts"] = [];
+      for (const acct of activeAccounts) {
+        const pays = (payByAcct[acct.id] || []).filter((p: any) => !p.voided_at);
+        const actualPaid = pays.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+        const storedPaid = Number(acct.total_paid);
+        if (Math.abs(actualPaid - storedPaid) > 0.01) {
+          affected.push({
+            account_id: acct.id, invoice_number: acct.invoice_number,
+            customer_name: acct.customers?.full_name || "Unknown",
+            detail: `SUM(payments)=${Math.round(actualPaid * 100) / 100} ≠ total_paid=${storedPaid}`,
+          });
+        }
+      }
+      checks.push({
+        id: 15, section: "data", label: "Payment Integrity — total_paid matches sum of payments",
+        description: "SUM(non-voided payments.amount_paid) = account.total_paid (EPSILON 0.01)",
+        status: affected.length === 0 ? "pass" : "fail", expected: "0 drift",
+        affectedCount: affected.length, affectedAccounts: affected,
+      });
+    }
+
+    // Check 16: Allocation ceiling breach
+    // No schedule row should have total allocations > base + penalty + carried + 0.01
+    {
+      const affected: CheckResult["affectedAccounts"] = [];
+      // Fetch all payment_allocations
+      const allAllocs = await fetchAll(supabase, "payment_allocations",
+        "schedule_id, allocated_amount");
+      const allocBySchedule: Record<string, number> = {};
+      for (const alloc of allAllocs) {
+        allocBySchedule[alloc.schedule_id] = (allocBySchedule[alloc.schedule_id] || 0) + Number(alloc.allocated_amount);
+      }
+      for (const sched of schedules) {
+        const allocated = allocBySchedule[sched.id] || 0;
+        const ceiling = Number(sched.base_installment_amount)
+          + Number(sched.penalty_amount || 0)
+          + Number((sched as any).carried_amount || 0);
+        if (allocated > ceiling + 0.01) {
+          const acct = acctById[sched.account_id];
+          if (!acct) continue;
+          affected.push({
+            account_id: sched.account_id, invoice_number: acct.invoice_number,
+            customer_name: acct.customers?.full_name || "Unknown",
+            detail: `Month ${sched.installment_number}: allocated=${Math.round(allocated * 100) / 100} > ceiling=${Math.round(ceiling * 100) / 100}`,
+          });
+        }
+      }
+      checks.push({
+        id: 16, section: "data", label: "Allocation Ceiling — no row over-allocated",
+        description: "SUM(payment_allocations) ≤ base + penalty + carried_amount per row",
+        status: affected.length === 0 ? "pass" : "fail", expected: "0 breaches",
+        affectedCount: affected.length, affectedAccounts: affected,
+      });
+    }
+
+    // Check 17: Inflated schedule rows
+    // pending/overdue rows should have total_due_amount = base + penalty (no carry inflation)
+    {
+      const affected: CheckResult["affectedAccounts"] = [];
+      for (const sched of schedules) {
+        if (!["pending", "overdue"].includes(sched.status)) continue;
+        const expected = Number(sched.base_installment_amount) + Number(sched.penalty_amount || 0);
+        const actual = Number(sched.total_due_amount);
+        if (actual > expected + 0.01) {
+          const acct = acctById[sched.account_id];
+          if (!acct) continue;
+          affected.push({
+            account_id: sched.account_id, invoice_number: acct.invoice_number,
+            customer_name: acct.customers?.full_name || "Unknown",
+            detail: `Month ${sched.installment_number}: total_due=${actual} > base+penalty=${Math.round(expected * 100) / 100}`,
+          });
+        }
+      }
+      checks.push({
+        id: 17, section: "data", label: "Schedule Integrity — no inflated total_due_amount",
+        description: "pending/overdue rows: total_due_amount = base + penalty (no carry inflation)",
+        status: affected.length === 0 ? "pass" : "fail", expected: "0 inflated rows",
+        affectedCount: affected.length, affectedAccounts: affected,
+      });
+    }
+
+    // Check 18: Zero remaining not paid
+    // Any row where allocations >= ceiling should have db_status = 'paid'
+    {
+      const affected: CheckResult["affectedAccounts"] = [];
+      const allAllocs18 = await fetchAll(supabase, "payment_allocations",
+        "schedule_id, allocated_amount");
+      const allocBySchedule18: Record<string, number> = {};
+      for (const alloc of allAllocs18) {
+        allocBySchedule18[alloc.schedule_id] = (allocBySchedule18[alloc.schedule_id] || 0) + Number(alloc.allocated_amount);
+      }
+      for (const sched of schedules) {
+        if (sched.status === "paid" || sched.status === "cancelled") continue;
+        const allocated = allocBySchedule18[sched.id] || 0;
+        const ceiling = Number(sched.base_installment_amount)
+          + Number(sched.penalty_amount || 0)
+          + Number((sched as any).carried_amount || 0);
+        if (ceiling > 0 && allocated >= ceiling - 0.005 && sched.status !== "paid") {
+          const acct = acctById[sched.account_id];
+          if (!acct) continue;
+          affected.push({
+            account_id: sched.account_id, invoice_number: acct.invoice_number,
+            customer_name: acct.customers?.full_name || "Unknown",
+            detail: `Month ${sched.installment_number}: allocated=${Math.round(allocated * 100) / 100} ≥ ceiling but status=${sched.status}`,
+          });
+        }
+      }
+      checks.push({
+        id: 18, section: "data", label: "Zero Remaining — all fully-allocated rows marked paid",
+        description: "Any schedule row where allocations ≥ ceiling should have status = 'paid'",
+        status: affected.length === 0 ? "pass" : "fail", expected: "0 rows",
+        affectedCount: affected.length, affectedAccounts: affected,
+      });
+    }
+
+    // Check 19: Wrongful forfeit
+    // No forfeited account should have remaining_balance <= 0
+    {
+      const affected: CheckResult["affectedAccounts"] = [];
+      for (const acct of accounts.filter((a: any) => a.status === "forfeited" || a.status === "final_forfeited")) {
+        if (Number(acct.remaining_balance) <= 0) {
+          affected.push({
+            account_id: acct.id, invoice_number: acct.invoice_number,
+            customer_name: acct.customers?.full_name || "Unknown",
+            detail: `${acct.status} but remaining_balance = ${acct.remaining_balance}`,
+          });
+        }
+      }
+      checks.push({
+        id: 19, section: "data", label: "Forfeit Guard — no zero-balance forfeited accounts",
+        description: "Forfeited accounts should not have remaining_balance ≤ 0",
+        status: affected.length === 0 ? "pass" : "fail", expected: "0 accounts",
+        affectedCount: affected.length, affectedAccounts: affected,
+      });
+    }
+
+    // Check 20: Carried amount on paid row (unconsumed carry)
+    // A paid row with carried_amount > 0 AND allocated < ceiling = bug
+    {
+      const affected: CheckResult["affectedAccounts"] = [];
+      const allAllocs20 = await fetchAll(supabase, "payment_allocations",
+        "schedule_id, allocated_amount");
+      const allocBySchedule20: Record<string, number> = {};
+      for (const alloc of allAllocs20) {
+        allocBySchedule20[alloc.schedule_id] = (allocBySchedule20[alloc.schedule_id] || 0) + Number(alloc.allocated_amount);
+      }
+      for (const sched of schedules) {
+        if (sched.status !== "paid") continue;
+        const carriedAmt = Number((sched as any).carried_amount || 0);
+        if (carriedAmt <= 0.005) continue;
+        const allocated = allocBySchedule20[sched.id] || 0;
+        const ceiling = Number(sched.base_installment_amount)
+          + Number(sched.penalty_amount || 0)
+          + carriedAmt;
+        if (allocated < ceiling - 0.01) {
+          const acct = acctById[sched.account_id];
+          if (!acct) continue;
+          affected.push({
+            account_id: sched.account_id, invoice_number: acct.invoice_number,
+            customer_name: acct.customers?.full_name || "Unknown",
+            detail: `Month ${sched.installment_number}: paid but carried_amount=${carriedAmt} not consumed (allocated=${Math.round(allocated*100)/100} < ceiling=${Math.round(ceiling*100)/100})`,
+          });
+        }
+      }
+      checks.push({
+        id: 20, section: "data", label: "Carry Integrity — no unconsumed carry on paid rows",
+        description: "Paid rows with carried_amount > 0 must have allocations covering the full ceiling",
+        status: affected.length === 0 ? "pass" : "fail", expected: "0 rows",
+        affectedCount: affected.length, affectedAccounts: affected,
+      });
+    }
+
+    // Check 21: Double carry
+    // No account should have carried_amount > 0 on more than one row
+    {
+      const affected: CheckResult["affectedAccounts"] = [];
+      const carryByAcct: Record<string, number> = {};
+      for (const sched of schedules) {
+        if (Number((sched as any).carried_amount || 0) > 0.005) {
+          carryByAcct[sched.account_id] = (carryByAcct[sched.account_id] || 0) + 1;
+        }
+      }
+      for (const [accountId, count] of Object.entries(carryByAcct)) {
+        if (count > 1) {
+          const acct = acctById[accountId];
+          if (!acct) continue;
+          affected.push({
+            account_id: accountId, invoice_number: acct.invoice_number,
+            customer_name: acct.customers?.full_name || "Unknown",
+            detail: `${count} rows have carried_amount > 0 — only 1 allowed`,
+          });
+        }
+      }
+      checks.push({
+        id: 21, section: "data", label: "Double Carry — no account has carry on multiple rows",
+        description: "At most one schedule row per account may have carried_amount > 0",
+        status: affected.length === 0 ? "pass" : "fail", expected: "0 accounts",
         affectedCount: affected.length, affectedAccounts: affected,
       });
     }
