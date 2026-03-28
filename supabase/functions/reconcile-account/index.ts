@@ -89,21 +89,35 @@ Deno.serve(async (req) => {
     const scheduleIds = scheduleRows.map((s) => s.id);
     const today = new Date().toISOString().split("T")[0];
 
-    // Load payment_allocations for this account's schedule rows (include id for deletion)
+    // Build validPaymentIds BEFORE loading allocations so we can filter the
+    // query itself — prevents cross-account allocations (payment from another
+    // account that was incorrectly allocated to this account's schedule rows)
+    // from being counted in allocBySchedule and inflating paid_amounts.
+    const validPaymentIds = new Set(paymentRows.map((p) => p.id));
+    const validPaymentIdList = paymentRows.map((p) => p.id);
+
+    // Load payment_allocations scoped to BOTH this account's schedule rows
+    // AND this account's payments. The double filter is the critical guard:
+    //   .in("schedule_id", chunk)      → only rows belonging to this account
+    //   .in("payment_id", payChunk)    → only payments belonging to this account
+    // Without the payment_id filter, a cross-account allocation would be loaded
+    // and — if its payment_id were in validPaymentIds — inflate allocBySchedule.
     const allocRows: any[] = [];
-    if (scheduleIds.length > 0) {
+    if (scheduleIds.length > 0 && validPaymentIdList.length > 0) {
       for (let i = 0; i < scheduleIds.length; i += 200) {
-        const chunk = scheduleIds.slice(i, i + 200);
-        const { data: allocs } = await supabase
-          .from("payment_allocations")
-          .select("id, payment_id, schedule_id, allocated_amount")
-          .in("schedule_id", chunk)
-          .eq("allocation_type", "installment");
-        if (allocs) allocRows.push(...allocs);
+        const schedChunk = scheduleIds.slice(i, i + 200);
+        for (let j = 0; j < validPaymentIdList.length; j += 200) {
+          const payChunk = validPaymentIdList.slice(j, j + 200);
+          const { data: allocs } = await supabase
+            .from("payment_allocations")
+            .select("id, payment_id, schedule_id, allocated_amount")
+            .in("schedule_id", schedChunk)
+            .in("payment_id", payChunk)
+            .eq("allocation_type", "installment");
+          if (allocs) allocRows.push(...allocs);
+        }
       }
     }
-
-    const validPaymentIds = new Set(paymentRows.map((p) => p.id));
 
     // Build a base-amount lookup for quick access
     const baseBySchedule: Record<string, number> = {};
