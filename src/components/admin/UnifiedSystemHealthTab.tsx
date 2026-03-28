@@ -336,7 +336,9 @@ export default function UnifiedSystemHealthTab() {
   const v2Checks = (v2Data?.checks || []).filter(
     c => !V2_ID_EXCLUDED.has(c.id) && RENDERED_SECTIONS.has(c.section),
   );
-  const opsChecks = Object.entries(opsData?.checks || {});
+  // Only include ops checks that have a known OPS_META entry — others are
+  // returned by the edge function but not rendered, so must not be counted.
+  const opsChecks = Object.entries(opsData?.checks || {}).filter(([key]) => key in OPS_META);
 
   const totalV2Skipped  = v2Checks.filter(c => c.status === 'skip').length;
   const totalV2Passed   = v2Checks.filter(c => c.status === 'pass').length;
