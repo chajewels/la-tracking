@@ -61,15 +61,23 @@ interface AccountResult {
 
 function getNextUnpaidItem(schedule?: ScheduleItem[]) {
   if (!schedule) return null;
-  return [...schedule]
-    .sort((a, b) => a.installment_number - b.installment_number)
-    .find(s => s.status !== 'paid' && s.status !== 'cancelled');
+  const sorted = [...schedule]
+    .filter(s => s.status !== 'paid' && s.status !== 'cancelled')
+    .sort((a, b) => a.installment_number - b.installment_number);
+  // Priority: partially_paid → overdue → pending
+  return (
+    sorted.find(s => s.status === 'partially_paid') ??
+    sorted.find(s => s.status === 'overdue') ??
+    sorted.find(s => s.status === 'pending') ??
+    null
+  );
 }
 
 function getNextDueInfo(schedule?: ScheduleItem[]) {
   const item = getNextUnpaidItem(schedule);
   if (!item) return null;
-  const due = Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
+  // total_due_amount IS the remaining for partially_paid rows after reconcile fix
+  const due = Math.max(0, Number(item.total_due_amount));
   return {
     date: item.due_date,
     amount: due,

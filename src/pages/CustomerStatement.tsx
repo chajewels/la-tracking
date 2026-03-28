@@ -96,9 +96,15 @@ function buildPenaltyCheckpoints(dueDateStr: string): Date[] {
 function getNextPaymentInfo(schedule: StatementData['schedule']): { date: string; amount: number; isAdjusted: boolean } | null {
   const today = new Date().toISOString().split('T')[0];
   const todayDate = new Date(today + 'T00:00:00Z');
+  // Priority: partially_paid → overdue → pending
+  // total_due is already the remaining amount for partially_paid rows after reconcile fix
+  const pri: Record<string, number> = { partially_paid: 0, overdue: 1, pending: 2 };
   const unpaid = schedule
-    .filter(s => s.status !== 'paid' && s.status !== 'cancelled' && s.paid_amount < s.total_due)
-    .sort((a, b) => a.due_date.localeCompare(b.due_date));
+    .filter(s => s.status === 'partially_paid' || s.status === 'overdue' || s.status === 'pending')
+    .sort((a, b) => {
+      const pa = pri[a.status] ?? 3, pb = pri[b.status] ?? 3;
+      return pa !== pb ? pa - pb : a.due_date.localeCompare(b.due_date);
+    });
   if (unpaid.length === 0) return null;
 
   const candidates: Array<{ date: Date; amount: number; isAdjusted: boolean }> = [];
@@ -106,7 +112,7 @@ function getNextPaymentInfo(schedule: StatementData['schedule']): { date: string
   for (const item of unpaid) {
     const hasPenalty = (item.penalty_amount || 0) > 0;
     const isOverdue = item.due_date < today;
-    const amt = item.total_due - item.paid_amount;
+    const amt = item.total_due;  // total_due IS the remaining for partial rows
 
     if (!isOverdue) {
       candidates.push({ date: new Date(item.due_date + 'T00:00:00Z'), amount: amt, isAdjusted: false });
@@ -122,7 +128,7 @@ function getNextPaymentInfo(schedule: StatementData['schedule']): { date: string
 
   if (candidates.length === 0) {
     const first = unpaid[0];
-    return { date: first.due_date, amount: first.total_due - first.paid_amount, isAdjusted: false };
+    return { date: first.due_date, amount: first.total_due, isAdjusted: false };
   }
 
   candidates.sort((a, b) => a.date.getTime() - b.date.getTime());

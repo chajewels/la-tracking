@@ -581,10 +581,12 @@ export default function AccountDetail() {
     const PORTAL_BASE = 'https://chajewelslayaway.web.app';
     const portalUrl = portalToken ? `${PORTAL_BASE}/portal?token=${portalToken}` : null;
 
-    // Determine next due month info — sort by installment number to get the correct first unpaid
-    const nextUnpaidItem = [...summary.scheduleStates]
-      .sort((a, b) => a.installmentNumber - b.installmentNumber)
-      .find(s => !s.isPaid);
+    // Determine next due month info — priority: partially_paid → overdue → pending
+    const sortedStates = [...summary.scheduleStates].sort((a, b) => a.installmentNumber - b.installmentNumber);
+    const nextUnpaidItem =
+      sortedStates.find(s => s.status === 'partially_paid') ??
+      sortedStates.find(s => s.status === 'overdue') ??
+      sortedStates.find(s => s.status === 'pending');
     const fullyPaid = summary.remainingBalance === 0;
 
     // Build next-payment / fully-paid line
@@ -597,9 +599,8 @@ export default function AccountDetail() {
         return `\nFirst payment: ${monthLabel} — ${formatCurrency(nextUnpaidItem.totalDue, currency)}`;
       }
       const monthLabel = new Date(nextUnpaidItem.dueDate + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      const nextAmt = nextUnpaidItem.isPartial
-        ? Math.max(0, nextUnpaidItem.totalDue - nextUnpaidItem.paidAmount)
-        : nextUnpaidItem.totalDue;
+      // totalDue is already the remaining amount for partially_paid rows after reconcile fix
+      const nextAmt = nextUnpaidItem.totalDue;
       return `\nNext payment: ${monthLabel} — ${formatCurrency(nextAmt, currency)}`;
     };
 
