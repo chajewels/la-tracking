@@ -1,10 +1,11 @@
 import { useState, useMemo } from 'react';
 import { addMonths, endOfMonth, format, startOfMonth } from 'date-fns';
-import { Activity, TrendingUp, Banknote, CalendarClock } from 'lucide-react';
+import { Activity, TrendingUp, Banknote, CalendarClock, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import StatCard from '@/components/dashboard/StatCard';
 import CurrencyToggle, { CurrencyFilter } from '@/components/dashboard/CurrencyToggle';
+import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/calculations';
 import { toJpy, getDisplayCurrencyForFilter } from '@/lib/currency-converter';
 import { Currency } from '@/lib/types';
@@ -15,12 +16,16 @@ import { supabase } from '@/integrations/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
 import { computeCollectionStats, todayStr } from '@/lib/business-rules';
 
+interface SelectedCard { key: string; label: string; count: number }
 
 export default function Collections() {
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
   const isAllMode = currencyFilter === 'ALL';
   const displayCurrency: Currency = getDisplayCurrencyForFilter(currencyFilter);
   const { session, loading: authLoading } = useAuth();
+
+  const [selectedCard, setSelectedCard] = useState<SelectedCard | null>(null);
+  const [drillSearch, setDrillSearch] = useState('');
 
   const { data: summary } = useDashboardSummary(currencyFilter, Boolean(session) && !authLoading);
   const { data: allPayments, isLoading: payLoading } = usePayments();
@@ -36,21 +41,54 @@ export default function Collections() {
     queryFn: async () => {
       const { data, error } = await supabase.rpc('get_forecast_6m');
       if (error) throw error;
-      // Shape: { month: '2026-04-01', currency: 'PHP'|'JPY', installments: N, remaining: N }
       return (data || []) as { month: string; currency: string; installments: number; remaining: number }[];
     },
   });
 
+  // ── Drilldown: pending accounts for selected forecast month ──
+  const { data: drilldownRaw, isLoading: drilldownLoading } = useQuery({
+    queryKey: ['forecast-drilldown', selectedCard?.key],
+    enabled: !!selectedCard,
+    staleTime: 2 * 60 * 1000,
+    queryFn: async () => {
+      if (!selectedCard) return [];
+      const monthStart = selectedCard.key + '-01';
+      const d = new Date(monthStart + 'T00:00:00');
+      const monthEnd = format(endOfMonth(d), 'yyyy-MM-dd');
+      const { data, error } = await supabase
+        .from('layaway_schedule')
+        .select('id, due_date, status, total_due_amount, paid_amount, layaway_accounts!inner(id, invoice_number, currency, status, customers(full_name))')
+        .gte('due_date', monthStart)
+        .lte('due_date', monthEnd)
+        .in('status', ['pending', 'overdue', 'partially_paid'])
+        .order('due_date', { ascending: true });
+      if (error) throw error;
+      return (data || []).filter((row: any) => {
+        const a = row.layaway_accounts;
+        return a &&
+          ['active', 'overdue', 'final_settlement', 'extension_active'].includes(a.status) &&
+          !String(a.invoice_number).startsWith('TEST-');
+      });
+    },
+  });
+
+  const drilldownRows = useMemo(() => {
+    if (!drilldownRaw) return [];
+    const q = drillSearch.toLowerCase().trim();
+    if (!q) return drilldownRaw;
+    return drilldownRaw.filter((row: any) => {
+      const inv = String(row.layaway_accounts?.invoice_number ?? '').toLowerCase();
+      const name = String(row.layaway_accounts?.customers?.full_name ?? '').toLowerCase();
+      return inv.includes(q) || name.includes(q);
+    });
+  }, [drilldownRaw, drillSearch]);
+
   // Keyed on today so month slots recalculate on rollover
   const today = format(new Date(), 'yyyy-MM-dd');
 
-  // Aggregate RPC rows by month — PHP converted to JPY, sum with JPY rows.
-  // Generates up to 7 candidate months (current + 6 forward), then filters
-  // to only months that have actual pending installments from the RPC.
   const forecastCards = useMemo(() => {
     if (!forecastSchedule) return null;
 
-    // Build lookup: monthKey → { jpy, count }
     const agg: Record<string, { jpy: number; count: number }> = {};
     forecastSchedule.forEach(row => {
       const monthKey = row.month.substring(0, 7);
@@ -64,7 +102,6 @@ export default function Collections() {
     const prevMonthKey = format(startOfMonth(addMonths(now, -1)), 'yyyy-MM');
     const hasPrevMonth = !!(agg[prevMonthKey]?.count > 0);
 
-    // Always 6 cards from current month; prepend previous month if it still has pending (→ 7)
     const startMonth = hasPrevMonth ? startOfMonth(addMonths(now, -1)) : startOfMonth(now);
     const length = hasPrevMonth ? 7 : 6;
 
@@ -87,7 +124,6 @@ export default function Collections() {
     return new Map(accounts.map(a => [a.id, a]));
   }, [accounts]);
 
-  // Filter payments
   const filtered = useMemo(() => {
     if (!allPayments) return [];
     return allPayments
@@ -100,7 +136,6 @@ export default function Collections() {
       });
   }, [allPayments, currencyFilter, isAllMode]);
 
-  // Compute stats using centralized logic
   const stats = useMemo(() => {
     const normalized = filtered.map(p => ({
       date_paid: p.date_paid,
@@ -109,7 +144,6 @@ export default function Collections() {
     return computeCollectionStats(normalized);
   }, [filtered, isAllMode]);
 
-  // Fetch profiles for CSR name lookup
   const { data: profiles } = useQuery({
     queryKey: ['profiles-lookup'],
     queryFn: async () => {
@@ -148,7 +182,7 @@ export default function Collections() {
               <CalendarClock className="h-4 w-4 text-primary" />
               Upcoming Receivables
             </h3>
-            <span className="text-xs text-muted-foreground">Next 6 months</span>
+            <span className="text-xs text-muted-foreground">Click a card to see accounts</span>
           </div>
 
           {forecastLoading || !forecastCards ? (
@@ -158,7 +192,11 @@ export default function Collections() {
           ) : (
             <div className="flex gap-3">
               {forecastCards.map((card, i) => (
-                <div key={card.key} className="flex-1 rounded-lg border border-border bg-muted/30 p-3">
+                <div
+                  key={card.key}
+                  className="flex-1 rounded-lg border border-border bg-muted/30 p-3 cursor-pointer hover:border-primary/50 hover:bg-muted/50 transition-colors"
+                  onClick={() => { setSelectedCard({ key: card.key, label: card.label, count: card.count }); setDrillSearch(''); }}
+                >
                   <div className="text-xs font-semibold text-muted-foreground mb-2">{card.label}</div>
                   <div className="text-base font-bold text-foreground tabular-nums leading-tight">
                     {formatCurrency(card.jpy, 'JPY')}
@@ -250,6 +288,118 @@ export default function Collections() {
           )}
         </div>
       </div>
+
+      {/* Forecast drilldown slide-over */}
+      {selectedCard && (
+        <div className="fixed inset-0 z-50 flex">
+          {/* Backdrop */}
+          <div className="flex-1 bg-black/60" onClick={() => setSelectedCard(null)} />
+          {/* Panel */}
+          <div className="w-full max-w-2xl bg-zinc-900 border-l border-zinc-700 flex flex-col h-full overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-700 flex-shrink-0">
+              <div>
+                <h2 className="text-base font-semibold text-zinc-100">
+                  {selectedCard.label} — {drilldownRaw?.length ?? 0} accounts
+                </h2>
+                <p className="text-xs text-zinc-400 mt-0.5">Pending installments due this month</p>
+              </div>
+              <button
+                onClick={() => setSelectedCard(null)}
+                className="text-zinc-400 hover:text-zinc-100 transition-colors p-1 rounded"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            {/* Search */}
+            <div className="px-5 py-3 border-b border-zinc-700 flex-shrink-0">
+              <input
+                value={drillSearch}
+                onChange={e => setDrillSearch(e.target.value)}
+                placeholder="Search invoice # or customer name…"
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-primary/60"
+              />
+            </div>
+            {/* Table */}
+            <div className="flex-1 overflow-y-auto">
+              {drilldownLoading ? (
+                <div className="p-5 space-y-2">
+                  {[...Array(10)].map((_, i) => <Skeleton key={i} className="h-10 w-full bg-zinc-800" />)}
+                </div>
+              ) : drilldownRows.length === 0 ? (
+                <div className="p-12 text-center text-zinc-500 text-sm">No accounts found</div>
+              ) : (
+                <table className="w-full">
+                  <thead className="sticky top-0 bg-zinc-900 border-b border-zinc-700">
+                    <tr>
+                      <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Invoice</th>
+                      <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Customer</th>
+                      <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Due</th>
+                      <th className="text-right px-4 py-2.5 text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Amount</th>
+                      <th className="text-right px-4 py-2.5 text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">¥ Equiv</th>
+                      <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {drilldownRows.map((row: any) => {
+                      const acct = row.layaway_accounts;
+                      const amountDue = Math.max(0, Number(row.total_due_amount) - Number(row.paid_amount));
+                      const jpyEq = Math.round(toJpy(amountDue, acct.currency as Currency));
+                      const isOverdue = row.status === 'overdue' || (row.due_date < today && row.status !== 'paid');
+                      const isPartial = row.status === 'partially_paid';
+                      return (
+                        <tr key={row.id} className="border-b border-zinc-800 hover:bg-zinc-800/50 transition-colors">
+                          <td className="px-4 py-2.5">
+                            <Link
+                              to={`/accounts/${acct.id}`}
+                              onClick={() => setSelectedCard(null)}
+                              className="text-xs font-mono text-primary hover:underline"
+                            >
+                              #{acct.invoice_number}
+                            </Link>
+                          </td>
+                          <td className="px-4 py-2.5 text-xs text-zinc-300 max-w-[140px] truncate">
+                            {acct.customers?.full_name || '—'}
+                          </td>
+                          <td className="px-4 py-2.5 text-xs text-zinc-400">
+                            {new Date(row.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </td>
+                          <td className="px-4 py-2.5 text-xs font-semibold tabular-nums text-right text-zinc-100">
+                            {formatCurrency(amountDue, acct.currency as Currency)}
+                          </td>
+                          <td className="px-4 py-2.5 text-xs tabular-nums text-right text-zinc-400">
+                            ¥{jpyEq.toLocaleString()}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <Badge
+                              variant="outline"
+                              className={`text-[9px] h-4 px-1.5 bg-zinc-900 ${
+                                isOverdue
+                                  ? 'text-destructive border-destructive/40'
+                                  : isPartial
+                                  ? 'text-warning border-warning/40'
+                                  : 'text-zinc-400 border-zinc-600'
+                              }`}
+                            >
+                              {isOverdue ? 'Overdue' : isPartial ? 'Partial' : 'Pending'}
+                            </Badge>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            {/* Footer count */}
+            {!drilldownLoading && drillSearch && (
+              <div className="px-5 py-2 border-t border-zinc-700 text-xs text-zinc-500 flex-shrink-0">
+                Showing {drilldownRows.length} of {drilldownRaw?.length ?? 0} accounts
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }
