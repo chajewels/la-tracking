@@ -125,6 +125,71 @@ export default function AccountDetail() {
   const { can: canPerm } = usePermissions();
   const can = (action: string) => canPerm(action);
 
+  // ── Auto-reconcile on load: detect payment drift silently ──
+  const autoReconcileRan = useRef(false);
+  const [reconcileResult, setReconcileResult] = useState<{ changes: string[] } | null>(null);
+  const [reconcileLoading, setReconcileLoading] = useState(false);
+
+  useEffect(() => {
+    if (autoReconcileRan.current || !account || !payments || accountLoading) return;
+    if (account.invoice_number?.startsWith('TEST-')) return;
+    autoReconcileRan.current = true;
+
+    const confirmedSum = (payments || [])
+      .filter((p: any) => !p.voided_at)
+      .reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+    const drift = Math.abs(Number(account.total_paid) - confirmedSum);
+
+    if (drift > 0.01) {
+      console.log(`[auto-reconcile] Drift detected for ${account.invoice_number}: stored=${account.total_paid}, computed=${confirmedSum}, drift=${drift}`);
+      supabase.functions.invoke('reconcile-account', {
+        body: { account_id: account.id },
+      }).then(() => {
+        queryClient.invalidateQueries({ queryKey: ['account', id] });
+        queryClient.invalidateQueries({ queryKey: ['schedule', id] });
+        queryClient.invalidateQueries({ queryKey: ['payments', id] });
+        queryClient.invalidateQueries({ queryKey: ['penalties', id] });
+        queryClient.invalidateQueries({ queryKey: ['account-services', id] });
+      }).catch((err) => {
+        console.warn('[auto-reconcile] Failed:', err);
+      });
+    }
+  }, [account, payments, accountLoading, id, queryClient]);
+
+  useEffect(() => {
+    autoReconcileRan.current = false;
+    setReconcileResult(null);
+  }, [id]);
+
+  const handleManualReconcile = useCallback(async () => {
+    if (!account) return;
+    setReconcileLoading(true);
+    setReconcileResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('reconcile-account', {
+        body: { account_id: account.id },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      setReconcileResult({ changes: data.changes || [] });
+      if (data.changes && data.changes.length > 0) {
+        toast.success(`Reconciled: ${data.changes.length} fix(es) applied`);
+        queryClient.invalidateQueries({ queryKey: ['account', id] });
+        queryClient.invalidateQueries({ queryKey: ['schedule', id] });
+        queryClient.invalidateQueries({ queryKey: ['payments', id] });
+        queryClient.invalidateQueries({ queryKey: ['penalties', id] });
+        queryClient.invalidateQueries({ queryKey: ['account-services', id] });
+        queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      } else {
+        toast.info('No discrepancies found');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Reconciliation failed');
+    } finally {
+      setReconcileLoading(false);
+    }
+  }, [account, id, queryClient]);
+
 
   const handleInvoiceSave = useCallback(async () => {
     const trimmed = invoiceInput.trim();
