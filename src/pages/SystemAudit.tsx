@@ -112,8 +112,8 @@ function runAccountChecks(
 
   // Check 1–7 inputs
   const sumPendingMonths = activeSchedule
-    .filter((i: any) => !isEffectivelyPaid(i))
-    .reduce((s: number, i: any) => s + Math.max(0, Number(i.total_due_amount) - Number(i.paid_amount)), 0);
+    .filter((i: any) => ['pending', 'overdue', 'partially_paid'].includes(i.status))
+    .reduce((s: number, i: any) => s + Math.max(0, Number(i.total_due_amount)), 0);
   const sumAllBases = activeSchedule.reduce((s: number, i: any) => s + Number(i.base_installment_amount), 0);
   const baseIntegrity = Math.round((downpaymentAmount + sumAllBases) * 100) / 100;
   const unpaidCount = activeSchedule.filter((i: any) => !isEffectivelyPaid(i)).length;

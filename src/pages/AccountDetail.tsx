@@ -1654,7 +1654,9 @@ export default function AccountDetail() {
 
         {/* ═══ Verification Debug Panel ═══ */}
         {(() => {
-          const sumPendingMonths = scheduleItems.filter(i => !isEffectivelyPaid(i)).reduce((s, i) => s + Math.max(0, Number(i.total_due_amount) - Number(i.paid_amount)), 0);
+          const sumPendingMonths = scheduleItems
+            .filter(i => ['pending', 'overdue', 'partially_paid'].includes(i.status))
+            .reduce((s, i) => s + Math.max(0, Number(i.total_due_amount)), 0);
           const sumAllBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
           // Check both account models: DP separate (DP + installments = total) or DP-inclusive (installments = total)
           const baseIntegrityA = Math.round((downpaymentAmount + sumAllBases) * 100) / 100;
