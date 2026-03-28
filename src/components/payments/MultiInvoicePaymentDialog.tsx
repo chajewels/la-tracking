@@ -64,13 +64,16 @@ function getNextUnpaidItem(schedule?: ScheduleItem[]) {
   const sorted = [...schedule]
     .filter(s => s.status !== 'paid' && s.status !== 'cancelled')
     .sort((a, b) => a.installment_number - b.installment_number);
+  console.log('[getNextUnpaidItem] sorted unpaid statuses:', sorted.map(s => `#${s.installment_number}:${s.status}(total_due=${s.total_due_amount})`));
   // Priority: partially_paid → overdue → pending
-  return (
+  const result = (
     sorted.find(s => s.status === 'partially_paid') ??
     sorted.find(s => s.status === 'overdue') ??
     sorted.find(s => s.status === 'pending') ??
     null
   );
+  console.log('[getNextUnpaidItem] selected:', result ? `#${result.installment_number}:${result.status}(total_due=${result.total_due_amount})` : 'none');
+  return result;
 }
 
 function getNextDueInfo(schedule?: ScheduleItem[]) {

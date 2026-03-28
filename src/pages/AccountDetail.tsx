@@ -583,8 +583,11 @@ export default function AccountDetail() {
 
     // Determine next due month info — priority: partially_paid → overdue → pending
     const sortedStates = [...summary.scheduleStates].sort((a, b) => a.installmentNumber - b.installmentNumber);
+    const partialItem = sortedStates.find(s => s.status === 'partially_paid');
+    console.log('[nextPayment] scheduleStates statuses:', sortedStates.map(s => `#${s.installmentNumber}:${s.status}(due=${s.totalDue})`));
+    console.log('[nextPayment] partialItem found:', partialItem ? `#${partialItem.installmentNumber} totalDue=${partialItem.totalDue}` : 'none');
     const nextUnpaidItem =
-      sortedStates.find(s => s.status === 'partially_paid') ??
+      partialItem ??
       sortedStates.find(s => s.status === 'overdue') ??
       sortedStates.find(s => s.status === 'pending');
     const fullyPaid = summary.remainingBalance === 0;
