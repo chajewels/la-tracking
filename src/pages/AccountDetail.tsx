@@ -1176,11 +1176,14 @@ export default function AccountDetail() {
                 //   post-reconcile: total_due = shortfall (already reduced), remaining = total_due
                 //   edge case:      remaining < 0 → total_due IS the shortfall; > base → use base - paid
                 const displayRemaining = (() => {
-                  if (item.status !== 'partially_paid') return totalDue;
-                  const rem = totalDue - paidAmt;
-                  if (rem < 0) return totalDue;        // post-reconcile: totalDue is already the shortfall
-                  if (rem > baseAmt) return Math.max(0, baseAmt - paidAmt); // stale/corrupt data
-                  return rem;                           // pre-reconcile: subtract what was paid
+                  if (item.status === 'partially_paid') {
+                    const rem = totalDue - paidAmt;
+                    if (rem < 0) return totalDue;        // post-reconcile: totalDue is already the shortfall
+                    if (rem > baseAmt) return Math.max(0, baseAmt - paidAmt); // stale/corrupt data
+                    return rem;                           // pre-reconcile: subtract what was paid
+                  }
+                  // pending/overdue: use base + penalty, not total_due_amount which may be carry-inflated
+                  return baseAmt + penaltyAmt;
                 })();
                 // Penalty status from penalty_fees (paid/waived/unpaid) — drives label & color
                 const penaltyFee = (penalties || []).find((pf: any) => pf.schedule_id === item.id);
@@ -1734,7 +1737,8 @@ export default function AccountDetail() {
                 if (rem > base) rem = Math.max(0, base - paid); // stale data
                 return s + rem;
               }
-              return s + Math.max(0, Number(i.total_due_amount));
+              // pending/overdue: base + penalty, not total_due_amount (may be carry-inflated)
+              return s + Number(i.base_installment_amount) + Number(i.penalty_amount);
             }, 0);
           const sumAllBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
           // Check both account models: DP separate (DP + installments = total) or DP-inclusive (installments = total)
