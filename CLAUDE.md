@@ -1,5 +1,19 @@
 # Cha Jewels Layaway System — Claude Code Context
 
+## PERMISSION RESOLUTION ORDER
+
+When checking whether a user can perform an action:
+
+  1. user_permission_overrides WHERE user_id = this_user
+       → if a row exists for this permission_key, use granted value
+  2. role_permissions WHERE role = user's role
+       → fallback when no override exists
+  3. admin role → always full access regardless of any override
+
+  Table: user_permission_overrides (user_id, permission_key, granted)
+  Managed via Settings → Permission Matrix → By Member view
+  RLS: admins only (has_role(auth.uid(), 'admin'))
+
 ## CALCULATION STANDARD — NON-NEGOTIABLE
 
 ### Core Formula
