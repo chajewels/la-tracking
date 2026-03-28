@@ -380,6 +380,22 @@ Deno.serve(async (req) => {
       performed_by_user_id: user.id,
     });
 
+    // Real-time schedule sync: trigger reconcile-account to ensure
+    // payment_allocations and schedule.paid_amount are always in sync.
+    try {
+      await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/reconcile-account`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          "apikey": Deno.env.get("SUPABASE_ANON_KEY") || "",
+        },
+        body: JSON.stringify({ account_id }),
+      });
+    } catch (err: any) {
+      console.error("[record-payment] reconcile-account sync failed:", err.message);
+    }
+
     return new Response(JSON.stringify({
       payment,
       allocations,

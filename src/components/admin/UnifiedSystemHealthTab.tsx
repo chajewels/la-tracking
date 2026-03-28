@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CheckCircle, XCircle, Minus, RefreshCw, Loader2,
-  ChevronDown, ChevronRight, Database, Bookmark, Cpu, AlertTriangle, Search,
+  ChevronDown, ChevronRight, Database, Bookmark, Cpu, AlertTriangle, Search, GitMerge,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,10 +18,11 @@ import { toast } from 'sonner';
 interface V2Account { account_id: string; invoice_number: string; customer_name: string; detail: string; }
 interface V2Check {
   id: number;
-  section: 'data' | 'benchmark' | 'system';
+  section: 'data' | 'benchmark' | 'system' | 'payment_sync';
   label: string;
   description: string;
   status: 'pass' | 'fail' | 'skip';
+  critical?: boolean;
   affectedCount: number;
   affectedAccounts: V2Account[];
 }
@@ -66,9 +67,10 @@ const OPS_META: Record<string, { label: string; description: string; section: 'd
 const V2_ID_EXCLUDED = new Set([10]);
 
 const SECTION_META = {
-  data:      { label: 'Data Integrity',        icon: Database,  color: 'text-primary' },
-  benchmark: { label: 'Benchmark Verification', icon: Bookmark,  color: 'text-info' },
-  system:    { label: 'System Checks',          icon: Cpu,       color: 'text-warning' },
+  data:         { label: 'Data Integrity',        icon: Database,  color: 'text-primary' },
+  benchmark:    { label: 'Benchmark Verification', icon: Bookmark,  color: 'text-info' },
+  system:       { label: 'System Checks',          icon: Cpu,       color: 'text-warning' },
+  payment_sync: { label: 'Payment Sync',           icon: GitMerge,  color: 'text-destructive' },
 } as const;
 
 // ── Status helpers ─────────────────────────────────────────────────────────
@@ -98,6 +100,9 @@ function V2CheckRow({ check }: { check: V2Check }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-card-foreground">{check.label}</span>
+            {check.critical && (
+              <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-destructive/10 text-destructive border-destructive/60 font-bold">CRITICAL</Badge>
+            )}
             {check.status === 'fail' && (
               <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-zinc-900 text-destructive border-destructive/40">
                 {check.affectedCount} affected
@@ -332,7 +337,7 @@ export default function UnifiedSystemHealthTab() {
   };
 
   // Build unified counts — only count checks that are actually rendered
-  const RENDERED_SECTIONS = new Set(['data', 'benchmark', 'system']);
+  const RENDERED_SECTIONS = new Set(['data', 'benchmark', 'system', 'payment_sync']);
   const v2Checks = (v2Data?.checks || []).filter(
     c => !V2_ID_EXCLUDED.has(c.id) && RENDERED_SECTIONS.has(c.section),
   );
@@ -357,7 +362,7 @@ export default function UnifiedSystemHealthTab() {
   const hasData = v2Data || opsData;
   const isInitialLoading = !hasData && loading;
 
-  const sections = (['data', 'benchmark', 'system'] as const);
+  const sections = (['data', 'benchmark', 'system', 'payment_sync'] as const);
 
   return (
     <div className="space-y-4">

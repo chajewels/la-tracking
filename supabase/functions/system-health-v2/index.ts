@@ -10,11 +10,12 @@ const PAGE = 1000;
 
 interface CheckResult {
   id: number;
-  section: "data" | "benchmark" | "system";
+  section: "data" | "benchmark" | "system" | "payment_sync";
   label: string;
   description: string;
   status: "pass" | "fail" | "skip";
   expected: string;
+  critical?: boolean;
   affectedCount: number;
   affectedAccounts: Array<{ account_id: string; invoice_number: string; customer_name: string; detail: string }>;
 }
@@ -76,12 +77,33 @@ Deno.serve(async (req) => {
       fetchAll(supabase, "penalty_fees",
         "id, account_id, schedule_id, penalty_amount, status"),
       fetchAll(supabase, "payments",
-        "id, account_id, amount_paid, payment_type, is_downpayment, reference_number, remarks, voided_at"),
+        "id, account_id, amount_paid, payment_type, is_downpayment, reference_number, remarks, voided_at, created_at"),
       fetchAll(supabase, "account_services",
         "id, account_id, amount"),
       // All schedule rows including cancelled — used by check 12 to detect accounts with zero rows
       fetchAll(supabase, "layaway_schedule", "account_id"),
     ]);
+
+    // ── Extra data for payment_sync checks (sequential, small queries) ──
+    const yesterday = new Date(Date.now() - 86400000).toISOString();
+    const recentInstallmentPayments = payments.filter((p: any) =>
+      !p.voided_at && !isDPPayment(p) && p.created_at >= yesterday
+    );
+    const recentPaymentIds = recentInstallmentPayments.map((p: any) => p.id);
+    const recentAllocatedPaymentIds = new Set<string>();
+    for (let i = 0; i < recentPaymentIds.length; i += 200) {
+      const chunk = recentPaymentIds.slice(i, i + 200);
+      const { data: allocs } = await supabase
+        .from("payment_allocations")
+        .select("payment_id")
+        .in("payment_id", chunk);
+      if (allocs) allocs.forEach((a: any) => recentAllocatedPaymentIds.add(a.payment_id));
+    }
+    const { data: reconSetting } = await supabase
+      .from("system_settings")
+      .select("value")
+      .eq("key", "last_daily_reconciliation")
+      .maybeSingle();
 
     // ── Index by account_id ──
     const schedByAcct = index(schedules, s => s.account_id);
@@ -442,6 +464,100 @@ Deno.serve(async (req) => {
         description: "Non-test accounts 7+ days overdue with no active penalty fees (penalty engine missed them)",
         status: affected.length === 0 ? "pass" : "fail", expected: "0 overdue accounts missing penalty",
         affectedCount: affected.length, affectedAccounts: affected,
+      });
+    }
+
+    // ══════════════════════════════════════
+    // SECTION 4 — PAYMENT SYNC
+    // ══════════════════════════════════════
+
+    // Check 15: Payment History ↔ Schedule Sync [CRITICAL]
+    // Detects accounts where installment payments exceed schedule.paid_amount sum —
+    // indicating payments were recorded but never allocated to schedule rows.
+    {
+      const affected: CheckResult["affectedAccounts"] = [];
+      for (const acct of activeAccounts) {
+        if (String(acct.invoice_number).startsWith("TEST-")) continue;
+        const pays  = (payByAcct[acct.id] || []).filter((p: any) => !p.voided_at);
+        const scheds = schedByAcct[acct.id] || [];
+        const pens   = penByAcct[acct.id] || [];
+
+        const totalPaid    = pays.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+        const dpPaid       = pays.filter(isDPPayment).reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+        const penaltyPaid  = pens.filter((p: any) => p.status === "paid").reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
+        const schedPaid    = scheds
+          .filter((s: any) => s.status !== "cancelled")
+          .reduce((s: number, row: any) => s + Number(row.paid_amount), 0);
+
+        // installmentPaid = total payments minus DP and penalty payments
+        const installmentPaid = Math.max(0, totalPaid - dpPaid - penaltyPaid);
+        const gap = installmentPaid - schedPaid;
+
+        if (gap > 10) {
+          affected.push({
+            account_id: acct.id,
+            invoice_number: acct.invoice_number,
+            customer_name: acct.customers?.full_name || "Unknown",
+            detail: `₱${Math.round(installmentPaid)} in installment payments but schedule shows only ₱${Math.round(schedPaid)} paid (gap: ₱${Math.round(gap)})`,
+          });
+        }
+      }
+      checks.push({
+        id: 15, section: "payment_sync", label: "Payment History ↔ Schedule Sync",
+        description: "Installment payments match schedule.paid_amount — no unallocated payments hiding behind stale schedule rows",
+        critical: true,
+        status: affected.length === 0 ? "pass" : "fail", expected: "0 stale accounts",
+        affectedCount: affected.length, affectedAccounts: affected,
+      });
+    }
+
+    // Check 16: Recent Payments Without Allocations
+    // Non-DP payments in the last 24h that have no payment_allocations rows.
+    {
+      const affected: CheckResult["affectedAccounts"] = [];
+      for (const p of recentInstallmentPayments) {
+        if (recentAllocatedPaymentIds.has(p.id)) continue;
+        const acct = acctById[p.account_id];
+        if (!acct) continue;
+        affected.push({
+          account_id: p.account_id,
+          invoice_number: acct.invoice_number,
+          customer_name: acct.customers?.full_name || "Unknown",
+          detail: `Payment ₱${Number(p.amount_paid).toLocaleString()} recorded at ${p.created_at?.slice(0, 16)} has no allocation rows`,
+        });
+      }
+      checks.push({
+        id: 16, section: "payment_sync", label: "Recent Payments Without Allocations",
+        description: "Non-DP payments in the last 24h all have payment_allocations rows (real-time sync working)",
+        status: affected.length === 0 ? "pass" : "fail", expected: "0 unallocated recent payments",
+        affectedCount: affected.length, affectedAccounts: affected,
+      });
+    }
+
+    // Check 17: Daily Reconciliation Coverage
+    // Verifies the daily-reconciliation job has run within the last 25 hours.
+    {
+      let reconStatus: "pass" | "fail" | "skip" = "skip";
+      let reconDetail = "Daily reconciliation job has never run (no timestamp found in system_settings)";
+      if (reconSetting) {
+        const lastRun = new Date(JSON.parse(String(reconSetting.value)));
+        const hoursSince = (Date.now() - lastRun.getTime()) / 3600000;
+        if (hoursSince <= 25) {
+          reconStatus = "pass";
+          reconDetail = `Last run: ${lastRun.toISOString().slice(0, 16)} (${Math.round(hoursSince)}h ago)`;
+        } else {
+          reconStatus = "fail";
+          reconDetail = `Last run: ${lastRun.toISOString().slice(0, 16)} — ${Math.round(hoursSince)}h ago (expected every 24h)`;
+        }
+      }
+      const affectedAccounts: CheckResult["affectedAccounts"] = reconStatus === "fail" ? [{
+        account_id: "", invoice_number: "—", customer_name: "—", detail: reconDetail,
+      }] : [];
+      checks.push({
+        id: 17, section: "payment_sync", label: "Daily Reconciliation Coverage",
+        description: "daily-reconciliation job ran within the last 25 hours",
+        status: reconStatus, expected: "ran within 25h",
+        affectedCount: reconStatus === "fail" ? 1 : 0, affectedAccounts,
       });
     }
 

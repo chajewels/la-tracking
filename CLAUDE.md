@@ -100,6 +100,37 @@ When checking whether a user can perform an action:
 - The "Downpayment Paid" input field does NOT exist on the creation form
 - DP redistribution into installments is NOT supported (removed)
 
+## PAYMENT HISTORY AS SOURCE OF TRUTH — NON-NEGOTIABLE
+
+  payments table is the SINGLE source of truth for all money received.
+  layaway_schedule.paid_amount must ALWAYS reflect payment_allocations,
+  which in turn must reflect the payments table.
+
+  Sync chain:
+    payments → payment_allocations → layaway_schedule.paid_amount → account totals
+
+  Invariants:
+    SUM(payment_allocations WHERE allocation_type='installment' AND schedule_id=X)
+      ≈ layaway_schedule.paid_amount for row X
+
+    SUM(non-voided payments.amount_paid) for account
+      ≈ account.total_paid
+
+  Automatic enforcement:
+    1. record-payment and record-multi-payment invoke reconcile-account after
+       each successful payment (real-time sync).
+    2. daily-reconciliation edge function runs once per day for all accounts.
+       Completion timestamp stored in system_settings.key = 'last_daily_reconciliation'.
+    3. System Health Check 15 (CRITICAL) detects accounts where installment
+       payments exceed schedule.paid_amount — flags stale schedule rows.
+    4. System Health Check 16 detects non-DP payments in last 24h without allocations.
+    5. System Health Check 17 verifies daily-reconciliation ran within 25 hours.
+
+  reconcile-account edge function:
+    Body: { account_id } or { invoice_number }
+    Steps: create missing allocations → sync schedule → auto-waive unpaid
+           penalties on paid installments → recalculate account totals
+
 ## ENUM VALUES — NON-NEGOTIABLE
 
 ### penalty_fee_status
