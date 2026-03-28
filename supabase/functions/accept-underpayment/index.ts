@@ -129,22 +129,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 5. Add shortfall to next row's total_due_amount (never base_installment_amount)
-    const newNextDue = Math.round((Number(nextRow.total_due_amount) + shortfall) * 100) / 100;
-    const { error: updateNextErr } = await supabase
-      .from("layaway_schedule")
-      .update({
-        total_due_amount: newNextDue,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", nextRow.id);
-
-    if (updateNextErr) {
-      return new Response(JSON.stringify({ error: updateNextErr.message }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    // 5. (Intentionally no write to next row's total_due_amount.)
+    // Inflating the next row causes double-counting in display and audit checks.
+    // The canonical remaining_balance already captures the full debt correctly.
 
     // Audit log
     await supabase.from("audit_logs").insert({
@@ -159,7 +146,7 @@ Deno.serve(async (req) => {
       },
       new_value_json: {
         current_row: { id: schedule_row_id, status: "paid", total_due_amount: paidAmount },
-        next_row: { id: nextRow.id, total_due_amount: newNextDue, shortfall_added: shortfall },
+        next_row: { id: nextRow.id, note: "total_due_amount unchanged — no inflation" },
       },
       performed_by_user_id: user.id,
     });
@@ -169,7 +156,6 @@ Deno.serve(async (req) => {
       current_row_id: schedule_row_id,
       next_row_id: nextRow.id,
       shortfall_carried: shortfall,
-      new_next_total_due: newNextDue,
     }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -232,14 +232,11 @@ Deno.serve(async (req) => {
           // PENDING MONTH UNDERPAID — set partial row; carry shortfall only if carry_over=true
           const shortfall = Math.round((due - toApply) * 100) / 100;
           allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
-          // Always set total_due_amount = shortfall (remaining) on the partial row
+          // Set total_due_amount = shortfall (remaining) on the partial row.
+          // Do NOT inflate the next row's total_due_amount — canonical remaining_balance
+          // already captures the full debt correctly and inflating future rows causes
+          // double-counting in display and audit checks.
           scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid", total_due_amount: shortfall });
-          if (carry_over) {
-            const nextItem = unpaidItems.find((ni: any) => ni.installment_number > item.installment_number);
-            if (nextItem) {
-              scheduleUpdates.push({ id: nextItem.id, paid_amount: 0, total_due_amount: Math.round((Number(nextItem.total_due_amount) + shortfall) * 100) / 100, status: "pending" });
-            }
-          }
           // remaining=0 after toApply; outer loop stops naturally
 
         } else {
