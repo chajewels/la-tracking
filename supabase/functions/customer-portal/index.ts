@@ -288,12 +288,29 @@ Deno.serve(async (req) => {
       const today = new Date().toISOString().split('T')[0];
       const todayDate = new Date(today + 'T00:00:00Z');
       const unpaidSchedule = acctSchedule
-        .filter((s: any) => s.status !== 'paid' && s.status !== 'cancelled')
-        .sort((a: any, b: any) => a.due_date.localeCompare(b.due_date));
+        .filter((s: any) => s.status !== 'cancelled' && (s.status === 'partially_paid' || s.status !== 'paid'))
+        .sort((a: any, b: any) => {
+          // Priority: partially_paid first, then by due_date
+          const isPartialA = a.status === 'partially_paid';
+          const isPartialB = b.status === 'partially_paid';
+          if (isPartialA !== isPartialB) return isPartialA ? -1 : 1;
+          return a.due_date.localeCompare(b.due_date);
+        });
 
       // Penalty-aware next due date calculation
       const nextDueInfo = computeNextDueDate(unpaidSchedule, today, todayDate);
       const nextDue = unpaidSchedule[0] || null;
+      // For partial items: if paid < total_due → not reconciled, remaining = total_due - paid;
+      // if paid >= total_due → reconciled, total_due IS the remaining shortfall. Never negative.
+      const nextDueAmount = (() => {
+        if (!nextDue) return null;
+        const td = Number(nextDue.total_due_amount);
+        const pa = Number(nextDue.paid_amount);
+        if (nextDue.status === 'partially_paid') {
+          return pa < td ? Math.max(0, td - pa) : Math.max(0, td);
+        }
+        return Math.max(0, td - pa);
+      })();
 
       const progressPercent = Number(acc.total_amount) > 0
         ? Math.min(100, Math.round((totalPayments / Number(acc.total_amount)) * 100))
@@ -328,7 +345,7 @@ Deno.serve(async (req) => {
         outstanding_penalties: unpaidPenaltySum,
         current_total_payable: currentTotalPayable,
         next_due_date: nextDueInfo?.date || null,
-        next_due_amount: nextDue ? Number(nextDue.total_due_amount) - Number(nextDue.paid_amount) : null,
+        next_due_amount: nextDueAmount,
         statement_token: statementTokenByAccount[acc.id] || null,
         schedule: acctSchedule.map((s: any) => ({
           installment_number: s.installment_number,

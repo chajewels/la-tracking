@@ -612,8 +612,6 @@ export default function AccountDetail() {
     const sortedStates = [...summary.scheduleStates].sort((a, b) => a.installmentNumber - b.installmentNumber);
     const isPartialItem = (s: typeof sortedStates[0]) => s.status === 'partially_paid' || s.isPartial;
     const partialItem = sortedStates.find(isPartialItem);
-    console.log('[nextPayment] scheduleStates statuses:', sortedStates.map(s => `#${s.installmentNumber}:${s.status}:isPaid=${s.isPaid}:isPartial=${s.isPartial}(due=${s.totalDue},paid=${s.paidAmount})`));
-    console.log('[nextPayment] partialItem found:', partialItem ? `#${partialItem.installmentNumber} totalDue=${partialItem.totalDue} paid=${partialItem.paidAmount}` : 'none');
     const nextUnpaidItem =
       partialItem ??
       sortedStates.find(s => !isPartialItem(s) && !s.isPaid && s.status === 'overdue') ??
