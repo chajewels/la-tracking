@@ -131,17 +131,55 @@ export default function AccountDetail() {
   const [reconcileLoading, setReconcileLoading] = useState(false);
 
   useEffect(() => {
-    if (autoReconcileRan.current || !account || !payments || accountLoading) return;
+    if (autoReconcileRan.current || !account || !payments || !schedule || accountLoading) return;
     if (account.invoice_number?.startsWith('TEST-')) return;
     autoReconcileRan.current = true;
 
+    // Check 1: account.total_paid vs SUM(payments)
     const confirmedSum = (payments || [])
       .filter((p: any) => !p.voided_at)
       .reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
-    const drift = Math.abs(Number(account.total_paid) - confirmedSum);
+    const paymentDrift = Math.abs(Number(account.total_paid) - confirmedSum);
 
-    if (drift > 0.01) {
-      console.log(`[auto-reconcile] Drift detected for ${account.invoice_number}: stored=${account.total_paid}, computed=${confirmedSum}, drift=${drift}`);
+    // Check 2: SUM(schedule.paid_amount) vs SUM(payment_allocations) — async
+    const checkScheduleDrift = async () => {
+      const schedulePaidSum = (schedule || [])
+        .filter((s: any) => s.status !== 'cancelled')
+        .reduce((s: number, row: any) => s + Number(row.paid_amount), 0);
+
+      const scheduleIds = (schedule || [])
+        .filter((s: any) => s.status !== 'cancelled')
+        .map((s: any) => s.id);
+
+      let allocSum = 0;
+      if (scheduleIds.length > 0) {
+        const { data: allocs } = await supabase
+          .from('payment_allocations')
+          .select('allocated_amount, payment_id')
+          .in('schedule_id', scheduleIds)
+          .eq('allocation_type', 'installment');
+
+        if (allocs && allocs.length > 0) {
+          // Filter out voided payment allocations
+          const paymentIds = [...new Set(allocs.map((a: any) => a.payment_id))];
+          const { data: validPayments } = await supabase
+            .from('payments')
+            .select('id')
+            .in('id', paymentIds)
+            .is('voided_at', null);
+          const validIds = new Set((validPayments || []).map((p: any) => p.id));
+          allocSum = allocs
+            .filter((a: any) => validIds.has(a.payment_id))
+            .reduce((s: number, a: any) => s + Number(a.allocated_amount), 0);
+        }
+      }
+
+      const scheduleDrift = Math.abs(schedulePaidSum - allocSum);
+      return scheduleDrift;
+    };
+
+    if (paymentDrift > 0.01) {
+      console.log(`[auto-reconcile] Payment drift detected for ${account.invoice_number}: stored=${account.total_paid}, computed=${confirmedSum}, drift=${paymentDrift}`);
       supabase.functions.invoke('reconcile-account', {
         body: { account_id: account.id },
       }).then(() => {
@@ -153,8 +191,28 @@ export default function AccountDetail() {
       }).catch((err) => {
         console.warn('[auto-reconcile] Failed:', err);
       });
+    } else {
+      // No payment drift — check schedule drift
+      checkScheduleDrift().then((scheduleDrift) => {
+        if (scheduleDrift > 0.01) {
+          console.log(`[auto-reconcile] Schedule drift detected for ${account.invoice_number}: schedule vs allocations drift=${scheduleDrift}`);
+          supabase.functions.invoke('reconcile-account', {
+            body: { account_id: account.id },
+          }).then(() => {
+            queryClient.invalidateQueries({ queryKey: ['account', id] });
+            queryClient.invalidateQueries({ queryKey: ['schedule', id] });
+            queryClient.invalidateQueries({ queryKey: ['payments', id] });
+            queryClient.invalidateQueries({ queryKey: ['penalties', id] });
+            queryClient.invalidateQueries({ queryKey: ['account-services', id] });
+          }).catch((err) => {
+            console.warn('[auto-reconcile] Failed:', err);
+          });
+        }
+      }).catch((err) => {
+        console.warn('[auto-reconcile] Schedule drift check failed:', err);
+      });
     }
-  }, [account, payments, accountLoading, id, queryClient]);
+  }, [account, payments, schedule, accountLoading, id, queryClient]);
 
   useEffect(() => {
     autoReconcileRan.current = false;

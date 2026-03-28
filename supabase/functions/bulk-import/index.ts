@@ -422,6 +422,22 @@ Deno.serve(async (req) => {
               performed_by_user_id: userId,
             });
 
+            // ── Post-import: trigger reconcile-account (non-blocking) ──
+            try {
+              const reconcileUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/reconcile-account`;
+              await fetch(reconcileUrl, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                  apikey: Deno.env.get("SUPABASE_ANON_KEY") || "",
+                },
+                body: JSON.stringify({ account_id: account.id }),
+              });
+            } catch (reconcileErr) {
+              console.error(`Post-import reconcile failed for Inv#${a.invoice_number} (non-blocking):`, reconcileErr);
+            }
+
           } catch (acctError) {
             results.errors.push(`Acct Inv#${a.invoice_number}: ${(acctError as Error).message}`);
           }
