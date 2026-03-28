@@ -42,6 +42,29 @@ When checking whether a user can perform an action:
   Managed via Settings → Permission Matrix → By Member view
   RLS: admins only (has_role(auth.uid(), 'admin'))
 
+## total_amount INVARIANT — NON-NEGOTIABLE
+
+  layaway_accounts.total_amount = BASE PRINCIPAL ONLY.
+  It is set once at account creation and NEVER changes afterward.
+
+  The following operations MUST NOT write to total_amount:
+  - Adding a penalty (add-penalty, recalculate-penalties)
+  - Waiving a penalty (approve-waiver)
+  - Recording a payment (record-payment, record-multi-payment)
+  - Reconciliation (reconcile-account, daily-reconciliation)
+
+  The only legitimate writes to total_amount are:
+  - create-layaway-account  (initial set)
+  - edit-account            (admin correction of base amount)
+  - add/delete installment  (AccountDetail.tsx schedule editor)
+
+  Penalty impact on totals is captured via:
+    remaining_balance = total_amount + Σ(non-waived penalty_fees) + Σ(services) - Σ(payments)
+    total_paid        = Σ(payments.amount_paid WHERE voided_at IS NULL)
+
+  Never compute total_paid from SUM(schedule.paid_amount) — schedule rows are
+  derived data; payments table is the single source of truth.
+
 ## CALCULATION STANDARD — NON-NEGOTIABLE
 
 ### Core Formula
@@ -89,7 +112,7 @@ When checking whether a user can perform an action:
 ### Penalty display (admin + customer portal)
   penalty_fees.status = 'paid'         → green "Paid"
   penalty_fees.status = 'waived'       → gray strikethrough "Waived"
-  penalty_fees.status = 'active'/'unpaid' → red "Applied"
+  penalty_fees.status = 'unpaid'          → red "Applied"
 
 ## Account Creation Rules
 
@@ -99,6 +122,56 @@ When checking whether a user can perform an action:
 - Never bypass the payment validation flow
 - The "Downpayment Paid" input field does NOT exist on the creation form
 - DP redistribution into installments is NOT supported (removed)
+
+## PAYMENT HISTORY AS SOURCE OF TRUTH — NON-NEGOTIABLE
+
+  payments table is the SINGLE source of truth for all money received.
+  layaway_schedule.paid_amount must ALWAYS reflect payment_allocations,
+  which in turn must reflect the payments table.
+
+  Sync chain:
+    payments → payment_allocations → layaway_schedule.paid_amount → account totals
+
+  Invariants:
+    SUM(payment_allocations WHERE allocation_type='installment' AND schedule_id=X)
+      ≈ layaway_schedule.paid_amount for row X
+
+    SUM(non-voided payments.amount_paid) for account
+      ≈ account.total_paid
+
+  Automatic enforcement:
+    1. record-payment and record-multi-payment invoke reconcile-account after
+       each successful payment (real-time sync).
+    2. daily-reconciliation edge function runs once per day for all accounts.
+       Completion timestamp stored in system_settings.key = 'last_daily_reconciliation'.
+    3. System Health Check 15 (CRITICAL) detects accounts where installment
+       payments exceed schedule.paid_amount — flags stale schedule rows.
+    4. System Health Check 16 detects non-DP payments in last 24h without allocations.
+    5. System Health Check 17 verifies daily-reconciliation ran within 25 hours.
+
+  reconcile-account edge function:
+    Body: { account_id } or { invoice_number }
+    Steps: create missing allocations → sync schedule → auto-waive unpaid
+           penalties on paid installments → recalculate account totals
+
+## ENUM VALUES — NON-NEGOTIABLE
+
+### penalty_fee_status
+  Valid values: 'unpaid' | 'paid' | 'waived'
+  - unpaid: penalty charged, not yet collected
+  - paid:   penalty charged and collected
+  - waived: penalty forgiven by admin — excluded from totals
+
+  NEVER use 'active' — it does not exist in this enum.
+  Any code filtering WHERE status = 'active' on penalty_fees is a bug.
+
+### account_status
+  Valid values: 'active' | 'overdue' | 'completed' | 'cancelled' |
+                'forfeited' | 'final_forfeited' | 'extension_active' |
+                'reactivated' | 'final_settlement'
+
+### schedule_status
+  Valid values: 'pending' | 'partially_paid' | 'paid' | 'overdue' | 'cancelled'
 
 ## Git Workflow
 
