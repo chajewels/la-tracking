@@ -1130,6 +1130,9 @@ export default function AccountDetail() {
                 const paidAmt = Number(item.paid_amount);
                 const baseAmt = Number(item.base_installment_amount);
                 const totalDue = Number(item.total_due_amount); // DB value — may be adjusted from rollover
+                // Penalty status from penalty_fees (paid/waived/unpaid) — drives label & color
+                const penaltyFee = (penalties || []).find((pf: any) => pf.schedule_id === item.id);
+                const penaltyFeeStatus = penaltyFee?.status ?? (penaltyAmt > 0 ? 'unpaid' : null);
                 const itemRemaining = remainingDue(item);
                 const isEditingThis = editingScheduleId === item.id;
                 const canEdit = account.status !== 'forfeited' && account.status !== 'cancelled' && item.status !== 'cancelled';
@@ -1140,7 +1143,7 @@ export default function AccountDetail() {
                       effPaid ? 'bg-success/5 border-success/10 hover:border-success/20' :
                       partial ? 'bg-warning/5 border-warning/10 hover:border-warning/20' :
                       item.status === 'overdue' ? 'bg-destructive/5 border-destructive/10 hover:border-destructive/20' :
-                      penaltyAmt > 0 ? 'bg-card border-purple-500/20 hover:border-purple-500/30 penalty-glow' :
+                      penaltyAmt > 0 && penaltyFeeStatus !== 'waived' ? 'bg-card border-purple-500/20 hover:border-purple-500/30 penalty-glow' :
                       'bg-card border-border hover:border-primary/20'
                     }`}
                   >
@@ -1183,12 +1186,19 @@ export default function AccountDetail() {
                     {penaltyAmt > 0 && (
                       <div className="sm:hidden mt-1.5 ml-8 flex items-center gap-2 text-[10px]">
                         <span className="text-muted-foreground">Base: {formatCurrency(baseAmt, currency)}</span>
-                        <span className="text-destructive font-medium flex items-center gap-0.5">
-                          <AlertTriangle className="h-2.5 w-2.5" />
-                          Penalty: {formatCurrency(penaltyAmt, currency)}
-                          {effPaid ? ' (Paid)' : ''}
-                        </span>
-                        {penaltyCapOverride && item.installment_number <= 5 && (
+                        {penaltyFeeStatus === 'waived' ? (
+                          <span className="text-muted-foreground flex items-center gap-0.5 line-through">
+                            Penalty: {formatCurrency(penaltyAmt, currency)}
+                            <span className="no-underline ml-0.5 not-italic">(Waived)</span>
+                          </span>
+                        ) : (
+                          <span className={`font-medium flex items-center gap-0.5 ${penaltyFeeStatus === 'paid' ? 'text-success' : 'text-destructive'}`}>
+                            {penaltyFeeStatus !== 'paid' && <AlertTriangle className="h-2.5 w-2.5" />}
+                            Penalty: {formatCurrency(penaltyAmt, currency)}
+                            {penaltyFeeStatus === 'paid' ? ' (Paid)' : ''}
+                          </span>
+                        )}
+                        {penaltyCapOverride && item.installment_number <= 5 && penaltyFeeStatus !== 'waived' && (
                           <Badge variant="outline" className="text-[9px] h-4 px-1 bg-primary/10 text-primary border-primary/20">
                             Capped
                           </Badge>
@@ -1219,14 +1229,21 @@ export default function AccountDetail() {
                       </p>
                       {/* Penalty Amount */}
                       <div className="text-right">
-                        {penaltyAmt > 0 ? (
+                        {penaltyAmt > 0 && penaltyFeeStatus !== 'waived' ? (
                           <div>
-                            <p className="text-xs tabular-nums text-destructive font-medium">
+                            <p className={`text-xs tabular-nums font-medium ${penaltyFeeStatus === 'paid' ? 'text-success' : 'text-destructive'}`}>
                               {formatCurrency(penaltyAmt, currency)}
                             </p>
-                            <p className="text-[9px] text-destructive/70">
-                              {effPaid ? 'Paid' : 'Applied'}
+                            <p className={`text-[9px] ${penaltyFeeStatus === 'paid' ? 'text-success/70' : 'text-destructive/70'}`}>
+                              {penaltyFeeStatus === 'paid' ? 'Paid' : 'Applied'}
                             </p>
+                          </div>
+                        ) : penaltyAmt > 0 && penaltyFeeStatus === 'waived' ? (
+                          <div>
+                            <p className="text-xs tabular-nums text-muted-foreground line-through">
+                              {formatCurrency(penaltyAmt, currency)}
+                            </p>
+                            <p className="text-[9px] text-muted-foreground">Waived</p>
                           </div>
                         ) : (
                           <p className="text-xs tabular-nums text-muted-foreground">—</p>
