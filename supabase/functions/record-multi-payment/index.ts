@@ -416,6 +416,22 @@ Deno.serve(async (req) => {
           },
           performed_by_user_id: userId,
         });
+
+        // ── Post-payment reconciliation (best-effort, never blocks response) ──
+        try {
+          await fetch(`${supabaseUrl}/functions/v1/reconcile-account`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${serviceKey}`,
+              "apikey": serviceKey,
+            },
+            body: JSON.stringify({ account_id: inputAlloc.account_id }),
+          });
+          console.log(`[multi-pay] Post-payment reconciliation triggered for ${acct.invoice_number}`);
+        } catch (reconErr: any) {
+          console.warn(`[multi-pay] Reconciliation failed (non-blocking):`, reconErr.message);
+        }
       }
     }
 

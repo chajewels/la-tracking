@@ -380,6 +380,24 @@ Deno.serve(async (req) => {
       performed_by_user_id: user.id,
     });
 
+    // ── Post-payment reconciliation (best-effort, never blocks response) ──
+    try {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      await fetch(`${supabaseUrl}/functions/v1/reconcile-account`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${serviceKey}`,
+          "apikey": serviceKey,
+        },
+        body: JSON.stringify({ account_id }),
+      });
+      console.log(`[record-payment] Post-payment reconciliation triggered for ${account_id}`);
+    } catch (reconErr) {
+      console.warn(`[record-payment] Reconciliation failed (non-blocking):`, (reconErr as Error).message);
+    }
+
     return new Response(JSON.stringify({
       payment,
       allocations,

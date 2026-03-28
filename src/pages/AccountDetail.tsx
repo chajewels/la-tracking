@@ -1,7 +1,7 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
-import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus } from 'lucide-react';
+import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus, Zap } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 
@@ -124,6 +124,71 @@ export default function AccountDetail() {
   const { roles } = useAuth();
   const { can: canPerm } = usePermissions();
   const can = (action: string) => canPerm(action);
+
+  // ── Auto-reconcile on load: detect payment drift silently ──
+  const autoReconcileRan = useRef(false);
+  const [reconcileResult, setReconcileResult] = useState<{ changes: string[] } | null>(null);
+  const [reconcileLoading, setReconcileLoading] = useState(false);
+
+  useEffect(() => {
+    if (autoReconcileRan.current || !account || !payments || accountLoading) return;
+    if (account.invoice_number?.startsWith('TEST-')) return;
+    autoReconcileRan.current = true;
+
+    const confirmedSum = (payments || [])
+      .filter((p: any) => !p.voided_at)
+      .reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+    const drift = Math.abs(Number(account.total_paid) - confirmedSum);
+
+    if (drift > 0.01) {
+      console.log(`[auto-reconcile] Drift detected for ${account.invoice_number}: stored=${account.total_paid}, computed=${confirmedSum}, drift=${drift}`);
+      supabase.functions.invoke('reconcile-account', {
+        body: { account_id: account.id },
+      }).then(() => {
+        queryClient.invalidateQueries({ queryKey: ['account', id] });
+        queryClient.invalidateQueries({ queryKey: ['schedule', id] });
+        queryClient.invalidateQueries({ queryKey: ['payments', id] });
+        queryClient.invalidateQueries({ queryKey: ['penalties', id] });
+        queryClient.invalidateQueries({ queryKey: ['account-services', id] });
+      }).catch((err) => {
+        console.warn('[auto-reconcile] Failed:', err);
+      });
+    }
+  }, [account, payments, accountLoading, id, queryClient]);
+
+  useEffect(() => {
+    autoReconcileRan.current = false;
+    setReconcileResult(null);
+  }, [id]);
+
+  const handleManualReconcile = useCallback(async () => {
+    if (!account) return;
+    setReconcileLoading(true);
+    setReconcileResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('reconcile-account', {
+        body: { account_id: account.id },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      setReconcileResult({ changes: data.changes || [] });
+      if (data.changes && data.changes.length > 0) {
+        toast.success(`Reconciled: ${data.changes.length} fix(es) applied`);
+        queryClient.invalidateQueries({ queryKey: ['account', id] });
+        queryClient.invalidateQueries({ queryKey: ['schedule', id] });
+        queryClient.invalidateQueries({ queryKey: ['payments', id] });
+        queryClient.invalidateQueries({ queryKey: ['penalties', id] });
+        queryClient.invalidateQueries({ queryKey: ['account-services', id] });
+        queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      } else {
+        toast.info('No discrepancies found');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Reconciliation failed');
+    } finally {
+      setReconcileLoading(false);
+    }
+  }, [account, id, queryClient]);
 
 
   const handleInvoiceSave = useCallback(async () => {
@@ -973,6 +1038,34 @@ export default function AccountDetail() {
             <p className="text-xs text-destructive font-medium">
               Reconciliation Error: Total LA ({formatCurrency(summary.totalLAAmount, currency)}) − Paid ({formatCurrency(totalPaid, currency)}) = {formatCurrency(summary.totalLAAmount - totalPaid, currency)} ≠ Remaining ({formatCurrency(summary.remainingBalance, currency)})
             </p>
+          </div>
+        )}
+
+        {/* Manual Reconcile Button + Results */}
+        {can('system_health') && !isTestAccount && (
+          <div className="space-y-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs border-info/30 text-info hover:bg-info/10"
+              disabled={reconcileLoading}
+              onClick={handleManualReconcile}
+            >
+              <Zap className="h-3.5 w-3.5 mr-1" />
+              {reconcileLoading ? 'Reconciling…' : '⚡ Reconcile Account'}
+            </Button>
+            {reconcileResult && (
+              <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">Reconciliation Result</p>
+                {reconcileResult.changes.length === 0 ? (
+                  <p className="text-xs text-success">✅ No discrepancies found</p>
+                ) : (
+                  reconcileResult.changes.map((c, i) => (
+                    <p key={i} className="text-xs text-muted-foreground font-mono">• {c}</p>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         )}
 
