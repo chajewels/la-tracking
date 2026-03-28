@@ -53,8 +53,6 @@ export default function AccountDetail() {
   const { data: services } = useAccountServices(id);
   const { data: penaltyCapOverride } = usePenaltyCapOverride(id);
   const [copied, setCopied] = useState(false);
-  const [reconciling, setReconciling] = useState(false);
-  const [reconcileResult, setReconcileResult] = useState<{ changes: string[]; penalties_waived: number; schedule_rows_fixed: number; allocations_created: number } | null>(null);
 
   // ── Session payment tracking (state-based, per-account) ──
   const [sessionPayments, setSessionPayments] = useState<SessionPaymentInfo[]>([]);
@@ -63,27 +61,7 @@ export default function AccountDetail() {
   // Reset session payments when navigating to a different account
   useEffect(() => {
     setSessionPayments([]);
-    setReconcileResult(null);
   }, [id]);
-
-  // ── Auto-reconcile DISABLED — recurring paid_amount inflation bug ──
-  // reconcile-account was summing allocations from other accounts' payments,
-  // inflating paid_amounts (e.g. 3× on INV #17416, 2× on INV #17701).
-  // Disabled until root cause is fully confirmed fixed. Run manually via ⚡ button.
-  // useEffect(() => {
-  //   if (!account || !payments || TEST_INVOICES.has(account.invoice_number)) return;
-  //   const sumPayments = confirmedPayments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
-  //   const storedTotalPaid = Number(account.total_paid || 0);
-  //   if (Math.abs(storedTotalPaid - sumPayments) > 0.01) {
-  //     supabase.functions.invoke('reconcile-account', { body: { account_id: account.id } }).then(() => {
-  //       queryClient.invalidateQueries({ queryKey: ['account', account.id] });
-  //       queryClient.invalidateQueries({ queryKey: ['schedule', id] });
-  //       queryClient.invalidateQueries({ queryKey: ['payments', id] });
-  //       queryClient.invalidateQueries({ queryKey: ['penalties', id] });
-  //     });
-  //   }
-  // // eslint-disable-next-line react-hooks/exhaustive-deps
-  // }, [account?.id, account?.total_paid, payments?.length]);
 
   const handlePaymentRecorded = useCallback((info: SessionPaymentInfo) => {
     if (info.monthLabel === 'Down Payment' || info.ordinal === 'DP') return;
@@ -1729,55 +1707,6 @@ export default function AccountDetail() {
             </div>
           );
         })()}
-
-        {/* Reconcile Account — sync schedule from payments table */}
-        {can('system_health') && account && !TEST_INVOICES.has(account.invoice_number) && (
-          <div className="mt-3">
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs border-amber-500/30 text-amber-600 hover:bg-amber-500/10"
-              disabled={true /* reconcile-account disabled — paid_amount inflation bug under investigation */}
-              onClick={async () => {
-                setReconciling(true);
-                setReconcileResult(null);
-                try {
-                  const { data, error } = await supabase.functions.invoke('reconcile-account', {
-                    body: { account_id: account.id },
-                  });
-                  if (error) throw error;
-                  if (data?.error) throw new Error(data.error);
-                  setReconcileResult(data);
-                  queryClient.invalidateQueries({ queryKey: ['account', account.id] });
-                  queryClient.invalidateQueries({ queryKey: ['accounts'] });
-                  queryClient.invalidateQueries({ queryKey: ['schedule', id] });
-                  queryClient.invalidateQueries({ queryKey: ['payments', id] });
-                  queryClient.invalidateQueries({ queryKey: ['penalties', id] });
-                } catch (err: any) {
-                  toast.error(err.message || 'Reconcile failed');
-                } finally {
-                  setReconciling(false);
-                }
-              }}
-            >
-              {reconciling ? 'Reconciling…' : '⚡ Reconcile Account'}
-            </Button>
-            {reconcileResult && (
-              <div className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 space-y-1">
-                <p className="text-[10px] uppercase tracking-wider text-amber-600 font-semibold mb-1.5">
-                  Reconcile Result — {reconcileResult.allocations_created} allocations · {reconcileResult.schedule_rows_fixed} rows · {reconcileResult.penalties_waived} penalties waived
-                </p>
-                {reconcileResult.changes.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">✅ No discrepancies found — account is in sync</p>
-                ) : (
-                  reconcileResult.changes.map((c: string, i: number) => (
-                    <p key={i} className="text-[11px] text-muted-foreground font-mono">{c}</p>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Restore Payment Dialog */}
         <RestorePaymentDialog
