@@ -116,8 +116,6 @@ function getNextPaymentInfo(schedule: StatementData['schedule']): { date: string
       const pa = priOf(a), pb = priOf(b);
       return pa !== pb ? pa - pb : a.due_date.localeCompare(b.due_date);
     });
-  console.log('[getNextPaymentInfo] schedule statuses:', schedule.map(s => `#${s.installment_number}:${s.status}:isPartial=${isPartial(s)}(total_due=${s.total_due},paid=${s.paid_amount})`));
-  console.log('[getNextPaymentInfo] unpaid after filter+sort:', unpaid.map(s => `#${s.installment_number}:${s.status}(total_due=${s.total_due})`));
   if (unpaid.length === 0) return null;
 
   const candidates: Array<{ date: Date; amount: number; isAdjusted: boolean }> = [];

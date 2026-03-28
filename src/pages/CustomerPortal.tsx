@@ -734,7 +734,14 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
       {(() => {
         const today = new Date().toISOString().split('T')[0];
         const sorted = [...account.schedule].sort((a, b) => a.installment_number - b.installment_number);
-        const nextItem = sorted.find(s => s.status !== 'cancelled' && s.status !== 'paid');
+        // Detect partial items via BOTH DB status and computed check (paid > 0 but < base)
+        const isPartial = (s: typeof sorted[0]) =>
+          s.status === 'partially_paid' || (s.status !== 'paid' && s.status !== 'cancelled' && s.paid_amount > 0 && s.paid_amount < s.base_amount);
+        // Priority: partially_paid → overdue → pending (by installment number within each tier)
+        const nextItem =
+          sorted.find(s => isPartial(s)) ??
+          sorted.find(s => !isPartial(s) && s.status === 'overdue') ??
+          sorted.find(s => s.status !== 'cancelled' && s.status !== 'paid' && !isPartial(s));
 
         if (!nextItem) return (
           <div style={{marginTop:'12px',borderTop:`1px solid ${P.s2}`,paddingTop:'12px'}}>
@@ -749,7 +756,11 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
         const isItemOverdue = diffDays < 0;
         const urgencyColor = isItemOverdue ? '#E74C3C' : diffDays === 0 ? '#E8916A' : P.tp;
         const dueLabel = isItemOverdue ? `${Math.abs(diffDays)}d overdue` : diffDays === 0 ? 'Due today' : `Due in ${diffDays}d`;
-        const amount = nextItem.total_due > 0 ? nextItem.total_due : nextItem.base_amount;
+        // For partial items: if paid < total_due → not reconciled, remaining = total_due - paid;
+        // if paid >= total_due → reconciled, total_due IS the remaining shortfall
+        const amount = isPartial(nextItem)
+          ? (nextItem.paid_amount < nextItem.total_due ? nextItem.total_due - nextItem.paid_amount : nextItem.total_due)
+          : (nextItem.total_due > 0 ? nextItem.total_due : nextItem.base_amount);
         const dateLabel = dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
         return (
@@ -1337,8 +1348,18 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
   const getAccountDuePriority = (acct: PortalAccount): { priority: number; label: string; badgeClass: string; targetAmount: number } => {
     const today = new Date().toISOString().split('T')[0];
     const unpaidItems = acct.schedule
-      .filter(s => s.status !== 'paid' && s.status !== 'cancelled' && s.paid_amount < s.total_due)
-      .sort((a, b) => a.due_date.localeCompare(b.due_date));
+      .filter(s => s.status !== 'cancelled' && (
+        s.status === 'partially_paid' ||
+        (s.status !== 'paid' && s.paid_amount > 0 && s.paid_amount < s.base_amount) ||
+        (s.status !== 'paid' && s.paid_amount < s.total_due)
+      ))
+      .sort((a, b) => {
+        // Priority: partially_paid → overdue → pending
+        const isPartialA = a.status === 'partially_paid' || (a.status !== 'paid' && a.paid_amount > 0 && a.paid_amount < a.base_amount);
+        const isPartialB = b.status === 'partially_paid' || (b.status !== 'paid' && b.paid_amount > 0 && b.paid_amount < b.base_amount);
+        if (isPartialA !== isPartialB) return isPartialA ? -1 : 1;
+        return a.due_date.localeCompare(b.due_date);
+      });
 
     const nextItem = unpaidItems[0];
     if (!nextItem) {
@@ -1346,7 +1367,13 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
     }
 
     // Target = next installment remaining + outstanding penalties + services
-    const nextDueRemaining = nextItem.total_due - nextItem.paid_amount;
+    // For partial items: if paid < total_due → not reconciled, remaining = total_due - paid;
+    // if paid >= total_due → reconciled, total_due IS the remaining shortfall
+    const isPartialNext = nextItem.status === 'partially_paid' ||
+      (nextItem.status !== 'paid' && nextItem.paid_amount > 0 && nextItem.paid_amount < nextItem.base_amount);
+    const nextDueRemaining = isPartialNext
+      ? (nextItem.paid_amount < nextItem.total_due ? nextItem.total_due - nextItem.paid_amount : nextItem.total_due)
+      : nextItem.total_due - nextItem.paid_amount;
     const targetAmount = Math.max(0, nextDueRemaining + (acct.outstanding_penalties || 0) + (acct.total_services || 0));
 
     const dueDate = nextItem.due_date;

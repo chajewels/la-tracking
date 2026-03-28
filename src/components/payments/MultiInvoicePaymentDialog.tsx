@@ -72,7 +72,6 @@ function getNextUnpaidItem(schedule?: ScheduleItem[]) {
   const sorted = [...schedule]
     .filter(s => s.status !== 'paid' && s.status !== 'cancelled')
     .sort((a, b) => a.installment_number - b.installment_number);
-  console.log('[getNextUnpaidItem] sorted unpaid statuses:', sorted.map(s => `#${s.installment_number}:${s.status}:isPartial=${isPartialItem(s)}(total_due=${s.total_due_amount},paid=${s.paid_amount})`));
   // Priority: partially_paid → overdue → pending
   // Check both DB status and computed partial detection for robustness
   const result = (
@@ -81,7 +80,6 @@ function getNextUnpaidItem(schedule?: ScheduleItem[]) {
     sorted.find(s => !isPartialItem(s) && s.status === 'pending') ??
     null
   );
-  console.log('[getNextUnpaidItem] selected:', result ? `#${result.installment_number}:${result.status}(total_due=${result.total_due_amount})` : 'none');
   return result;
 }
 
