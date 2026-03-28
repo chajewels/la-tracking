@@ -233,7 +233,10 @@ Deno.serve(async (req) => {
       }
 
       // 7. Paid installment marked unpaid
+      // Skip partially_paid rows: post-reconcile total_due_amount holds the remaining
+      // shortfall, so paid_amount >= total_due_amount is expected and not an error.
       for (const sched of scheds) {
+        if (sched.status === "partially_paid") continue;
         if (Number(sched.paid_amount) >= Number(sched.total_due_amount) && sched.status !== "paid" && sched.status !== "cancelled") {
           addEx("paid_marked_unpaid", `Inst ${sched.installment_number}: paid ${sched.paid_amount} >= due ${sched.total_due_amount} but status=${sched.status}`);
         }
