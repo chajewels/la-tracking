@@ -167,24 +167,10 @@ Deno.serve(async (req) => {
       console.error("Failed to update schedule:", schedUpdateErr);
     }
 
-    // If item was paid, also update account total_paid to reflect the correction
-    if (isPaid) {
-      const { data: allSchedulePaid } = await supabase
-        .from("layaway_schedule")
-        .select("paid_amount, status")
-        .eq("account_id", account_id);
-      if (allSchedulePaid) {
-        const newTotalPaid = allSchedulePaid.reduce((sum, s) => sum + Number(s.paid_amount), 0);
-        await supabase
-          .from("layaway_accounts")
-          .update({ total_paid: newTotalPaid })
-          .eq("id", account_id);
-      }
-    }
-
-    // Recalculate account remaining_balance using canonical formula:
-    // remaining = total_amount + Σ(non-waived penalty_fees) + Σ(services) − Σ(non-voided payments)
-    // This matches the reconciliation checker and business-rules.ts exactly.
+    // Recalculate account totals using canonical formula:
+    // remaining_balance = total_amount + Σ(non-waived penalty_fees) + Σ(services) − Σ(non-voided payments)
+    // total_paid        = Σ(non-voided payments)  ← payments table is SINGLE source of truth
+    // total_amount is NEVER touched — it is base principal only and never changes.
     const [{ data: accTotals }, { data: allActivePens }, { data: allSvcs }, { data: allPays }] = await Promise.all([
       supabase.from("layaway_accounts").select("total_amount").eq("id", account_id).single(),
       supabase.from("penalty_fees").select("penalty_amount").eq("account_id", account_id).not("status", "eq", "waived"),
@@ -199,7 +185,7 @@ Deno.serve(async (req) => {
       const newRemaining = Math.max(0, Number(accTotals.total_amount) + penSum + svcSum - paidSum);
       await supabase
         .from("layaway_accounts")
-        .update({ remaining_balance: newRemaining })
+        .update({ remaining_balance: newRemaining, total_paid: paidSum })
         .eq("id", account_id);
     }
 

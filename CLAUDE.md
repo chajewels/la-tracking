@@ -42,6 +42,29 @@ When checking whether a user can perform an action:
   Managed via Settings → Permission Matrix → By Member view
   RLS: admins only (has_role(auth.uid(), 'admin'))
 
+## total_amount INVARIANT — NON-NEGOTIABLE
+
+  layaway_accounts.total_amount = BASE PRINCIPAL ONLY.
+  It is set once at account creation and NEVER changes afterward.
+
+  The following operations MUST NOT write to total_amount:
+  - Adding a penalty (add-penalty, recalculate-penalties)
+  - Waiving a penalty (approve-waiver)
+  - Recording a payment (record-payment, record-multi-payment)
+  - Reconciliation (reconcile-account, daily-reconciliation)
+
+  The only legitimate writes to total_amount are:
+  - create-layaway-account  (initial set)
+  - edit-account            (admin correction of base amount)
+  - add/delete installment  (AccountDetail.tsx schedule editor)
+
+  Penalty impact on totals is captured via:
+    remaining_balance = total_amount + Σ(non-waived penalty_fees) + Σ(services) - Σ(payments)
+    total_paid        = Σ(payments.amount_paid WHERE voided_at IS NULL)
+
+  Never compute total_paid from SUM(schedule.paid_amount) — schedule rows are
+  derived data; payments table is the single source of truth.
+
 ## CALCULATION STANDARD — NON-NEGOTIABLE
 
 ### Core Formula
