@@ -47,7 +47,19 @@ Deno.serve(async (req) => {
     if (!canRunSystemHealthFixes) throw new Error("Permission denied");
 
     const body = await req.json();
-    const { action, account_id, schedule_id } = body;
+    const { action, schedule_id, invoice_number } = body;
+    let { account_id } = body;
+
+    // Allow lookup by invoice_number as alternative to account_id
+    if (!account_id && invoice_number) {
+      const { data: found } = await supabase
+        .from("layaway_accounts")
+        .select("id")
+        .eq("invoice_number", invoice_number)
+        .single();
+      if (!found) throw new Error(`Account not found for invoice_number: ${invoice_number}`);
+      account_id = found.id;
+    }
 
     if (!action || !account_id) throw new Error("Missing action or account_id");
 
@@ -137,6 +149,41 @@ Deno.serve(async (req) => {
         if (updErr) throw updErr;
       } else {
         results.changes.push({ note: "All totals already correct" });
+      }
+
+      // Sync schedule rows: zero out penalty_amount + total_due_amount for waived penalties
+      const { data: waivedPens } = await supabase
+        .from("penalty_fees")
+        .select("schedule_id, penalty_amount")
+        .eq("account_id", account_id)
+        .eq("status", "waived");
+
+      for (const pf of (waivedPens || [])) {
+        if (!pf.schedule_id) continue;
+        const { data: sched } = await supabase
+          .from("layaway_schedule")
+          .select("id, installment_number, penalty_amount, base_installment_amount, total_due_amount")
+          .eq("id", pf.schedule_id)
+          .single();
+        if (!sched) continue;
+        if (Number(sched.penalty_amount) === 0) continue; // already zeroed
+
+        const newTotal = Number(sched.base_installment_amount);
+        const { error: schErr } = await supabase
+          .from("layaway_schedule")
+          .update({ penalty_amount: 0, total_due_amount: newTotal })
+          .eq("id", sched.id);
+        if (schErr) throw schErr;
+        results.changes.push({
+          field: `schedule_${sched.installment_number}_penalty`,
+          from: Number(sched.penalty_amount),
+          to: 0,
+        });
+        results.changes.push({
+          field: `schedule_${sched.installment_number}_total_due`,
+          from: Number(sched.total_due_amount),
+          to: newTotal,
+        });
       }
     } else if (action === "sync_schedule") {
       // For a specific schedule row or all: align status with paid_amount
