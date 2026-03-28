@@ -306,7 +306,7 @@ export function useDashboardSummary(currencyMode: 'PHP' | 'JPY' | 'ALL', enabled
     queryKey: ['dashboard-summary', currencyMode],
     enabled,
     retry: false,
-    staleTime: STALE_MEDIUM,
+    staleTime: 0,
     queryFn: async () => {
       const { data, error } = await supabase.functions.invoke('dashboard-summary', {
         body: { currency_mode: currencyMode },
@@ -412,6 +412,7 @@ export function useRecordPayment() {
       payment_method?: string;
       remarks?: string;
       reference_number?: string;
+      is_downpayment?: boolean;
       preview_only?: boolean;
     }) => {
       const { amount, ...rest } = payload;

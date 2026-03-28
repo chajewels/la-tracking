@@ -15,323 +15,7 @@ import { toast } from 'sonner';
 import { daysOverdueFromToday, isEffectivelyPaid, getNextUnpaidDueDate } from '@/lib/business-rules';
 import { Link } from 'react-router-dom';
 import PenaltyCapAuditPanel from '@/components/dashboard/PenaltyCapAuditPanel';
-
-// ── System Health ──
-interface AffectedAccount {
-  account_id: string;
-  invoice_number: string;
-  customer_name: string;
-  status?: string;
-  currency?: string;
-  remaining_balance?: number;
-  next_due_date?: string | null;
-  last_payment_date?: string | null;
-  reason: string;
-  schedule_summary?: { total: number; paid: number; pending: number; overdue: number };
-  schedule_id?: string;
-  installment_number?: number;
-  due_date?: string;
-  current_status?: string;
-  paid_amount?: number;
-  base_installment_amount?: number;
-  total_due_amount?: number;
-}
-
-interface HealthCheck {
-  status: string;
-  detail?: string;
-  affected_accounts?: AffectedAccount[];
-}
-
-interface HealthData {
-  overall: string;
-  checks: Record<string, HealthCheck>;
-  issues: string[];
-  timestamp: string;
-}
-
-function SystemHealthTab() {
-  const [running, setRunning] = useState(false);
-  const [drilldownKey, setDrilldownKey] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [fixingId, setFixingId] = useState<string | null>(null);
-  const queryClient = useQueryClient();
-
-  const { data: health, isLoading, refetch } = useQuery<HealthData>({
-    queryKey: ['admin-system-health'],
-    queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke('system-health-check');
-      if (error) throw error;
-      return data as HealthData;
-    },
-  });
-
-  const runCheck = async () => {
-    setRunning(true);
-    await refetch();
-    setRunning(false);
-    toast.success('Health check completed');
-  };
-
-  const runFix = async (action: string, accountId: string, scheduleId?: string) => {
-    setFixingId(accountId);
-    try {
-      const { data, error } = await supabase.functions.invoke('fix-account-status', {
-        body: { action, account_id: accountId, schedule_id: scheduleId },
-      });
-      if (error) throw error;
-      const changes = data?.changes || [];
-      const realChanges = changes.filter((c: any) => c.from !== undefined);
-      if (realChanges.length > 0) {
-        toast.success(`Fixed: ${realChanges.map((c: any) => `${c.field}: ${c.from} → ${c.to}`).join(', ')}`);
-      } else {
-        toast.info('No changes needed — already correct');
-      }
-      await refetch();
-      queryClient.invalidateQueries({ queryKey: ['admin-overdue-debug'] });
-    } catch (err: any) {
-      toast.error(err.message || 'Fix failed');
-    } finally {
-      setFixingId(null);
-    }
-  };
-
-  const runBulkFix = async (action: string, accounts: AffectedAccount[]) => {
-    setRunning(true);
-    let fixed = 0;
-    for (const acc of accounts) {
-      try {
-        await supabase.functions.invoke('fix-account-status', {
-          body: { action, account_id: acc.account_id, schedule_id: acc.schedule_id },
-        });
-        fixed++;
-      } catch {}
-    }
-    toast.success(`Bulk fix complete: ${fixed}/${accounts.length} processed`);
-    await refetch();
-    queryClient.invalidateQueries({ queryKey: ['admin-overdue-debug'] });
-    setRunning(false);
-  };
-
-  if (isLoading) return <div className="space-y-3">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>;
-
-  const checks = health?.checks || {};
-  const statusColor = (s: string) => s === 'pass' ? 'text-success' : s === 'fail' ? 'text-destructive' : s === 'error' ? 'text-destructive' : 'text-muted-foreground';
-  const statusBg = (s: string) => s === 'pass' ? 'bg-success/10' : s === 'fail' ? 'bg-destructive/10' : 'bg-muted/30';
-
-  const drilldownCheck = drilldownKey ? checks[drilldownKey] : null;
-  const drilldownAccounts = (drilldownCheck?.affected_accounts || []).filter(acc => {
-    if (!searchTerm) return true;
-    const q = searchTerm.toLowerCase();
-    return acc.invoice_number?.toLowerCase().includes(q) || acc.customer_name?.toLowerCase().includes(q);
-  });
-
-  const actionForKey = (key: string): string => {
-    if (key === 'false_overdue') return 'fix_status';
-    if (key === 'schedule_mismatch') return 'sync_schedule';
-    return 'recalculate';
-  };
-
-  const drilldownLabel = (key: string) => {
-    const labels: Record<string, string> = {
-      false_overdue: 'False Overdue Accounts',
-      schedule_mismatch: 'Schedule Status Mismatches',
-      duplicate_penalties: 'Duplicate Penalties',
-    };
-    return labels[key] || key.replace(/_/g, ' ');
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className={health?.overall === 'HEALTHY' ? 'bg-success/10 text-success border-success/20' : 'bg-destructive/10 text-destructive border-destructive/20'}>
-            {health?.overall === 'HEALTHY' ? <CheckCircle className="h-3 w-3 mr-1" /> : <XCircle className="h-3 w-3 mr-1" />}
-            {health?.overall || 'Unknown'}
-          </Badge>
-          {health?.timestamp && <span className="text-[10px] text-muted-foreground">Last: {new Date(health.timestamp).toLocaleString()}</span>}
-        </div>
-        <Button variant="outline" size="sm" onClick={runCheck} disabled={running}>
-          {running ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
-          Run Check
-        </Button>
-      </div>
-
-      {(health?.issues || []).length > 0 && (
-        <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 space-y-1">
-          <p className="text-xs font-semibold text-destructive">Issues Found</p>
-          {health!.issues.map((issue, i) => <p key={i} className="text-xs text-destructive/80">• {issue}</p>)}
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {Object.entries(checks).map(([key, check]) => {
-          const hasAffected = (check.affected_accounts || []).length > 0;
-          return (
-            <div
-              key={key}
-              className={`rounded-lg border border-border p-4 ${statusBg(check.status)} ${hasAffected ? 'cursor-pointer hover:border-primary/40 transition-colors' : ''} ${drilldownKey === key ? 'ring-2 ring-primary/30' : ''}`}
-              onClick={() => hasAffected && setDrilldownKey(drilldownKey === key ? null : key)}
-            >
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-semibold text-card-foreground capitalize">{key.replace(/_/g, ' ')}</span>
-                <Badge variant="outline" className={`text-[10px] ${statusColor(check.status)}`}>{check.status.toUpperCase()}</Badge>
-              </div>
-              <p className="text-[11px] text-muted-foreground">
-                {check.detail}
-                {hasAffected && <span className="ml-1 text-primary font-semibold">— Click to View</span>}
-              </p>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Drilldown Panel */}
-      {drilldownKey && drilldownCheck && (drilldownCheck.affected_accounts || []).length > 0 && (
-        <div className="rounded-xl border border-primary/20 bg-card p-5 space-y-4 animate-fade-in">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-warning" />
-              <h3 className="text-sm font-semibold text-card-foreground">{drilldownLabel(drilldownKey)}</h3>
-              <Badge variant="outline" className="text-[10px] bg-destructive/10 text-destructive">{drilldownCheck.affected_accounts!.length} found</Badge>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => runBulkFix(actionForKey(drilldownKey), drilldownCheck.affected_accounts!)}
-                disabled={running}
-              >
-                {running ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
-                Fix All ({drilldownCheck.affected_accounts!.length})
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => { setDrilldownKey(null); setSearchTerm(''); }}>
-                <XCircle className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </div>
-
-          <div className="relative max-w-xs">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              placeholder="Search invoice or customer..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-8 h-8 text-xs"
-            />
-          </div>
-
-          <div className="rounded-lg border border-border overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-muted/30">
-                    <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Invoice</th>
-                    <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Customer</th>
-                    {drilldownKey === 'false_overdue' && (
-                      <>
-                        <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Status</th>
-                        <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Next Due</th>
-                        <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Balance</th>
-                        <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Last Payment</th>
-                        <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Schedule</th>
-                      </>
-                    )}
-                    {drilldownKey === 'schedule_mismatch' && (
-                      <>
-                        <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Inst#</th>
-                        <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Due Date</th>
-                        <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Status</th>
-                        <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Paid</th>
-                        <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Base</th>
-                      </>
-                    )}
-                    <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Reason</th>
-                    <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {drilldownAccounts.map((acc, idx) => (
-                    <tr key={`${acc.account_id}-${idx}`} className="hover:bg-muted/10">
-                      <td className="px-3 py-2">
-                        <Link to={`/accounts/${acc.account_id}`} className="font-mono text-xs font-semibold text-primary hover:underline">
-                          #{acc.invoice_number}
-                        </Link>
-                      </td>
-                      <td className="px-3 py-2 text-xs text-card-foreground">{acc.customer_name}</td>
-                      {drilldownKey === 'false_overdue' && (
-                        <>
-                          <td className="px-3 py-2">
-                            <Badge variant="outline" className="text-[10px] bg-destructive/10 text-destructive">{acc.status}</Badge>
-                          </td>
-                          <td className="px-3 py-2 text-xs text-muted-foreground">
-                            {acc.next_due_date ? new Date(acc.next_due_date + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '—'}
-                          </td>
-                          <td className="px-3 py-2 text-xs font-semibold text-card-foreground tabular-nums">
-                            {formatCurrency(Number(acc.remaining_balance || 0), (acc.currency || 'PHP') as Currency)}
-                          </td>
-                          <td className="px-3 py-2 text-xs text-muted-foreground">
-                            {acc.last_payment_date ? new Date(acc.last_payment_date + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
-                          </td>
-                          <td className="px-3 py-2 text-[10px] text-muted-foreground">
-                            {acc.schedule_summary ? `${acc.schedule_summary.paid}/${acc.schedule_summary.total} paid` : '—'}
-                          </td>
-                        </>
-                      )}
-                      {drilldownKey === 'schedule_mismatch' && (
-                        <>
-                          <td className="px-3 py-2 text-xs text-card-foreground">#{acc.installment_number}</td>
-                          <td className="px-3 py-2 text-xs text-muted-foreground">
-                            {acc.due_date ? new Date(acc.due_date + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
-                          </td>
-                          <td className="px-3 py-2">
-                            <Badge variant="outline" className="text-[10px] bg-warning/10 text-warning">{acc.current_status}</Badge>
-                          </td>
-                          <td className="px-3 py-2 text-xs font-semibold text-success tabular-nums">
-                            {formatCurrency(acc.paid_amount || 0, (acc.currency || 'PHP') as Currency)}
-                          </td>
-                          <td className="px-3 py-2 text-xs text-card-foreground tabular-nums">
-                            {formatCurrency(acc.base_installment_amount || 0, (acc.currency || 'PHP') as Currency)}
-                          </td>
-                        </>
-                      )}
-                      <td className="px-3 py-2 text-[10px] text-muted-foreground max-w-[200px]">{acc.reason}</td>
-                      <td className="px-3 py-2">
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-6 text-[10px] px-2"
-                            disabled={fixingId === acc.account_id}
-                            onClick={(e) => { e.stopPropagation(); runFix(actionForKey(drilldownKey), acc.account_id, acc.schedule_id); }}
-                          >
-                            {fixingId === acc.account_id ? <Loader2 className="h-3 w-3 animate-spin" /> : actionForKey(drilldownKey) === 'fix_status' ? 'Fix Status' : actionForKey(drilldownKey) === 'sync_schedule' ? 'Sync' : 'Recalc'}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 text-[10px] px-2"
-                            disabled={fixingId === acc.account_id}
-                            onClick={(e) => { e.stopPropagation(); runFix('recalculate', acc.account_id); }}
-                          >
-                            Recalc
-                          </Button>
-                          <Link to={`/accounts/${acc.account_id}`} onClick={(e) => e.stopPropagation()}>
-                            <Button variant="ghost" size="sm" className="h-6 text-[10px] px-2">View</Button>
-                          </Link>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+import UnifiedSystemHealthTab from '@/components/admin/UnifiedSystemHealthTab';
 
 // ── Penalty Audit ──
 function PenaltyAuditTab() {
@@ -367,11 +51,11 @@ function PenaltyAuditTab() {
   if (isLoading) return <div className="space-y-2">{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-12 rounded-lg" />)}</div>;
 
   return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden">
+    <div className="rounded-xl border border-zinc-700 bg-zinc-900 overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-border bg-muted/30">
+            <tr className="border-b border-border bg-zinc-800">
               <th className="text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Invoice</th>
               <th className="text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Customer</th>
               <th className="text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Inst#</th>
@@ -391,7 +75,7 @@ function PenaltyAuditTab() {
               const currency = (acc?.currency || 'PHP') as Currency;
               const waiver = waiverMap.get(p.id);
               return (
-                <tr key={p.id} className="hover:bg-muted/10">
+                <tr key={p.id} className="hover:bg-zinc-800/60">
                   <td className="px-3 py-2">
                     <Link to={`/accounts/${p.account_id}`} className="font-mono text-xs font-semibold text-primary hover:underline">
                       #{acc?.invoice_number}
@@ -463,7 +147,7 @@ function OverdueDebugTab() {
         const currency = acc.currency as Currency;
 
         return (
-          <div key={acc.id} className="rounded-xl border border-destructive/20 bg-card p-4 space-y-3">
+          <div key={acc.id} className="rounded-xl border border-destructive/20 bg-zinc-900 p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div>
                 <Link to={`/accounts/${acc.id}`} className="font-mono font-semibold text-primary hover:underline">
@@ -477,19 +161,19 @@ function OverdueDebugTab() {
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-              <div className="rounded-lg bg-muted/30 p-2">
+              <div className="rounded-lg bg-zinc-800 p-2">
                 <p className="text-muted-foreground">Next Due</p>
                 <p className="font-semibold text-card-foreground">{nextDue ? new Date(nextDue + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Fully paid'}</p>
               </div>
-              <div className="rounded-lg bg-muted/30 p-2">
+              <div className="rounded-lg bg-zinc-800 p-2">
                 <p className="text-muted-foreground">Remaining</p>
                 <p className="font-semibold text-card-foreground">{formatCurrency(Number(acc.remaining_balance), currency)}</p>
               </div>
-              <div className="rounded-lg bg-muted/30 p-2">
+              <div className="rounded-lg bg-zinc-800 p-2">
                 <p className="text-muted-foreground">Active Penalties</p>
                 <p className="font-semibold text-destructive">{unpaidPenalties.length} ({formatCurrency(unpaidPenalties.reduce((s: number, p: any) => s + Number(p.penalty_amount), 0), currency)})</p>
               </div>
-              <div className="rounded-lg bg-muted/30 p-2">
+              <div className="rounded-lg bg-zinc-800 p-2">
                 <p className="text-muted-foreground">Waived</p>
                 <p className="font-semibold text-muted-foreground">{waivedPenalties.length}</p>
               </div>
@@ -518,7 +202,7 @@ function OverdueDebugTab() {
 
 // ── Waiver Audit Log ──
 function WaiverAuditTab() {
-  const { data: auditLogs, isLoading } = useQuery({
+  const { data: auditLogs, isLoading: logsLoading } = useQuery({
     queryKey: ['admin-waiver-audit-logs'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -528,51 +212,169 @@ function WaiverAuditTab() {
         .order('created_at', { ascending: false })
         .limit(50);
       if (error) throw error;
-      return data;
+      return (data || []) as any[];
     },
   });
 
-  if (isLoading) return <div className="space-y-2">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-16 rounded-lg" />)}</div>;
+  const accountIds = useMemo(
+    () => [...new Set((auditLogs || []).map((l: any) => l.entity_id).filter(Boolean))] as string[],
+    [auditLogs],
+  );
+  const userIds = useMemo(
+    () => [...new Set((auditLogs || []).map((l: any) => l.performed_by_user_id).filter(Boolean))] as string[],
+    [auditLogs],
+  );
+  const penaltyFeeIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const log of (auditLogs || [])) {
+      for (const p of (log.new_value_json?.penalties_waived || [])) {
+        if (p.penalty_fee_id) ids.push(p.penalty_fee_id);
+      }
+    }
+    return [...new Set(ids)];
+  }, [auditLogs]);
+
+  const { data: accounts } = useQuery({
+    queryKey: ['waiver-audit-accounts', accountIds.join(',')],
+    enabled: accountIds.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('layaway_accounts')
+        .select('id, invoice_number, customers(full_name)')
+        .in('id', accountIds)
+        .not('invoice_number', 'ilike', 'TEST-%');
+      return (data || []) as any[];
+    },
+  });
+
+  const { data: waiverProfiles } = useQuery({
+    queryKey: ['waiver-audit-profiles', userIds.join(',')],
+    enabled: userIds.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('user_id, full_name')
+        .in('user_id', userIds);
+      return (data || []) as any[];
+    },
+  });
+
+  const { data: penaltyFees } = useQuery({
+    queryKey: ['waiver-audit-penalty-fees', penaltyFeeIds.join(',')],
+    enabled: penaltyFeeIds.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('penalty_fees')
+        .select('id, penalty_date, penalty_stage, penalty_cycle')
+        .in('id', penaltyFeeIds);
+      return (data || []) as any[];
+    },
+  });
+
+  const accountMap  = useMemo(() => new Map((accounts      || []).map((a: any) => [a.id,       a])), [accounts]);
+  const profileMap  = useMemo(() => new Map((waiverProfiles|| []).map((p: any) => [p.user_id,  p])), [waiverProfiles]);
+  const penaltyMap  = useMemo(() => new Map((penaltyFees   || []).map((pf: any) => [pf.id,     pf])), [penaltyFees]);
+
+  if (logsLoading) return <div className="space-y-2">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-20 rounded-lg" />)}</div>;
 
   return (
     <div className="space-y-3">
       {(auditLogs || []).length === 0 ? (
-        <div className="rounded-xl border border-border bg-card p-8 text-center">
-          <p className="text-sm text-muted-foreground">No waiver audit entries yet</p>
+        <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-8 text-center">
+          <p className="text-sm text-zinc-400">No waiver audit entries yet</p>
         </div>
       ) : (
-        (auditLogs || []).map((log: any) => {
-          const details = log.new_value_json || {};
-          const isApproval = log.action.includes('approved');
-          const isBatch = log.action.startsWith('batch_');
-          const penaltiesWaived = details.penalties_waived || [];
+        (auditLogs || [])
+          .filter((log: any) => accounts === undefined || accountMap.has(log.entity_id))
+          .map((log: any) => {
+          const details        = log.new_value_json || {};
+          const isApproval     = log.action.includes('approved');
+          const penaltiesWaived: any[] = details.penalties_waived || [];
+          const account        = accountMap.get(log.entity_id);
+          const approver       = profileMap.get(log.performed_by_user_id);
+          const customerName   = (account as any)?.customers?.full_name;
+
           return (
-            <div key={log.id} className={`rounded-lg border p-4 space-y-2 ${isApproval ? 'border-success/20 bg-success/5' : 'border-destructive/20 bg-destructive/5'}`}>
+            <div key={log.id} className={`rounded-lg border p-4 space-y-3 ${isApproval ? 'border-success/40 bg-zinc-900' : 'border-destructive/40 bg-zinc-900'}`}>
+
+              {/* ── Header row ── */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  {isApproval ? <CheckCircle className="h-3.5 w-3.5 text-success" /> : <XCircle className="h-3.5 w-3.5 text-destructive" />}
+                  {isApproval
+                    ? <CheckCircle className="h-3.5 w-3.5 text-success" />
+                    : <XCircle    className="h-3.5 w-3.5 text-destructive" />}
                   <span className="text-xs font-semibold text-card-foreground">
-                    {isBatch ? `Batch ${isApproval ? 'Approval' : 'Rejection'}` : isApproval ? 'Approved' : 'Rejected'}
+                    {isApproval ? 'Approved' : 'Rejected'}
                   </span>
-                  {isBatch && <Badge variant="outline" className="text-[10px]">{details.waiver_ids?.length || details.count || 1} penalties</Badge>}
+                  {penaltiesWaived.length > 1 && (
+                    <Badge variant="outline" className="text-[10px]">{penaltiesWaived.length} penalties</Badge>
+                  )}
                 </div>
                 <span className="text-[10px] text-muted-foreground">
-                  {new Date(log.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  {new Date(log.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
                 </span>
               </div>
+
+              {/* ── Account + approver meta ── */}
+              <div className="flex items-center gap-3 flex-wrap">
+                {account ? (
+                  <Link
+                    to={`/accounts/${log.entity_id}`}
+                    className="font-mono text-xs font-semibold text-primary hover:underline"
+                  >
+                    #{(account as any).invoice_number}
+                  </Link>
+                ) : log.entity_id ? (
+                  <span className="font-mono text-xs text-muted-foreground">{log.entity_id.slice(0, 8)}…</span>
+                ) : null}
+                {customerName && (
+                  <span className="text-xs text-card-foreground">{customerName}</span>
+                )}
+                {approver && (
+                  <span className="text-[10px] text-zinc-500 ml-auto">
+                    by {approver.full_name || approver.user_id?.slice(0, 8)}
+                  </span>
+                )}
+              </div>
+
+              {/* ── Per-penalty rows ── */}
               {penaltiesWaived.length > 0 && (
-                <div className="text-[10px] text-muted-foreground space-y-0.5">
-                  {penaltiesWaived.map((p: any, i: number) => (
-                    <span key={i} className="inline-block mr-2 px-1.5 py-0.5 rounded bg-muted">
-                      {p.stage} C{p.cycle}: {typeof p.amount === 'number' ? `₱${p.amount.toLocaleString()}` : p.amount}
-                    </span>
-                  ))}
+                <div className="space-y-1">
+                  {penaltiesWaived.map((p: any, i: number) => {
+                    const pf = penaltyMap.get(p.penalty_fee_id);
+                    const stage = p.stage || pf?.penalty_stage || '—';
+                    const cycle = p.cycle ?? pf?.penalty_cycle ?? '';
+                    const date  = pf?.penalty_date;
+                    return (
+                      <div key={i} className="flex items-center gap-3 rounded bg-zinc-800/60 px-3 py-1.5 text-xs">
+                        <Badge variant="outline" className="text-[10px] bg-zinc-700 border-zinc-600 text-zinc-300 shrink-0">
+                          {stage}{cycle !== '' ? ` C${cycle}` : ''}
+                        </Badge>
+                        {date && (
+                          <span className="text-zinc-400 tabular-nums">
+                            {new Date(date + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </span>
+                        )}
+                        <span className="font-semibold text-destructive tabular-nums ml-auto">
+                          ₱{Number(p.amount).toLocaleString()}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
-              {details.total_waived && (
-                <p className="text-xs text-card-foreground">Total waived: <span className="font-semibold text-success">₱{Number(details.total_waived).toLocaleString()}</span></p>
-              )}
-              {details.notes && <p className="text-[10px] text-muted-foreground italic">"{details.notes}"</p>}
+
+              {/* ── Total + notes ── */}
+              <div className="flex items-center gap-4 flex-wrap">
+                {details.total_waived != null && (
+                  <p className="text-xs text-card-foreground">
+                    Total waived: <span className="font-semibold text-success">₱{Number(details.total_waived).toLocaleString()}</span>
+                  </p>
+                )}
+                {details.notes && (
+                  <p className="text-[10px] text-muted-foreground italic">"{details.notes}"</p>
+                )}
+              </div>
             </div>
           );
         })
@@ -623,9 +425,9 @@ const ISSUE_META: Record<string, { severity: Severity; label: string; fixInstruc
 };
 
 const SEVERITY_STYLES: Record<Severity, string> = {
-  critical: 'bg-destructive/10 text-destructive border-destructive/20',
-  warning: 'bg-warning/10 text-warning border-warning/20',
-  minor: 'bg-muted text-muted-foreground border-border',
+  critical: 'bg-zinc-900 text-destructive border-destructive/40',
+  warning: 'bg-zinc-900 text-warning border-warning/40',
+  minor: 'bg-zinc-900 text-zinc-400 border-zinc-700',
 };
 
 const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, warning: 1, minor: 2 };
@@ -759,36 +561,36 @@ function ReconciliationTab() {
       {/* Summary Cards */}
       {s && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <div className="rounded-lg border border-border bg-card p-3">
+          <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Active Accounts</p>
             <p className="text-lg font-bold text-card-foreground tabular-nums">{s.total_accounts}</p>
           </div>
-          <div className="rounded-lg border border-success/20 bg-success/5 p-3">
+          <div className="rounded-lg border border-success/40 bg-zinc-900 p-3">
             <p className="text-[10px] text-success uppercase tracking-wider">Clean</p>
             <p className="text-lg font-bold text-success tabular-nums">{s.clean_accounts}</p>
           </div>
-          <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3">
+          <div className="rounded-lg border border-destructive/40 bg-zinc-900 p-3">
             <p className="text-[10px] text-destructive uppercase tracking-wider">Exceptions</p>
             <p className="text-lg font-bold text-destructive tabular-nums">{s.exception_accounts}</p>
           </div>
-          <div className="rounded-lg border border-border bg-card p-3">
+          <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Balance Issues</p>
             <p className="text-lg font-bold text-card-foreground tabular-nums">{s.balance_exceptions}</p>
           </div>
-          <div className="rounded-lg border border-border bg-card p-3">
+          <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Penalty Issues</p>
             <p className="text-lg font-bold text-card-foreground tabular-nums">{s.penalty_exceptions}</p>
           </div>
-          <div className="rounded-lg border border-muted bg-muted/20 p-3">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Closed (Excluded)</p>
-            <p className="text-lg font-bold text-muted-foreground tabular-nums">{s.closed_accounts_excluded ?? 0}</p>
+          <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3">
+            <p className="text-[10px] text-zinc-400 uppercase tracking-wider">Closed (Excluded)</p>
+            <p className="text-lg font-bold text-zinc-400 tabular-nums">{s.closed_accounts_excluded ?? 0}</p>
           </div>
         </div>
       )}
 
       {/* Issue Type Breakdown with Bulk Actions */}
       {typeBreakdown.length > 0 && (
-        <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+        <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-4 space-y-3">
           <p className="text-xs font-semibold text-card-foreground">Issue Breakdown</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
             {typeBreakdown.map(({ type, count, meta }) => (
@@ -826,14 +628,14 @@ function ReconciliationTab() {
 
       {/* Reference Invoice Status */}
       {s?.reference_invoices && (
-        <div className="rounded-lg border border-border bg-card p-4">
+        <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-4">
           <p className="text-xs font-semibold text-card-foreground mb-2">Reference Invoice Validation</p>
           <div className="flex gap-3 flex-wrap">
             {Object.entries(s.reference_invoices).map(([inv, status]) => (
               <div key={inv} className="flex items-center gap-1.5">
                 {status === 'CLEAN' ? <CheckCircle className="h-3.5 w-3.5 text-success" /> : status === 'EXCEPTION' ? <XCircle className="h-3.5 w-3.5 text-destructive" /> : <Clock className="h-3.5 w-3.5 text-muted-foreground" />}
                 <span className="text-xs font-mono font-semibold text-card-foreground">#{inv}</span>
-                <Badge variant="outline" className={`text-[10px] ${status === 'CLEAN' ? 'bg-success/10 text-success' : status === 'EXCEPTION' ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground'}`}>
+                <Badge variant="outline" className={`text-[10px] ${status === 'CLEAN' ? 'bg-zinc-900 text-success border-success/30' : status === 'EXCEPTION' ? 'bg-zinc-900 text-destructive border-destructive/30' : 'bg-zinc-700 text-zinc-400'}`}>
                   {status}
                 </Badge>
               </div>
@@ -871,11 +673,11 @@ function ReconciliationTab() {
           </div>
 
           {/* Exception Table */}
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="rounded-xl border border-zinc-700 bg-zinc-900 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border bg-muted/30">
+                  <tr className="border-b border-border bg-zinc-800">
                     <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Invoice</th>
                     <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Customer</th>
                     <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Severity</th>
@@ -893,7 +695,7 @@ function ReconciliationTab() {
                     const severity = meta?.severity || 'minor';
                     const cur = ex.currency as Currency;
                     return (
-                      <tr key={`${ex.account_id}-${ex.type}-${idx}`} className="hover:bg-muted/10">
+                      <tr key={`${ex.account_id}-${ex.type}-${idx}`} className="hover:bg-zinc-800/60">
                         <td className="px-3 py-2">
                           <Link to={`/accounts/${ex.account_id}`} className="font-mono text-xs font-semibold text-primary hover:underline">
                             #{ex.invoice_number}
@@ -954,7 +756,7 @@ function ReconciliationTab() {
       )}
 
       {(data?.exceptions || []).length === 0 && s && (
-        <div className="rounded-xl border border-success/20 bg-success/5 p-8 text-center">
+        <div className="rounded-xl border border-success/40 bg-zinc-900 p-8 text-center">
           <CheckCircle className="h-8 w-8 text-success mx-auto mb-2" />
           <p className="text-sm font-semibold text-success">All {s.total_accounts} accounts pass reconciliation</p>
           <p className="text-xs text-muted-foreground mt-1">No balance mismatches, over-cap penalties, or chronology issues found</p>
@@ -968,7 +770,8 @@ function ReconciliationTab() {
 export default function AdminAudit() {
   return (
     <AppLayout>
-      <div className="animate-fade-in space-y-6">
+      <div className="animate-fade-in space-y-6 relative">
+        <div className="absolute inset-0 -z-10 bg-zinc-950/90 backdrop-blur-sm rounded-xl pointer-events-none" />
         <div>
           <p className="text-xs font-semibold text-primary uppercase tracking-widest mb-1">Admin</p>
           <h1 className="text-2xl font-bold text-foreground font-display">Audit & Monitoring</h1>
@@ -976,7 +779,7 @@ export default function AdminAudit() {
         </div>
 
         <Tabs defaultValue="reconciliation" className="space-y-4">
-          <TabsList className="bg-muted/50 flex-wrap">
+          <TabsList className="bg-zinc-800 flex-wrap border border-zinc-700">
             <TabsTrigger value="reconciliation" className="gap-1.5"><DollarSign className="h-3.5 w-3.5" /> Reconciliation</TabsTrigger>
             <TabsTrigger value="penalty-cap" className="gap-1.5"><ShieldCheck className="h-3.5 w-3.5" /> Penalty Cap Audit</TabsTrigger>
             <TabsTrigger value="health" className="gap-1.5"><Activity className="h-3.5 w-3.5" /> System Health</TabsTrigger>
@@ -987,7 +790,7 @@ export default function AdminAudit() {
 
           <TabsContent value="reconciliation"><ReconciliationTab /></TabsContent>
           <TabsContent value="penalty-cap"><PenaltyCapAuditPanel /></TabsContent>
-          <TabsContent value="health"><SystemHealthTab /></TabsContent>
+          <TabsContent value="health"><UnifiedSystemHealthTab /></TabsContent>
           <TabsContent value="penalties"><PenaltyAuditTab /></TabsContent>
           <TabsContent value="overdue"><OverdueDebugTab /></TabsContent>
           <TabsContent value="waivers"><WaiverAuditTab /></TabsContent>

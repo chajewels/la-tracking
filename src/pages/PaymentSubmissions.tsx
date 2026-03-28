@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -21,7 +21,7 @@ import { formatCurrency } from '@/lib/calculations';
 import { Link } from 'react-router-dom';
 import { usePermissions } from '@/contexts/PermissionsContext';
 
-type SubmissionStatus = 'submitted' | 'under_review' | 'confirmed' | 'rejected' | 'needs_clarification';
+type SubmissionStatus = 'submitted' | 'under_review' | 'confirmed' | 'rejected' | 'needs_clarification' | 'cancelled';
 
 interface SubmissionRow {
   id: string;
@@ -42,6 +42,7 @@ interface SubmissionRow {
   submission_type: string | null;
   created_at: string;
   updated_at: string;
+  customer_edited_at: string | null;
   customers: { full_name: string; customer_code: string } | null;
   layaway_accounts: { invoice_number: string; currency: string; remaining_balance: number; total_amount: number } | null;
 }
@@ -52,6 +53,54 @@ interface SubmissionAllocation {
   account_id: string;
   invoice_number: string;
   allocated_amount: number;
+}
+
+/** Extract the bucket-relative path from any proof_url variant:
+ *  - https://.../storage/v1/object/public/payment-proofs/{path}
+ *  - https://.../storage/v1/object/sign/payment-proofs/{path}?token=...
+ *  - bare path like "{account_id}/file.jpg" */
+function getProofPath(url: string): string {
+  const m = url.match(/\/storage\/v1\/object\/(?:public|sign)\/payment-proofs\/(.+?)(?:\?|$)/);
+  if (m) return decodeURIComponent(m[1]);
+  // Already a bare path
+  if (!url.startsWith('http')) return url;
+  return url;
+}
+
+/** Renders a proof-of-payment image using a fresh Supabase signed URL (1 hr TTL).
+ *  Falls back to the original URL if signing fails, and shows a link-only
+ *  fallback if the image still won't load. */
+function ProofImage({ url, className }: { url: string; className?: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setImgError(false);
+    setSrc(null);
+    const path = getProofPath(url);
+    supabase.storage.from('payment-proofs').createSignedUrl(path, 3600).then(({ data }) => {
+      if (cancelled) return;
+      setSrc(data?.signedUrl ?? url);
+    });
+    return () => { cancelled = true; };
+  }, [url]);
+
+  if (!src) {
+    return <div className="w-full h-20 rounded bg-muted/30 animate-pulse" />;
+  }
+  if (imgError) {
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer"
+        className="inline-flex items-center gap-1.5 text-xs text-primary underline">
+        <ImageIcon className="h-3.5 w-3.5" /> View proof (open in new tab)
+      </a>
+    );
+  }
+  return (
+    <img src={src} alt="Proof of payment" className={className}
+      onError={() => setImgError(true)} />
+  );
 }
 
 const statusConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -305,19 +354,61 @@ export default function PaymentSubmissions() {
                         {sub.notes && (
                           <p className="text-xs text-muted-foreground">Notes: <span className="text-foreground">{sub.notes}</span></p>
                         )}
+                        {sub.customer_edited_at && isPending && (
+                          <div className="flex items-center gap-1.5 p-2 rounded-md bg-warning/10 border border-warning/30">
+                            <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0" />
+                            <p className="text-xs text-warning font-medium">
+                              ⚠️ Customer edited this submission on {new Date(sub.customer_edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })} — re-check the proof.
+                            </p>
+                          </div>
+                        )}
+
                         {sub.reviewer_notes && (
                           <div className="p-2.5 rounded-lg bg-muted/30 border border-[hsl(var(--border))]">
                             <p className="text-[10px] text-muted-foreground mb-0.5 font-medium">Staff Note:</p>
                             <p className="text-xs text-foreground">{sub.reviewer_notes}</p>
                           </div>
                         )}
+
+                        {/* Inline proof preview */}
+                        {sub.proof_url && (
+                          <div className="mt-1 space-y-1.5">
+                            <p className="text-[10px] text-muted-foreground font-medium">Proof of Payment</p>
+                            {sub.proof_url.match(/\.pdf$/i) ? (
+                              <a href={sub.proof_url} target="_blank" rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 text-xs text-primary underline p-2 rounded border border-primary/20 bg-primary/5">
+                                <FileText className="h-3.5 w-3.5" /> Open PDF
+                              </a>
+                            ) : (
+                              <>
+                                <button onClick={() => setProofDialog(sub.proof_url!)} className="block w-full text-left">
+                                  <ProofImage url={sub.proof_url}
+                                    className="w-full max-h-48 object-cover rounded border border-[hsl(var(--border))] hover:opacity-90 transition-opacity cursor-zoom-in" />
+                                </button>
+                                <div className="flex gap-2">
+                                  <button onClick={() => setProofDialog(sub.proof_url!)}
+                                    className="text-[10px] text-primary underline flex items-center gap-1">
+                                    <ImageIcon className="h-3 w-3" /> View full size
+                                  </button>
+                                  <a href={sub.proof_url} download target="_blank" rel="noopener noreferrer"
+                                    className="text-[10px] text-muted-foreground underline flex items-center gap-1">
+                                    Download
+                                  </a>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                        {!sub.proof_url && (
+                          <p className="text-[10px] text-muted-foreground italic">No proof attached</p>
+                        )}
                       </div>
 
                       {/* Right: Actions */}
                       <div className="flex flex-row sm:flex-col gap-1.5 shrink-0">
-                        {sub.proof_url && (
+                        {sub.proof_url && !sub.proof_url.match(/\.pdf$/i) && (
                           <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setProofDialog(sub.proof_url!)}>
-                            <ImageIcon className="h-3.5 w-3.5" /> Proof
+                            <ImageIcon className="h-3.5 w-3.5" /> Expand
                           </Button>
                         )}
                         {isPending && canModerate && (
@@ -427,13 +518,25 @@ export default function PaymentSubmissions() {
             <DialogTitle className="font-display">Proof of Payment</DialogTitle>
           </DialogHeader>
           {proofDialog && (
-            <div className="mt-2">
+            <div className="mt-2 space-y-2">
               {proofDialog.match(/\.pdf$/i) ? (
                 <a href={proofDialog} target="_blank" rel="noopener noreferrer" className="text-primary underline text-sm flex items-center gap-2">
                   <FileText className="h-4 w-4" /> Open PDF
                 </a>
               ) : (
-                <img src={proofDialog} alt="Proof of payment" className="w-full rounded-lg border border-[hsl(var(--border))]" />
+                <>
+                  <ProofImage url={proofDialog} className="w-full rounded-lg border border-[hsl(var(--border))]" />
+                  <div className="flex gap-3 pt-1">
+                    <a href={proofDialog} download target="_blank" rel="noopener noreferrer"
+                      className="text-xs text-muted-foreground underline flex items-center gap-1">
+                      Download
+                    </a>
+                    <a href={proofDialog} target="_blank" rel="noopener noreferrer"
+                      className="text-xs text-primary underline flex items-center gap-1">
+                      <ImageIcon className="h-3 w-3" /> Open in new tab
+                    </a>
+                  </div>
+                </>
               )}
             </div>
           )}

@@ -11,8 +11,6 @@ export interface AccountDraft {
   orderDate: string;
   paymentPlan: 3 | 6;
   downpaymentInput: string;
-  downpaymentPaid: string;
-  remainingDpOption: 'split' | 'add_to_installments';
   installmentMode: 'equal' | 'custom';
   customAmounts: string[];
   enableSplitPayment: boolean;

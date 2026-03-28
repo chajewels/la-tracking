@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
 import {
   Settings, UserPlus, Users, Shield, Eye, EyeOff, RotateCcw,
   DollarSign, Bell, Info, ChevronDown, ChevronUp, AlertTriangle,
@@ -82,6 +83,7 @@ const ROLE_PERMISSIONS: Record<string, { label: string; description: string; per
 export default function SettingsPage() {
   const { roles } = useAuth();
   const isAdmin = roles.includes('admin');
+  const queryClient = useQueryClient();
   const [rate, setRate] = useState(getConversionRate().toString());
 
   // Team management state
@@ -132,13 +134,61 @@ export default function SettingsPage() {
     if (isAdmin) fetchMembers();
   }, [isAdmin]);
 
-  const handleSave = () => {
+  // Fetch set of user_ids that have any permission override (for Team tab badge)
+  const { data: overrideCounts } = useQuery({
+    queryKey: ['user-permission-overrides-counts'],
+    enabled: isAdmin,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from('user_permission_overrides')
+        .select('user_id');
+      const ids = new Set<string>((data || []).map((r: any) => r.user_id as string));
+      return ids;
+    },
+  });
+
+  const usersWithOverrides = useMemo(() => overrideCounts ?? new Set<string>(), [overrideCounts]);
+
+  // On mount: seed localStorage from DB so all devices start with the same rate
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'php_jpy_rate')
+        .single();
+      if (data) {
+        const dbRate = Number(JSON.parse(String(data.value)));
+        if (!isNaN(dbRate) && dbRate > 0) {
+          setConversionRate(dbRate);
+          setRate(dbRate.toString());
+        }
+      }
+    })();
+  }, []);
+
+  const handleSave = async () => {
     const parsed = parseFloat(rate);
     if (isNaN(parsed) || parsed <= 0) {
       toast({ title: 'Invalid rate', description: 'Please enter a positive number.', variant: 'destructive' });
       return;
     }
+    // Write to DB first (edge function reads this)
+    // Use .update() not .upsert() — the row is always seeded in migrations,
+    // and there is no INSERT RLS policy on system_settings (only UPDATE for admins)
+    const { error: dbError } = await supabase
+      .from('system_settings')
+      .update({ value: JSON.stringify(parsed) })
+      .eq('key', 'php_jpy_rate');
+    if (dbError) {
+      toast({ title: 'Save failed', description: dbError.message, variant: 'destructive' });
+      return;
+    }
+    // Write to localStorage (client-side conversions)
     setConversionRate(parsed);
+    // Invalidate dashboard cache so it refetches with the new rate immediately
+    queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
     toast({ title: 'Conversion rate updated', description: `PHP → JPY rate set to ${parsed}` });
   };
 
@@ -516,7 +566,16 @@ export default function SettingsPage() {
                       <tbody>
                         {members.map((m) => (
                           <tr key={m.user_id} className="border-b border-border/50 hover:bg-muted/30">
-                            <td className="py-2.5 px-3 text-foreground font-medium">{m.full_name}</td>
+                            <td className="py-2.5 px-3">
+                              <div className="flex items-center gap-2">
+                                <span className="text-foreground font-medium">{m.full_name}</span>
+                                {usersWithOverrides.has(m.user_id) && (
+                                  <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-amber-500/50 text-amber-400 bg-amber-500/10 shrink-0">
+                                    Custom permissions
+                                  </Badge>
+                                )}
+                              </div>
+                            </td>
                             <td className="py-2.5 px-3 text-muted-foreground text-xs">{m.email || '—'}</td>
                             <td className="py-2.5 px-3">
                               <Badge variant={roleBadgeVariant(m.role)} className="text-[10px] capitalize">

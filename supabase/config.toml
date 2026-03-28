@@ -3,6 +3,8 @@ project_id = "pfoicalpzdcmyxzvwyhz"
 [functions]
   [functions.add-penalty]
     verify_jwt = false
+  [functions.edit-payment-submission]
+    verify_jwt = false
   [functions.auth-email-hook]
     verify_jwt = false
   [functions.auto-forfeit-settlement]
@@ -16,6 +18,8 @@ project_id = "pfoicalpzdcmyxzvwyhz"
   [functions.dashboard-summary]
     verify_jwt = false
   [functions.finance-reconciliation]
+    verify_jwt = false
+  [functions.system-health-v2]
     verify_jwt = false
   [functions.parse-import-docs]
     verify_jwt = false

@@ -34,14 +34,16 @@ export default function Reminders() {
     queryFn: async () => {
       const today = new Date().toISOString().split('T')[0];
       const in7days = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
-      const past30 = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+      // 730-day lookback so all overdue accounts are captured regardless of age,
+      // matching the dashboard's overdue definition (no lower-bound cutoff).
+      const past730 = new Date(Date.now() - 730 * 86400000).toISOString().split('T')[0];
 
       const { data, error } = await supabase
         .from('layaway_schedule')
         .select('*, layaway_accounts!inner(id, status, currency, invoice_number, customer_id, customers(full_name, messenger_link))')
-        .in('layaway_accounts.status', ['active', 'overdue'])
+        .in('layaway_accounts.status', ['active', 'overdue', 'final_settlement', 'extension_active'])
         .in('status', ['pending', 'partially_paid', 'overdue'])
-        .gte('due_date', past30)
+        .gte('due_date', past730)
         .lte('due_date', in7days)
         .order('due_date', { ascending: true });
       if (error) throw error;
@@ -51,10 +53,20 @@ export default function Reminders() {
 
   const sentCount = reminderLogs?.filter(r => r.delivery_status === 'sent').length || 0;
 
-  // Use centralized categorization
+  // Deduplicate by account: keep earliest unpaid row per account so each account
+  // counts as one, matching the dashboard's per-account overdue definition.
   const categorized = useMemo(() => {
     if (!actionableItems) return { overdue: [], dueToday: [], upcoming: [] };
-    return categorizeScheduleItems(actionableItems);
+    const accountMap = new Map<string, typeof actionableItems[0]>();
+    for (const row of actionableItems) {
+      if (remainingDue(row) <= 0) continue;
+      const acctId = (row as any).account_id as string;
+      const existing = accountMap.get(acctId);
+      if (!existing || row.due_date < existing.due_date) {
+        accountMap.set(acctId, row);
+      }
+    }
+    return categorizeScheduleItems(Array.from(accountMap.values()));
   }, [actionableItems]);
 
   const handleGenerate = async () => {

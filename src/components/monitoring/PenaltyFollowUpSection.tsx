@@ -105,21 +105,21 @@ export function generatePenaltyReminderMessage(
     : '';
 
   const templates: Record<PenaltyStage, string> = {
-    P1: `✨ Cha Jewels Payment Reminder\n\nHi Ma'am/Sir ${customer}! 👋\n\nThis is a gentle reminder that your payment for:\n\nINV #${invoice}\nAmount Due: ${amtStr}\nDue Date: ${dueStr}\n\nis now 7 days overdue.\n\nA small penalty has already been applied (${penaltyStr}). We encourage you to settle soon to avoid additional charges.\nRemaining balance: ${balanceStr}${portalLink}\n\nThank you for your continued trust 💛\n— Cha Jewels 💎`,
+    P1: `✨ Cha Jewels Payment Reminder\n\nHi ${customer}! 👋\n\nThis is a gentle reminder that your payment for:\n\nINV #${invoice}\nAmount Due: ${amtStr}\nDue Date: ${dueStr}\n\nis now 7 days overdue.\n\nA small penalty has already been applied (${penaltyStr}). We encourage you to settle soon to avoid additional charges.\nRemaining balance: ${balanceStr}${portalLink}\n\nThank you for your continued trust 💛\n— Cha Jewels 💎`,
 
-    P2: `✨ Cha Jewels Follow-Up Reminder\n\nHi Ma'am/Sir ${customer},\n\nYour payment for INV #${invoice} is now 14 days overdue (due ${dueStr}) and penalties are increasing.\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nWe kindly request your prompt attention to this matter.${portalLink}\n\nThank you! 💛\n— Cha Jewels 💎`,
+    P2: `✨ Cha Jewels Follow-Up Reminder\n\nHi ${customer},\n\nYour payment for INV #${invoice} is now 14 days overdue (due ${dueStr}) and penalties are increasing.\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nWe kindly request your prompt attention to this matter.${portalLink}\n\nThank you! 💛\n— Cha Jewels 💎`,
 
-    P3: `Cha Jewels – Strong Reminder\n\nHi Ma'am/Sir ${customer},\n\nYour layaway payment for INV #${invoice} is now 1 month overdue (due ${dueStr}). Immediate action is advised.\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nPlease contact us to discuss your payment plan.${portalLink}\n\n— Cha Jewels 💎`,
+    P3: `Cha Jewels – Strong Reminder\n\nHi ${customer},\n\nYour layaway payment for INV #${invoice} is now 1 month overdue (due ${dueStr}). Immediate action is advised.\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nPlease contact us to discuss your payment plan.${portalLink}\n\n— Cha Jewels 💎`,
 
-    P4: `Cha Jewels – Escalation Notice\n\nHi Ma'am/Sir ${customer},\n\nIMPORTANT: Your payment for INV #${invoice} has been overdue for over 6 weeks (due ${dueStr}).\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nPlease settle immediately to avoid account risk.${portalLink}\n\n— Cha Jewels 💎`,
+    P4: `Cha Jewels – Escalation Notice\n\nHi ${customer},\n\nIMPORTANT: Your payment for INV #${invoice} has been overdue for over 6 weeks (due ${dueStr}).\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nPlease settle immediately to avoid account risk.${portalLink}\n\n— Cha Jewels 💎`,
 
-    P5: `⚠️ Cha Jewels – URGENT Reminder\n\nDear Ma'am/Sir ${customer},\n\nYour layaway payment for INV #${invoice} is now 2 months overdue (due ${dueStr}).\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nYour account is significantly overdue with penalties. Immediate payment is required.${portalLink}\n\n— Cha Jewels 💎`,
+    P5: `⚠️ Cha Jewels – URGENT Reminder\n\nDear ${customer},\n\nYour layaway payment for INV #${invoice} is now 2 months overdue (due ${dueStr}).\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nYour account is significantly overdue with penalties. Immediate payment is required.${portalLink}\n\n— Cha Jewels 💎`,
 
-    P6: `⚠️ Cha Jewels – FINAL WARNING\n\nDear Ma'am/Sir ${customer},\n\nThis is your FINAL WARNING regarding INV #${invoice} (due ${dueStr}).\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nFurther action will be taken if not settled immediately.${portalLink}\n\n— Cha Jewels 💎`,
+    P6: `⚠️ Cha Jewels – FINAL WARNING\n\nDear ${customer},\n\nThis is your FINAL WARNING regarding INV #${invoice} (due ${dueStr}).\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nFurther action will be taken if not settled immediately.${portalLink}\n\n— Cha Jewels 💎`,
 
-    P7: `🚨 Cha Jewels – CRITICAL Escalation\n\nDear Ma'am/Sir ${customer},\n\nYour layaway account for INV #${invoice} is 3 months overdue (due ${dueStr}) and at HIGH RISK of forfeiture.\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nPlease contact us IMMEDIATELY to resolve your account.${portalLink}\n\n— Cha Jewels 💎`,
+    P7: `🚨 Cha Jewels – CRITICAL Escalation\n\nDear ${customer},\n\nYour layaway account for INV #${invoice} is 3 months overdue (due ${dueStr}) and at HIGH RISK of forfeiture.\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nPlease contact us IMMEDIATELY to resolve your account.${portalLink}\n\n— Cha Jewels 💎`,
 
-    P8: `🚨 Cha Jewels – FINAL NOTICE (Pre-Forfeit)\n\nDear Ma'am/Sir ${customer},\n\nYour layaway account for INV #${invoice} has been overdue since ${dueStr} and is SUBJECT FOR FORFEITURE if not settled immediately.\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nThis is your final notice before permanent account forfeiture.${portalLink}\n\n— Cha Jewels 💎`,
+    P8: `🚨 Cha Jewels – FINAL NOTICE (Pre-Forfeit)\n\nDear ${customer},\n\nYour layaway account for INV #${invoice} has been overdue since ${dueStr} and is SUBJECT FOR FORFEITURE if not settled immediately.\n\nAmount Due: ${amtStr}\nOutstanding penalties: ${penaltyStr}\nRemaining balance: ${balanceStr}\n\nThis is your final notice before permanent account forfeiture.${portalLink}\n\n— Cha Jewels 💎`,
   };
 
   return templates[stage];
@@ -154,8 +154,15 @@ interface StageBucket {
 
 type PenaltyNotifFilter = 'all' | 'not_notified' | 'notified';
 
+interface PenaltyFollowUpSectionProps {
+  /** Total overdue accounts (overdue + grace period) — passed from Monitoring page */
+  totalOverdue?: number;
+  /** Accounts in grace period (1–6 days past due) — passed from Monitoring page */
+  gracePeriodCount?: number;
+}
+
 // ── Component ──
-export default function PenaltyFollowUpSection() {
+export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount = 0 }: PenaltyFollowUpSectionProps) {
   const { user, profile } = useAuth();
   const queryClient = useQueryClient();
   const [activeStage, setActiveStage] = useState<PenaltyStage | null>(null);
@@ -491,6 +498,23 @@ export default function PenaltyFollowUpSection() {
         </div>
       </div>
 
+      {/* Overdue breakdown summary — unified totals across all panels */}
+      {totalOverdue !== undefined && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs">
+          <span className="font-semibold text-destructive">{totalOverdue} total overdue</span>
+          <span className="text-muted-foreground">·</span>
+          <span className="text-foreground">{totalAccounts} with active penalties (P1–P8)</span>
+          <span className="text-muted-foreground">·</span>
+          <span className="text-amber-600">{gracePeriodCount} in grace period (1–6d)</span>
+          {totalOverdue - totalAccounts - gracePeriodCount > 0 && (
+            <>
+              <span className="text-muted-foreground">·</span>
+              <span className="text-muted-foreground">{totalOverdue - totalAccounts - gracePeriodCount} newly overdue (no penalty yet)</span>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Stage Cards Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
         {stageBuckets.map(bucket => {
@@ -700,24 +724,26 @@ export default function PenaltyFollowUpSection() {
 
       {/* Messenger/Reminder Dialog */}
       <Dialog open={!!messengerDialog} onOpenChange={(open) => !open && setMessengerDialog(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        <DialogContent className="max-w-lg flex flex-col max-h-[85vh]">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <MessageCircle className="h-5 w-5 text-info" />
               {messengerDialog?.alert.stage} Penalty Reminder — {messengerDialog?.alert.customer}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            {messengerDialog && (
+          {messengerDialog && (
+            <div className="flex-shrink-0">
               <Badge variant="outline" className={`text-xs ${getStageConfig(messengerDialog.alert.stage).badgeClass}`}>
                 {getStageConfig(messengerDialog.alert.stage).label} · {getStageConfig(messengerDialog.alert.stage).tone}
               </Badge>
-            )}
-            <div className="rounded-lg border border-border bg-muted/30 p-4 max-h-[300px] overflow-y-auto">
-              <pre className="text-sm text-card-foreground whitespace-pre-wrap font-sans leading-relaxed">
-                {messengerDialog?.message}
-              </pre>
             </div>
+          )}
+          <div className="flex-1 overflow-y-auto min-h-0 py-1">
+            <pre className="text-sm text-card-foreground whitespace-pre-wrap font-sans leading-relaxed">
+              {messengerDialog?.message}
+            </pre>
+          </div>
+          <div className="space-y-2 pt-3 flex-shrink-0">
             <div className="grid grid-cols-2 gap-2">
               <Button variant="outline" className="gap-2 text-xs" onClick={handleCopyMessage}>
                 {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
@@ -746,7 +772,7 @@ export default function PenaltyFollowUpSection() {
             </div>
             {messengerDialog && !penaltyNotifMap.has(`${messengerDialog.alert.scheduleId}_${messengerDialog.alert.stage}`) && (
               <Button
-                className="w-full gap-2"
+                className="w-full gap-2 gold-gradient text-primary-foreground"
                 onClick={handleMarkNotifiedFromDialog}
               >
                 <CheckCircle className="h-4 w-4" />

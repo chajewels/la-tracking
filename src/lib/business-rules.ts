@@ -804,6 +804,7 @@ export function ordinal(index: number): string {
 /** Standard set of query keys to invalidate after any payment/account mutation. */
 export const MUTATION_INVALIDATION_KEYS = [
   'accounts',
+  'account',
   'payments',
   'schedule',
   'dashboard-summary',
@@ -819,6 +820,7 @@ export const MUTATION_INVALIDATION_KEYS = [
   'all-schedules-analytics',
   'waivers',
   'waivers-page',
+  'penalties',
   'overdue-schedule',
   'penalty-followup-alerts',
   'csr-notifications-penalty',

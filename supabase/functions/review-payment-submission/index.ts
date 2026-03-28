@@ -34,24 +34,26 @@ async function allocatePaymentToAccount(
   referenceNumber: string | null,
   remarks: string,
   userId: string,
-  currency: string
+  currency: string,
+  isDownpayment: boolean = false,
+  submittedByType: "customer" | "staff" = "staff",
+  submittedByName: string | null = null
 ): Promise<{ paymentId: string; error?: string }> {
-  // Fetch schedule
-  const { data: schedule } = await supabase
+  // Fetch schedule (only needed for installment payments)
+  const { data: schedule } = isDownpayment ? { data: null } : await supabase
     .from("layaway_schedule")
     .select("*")
     .eq("account_id", accountId)
     .order("installment_number", { ascending: true });
 
-  // Fetch unpaid penalties
-  const { data: unpaidPenalties } = await supabase
+  // Fetch unpaid penalties (not applicable for DP payments)
+  const { data: unpaidPenalties } = isDownpayment ? { data: null } : await supabase
     .from("penalty_fees")
     .select("*")
     .eq("account_id", accountId)
     .eq("status", "unpaid")
     .order("penalty_date", { ascending: true });
 
-  // Allocate: penalties first, then installments
   let remaining = amountPaid;
   const allocations: Array<{
     schedule_id: string;
@@ -59,51 +61,93 @@ async function allocatePaymentToAccount(
     allocated_amount: number;
   }> = [];
   const penaltyUpdates: Array<{ id: string; status: string }> = [];
-  const scheduleUpdates: Array<{ id: string; paid_amount: number; status: string }> = [];
+  const scheduleUpdates: Array<{ id: string; paid_amount: number; status: string; total_due_amount?: number }> = [];
 
-  // 1. Pay unpaid penalties first
-  if (unpaidPenalties) {
-    for (const pen of unpaidPenalties) {
-      if (remaining <= 0) break;
-      const penAmount = Number(pen.penalty_amount);
-      const toPay = Math.min(remaining, penAmount);
-      remaining -= toPay;
-      allocations.push({
-        schedule_id: pen.schedule_id,
-        allocation_type: "penalty",
-        allocated_amount: toPay,
-      });
-      penaltyUpdates.push({
-        id: pen.id,
-        status: toPay >= penAmount ? "paid" : "unpaid",
-      });
+  // DP payments skip all schedule and penalty allocation entirely.
+  // They are recorded as a payment entry only; total_paid/remaining_balance
+  // are updated below via the account totals section.
+  if (!isDownpayment) {
+    // 1. Pay unpaid penalties first
+    if (unpaidPenalties) {
+      for (const pen of unpaidPenalties) {
+        if (remaining <= 0) break;
+        const penAmount = Number(pen.penalty_amount);
+        const toPay = Math.min(remaining, penAmount);
+        remaining -= toPay;
+        allocations.push({
+          schedule_id: pen.schedule_id,
+          allocation_type: "penalty",
+          allocated_amount: toPay,
+        });
+        penaltyUpdates.push({
+          id: pen.id,
+          status: toPay >= penAmount ? "paid" : "unpaid",
+        });
+      }
     }
-  }
 
-  // 2. Allocate remaining to installments
-  if (remaining > 0 && schedule) {
-    const unpaidItems = schedule
-      .filter((item: any) => item.status !== "paid" && item.status !== "cancelled")
-      .sort((a: any, b: any) => a.installment_number - b.installment_number);
+    // 2. Allocate remaining to installments
+    if (remaining > 0 && schedule) {
+      const unpaidItems = schedule
+        .filter((item: any) => item.status !== "paid" && item.status !== "cancelled")
+        .sort((a: any, b: any) => a.installment_number - b.installment_number);
 
-    for (const item of unpaidItems) {
-      if (remaining <= 0) break;
-      const currentPaid = Number(item.paid_amount);
-      const baseAmount = Number(item.base_installment_amount);
-      const due = Math.max(0, baseAmount - currentPaid);
-      if (due <= 0) continue;
+      for (const item of unpaidItems) {
+        if (remaining <= 0) break;
+        const currentPaid = Number(item.paid_amount);
+        const targetAmount = Number(item.total_due_amount); // DB value — may be adjusted from prior rollover
+        const due = Math.max(0, targetAmount - currentPaid);
+        if (due <= 0) continue;
 
-      const toApply = Math.min(remaining, due);
-      remaining -= toApply;
-      const newPaid = currentPaid + toApply;
-      const newStatus = newPaid >= baseAmount ? "paid" : "partially_paid";
+        const availableForThisMonth = remaining;
+        const toApply = Math.min(remaining, due);
+        remaining -= toApply;
+        const newPaid = currentPaid + toApply;
+        const isNowFullyPaid = newPaid >= targetAmount;
 
-      allocations.push({
-        schedule_id: item.id,
-        allocation_type: "installment",
-        allocated_amount: toApply,
-      });
-      scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: newStatus });
+        if (isNowFullyPaid && item.status === "partially_paid") {
+          // GHOST PREVENTION: topping up a partial month — cap at total_due, stop
+          allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
+          scheduleUpdates.push({ id: item.id, paid_amount: targetAmount, status: "paid" });
+          remaining = 0;
+          break;
+
+        } else if (isNowFullyPaid) {
+          // PENDING MONTH FULLY PAID — store actual cash; cascade excess to reduce subsequent months
+          const storedPaid = currentPaid + availableForThisMonth;
+          allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: availableForThisMonth });
+          scheduleUpdates.push({ id: item.id, paid_amount: storedPaid, status: "paid" });
+          if (remaining > 0) {
+            for (const nextItem of unpaidItems) {
+              if (remaining <= 0) break;
+              if (nextItem.installment_number <= item.installment_number) continue;
+              const nextDue = Number(nextItem.total_due_amount);
+              const creditAmt = Math.min(remaining, nextDue);
+              remaining -= creditAmt;
+              scheduleUpdates.push({ id: nextItem.id, paid_amount: 0, total_due_amount: Math.max(0, nextDue - creditAmt), status: "pending" });
+            }
+            remaining = 0;
+          }
+          break;
+
+        } else if (item.status !== "partially_paid") {
+          // PENDING MONTH UNDERPAID — roll shortfall to next pending month
+          const shortfall = due - toApply;
+          allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
+          scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid" });
+          const nextItem = unpaidItems.find((ni: any) => ni.installment_number > item.installment_number);
+          if (nextItem) {
+            scheduleUpdates.push({ id: nextItem.id, paid_amount: 0, total_due_amount: Number(nextItem.total_due_amount) + shortfall, status: "pending" });
+          }
+          // remaining=0 after toApply; outer loop stops naturally
+
+        } else {
+          // PARTIALLY_PAID MONTH — additional payment, not completing
+          allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
+          scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid" });
+          // remaining=0; outer loop stops naturally
+        }
+      }
     }
   }
 
@@ -119,6 +163,8 @@ async function allocatePaymentToAccount(
       reference_number: referenceNumber,
       remarks,
       entered_by_user_id: userId,
+      submitted_by_type: submittedByType,
+      submitted_by_name: submittedByName,
     })
     .select("id")
     .single();
@@ -145,10 +191,9 @@ async function allocatePaymentToAccount(
 
   // Update schedule items
   for (const item of scheduleUpdates) {
-    await supabase.from("layaway_schedule").update({
-      paid_amount: item.paid_amount,
-      status: item.status,
-    }).eq("id", item.id);
+    const fields: any = { paid_amount: item.paid_amount, status: item.status };
+    if (item.total_due_amount !== undefined) fields.total_due_amount = item.total_due_amount;
+    await supabase.from("layaway_schedule").update(fields).eq("id", item.id);
   }
 
   // Update account totals
@@ -295,8 +340,31 @@ Deno.serve(async (req) => {
 
     // If confirming, create actual payment records
     if (action === "confirmed") {
-      if (allocs.length === 0) {
-        // Fallback: single payment with account_id from submission
+      // Detect DP submissions using the same heuristics as the payments table
+      const subRef = String(submission.reference_number || '');
+      const subNotes = String(submission.notes || '');
+      const submissionIsDP =
+        subRef.toUpperCase().startsWith('DP-') ||
+        /\bdown(payment)?\b|\bdp\b/i.test(subNotes);
+
+      // Fetch customer name for submitted_by_name
+      let customerName: string | null = null;
+      if (submission.customer_id) {
+        const { data: customer } = await supabase
+          .from("customers")
+          .select("full_name")
+          .eq("id", submission.customer_id)
+          .single();
+        customerName = customer?.full_name || null;
+      }
+
+      // Single-account: either no allocations, or exactly one matching the submission account.
+      // Always use submission.submitted_amount as the authoritative amount (handles edits correctly).
+      const isSingleAccount =
+        allocs.length === 0 ||
+        (allocs.length === 1 && allocs[0].account_id === submission.account_id);
+
+      if (isSingleAccount) {
         const { data: account } = await supabase
           .from("layaway_accounts")
           .select("currency")
@@ -312,7 +380,10 @@ Deno.serve(async (req) => {
           submission.reference_number,
           `Payment submitted${submission.notes ? ': ' + submission.notes : ''}. Submission #${submission.id.substring(0, 8)}`,
           user.id,
-          account?.currency || "PHP"
+          account?.currency || "PHP",
+          submissionIsDP,
+          "customer",
+          customerName
         );
 
         if (result.error) {
@@ -323,7 +394,8 @@ Deno.serve(async (req) => {
         }
         confirmedPaymentIds.push(result.paymentId);
       } else {
-        // Process each allocation as a separate payment
+        // Multi-account split: process each allocation separately.
+        // For these, alloc.allocated_amount is the per-account split amount.
         for (const alloc of allocs) {
           const { data: account } = await supabase
             .from("layaway_accounts")
@@ -340,7 +412,10 @@ Deno.serve(async (req) => {
             submission.reference_number,
             `Payment submitted${submission.notes ? ': ' + submission.notes : ''}. Submission #${submission.id.substring(0, 8)} (${alloc.invoice_number})`,
             user.id,
-            account?.currency || "PHP"
+            account?.currency || "PHP",
+            submissionIsDP,
+            "customer",
+            customerName
           );
 
           if (result.error) {

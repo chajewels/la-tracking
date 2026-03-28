@@ -414,11 +414,27 @@ Deno.serve(async (req) => {
       else console.error("Penalty insert error:", error);
     }
 
-    // 4. Update account totals (NEVER touch total_amount — it's principal only)
+    // 4. Update account totals — canonical formula for remaining_balance:
+    // remaining = total_amount + Σ(non-waived penalty_fees) + Σ(services) − Σ(non-voided payments)
+    // Queried from DB here, AFTER penalty_fees have been committed in steps 2-4 above.
     let accountsUpdated = 0;
     for (const [accId, upd] of accountUpdates) {
+      const [{ data: accTotals }, { data: allActivePens }, { data: allSvcs }, { data: allPays }] = await Promise.all([
+        supabase.from("layaway_accounts").select("total_amount").eq("id", accId).single(),
+        supabase.from("penalty_fees").select("penalty_amount").eq("account_id", accId).not("status", "eq", "waived"),
+        supabase.from("account_services").select("amount").eq("account_id", accId),
+        supabase.from("payments").select("amount_paid").eq("account_id", accId).is("voided_at", null),
+      ]);
+
+      const penSum  = (allActivePens || []).reduce((s: number, p: any)  => s + Number(p.penalty_amount), 0);
+      const svcSum  = (allSvcs       || []).reduce((s: number, sv: any) => s + Number(sv.amount), 0);
+      const paidSum = (allPays       || []).reduce((s: number, p: any)  => s + Number(p.amount_paid), 0);
+      const newRemaining = accTotals
+        ? Math.max(0, Number(accTotals.total_amount) + penSum + svcSum - paidSum)
+        : upd.remaining_balance; // fallback to pre-calculated if account fetch fails
+
       const { error } = await supabase.from("layaway_accounts").update({
-        remaining_balance: upd.remaining_balance,
+        remaining_balance: newRemaining,
         status: upd.status,
         updated_at: new Date().toISOString(),
       }).eq("id", accId);

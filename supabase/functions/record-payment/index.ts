@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { account_id, amount_paid, date_paid, payment_method, reference_number, remarks, preview_only } = body;
+    const { account_id, amount_paid, date_paid, payment_method, reference_number, remarks, preview_only, is_downpayment } = body;
 
     if (!account_id || !amount_paid || amount_paid <= 0) {
       return new Response(JSON.stringify({ error: "Invalid payment data" }), {
@@ -152,10 +152,11 @@ Deno.serve(async (req) => {
       id: string;
       paid_amount: number;
       status: string;
+      total_due_amount?: number;
     }> = [];
 
-    // 1. Pay unpaid penalties first
-    if (unpaidPenalties) {
+    // 1. Pay unpaid penalties first (not applicable for DP payments)
+    if (!is_downpayment && unpaidPenalties) {
       for (const pen of unpaidPenalties) {
         if (remaining <= 0) break;
         const penAmount = Number(pen.penalty_amount);
@@ -175,8 +176,10 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 2. Allocate remaining to installments sequentially (FIXED SCHEDULE MODEL)
-    if (remaining > 0 && schedule) {
+    // 2. Allocate to installments — only for non-DP payments.
+    //    DP payments NEVER touch schedule rows; they are recorded purely
+    //    as a payment entry and reflected in total_paid/remaining_balance.
+    if (!is_downpayment && remaining > 0 && schedule) {
       const unpaidItems = schedule.filter(
         item => item.status !== "paid" && item.status !== "cancelled"
       ).sort((a, b) => a.installment_number - b.installment_number);
@@ -185,28 +188,58 @@ Deno.serve(async (req) => {
         if (remaining <= 0) break;
 
         const currentPaid = Number(item.paid_amount);
-        const baseAmount = Number(item.base_installment_amount);
-        const due = Math.max(0, baseAmount - currentPaid);
-
+        const targetAmount = Number(item.total_due_amount); // DB value — may be adjusted from prior rollover
+        const due = Math.max(0, targetAmount - currentPaid);
         if (due <= 0) continue;
 
+        const availableForThisMonth = remaining;
         const toApply = Math.round(Math.min(remaining, due) * 100) / 100;
         remaining = Math.round((remaining - toApply) * 100) / 100;
-
         const newPaid = Math.round((currentPaid + toApply) * 100) / 100;
-        const newStatus = newPaid >= baseAmount ? "paid" : "partially_paid";
+        const isNowFullyPaid = newPaid >= targetAmount;
 
-        allocations.push({
-          schedule_id: item.id,
-          allocation_type: "installment",
-          allocated_amount: toApply,
-        });
+        if (isNowFullyPaid && item.status === "partially_paid") {
+          // GHOST PREVENTION: topping up a partial month — cap at total_due, stop
+          allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
+          scheduleUpdates.push({ id: item.id, paid_amount: targetAmount, status: "paid" });
+          remaining = 0;
+          break;
 
-        scheduleUpdates.push({
-          id: item.id,
-          paid_amount: newPaid,
-          status: newStatus,
-        });
+        } else if (isNowFullyPaid) {
+          // PENDING MONTH FULLY PAID — store actual cash; cascade excess to reduce subsequent months
+          const storedPaid = Math.round((currentPaid + availableForThisMonth) * 100) / 100;
+          allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: availableForThisMonth });
+          scheduleUpdates.push({ id: item.id, paid_amount: storedPaid, status: "paid" });
+          if (remaining > 0) {
+            for (const nextItem of unpaidItems) {
+              if (remaining <= 0) break;
+              if (nextItem.installment_number <= item.installment_number) continue;
+              const nextDue = Number(nextItem.total_due_amount);
+              const creditAmt = Math.round(Math.min(remaining, nextDue) * 100) / 100;
+              remaining = Math.round((remaining - creditAmt) * 100) / 100;
+              scheduleUpdates.push({ id: nextItem.id, paid_amount: 0, total_due_amount: Math.max(0, Math.round((nextDue - creditAmt) * 100) / 100), status: "pending" });
+            }
+            remaining = 0;
+          }
+          break;
+
+        } else if (item.status !== "partially_paid") {
+          // PENDING MONTH UNDERPAID — roll shortfall to next pending month
+          const shortfall = Math.round((due - toApply) * 100) / 100;
+          allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
+          scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid" });
+          const nextItem = unpaidItems.find((ni: any) => ni.installment_number > item.installment_number);
+          if (nextItem) {
+            scheduleUpdates.push({ id: nextItem.id, paid_amount: 0, total_due_amount: Math.round((Number(nextItem.total_due_amount) + shortfall) * 100) / 100, status: "pending" });
+          }
+          // remaining=0 after toApply; outer loop stops naturally
+
+        } else {
+          // PARTIALLY_PAID MONTH — additional payment, not completing
+          allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
+          scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid" });
+          // remaining=0; outer loop stops naturally
+        }
       }
     }
 
@@ -264,6 +297,8 @@ Deno.serve(async (req) => {
         reference_number,
         remarks,
         entered_by_user_id: user.id,
+        submitted_by_type: "staff",
+        submitted_by_name: (user.user_metadata as any)?.full_name || user.email || null,
       })
       .select()
       .single();
@@ -292,10 +327,9 @@ Deno.serve(async (req) => {
 
     // Update schedule items
     for (const item of scheduleUpdates) {
-      await supabase.from("layaway_schedule").update({
-        paid_amount: item.paid_amount,
-        status: item.status,
-      }).eq("id", item.id);
+      const fields: any = { paid_amount: item.paid_amount, status: item.status };
+      if (item.total_due_amount !== undefined) fields.total_due_amount = item.total_due_amount;
+      await supabase.from("layaway_schedule").update(fields).eq("id", item.id);
     }
 
     // SINGLE SOURCE OF TRUTH: re-derive from all payments after insert
@@ -356,8 +390,8 @@ Deno.serve(async (req) => {
       status: 201,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
+  } catch (error: unknown) {
+    return new Response(JSON.stringify({ error: (error as Error).message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

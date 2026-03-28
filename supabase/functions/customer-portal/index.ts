@@ -230,7 +230,7 @@ Deno.serve(async (req) => {
         : Promise.resolve({ data: [], error: null }),
       supabase.from("payment_methods").select("*").eq("is_active", true).order("sort_order"),
       accountIds.length > 0
-        ? supabase.from("payment_submissions").select("id, account_id, submitted_amount, payment_date, payment_method, reference_number, sender_name, notes, proof_url, status, reviewer_notes, created_at").eq("customer_id", customerId).in("account_id", accountIds).order("created_at", { ascending: false })
+        ? supabase.from("payment_submissions").select("id, account_id, submitted_amount, payment_date, payment_method, reference_number, sender_name, notes, proof_url, status, reviewer_notes, created_at, customer_edited_at").eq("customer_id", customerId).in("account_id", accountIds).neq("status", "cancelled").order("created_at", { ascending: false })
         : Promise.resolve({ data: [], error: null }),
       accountIds.length > 0
         ? supabase.from("penalty_fees").select("id, account_id, schedule_id, penalty_amount, status").in("account_id", accountIds)
@@ -251,11 +251,15 @@ Deno.serve(async (req) => {
     const statementTokenByAccount: Record<string, string> = {};
     const submissionsByAccount: Record<string, any[]> = {};
     const penaltiesByAccount: Record<string, any[]> = {};
+    const penaltiesBySchedule: Record<string, any> = {};
 
     for (const s of schedules) { (schedulesByAccount[s.account_id] ||= []).push(s); }
     for (const p of payments) { (paymentsByAccount[p.account_id] ||= []).push(p); }
     for (const s of services) { (servicesByAccount[s.account_id] ||= []).push(s); }
-    for (const pen of penalties) { (penaltiesByAccount[pen.account_id] ||= []).push(pen); }
+    for (const pen of penalties) {
+      (penaltiesByAccount[pen.account_id] ||= []).push(pen);
+      if (pen.schedule_id) penaltiesBySchedule[pen.schedule_id] = pen;
+    }
     for (const t of stTokens) {
       if (!t.expires_at || new Date(t.expires_at) > new Date()) {
         statementTokenByAccount[t.account_id] = t.token;
@@ -331,6 +335,7 @@ Deno.serve(async (req) => {
           due_date: s.due_date,
           base_amount: Number(s.base_installment_amount),
           penalty_amount: Number(s.penalty_amount),
+          penalty_fee_status: penaltiesBySchedule[s.id]?.status ?? null,
           total_due: Number(s.total_due_amount),
           paid_amount: Number(s.paid_amount),
           status: s.status,

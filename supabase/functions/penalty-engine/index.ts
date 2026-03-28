@@ -271,17 +271,20 @@ Deno.serve(async (req) => {
     }
 
     // ── Step 8: Update remaining_balance for affected accounts ──
+    // Use canonical formula: total_amount + Σ(non-waived penalties) + Σ(services) − Σ(payments)
     for (const accountId of accountsToMarkOverdue) {
-      const { data: allSchedule } = await supabase
-        .from("layaway_schedule")
-        .select("base_installment_amount, paid_amount, status")
-        .eq("account_id", accountId);
+      const [{ data: accTotals }, { data: allActivePens }, { data: allSvcs }, { data: allPays }] = await Promise.all([
+        supabase.from("layaway_accounts").select("total_amount").eq("id", accountId).single(),
+        supabase.from("penalty_fees").select("penalty_amount").eq("account_id", accountId).not("status", "eq", "waived"),
+        supabase.from("account_services").select("amount").eq("account_id", accountId),
+        supabase.from("payments").select("amount_paid").eq("account_id", accountId).is("voided_at", null),
+      ]);
 
-      if (allSchedule) {
-        const newRemaining = allSchedule.reduce((sum, s) => {
-          if (s.status === "paid" || s.status === "cancelled") return sum;
-          return sum + Math.max(0, Number(s.base_installment_amount) - Number(s.paid_amount));
-        }, 0);
+      if (accTotals) {
+        const penSum  = (allActivePens || []).reduce((s: number, p: any)  => s + Number(p.penalty_amount), 0);
+        const svcSum  = (allSvcs       || []).reduce((s: number, sv: any) => s + Number(sv.amount), 0);
+        const paidSum = (allPays       || []).reduce((s: number, p: any)  => s + Number(p.amount_paid), 0);
+        const newRemaining = Math.max(0, Number(accTotals.total_amount) + penSum + svcSum - paidSum);
         await supabase.from("layaway_accounts")
           .update({ remaining_balance: newRemaining })
           .eq("id", accountId);

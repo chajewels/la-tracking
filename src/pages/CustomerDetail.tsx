@@ -125,8 +125,8 @@ export default function CustomerDetail() {
   const { accounts } = data;
 
   // Filter accounts: only include active/open invoices for consolidated message
-  const activeAccounts = accounts.filter(a => 
-    !['completed', 'cancelled'].includes(a.account.status)
+  const activeAccounts = accounts.filter(a =>
+    !['completed', 'cancelled', 'forfeited', 'final_forfeited'].includes(a.account.status)
   );
 
 
@@ -459,6 +459,30 @@ export default function CustomerDetail() {
           const remainingBalance = Number(account.remaining_balance);
           const progress = totalAmount > 0 ? (totalPaid / totalAmount) * 100 : 0;
 
+          // Override stale OVERDUE status: only truly overdue if an unpaid month has a past due_date
+          const cdToday = new Date().toISOString().split('T')[0];
+          const cdHasUnpaidPastDue = schedule.some(s => !isEffectivelyPaid(s) && s.due_date < cdToday);
+          const effectiveStatus = account.status === 'overdue' && !cdHasUnpaidPastDue
+            ? 'active'
+            : account.status;
+
+          const badgeClass =
+            effectiveStatus === 'completed' ? 'bg-success/10 text-success border-success/20' :
+            effectiveStatus === 'overdue' ? 'bg-destructive/10 text-destructive border-destructive/20' :
+            effectiveStatus === 'forfeited' ? 'bg-orange-500/10 text-orange-500 border-orange-500/20' :
+            effectiveStatus === 'final_forfeited' ? 'bg-destructive/10 text-destructive border-destructive/20' :
+            effectiveStatus === 'extension_active' ? 'bg-info/10 text-info border-info/20' :
+            effectiveStatus === 'final_settlement' ? 'bg-warning/10 text-warning border-warning/20' :
+            effectiveStatus === 'cancelled' ? 'bg-muted text-muted-foreground border-border' :
+            'bg-primary/10 text-primary border-primary/20';
+
+          const badgeLabel: Record<string, string> = {
+            active: 'Active', overdue: 'Overdue', completed: 'Completed',
+            cancelled: 'Cancelled', forfeited: 'Forfeited',
+            extension_active: 'Extension', final_forfeited: 'Perm. Forfeited',
+            final_settlement: 'Settlement',
+          };
+
           return (
           <div key={account.id} className="rounded-xl border border-border bg-card p-4 sm:p-5 space-y-4">
               <div className="flex items-center justify-between flex-wrap gap-2">
@@ -468,13 +492,8 @@ export default function CustomerDetail() {
                       INV #{account.invoice_number}
                     </h2>
                   </Link>
-                  <Badge variant="outline" className={`text-xs ${
-                    account.status === 'completed' ? 'bg-success/10 text-success border-success/20' :
-                    account.status === 'overdue' ? 'bg-destructive/10 text-destructive border-destructive/20' :
-                    account.status === 'forfeited' ? 'bg-muted text-muted-foreground border-border' :
-                    'bg-primary/10 text-primary border-primary/20'
-                  }`}>
-                    {account.status}
+                  <Badge variant="outline" className={`text-xs ${badgeClass}`}>
+                    {badgeLabel[effectiveStatus] || effectiveStatus}
                   </Badge>
                   <Badge variant="outline" className="text-xs">{currency}</Badge>
                 </div>

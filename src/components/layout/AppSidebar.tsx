@@ -10,6 +10,7 @@ import {
   FileText,
   BarChart3,
   ShieldCheck,
+  ClipboardCheck,
   Settings,
   LogOut,
 } from 'lucide-react';
@@ -37,6 +38,7 @@ const menuItems = [
   { label: 'Waivers', icon: FileText, path: ROUTES.WAIVERS },
   { label: 'Analytics', icon: BarChart3, path: ROUTES.ANALYTICS },
   { label: 'Admin Audit', icon: ShieldCheck, path: ROUTES.ADMIN_AUDIT },
+  { label: 'System Audit', icon: ClipboardCheck, path: ROUTES.SYSTEM_AUDIT },
   { label: 'Settings', icon: Settings, path: ROUTES.SETTINGS },
 ];
 

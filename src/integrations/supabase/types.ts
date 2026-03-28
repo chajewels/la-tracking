@@ -770,6 +770,7 @@ export type Database = {
           account_id: string
           confirmed_payment_id: string | null
           created_at: string
+          customer_edited_at: string | null
           customer_id: string
           id: string
           notes: string | null
@@ -790,6 +791,7 @@ export type Database = {
           account_id: string
           confirmed_payment_id?: string | null
           created_at?: string
+          customer_edited_at?: string | null
           customer_id: string
           id?: string
           notes?: string | null
@@ -810,6 +812,7 @@ export type Database = {
           account_id?: string
           confirmed_payment_id?: string | null
           created_at?: string
+          customer_edited_at?: string | null
           customer_id?: string
           id?: string
           notes?: string | null
@@ -862,6 +865,8 @@ export type Database = {
           payment_method: string | null
           reference_number: string | null
           remarks: string | null
+          submitted_by_name: string | null
+          submitted_by_type: string | null
           void_reason: string | null
           voided_at: string | null
           voided_by_user_id: string | null
@@ -877,6 +882,8 @@ export type Database = {
           payment_method?: string | null
           reference_number?: string | null
           remarks?: string | null
+          submitted_by_name?: string | null
+          submitted_by_type?: string | null
           void_reason?: string | null
           voided_at?: string | null
           voided_by_user_id?: string | null
@@ -892,6 +899,8 @@ export type Database = {
           payment_method?: string | null
           reference_number?: string | null
           remarks?: string | null
+          submitted_by_name?: string | null
+          submitted_by_type?: string | null
           void_reason?: string | null
           voided_at?: string | null
           voided_by_user_id?: string | null
@@ -1392,6 +1401,7 @@ export type Database = {
         | "confirmed"
         | "rejected"
         | "needs_clarification"
+        | "cancelled"
       user_status: "active" | "inactive" | "suspended"
       waiver_status: "pending" | "approved" | "rejected"
     }
@@ -1552,6 +1562,7 @@ export const Constants = {
         "confirmed",
         "rejected",
         "needs_clarification",
+        "cancelled",
       ],
       user_status: ["active", "inactive", "suspended"],
       waiver_status: ["pending", "approved", "rejected"],

@@ -62,12 +62,13 @@ export default function Monitoring() {
       next7.setDate(next7.getDate() + 7);
       const next7Str = next7.toISOString().split('T')[0];
 
+      const ACTIVE_STATUSES = ['active', 'overdue', 'final_settlement', 'extension_active'] as const;
       const [overdueRes, upcomingRes] = await Promise.all([
         supabase
           .from('layaway_schedule')
           .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, remaining_balance, customers(full_name, messenger_link))')
           .in('status', ['pending', 'overdue', 'partially_paid'])
-          .in('layaway_accounts.status', ['active', 'overdue'])
+          .in('layaway_accounts.status', ACTIVE_STATUSES)
           .lt('due_date', new Date().toISOString().split('T')[0])
           .order('due_date', { ascending: true })
           .limit(500),
@@ -75,7 +76,7 @@ export default function Monitoring() {
           .from('layaway_schedule')
           .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, remaining_balance, customers(full_name, messenger_link))')
           .in('status', ['pending', 'overdue', 'partially_paid'])
-          .in('layaway_accounts.status', ['active', 'overdue'])
+          .in('layaway_accounts.status', ACTIVE_STATUSES)
           .gte('due_date', new Date().toISOString().split('T')[0])
           .lte('due_date', next7Str)
           .order('due_date', { ascending: true })
@@ -432,7 +433,10 @@ export default function Monitoring() {
         </div>
 
         {/* Penalty Follow-Up Stages */}
-        <PenaltyFollowUpSection />
+        <PenaltyFollowUpSection
+          totalOverdue={counts.overdue + counts.grace_period}
+          gracePeriodCount={counts.grace_period}
+        />
 
         {/* Alert List */}
         {isLoading ? (
@@ -464,31 +468,29 @@ export default function Monitoring() {
 
       {/* Messenger Message Dialog */}
       <Dialog open={!!messengerDialog} onOpenChange={(open) => !open && setMessengerDialog(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        <DialogContent className="max-w-lg flex flex-col max-h-[85vh]">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <MessageCircle className="h-5 w-5 text-info" />
               Reminder — {messengerDialog?.alert.customer}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="rounded-lg border border-border bg-muted/30 p-4">
-              <pre className="text-sm text-card-foreground whitespace-pre-wrap font-sans leading-relaxed">
-                {messengerDialog?.message}
-              </pre>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" className="flex-1 gap-2" onClick={handleCopyMessage}>
-                {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
-                {copied ? 'Copied!' : 'Copy Message'}
+          <div className="flex-1 overflow-y-auto min-h-0 py-1">
+            <pre className="text-sm text-card-foreground whitespace-pre-wrap font-sans leading-relaxed">
+              {messengerDialog?.message}
+            </pre>
+          </div>
+          <div className="flex gap-2 pt-3 flex-shrink-0">
+            <Button variant="outline" className="flex-1 gap-2" onClick={handleCopyMessage}>
+              {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
+              {copied ? 'Copied!' : 'Copy Message'}
+            </Button>
+            {messengerDialog?.alert.messengerLink && (
+              <Button className="flex-1 gap-2" onClick={handleCopyAndOpenMessenger}>
+                <MessageCircle className="h-4 w-4" />
+                Copy & Open Messenger
               </Button>
-              {messengerDialog?.alert.messengerLink && (
-                <Button className="flex-1 gap-2" onClick={handleCopyAndOpenMessenger}>
-                  <MessageCircle className="h-4 w-4" />
-                  Copy & Open Messenger
-                </Button>
-              )}
-            </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>

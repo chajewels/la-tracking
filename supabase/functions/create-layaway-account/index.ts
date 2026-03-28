@@ -45,8 +45,6 @@ Deno.serve(async (req) => {
       order_date,
       notes,
       downpayment_amount: dpAmountInput,
-      downpayment_paid: dpPaidInput,
-      remaining_dp_option, // 'split' | 'add_to_installments'
       split_allocations, // Array<{ account_id: string; amount: number }> — optional
       lump_sum_total, // number — optional, total lump sum from customer
       custom_installments, // number[] — optional, exact amounts per month
@@ -83,9 +81,8 @@ Deno.serve(async (req) => {
 
     const totalAmountNum = Number(total_amount);
     const downpaymentTarget = dpAmountInput ? Math.round(Number(dpAmountInput)) : 0;
-    const downpaymentPaid = dpPaidInput != null && dpPaidInput !== '' && dpPaidInput !== 0 ? Math.round(Number(dpPaidInput)) : 0;
-    const remainingDp = Math.max(0, downpaymentTarget - downpaymentPaid);
-    const hasShortDp = remainingDp > 0;
+    // DP is NEVER paid at creation — must go through portal → staff validation flow
+    const downpaymentPaid = 0;
 
     // Base amount for installments (total minus full DP target)
     const baseForInstallments = totalAmountNum - downpaymentTarget;
@@ -107,11 +104,9 @@ Deno.serve(async (req) => {
         payment_plan_months,
         order_date,
         end_date: endDate.toISOString().split("T")[0],
-        total_paid: downpaymentPaid,
-        remaining_balance: totalAmountNum - downpaymentPaid,
-        notes: hasShortDp
-          ? `${notes || ''}${notes ? ' | ' : ''}Short DP: paid ${downpaymentPaid}, target ${downpaymentTarget}, remaining ${remainingDp} (${remaining_dp_option || 'split'})`.trim()
-          : notes,
+        total_paid: 0,
+        remaining_balance: totalAmountNum,
+        notes,
         created_by_user_id: user.id,
       })
       .select()
@@ -146,16 +141,6 @@ Deno.serve(async (req) => {
     const baseInstallment = Math.floor(baseForInstallments / payment_plan_months);
     const baseRemainder = baseForInstallments - baseInstallment * payment_plan_months;
 
-    // Calculate remaining DP distribution
-    let dpPerMonth = 0;
-    let dpDistRemainder = 0;
-    const option = remaining_dp_option || 'split';
-
-    if (hasShortDp && option === 'split' && !useCustom) {
-      dpPerMonth = Math.floor(remainingDp / payment_plan_months);
-      dpDistRemainder = remainingDp - dpPerMonth * payment_plan_months;
-    }
-
     for (let i = 0; i < payment_plan_months; i++) {
       const dueDate = new Date(startDate.getFullYear(), startDate.getMonth() + i + 1, dayOfMonth);
       if (dueDate.getDate() !== dayOfMonth) {
@@ -170,16 +155,6 @@ Deno.serve(async (req) => {
       } else {
         const isLast = i === payment_plan_months - 1;
         amount = isLast ? baseInstallment + baseRemainder : baseInstallment;
-
-        // Add remaining DP based on option
-        if (hasShortDp) {
-          if (option === 'split') {
-            amount += dpPerMonth;
-            if (isLast) amount += dpDistRemainder;
-          } else if (option === 'add_to_installments' && i === 0) {
-            amount += remainingDp;
-          }
-        }
       }
 
       scheduleRows.push({
@@ -204,20 +179,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Record confirmed downpayment as a real payment fact
-    if (downpaymentPaid > 0) {
-      await supabase.from("payments").insert({
-        account_id: account.id,
-        amount_paid: downpaymentPaid,
-        currency,
-        date_paid: order_date,
-        payment_method: "cash",
-        remarks: "Downpayment",
-        reference_number: `DP-${invoice_number}`,
-        entered_by_user_id: user.id,
-      });
-    }
-
     // Create audit log
     await supabase.from("audit_logs").insert({
       entity_type: "layaway_account",
@@ -225,9 +186,6 @@ Deno.serve(async (req) => {
       action: "create",
       new_value_json: {
         ...account,
-        downpayment_paid: downpaymentPaid,
-        remaining_dp: remainingDp,
-        remaining_dp_option: option,
         split_allocations: split_allocations || null,
         lump_sum_total: lump_sum_total || null,
       },
@@ -235,7 +193,7 @@ Deno.serve(async (req) => {
     });
 
     // ── Process split allocations to existing accounts ──
-    const splitResults: Array<{ account_id: string; invoice_number: string; amount: number; payment_id: string }> = [];
+    const splitResults: Array<{ account_id: string; invoice_number: string; amount: number; payment_id: string; completed?: boolean }> = [];
 
     if (Array.isArray(split_allocations) && split_allocations.length > 0) {
       for (const alloc of split_allocations) {
@@ -391,9 +349,9 @@ Deno.serve(async (req) => {
       JSON.stringify({ account, schedule: scheduleRows, split_payments: splitResults }),
       { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('create-layaway-account error:', error);
-    return new Response(JSON.stringify({ error: error.message || 'Internal server error' }), {
+    return new Response(JSON.stringify({ error: (error as Error).message || 'Internal server error' }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

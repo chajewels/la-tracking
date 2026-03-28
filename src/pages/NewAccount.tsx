@@ -41,8 +41,6 @@ export default function NewAccount() {
   const [orderDate, setOrderDate] = useState('');
   const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>(3);
   const [downpaymentInput, setDownpaymentInput] = useState('');
-  const [downpaymentPaid, setDownpaymentPaid] = useState('');
-  const [remainingDpOption, setRemainingDpOption] = useState<RemainingDpOption>('split');
 
   // Custom installment mode
   const [installmentMode, setInstallmentMode] = useState<InstallmentMode>('equal');
@@ -74,8 +72,6 @@ export default function NewAccount() {
       setOrderDate(initialDraft.orderDate || '');
       setPaymentPlan(initialDraft.paymentPlan || 3);
       setDownpaymentInput(initialDraft.downpaymentInput || '');
-      setDownpaymentPaid(initialDraft.downpaymentPaid || '');
-      setRemainingDpOption(initialDraft.remainingDpOption || 'split');
       setInstallmentMode(initialDraft.installmentMode || 'equal');
       setCustomAmounts(initialDraft.customAmounts || []);
       setEnableSplitPayment(initialDraft.enableSplitPayment || false);
@@ -98,8 +94,6 @@ export default function NewAccount() {
         orderDate,
         paymentPlan,
         downpaymentInput,
-        downpaymentPaid,
-        remainingDpOption,
         installmentMode,
         customAmounts,
         enableSplitPayment,
@@ -112,7 +106,7 @@ export default function NewAccount() {
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [invoiceNumber, customerId, currency, totalAmount, orderDate, paymentPlan, downpaymentInput, downpaymentPaid, remainingDpOption, installmentMode, customAmounts, enableSplitPayment, lumpSumInput, formDirty, persistDraft]);
+  }, [invoiceNumber, customerId, currency, totalAmount, orderDate, paymentPlan, downpaymentInput, installmentMode, customAmounts, enableSplitPayment, lumpSumInput, formDirty, persistDraft]);
 
   // Mark form as dirty on any change
   const markDirty = useCallback(() => {
@@ -160,9 +154,11 @@ export default function NewAccount() {
     [splitAllocations]
   );
 
+  // DP is never paid at creation — always 0 for non-split.
+  // For split payment, effectiveDpPaid is display-only (shows lump sum allocation).
   const effectiveDpPaid = enableSplitPayment
     ? Math.max(0, lumpSum - totalAllocatedToExisting)
-    : parseInt(downpaymentPaid) || 0;
+    : 0;
 
   const dpPaid = effectiveDpPaid;
   const remainingDp = Math.max(0, downpaymentAmount - dpPaid);
@@ -179,37 +175,21 @@ export default function NewAccount() {
   const initCustomAmounts = useCallback(() => {
     const equalAmts = (() => {
       if (installmentTotal <= 0) return Array(paymentPlan).fill(0);
-      if (hasShortDp && remainingDpOption === 'split') {
-        const baseInstallments = calculateInstallments(baseForInstallments, paymentPlan);
-        const dpPerMonth = Math.floor(remainingDp / paymentPlan);
-        const dpRemainder = remainingDp - dpPerMonth * paymentPlan;
-        return baseInstallments.map((base, i) => base + dpPerMonth + (i === paymentPlan - 1 ? dpRemainder : 0));
-      }
-      if (hasShortDp && remainingDpOption === 'add_to_installments') {
-        const installments = calculateInstallments(baseForInstallments, paymentPlan);
-        if (installments.length > 0) installments[0] += remainingDp;
-        return installments;
+      if (hasShortDp) {
+        return calculateInstallments(installmentTotal, paymentPlan);
       }
       return calculateInstallments(installmentTotal, paymentPlan);
     })();
     setCustomAmounts(equalAmts.map(String));
-  }, [installmentTotal, paymentPlan, hasShortDp, remainingDpOption, baseForInstallments, remainingDp]);
+  }, [installmentTotal, paymentPlan, hasShortDp]);
 
   const previewInstallments = (() => {
     if (installmentMode === 'custom' && customAmounts.length === paymentPlan) {
       return customAmounts.map(v => parseInt(v) || 0);
     }
     if (installmentTotal <= 0) return [];
-    if (hasShortDp && remainingDpOption === 'split') {
-      const baseInstallments = calculateInstallments(baseForInstallments, paymentPlan);
-      const dpPerMonth = Math.floor(remainingDp / paymentPlan);
-      const dpRemainder = remainingDp - dpPerMonth * paymentPlan;
-      return baseInstallments.map((base, i) => base + dpPerMonth + (i === paymentPlan - 1 ? dpRemainder : 0));
-    }
-    if (hasShortDp && remainingDpOption === 'add_to_installments') {
-      const installments = calculateInstallments(baseForInstallments, paymentPlan);
-      if (installments.length > 0) installments[0] += remainingDp;
-      return installments;
+    if (hasShortDp) {
+      return calculateInstallments(installmentTotal, paymentPlan);
     }
     return calculateInstallments(installmentTotal, paymentPlan);
   })();
@@ -305,6 +285,19 @@ export default function NewAccount() {
             .map(a => ({ account_id: a.account_id, amount: parseInt(a.amount) || 0 }))
         : undefined;
 
+      // Always send an explicit installments array so the edge function never has
+      // to infer amounts. For equal mode: build Math.floor distribution matching
+      // the edge function's own algorithm. For custom mode: use user-entered amounts.
+      const installmentsToSend: number[] = installmentMode === 'custom'
+        ? customAmounts.map(v => parseInt(v) || 0)
+        : (() => {
+            const base = Math.floor(baseForInstallments / paymentPlan);
+            const rem  = baseForInstallments - base * paymentPlan;
+            return Array.from({ length: paymentPlan }, (_, i) =>
+              i === paymentPlan - 1 ? base + rem : base
+            );
+          })();
+
       const result = await createAccount.mutateAsync({
         customer_id: customerId,
         invoice_number: invoiceNumber,
@@ -313,13 +306,10 @@ export default function NewAccount() {
         order_date: orderDate,
         payment_plan_months: paymentPlan,
         downpayment_amount: downpaymentAmount,
-        downpayment_paid: dpPaid,
-        remaining_dp_option: hasShortDp ? remainingDpOption : undefined,
+        downpayment_paid: 0,
         split_allocations: validAllocations,
         lump_sum_total: enableSplitPayment ? lumpSum : undefined,
-        custom_installments: installmentMode === 'custom'
-          ? customAmounts.map(v => parseInt(v) || 0)
-          : undefined,
+        custom_installments: installmentsToSend,
       });
 
       // Mark as submitted to allow navigation
@@ -494,18 +484,6 @@ export default function NewAccount() {
                   className="bg-background border-border"
                 />
               </div>
-              {!enableSplitPayment && (
-                <div className="space-y-2">
-                  <Label className="text-card-foreground">Downpayment Paid *</Label>
-                  <Input
-                    type="number"
-                    value={downpaymentPaid}
-                    onChange={(e) => { setDownpaymentPaid(e.target.value); markDirty(); }}
-                    placeholder={downpaymentAmount > 0 ? `e.g. ${downpaymentAmount}` : 'Amount actually paid'}
-                    className="bg-background border-border"
-                  />
-                </div>
-              )}
               {enableSplitPayment && (
                 <div className="space-y-2">
                   <Label className="text-card-foreground">DP from Lump Sum</Label>
@@ -761,63 +739,12 @@ export default function NewAccount() {
                   {formatCurrency(downpaymentAmount, currency)}
                 </span>
               </div>
-              {dpPaid > 0 && (
-                <>
-                  <div className="flex items-center justify-between py-2 border-b border-border">
-                    <span className="text-sm text-card-foreground">Downpayment Paid</span>
-                    <span className="text-sm font-semibold text-primary tabular-nums">
-                      {formatCurrency(dpPaid, currency)}
-                    </span>
-                  </div>
-                  {hasShortDp && (
-                    <div className="flex items-center justify-between py-2 border-b border-border">
-                      <span className="text-sm font-medium text-destructive">Remaining Downpayment</span>
-                      <span className="text-sm font-bold text-destructive tabular-nums">
-                        {formatCurrency(remainingDp, currency)}
-                      </span>
-                    </div>
-                  )}
-                </>
-              )}
               <div className="flex items-center justify-between py-2">
                 <span className="text-sm text-muted-foreground">Remaining for Installments</span>
                 <span className="text-sm font-semibold text-card-foreground tabular-nums">
                   {formatCurrency(baseForInstallments, currency)}
                 </span>
               </div>
-
-              {/* Remaining DP distribution option */}
-              {hasShortDp && (
-                <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-4 space-y-3">
-                  <p className="text-sm font-medium text-destructive">
-                    Short downpayment: {formatCurrency(remainingDp, currency)} remaining. How should this be handled?
-                  </p>
-                  <RadioGroup
-                    value={remainingDpOption}
-                    onValueChange={(v) => { setRemainingDpOption(v as RemainingDpOption); markDirty(); }}
-                    className="space-y-2"
-                  >
-                    <div className="flex items-start gap-3 rounded-lg border border-border bg-background p-3">
-                      <RadioGroupItem value="split" id="dp-split" className="mt-0.5" />
-                      <Label htmlFor="dp-split" className="cursor-pointer space-y-1">
-                        <span className="text-sm font-medium text-card-foreground">Split evenly across installments</span>
-                        <p className="text-xs text-muted-foreground">
-                          Add {formatCurrency(Math.floor(remainingDp / paymentPlan), currency)}/month to each installment
-                        </p>
-                      </Label>
-                    </div>
-                    <div className="flex items-start gap-3 rounded-lg border border-border bg-background p-3">
-                      <RadioGroupItem value="add_to_installments" id="dp-first" className="mt-0.5" />
-                      <Label htmlFor="dp-first" className="cursor-pointer space-y-1">
-                        <span className="text-sm font-medium text-card-foreground">Add to first installment</span>
-                        <p className="text-xs text-muted-foreground">
-                          First payment will be {formatCurrency((previewInstallments[0] || 0), currency)}
-                        </p>
-                      </Label>
-                    </div>
-                  </RadioGroup>
-                </div>
-              )}
             </div>
           )}
 
