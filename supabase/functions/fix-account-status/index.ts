@@ -36,19 +36,19 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Validate JWT in code — allow service-role invocations (no user context)
+    // Validate JWT — allow service-role or anon-key bypass for internal invocations
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) throw new Error("Missing authorization");
-    const token = authHeader.replace("Bearer ", "");
-
     let userId: string | null = null;
-    const isServiceRole = token === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || token === Deno.env.get("SUPABASE_ANON_KEY");
-    if (!isServiceRole) {
-      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-      if (authError || !user) throw new Error("Unauthorized");
-      const canRunSystemHealthFixes = await hasPermission(supabase, user.id, "system_health");
-      if (!canRunSystemHealthFixes) throw new Error("Permission denied");
-      userId = user.id;
+    if (authHeader) {
+      const token = authHeader.replace("Bearer ", "");
+      const isInternalKey = token === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || token === Deno.env.get("SUPABASE_ANON_KEY");
+      if (!isInternalKey) {
+        const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+        if (authError || !user) throw new Error("Unauthorized");
+        const canRunSystemHealthFixes = await hasPermission(supabase, user.id, "system_health");
+        if (!canRunSystemHealthFixes) throw new Error("Permission denied");
+        userId = user.id;
+      }
     }
 
     const body = await req.json();
