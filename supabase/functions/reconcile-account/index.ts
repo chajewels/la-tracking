@@ -44,15 +44,7 @@ Deno.serve(async (req) => {
     }
     if (!account_id) throw new Error("account_id or invoice_number required");
 
-    const guardResult = await ensureInstallmentAllocations(supabase, account_id);
-    if (!guardResult.ok) {
-      return new Response(JSON.stringify(guardResult), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // ── 0. Load all data for this account ──────────────────────────────────────────
+    // ── 0. Load all data for this account ─────────────────────────────────────────────
     const [
       { data: account },
       { data: schedule },
@@ -73,7 +65,7 @@ Deno.serve(async (req) => {
         .order("installment_number"),
       supabase
         .from("payments")
-        .select("id, amount_paid, date_paid, reference_number, remarks")
+        .select("id, amount_paid, date_paid, payment_type, is_downpayment, reference_number, remarks")
         .eq("account_id", account_id)
         .is("voided_at", null),
       supabase
@@ -93,34 +85,29 @@ Deno.serve(async (req) => {
     const penaltyRows: any[] = penalties || [];
     const serviceRows: any[] = services || [];
     const scheduleIds = scheduleRows.map((s) => s.id);
-    const scheduleIdSet = new Set(scheduleIds);
     const today = new Date().toISOString().split("T")[0];
 
-    const validPaymentIds = new Set(paymentRows.map((p) => p.id));
-    const paymentIdList = paymentRows.map((p) => p.id);
-
-    // Load payment_allocations by PAYMENT_ID (not schedule_id) to guarantee
-    // we only count allocations from THIS account's payments.
-    // Previously loading by schedule_id caused cross-account inflation.
+    // Load payment_allocations for this account's schedule rows
     const allocRows: any[] = [];
-    if (paymentIdList.length > 0) {
-      for (let i = 0; i < paymentIdList.length; i += 200) {
-        const chunk = paymentIdList.slice(i, i + 200);
+    if (scheduleIds.length > 0) {
+      for (let i = 0; i < scheduleIds.length; i += 200) {
+        const chunk = scheduleIds.slice(i, i + 200);
         const { data: allocs } = await supabase
           .from("payment_allocations")
           .select("payment_id, schedule_id, allocated_amount")
-          .in("payment_id", chunk)
+          .in("schedule_id", chunk)
           .eq("allocation_type", "installment");
         if (allocs) allocRows.push(...allocs);
       }
     }
 
-    // Build allocation sums per schedule row AND per payment
-    // Only count allocations pointing to schedule rows that belong to this account
+    const validPaymentIds = new Set(paymentRows.map((p) => p.id));
+
+    // Build allocation sums per schedule row AND per payment (non-voided payments only)
     const allocBySchedule: Record<string, number> = {};
     const allocByPayment: Record<string, number> = {};
     for (const a of allocRows) {
-      if (!scheduleIdSet.has(a.schedule_id)) continue;
+      if (!validPaymentIds.has(a.payment_id)) continue;
       allocBySchedule[a.schedule_id] = (allocBySchedule[a.schedule_id] || 0) + Number(a.allocated_amount);
       allocByPayment[a.payment_id]   = (allocByPayment[a.payment_id]   || 0) + Number(a.allocated_amount);
     }
@@ -128,14 +115,14 @@ Deno.serve(async (req) => {
     const summary = {
       account_id,
       invoice_number: account.invoice_number,
-      allocations_created: guardResult.created,
+      allocations_created: 0,
       schedule_rows_fixed: 0,
       penalties_waived: 0,
       account_totals_updated: false,
-      changes: [...guardResult.changes] as string[],
+      changes: [] as string[],
     };
 
-    // ── 1. Create missing allocations for unallocated payments ────────────────────
+    // ── 1. Create missing allocations for unallocated payments ────────────────────────
     // Skip downpayments (they don't allocate to schedule installments).
     // Include any non-DP payment where SUM(allocations) < amount_paid — this
     // handles both fully-unallocated payments AND partially-allocated ones
@@ -174,7 +161,6 @@ Deno.serve(async (req) => {
             if (!error) {
               schedAllocated[sched.id] = schedSoFar + toAllocate;
               allocBySchedule[sched.id] = schedAllocated[sched.id];
-              allocByPayment[payment.id] = alreadyAllocated + (Number(payment.amount_paid) - alreadyAllocated - remaining) + toAllocate;
               summary.allocations_created++;
               summary.changes.push(
                 `Allocation created: payment …${payment.id.slice(-6)} → installment #${sched.installment_number} ₱${toAllocate}`
@@ -186,20 +172,32 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── 2. Sync schedule paid_amount and status from allocations ──────────────
+    // ── 2. Sync schedule paid_amount and status from allocations ──────────────────────
     // Track which rows transition to 'paid' so we can auto-waive their penalties
     const newlyPaidIds = new Set<string>();
 
     for (const sched of scheduleRows) {
-      const correctPaid = allocBySchedule[sched.id] || 0;
+      const allocSum = allocBySchedule[sched.id] || 0;
       const base = Number(sched.base_installment_amount);
+      const currentTotalDue = Number(sched.total_due_amount);
+
+      // A row is fully paid when EITHER:
+      //   (a) allocation sum covers the base installment amount, OR
+      //   (b) total_due_amount was reduced to 0 by an advance/overflow payment credit
+      //       (record-payment reduces total_due on subsequent rows when there's excess)
+      // In both cases: cap paid_amount at base — never store overflow in paid_amount.
+      const fullyPaid =
+        (base > 0 && allocSum >= base - 0.005) ||
+        (base > 0 && currentTotalDue <= 0.005);
+
+      const correctPaid = fullyPaid ? base : Math.min(allocSum, base);
 
       let correctStatus: string;
-      if (base > 0 && correctPaid >= base) {
+      if (fullyPaid) {
         correctStatus = "paid";
-      } else if (correctPaid > 0 && correctPaid < base) {
+      } else if (correctPaid > 0) {
         correctStatus = "partially_paid";
-      } else if (correctPaid === 0 && sched.due_date < today) {
+      } else if (sched.due_date < today) {
         correctStatus = "overdue";
       } else {
         correctStatus = "pending";
@@ -216,12 +214,15 @@ Deno.serve(async (req) => {
           updated_at: new Date().toISOString(),
         };
 
-        // When a row transitions to 'paid', strip the pending penalties from the schedule row
-        // (the penalty_fees themselves will be waived in step 3)
-        if (correctStatus === "paid" && !wasAlreadyPaid) {
-          update.penalty_amount = 0;
+        if (correctStatus === "paid") {
+          // Always normalise total_due_amount = base when paid
+          // (not just on transition — ensures a stale 0 or overflow value is corrected)
           update.total_due_amount = base;
-          newlyPaidIds.add(sched.id);
+          if (!wasAlreadyPaid) {
+            // Only strip pending penalties on the first transition to paid
+            update.penalty_amount = 0;
+            newlyPaidIds.add(sched.id);
+          }
         }
 
         await supabase.from("layaway_schedule").update(update).eq("id", sched.id);
@@ -232,7 +233,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── 3. Auto-waive unpaid penalties on newly-paid schedule rows ─────────────
+    // ── 3. Auto-waive unpaid penalties on newly-paid schedule rows ─────────────────
     // These penalties were generated while the installment appeared overdue
     // due to missing allocations. Now that it's confirmed paid, waive them.
     // Only waives 'unpaid' penalties — 'paid' penalties are kept (already collected).
@@ -253,7 +254,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── 4. Recalculate account totals ─────────────────────────────────────────────
+    // ── 4. Recalculate account totals ────────────────────────────────────────────────────────
     // total_paid = SUM(non-voided payments)
     // remaining_balance = total_amount + activePenalties + services - totalPaid
     //   activePenalties = SUM(penalty_fees WHERE status != 'waived')  ← per CLAUDE.md
@@ -333,113 +334,6 @@ Deno.serve(async (req) => {
   }
 });
 
-async function ensureInstallmentAllocations(supabase: any, accountId: string) {
-  const [
-    { data: schedule },
-    { data: payments },
-  ] = await Promise.all([
-    supabase
-      .from("layaway_schedule")
-      .select("id, installment_number, due_date, base_installment_amount")
-      .eq("account_id", accountId)
-      .neq("status", "cancelled")
-      .order("installment_number"),
-    supabase
-      .from("payments")
-      .select("id, amount_paid, date_paid, reference_number, remarks")
-      .eq("account_id", accountId)
-      .is("voided_at", null),
-  ]);
-
-  const scheduleRows: any[] = schedule || [];
-  const paymentRows: any[] = payments || [];
-  const allocatablePayments = paymentRows.filter((payment) => !isDownpayment(payment));
-  const allocatablePaymentIds = allocatablePayments.map((payment) => payment.id);
-  const allocatablePaymentSum = allocatablePayments.reduce(
-    (sum, payment) => sum + Number(payment.amount_paid),
-    0,
-  );
-
-  if (allocatablePaymentIds.length === 0 || allocatablePaymentSum <= 0.01) {
-    return { ok: true, created: 0, changes: [] as string[] };
-  }
-
-  let existingAllocationCount = 0;
-  for (let i = 0; i < allocatablePaymentIds.length; i += 200) {
-    const chunk = allocatablePaymentIds.slice(i, i + 200);
-    const { count, error } = await supabase
-      .from("payment_allocations")
-      .select("id", { count: "exact", head: true })
-      .in("payment_id", chunk)
-      .eq("allocation_type", "installment");
-
-    if (error) {
-      return { ok: false, error: `Failed to inspect allocations: ${error.message}` };
-    }
-
-    existingAllocationCount += count || 0;
-  }
-
-  if (existingAllocationCount > 0) {
-    return { ok: true, created: 0, changes: [] as string[] };
-  }
-
-  if (scheduleRows.length === 0) {
-    return { ok: false, error: "No allocations possible, payments exist without schedule rows" };
-  }
-
-  return createWaterfallAllocations(supabase, allocatablePayments, scheduleRows);
-}
-
-async function createWaterfallAllocations(supabase: any, payments: any[], scheduleRows: any[]) {
-  const sortedSchedule = [...scheduleRows].sort(
-    (a, b) => a.installment_number - b.installment_number,
-  );
-  const sortedPayments = [...payments].sort((a, b) => {
-    const byDate = a.date_paid.localeCompare(b.date_paid);
-    return byDate !== 0 ? byDate : a.id.localeCompare(b.id);
-  });
-
-  const schedAllocated: Record<string, number> = {};
-  const changes: string[] = [];
-  let created = 0;
-
-  for (const payment of sortedPayments) {
-    let remaining = Number(payment.amount_paid);
-
-    for (const sched of sortedSchedule) {
-      if (remaining <= 0.005) break;
-
-      const base = Number(sched.base_installment_amount);
-      const alreadyAllocated = schedAllocated[sched.id] || 0;
-      const needed = Math.max(0, base - alreadyAllocated);
-
-      if (needed <= 0.005) continue;
-
-      const toAllocate = Math.min(remaining, needed);
-      const { error } = await supabase.from("payment_allocations").insert({
-        payment_id: payment.id,
-        schedule_id: sched.id,
-        allocated_amount: toAllocate,
-        allocation_type: "installment",
-      });
-
-      if (error) {
-        return { ok: false, error: `Failed to backfill allocations: ${error.message}` };
-      }
-
-      schedAllocated[sched.id] = alreadyAllocated + toAllocate;
-      remaining -= toAllocate;
-      created++;
-      changes.push(
-        `Allocation backfilled: payment …${payment.id.slice(-6)} → installment #${sched.installment_number} ₱${toAllocate}`,
-      );
-    }
-  }
-
-  return { ok: true, created, changes };
-}
-
 /**
  * Identify downpayment records so they are excluded from installment allocation.
  * Per CLAUDE.md Known Issues: check multiple fields.
@@ -448,6 +342,9 @@ function isDownpayment(p: any): boolean {
   const remarks = (p.remarks || "").toLowerCase();
   const ref = (p.reference_number || "").toLowerCase();
   return (
+    p.payment_type === "downpayment" ||
+    p.payment_type === "dp" ||
+    p.is_downpayment === true ||
     ref.startsWith("dp-") ||
     remarks.includes("down") ||
     remarks.includes("dp")
