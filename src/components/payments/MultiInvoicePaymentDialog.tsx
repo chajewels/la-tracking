@@ -59,28 +59,46 @@ interface AccountResult {
   }>;
 }
 
+// Detect partial items using BOTH DB status AND computed check:
+// DB status may be stale ('paid'/'pending') while item actually has partial payment,
+// OR post-reconcile total_due was reduced so paid_amount >= total_due looks "paid"
+function isPartialItem(s: ScheduleItem): boolean {
+  return s.status === 'partially_paid' ||
+    (s.status !== 'paid' && s.status !== 'cancelled' && s.paid_amount > 0 && s.paid_amount < s.base_installment_amount);
+}
+
 function getNextUnpaidItem(schedule?: ScheduleItem[]) {
   if (!schedule) return null;
   const sorted = [...schedule]
     .filter(s => s.status !== 'paid' && s.status !== 'cancelled')
     .sort((a, b) => a.installment_number - b.installment_number);
-  console.log('[getNextUnpaidItem] sorted unpaid statuses:', sorted.map(s => `#${s.installment_number}:${s.status}(total_due=${s.total_due_amount})`));
+  console.log('[getNextUnpaidItem] sorted unpaid statuses:', sorted.map(s => `#${s.installment_number}:${s.status}:isPartial=${isPartialItem(s)}(total_due=${s.total_due_amount},paid=${s.paid_amount})`));
   // Priority: partially_paid → overdue → pending
+  // Check both DB status and computed partial detection for robustness
   const result = (
-    sorted.find(s => s.status === 'partially_paid') ??
-    sorted.find(s => s.status === 'overdue') ??
-    sorted.find(s => s.status === 'pending') ??
+    sorted.find(s => isPartialItem(s)) ??
+    sorted.find(s => !isPartialItem(s) && s.status === 'overdue') ??
+    sorted.find(s => !isPartialItem(s) && s.status === 'pending') ??
     null
   );
   console.log('[getNextUnpaidItem] selected:', result ? `#${result.installment_number}:${result.status}(total_due=${result.total_due_amount})` : 'none');
   return result;
 }
 
+// Remaining amount: if paid < total_due, not yet reconciled → total_due - paid; otherwise total_due IS remaining
+function computeItemRemaining(item: ScheduleItem): number {
+  if (isPartialItem(item)) {
+    return item.paid_amount < item.total_due_amount
+      ? Math.max(0, item.total_due_amount - item.paid_amount)
+      : Math.max(0, item.total_due_amount);
+  }
+  return Math.max(0, item.total_due_amount);
+}
+
 function getNextDueInfo(schedule?: ScheduleItem[]) {
   const item = getNextUnpaidItem(schedule);
   if (!item) return null;
-  // total_due_amount IS the remaining for partially_paid rows after reconcile fix
-  const due = Math.max(0, Number(item.total_due_amount));
+  const due = computeItemRemaining(item);
   return {
     date: item.due_date,
     amount: due,
