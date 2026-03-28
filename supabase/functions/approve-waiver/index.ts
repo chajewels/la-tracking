@@ -173,7 +173,7 @@ Deno.serve(async (req) => {
 
     const { error: acctErr } = await supabase
       .from("layaway_accounts")
-      .update({ remaining_balance: newRemaining })
+      .update({ remaining_balance: newRemaining, total_paid: totalPaid })
       .eq("id", accountId);
     if (acctErr) throw new Error(`Failed to update account balance: ${acctErr.message}`);
 

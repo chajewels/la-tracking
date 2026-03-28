@@ -1,5 +1,54 @@
 # Cha Jewels Layaway System — Claude Code Context
 
+## CALCULATION STANDARD — NON-NEGOTIABLE
+
+### Core Formula
+  totalLAAmount     = base_total_amount + activePenalties + services
+  remainingBalance  = totalLAAmount - totalPaid
+
+### Penalty Status Rules
+  | status | counts in activePenalties? | meaning                       |
+  |--------|---------------------------|-------------------------------|
+  | active | YES                       | penalty charged, not yet paid |
+  | paid   | YES                       | penalty charged and collected |
+  | waived | NO                        | penalty forgiven, excluded    |
+
+  activePenalties = SUM(penalty_fees.penalty_amount)
+                    WHERE status != 'waived'
+                    (includes both 'active'/'unpaid' and 'paid')
+
+### Why paid penalties stay in totalLAAmount
+  A paid penalty was a legitimate charge that increased the account obligation.
+  The customer paid it. It must remain in totalLAAmount or the balance will be
+  artificially reduced.
+
+### sumOfPendingMonths reconciliation
+  sumOfPendingMonths = SUM(layaway_schedule.total_due_amount)
+                       WHERE status IN ('pending', 'overdue', 'partially_paid')
+
+  This MUST equal remainingBalance within ₱1 tolerance.
+  If it does not → schedule rows are stale and need resyncing.
+
+### Waiver rule
+  When a penalty is waived:
+  - penalty_fees.status = 'waived', waived_at = now()
+  - It is EXCLUDED from activePenalties
+  - remainingBalance DECREASES by the waived amount
+  - The corresponding layaway_schedule.total_due_amount must be reduced
+    by the waived penalty_amount
+  - If penalty was already paid before waiver request → status stays 'paid',
+    CANNOT be waived retroactively
+
+### totalPaid
+  totalPaid = SUM(payments.amount_paid) WHERE voided_at IS NULL
+  (includes downpayment + all installment payments + penalty payments)
+  layaway_accounts.total_paid must always be kept in sync with this.
+
+### Penalty display (admin + customer portal)
+  penalty_fees.status = 'paid'         → green "Paid"
+  penalty_fees.status = 'waived'       → gray strikethrough "Waived"
+  penalty_fees.status = 'active'/'unpaid' → red "Applied"
+
 ## Account Creation Rules
 
 - Downpayment is NEVER marked paid at creation

@@ -78,6 +78,7 @@ interface PortalAccount {
     due_date: string;
     base_amount: number;
     penalty_amount: number;
+    penalty_fee_status: string | null;
     total_due: number;
     paid_amount: number;
     status: string;
@@ -1022,10 +1023,16 @@ function OverviewTab({ account, statementUrl, today }: {
                     </Badge>
                   </div>
                   <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts}}>{fmtDate(item.due_date)}</p>
-                  {item.penalty_amount > 0 && (
-                    <Badge variant="outline" className="text-[9px] py-0 h-4 mt-0.5" style={{borderRadius:'2px',color:P.gl,borderColor:`${P.gp}50`,background:'transparent'}}>
-                      +{fmt(item.penalty_amount, currency)} penalty
-                    </Badge>
+                  {item.penalty_amount > 0 && item.penalty_fee_status !== 'waived' && (
+                    item.penalty_fee_status === 'paid' ? (
+                      <Badge variant="outline" className="text-[9px] py-0 h-4 mt-0.5" style={{borderRadius:'2px',color:'#5CB86A',borderColor:'#5CB86A50',background:'transparent'}}>
+                        +{fmt(item.penalty_amount, currency)} penalty (paid)
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[9px] py-0 h-4 mt-0.5" style={{borderRadius:'2px',color:P.gl,borderColor:`${P.gp}50`,background:'transparent'}}>
+                        +{fmt(item.penalty_amount, currency)} penalty
+                      </Badge>
+                    )
                   )}
                 </div>
                 <div className="text-right shrink-0">
