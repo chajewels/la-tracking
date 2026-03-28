@@ -202,7 +202,7 @@ function OverdueDebugTab() {
 
 // ── Waiver Audit Log ──
 function WaiverAuditTab() {
-  const { data: auditLogs, isLoading } = useQuery({
+  const { data: auditLogs, isLoading: logsLoading } = useQuery({
     queryKey: ['admin-waiver-audit-logs'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -212,11 +212,69 @@ function WaiverAuditTab() {
         .order('created_at', { ascending: false })
         .limit(50);
       if (error) throw error;
-      return data;
+      return (data || []) as any[];
     },
   });
 
-  if (isLoading) return <div className="space-y-2">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-16 rounded-lg" />)}</div>;
+  const accountIds = useMemo(
+    () => [...new Set((auditLogs || []).map((l: any) => l.entity_id).filter(Boolean))] as string[],
+    [auditLogs],
+  );
+  const userIds = useMemo(
+    () => [...new Set((auditLogs || []).map((l: any) => l.performed_by_user_id).filter(Boolean))] as string[],
+    [auditLogs],
+  );
+  const penaltyFeeIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const log of (auditLogs || [])) {
+      for (const p of (log.new_value_json?.penalties_waived || [])) {
+        if (p.penalty_fee_id) ids.push(p.penalty_fee_id);
+      }
+    }
+    return [...new Set(ids)];
+  }, [auditLogs]);
+
+  const { data: accounts } = useQuery({
+    queryKey: ['waiver-audit-accounts', accountIds.join(',')],
+    enabled: accountIds.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('layaway_accounts')
+        .select('id, invoice_number, customers(full_name)')
+        .in('id', accountIds);
+      return (data || []) as any[];
+    },
+  });
+
+  const { data: waiverProfiles } = useQuery({
+    queryKey: ['waiver-audit-profiles', userIds.join(',')],
+    enabled: userIds.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('user_id, full_name')
+        .in('user_id', userIds);
+      return (data || []) as any[];
+    },
+  });
+
+  const { data: penaltyFees } = useQuery({
+    queryKey: ['waiver-audit-penalty-fees', penaltyFeeIds.join(',')],
+    enabled: penaltyFeeIds.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('penalty_fees')
+        .select('id, penalty_date, penalty_stage, penalty_cycle')
+        .in('id', penaltyFeeIds);
+      return (data || []) as any[];
+    },
+  });
+
+  const accountMap  = useMemo(() => new Map((accounts      || []).map((a: any) => [a.id,       a])), [accounts]);
+  const profileMap  = useMemo(() => new Map((waiverProfiles|| []).map((p: any) => [p.user_id,  p])), [waiverProfiles]);
+  const penaltyMap  = useMemo(() => new Map((penaltyFees   || []).map((pf: any) => [pf.id,     pf])), [penaltyFees]);
+
+  if (logsLoading) return <div className="space-y-2">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-20 rounded-lg" />)}</div>;
 
   return (
     <div className="space-y-3">
@@ -226,37 +284,94 @@ function WaiverAuditTab() {
         </div>
       ) : (
         (auditLogs || []).map((log: any) => {
-          const details = log.new_value_json || {};
-          const isApproval = log.action.includes('approved');
-          const isBatch = log.action.startsWith('batch_');
-          const penaltiesWaived = details.penalties_waived || [];
+          const details        = log.new_value_json || {};
+          const isApproval     = log.action.includes('approved');
+          const penaltiesWaived: any[] = details.penalties_waived || [];
+          const account        = accountMap.get(log.entity_id);
+          const approver       = profileMap.get(log.performed_by_user_id);
+          const customerName   = (account as any)?.customers?.full_name;
+
           return (
-            <div key={log.id} className={`rounded-lg border p-4 space-y-2 ${isApproval ? 'border-success/40 bg-zinc-900' : 'border-destructive/40 bg-zinc-900'}`}>
+            <div key={log.id} className={`rounded-lg border p-4 space-y-3 ${isApproval ? 'border-success/40 bg-zinc-900' : 'border-destructive/40 bg-zinc-900'}`}>
+
+              {/* ── Header row ── */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  {isApproval ? <CheckCircle className="h-3.5 w-3.5 text-success" /> : <XCircle className="h-3.5 w-3.5 text-destructive" />}
+                  {isApproval
+                    ? <CheckCircle className="h-3.5 w-3.5 text-success" />
+                    : <XCircle    className="h-3.5 w-3.5 text-destructive" />}
                   <span className="text-xs font-semibold text-card-foreground">
-                    {isBatch ? `Batch ${isApproval ? 'Approval' : 'Rejection'}` : isApproval ? 'Approved' : 'Rejected'}
+                    {isApproval ? 'Approved' : 'Rejected'}
                   </span>
-                  {isBatch && <Badge variant="outline" className="text-[10px]">{details.waiver_ids?.length || details.count || 1} penalties</Badge>}
+                  {penaltiesWaived.length > 1 && (
+                    <Badge variant="outline" className="text-[10px]">{penaltiesWaived.length} penalties</Badge>
+                  )}
                 </div>
                 <span className="text-[10px] text-muted-foreground">
-                  {new Date(log.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  {new Date(log.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
                 </span>
               </div>
+
+              {/* ── Account + approver meta ── */}
+              <div className="flex items-center gap-3 flex-wrap">
+                {account ? (
+                  <Link
+                    to={`/accounts/${log.entity_id}`}
+                    className="font-mono text-xs font-semibold text-primary hover:underline"
+                  >
+                    #{(account as any).invoice_number}
+                  </Link>
+                ) : log.entity_id ? (
+                  <span className="font-mono text-xs text-muted-foreground">{log.entity_id.slice(0, 8)}…</span>
+                ) : null}
+                {customerName && (
+                  <span className="text-xs text-card-foreground">{customerName}</span>
+                )}
+                {approver && (
+                  <span className="text-[10px] text-zinc-500 ml-auto">
+                    by {approver.full_name || approver.user_id?.slice(0, 8)}
+                  </span>
+                )}
+              </div>
+
+              {/* ── Per-penalty rows ── */}
               {penaltiesWaived.length > 0 && (
-                <div className="text-[10px] text-muted-foreground space-y-0.5">
-                  {penaltiesWaived.map((p: any, i: number) => (
-                    <span key={i} className="inline-block mr-2 px-1.5 py-0.5 rounded bg-zinc-700">
-                      {p.stage} C{p.cycle}: {typeof p.amount === 'number' ? `₱${p.amount.toLocaleString()}` : p.amount}
-                    </span>
-                  ))}
+                <div className="space-y-1">
+                  {penaltiesWaived.map((p: any, i: number) => {
+                    const pf = penaltyMap.get(p.penalty_fee_id);
+                    const stage = p.stage || pf?.penalty_stage || '—';
+                    const cycle = p.cycle ?? pf?.penalty_cycle ?? '';
+                    const date  = pf?.penalty_date;
+                    return (
+                      <div key={i} className="flex items-center gap-3 rounded bg-zinc-800/60 px-3 py-1.5 text-xs">
+                        <Badge variant="outline" className="text-[10px] bg-zinc-700 border-zinc-600 text-zinc-300 shrink-0">
+                          {stage}{cycle !== '' ? ` C${cycle}` : ''}
+                        </Badge>
+                        {date && (
+                          <span className="text-zinc-400 tabular-nums">
+                            {new Date(date + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </span>
+                        )}
+                        <span className="font-semibold text-destructive tabular-nums ml-auto">
+                          ₱{Number(p.amount).toLocaleString()}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
-              {details.total_waived && (
-                <p className="text-xs text-card-foreground">Total waived: <span className="font-semibold text-success">₱{Number(details.total_waived).toLocaleString()}</span></p>
-              )}
-              {details.notes && <p className="text-[10px] text-muted-foreground italic">"{details.notes}"</p>}
+
+              {/* ── Total + notes ── */}
+              <div className="flex items-center gap-4 flex-wrap">
+                {details.total_waived != null && (
+                  <p className="text-xs text-card-foreground">
+                    Total waived: <span className="font-semibold text-success">₱{Number(details.total_waived).toLocaleString()}</span>
+                  </p>
+                )}
+                {details.notes && (
+                  <p className="text-[10px] text-muted-foreground italic">"{details.notes}"</p>
+                )}
+              </div>
             </div>
           );
         })
