@@ -162,12 +162,12 @@ FROM (
     -- correct_status
     CASE
       WHEN COALESCE(SUM(pa.allocated_amount), 0) >= ls2.base_installment_amount - 0.005
-        THEN 'paid'
+        THEN 'paid'::schedule_status
       WHEN COALESCE(SUM(pa.allocated_amount), 0) > 0
-        THEN 'partially_paid'
+        THEN 'partially_paid'::schedule_status
       WHEN ls2.due_date < CURRENT_DATE
-        THEN 'overdue'
-      ELSE 'pending'
+        THEN 'overdue'::schedule_status
+      ELSE 'pending'::schedule_status
     END                                                            AS correct_status
   FROM  layaway_schedule ls2
   LEFT  JOIN payment_allocations pa
