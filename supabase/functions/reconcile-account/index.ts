@@ -9,9 +9,11 @@ const corsHeaders = {
  * Reconcile a single layaway account using payments as the source of truth.
  *
  * Steps:
+ *   0b. Delete oversized allocations (single alloc > base for that row) so the
+ *       waterfall in Step 1 can redistribute them correctly across subsequent rows.
  *   1. Create missing payment_allocations for unallocated payments
  *      (allocates chronologically to schedule rows, skips downpayments)
- *   2. Sync layaway_schedule paid_amount and status from allocations
+ *   2. Sync layaway_schedule paid_amount, total_due_amount and status from allocations
  *   3. Auto-waive unpaid penalty_fees on schedule rows that are now paid
  *      (these penalties were incorrectly generated while the row appeared overdue)
  *   4. Recalculate layaway_accounts.total_paid and remaining_balance
@@ -87,14 +89,14 @@ Deno.serve(async (req) => {
     const scheduleIds = scheduleRows.map((s) => s.id);
     const today = new Date().toISOString().split("T")[0];
 
-    // Load payment_allocations for this account's schedule rows
+    // Load payment_allocations for this account's schedule rows (include id for deletion)
     const allocRows: any[] = [];
     if (scheduleIds.length > 0) {
       for (let i = 0; i < scheduleIds.length; i += 200) {
         const chunk = scheduleIds.slice(i, i + 200);
         const { data: allocs } = await supabase
           .from("payment_allocations")
-          .select("payment_id, schedule_id, allocated_amount")
+          .select("id, payment_id, schedule_id, allocated_amount")
           .in("schedule_id", chunk)
           .eq("allocation_type", "installment");
         if (allocs) allocRows.push(...allocs);
@@ -102,6 +104,47 @@ Deno.serve(async (req) => {
     }
 
     const validPaymentIds = new Set(paymentRows.map((p) => p.id));
+
+    // Build a base-amount lookup for quick access
+    const baseBySchedule: Record<string, number> = {};
+    for (const s of scheduleRows) {
+      baseBySchedule[s.id] = Number(s.base_installment_amount);
+    }
+
+    const summary = {
+      account_id,
+      invoice_number: account.invoice_number,
+      oversized_allocations_fixed: 0,
+      allocations_created: 0,
+      schedule_rows_fixed: 0,
+      penalties_waived: 0,
+      account_totals_updated: false,
+      changes: [] as string[],
+    };
+
+    // ── 0b. Delete oversized allocations so the waterfall can redistribute ────
+    // record-payment may store an entire overflow amount in a single allocation
+    // (e.g. ₱7,914 against a ₱3,014 base), leaving subsequent rows unallocated.
+    // Delete them so Step 1 re-allocates the full payment correctly across rows.
+    const oversizedAllocs = allocRows.filter(
+      (a) =>
+        validPaymentIds.has(a.payment_id) &&
+        Number(a.allocated_amount) > (baseBySchedule[a.schedule_id] || 0) + 0.005
+    );
+
+    if (oversizedAllocs.length > 0) {
+      for (const a of oversizedAllocs) {
+        await supabase.from("payment_allocations").delete().eq("id", a.id);
+        summary.oversized_allocations_fixed++;
+        summary.changes.push(
+          `Deleted oversized allocation: payment …${a.payment_id.slice(-6)} → schedule …${a.schedule_id.slice(-6)} ` +
+          `was ₱${a.allocated_amount} (base ₱${baseBySchedule[a.schedule_id]})`
+        );
+      }
+      // Remove deleted entries from allocRows so sums below reflect reality
+      const deletedIds = new Set(oversizedAllocs.map((a) => a.id));
+      allocRows.splice(0, allocRows.length, ...allocRows.filter((a) => !deletedIds.has(a.id)));
+    }
 
     // Build allocation sums per schedule row AND per payment (non-voided payments only)
     const allocBySchedule: Record<string, number> = {};
@@ -112,21 +155,11 @@ Deno.serve(async (req) => {
       allocByPayment[a.payment_id]   = (allocByPayment[a.payment_id]   || 0) + Number(a.allocated_amount);
     }
 
-    const summary = {
-      account_id,
-      invoice_number: account.invoice_number,
-      allocations_created: 0,
-      schedule_rows_fixed: 0,
-      penalties_waived: 0,
-      account_totals_updated: false,
-      changes: [] as string[],
-    };
-
     // ── 1. Create missing allocations for unallocated payments ────────────────
     // Skip downpayments (they don't allocate to schedule installments).
     // Include any non-DP payment where SUM(allocations) < amount_paid — this
     // handles both fully-unallocated payments AND partially-allocated ones
-    // (e.g. a prior partial allocation left a gap).
+    // (e.g. a prior partial allocation left a gap, or an oversized alloc was deleted above).
     const needsAllocation = paymentRows.filter((p) => {
       if (isDownpayment(p)) return false;
       const allocated = allocByPayment[p.id] || 0;
@@ -172,7 +205,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── 2. Sync schedule paid_amount and status from allocations ──────────────
+    // ── 2. Sync schedule paid_amount, total_due_amount and status ─────────────
     // Track which rows transition to 'paid' so we can auto-waive their penalties
     const newlyPaidIds = new Set<string>();
 
@@ -180,6 +213,7 @@ Deno.serve(async (req) => {
       const allocSum = allocBySchedule[sched.id] || 0;
       const base = Number(sched.base_installment_amount);
       const currentTotalDue = Number(sched.total_due_amount);
+      const currentPenalty = Number(sched.penalty_amount) || 0;
 
       // A row is fully paid when EITHER:
       //   (a) allocation sum covers the base installment amount, OR
@@ -192,43 +226,50 @@ Deno.serve(async (req) => {
 
       const correctPaid = fullyPaid ? base : Math.min(allocSum, base);
 
+      // Compute correct total_due_amount:
+      //   paid:           base (normalised — penalties cleared)
+      //   partially_paid: base - paid (remaining base owed)
+      //   pending/overdue: base + penalty (full amount still owed)
       let correctStatus: string;
+      let correctTotalDue: number;
+
       if (fullyPaid) {
         correctStatus = "paid";
+        correctTotalDue = base;
       } else if (correctPaid > 0) {
         correctStatus = "partially_paid";
+        correctTotalDue = base - correctPaid;
       } else if (sched.due_date < today) {
         correctStatus = "overdue";
+        correctTotalDue = base + currentPenalty;
       } else {
         correctStatus = "pending";
+        correctTotalDue = base + currentPenalty;
       }
 
       const wasAlreadyPaid = sched.status === "paid";
       const paidAmountChanged = Math.abs(Number(sched.paid_amount) - correctPaid) > 0.01;
       const statusChanged = sched.status !== correctStatus;
+      const totalDueChanged = Math.abs(currentTotalDue - correctTotalDue) > 0.01;
 
-      if (paidAmountChanged || statusChanged) {
+      if (paidAmountChanged || statusChanged || totalDueChanged) {
         const update: any = {
           paid_amount: correctPaid,
           status: correctStatus,
+          total_due_amount: correctTotalDue,
           updated_at: new Date().toISOString(),
         };
 
-        if (correctStatus === "paid") {
-          // Always normalise total_due_amount = base when paid
-          // (not just on transition — ensures a stale 0 or overflow value is corrected)
-          update.total_due_amount = base;
-          if (!wasAlreadyPaid) {
-            // Only strip pending penalties on the first transition to paid
-            update.penalty_amount = 0;
-            newlyPaidIds.add(sched.id);
-          }
+        if (correctStatus === "paid" && !wasAlreadyPaid) {
+          // Only strip pending penalties on the first transition to paid
+          update.penalty_amount = 0;
+          newlyPaidIds.add(sched.id);
         }
 
         await supabase.from("layaway_schedule").update(update).eq("id", sched.id);
         summary.schedule_rows_fixed++;
         summary.changes.push(
-          `Installment #${sched.installment_number}: ${sched.status}/${Number(sched.paid_amount)} → ${correctStatus}/${correctPaid}`
+          `Installment #${sched.installment_number}: ${sched.status}/${Number(sched.paid_amount)} → ${correctStatus}/${correctPaid} (total_due: ${currentTotalDue}→${correctTotalDue})`
         );
       }
     }
@@ -317,7 +358,8 @@ Deno.serve(async (req) => {
 
     console.log(
       `[reconcile-account] ${account.invoice_number}: ` +
-      `${summary.allocations_created} allocations, ` +
+      `${summary.oversized_allocations_fixed} oversized fixed, ` +
+      `${summary.allocations_created} allocations created, ` +
       `${summary.schedule_rows_fixed} rows fixed, ` +
       `${summary.penalties_waived} penalties waived`
     );
