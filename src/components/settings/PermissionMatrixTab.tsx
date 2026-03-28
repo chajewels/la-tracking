@@ -249,10 +249,11 @@ function MemberMatrix({
 
   const handleToggle = async (key: string) => {
     if (!selectedMember) return;
-    const hasOverride = overrideMap.has(key);
-    const roleDefault = getRoleDefault(key);
-    // New value: if no override → flip the role default; if override → flip the override
-    const newGranted = hasOverride ? !overrideMap.get(key) : !roleDefault;
+    // Always derive from current effective value (override if present, else role default)
+    const currentEffective = overrideMap.has(key)
+      ? (overrideMap.get(key) ?? false)
+      : getRoleDefault(key);
+    const newGranted = !currentEffective;
 
     setSaving(key);
     try {
@@ -384,7 +385,9 @@ function MemberMatrix({
                   >
                     {/* Left: permission label */}
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-xs font-medium text-foreground">{perm.label}</span>
+                      <span className={`text-xs font-medium ${hasOverride ? 'text-foreground' : 'text-muted-foreground'}`}>
+                        {perm.label}
+                      </span>
                       {hasOverride && (
                         <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-amber-500/50 text-amber-400 bg-amber-500/10 shrink-0">
                           Custom
@@ -392,10 +395,10 @@ function MemberMatrix({
                       )}
                     </div>
 
-                    {/* Right: toggle + state + reset */}
+                    {/* Right: toggle + state label + reset */}
                     <div className="flex items-center gap-2 shrink-0">
                       {!hasOverride && (
-                        <span className="text-[10px] text-muted-foreground hidden group-hover:inline">
+                        <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
                           Role default
                         </span>
                       )}
@@ -405,12 +408,12 @@ function MemberMatrix({
                       ) : (
                         <Switch
                           checked={effectiveValue}
-                          onCheckedChange={() => handleToggle(perm.key)}
-                          className={`${
+                          onCheckedChange={(_newVal) => handleToggle(perm.key)}
+                          className={
                             hasOverride
-                              ? 'data-[state=checked]:bg-amber-500'
-                              : 'data-[state=checked]:bg-primary opacity-60'
-                          }`}
+                              ? 'data-[state=checked]:bg-amber-500 data-[state=unchecked]:bg-amber-900/60'
+                              : 'data-[state=checked]:bg-primary/50 data-[state=unchecked]:bg-muted'
+                          }
                         />
                       )}
 
