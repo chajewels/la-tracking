@@ -103,14 +103,13 @@ Deno.serve(async (req) => {
 
     const validPaymentIds = new Set(paymentRows.map((p) => p.id));
 
-    // Build allocation sums per schedule row (non-voided payments only)
+    // Build allocation sums per schedule row AND per payment (non-voided payments only)
     const allocBySchedule: Record<string, number> = {};
-    // Track which payments already have allocations
-    const allocatedPaymentIds = new Set<string>();
+    const allocByPayment: Record<string, number> = {};
     for (const a of allocRows) {
       if (!validPaymentIds.has(a.payment_id)) continue;
       allocBySchedule[a.schedule_id] = (allocBySchedule[a.schedule_id] || 0) + Number(a.allocated_amount);
-      allocatedPaymentIds.add(a.payment_id);
+      allocByPayment[a.payment_id]   = (allocByPayment[a.payment_id]   || 0) + Number(a.allocated_amount);
     }
 
     const summary = {
@@ -125,22 +124,31 @@ Deno.serve(async (req) => {
 
     // ── 1. Create missing allocations for unallocated payments ────────────────
     // Skip downpayments (they don't allocate to schedule installments).
-    // Allocate remaining payments chronologically to schedule rows.
-    const unallocated = paymentRows.filter((p) => !allocatedPaymentIds.has(p.id) && !isDownpayment(p));
+    // Include any non-DP payment where SUM(allocations) < amount_paid — this
+    // handles both fully-unallocated payments AND partially-allocated ones
+    // (e.g. a prior partial allocation left a gap).
+    const needsAllocation = paymentRows.filter((p) => {
+      if (isDownpayment(p)) return false;
+      const allocated = allocByPayment[p.id] || 0;
+      return allocated < Number(p.amount_paid) - 0.005; // > ₱0.005 unallocated
+    });
 
-    if (unallocated.length > 0) {
+    if (needsAllocation.length > 0) {
       const schedAllocated = { ...allocBySchedule };
       const sortedSchedule = [...scheduleRows].sort((a, b) => a.installment_number - b.installment_number);
-      const sortedPayments = [...unallocated].sort((a, b) => a.date_paid.localeCompare(b.date_paid));
+      const sortedPayments = [...needsAllocation].sort((a, b) => a.date_paid.localeCompare(b.date_paid));
 
       for (const payment of sortedPayments) {
-        let remaining = Number(payment.amount_paid);
+        // Start from the REMAINING unallocated portion, not the full amount.
+        // This correctly handles payments that are partially allocated already.
+        const alreadyAllocated = allocByPayment[payment.id] || 0;
+        let remaining = Number(payment.amount_paid) - alreadyAllocated;
 
         for (const sched of sortedSchedule) {
           if (remaining <= 0.005) break;
           const base = Number(sched.base_installment_amount);
-          const alreadyAllocated = schedAllocated[sched.id] || 0;
-          const needed = Math.max(0, base - alreadyAllocated);
+          const schedSoFar = schedAllocated[sched.id] || 0;
+          const needed = Math.max(0, base - schedSoFar);
 
           if (needed > 0.005) {
             const toAllocate = Math.min(remaining, needed);
@@ -151,7 +159,7 @@ Deno.serve(async (req) => {
               allocation_type: "installment",
             });
             if (!error) {
-              schedAllocated[sched.id] = alreadyAllocated + toAllocate;
+              schedAllocated[sched.id] = schedSoFar + toAllocate;
               allocBySchedule[sched.id] = schedAllocated[sched.id];
               summary.allocations_created++;
               summary.changes.push(
