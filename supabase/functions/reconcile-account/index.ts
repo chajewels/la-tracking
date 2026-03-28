@@ -443,9 +443,6 @@ function isDownpayment(p: any): boolean {
   const remarks = (p.remarks || "").toLowerCase();
   const ref = (p.reference_number || "").toLowerCase();
   return (
-    p.payment_type === "downpayment" ||
-    p.payment_type === "dp" ||
-    p.is_downpayment === true ||
     ref.startsWith("dp-") ||
     remarks.includes("down") ||
     remarks.includes("dp")
