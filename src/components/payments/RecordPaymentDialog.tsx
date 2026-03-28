@@ -109,6 +109,8 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     .filter(s => s.status !== 'paid' && s.status !== 'cancelled')
     .sort((a, b) => a.installment_number - b.installment_number);
 
+  const parsedAmount = payFullBalance ? remainingBalance : (parseFloat(amount) || 0);
+
   // Underpayment detection — compare entered amount against first installment's effective remaining
   const firstUnpaid = unpaidItems[0];
   const firstUnpaidEffectiveDue = firstUnpaid
@@ -144,7 +146,6 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     }
   }
 
-  const parsedAmount = payFullBalance ? remainingBalance : (parseFloat(amount) || 0);
   const isValid = parsedAmount > 0 && parsedAmount <= remainingBalance && paymentDate;
 
   const handlePreview = async () => {
