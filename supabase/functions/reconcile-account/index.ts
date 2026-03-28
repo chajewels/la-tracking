@@ -44,6 +44,14 @@ Deno.serve(async (req) => {
     }
     if (!account_id) throw new Error("account_id or invoice_number required");
 
+    const guardResult = await ensureInstallmentAllocations(supabase, account_id);
+    if (!guardResult.ok) {
+      return new Response(JSON.stringify(guardResult), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // ── 0. Load all data for this account ──────────────────────────────────────────
     const [
       { data: account },
@@ -115,11 +123,11 @@ Deno.serve(async (req) => {
     const summary = {
       account_id,
       invoice_number: account.invoice_number,
-      allocations_created: 0,
+      allocations_created: guardResult.created,
       schedule_rows_fixed: 0,
       penalties_waived: 0,
       account_totals_updated: false,
-      changes: [] as string[],
+      changes: [...guardResult.changes] as string[],
     };
 
     // ── 1. Create missing allocations for unallocated payments ────────────────────
@@ -161,6 +169,7 @@ Deno.serve(async (req) => {
             if (!error) {
               schedAllocated[sched.id] = schedSoFar + toAllocate;
               allocBySchedule[sched.id] = schedAllocated[sched.id];
+              allocByPayment[payment.id] = alreadyAllocated + (Number(payment.amount_paid) - alreadyAllocated - remaining) + toAllocate;
               summary.allocations_created++;
               summary.changes.push(
                 `Allocation created: payment …${payment.id.slice(-6)} → installment #${sched.installment_number} ₱${toAllocate}`
@@ -318,6 +327,113 @@ Deno.serve(async (req) => {
     });
   }
 });
+
+async function ensureInstallmentAllocations(supabase: any, accountId: string) {
+  const [
+    { data: schedule },
+    { data: payments },
+  ] = await Promise.all([
+    supabase
+      .from("layaway_schedule")
+      .select("id, installment_number, due_date, base_installment_amount")
+      .eq("account_id", accountId)
+      .neq("status", "cancelled")
+      .order("installment_number"),
+    supabase
+      .from("payments")
+      .select("id, amount_paid, date_paid, payment_type, is_downpayment, reference_number, remarks")
+      .eq("account_id", accountId)
+      .is("voided_at", null),
+  ]);
+
+  const scheduleRows: any[] = schedule || [];
+  const paymentRows: any[] = payments || [];
+  const allocatablePayments = paymentRows.filter((payment) => !isDownpayment(payment));
+  const allocatablePaymentIds = allocatablePayments.map((payment) => payment.id);
+  const allocatablePaymentSum = allocatablePayments.reduce(
+    (sum, payment) => sum + Number(payment.amount_paid),
+    0,
+  );
+
+  if (allocatablePaymentIds.length === 0 || allocatablePaymentSum <= 0.01) {
+    return { ok: true, created: 0, changes: [] as string[] };
+  }
+
+  let existingAllocationCount = 0;
+  for (let i = 0; i < allocatablePaymentIds.length; i += 200) {
+    const chunk = allocatablePaymentIds.slice(i, i + 200);
+    const { count, error } = await supabase
+      .from("payment_allocations")
+      .select("id", { count: "exact", head: true })
+      .in("payment_id", chunk)
+      .eq("allocation_type", "installment");
+
+    if (error) {
+      return { ok: false, error: `Failed to inspect allocations: ${error.message}` };
+    }
+
+    existingAllocationCount += count || 0;
+  }
+
+  if (existingAllocationCount > 0) {
+    return { ok: true, created: 0, changes: [] as string[] };
+  }
+
+  if (scheduleRows.length === 0) {
+    return { ok: false, error: "No allocations possible, payments exist without schedule rows" };
+  }
+
+  return createWaterfallAllocations(supabase, allocatablePayments, scheduleRows);
+}
+
+async function createWaterfallAllocations(supabase: any, payments: any[], scheduleRows: any[]) {
+  const sortedSchedule = [...scheduleRows].sort(
+    (a, b) => a.installment_number - b.installment_number,
+  );
+  const sortedPayments = [...payments].sort((a, b) => {
+    const byDate = a.date_paid.localeCompare(b.date_paid);
+    return byDate !== 0 ? byDate : a.id.localeCompare(b.id);
+  });
+
+  const schedAllocated: Record<string, number> = {};
+  const changes: string[] = [];
+  let created = 0;
+
+  for (const payment of sortedPayments) {
+    let remaining = Number(payment.amount_paid);
+
+    for (const sched of sortedSchedule) {
+      if (remaining <= 0.005) break;
+
+      const base = Number(sched.base_installment_amount);
+      const alreadyAllocated = schedAllocated[sched.id] || 0;
+      const needed = Math.max(0, base - alreadyAllocated);
+
+      if (needed <= 0.005) continue;
+
+      const toAllocate = Math.min(remaining, needed);
+      const { error } = await supabase.from("payment_allocations").insert({
+        payment_id: payment.id,
+        schedule_id: sched.id,
+        allocated_amount: toAllocate,
+        allocation_type: "installment",
+      });
+
+      if (error) {
+        return { ok: false, error: `Failed to backfill allocations: ${error.message}` };
+      }
+
+      schedAllocated[sched.id] = alreadyAllocated + toAllocate;
+      remaining -= toAllocate;
+      created++;
+      changes.push(
+        `Allocation backfilled: payment …${payment.id.slice(-6)} → installment #${sched.installment_number} ₱${toAllocate}`,
+      );
+    }
+  }
+
+  return { ok: true, created, changes };
+}
 
 /**
  * Identify downpayment records so they are excluded from installment allocation.
