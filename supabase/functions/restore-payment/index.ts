@@ -257,6 +257,23 @@ Deno.serve(async (req) => {
       performed_by_user_id: user.id,
     });
 
+    // Trigger reconcile-account to sync schedule rows and verify totals
+    try {
+      await fetch(
+        `${Deno.env.get("SUPABASE_URL")}/functions/v1/reconcile-account`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({ account_id: payment.account_id }),
+        }
+      );
+    } catch (reconcileErr) {
+      console.warn(`[restore-payment] reconcile-account call failed for ${payment.account_id}:`, reconcileErr);
+    }
+
     return new Response(JSON.stringify({ success: true, payment_id }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

@@ -78,6 +78,24 @@ Deno.serve(async (req) => {
       void_reason: reason || "Voided by user",
     }).eq("id", payment_id);
 
+    // Step 1b: Clear carried_amount on any schedule row where this payment triggered a carry
+    // (carried_by_payment_id = payment_id). Guard with try/catch in case column doesn't exist yet.
+    try {
+      const { data: carryRows } = await supabase
+        .from("layaway_schedule")
+        .select("id")
+        .eq("carried_by_payment_id", payment_id);
+      for (const row of (carryRows || [])) {
+        await supabase.from("layaway_schedule").update({
+          carried_amount: 0,
+          carried_from_schedule_id: null,
+          carried_by_payment_id: null,
+        }).eq("id", row.id);
+      }
+    } catch (_carryErr) {
+      // Column may not exist yet — safe to ignore until migration runs
+    }
+
     // Step 2: Collect all schedule IDs affected by this payment
     const affectedScheduleIds = new Set<string>();
     for (const alloc of (allocations || [])) {
