@@ -5,18 +5,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-/**
- * Daily Reconciliation Job
- *
- * Runs reconcile-account for every active layaway account to ensure:
- *   - payment_allocations exist for all payments
- *   - layaway_schedule.paid_amount and status match allocations
- *   - unpaid penalties on paid installments are auto-waived
- *   - account.total_paid and remaining_balance are accurate
- *
- * Intended to be called by a Supabase cron job once per day.
- * Records completion timestamp in system_settings.key = 'last_daily_reconciliation'.
- */
+const CLOSED_STATUSES = ["forfeited", "final_forfeited", "cancelled", "completed"];
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -25,107 +15,95 @@ Deno.serve(async (req) => {
   const startTime = Date.now();
 
   try {
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const anonKey     = Deno.env.get("SUPABASE_ANON_KEY") || "";
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    const supabase = createClient(supabaseUrl, serviceKey);
-
-    const CLOSED_STATUSES = ["forfeited", "final_forfeited", "cancelled", "completed"];
-    const PAGE = 500;
-
-    // Fetch all non-closed accounts (paginated)
+    // Fetch all non-closed, non-test accounts
     let allAccounts: any[] = [];
     let from = 0;
+    const PAGE = 1000;
+
     while (true) {
       const { data } = await supabase
         .from("layaway_accounts")
         .select("id, invoice_number, status")
-        .not("status", "in", `(${CLOSED_STATUSES.map(s => `"${s}"`).join(",")})`)
+        .not("status", "in", `(${CLOSED_STATUSES.join(",")})`)
+        .not("invoice_number", "like", "TEST-%")
         .range(from, from + PAGE - 1);
+
       if (!data || data.length === 0) break;
       allAccounts = allAccounts.concat(data);
       if (data.length < PAGE) break;
       from += PAGE;
     }
 
-    const reconcileUrl = `${supabaseUrl}/functions/v1/reconcile-account`;
-
     let processed = 0;
     let fixed = 0;
     let errors = 0;
     const errorAccounts: string[] = [];
+    const allChanges: { invoice: string; changes: string[] }[] = [];
 
-    for (const account of allAccounts) {
-      // Skip test accounts
-      if (String(account.invoice_number).startsWith("TEST-")) continue;
-
+    for (const acct of allAccounts) {
       try {
-        const res = await fetch(reconcileUrl, {
+        const resp = await fetch(`${supabaseUrl}/functions/v1/reconcile-account`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${serviceKey}`,
-            "apikey": anonKey,
+            "Authorization": `Bearer ${serviceRoleKey}`,
+            "apikey": serviceRoleKey,
           },
-          body: JSON.stringify({ account_id: account.id }),
+          body: JSON.stringify({ account_id: acct.id }),
         });
 
-        if (res.ok) {
-          const result = await res.json();
-          processed++;
-          if (
-            result.allocations_created > 0 ||
-            result.schedule_rows_fixed > 0 ||
-            result.penalties_waived > 0 ||
-            result.account_totals_updated
-          ) {
-            fixed++;
-            console.log(
-              `[daily-reconciliation] Fixed ${account.invoice_number}: ` +
-              `allocations=${result.allocations_created}, ` +
-              `rows=${result.schedule_rows_fixed}, ` +
-              `penalties_waived=${result.penalties_waived}`
-            );
-          }
-        } else {
-          errors++;
-          errorAccounts.push(account.invoice_number);
-          console.error(`[daily-reconciliation] reconcile failed for ${account.invoice_number}: ${res.status}`);
+        const result = await resp.json();
+        processed++;
+
+        if (result.ok && result.changes && result.changes.length > 0) {
+          fixed++;
+          allChanges.push({ invoice: acct.invoice_number, changes: result.changes });
         }
-      } catch (err: any) {
+
+        if (!result.ok) {
+          errors++;
+          errorAccounts.push(`${acct.invoice_number}: ${result.error || "unknown"}`);
+        }
+      } catch (e) {
         errors++;
-        errorAccounts.push(account.invoice_number);
-        console.error(`[daily-reconciliation] error for ${account.invoice_number}:`, err.message);
+        errorAccounts.push(`${acct.invoice_number}: ${(e as Error).message}`);
       }
     }
 
-    // Record last run timestamp in system_settings
-    await supabase.from("system_settings").upsert({
-      key: "last_daily_reconciliation",
-      value: JSON.stringify(new Date().toISOString()),
-    }, { onConflict: "key" });
+    // Store timestamp
+    await supabase
+      .from("system_settings")
+      .upsert({
+        key: "last_daily_reconciliation",
+        value: JSON.stringify(new Date().toISOString()),
+        description: "Timestamp of last daily reconciliation run",
+      }, { onConflict: "key" });
 
     const elapsed = Date.now() - startTime;
-    console.log(
-      `[daily-reconciliation] Complete: ${processed} processed, ${fixed} fixed, ${errors} errors in ${elapsed}ms`
-    );
 
-    return new Response(JSON.stringify({
-      ok: true,
+    const result = {
       total_accounts: allAccounts.length,
       processed,
       fixed,
       errors,
       error_accounts: errorAccounts,
       elapsed_ms: elapsed,
-      timestamp: new Date().toISOString(),
-    }), {
+      changes_detail: allChanges,
+    };
+
+    return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (error: any) {
-    console.error("[daily-reconciliation] fatal error:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
+  } catch (error) {
+    return new Response(JSON.stringify({ error: (error as Error).message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
