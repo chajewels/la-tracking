@@ -36,15 +36,20 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Validate JWT in code
+    // Validate JWT in code — allow service-role invocations (no user context)
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) throw new Error("Missing authorization");
     const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) throw new Error("Unauthorized");
 
-    const canRunSystemHealthFixes = await hasPermission(supabase, user.id, "system_health");
-    if (!canRunSystemHealthFixes) throw new Error("Permission denied");
+    let userId: string | null = null;
+    const isServiceRole = token === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!isServiceRole) {
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !user) throw new Error("Unauthorized");
+      const canRunSystemHealthFixes = await hasPermission(supabase, user.id, "system_health");
+      if (!canRunSystemHealthFixes) throw new Error("Permission denied");
+      userId = user.id;
+    }
 
     const body = await req.json();
     const { action, schedule_id, invoice_number } = body;
