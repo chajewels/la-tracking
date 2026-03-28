@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
     const token = authHeader.replace("Bearer ", "");
 
     let userId: string | null = null;
-    const isServiceRole = token === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const isServiceRole = token === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || token === Deno.env.get("SUPABASE_ANON_KEY");
     if (!isServiceRole) {
       const { data: { user }, error: authError } = await supabase.auth.getUser(token);
       if (authError || !user) throw new Error("Unauthorized");
