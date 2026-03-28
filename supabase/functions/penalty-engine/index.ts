@@ -96,7 +96,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ── Guard: Remove any items where paid_amount >= base_installment_amount ──
+    // ── Guard 1: Remove items where schedule.paid_amount >= base (fast path) ──
     // Even if status hasn't been updated to "paid", a fully-covered installment must never get a penalty
     allOverdueItems = allOverdueItems.filter(item => {
       return Number(item.paid_amount) < Number(item.base_installment_amount);
@@ -104,6 +104,65 @@ Deno.serve(async (req) => {
 
     if (allOverdueItems.length === 0) {
       return new Response(JSON.stringify({ message: "No eligible overdue items (all fully paid)", penalties_created: 0 }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── Guard 2: Cross-check payment_allocations as source of truth ───────────
+    // schedule.paid_amount may be stale (e.g. payment recorded but not allocated).
+    // Fetching allocations prevents penalties being charged on installments that
+    // are actually covered by payments in the payments table.
+    {
+      const guardIds = allOverdueItems.map(i => i.id);
+      const allocSums = new Map<string, number>();
+
+      // Batch-fetch allocations for these schedule rows
+      const rawAllocs: any[] = [];
+      for (let i = 0; i < guardIds.length; i += 200) {
+        const chunk = guardIds.slice(i, i + 200);
+        const { data: allocs } = await supabase
+          .from("payment_allocations")
+          .select("payment_id, schedule_id, allocated_amount")
+          .in("schedule_id", chunk)
+          .eq("allocation_type", "installment");
+        if (allocs) rawAllocs.push(...allocs);
+      }
+
+      // Filter to non-voided payments only
+      const allocPaymentIds = [...new Set(rawAllocs.map(a => a.payment_id))];
+      const voidedSet = new Set<string>();
+      for (let i = 0; i < allocPaymentIds.length; i += 200) {
+        const chunk = allocPaymentIds.slice(i, i + 200);
+        const { data: pays } = await supabase
+          .from("payments")
+          .select("id, voided_at")
+          .in("id", chunk);
+        if (pays) {
+          for (const p of pays) {
+            if (p.voided_at != null) voidedSet.add(p.id);
+          }
+        }
+      }
+
+      for (const a of rawAllocs) {
+        if (voidedSet.has(a.payment_id)) continue;
+        allocSums.set(a.schedule_id, (allocSums.get(a.schedule_id) || 0) + Number(a.allocated_amount));
+      }
+
+      // Remove any item whose allocations fully cover the base installment
+      const beforeCount = allOverdueItems.length;
+      allOverdueItems = allOverdueItems.filter(item => {
+        const realPaid = allocSums.get(item.id) || 0;
+        return realPaid < Number(item.base_installment_amount);
+      });
+      const skipped = beforeCount - allOverdueItems.length;
+      if (skipped > 0) {
+        console.log(`[penalty-engine] Guard 2 skipped ${skipped} item(s) with stale schedule.paid_amount — covered by allocations`);
+      }
+    }
+
+    if (allOverdueItems.length === 0) {
+      return new Response(JSON.stringify({ message: "No eligible overdue items (covered by allocations)", penalties_created: 0 }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
