@@ -131,6 +131,76 @@ export default function PaymentSubmissions() {
   const [proofDialog, setProofDialog] = useState<string | null>(null);
   const [expandedAllocs, setExpandedAllocs] = useState<string | null>(null);
 
+  // Waterfall state for confirm dialog
+  const [confirmScheduleRows, setConfirmScheduleRows] = useState<ScheduleViewRow[]>([]);
+  const [confirmWaterfall, setConfirmWaterfall] = useState<WaterfallResult | null>(null);
+  const [confirmCarryOver, setConfirmCarryOver] = useState(false);
+  const [confirmLoadingSchedule, setConfirmLoadingSchedule] = useState(false);
+  const [confirmResults, setConfirmResults] = useState<Array<{ ok: boolean; msg: string }> | null>(null);
+
+  // Fetch schedule and compute waterfall when confirm dialog opens
+  useEffect(() => {
+    if (!actionDialog || actionDialog.action !== 'confirmed') {
+      setConfirmScheduleRows([]);
+      setConfirmWaterfall(null);
+      setConfirmCarryOver(false);
+      setConfirmResults(null);
+      return;
+    }
+    let cancelled = false;
+    setConfirmLoadingSchedule(true);
+    (async () => {
+      const { data } = await supabase
+        .from('schedule_with_actuals')
+        .select('*')
+        .eq('account_id', actionDialog.sub.account_id)
+        .order('due_date', { ascending: true });
+      if (cancelled) return;
+      const rows: ScheduleViewRow[] = (data || []).map((r: any) => ({
+        id: r.id,
+        account_id: r.account_id,
+        installment_number: r.installment_number,
+        due_date: r.due_date,
+        base_installment_amount: r.base_installment_amount,
+        penalty_amount: r.penalty_amount,
+        carried_amount: r.carried_amount,
+        currency: r.currency,
+        db_status: r.db_status,
+        allocated: r.allocated,
+        actual_remaining: r.actual_remaining,
+        computed_status: r.computed_status,
+      }));
+      setConfirmScheduleRows(rows);
+      const wf = computeWaterfall(Number(actionDialog.sub.submitted_amount), rows);
+      setConfirmWaterfall(wf);
+      setConfirmLoadingSchedule(false);
+    })();
+    return () => { cancelled = true; };
+  }, [actionDialog]);
+
+  // Helpers for waterfall partial detection
+  const getConfirmPartialRow = useMemo(() => {
+    if (!confirmWaterfall?.valid || confirmScheduleRows.length === 0) return null;
+    for (const alloc of confirmWaterfall.allocations) {
+      const row = confirmScheduleRows.find(r => r.id === alloc.scheduleId);
+      if (!row) continue;
+      const rowTotal = Number(row.base_installment_amount) + Number(row.penalty_amount || 0) + Number(row.carried_amount || 0);
+      const newAllocated = (Number(row.allocated) || 0) + alloc.amount;
+      if (newAllocated < rowTotal - 0.01 && newAllocated > 0) {
+        return { scheduleId: row.id, row, shortfall: Math.round((rowTotal - newAllocated) * 100) / 100 };
+      }
+    }
+    return null;
+  }, [confirmWaterfall, confirmScheduleRows]);
+
+  const getConfirmNextRow = useMemo(() => {
+    if (!getConfirmPartialRow) return null;
+    const sorted = [...confirmScheduleRows]
+      .filter(r => r.id !== getConfirmPartialRow.scheduleId && !isRowPaid(r) && getRowStatus(r) !== 'cancelled')
+      .sort((a, b) => a.due_date.localeCompare(b.due_date));
+    return sorted[0] || null;
+  }, [getConfirmPartialRow, confirmScheduleRows]);
+
   const { data: submissions, isLoading } = useQuery({
     queryKey: ['payment-submissions', statusFilter],
     queryFn: async () => {
