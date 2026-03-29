@@ -468,7 +468,7 @@ export default function MultiInvoicePaymentDialog({
                   const checked = selectedIds.has(a.id);
                   const nextDue = getNextDueInfo(a.schedule);
                   const label = getLabelFromNotes(a.notes, a.invoice_number);
-                  const enteredAmt = parseFloat(amounts[a.id] || '0') || 0;
+                  
                   return (
                     <div
                       key={a.id}
