@@ -151,8 +151,12 @@ export default function AccountDetail() {
   const [acceptCarryTarget, setAcceptCarryTarget] = useState<{
     rowId: string; paidAmount: number; shortfall: number;
     currentMonthLabel: string; nextMonthLabel: string;
+    installmentNumber: number; dueDateFormatted: string;
+    nextDueDateFormatted: string; nextTotal: number;
   } | null>(null);
   const [acceptCarryLoading, setAcceptCarryLoading] = useState(false);
+  const [acceptCarryReason, setAcceptCarryReason] = useState('');
+  const [acceptCarryError, setAcceptCarryError] = useState('');
   const [showVerify, setShowVerify] = useState(false);
   const queryClient = useQueryClient();
   const { roles } = useAuth();
@@ -339,19 +343,22 @@ export default function AccountDetail() {
   }, [deleteScheduleTarget, account, id, queryClient]);
 
   const handleAcceptCarryConfirm = async () => {
-    if (!acceptCarryTarget || !account) return;
+    if (!acceptCarryTarget || !account || !acceptCarryReason.trim()) return;
     setAcceptCarryLoading(true);
+    setAcceptCarryError('');
     try {
-      const { error } = await supabase.functions.invoke('accept-underpayment', {
-        body: { schedule_row_id: acceptCarryTarget.rowId, account_id: account.id },
+      const { data, error } = await supabase.functions.invoke('accept-underpayment', {
+        body: { schedule_row_id: acceptCarryTarget.rowId, account_id: account.id, reason: acceptCarryReason.trim() },
       });
       if (error) throw error;
-      toast.success(`Carried over ${formatCurrency(acceptCarryTarget.shortfall, currency)} to ${acceptCarryTarget.nextMonthLabel}`);
+      if (data?.error) throw new Error(data.error);
+      toast.success('Carry-over applied successfully');
       queryClient.invalidateQueries({ queryKey: ['schedule', id] });
       queryClient.invalidateQueries({ queryKey: ['account', id] });
       setAcceptCarryTarget(null);
+      setAcceptCarryReason('');
     } catch (err: any) {
-      toast.error(err.message || 'Failed to accept carry over');
+      setAcceptCarryError(err.message || 'Failed to accept carry over');
     } finally {
       setAcceptCarryLoading(false);
     }
@@ -1361,12 +1368,9 @@ export default function AccountDetail() {
                           </Button>
                         ) : null}
                         {item.status === 'partially_paid' && isAdmin && (() => {
-                          // Show carry button only if next row hasn't been carried into yet
                           const nextRow = scheduleItems.find(s => s.installment_number > item.installment_number && s.status !== 'cancelled');
-                          // With view semantics: actual_remaining > base means carried_amount is present
                           const carryAlreadyDone = nextRow && getRowRemaining(nextRow as any) > Number(nextRow.base_installment_amount) + 0.01;
                           if (carryAlreadyDone) return null;
-                          // actual_remaining IS the shortfall — no double-subtraction needed
                           const shortfall = getRowRemaining(item as any);
                           const nextUnpaid = scheduleItems
                             .filter(s => (s.status === 'pending' || s.status === 'overdue' || s.status === 'partially_paid') && s.id !== item.id)
@@ -1374,21 +1378,35 @@ export default function AccountDetail() {
                           const nextLabel = nextUnpaid
                             ? new Date(nextUnpaid.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                             : '(none)';
-                          const currLabel = new Date(item.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                          const currLabel = new Date(item.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                          const nextDueFormatted = nextUnpaid
+                            ? new Date(nextUnpaid.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                            : '(none)';
+                          const nextBase = nextUnpaid ? Number(nextUnpaid.base_installment_amount) : 0;
+                          const nextPenalty = nextUnpaid ? Number(nextUnpaid.penalty_amount) : 0;
+                          const nextTotal = nextBase + nextPenalty + shortfall;
                           return (
                             <Button
-                              variant="ghost"
-                              className="h-6 px-1.5 text-[10px] text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap rounded-md"
+                              variant="outline"
+                              className="h-6 px-1.5 text-[10px] text-amber-500 border-amber-500/30 hover:text-amber-600 hover:bg-amber-500/10 hover:border-amber-500/50 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap rounded-md"
                               title={`Accept ${formatCurrency(paidAmt, currency)} as full payment, carry ${formatCurrency(shortfall, currency)} to ${nextLabel}`}
-                              onClick={() => setAcceptCarryTarget({
-                                rowId: item.id,
-                                paidAmount: paidAmt,
-                                shortfall,
-                                currentMonthLabel: currLabel,
-                                nextMonthLabel: nextLabel,
-                              })}
+                              onClick={() => {
+                                setAcceptCarryReason('');
+                                setAcceptCarryError('');
+                                setAcceptCarryTarget({
+                                  rowId: item.id,
+                                  paidAmount: paidAmt,
+                                  shortfall,
+                                  currentMonthLabel: currLabel,
+                                  nextMonthLabel: nextLabel,
+                                  installmentNumber: item.installment_number,
+                                  dueDateFormatted: currLabel,
+                                  nextDueDateFormatted: nextDueFormatted,
+                                  nextTotal,
+                                });
+                              }}
                             >
-                              Accept &amp; Carry
+                              Accept &amp; Carry Over
                             </Button>
                           );
                         })()}
@@ -1928,23 +1946,39 @@ export default function AccountDetail() {
 
         {/* Delete Schedule Item Confirmation */}
         {/* Accept & Carry Over confirmation */}
-        <AlertDialog open={!!acceptCarryTarget} onOpenChange={(open) => { if (!open) setAcceptCarryTarget(null); }}>
+        <AlertDialog open={!!acceptCarryTarget} onOpenChange={(open) => { if (!open) { setAcceptCarryTarget(null); setAcceptCarryReason(''); setAcceptCarryError(''); } }}>
           <AlertDialogContent className="bg-card border-border">
             <AlertDialogHeader>
-              <AlertDialogTitle className="text-card-foreground">Accept Partial Payment?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Accept {formatCurrency(acceptCarryTarget?.paidAmount ?? 0, currency)} as full payment for {acceptCarryTarget?.currentMonthLabel}?{' '}
-                {formatCurrency(acceptCarryTarget?.shortfall ?? 0, currency)} will be added to {acceptCarryTarget?.nextMonthLabel}.
-                This cannot be undone.
+              <AlertDialogTitle className="text-card-foreground">Accept Partial Payment</AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-2 text-sm text-muted-foreground">
+                  <p>Accept {formatCurrency(acceptCarryTarget?.paidAmount ?? 0, currency)} as full payment for Month {acceptCarryTarget?.installmentNumber} ({acceptCarryTarget?.dueDateFormatted})?</p>
+                  <p>{formatCurrency(acceptCarryTarget?.shortfall ?? 0, currency)} will be carried to {acceptCarryTarget?.nextDueDateFormatted}.</p>
+                  <p className="font-medium text-card-foreground">Next installment new total: {formatCurrency(acceptCarryTarget?.nextTotal ?? 0, currency)}</p>
+                </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-card-foreground">Reason (required)</label>
+              <Input
+                value={acceptCarryReason}
+                onChange={(e) => setAcceptCarryReason(e.target.value)}
+                placeholder="e.g. Customer request, payment arrangement"
+                className="bg-background"
+              />
+            </div>
+            {acceptCarryError && (
+              <div className="rounded-md bg-destructive/10 border border-destructive/20 p-2 text-xs text-destructive">
+                {acceptCarryError}
+              </div>
+            )}
             <AlertDialogFooter>
               <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
               <AlertDialogAction
                 className="bg-amber-500 text-white hover:bg-amber-600"
-                disabled={acceptCarryLoading}
+                disabled={acceptCarryLoading || !acceptCarryReason.trim()}
                 onClick={handleAcceptCarryConfirm}>
-                {acceptCarryLoading ? 'Processing…' : 'Accept & Carry Over'}
+                {acceptCarryLoading ? 'Processing…' : 'Confirm'}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
