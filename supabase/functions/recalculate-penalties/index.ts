@@ -150,6 +150,19 @@ Deno.serve(async (req) => {
       const invoiceNumber = acct.invoice_number;
       const totalPaid = Number(acct.total_paid);
 
+      // Penalty freeze: skip this account if there is a pending payment submission.
+      // A pending submission means the customer has sent money that hasn't been
+      // confirmed yet — applying a penalty now could be unfair.
+      const { count: pendingCount } = await supabase
+        .from("payment_submissions")
+        .select("*", { count: "exact", head: true })
+        .eq("account_id", accountId)
+        .in("status", ["submitted", "under_review"]);
+      if (pendingCount && pendingCount > 0) {
+        console.log(`[penalty-skip] ${invoiceNumber} — pending submission (${pendingCount}), skipping`);
+        continue;
+      }
+
       let totalSchedulePenaltyBefore = 0;
       let totalSchedulePenaltyAfter = 0;
       let anyChange = false;

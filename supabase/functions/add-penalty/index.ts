@@ -121,6 +121,14 @@ Deno.serve(async (req) => {
       ? existingPenalties[0].penalty_cycle + 1
       : 1;
 
+    // Check for pending payment submission — warn but do not block
+    const { count: pendingCount } = await supabase
+      .from("payment_submissions")
+      .select("*", { count: "exact", head: true })
+      .eq("account_id", account_id)
+      .in("status", ["submitted", "under_review"]);
+    const hasPendingSubmission = pendingCount !== null && pendingCount > 0;
+
     // Insert penalty_fees record
     const { data: penaltyFee, error: penErr } = await supabase
       .from("penalty_fees")
@@ -205,10 +213,18 @@ Deno.serve(async (req) => {
       },
     });
 
-    return new Response(JSON.stringify({
+    const responseBody: Record<string, unknown> = {
       success: true,
+      penalty_id: penaltyFee.id,
       penalty: penaltyFee,
-    }), {
+    };
+    if (hasPendingSubmission) {
+      responseBody.warning =
+        "This account has a pending payment submission. " +
+        "Penalty recorded but auto-apply is paused until resolved.";
+    }
+
+    return new Response(JSON.stringify(responseBody), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
