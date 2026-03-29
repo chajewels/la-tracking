@@ -73,27 +73,18 @@ Deno.serve(async (req) => {
     const newTotalDue = new_base_amount + penaltyAmount;
     const isPaid = schedItem.status === "paid";
 
-    // Update the schedule item — also sync paid_amount if already paid
-    const updatePayload: Record<string, unknown> = {
-      base_installment_amount: new_base_amount,
-      total_due_amount: newTotalDue,
-    };
-    if (isPaid) {
-      updatePayload.paid_amount = newTotalDue;
-    }
-
-    // Set session-local flag so the DB trigger allows this authorized edit.
-    // The flag expires automatically when the transaction ends.
-    await supabase.rpc('set_config', {
-      setting: 'app.allow_base_edit',
-      value: 'true',
-      is_local: true,
-    });
-
-    const { error: updateErr } = await supabase
-      .from("layaway_schedule")
-      .update(updatePayload)
-      .eq("id", schedule_id);
+    // Use SECURITY DEFINER RPC to bypass enforce_immutable_base trigger.
+    // The function runs as the postgres owner and updates base_installment_amount,
+    // total_due_amount, and paid_amount (when paid) atomically.
+    const { error: updateErr } = await supabase.rpc(
+      'admin_update_schedule_base',
+      {
+        p_schedule_id: schedule_id,
+        p_new_base: new_base_amount,
+        p_new_total_due: newTotalDue,
+        p_is_paid: isPaid,
+      }
+    );
 
     if (updateErr) {
       return new Response(JSON.stringify({ error: "Failed to update schedule item", details: updateErr.message }), {
