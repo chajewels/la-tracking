@@ -1946,23 +1946,39 @@ export default function AccountDetail() {
 
         {/* Delete Schedule Item Confirmation */}
         {/* Accept & Carry Over confirmation */}
-        <AlertDialog open={!!acceptCarryTarget} onOpenChange={(open) => { if (!open) setAcceptCarryTarget(null); }}>
+        <AlertDialog open={!!acceptCarryTarget} onOpenChange={(open) => { if (!open) { setAcceptCarryTarget(null); setAcceptCarryReason(''); setAcceptCarryError(''); } }}>
           <AlertDialogContent className="bg-card border-border">
             <AlertDialogHeader>
-              <AlertDialogTitle className="text-card-foreground">Accept Partial Payment?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Accept {formatCurrency(acceptCarryTarget?.paidAmount ?? 0, currency)} as full payment for {acceptCarryTarget?.currentMonthLabel}?{' '}
-                {formatCurrency(acceptCarryTarget?.shortfall ?? 0, currency)} will be added to {acceptCarryTarget?.nextMonthLabel}.
-                This cannot be undone.
+              <AlertDialogTitle className="text-card-foreground">Accept Partial Payment</AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-2 text-sm text-muted-foreground">
+                  <p>Accept {formatCurrency(acceptCarryTarget?.paidAmount ?? 0, currency)} as full payment for Month {acceptCarryTarget?.installmentNumber} ({acceptCarryTarget?.dueDateFormatted})?</p>
+                  <p>{formatCurrency(acceptCarryTarget?.shortfall ?? 0, currency)} will be carried to {acceptCarryTarget?.nextDueDateFormatted}.</p>
+                  <p className="font-medium text-card-foreground">Next installment new total: {formatCurrency(acceptCarryTarget?.nextTotal ?? 0, currency)}</p>
+                </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-card-foreground">Reason (required)</label>
+              <Input
+                value={acceptCarryReason}
+                onChange={(e) => setAcceptCarryReason(e.target.value)}
+                placeholder="e.g. Customer request, payment arrangement"
+                className="bg-background"
+              />
+            </div>
+            {acceptCarryError && (
+              <div className="rounded-md bg-destructive/10 border border-destructive/20 p-2 text-xs text-destructive">
+                {acceptCarryError}
+              </div>
+            )}
             <AlertDialogFooter>
               <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
               <AlertDialogAction
                 className="bg-amber-500 text-white hover:bg-amber-600"
-                disabled={acceptCarryLoading}
+                disabled={acceptCarryLoading || !acceptCarryReason.trim()}
                 onClick={handleAcceptCarryConfirm}>
-                {acceptCarryLoading ? 'Processing…' : 'Accept & Carry Over'}
+                {acceptCarryLoading ? 'Processing…' : 'Confirm'}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
