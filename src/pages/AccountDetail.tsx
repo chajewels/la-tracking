@@ -343,19 +343,22 @@ export default function AccountDetail() {
   }, [deleteScheduleTarget, account, id, queryClient]);
 
   const handleAcceptCarryConfirm = async () => {
-    if (!acceptCarryTarget || !account) return;
+    if (!acceptCarryTarget || !account || !acceptCarryReason.trim()) return;
     setAcceptCarryLoading(true);
+    setAcceptCarryError('');
     try {
-      const { error } = await supabase.functions.invoke('accept-underpayment', {
-        body: { schedule_row_id: acceptCarryTarget.rowId, account_id: account.id },
+      const { data, error } = await supabase.functions.invoke('accept-underpayment', {
+        body: { schedule_row_id: acceptCarryTarget.rowId, account_id: account.id, reason: acceptCarryReason.trim() },
       });
       if (error) throw error;
-      toast.success(`Carried over ${formatCurrency(acceptCarryTarget.shortfall, currency)} to ${acceptCarryTarget.nextMonthLabel}`);
+      if (data?.error) throw new Error(data.error);
+      toast.success('Carry-over applied successfully');
       queryClient.invalidateQueries({ queryKey: ['schedule', id] });
       queryClient.invalidateQueries({ queryKey: ['account', id] });
       setAcceptCarryTarget(null);
+      setAcceptCarryReason('');
     } catch (err: any) {
-      toast.error(err.message || 'Failed to accept carry over');
+      setAcceptCarryError(err.message || 'Failed to accept carry over');
     } finally {
       setAcceptCarryLoading(false);
     }
