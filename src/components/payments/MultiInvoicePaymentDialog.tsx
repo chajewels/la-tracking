@@ -468,19 +468,7 @@ export default function MultiInvoicePaymentDialog({
                   const checked = selectedIds.has(a.id);
                   const nextDue = getNextDueInfo(a.schedule);
                   const label = getLabelFromNotes(a.notes, a.invoice_number);
-                  // Underpayment detection for this account
                   const enteredAmt = parseFloat(amounts[a.id] || '0') || 0;
-                  const firstUnpaidItem = getNextUnpaidItem(a.schedule);
-                  const firstItemEffDue = firstUnpaidItem
-                    ? (firstUnpaidItem.status === 'partially_paid' && Number(firstUnpaidItem.paid_amount) > Number(firstUnpaidItem.total_due_amount)
-                        ? Number(firstUnpaidItem.total_due_amount)
-                        : Math.max(0, Number(firstUnpaidItem.total_due_amount) - Number(firstUnpaidItem.paid_amount)))
-                    : 0;
-                  const acctIsUnderpayment = checked && isAdminOrFinance && enteredAmt > 0 && firstUnpaidItem && enteredAmt < firstItemEffDue - 0.005;
-                  const acctShortfall = acctIsUnderpayment ? Math.round((firstItemEffDue - enteredAmt) * 100) / 100 : 0;
-                  const acctSecondItem = a.schedule
-                    ? [...a.schedule].filter(s => s.status !== 'paid' && s.status !== 'cancelled').sort((x, y) => x.installment_number - y.installment_number)[1]
-                    : null;
                   return (
                     <div
                       key={a.id}
