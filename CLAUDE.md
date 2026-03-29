@@ -182,26 +182,19 @@ When checking whether a user can perform an action:
 
   Underpayment:     status → partially_paid.
                     paid_amount = amount received.
-                    total_due_amount = shortfall (= original_due - paid, i.e. the remaining).
+                    Next row: COMPLETELY UNTOUCHED. No changes.
 
-    carry_over=false (default):
-                    Shortfall stays on this row only. Next month unchanged.
-                    Row remains partially_paid until paid in full or post-hoc accepted.
-
-    carry_over=true (explicit admin action via "Pay Partial" button):
-                    As above PLUS: next pending month's total_due_amount += shortfall.
-                    Use only when admin explicitly confirms carry at payment time.
-
-  Accept carry:     Admin-only post-hoc action (accept-underpayment edge function).
-                    Forces current partially_paid row to 'paid'; total_due_amount → paid_amount.
-                    Shortfall added to next row's total_due_amount ONLY (never base_installment_amount).
-                    Canonical remaining_balance is unaffected — total_paid is unchanged.
-                    Guard: if no next row exists → error, record a new payment instead.
+    carry_over (manual staff action only):
+                    Staff clicks Carry Over button in AccountDetail UI.
+                    Calls carry-over edge function.
+                    Source row → paid. Next row gets carried_amount = shortfall.
+                    NEVER happens automatically.
 
   NEVER:
     - Change base_installment_amount for any of the above
-    - Call reconcile-account in these flows
-    - Auto-carry without explicit admin confirmation
+    - Inflate total_due_amount on next row
+    - Auto-carry without explicit admin button click
+    - Call accept-underpayment to perform carry (it is audit-log only)
 
   total_due_amount semantics by status:
     pending / overdue:    base_installment_amount + penalty_amount (full amount owed)
@@ -216,6 +209,19 @@ When checking whether a user can perform an action:
 
 - Commit and push all changes directly to **main** branch
 - Do NOT create feature branches unless explicitly asked
+
+## TOOL OWNERSHIP RULES (LOCKED — 2026-03-29)
+
+  Lovable → src/ AND supabase/functions/ file creation and editing
+  Cloud Shell → npx supabase functions deploy commands ONLY
+  Supabase SQL Editor → database changes only (pure SQL)
+  Claude Code → READ-ONLY audit and diagnosis — never commit to repo
+
+  No prompt written without plan confirmed first.
+  No step executed without explicit go signal from Cynthia.
+
+  CLAUDE.md is the single source of truth — both Lovable and
+  Claude Code must read it before any changes.
 
 ## Project Overview
 
@@ -435,8 +441,11 @@ When completing a partially_paid month:
     NEVER accept payment > account.remaining_balance
 
   INVARIANT 5 — carry-over storage:
-    ONLY: layaway_schedule.carried_amount via accept-underpayment
+    ONLY: layaway_schedule.carried_amount via carry-over edge function
+          (manual staff action)
     NEVER: inflate total_due_amount on any row
+    NEVER: write carried_amount from accept-underpayment
+    NEVER: write carried_amount automatically on underpayment
 
   INVARIANT 6 — total_paid direction:
     INCREASES: record-payment only
@@ -466,15 +475,48 @@ When completing a partially_paid month:
     OLD total_due_amount  → NEW actual_remaining (for display)
     OLD status            → NEW computed_status (display) / db_status (writes)
 
-## CARRY-OVER RULES
+## CARRY-OVER RULES (updated 2026-03-29)
 
-  Carry-over is stored as carried_amount on the NEXT row.
-  It is NEVER written by inflating total_due_amount.
-  Only accept-underpayment sets carried_amount.
-  When the row with carried_amount is fully paid:
-    reconcile-account sets carried_amount = 0 (consumed, cleared).
-  Voiding a payment that triggered a carry-over:
-    void-payment clears carried_amount on the next row.
+  Underpayment default behavior:
+    When a payment underpays a month, the row is marked 'partially_paid'.
+    The next row is COMPLETELY UNTOUCHED — no carry is written automatically.
+    This is enforced in review-payment-submission (auto-carry removed 2026-03-29).
+
+  Carry-over is a MANUAL STAFF DECISION ONLY:
+    Staff clicks the "Carry Over" button on a partially_paid row in AccountDetail.
+    This calls the carry-over edge function (NOT accept-underpayment).
+
+  carry-over edge function:
+    Endpoint: /functions/v1/carry-over
+    Body: { schedule_row_id, account_id }
+    Auth: Bearer token + admin role required
+    Steps:
+      1. Validates source row status === 'partially_paid'
+      2. Computes shortfall from SUM(payment_allocations.allocated_amount)
+      3. Finds next row by installment_number + 1
+      4. Marks source row as 'paid'
+      5. Writes carried_amount = shortfall to next row
+      6. Reverts step 4 if step 5 fails
+    Net effect: source row closes as paid, next row carries the shortfall
+
+  accept-underpayment edge function:
+    Purpose: Records AUDIT LOG only when staff acknowledges an underpayment
+    What it does NOT do: Does NOT write carried_amount, does NOT mark source
+    row as paid, does NOT touch next row
+    Net DB effect: Zero row changes — audit log entry only
+
+  carried_amount column:
+    Written ONLY by the carry-over edge function
+    Cleared by void-payment when a payment that triggered carry is voided
+    NEVER written by accept-underpayment
+    NEVER written by inflating total_due_amount
+    NEVER written automatically on underpayment
+
+  FORBIDDEN:
+    - Auto-carry on underpayment
+    - Inflating total_due_amount on any row
+    - Writing carried_amount from accept-underpayment
+    - carried_amount written when source row is still partially_paid
 
 ## DECIMAL RULES
 
@@ -511,3 +553,25 @@ When completing a partially_paid month:
   Check 19: wrongful forfeit — no zero-balance forfeited accounts
   Check 20: carried amount on paid row — no unconsumed carry on paid rows
   Check 21: double carry — no account has carry on multiple rows
+
+## SYSTEM STATUS (as of 2026-03-29)
+
+  System Health: 20/20 ✅
+  Reconciliation: 803/803 ALL CLEAR ✅
+  Double-count bug (INV #18031, #17977): FIXED ✅
+  accept-underpayment auto-carry: REMOVED ✅
+  carry-over edge function: DEPLOYED ✅
+  review-payment-submission auto-carry: REMOVED ✅
+  Underpayment decision modal: PENDING (not yet built)
+
+## PENDING ITEMS (as of 2026-03-29)
+
+  1. Underpayment decision modal in UI
+     - "Keep as Partial" → calls accept-underpayment (audit log only)
+     - "Accept & Carry Over" → calls carry-over edge function
+     - Appears after payment confirmed with shortfall > 0
+     - Admin cannot dismiss without choosing
+
+  2. E3 — Total Penalties footer showing waived amounts
+  3. E4 — INV #17541 cosmetic row status fix
+  4. Firebase signing page connection (Steps 13-17)
