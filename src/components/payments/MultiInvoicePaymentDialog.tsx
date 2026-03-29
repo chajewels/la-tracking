@@ -140,10 +140,50 @@ export default function MultiInvoicePaymentDialog({
   const [referenceNumber, setReferenceNumber] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Waterfall state
+  const [scheduleViewRows, setScheduleViewRows] = useState<Record<string, ScheduleViewRow[]>>({});
+  const [waterfallResults, setWaterfallResults] = useState<Record<string, WaterfallResult>>({});
+  const waterfallTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
   const payableAccounts = useMemo(() =>
     accounts.filter(a => (a.status === 'active' || a.status === 'overdue') && a.remaining_balance > 0),
     [accounts]
   );
+
+  // Fetch schedule_with_actuals for all payable accounts when dialog opens
+  useEffect(() => {
+    if (!open || payableAccounts.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const rowsMap: Record<string, ScheduleViewRow[]> = {};
+      for (const a of payableAccounts) {
+        const { data } = await supabase
+          .from('schedule_with_actuals')
+          .select('*')
+          .eq('account_id', a.id)
+          .order('due_date', { ascending: true });
+        if (cancelled) return;
+        if (data) {
+          rowsMap[a.id] = data.map((r: any) => ({
+            id: r.id,
+            account_id: r.account_id,
+            installment_number: r.installment_number,
+            due_date: r.due_date,
+            base_installment_amount: r.base_installment_amount,
+            penalty_amount: r.penalty_amount,
+            carried_amount: r.carried_amount,
+            currency: r.currency,
+            db_status: r.db_status,
+            allocated: r.allocated,
+            actual_remaining: r.actual_remaining,
+            computed_status: r.computed_status,
+          }));
+        }
+      }
+      if (!cancelled) setScheduleViewRows(rowsMap);
+    })();
+    return () => { cancelled = true; };
+  }, [open, payableAccounts]);
 
   // Initialize: pre-check all, pre-fill amounts
   useEffect(() => {
