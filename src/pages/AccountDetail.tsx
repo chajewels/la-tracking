@@ -151,8 +151,12 @@ export default function AccountDetail() {
   const [acceptCarryTarget, setAcceptCarryTarget] = useState<{
     rowId: string; paidAmount: number; shortfall: number;
     currentMonthLabel: string; nextMonthLabel: string;
+    installmentNumber: number; dueDateFormatted: string;
+    nextDueDateFormatted: string; nextTotal: number;
   } | null>(null);
   const [acceptCarryLoading, setAcceptCarryLoading] = useState(false);
+  const [acceptCarryReason, setAcceptCarryReason] = useState('');
+  const [acceptCarryError, setAcceptCarryError] = useState('');
   const [showVerify, setShowVerify] = useState(false);
   const queryClient = useQueryClient();
   const { roles } = useAuth();
