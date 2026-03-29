@@ -474,6 +474,52 @@ export default function MultiInvoicePaymentDialog({
                         {checked && allocationErrors[a.id] && (
                           <p className="text-xs text-destructive mt-0.5">{allocationErrors[a.id]}</p>
                         )}
+                        {/* Waterfall allocation breakdown */}
+                        {checked && waterfallResults[a.id]?.valid && waterfallResults[a.id].allocations.length > 0 && (
+                          <div className="mt-2 rounded-md border border-border bg-muted/30 p-2">
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Allocation breakdown</p>
+                            {waterfallResults[a.id].allocations.map((alloc) => {
+                              const row = scheduleViewRows[a.id]?.find(r => r.id === alloc.scheduleId);
+                              if (!row) return null;
+                              const rowTotal = Number(row.base_installment_amount) + Number(row.penalty_amount || 0) + Number(row.carried_amount || 0);
+                              const allocatedBefore = Number(row.allocated) || 0;
+                              const newAllocated = allocatedBefore + alloc.amount;
+                              const isPaidAfter = newAllocated >= rowTotal - 0.01;
+                              const isPartialAfter = !isPaidAfter && newAllocated > 0;
+                              const dateLabel = new Date(row.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                              return (
+                                <div key={alloc.scheduleId} className="flex items-center gap-2 text-[11px] py-0.5">
+                                  <span className="text-muted-foreground">Month {row.installment_number}</span>
+                                  <span className="text-muted-foreground">{dateLabel}</span>
+                                  <span className="font-medium text-card-foreground tabular-nums">{formatCurrency(alloc.amount, cur)}</span>
+                                  <span className="text-muted-foreground">→</span>
+                                  {isPaidAfter ? (
+                                    <span className="text-green-600 dark:text-green-400 font-medium">PAID ✅</span>
+                                  ) : (
+                                    <span className="text-yellow-600 dark:text-yellow-400 font-medium">PARTIAL 🟡</span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {(() => {
+                              const wf = waterfallResults[a.id];
+                              const lastAlloc = wf.allocations[wf.allocations.length - 1];
+                              const lastRow = scheduleViewRows[a.id]?.find(r => r.id === lastAlloc?.scheduleId);
+                              if (!lastRow) return null;
+                              const rowTotal = Number(lastRow.base_installment_amount) + Number(lastRow.penalty_amount || 0) + Number(lastRow.carried_amount || 0);
+                              const newAllocated = (Number(lastRow.allocated) || 0) + lastAlloc.amount;
+                              const remainAfter = Math.max(0, rowTotal - newAllocated);
+                              if (remainAfter > 0.01) {
+                                return (
+                                  <p className="text-[10px] text-muted-foreground mt-1">
+                                    Remaining after: {formatCurrency(remainAfter, cur)}
+                                  </p>
+                                );
+                              }
+                              return null;
+                            })()}
+                          </div>
+                        )}
                         {acctIsUnderpayment && !carryOverMap[a.id] && (
                           <div className="mt-2 rounded-md border border-warning/40 bg-warning/5 p-2 space-y-1.5">
                             <p className="text-[11px] font-semibold text-warning flex items-center gap-1">
