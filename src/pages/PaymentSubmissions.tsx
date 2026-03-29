@@ -134,9 +134,18 @@ export default function PaymentSubmissions() {
   // Waterfall state for confirm dialog
   const [confirmScheduleRows, setConfirmScheduleRows] = useState<ScheduleViewRow[]>([]);
   const [confirmWaterfall, setConfirmWaterfall] = useState<WaterfallResult | null>(null);
-  const [confirmCarryOver, setConfirmCarryOver] = useState(false);
   const [confirmLoadingSchedule, setConfirmLoadingSchedule] = useState(false);
   const [confirmResults, setConfirmResults] = useState<Array<{ ok: boolean; msg: string }> | null>(null);
+
+  // Underpayment decision modal state
+  const [underpaymentModal, setUnderpaymentModal] = useState<{
+    scheduleId: string;
+    accountId: string;
+    row: ScheduleViewRow;
+    shortfall: number;
+    currency: 'PHP' | 'JPY';
+  } | null>(null);
+  const [underpaymentLoading, setUnderpaymentLoading] = useState<'partial' | 'carry' | null>(null);
 
   // Fetch schedule and compute waterfall when confirm dialog opens
   useEffect(() => {
