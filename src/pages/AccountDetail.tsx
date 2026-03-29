@@ -1368,12 +1368,9 @@ export default function AccountDetail() {
                           </Button>
                         ) : null}
                         {item.status === 'partially_paid' && isAdmin && (() => {
-                          // Show carry button only if next row hasn't been carried into yet
                           const nextRow = scheduleItems.find(s => s.installment_number > item.installment_number && s.status !== 'cancelled');
-                          // With view semantics: actual_remaining > base means carried_amount is present
                           const carryAlreadyDone = nextRow && getRowRemaining(nextRow as any) > Number(nextRow.base_installment_amount) + 0.01;
                           if (carryAlreadyDone) return null;
-                          // actual_remaining IS the shortfall — no double-subtraction needed
                           const shortfall = getRowRemaining(item as any);
                           const nextUnpaid = scheduleItems
                             .filter(s => (s.status === 'pending' || s.status === 'overdue' || s.status === 'partially_paid') && s.id !== item.id)
@@ -1381,21 +1378,35 @@ export default function AccountDetail() {
                           const nextLabel = nextUnpaid
                             ? new Date(nextUnpaid.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                             : '(none)';
-                          const currLabel = new Date(item.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                          const currLabel = new Date(item.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                          const nextDueFormatted = nextUnpaid
+                            ? new Date(nextUnpaid.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                            : '(none)';
+                          const nextBase = nextUnpaid ? Number(nextUnpaid.base_installment_amount) : 0;
+                          const nextPenalty = nextUnpaid ? Number(nextUnpaid.penalty_amount) : 0;
+                          const nextTotal = nextBase + nextPenalty + shortfall;
                           return (
                             <Button
-                              variant="ghost"
-                              className="h-6 px-1.5 text-[10px] text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap rounded-md"
+                              variant="outline"
+                              className="h-6 px-1.5 text-[10px] text-amber-500 border-amber-500/30 hover:text-amber-600 hover:bg-amber-500/10 hover:border-amber-500/50 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap rounded-md"
                               title={`Accept ${formatCurrency(paidAmt, currency)} as full payment, carry ${formatCurrency(shortfall, currency)} to ${nextLabel}`}
-                              onClick={() => setAcceptCarryTarget({
-                                rowId: item.id,
-                                paidAmount: paidAmt,
-                                shortfall,
-                                currentMonthLabel: currLabel,
-                                nextMonthLabel: nextLabel,
-                              })}
+                              onClick={() => {
+                                setAcceptCarryReason('');
+                                setAcceptCarryError('');
+                                setAcceptCarryTarget({
+                                  rowId: item.id,
+                                  paidAmount: paidAmt,
+                                  shortfall,
+                                  currentMonthLabel: currLabel,
+                                  nextMonthLabel: nextLabel,
+                                  installmentNumber: item.installment_number,
+                                  dueDateFormatted: currLabel,
+                                  nextDueDateFormatted: nextDueFormatted,
+                                  nextTotal,
+                                });
+                              }}
                             >
-                              Accept &amp; Carry
+                              Accept &amp; Carry Over
                             </Button>
                           );
                         })()}
