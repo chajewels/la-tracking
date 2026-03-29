@@ -148,6 +148,7 @@ export default function AccountDetail() {
   const [newInstSaving, setNewInstSaving] = useState(false);
   const [deleteScheduleTarget, setDeleteScheduleTarget] = useState<{ id: string; amount: number; installment_number: number } | null>(null);
   const [deleteScheduleLoading, setDeleteScheduleLoading] = useState(false);
+  const [deleteScheduleError, setDeleteScheduleError] = useState('');
   const [acceptCarryTarget, setAcceptCarryTarget] = useState<{
     rowId: string; paidAmount: number; shortfall: number;
     currentMonthLabel: string; nextMonthLabel: string;
@@ -276,33 +277,17 @@ export default function AccountDetail() {
   const handleDeleteInstallment = useCallback(async () => {
     if (!deleteScheduleTarget || !account) return;
     setDeleteScheduleLoading(true);
+    setDeleteScheduleError('');
     try {
-      // Cancel the schedule item (set status to cancelled, zero out amounts)
-      const { error } = await supabase
-        .from('layaway_schedule')
-        .update({ status: 'cancelled' as any, base_installment_amount: 0, total_due_amount: 0, penalty_amount: 0 })
-        .eq('id', deleteScheduleTarget.id);
-      if (error) throw error;
-
-      // Deduct from account totals
-      const deductAmt = deleteScheduleTarget.amount;
-      const newTotal = Math.round((Number(account.total_amount) - deductAmt) * 100) / 100;
-      const newRemaining = Math.round((Number(account.remaining_balance) - deductAmt) * 100) / 100;
-      const { error: accErr } = await supabase
-        .from('layaway_accounts')
-        .update({ total_amount: Math.max(0, newTotal), remaining_balance: Math.max(0, newRemaining) })
-        .eq('id', account.id);
-      if (accErr) throw accErr;
-
-      const userId = (await supabase.auth.getUser()).data.user?.id;
-      await supabase.from('audit_logs').insert({
-        entity_type: 'layaway_schedule',
-        entity_id: account.id,
-        action: 'delete_schedule_item',
-        old_value_json: { installment_number: deleteScheduleTarget.installment_number, base_installment_amount: deductAmt, total_amount: Number(account.total_amount), remaining_balance: Number(account.remaining_balance) },
-        new_value_json: { total_amount_updated: Math.max(0, newTotal), remaining_balance_updated: Math.max(0, newRemaining) },
-        performed_by_user_id: userId || null,
+      const { data, error } = await supabase.functions.invoke('delete-installment', {
+        body: {
+          schedule_row_id: deleteScheduleTarget.id,
+          account_id: account.id,
+          reason: 'Manual row deletion by admin',
+        },
       });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
 
       queryClient.invalidateQueries({ queryKey: ['schedule', id] });
       queryClient.invalidateQueries({ queryKey: ['account', id] });
@@ -311,8 +296,9 @@ export default function AccountDetail() {
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       toast.success(`Installment #${deleteScheduleTarget.installment_number} removed`);
       setDeleteScheduleTarget(null);
+      setDeleteScheduleError('');
     } catch (err: any) {
-      toast.error(err.message || 'Failed to delete installment');
+      setDeleteScheduleError(err.message || 'Failed to delete installment');
     } finally {
       setDeleteScheduleLoading(false);
     }
@@ -1960,7 +1946,7 @@ export default function AccountDetail() {
           </AlertDialogContent>
         </AlertDialog>
 
-        <AlertDialog open={!!deleteScheduleTarget} onOpenChange={(open) => { if (!open) setDeleteScheduleTarget(null); }}>
+        <AlertDialog open={!!deleteScheduleTarget} onOpenChange={(open) => { if (!open) { setDeleteScheduleTarget(null); setDeleteScheduleError(''); } }}>
           <AlertDialogContent className="bg-card border-border">
             <AlertDialogHeader>
               <AlertDialogTitle className="text-card-foreground">Delete Installment?</AlertDialogTitle>
@@ -1968,12 +1954,17 @@ export default function AccountDetail() {
                 This will remove Installment #{deleteScheduleTarget?.installment_number} ({formatCurrency(deleteScheduleTarget?.amount || 0, currency)}) and deduct its amount from the total layaway amount and remaining balance. This cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
+            {deleteScheduleError && (
+              <div className="p-2.5 rounded-md bg-destructive/10 border border-destructive/20 text-xs text-destructive">
+                {deleteScheduleError}
+              </div>
+            )}
             <AlertDialogFooter>
               <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
               <AlertDialogAction
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                 disabled={deleteScheduleLoading}
-                onClick={handleDeleteInstallment}>
+                onClick={(e) => { e.preventDefault(); handleDeleteInstallment(); }}>
                 {deleteScheduleLoading ? 'Deleting…' : 'Delete Installment'}
               </AlertDialogAction>
             </AlertDialogFooter>
