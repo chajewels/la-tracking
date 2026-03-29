@@ -197,7 +197,10 @@ export function useSchedule(accountId: string | undefined) {
         // Legacy field aliases — prefer getRowAllocated/getRowRemaining/getRowStatus
         paid_amount: row.allocated ?? 0,
         status: row.computed_status ?? row.db_status,
-        // total_due_amount preserved for schedule edit UI (not for remaining calculations)
+        // total_due_amount aliased to actual_remaining so that computeAccountSummary()
+        // and all legacy code reading item.total_due_amount gets the correct owed amount
+        // (view does not expose the stale DB cache column — actual_remaining is authoritative)
+        total_due_amount: row.actual_remaining ?? row.total_due_amount ?? 0,
       })) as any[];
     },
   });
