@@ -82,6 +82,14 @@ Deno.serve(async (req) => {
       updatePayload.paid_amount = newTotalDue;
     }
 
+    // Set session-local flag so the DB trigger allows this authorized edit.
+    // The flag expires automatically when the transaction ends.
+    await supabase.rpc('set_config', {
+      setting: 'app.allow_base_edit',
+      value: 'true',
+      is_local: true,
+    });
+
     const { error: updateErr } = await supabase
       .from("layaway_schedule")
       .update(updatePayload)
