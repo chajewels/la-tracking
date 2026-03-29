@@ -67,41 +67,51 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Step 2: Fetch the current row from schedule_with_actuals (authoritative)
-    const { data: viewRow, error: viewErr } = await supabase
-      .from("schedule_with_actuals")
-      .select("*")
+    // Step 2: Fetch the current row from layaway_schedule directly.
+    // Deliberately NOT using schedule_with_actuals view — the view requires
+    // Phase 1 migration to be deployed and is intended for display reads.
+    // Edge functions that write must read from the DB table directly.
+    const { data: schedRow, error: schedErr } = await supabase
+      .from("layaway_schedule")
+      .select("id, account_id, installment_number, due_date, status, base_installment_amount, penalty_amount, paid_amount, total_due_amount, carried_amount, carried_from_schedule_id")
       .eq("id", schedule_row_id)
       .eq("account_id", account_id)
       .single();
 
-    if (viewErr || !viewRow) {
+    if (schedErr || !schedRow) {
       return new Response(JSON.stringify({ error: "Schedule row not found" }), {
         status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Step 3: Validate computed_status = 'partially_paid'
-    const computedStatus = viewRow.computed_status ?? viewRow.db_status;
-    if (computedStatus !== "partially_paid") {
+    // Step 3: Validate status = 'partially_paid' using DB status directly
+    if (schedRow.status !== "partially_paid") {
       return new Response(JSON.stringify({
-        error: `Row must be partially_paid, got: ${computedStatus}`
+        error: `Row must be partially_paid, got: ${schedRow.status}`
       }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Step 4: Shortfall = actual_remaining
-    const shortfall = Math.round(Number(viewRow.actual_remaining) * 100) / 100;
+    // Step 4: Compute shortfall = base + penalty + carried - paid
+    // This is the canonical remaining amount for the row, no view needed.
+    const shortfall = Math.round(Math.max(0,
+      Number(schedRow.base_installment_amount)
+      + Number(schedRow.penalty_amount ?? 0)
+      + Number(schedRow.carried_amount ?? 0)
+      - Number(schedRow.paid_amount)
+    ) * 100) / 100;
+
     if (shortfall <= 0.005) {
       return new Response(JSON.stringify({ error: "Row has no remaining shortfall to carry over" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Step 6: Find next row: lowest due_date WHERE db_status IN ('pending','overdue','partially_paid')
-    //          AND id != current row
+    // Step 6: Find next row: lowest due_date WHERE status IN ('pending','overdue','partially_paid')
+    //          AND id != current row. Select base_installment_amount for ceiling response.
+    //          carried_amount may not exist pre-Phase-1-migration; guard below with ?? 0.
     const { data: allRows } = await supabase
       .from("layaway_schedule")
-      .select("id, installment_number, due_date, status, carried_amount")
+      .select("id, installment_number, due_date, status, base_installment_amount, carried_amount")
       .eq("account_id", account_id)
       .in("status", ["pending", "overdue", "partially_paid"])
       .neq("id", schedule_row_id)
@@ -116,8 +126,8 @@ Deno.serve(async (req) => {
 
     const nextRow = allRows[0];
 
-    // Step 8: Validate next row has no existing carried_amount
-    if (Number(nextRow.carried_amount) > 0.005) {
+    // Step 8: Validate next row has no existing carried_amount (guard with ?? 0 pre-migration)
+    if (Number(nextRow.carried_amount ?? 0) > 0.005) {
       return new Response(JSON.stringify({
         error: `Month ${nextRow.installment_number} already has a carried amount of ${nextRow.carried_amount}. Resolve it first.`
       }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -168,9 +178,9 @@ Deno.serve(async (req) => {
       action: "accept_carry_over",
       old_value_json: {
         schedule_row_id,
-        status: viewRow.db_status,
-        allocated: viewRow.allocated,
-        actual_remaining: viewRow.actual_remaining,
+        status: schedRow.status,
+        paid_amount: schedRow.paid_amount,
+        shortfall,
       },
       new_value_json: {
         current_row_status: "paid",
@@ -194,10 +204,7 @@ Deno.serve(async (req) => {
       shortfall,
       next_row_id: nextRow.id,
       next_row_installment: nextRow.installment_number,
-      next_row_new_ceiling: Math.round((
-        Number(viewRow.base_installment_amount) + // next row's base (approximation - use actual next row base in practice)
-        shortfall
-      ) * 100) / 100,
+      next_row_new_ceiling: Math.round((Number(nextRow.base_installment_amount ?? 0) + shortfall) * 100) / 100,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (error: any) {
