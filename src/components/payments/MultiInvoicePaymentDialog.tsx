@@ -269,10 +269,40 @@ export default function MultiInvoicePaymentDialog({
     });
   };
 
+  // Helper: find the partial row id from waterfall for an account
+  const getPartialRowFromWaterfall = (accountId: string) => {
+    const wf = waterfallResults[accountId];
+    const rows = scheduleViewRows[accountId];
+    if (!wf?.valid || !rows) return null;
+    for (const alloc of wf.allocations) {
+      const row = rows.find(r => r.id === alloc.scheduleId);
+      if (!row) continue;
+      const rowTotal = Number(row.base_installment_amount) + Number(row.penalty_amount || 0) + Number(row.carried_amount || 0);
+      const newAllocated = (Number(row.allocated) || 0) + alloc.amount;
+      if (newAllocated < rowTotal - 0.01 && newAllocated > 0) {
+        return { scheduleId: row.id, row };
+      }
+    }
+    return null;
+  };
+
+  // Get the next row after the partial one for carry-over label
+  const getNextRowAfterPartial = (accountId: string) => {
+    const partial = getPartialRowFromWaterfall(accountId);
+    if (!partial) return null;
+    const rows = scheduleViewRows[accountId];
+    if (!rows) return null;
+    const sorted = [...rows]
+      .filter(r => r.id !== partial.scheduleId && !isRowPaid(r) && getRowStatus(r) !== 'cancelled')
+      .sort((a, b) => a.due_date.localeCompare(b.due_date));
+    return sorted[0] || null;
+  };
+
   const handleConfirm = async () => {
     if (submittingRef.current || !canSubmit) return;
     submittingRef.current = true;
     setSubmitting(true);
+    const results: typeof submitResults = [];
     try {
       const allocations = selectedAccounts.map(a => ({
         account_id: a.id,
@@ -296,9 +326,35 @@ export default function MultiInvoicePaymentDialog({
         resetAndClose();
         return;
       }
-      toast.success(
-        `Split payment of ${totalAllocated.toLocaleString()} recorded across ${selectedAccounts.length} account${selectedAccounts.length !== 1 ? 's' : ''}`
-      );
+
+      // Record per-account payment results
+      for (const a of selectedAccounts) {
+        results.push({ account_id: a.id, invoice: a.invoice_number, type: 'Payment recorded', ok: true, msg: `INV #${a.invoice_number} — Payment recorded` });
+      }
+
+      // Call accept-underpayment for carry-over accounts
+      for (const a of selectedAccounts) {
+        if (!carryOverMap[a.id]) continue;
+        const partial = getPartialRowFromWaterfall(a.id);
+        if (!partial) continue;
+        try {
+          const { data: carryData, error: carryError } = await supabase.functions.invoke('accept-underpayment', {
+            body: {
+              schedule_row_id: partial.scheduleId,
+              account_id: a.id,
+              reason: 'Split payment carry-over accepted by admin',
+            },
+          });
+          if (carryError) throw carryError;
+          if (carryData?.error) throw new Error(carryData.error);
+          results.push({ account_id: a.id, invoice: a.invoice_number, type: 'Carry-over applied', ok: true, msg: `INV #${a.invoice_number} — Carry-over applied` });
+        } catch (carryErr: any) {
+          results.push({ account_id: a.id, invoice: a.invoice_number, type: 'Carry-over failed', ok: false, msg: `INV #${a.invoice_number} — ${carryErr.message || 'Carry-over failed'}` });
+        }
+      }
+
+      setSubmitResults(results);
+
       // Invalidate queries
       for (const key of ['accounts', 'payments', 'schedule', 'dashboard-summary', 'payments-with-accounts']) {
         queryClient.invalidateQueries({ queryKey: [key] });
@@ -308,7 +364,7 @@ export default function MultiInvoicePaymentDialog({
       // Build confirmation message
       const msg = buildConfirmationMessage(data?.account_results || []);
       setConsolidatedMessage(msg);
-      setStep('message');
+      setStep('results');
     } catch (err: any) {
       toast.error(err.message || 'Failed to record split payment');
     } finally {
