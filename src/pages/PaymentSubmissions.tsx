@@ -152,7 +152,6 @@ export default function PaymentSubmissions() {
     if (!actionDialog || actionDialog.action !== 'confirmed') {
       setConfirmScheduleRows([]);
       setConfirmWaterfall(null);
-      setConfirmCarryOver(false);
       setConfirmResults(null);
       return;
     }
@@ -251,43 +250,38 @@ export default function PaymentSubmissions() {
     (allAllocations || []).filter(a => a.submission_id === subId);
 
   const reviewMutation = useMutation({
-    mutationFn: async ({ submissionId, action, notes, carryOver }: { submissionId: string; action: string; notes: string; carryOver?: boolean }) => {
+    mutationFn: async ({ submissionId, action, notes }: { submissionId: string; action: string; notes: string }) => {
       const { data, error } = await supabase.functions.invoke('review-payment-submission', {
         body: { submission_id: submissionId, action, reviewer_notes: notes },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      return { ...data, carryOver };
+      return data;
     },
-    onSuccess: async (data, vars) => {
-      const results: Array<{ ok: boolean; msg: string }> = [];
-      results.push({ ok: true, msg: '✅ Payment approved and recorded' });
-
-      // If carry-over requested, call accept-underpayment
-      if (vars.carryOver && getConfirmPartialRow && vars.action === 'confirmed') {
-        try {
-          const { data: carryData, error: carryError } = await supabase.functions.invoke('accept-underpayment', {
-            body: {
-              schedule_row_id: getConfirmPartialRow.scheduleId,
-              account_id: actionDialog?.sub.account_id,
-              reason: 'Submission review carry-over accepted by admin',
-            },
-          });
-          if (carryError) throw carryError;
-          if (carryData?.error) throw new Error(carryData.error);
-          const nextDate = getConfirmNextRow ? new Date(getConfirmNextRow.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'next month';
-          results.push({ ok: true, msg: `✅ Carry-over applied to ${nextDate}` });
-        } catch (carryErr: any) {
-          results.push({ ok: false, msg: `❌ Carry-over failed: ${carryErr.message || 'Unknown error'}` });
-        }
-      }
-
+    onSuccess: async (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
       queryClient.invalidateQueries({ queryKey: ['pending-submission-count'] });
 
       if (vars.action === 'confirmed') {
-        setConfirmResults(results);
-        // Don't close dialog — show results
+        // Check if underpayment occurred — show decision modal
+        if (getConfirmPartialRow && actionDialog) {
+          const cur = (actionDialog.sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY';
+          setUnderpaymentModal({
+            scheduleId: getConfirmPartialRow.scheduleId,
+            accountId: actionDialog.sub.account_id,
+            row: getConfirmPartialRow.row,
+            shortfall: getConfirmPartialRow.shortfall,
+            currency: cur,
+          });
+          setActionDialog(null);
+          setReviewerNotes('');
+          setConfirmResults(null);
+        } else {
+          toast.success('Payment approved and recorded');
+          setActionDialog(null);
+          setReviewerNotes('');
+          setConfirmResults(null);
+        }
       } else {
         toast.success(`Submission ${vars.action.replace('_', ' ')}`);
         setActionDialog(null);
@@ -613,9 +607,6 @@ export default function PaymentSubmissions() {
                     );
                   }
                   if (confirmWaterfall?.valid && confirmWaterfall.allocations.length > 0) {
-                    const hasPartial = !!getConfirmPartialRow;
-                    const isCarryOn = confirmCarryOver;
-
                     return (
                       <div className="rounded-md border border-border bg-muted/30 p-2.5">
                         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Allocation breakdown</p>
@@ -625,7 +616,6 @@ export default function PaymentSubmissions() {
                           const rowTotal = Number(row.base_installment_amount) + Number(row.penalty_amount || 0) + Number(row.carried_amount || 0);
                           const newAllocated = (Number(row.allocated) || 0) + alloc.amount;
                           const isPaidAfter = newAllocated >= rowTotal - 0.01;
-                          const isThisPartial = getConfirmPartialRow?.scheduleId === row.id;
                           const dateLabel = new Date(row.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                           return (
                             <div key={alloc.scheduleId} className="flex items-center gap-2 text-[11px] py-0.5 flex-wrap">
@@ -633,10 +623,8 @@ export default function PaymentSubmissions() {
                               <span className="text-muted-foreground">{dateLabel}</span>
                               <span className="font-medium text-foreground tabular-nums">{formatCurrency(alloc.amount, cur)}</span>
                               <span className="text-muted-foreground">→</span>
-                              {isPaidAfter || (isThisPartial && isCarryOn) ? (
-                                <span className="text-green-600 dark:text-green-400 font-medium">
-                                  PAID ✅{isThisPartial && isCarryOn && getConfirmNextRow ? ` (carry ${formatCurrency(getConfirmPartialRow!.shortfall, cur)} → ${new Date(getConfirmNextRow.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})` : ''}
-                                </span>
+                              {isPaidAfter ? (
+                                <span className="text-green-600 dark:text-green-400 font-medium">PAID ✅</span>
                               ) : (
                                 <span className="text-yellow-600 dark:text-yellow-400 font-medium">PARTIAL 🟡</span>
                               )}
@@ -644,7 +632,7 @@ export default function PaymentSubmissions() {
                           );
                         })}
                         {/* Remaining after */}
-                        {!isCarryOn && (() => {
+                        {(() => {
                           const lastAlloc = confirmWaterfall.allocations[confirmWaterfall.allocations.length - 1];
                           const lastRow = confirmScheduleRows.find(r => r.id === lastAlloc?.scheduleId);
                           if (!lastRow) return null;
@@ -660,20 +648,11 @@ export default function PaymentSubmissions() {
                           }
                           return null;
                         })()}
-                        {/* Carry-over toggle */}
-                        {hasPartial && getConfirmNextRow && (
-                          <div className="mt-2 pt-2 border-t border-border">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                              <Switch
-                                checked={confirmCarryOver}
-                                onCheckedChange={setConfirmCarryOver}
-                              />
-                              <span className="text-[11px] font-medium text-foreground">Accept & Carry Over</span>
-                            </label>
-                            <p className="text-[10px] text-muted-foreground mt-0.5 ml-9">
-                              Mark Month {getConfirmPartialRow!.row.installment_number} as paid, carry {formatCurrency(getConfirmPartialRow!.shortfall, cur)} to {new Date(getConfirmNextRow.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            </p>
-                          </div>
+                        {/* Partial warning */}
+                        {getConfirmPartialRow && (
+                          <p className="text-[10px] text-warning mt-1.5">
+                            ⚠️ Underpayment of {formatCurrency(getConfirmPartialRow.shortfall, cur)} — you'll choose how to handle it after confirming.
+                          </p>
                         )}
                       </div>
                     );
@@ -717,7 +696,6 @@ export default function PaymentSubmissions() {
                         submissionId: actionDialog.sub.id,
                         action: actionDialog.action,
                         notes: reviewerNotes,
-                        carryOver: actionDialog.action === 'confirmed' ? confirmCarryOver : undefined,
                       });
                     }
                   }}
