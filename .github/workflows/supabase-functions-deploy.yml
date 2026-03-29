@@ -9,11 +9,14 @@ on:
       - 'supabase/functions/record-payment/**'
       - 'supabase/functions/record-multi-payment/**'
       - 'supabase/functions/bulk-import/**'
+      - 'supabase/functions/carry-over/**'
+      - 'supabase/functions/accept-underpayment/**'
+      - 'supabase/functions/review-payment-submission/**'
       - 'supabase/config.toml'
   workflow_dispatch:
     inputs:
       function:
-        description: 'Function to deploy (or "all")'
+        description: 'Function to deploy (carry-over, accept-underpayment, review-payment-submission, reconcile-account, daily-reconciliation, record-payment, record-multi-payment, bulk-import, or "all")'
         required: false
         default: 'all'
 
@@ -54,5 +57,23 @@ jobs:
       - name: Deploy bulk-import
         if: ${{ github.event_name == 'push' || contains(fromJson('["bulk-import","all"]'), github.event.inputs.function) }}
         run: supabase functions deploy bulk-import --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy carry-over
+        if: ${{ github.event_name == 'push' || contains(fromJson('["carry-over","all"]'), github.event.inputs.function) }}
+        run: supabase functions deploy carry-over --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy accept-underpayment
+        if: ${{ github.event_name == 'push' || contains(fromJson('["accept-underpayment","all"]'), github.event.inputs.function) }}
+        run: supabase functions deploy accept-underpayment --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy review-payment-submission
+        if: ${{ github.event_name == 'push' || contains(fromJson('["review-payment-submission","all"]'), github.event.inputs.function) }}
+        run: supabase functions deploy review-payment-submission --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
