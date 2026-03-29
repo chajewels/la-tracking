@@ -28,14 +28,6 @@ import {
   computeWaterfall, getRowStatus, isRowPaid, getRowRemaining,
   type ScheduleViewRow, type WaterfallResult,
 } from '@/lib/business-rules';
-import { toast } from 'sonner';
-import { formatCurrency } from '@/lib/calculations';
-import { Link } from 'react-router-dom';
-import { usePermissions } from '@/contexts/PermissionsContext';
-import {
-  computeWaterfall, getRowStatus, isRowPaid, getRowRemaining,
-  type ScheduleViewRow, type WaterfallResult,
-} from '@/lib/business-rules';
 
 type SubmissionStatus = 'submitted' | 'under_review' | 'confirmed' | 'rejected' | 'needs_clarification' | 'cancelled';
 
