@@ -14,9 +14,20 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription,
+} from '@/components/ui/alert-dialog';
+import {
   AlertTriangle, Check, CheckCircle, Clock, CreditCard, Eye, ExternalLink,
   Filter, Image as ImageIcon, Loader2, MessageSquare, Search, Send, XCircle, FileText,
 } from 'lucide-react';
+import { toast } from 'sonner';
+import { formatCurrency } from '@/lib/calculations';
+import { Link } from 'react-router-dom';
+import { usePermissions } from '@/contexts/PermissionsContext';
+import {
+  computeWaterfall, getRowStatus, isRowPaid, getRowRemaining,
+  type ScheduleViewRow, type WaterfallResult,
+} from '@/lib/business-rules';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/calculations';
 import { Link } from 'react-router-dom';
