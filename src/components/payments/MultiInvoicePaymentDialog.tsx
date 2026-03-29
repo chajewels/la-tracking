@@ -130,7 +130,7 @@ export default function MultiInvoicePaymentDialog({
   const submittingRef = useRef(false);
 
   const [open, setOpen] = useState(false);
-  const [step, setStep] = useState<'input' | 'message'>('input');
+  const [step, setStep] = useState<'input' | 'results' | 'message'>('input');
   const [carryOverMap, setCarryOverMap] = useState<Record<string, boolean>>({});
   const [consolidatedMessage, setConsolidatedMessage] = useState('');
   const [msgCopied, setMsgCopied] = useState(false);
@@ -140,6 +140,7 @@ export default function MultiInvoicePaymentDialog({
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [referenceNumber, setReferenceNumber] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [submitResults, setSubmitResults] = useState<Array<{ account_id: string; invoice: string; type: string; ok: boolean; msg: string }>>([]);
 
   // Waterfall state
   const [scheduleViewRows, setScheduleViewRows] = useState<Record<string, ScheduleViewRow[]>>({});
