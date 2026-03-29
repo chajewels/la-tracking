@@ -676,6 +676,59 @@ export type Database = {
           },
         ]
       }
+      layaway_signatures: {
+        Row: {
+          account_id: string | null
+          agreement_version: string
+          country: string
+          created_at: string
+          email: string
+          facebook_name: string
+          full_name: string
+          id: string
+          invoice_number: string | null
+          ip_address: string | null
+          signature_image: string
+          signed_at: string
+        }
+        Insert: {
+          account_id?: string | null
+          agreement_version?: string
+          country: string
+          created_at?: string
+          email: string
+          facebook_name: string
+          full_name: string
+          id?: string
+          invoice_number?: string | null
+          ip_address?: string | null
+          signature_image: string
+          signed_at?: string
+        }
+        Update: {
+          account_id?: string | null
+          agreement_version?: string
+          country?: string
+          created_at?: string
+          email?: string
+          facebook_name?: string
+          full_name?: string
+          id?: string
+          invoice_number?: string | null
+          ip_address?: string | null
+          signature_image?: string
+          signed_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "layaway_signatures_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payment_allocations: {
         Row: {
           allocated_amount: number
