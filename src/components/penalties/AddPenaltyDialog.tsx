@@ -32,6 +32,7 @@ export default function AddPenaltyDialog({ accountId, currency, scheduleItems }:
   const [selectedCurrency, setSelectedCurrency] = useState<Currency>(currency);
   const [selectedAmount, setSelectedAmount] = useState('');
   const [loading, setLoading] = useState(false);
+  const [warningMsg, setWarningMsg] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const eligibleItems = scheduleItems.filter(s => s.status !== 'cancelled');
@@ -63,9 +64,16 @@ export default function AddPenaltyDialog({ accountId, currency, scheduleItems }:
       queryClient.invalidateQueries({ queryKey: ['account', accountId] });
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
-      setOpen(false);
-      setSelectedSchedule('');
-      setSelectedAmount('');
+
+      if (data?.warning) {
+        setWarningMsg(data.warning);
+        // Keep dialog open to show warning
+      } else {
+        setOpen(false);
+        setSelectedSchedule('');
+        setSelectedAmount('');
+        setWarningMsg(null);
+      }
     } catch (err: any) {
       toast.error(err.message || 'Failed to add penalty');
     } finally {
@@ -74,7 +82,7 @@ export default function AddPenaltyDialog({ accountId, currency, scheduleItems }:
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setWarningMsg(null); }}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="border-destructive/30 text-destructive hover:bg-destructive/10">
           <AlertTriangle className="h-3.5 w-3.5 mr-1.5" />
@@ -140,6 +148,13 @@ export default function AddPenaltyDialog({ accountId, currency, scheduleItems }:
             </div>
           </div>
         </div>
+
+        {warningMsg && (
+          <div className="rounded-lg border border-yellow-500/40 bg-yellow-50 dark:bg-yellow-900/20 px-3 py-2 text-sm text-yellow-800 dark:text-yellow-300 flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            <span>{warningMsg}</span>
+          </div>
+        )}
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
