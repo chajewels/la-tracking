@@ -70,9 +70,11 @@ serve(async (req) => {
     }
 
     await supabase.from("audit_logs").insert({
-      account_id,
+      entity_id: account_id,
+      entity_type: "layaway_account",
       action: "carry_over",
-      details: { source_row_id: schedule_row_id, next_row_id: nextRow.id, shortfall }
+      old_value_json: { source_row_id: schedule_row_id, status: "partially_paid" },
+      new_value_json: { next_row_id: nextRow.id, carried_amount: shortfall }
     });
 
     console.log(`carry-over: account=${account_id} source=${schedule_row_id} next=${nextRow.id} shortfall=${shortfall}`);
