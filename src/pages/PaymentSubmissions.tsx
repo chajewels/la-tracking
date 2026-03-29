@@ -576,138 +576,115 @@ export default function PaymentSubmissions() {
             </DialogDescription>
           </DialogHeader>
 
-          {/* Confirm results view */}
-          {confirmResults ? (
-            <div className="space-y-3">
-              <div className="space-y-2">
-                {confirmResults.map((r, i) => (
-                  <div key={i} className={`flex items-center gap-2 text-sm ${r.ok ? 'text-green-600 dark:text-green-400' : 'text-destructive'}`}>
-                    {r.ok ? <CheckCircle className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
-                    <span>{r.msg}</span>
-                  </div>
-                ))}
-              </div>
-              <DialogFooter>
-                <Button onClick={() => { setActionDialog(null); setReviewerNotes(''); setConfirmResults(null); }}>
-                  Done
-                </Button>
-              </DialogFooter>
-            </div>
-          ) : (
-            <>
-              <div className="space-y-3">
-                {/* Waterfall breakdown for confirm action */}
-                {actionDialog?.action === 'confirmed' && (() => {
-                  const cur = (actionDialog.sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY';
-                  if (confirmLoadingSchedule) {
-                    return (
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading allocation preview…
-                      </div>
-                    );
-                  }
-                  if (confirmWaterfall?.valid && confirmWaterfall.allocations.length > 0) {
-                    return (
-                      <div className="rounded-md border border-border bg-muted/30 p-2.5">
-                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Allocation breakdown</p>
-                        {confirmWaterfall.allocations.map((alloc) => {
-                          const row = confirmScheduleRows.find(r => r.id === alloc.scheduleId);
-                          if (!row) return null;
-                          const rowTotal = Number(row.base_installment_amount) + Number(row.penalty_amount || 0) + Number(row.carried_amount || 0);
-                          const newAllocated = (Number(row.allocated) || 0) + alloc.amount;
-                          const isPaidAfter = newAllocated >= rowTotal - 0.01;
-                          const dateLabel = new Date(row.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          <div className="space-y-3">
+              {/* Waterfall breakdown for confirm action */}
+              {actionDialog?.action === 'confirmed' && (() => {
+                const cur = (actionDialog.sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY';
+                if (confirmLoadingSchedule) {
+                  return (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading allocation preview…
+                    </div>
+                  );
+                }
+                if (confirmWaterfall?.valid && confirmWaterfall.allocations.length > 0) {
+                  return (
+                    <div className="rounded-md border border-border bg-muted/30 p-2.5">
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Allocation breakdown</p>
+                      {confirmWaterfall.allocations.map((alloc) => {
+                        const row = confirmScheduleRows.find(r => r.id === alloc.scheduleId);
+                        if (!row) return null;
+                        const rowTotal = Number(row.base_installment_amount) + Number(row.penalty_amount || 0) + Number(row.carried_amount || 0);
+                        const newAllocated = (Number(row.allocated) || 0) + alloc.amount;
+                        const isPaidAfter = newAllocated >= rowTotal - 0.01;
+                        const dateLabel = new Date(row.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                        return (
+                          <div key={alloc.scheduleId} className="flex items-center gap-2 text-[11px] py-0.5 flex-wrap">
+                            <span className="text-muted-foreground">Month {row.installment_number}</span>
+                            <span className="text-muted-foreground">{dateLabel}</span>
+                            <span className="font-medium text-foreground tabular-nums">{formatCurrency(alloc.amount, cur)}</span>
+                            <span className="text-muted-foreground">→</span>
+                            {isPaidAfter ? (
+                              <span className="text-green-600 dark:text-green-400 font-medium">PAID ✅</span>
+                            ) : (
+                              <span className="text-yellow-600 dark:text-yellow-400 font-medium">PARTIAL 🟡</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {(() => {
+                        const lastAlloc = confirmWaterfall.allocations[confirmWaterfall.allocations.length - 1];
+                        const lastRow = confirmScheduleRows.find(r => r.id === lastAlloc?.scheduleId);
+                        if (!lastRow) return null;
+                        const rowTotal = Number(lastRow.base_installment_amount) + Number(lastRow.penalty_amount || 0) + Number(lastRow.carried_amount || 0);
+                        const newAllocated = (Number(lastRow.allocated) || 0) + lastAlloc.amount;
+                        const remainAfter = Math.max(0, rowTotal - newAllocated);
+                        if (remainAfter > 0.01) {
                           return (
-                            <div key={alloc.scheduleId} className="flex items-center gap-2 text-[11px] py-0.5 flex-wrap">
-                              <span className="text-muted-foreground">Month {row.installment_number}</span>
-                              <span className="text-muted-foreground">{dateLabel}</span>
-                              <span className="font-medium text-foreground tabular-nums">{formatCurrency(alloc.amount, cur)}</span>
-                              <span className="text-muted-foreground">→</span>
-                              {isPaidAfter ? (
-                                <span className="text-green-600 dark:text-green-400 font-medium">PAID ✅</span>
-                              ) : (
-                                <span className="text-yellow-600 dark:text-yellow-400 font-medium">PARTIAL 🟡</span>
-                              )}
-                            </div>
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              Remaining after: {formatCurrency(remainAfter, cur)}
+                            </p>
                           );
-                        })}
-                        {/* Remaining after */}
-                        {(() => {
-                          const lastAlloc = confirmWaterfall.allocations[confirmWaterfall.allocations.length - 1];
-                          const lastRow = confirmScheduleRows.find(r => r.id === lastAlloc?.scheduleId);
-                          if (!lastRow) return null;
-                          const rowTotal = Number(lastRow.base_installment_amount) + Number(lastRow.penalty_amount || 0) + Number(lastRow.carried_amount || 0);
-                          const newAllocated = (Number(lastRow.allocated) || 0) + lastAlloc.amount;
-                          const remainAfter = Math.max(0, rowTotal - newAllocated);
-                          if (remainAfter > 0.01) {
-                            return (
-                              <p className="text-[10px] text-muted-foreground mt-1">
-                                Remaining after: {formatCurrency(remainAfter, cur)}
-                              </p>
-                            );
-                          }
-                          return null;
-                        })()}
-                        {/* Partial warning */}
-                        {getConfirmPartialRow && (
-                          <p className="text-[10px] text-warning mt-1.5">
-                            ⚠️ Underpayment of {formatCurrency(getConfirmPartialRow.shortfall, cur)} — you'll choose how to handle it after confirming.
-                          </p>
-                        )}
-                      </div>
-                    );
-                  }
-                  if (confirmWaterfall && !confirmWaterfall.valid) {
-                    return (
-                      <div className="p-2 rounded-md bg-destructive/10 border border-destructive/20 text-xs text-destructive">
-                        ⚠️ {confirmWaterfall.error}
-                      </div>
-                    );
-                  }
-                  return null;
-                })()}
+                        }
+                        return null;
+                      })()}
+                      {getConfirmPartialRow && (
+                        <p className="text-[10px] text-warning mt-1.5">
+                          ⚠️ Underpayment of {formatCurrency(getConfirmPartialRow.shortfall, cur)} — you'll choose how to handle it after confirming.
+                        </p>
+                      )}
+                    </div>
+                  );
+                }
+                if (confirmWaterfall && !confirmWaterfall.valid) {
+                  return (
+                    <div className="p-2 rounded-md bg-destructive/10 border border-destructive/20 text-xs text-destructive">
+                      ⚠️ {confirmWaterfall.error}
+                    </div>
+                  );
+                }
+                return null;
+              })()}
 
-                <div>
-                  <label className="text-xs font-medium text-foreground">
-                    {actionDialog?.action === 'confirmed' ? 'Note (optional)' : 'Reason / Message *'}
-                  </label>
-                  <Textarea
-                    value={reviewerNotes}
-                    onChange={(e) => setReviewerNotes(e.target.value)}
-                    placeholder={
-                      actionDialog?.action === 'confirmed' ? 'Optional note...' :
-                      actionDialog?.action === 'rejected' ? 'Reason for rejection...' :
-                      'What information do you need?'
-                    }
-                    rows={3}
-                    className="mt-1.5"
-                  />
-                </div>
+              <div>
+                <label className="text-xs font-medium text-foreground">
+                  {actionDialog?.action === 'confirmed' ? 'Note (optional)' : 'Reason / Message *'}
+                </label>
+                <Textarea
+                  value={reviewerNotes}
+                  onChange={(e) => setReviewerNotes(e.target.value)}
+                  placeholder={
+                    actionDialog?.action === 'confirmed' ? 'Optional note...' :
+                    actionDialog?.action === 'rejected' ? 'Reason for rejection...' :
+                    'What information do you need?'
+                  }
+                  rows={3}
+                  className="mt-1.5"
+                />
               </div>
+            </div>
 
-              <DialogFooter>
-                <Button variant="ghost" onClick={() => { setActionDialog(null); setReviewerNotes(''); }}>Cancel</Button>
-                <Button
-                  variant={actionDialog?.action === 'rejected' ? 'destructive' : 'default'}
-                  disabled={reviewMutation.isPending || (actionDialog?.action !== 'confirmed' && !reviewerNotes.trim())}
-                  onClick={() => {
-                    if (actionDialog) {
-                      reviewMutation.mutate({
-                        submissionId: actionDialog.sub.id,
-                        action: actionDialog.action,
-                        notes: reviewerNotes,
-                      });
-                    }
-                  }}
-                >
-                  {reviewMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                  {actionDialog?.action === 'confirmed' ? 'Confirm & Record Payment' :
-                   actionDialog?.action === 'rejected' ? 'Reject Submission' :
-                   'Send Clarification Request'}
-                </Button>
-              </DialogFooter>
-            </>
-          )}
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => { setActionDialog(null); setReviewerNotes(''); }}>Cancel</Button>
+              <Button
+                variant={actionDialog?.action === 'rejected' ? 'destructive' : 'default'}
+                disabled={reviewMutation.isPending || (actionDialog?.action !== 'confirmed' && !reviewerNotes.trim())}
+                onClick={() => {
+                  if (actionDialog) {
+                    reviewMutation.mutate({
+                      submissionId: actionDialog.sub.id,
+                      action: actionDialog.action,
+                      notes: reviewerNotes,
+                    });
+                  }
+                }}
+              >
+                {reviewMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                {actionDialog?.action === 'confirmed' ? 'Confirm & Record Payment' :
+                 actionDialog?.action === 'rejected' ? 'Reject Submission' :
+                 'Send Clarification Request'}
+              </Button>
+            </DialogFooter>
         </DialogContent>
       </Dialog>
 
