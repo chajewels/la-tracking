@@ -1425,7 +1425,7 @@ export default function AccountDetail() {
               {/* Schedule Totals Summary */}
               {scheduleItems.length > 0 && (() => {
                 const sumBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
-                const sumPenalties = scheduleItems.reduce((s, i) => s + Number(i.penalty_amount), 0);
+                const sumPenalties = activePenaltyTotal; // Use penalty_fees source (excludes waived)
                 const grandTotal = summary.totalLAAmount;
                 const mismatch = false; // grandTotal is always totalLAAmount
                 return (
