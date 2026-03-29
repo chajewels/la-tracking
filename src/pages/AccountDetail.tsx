@@ -245,48 +245,24 @@ export default function AccountDetail() {
     }
     setNewInstSaving(true);
     try {
-      const maxInstNumber = Math.max(...(schedule || []).map(s => s.installment_number), 0);
-      const nextNumber = maxInstNumber + 1;
-      const roundedAmount = Math.round(amount * 100) / 100;
-
-      const { error } = await supabase
-        .from('layaway_schedule')
-        .insert({
+      const { data, error } = await supabase.functions.invoke('add-installment', {
+        body: {
           account_id: account.id,
-          installment_number: nextNumber,
           due_date: newInstDueDate,
-          base_installment_amount: roundedAmount,
-          total_due_amount: roundedAmount,
-          currency: account.currency as 'PHP' | 'JPY',
-          status: 'pending',
-        });
-      if (error) throw error;
-
-      // Auto-update total_amount and remaining_balance to include the new installment
-      const newTotal = Math.round((Number(account.total_amount) + roundedAmount) * 100) / 100;
-      const newRemaining = Math.round((Number(account.remaining_balance) + roundedAmount) * 100) / 100;
-      const { error: accErr } = await supabase
-        .from('layaway_accounts')
-        .update({ total_amount: newTotal, remaining_balance: newRemaining })
-        .eq('id', account.id);
-      if (accErr) throw accErr;
-
-      const userId = (await supabase.auth.getUser()).data.user?.id;
-      await supabase.from('audit_logs').insert({
-        entity_type: 'layaway_schedule',
-        entity_id: account.id,
-        action: 'add_schedule_item',
-        new_value_json: { installment_number: nextNumber, due_date: newInstDueDate, base_installment_amount: roundedAmount, total_amount_updated: newTotal, remaining_balance_updated: newRemaining },
-        old_value_json: { total_amount: Number(account.total_amount), remaining_balance: Number(account.remaining_balance) },
-        performed_by_user_id: userId || null,
+          base_amount: Math.round(amount * 100) / 100,
+          currency: account.currency,
+          reason: 'Manual installment added by admin',
+        },
       });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
 
       queryClient.invalidateQueries({ queryKey: ['schedule', id] });
       queryClient.invalidateQueries({ queryKey: ['account', id] });
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
       queryClient.invalidateQueries({ queryKey: ['customer-detail'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
-      toast.success(`Installment #${nextNumber} added`);
+      toast.success(`Installment added successfully`);
       setAddingInstallment(false);
       setNewInstDueDate('');
       setNewInstAmount('');
@@ -295,7 +271,7 @@ export default function AccountDetail() {
     } finally {
       setNewInstSaving(false);
     }
-  }, [newInstAmount, newInstDueDate, account, schedule, id, queryClient]);
+  }, [newInstAmount, newInstDueDate, account, id, queryClient]);
 
   const handleDeleteInstallment = useCallback(async () => {
     if (!deleteScheduleTarget || !account) return;
