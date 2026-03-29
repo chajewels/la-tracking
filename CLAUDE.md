@@ -575,3 +575,23 @@ When completing a partially_paid month:
   2. E3 — Total Penalties footer showing waived amounts
   3. E4 — INV #17541 cosmetic row status fix
   4. Firebase signing page connection (Steps 13-17)
+
+## AUTO-DEPLOY RULES (locked — updated 2026-03-30)
+
+GitHub Actions auto-deploys on every push to main:
+
+FRONTEND: Firebase Hosting — ALL pushes trigger rebuild and deploy
+
+SUPABASE EDGE FUNCTIONS — these 8 auto-deploy when their files change:
+- reconcile-account
+- daily-reconciliation
+- record-payment
+- record-multi-payment
+- bulk-import
+- carry-over
+- accept-underpayment
+- review-payment-submission
+
+All other edge functions still require manual deploy via Lovable.
+Always check .github/workflows/supabase-functions-deploy.yml
+before adding new functions.
