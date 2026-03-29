@@ -701,6 +701,31 @@ export default function MultiInvoicePaymentDialog({
           </>
         )}
 
+        {/* Per-account results */}
+        {step === 'results' && (
+          <div className="space-y-4">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-card-foreground">
+                <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                Payment Results
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-1.5">
+              {submitResults.map((r, i) => (
+                <div key={i} className={`flex items-center gap-2 text-sm ${r.ok ? 'text-green-700 dark:text-green-400' : 'text-destructive'}`}>
+                  <span>{r.ok ? '✅' : '❌'}</span>
+                  <span>{r.msg}</span>
+                </div>
+              ))}
+            </div>
+            <DialogFooter>
+              <Button onClick={() => setStep('message')} className="gold-gradient text-primary-foreground">
+                View Customer Message →
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+
         {/* Confirmation Message */}
         {step === 'message' && (
           <div className="space-y-4">
