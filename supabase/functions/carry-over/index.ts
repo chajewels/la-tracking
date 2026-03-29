@@ -1,0 +1,214 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  try {
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    // Auth
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const { data: { user }, error: authError } = await supabase.auth.getUser(
+      authHeader.replace("Bearer ", "")
+    );
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Admin only
+    const { data: isAdmin } = await supabase.rpc("has_role", { _user_id: user.id, _role: "admin" });
+    if (!isAdmin) {
+      return new Response(JSON.stringify({ error: "Admin access required" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const { schedule_row_id, account_id } = await req.json();
+    if (!schedule_row_id || !account_id) {
+      return new Response(JSON.stringify({ error: "schedule_row_id and account_id are required" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── Step 1: Fetch source row ──────────────────────────────────────────────
+    const { data: sourceRow, error: sourceErr } = await supabase
+      .from("layaway_schedule")
+      .select("id, account_id, installment_number, base_installment_amount, penalty_amount, carried_amount, status")
+      .eq("id", schedule_row_id)
+      .eq("account_id", account_id)
+      .single();
+
+    if (sourceErr || !sourceRow) {
+      return new Response(JSON.stringify({ error: "Schedule row not found" }), {
+        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (sourceRow.status !== "partially_paid") {
+      return new Response(JSON.stringify({
+        error: `Source row must be partially_paid, got: ${sourceRow.status}`,
+      }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── Step 2: Calculate shortfall via payment_allocations ──────────────────
+    const { data: allocRows, error: allocErr } = await supabase
+      .from("payment_allocations")
+      .select("allocated_amount")
+      .eq("schedule_id", schedule_row_id);
+
+    if (allocErr) {
+      return new Response(JSON.stringify({ error: "Failed to fetch payment allocations" }), {
+        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const allocated = (allocRows ?? []).reduce(
+      (sum, r) => sum + Number(r.allocated_amount ?? 0), 0
+    );
+
+    const shortfall = Math.round(Math.max(0,
+      Number(sourceRow.base_installment_amount)
+      + Number(sourceRow.penalty_amount ?? 0)
+      + Number(sourceRow.carried_amount ?? 0)
+      - allocated
+    ) * 100) / 100;
+
+    if (shortfall <= 0.005) {
+      return new Response(JSON.stringify({
+        error: "No shortfall to carry — row is fully paid",
+      }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── Step 3: Fetch next row (installment_number + 1, not paid/cancelled) ──
+    const { data: nextRows, error: nextErr } = await supabase
+      .from("layaway_schedule")
+      .select("id, installment_number, status, carried_amount")
+      .eq("account_id", account_id)
+      .eq("installment_number", sourceRow.installment_number + 1)
+      .not("status", "in", '("paid","cancelled")')
+      .limit(1);
+
+    if (nextErr) {
+      return new Response(JSON.stringify({ error: "Failed to fetch next installment row" }), {
+        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (!nextRows || nextRows.length === 0) {
+      return new Response(JSON.stringify({
+        error: `No eligible next installment found after month ${sourceRow.installment_number}`,
+      }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    const nextRow = nextRows[0];
+
+    if (Number(nextRow.carried_amount ?? 0) > 0.005) {
+      return new Response(JSON.stringify({
+        error: `Month ${nextRow.installment_number} already has a carried amount of ${nextRow.carried_amount}. Resolve it first.`,
+      }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── Steps 4 & 5: Write both rows atomically ───────────────────────────────
+    // Mark source row as paid
+    const { error: sourceUpdateErr } = await supabase
+      .from("layaway_schedule")
+      .update({ status: "paid", updated_at: new Date().toISOString() })
+      .eq("id", schedule_row_id);
+
+    if (sourceUpdateErr) {
+      return new Response(JSON.stringify({
+        error: `Failed to mark source row as paid: ${sourceUpdateErr.message}`,
+      }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // Write carry to next row
+    const { error: nextUpdateErr } = await supabase
+      .from("layaway_schedule")
+      .update({
+        carried_amount: shortfall,
+        carried_from_schedule_id: schedule_row_id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", nextRow.id);
+
+    if (nextUpdateErr) {
+      // Attempt to roll back source row status to partially_paid
+      await supabase
+        .from("layaway_schedule")
+        .update({ status: "partially_paid", updated_at: new Date().toISOString() })
+        .eq("id", schedule_row_id);
+
+      return new Response(JSON.stringify({
+        error: `Failed to write carry to next row: ${nextUpdateErr.message}`,
+      }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── Step 6: Audit log ─────────────────────────────────────────────────────
+    await supabase.from("audit_logs").insert({
+      entity_type: "layaway_schedule",
+      entity_id: account_id,
+      action: "carry_over",
+      old_value_json: {
+        schedule_row_id,
+        source_installment: sourceRow.installment_number,
+        status: "partially_paid",
+        allocated,
+        shortfall,
+      },
+      new_value_json: {
+        source_row_status: "paid",
+        next_row_id: nextRow.id,
+        next_row_installment: nextRow.installment_number,
+        carried_amount: shortfall,
+        carried_from_schedule_id: schedule_row_id,
+      },
+      performed_by_user_id: user.id,
+    });
+
+    // ── Step 7: Reconcile ─────────────────────────────────────────────────────
+    try {
+      await fetch(
+        `${Deno.env.get("SUPABASE_URL")}/functions/v1/reconcile-account`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({ account_id }),
+        }
+      );
+    } catch (reconcileErr) {
+      console.warn(`[carry-over] reconcile-account call failed for ${account_id}:`, reconcileErr);
+    }
+
+    return new Response(JSON.stringify({
+      success: true,
+      shortfall,
+      source_row_id: schedule_row_id,
+      source_row_status: "paid",
+      next_row_id: nextRow.id,
+      next_row_installment: nextRow.installment_number,
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+  } catch (error: any) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});
