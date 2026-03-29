@@ -1570,6 +1570,15 @@ export type Database = {
       }
     }
     Functions: {
+      admin_update_schedule_base: {
+        Args: {
+          p_is_paid: boolean
+          p_new_base: number
+          p_new_total_due: number
+          p_schedule_id: string
+        }
+        Returns: undefined
+      }
       delete_email: {
         Args: { message_id: number; queue_name: string }
         Returns: boolean
