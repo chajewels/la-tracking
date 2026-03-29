@@ -653,17 +653,8 @@ export default function AccountDetail() {
       if (fullyPaid || !nextUnpaidItem) {
         return `\n🎉 Your layaway is now fully paid! Thank you!`;
       }
-      // For partial items: if paidAmount < totalDue, DB hasn't been reconciled yet
-      // → remaining = totalDue - paidAmount. If paidAmount >= totalDue, reconcile already
-      // reduced totalDue to the remaining shortfall → use totalDue directly.
-      const computeRemaining = (s: typeof nextUnpaidItem) => {
-        if (isPartialItem(s)) {
-          return s.paidAmount < s.totalDue
-            ? s.totalDue - s.paidAmount
-            : s.totalDue;
-        }
-        return s.totalDue;
-      };
+      // totalDue = actual_remaining from schedule_with_actuals view — this IS the remaining amount.
+      const computeRemaining = (s: typeof nextUnpaidItem) => s.totalDue;
       if (isDownpaymentOnly) {
         const monthLabel = new Date(nextUnpaidItem.dueDate + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
         return `\nFirst payment: ${monthLabel} — ${formatCurrency(computeRemaining(nextUnpaidItem), currency)}`;
@@ -1371,11 +1362,11 @@ export default function AccountDetail() {
                         {item.status === 'partially_paid' && isAdmin && (() => {
                           // Show carry button only if next row hasn't been carried into yet
                           const nextRow = scheduleItems.find(s => s.installment_number > item.installment_number && s.status !== 'cancelled');
-                          const carryAlreadyDone = nextRow && Number(nextRow.total_due_amount) > Number(nextRow.base_installment_amount) + 0.01;
+                          // With view semantics: actual_remaining > base means carried_amount is present
+                          const carryAlreadyDone = nextRow && getRowRemaining(nextRow as any) > Number(nextRow.base_installment_amount) + 0.01;
                           if (carryAlreadyDone) return null;
-                          const shortfall = Number(item.total_due_amount) < Number(item.paid_amount)
-                            ? Number(item.total_due_amount)
-                            : Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
+                          // actual_remaining IS the shortfall — no double-subtraction needed
+                          const shortfall = getRowRemaining(item as any);
                           const nextUnpaid = scheduleItems
                             .filter(s => (s.status === 'pending' || s.status === 'overdue' || s.status === 'partially_paid') && s.id !== item.id)
                             .sort((a, b) => a.due_date.localeCompare(b.due_date))[0];
