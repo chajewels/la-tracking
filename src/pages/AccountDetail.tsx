@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import RecordPaymentDialog, { type SessionPaymentInfo } from '@/components/payments/RecordPaymentDialog';
 import PenaltyWaiverPanel from '@/components/penalties/PenaltyWaiverPanel';
+import ContractAgreementSection from '@/components/contract/ContractAgreementSection';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
@@ -1705,6 +1706,9 @@ export default function AccountDetail() {
             }))}
           />
         )}
+
+        {/* Contract & Agreement */}
+        {account?.id && <ContractAgreementSection accountId={account.id} />}
 
         {/* Customer Message */}
         <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
