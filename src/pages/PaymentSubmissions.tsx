@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -20,6 +21,10 @@ import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/calculations';
 import { Link } from 'react-router-dom';
 import { usePermissions } from '@/contexts/PermissionsContext';
+import {
+  computeWaterfall, getRowStatus, isRowPaid, getRowRemaining,
+  type ScheduleViewRow, type WaterfallResult,
+} from '@/lib/business-rules';
 
 type SubmissionStatus = 'submitted' | 'under_review' | 'confirmed' | 'rejected' | 'needs_clarification' | 'cancelled';
 
@@ -126,6 +131,76 @@ export default function PaymentSubmissions() {
   const [proofDialog, setProofDialog] = useState<string | null>(null);
   const [expandedAllocs, setExpandedAllocs] = useState<string | null>(null);
 
+  // Waterfall state for confirm dialog
+  const [confirmScheduleRows, setConfirmScheduleRows] = useState<ScheduleViewRow[]>([]);
+  const [confirmWaterfall, setConfirmWaterfall] = useState<WaterfallResult | null>(null);
+  const [confirmCarryOver, setConfirmCarryOver] = useState(false);
+  const [confirmLoadingSchedule, setConfirmLoadingSchedule] = useState(false);
+  const [confirmResults, setConfirmResults] = useState<Array<{ ok: boolean; msg: string }> | null>(null);
+
+  // Fetch schedule and compute waterfall when confirm dialog opens
+  useEffect(() => {
+    if (!actionDialog || actionDialog.action !== 'confirmed') {
+      setConfirmScheduleRows([]);
+      setConfirmWaterfall(null);
+      setConfirmCarryOver(false);
+      setConfirmResults(null);
+      return;
+    }
+    let cancelled = false;
+    setConfirmLoadingSchedule(true);
+    (async () => {
+      const { data } = await supabase
+        .from('schedule_with_actuals')
+        .select('*')
+        .eq('account_id', actionDialog.sub.account_id)
+        .order('due_date', { ascending: true });
+      if (cancelled) return;
+      const rows: ScheduleViewRow[] = (data || []).map((r: any) => ({
+        id: r.id,
+        account_id: r.account_id,
+        installment_number: r.installment_number,
+        due_date: r.due_date,
+        base_installment_amount: r.base_installment_amount,
+        penalty_amount: r.penalty_amount,
+        carried_amount: r.carried_amount,
+        currency: r.currency,
+        db_status: r.db_status,
+        allocated: r.allocated,
+        actual_remaining: r.actual_remaining,
+        computed_status: r.computed_status,
+      }));
+      setConfirmScheduleRows(rows);
+      const wf = computeWaterfall(Number(actionDialog.sub.submitted_amount), rows);
+      setConfirmWaterfall(wf);
+      setConfirmLoadingSchedule(false);
+    })();
+    return () => { cancelled = true; };
+  }, [actionDialog]);
+
+  // Helpers for waterfall partial detection
+  const getConfirmPartialRow = useMemo(() => {
+    if (!confirmWaterfall?.valid || confirmScheduleRows.length === 0) return null;
+    for (const alloc of confirmWaterfall.allocations) {
+      const row = confirmScheduleRows.find(r => r.id === alloc.scheduleId);
+      if (!row) continue;
+      const rowTotal = Number(row.base_installment_amount) + Number(row.penalty_amount || 0) + Number(row.carried_amount || 0);
+      const newAllocated = (Number(row.allocated) || 0) + alloc.amount;
+      if (newAllocated < rowTotal - 0.01 && newAllocated > 0) {
+        return { scheduleId: row.id, row, shortfall: Math.round((rowTotal - newAllocated) * 100) / 100 };
+      }
+    }
+    return null;
+  }, [confirmWaterfall, confirmScheduleRows]);
+
+  const getConfirmNextRow = useMemo(() => {
+    if (!getConfirmPartialRow) return null;
+    const sorted = [...confirmScheduleRows]
+      .filter(r => r.id !== getConfirmPartialRow.scheduleId && !isRowPaid(r) && getRowStatus(r) !== 'cancelled')
+      .sort((a, b) => a.due_date.localeCompare(b.due_date));
+    return sorted[0] || null;
+  }, [getConfirmPartialRow, confirmScheduleRows]);
+
   const { data: submissions, isLoading } = useQuery({
     queryKey: ['payment-submissions', statusFilter],
     queryFn: async () => {
@@ -167,18 +242,48 @@ export default function PaymentSubmissions() {
     (allAllocations || []).filter(a => a.submission_id === subId);
 
   const reviewMutation = useMutation({
-    mutationFn: async ({ submissionId, action, notes }: { submissionId: string; action: string; notes: string }) => {
+    mutationFn: async ({ submissionId, action, notes, carryOver }: { submissionId: string; action: string; notes: string; carryOver?: boolean }) => {
       const { data, error } = await supabase.functions.invoke('review-payment-submission', {
         body: { submission_id: submissionId, action, reviewer_notes: notes },
       });
       if (error) throw error;
-      return data;
+      if (data?.error) throw new Error(data.error);
+      return { ...data, carryOver };
     },
-    onSuccess: (_, vars) => {
+    onSuccess: async (data, vars) => {
+      const results: Array<{ ok: boolean; msg: string }> = [];
+      results.push({ ok: true, msg: '✅ Payment approved and recorded' });
+
+      // If carry-over requested, call accept-underpayment
+      if (vars.carryOver && getConfirmPartialRow && vars.action === 'confirmed') {
+        try {
+          const { data: carryData, error: carryError } = await supabase.functions.invoke('accept-underpayment', {
+            body: {
+              schedule_row_id: getConfirmPartialRow.scheduleId,
+              account_id: actionDialog?.sub.account_id,
+              reason: 'Submission review carry-over accepted by admin',
+            },
+          });
+          if (carryError) throw carryError;
+          if (carryData?.error) throw new Error(carryData.error);
+          const nextDate = getConfirmNextRow ? new Date(getConfirmNextRow.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'next month';
+          results.push({ ok: true, msg: `✅ Carry-over applied to ${nextDate}` });
+        } catch (carryErr: any) {
+          results.push({ ok: false, msg: `❌ Carry-over failed: ${carryErr.message || 'Unknown error'}` });
+        }
+      }
+
       queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
-      toast.success(`Submission ${vars.action === 'confirmed' ? 'confirmed and payment recorded' : vars.action.replace('_', ' ')}`);
-      setActionDialog(null);
-      setReviewerNotes('');
+      queryClient.invalidateQueries({ queryKey: ['pending-submission-count'] });
+
+      if (vars.action === 'confirmed') {
+        setConfirmResults(results);
+        // Don't close dialog — show results
+      } else {
+        toast.success(`Submission ${vars.action.replace('_', ' ')}`);
+        setActionDialog(null);
+        setReviewerNotes('');
+      }
     },
     onError: (err: any) => {
       toast.error(err.message || 'Failed to process submission');
@@ -451,8 +556,8 @@ export default function PaymentSubmissions() {
       </div>
 
       {/* Action Dialog */}
-      <Dialog open={!!actionDialog} onOpenChange={(open) => !open && setActionDialog(null)}>
-        <DialogContent>
+      <Dialog open={!!actionDialog} onOpenChange={(open) => { if (!open) { setActionDialog(null); setReviewerNotes(''); setConfirmResults(null); } }}>
+        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display">
               {actionDialog?.action === 'confirmed' ? '✅ Confirm Payment' :
@@ -468,46 +573,154 @@ export default function PaymentSubmissions() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs font-medium text-foreground">
-                {actionDialog?.action === 'confirmed' ? 'Note (optional)' : 'Reason / Message *'}
-              </label>
-              <Textarea
-                value={reviewerNotes}
-                onChange={(e) => setReviewerNotes(e.target.value)}
-                placeholder={
-                  actionDialog?.action === 'confirmed' ? 'Optional note...' :
-                  actionDialog?.action === 'rejected' ? 'Reason for rejection...' :
-                  'What information do you need?'
-                }
-                rows={3}
-                className="mt-1.5"
-              />
+          {/* Confirm results view */}
+          {confirmResults ? (
+            <div className="space-y-3">
+              <div className="space-y-2">
+                {confirmResults.map((r, i) => (
+                  <div key={i} className={`flex items-center gap-2 text-sm ${r.ok ? 'text-green-600 dark:text-green-400' : 'text-destructive'}`}>
+                    {r.ok ? <CheckCircle className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
+                    <span>{r.msg}</span>
+                  </div>
+                ))}
+              </div>
+              <DialogFooter>
+                <Button onClick={() => { setActionDialog(null); setReviewerNotes(''); setConfirmResults(null); }}>
+                  Done
+                </Button>
+              </DialogFooter>
             </div>
-          </div>
+          ) : (
+            <>
+              <div className="space-y-3">
+                {/* Waterfall breakdown for confirm action */}
+                {actionDialog?.action === 'confirmed' && (() => {
+                  const cur = (actionDialog.sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY';
+                  if (confirmLoadingSchedule) {
+                    return (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading allocation preview…
+                      </div>
+                    );
+                  }
+                  if (confirmWaterfall?.valid && confirmWaterfall.allocations.length > 0) {
+                    const hasPartial = !!getConfirmPartialRow;
+                    const isCarryOn = confirmCarryOver;
 
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => { setActionDialog(null); setReviewerNotes(''); }}>Cancel</Button>
-            <Button
-              variant={actionDialog?.action === 'rejected' ? 'destructive' : 'default'}
-              disabled={reviewMutation.isPending || (actionDialog?.action !== 'confirmed' && !reviewerNotes.trim())}
-              onClick={() => {
-                if (actionDialog) {
-                  reviewMutation.mutate({
-                    submissionId: actionDialog.sub.id,
-                    action: actionDialog.action,
-                    notes: reviewerNotes,
-                  });
-                }
-              }}
-            >
-              {reviewMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              {actionDialog?.action === 'confirmed' ? 'Confirm & Record Payment' :
-               actionDialog?.action === 'rejected' ? 'Reject Submission' :
-               'Send Clarification Request'}
-            </Button>
-          </DialogFooter>
+                    return (
+                      <div className="rounded-md border border-border bg-muted/30 p-2.5">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Allocation breakdown</p>
+                        {confirmWaterfall.allocations.map((alloc) => {
+                          const row = confirmScheduleRows.find(r => r.id === alloc.scheduleId);
+                          if (!row) return null;
+                          const rowTotal = Number(row.base_installment_amount) + Number(row.penalty_amount || 0) + Number(row.carried_amount || 0);
+                          const newAllocated = (Number(row.allocated) || 0) + alloc.amount;
+                          const isPaidAfter = newAllocated >= rowTotal - 0.01;
+                          const isThisPartial = getConfirmPartialRow?.scheduleId === row.id;
+                          const dateLabel = new Date(row.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                          return (
+                            <div key={alloc.scheduleId} className="flex items-center gap-2 text-[11px] py-0.5 flex-wrap">
+                              <span className="text-muted-foreground">Month {row.installment_number}</span>
+                              <span className="text-muted-foreground">{dateLabel}</span>
+                              <span className="font-medium text-foreground tabular-nums">{formatCurrency(alloc.amount, cur)}</span>
+                              <span className="text-muted-foreground">→</span>
+                              {isPaidAfter || (isThisPartial && isCarryOn) ? (
+                                <span className="text-green-600 dark:text-green-400 font-medium">
+                                  PAID ✅{isThisPartial && isCarryOn && getConfirmNextRow ? ` (carry ${formatCurrency(getConfirmPartialRow!.shortfall, cur)} → ${new Date(getConfirmNextRow.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})` : ''}
+                                </span>
+                              ) : (
+                                <span className="text-yellow-600 dark:text-yellow-400 font-medium">PARTIAL 🟡</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {/* Remaining after */}
+                        {!isCarryOn && (() => {
+                          const lastAlloc = confirmWaterfall.allocations[confirmWaterfall.allocations.length - 1];
+                          const lastRow = confirmScheduleRows.find(r => r.id === lastAlloc?.scheduleId);
+                          if (!lastRow) return null;
+                          const rowTotal = Number(lastRow.base_installment_amount) + Number(lastRow.penalty_amount || 0) + Number(lastRow.carried_amount || 0);
+                          const newAllocated = (Number(lastRow.allocated) || 0) + lastAlloc.amount;
+                          const remainAfter = Math.max(0, rowTotal - newAllocated);
+                          if (remainAfter > 0.01) {
+                            return (
+                              <p className="text-[10px] text-muted-foreground mt-1">
+                                Remaining after: {formatCurrency(remainAfter, cur)}
+                              </p>
+                            );
+                          }
+                          return null;
+                        })()}
+                        {/* Carry-over toggle */}
+                        {hasPartial && getConfirmNextRow && (
+                          <div className="mt-2 pt-2 border-t border-border">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <Switch
+                                checked={confirmCarryOver}
+                                onCheckedChange={setConfirmCarryOver}
+                              />
+                              <span className="text-[11px] font-medium text-foreground">Accept & Carry Over</span>
+                            </label>
+                            <p className="text-[10px] text-muted-foreground mt-0.5 ml-9">
+                              Mark Month {getConfirmPartialRow!.row.installment_number} as paid, carry {formatCurrency(getConfirmPartialRow!.shortfall, cur)} to {new Date(getConfirmNextRow.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+                  if (confirmWaterfall && !confirmWaterfall.valid) {
+                    return (
+                      <div className="p-2 rounded-md bg-destructive/10 border border-destructive/20 text-xs text-destructive">
+                        ⚠️ {confirmWaterfall.error}
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+
+                <div>
+                  <label className="text-xs font-medium text-foreground">
+                    {actionDialog?.action === 'confirmed' ? 'Note (optional)' : 'Reason / Message *'}
+                  </label>
+                  <Textarea
+                    value={reviewerNotes}
+                    onChange={(e) => setReviewerNotes(e.target.value)}
+                    placeholder={
+                      actionDialog?.action === 'confirmed' ? 'Optional note...' :
+                      actionDialog?.action === 'rejected' ? 'Reason for rejection...' :
+                      'What information do you need?'
+                    }
+                    rows={3}
+                    className="mt-1.5"
+                  />
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => { setActionDialog(null); setReviewerNotes(''); }}>Cancel</Button>
+                <Button
+                  variant={actionDialog?.action === 'rejected' ? 'destructive' : 'default'}
+                  disabled={reviewMutation.isPending || (actionDialog?.action !== 'confirmed' && !reviewerNotes.trim())}
+                  onClick={() => {
+                    if (actionDialog) {
+                      reviewMutation.mutate({
+                        submissionId: actionDialog.sub.id,
+                        action: actionDialog.action,
+                        notes: reviewerNotes,
+                        carryOver: actionDialog.action === 'confirmed' ? confirmCarryOver : undefined,
+                      });
+                    }
+                  }}
+                >
+                  {reviewMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  {actionDialog?.action === 'confirmed' ? 'Confirm & Record Payment' :
+                   actionDialog?.action === 'rejected' ? 'Reject Submission' :
+                   'Send Clarification Request'}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 
