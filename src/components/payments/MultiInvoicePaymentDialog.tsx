@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Layers, CheckCircle2, Copy, Check, MessageCircle, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,10 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import { type AppRole } from '@/lib/role-permissions';
+import {
+  computeWaterfall, getRowStatus, isRowPaid, getRowRemaining, getRowAllocated,
+  type ScheduleViewRow, type WaterfallResult,
+} from '@/lib/business-rules';
 
 interface ScheduleItem {
   id: string;
