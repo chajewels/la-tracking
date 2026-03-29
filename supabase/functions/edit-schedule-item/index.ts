@@ -96,37 +96,61 @@ Deno.serve(async (req) => {
 
     // If item is paid, also update account total_paid to reflect the change
     if (isPaid) {
-      const { data: allSchedule2 } = await supabase
-        .from("layaway_schedule")
-        .select("paid_amount, status")
-        .eq("account_id", schedItem.account_id);
-      if (allSchedule2) {
-        const newTotalPaid = allSchedule2.reduce((sum, s) => sum + Number(s.paid_amount), 0);
-        await supabase
-          .from("layaway_accounts")
-          .update({ total_paid: newTotalPaid })
-          .eq("id", schedItem.account_id);
-      }
-    }
-
-    // Recalculate account remaining_balance
-    const accountId = schedItem.account_id;
-    const { data: allSchedule } = await supabase
-      .from("layaway_schedule")
-      .select("total_due_amount, paid_amount, status")
-      .eq("account_id", accountId);
-
-    if (allSchedule) {
-      const newRemaining = allSchedule.reduce((sum, s) => {
-        if (s.status === "paid" || s.status === "cancelled") return sum;
-        return sum + Math.max(0, Number(s.total_due_amount) - Number(s.paid_amount));
-      }, 0);
-
+      const { data: paymentsData } = await supabase
+        .from("payments")
+        .select("amount_paid")
+        .eq("account_id", schedItem.account_id)
+        .is("voided_at", null);
+      const newTotalPaid = (paymentsData || [])
+        .reduce((sum, p) => sum + Number(p.amount_paid), 0);
       await supabase
         .from("layaway_accounts")
-        .update({ remaining_balance: newRemaining })
-        .eq("id", accountId);
+        .update({ total_paid: newTotalPaid })
+        .eq("id", schedItem.account_id);
     }
+
+    // Recalculate account remaining_balance using canonical formula:
+    // total_amount + activePenalties + services - totalPaid
+    const accountId = schedItem.account_id;
+
+    const { data: penaltiesData } = await supabase
+      .from("penalty_fees")
+      .select("penalty_amount")
+      .eq("account_id", accountId)
+      .neq("status", "waived");
+
+    const { data: servicesData } = await supabase
+      .from("account_services")
+      .select("amount")
+      .eq("account_id", accountId);
+
+    const { data: paymentsData2 } = await supabase
+      .from("payments")
+      .select("amount_paid")
+      .eq("account_id", accountId)
+      .is("voided_at", null);
+
+    const { data: accountData } = await supabase
+      .from("layaway_accounts")
+      .select("total_amount")
+      .eq("id", accountId)
+      .single();
+
+    const activePenalties = (penaltiesData || [])
+      .reduce((sum, p) => sum + Number(p.penalty_amount), 0);
+    const services = (servicesData || [])
+      .reduce((sum, s) => sum + Number(s.amount), 0);
+    const totalPaidFromPayments = (paymentsData2 || [])
+      .reduce((sum, p) => sum + Number(p.amount_paid), 0);
+    const totalAmount = Number(accountData?.total_amount || 0);
+
+    const newRemaining = totalAmount + activePenalties + services
+      - totalPaidFromPayments;
+
+    await supabase
+      .from("layaway_accounts")
+      .update({ remaining_balance: newRemaining })
+      .eq("id", accountId);
 
     // Audit log
     await supabase.from("audit_logs").insert({
