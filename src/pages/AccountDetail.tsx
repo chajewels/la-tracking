@@ -309,8 +309,8 @@ export default function AccountDetail() {
     setAcceptCarryLoading(true);
     setAcceptCarryError('');
     try {
-      const { data, error } = await supabase.functions.invoke('accept-underpayment', {
-        body: { schedule_row_id: acceptCarryTarget.rowId, account_id: account.id, reason: acceptCarryReason.trim() },
+      const { data, error } = await supabase.functions.invoke('carry-over', {
+        body: { schedule_row_id: acceptCarryTarget.rowId, account_id: account.id },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
