@@ -1426,6 +1426,7 @@ export default function AccountDetail() {
               {scheduleItems.length > 0 && (() => {
                 const sumBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
                 const sumPenalties = activePenaltyTotal; // Use penalty_fees source (excludes waived)
+                console.log('[AccountDetail] Total Penalties in Schedule footer =', sumPenalties, { activePenaltyTotal, paidPenaltySum, unpaidPenaltySum, penaltyCount: (penalties || []).length, penaltyStatuses: (penalties || []).map((p: any) => p.status) });
                 const grandTotal = summary.totalLAAmount;
                 const mismatch = false; // grandTotal is always totalLAAmount
                 return (
