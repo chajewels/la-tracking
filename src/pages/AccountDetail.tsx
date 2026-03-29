@@ -1249,7 +1249,7 @@ export default function AccountDetail() {
                         )}
                         <div className="text-right">
                         <p className={`text-xs font-semibold tabular-nums ${effPaid ? 'text-success' : partial ? 'text-warning' : 'text-card-foreground'}`}>
-                          {formatCurrency(effPaid ? paidAmt : totalDue, currency)}
+                          {formatCurrency(effPaid ? paidAmt : displayRemaining, currency)}
                         </p>
                       </div>
                       </div>
