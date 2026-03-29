@@ -435,6 +435,7 @@ export default function MultiInvoicePaymentDialog({
     setMsgCopied(false);
     setWaterfallResults({});
     setScheduleViewRows({});
+    setSubmitResults([]);
     setOpen(false);
   };
 
