@@ -199,6 +199,35 @@ export default function MultiInvoicePaymentDialog({
     }
   }, [open, payableAccounts]);
 
+  // Debounced waterfall computation per account
+  const runWaterfall = useCallback((accountId: string, amount: number) => {
+    if (waterfallTimers.current[accountId]) clearTimeout(waterfallTimers.current[accountId]);
+    waterfallTimers.current[accountId] = setTimeout(() => {
+      const rows = scheduleViewRows[accountId];
+      if (!rows || rows.length === 0 || isNaN(amount) || amount <= 0) {
+        setWaterfallResults(prev => {
+          const next = { ...prev };
+          delete next[accountId];
+          return next;
+        });
+        return;
+      }
+      const result = computeWaterfall(amount, rows);
+      setWaterfallResults(prev => ({ ...prev, [accountId]: result }));
+    }, 300);
+  }, [scheduleViewRows]);
+
+  // Trigger waterfall when amounts or scheduleViewRows change
+  useEffect(() => {
+    for (const a of payableAccounts) {
+      if (selectedIds.has(a.id)) {
+        const val = parseFloat(amounts[a.id] || '0') || 0;
+        runWaterfall(a.id, val);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amounts, selectedIds, scheduleViewRows]);
+
   const selectedAccounts = useMemo(() =>
     payableAccounts.filter(a => selectedIds.has(a.id)),
     [payableAccounts, selectedIds]
@@ -215,9 +244,12 @@ export default function MultiInvoicePaymentDialog({
       const val = parseFloat(amounts[a.id] || '0') || 0;
       if (val <= 0) errs[a.id] = 'Enter an amount';
       else if (val > a.remaining_balance + 1) errs[a.id] = 'Exceeds balance';
+      // Waterfall error
+      const wf = waterfallResults[a.id];
+      if (wf && !wf.valid && val > 0) errs[a.id] = wf.error || 'Invalid allocation';
     }
     return errs;
-  }, [selectedAccounts, amounts]);
+  }, [selectedAccounts, amounts, waterfallResults]);
 
   const canSubmit =
     selectedAccounts.length >= 1 &&
