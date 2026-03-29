@@ -131,14 +131,10 @@ async function allocatePaymentToAccount(
           break;
 
         } else if (item.status !== "partially_paid") {
-          // PENDING MONTH UNDERPAID — roll shortfall to next pending month
-          const shortfall = due - toApply;
+          // PENDING MONTH UNDERPAID — mark as partially_paid, do NOT auto-carry
+          // Carry-over only happens when admin explicitly toggles Accept & Carry Over
           allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
           scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid" });
-          const nextItem = unpaidItems.find((ni: any) => ni.installment_number > item.installment_number);
-          if (nextItem) {
-            scheduleUpdates.push({ id: nextItem.id, paid_amount: 0, total_due_amount: Number(nextItem.total_due_amount) + shortfall, status: "pending" });
-          }
           // remaining=0 after toApply; outer loop stops naturally
 
         } else {
