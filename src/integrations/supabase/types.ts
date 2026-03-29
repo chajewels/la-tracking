@@ -162,6 +162,13 @@ export type Database = {
             referencedRelation: "layaway_schedule"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "csr_notifications_schedule_id_fkey"
+            columns: ["schedule_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_with_actuals"
+            referencedColumns: ["id"]
+          },
         ]
       }
       customer_analytics: {
@@ -590,6 +597,9 @@ export type Database = {
         Row: {
           account_id: string
           base_installment_amount: number
+          carried_amount: number | null
+          carried_by_payment_id: string | null
+          carried_from_schedule_id: string | null
           currency: Database["public"]["Enums"]["account_currency"]
           due_date: string
           generated_at: string
@@ -604,6 +614,9 @@ export type Database = {
         Insert: {
           account_id: string
           base_installment_amount: number
+          carried_amount?: number | null
+          carried_by_payment_id?: string | null
+          carried_from_schedule_id?: string | null
           currency: Database["public"]["Enums"]["account_currency"]
           due_date: string
           generated_at?: string
@@ -618,6 +631,9 @@ export type Database = {
         Update: {
           account_id?: string
           base_installment_amount?: number
+          carried_amount?: number | null
+          carried_by_payment_id?: string | null
+          carried_from_schedule_id?: string | null
           currency?: Database["public"]["Enums"]["account_currency"]
           due_date?: string
           generated_at?: string
@@ -635,6 +651,27 @@ export type Database = {
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "layaway_schedule_carried_by_payment_id_fkey"
+            columns: ["carried_by_payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "layaway_schedule_carried_from_schedule_id_fkey"
+            columns: ["carried_from_schedule_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_schedule"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "layaway_schedule_carried_from_schedule_id_fkey"
+            columns: ["carried_from_schedule_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_with_actuals"
             referencedColumns: ["id"]
           },
         ]
@@ -677,6 +714,13 @@ export type Database = {
             columns: ["schedule_id"]
             isOneToOne: false
             referencedRelation: "layaway_schedule"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_allocations_schedule_id_fkey"
+            columns: ["schedule_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_with_actuals"
             referencedColumns: ["id"]
           },
         ]
@@ -1023,6 +1067,13 @@ export type Database = {
             referencedRelation: "layaway_schedule"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "penalty_fees_schedule_id_fkey"
+            columns: ["schedule_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_with_actuals"
+            referencedColumns: ["id"]
+          },
         ]
       }
       penalty_waiver_requests: {
@@ -1091,6 +1142,13 @@ export type Database = {
             columns: ["schedule_id"]
             isOneToOne: false
             referencedRelation: "layaway_schedule"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "penalty_waiver_requests_schedule_id_fkey"
+            columns: ["schedule_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_with_actuals"
             referencedColumns: ["id"]
           },
         ]
@@ -1196,6 +1254,13 @@ export type Database = {
             referencedRelation: "layaway_schedule"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "reminder_logs_schedule_id_fkey"
+            columns: ["schedule_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_with_actuals"
+            referencedColumns: ["id"]
+          },
         ]
       }
       role_permissions: {
@@ -1222,6 +1287,45 @@ export type Database = {
           role?: Database["public"]["Enums"]["app_role"]
           updated_at?: string
           updated_by_user_id?: string | null
+        }
+        Relationships: []
+      }
+      schedule_audit_log: {
+        Row: {
+          account_id: string
+          action: string
+          admin_user_id: string
+          created_at: string | null
+          field_changed: string | null
+          id: string
+          new_value: string | null
+          old_value: string | null
+          reason: string
+          schedule_id: string
+        }
+        Insert: {
+          account_id: string
+          action: string
+          admin_user_id: string
+          created_at?: string | null
+          field_changed?: string | null
+          id?: string
+          new_value?: string | null
+          old_value?: string | null
+          reason: string
+          schedule_id: string
+        }
+        Update: {
+          account_id?: string
+          action?: string
+          admin_user_id?: string
+          created_at?: string | null
+          field_changed?: string | null
+          id?: string
+          new_value?: string | null
+          old_value?: string | null
+          reason?: string
+          schedule_id?: string
         }
         Relationships: []
       }
@@ -1361,7 +1465,56 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      schedule_with_actuals: {
+        Row: {
+          account_id: string | null
+          actual_remaining: number | null
+          allocated: number | null
+          base_installment_amount: number | null
+          carried_amount: number | null
+          carried_by_payment_id: string | null
+          carried_from_schedule_id: string | null
+          computed_status: Database["public"]["Enums"]["schedule_status"] | null
+          currency: Database["public"]["Enums"]["account_currency"] | null
+          db_status: Database["public"]["Enums"]["schedule_status"] | null
+          due_date: string | null
+          generated_at: string | null
+          id: string | null
+          installment_number: number | null
+          penalty_amount: number | null
+          updated_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "layaway_schedule_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "layaway_schedule_carried_by_payment_id_fkey"
+            columns: ["carried_by_payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "layaway_schedule_carried_from_schedule_id_fkey"
+            columns: ["carried_from_schedule_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_schedule"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "layaway_schedule_carried_from_schedule_id_fkey"
+            columns: ["carried_from_schedule_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_with_actuals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       delete_email: {
