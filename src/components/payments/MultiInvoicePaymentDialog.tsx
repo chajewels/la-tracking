@@ -535,86 +535,94 @@ export default function MultiInvoicePaymentDialog({
                           <p className="text-xs text-destructive mt-0.5">{allocationErrors[a.id]}</p>
                         )}
                         {/* Waterfall allocation breakdown */}
-                        {checked && waterfallResults[a.id]?.valid && waterfallResults[a.id].allocations.length > 0 && (
-                          <div className="mt-2 rounded-md border border-border bg-muted/30 p-2">
-                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Allocation breakdown</p>
-                            {waterfallResults[a.id].allocations.map((alloc) => {
-                              const row = scheduleViewRows[a.id]?.find(r => r.id === alloc.scheduleId);
-                              if (!row) return null;
-                              const rowTotal = Number(row.base_installment_amount) + Number(row.penalty_amount || 0) + Number(row.carried_amount || 0);
-                              const allocatedBefore = Number(row.allocated) || 0;
-                              const newAllocated = allocatedBefore + alloc.amount;
-                              const isPaidAfter = newAllocated >= rowTotal - 0.01;
-                              const isPartialAfter = !isPaidAfter && newAllocated > 0;
-                              const dateLabel = new Date(row.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                              return (
-                                <div key={alloc.scheduleId} className="flex items-center gap-2 text-[11px] py-0.5">
-                                  <span className="text-muted-foreground">Month {row.installment_number}</span>
-                                  <span className="text-muted-foreground">{dateLabel}</span>
-                                  <span className="font-medium text-card-foreground tabular-nums">{formatCurrency(alloc.amount, cur)}</span>
-                                  <span className="text-muted-foreground">→</span>
-                                  {isPaidAfter ? (
-                                    <span className="text-green-600 dark:text-green-400 font-medium">PAID ✅</span>
-                                  ) : (
-                                    <span className="text-yellow-600 dark:text-yellow-400 font-medium">PARTIAL 🟡</span>
+                        {checked && waterfallResults[a.id]?.valid && waterfallResults[a.id].allocations.length > 0 && (() => {
+                          const wf = waterfallResults[a.id];
+                          const partialInfo = getPartialRowFromWaterfall(a.id);
+                          const nextRowForCarry = getNextRowAfterPartial(a.id);
+                          const hasPartial = !!partialInfo;
+                          const isCarryOn = carryOverMap[a.id] || false;
+
+                          // Compute shortfall for the partial row
+                          let shortfall = 0;
+                          if (partialInfo) {
+                            const pr = partialInfo.row;
+                            const rowTotal = Number(pr.base_installment_amount) + Number(pr.penalty_amount || 0) + Number(pr.carried_amount || 0);
+                            const allocForRow = wf.allocations.find(al => al.scheduleId === pr.id);
+                            const newAllocated = (Number(pr.allocated) || 0) + (allocForRow?.amount || 0);
+                            shortfall = Math.round((rowTotal - newAllocated) * 100) / 100;
+                          }
+
+                          return (
+                            <div className="mt-2 rounded-md border border-border bg-muted/30 p-2">
+                              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Allocation breakdown</p>
+                              {wf.allocations.map((alloc) => {
+                                const row = scheduleViewRows[a.id]?.find(r => r.id === alloc.scheduleId);
+                                if (!row) return null;
+                                const rowTotal = Number(row.base_installment_amount) + Number(row.penalty_amount || 0) + Number(row.carried_amount || 0);
+                                const allocatedBefore = Number(row.allocated) || 0;
+                                const newAllocated = allocatedBefore + alloc.amount;
+                                const isPaidAfter = newAllocated >= rowTotal - 0.01;
+                                const isThisPartial = partialInfo?.scheduleId === row.id;
+                                const dateLabel = new Date(row.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                                return (
+                                  <div key={alloc.scheduleId} className="flex items-center gap-2 text-[11px] py-0.5 flex-wrap">
+                                    <span className="text-muted-foreground">Month {row.installment_number}</span>
+                                    <span className="text-muted-foreground">{dateLabel}</span>
+                                    <span className="font-medium text-card-foreground tabular-nums">{formatCurrency(alloc.amount, cur)}</span>
+                                    <span className="text-muted-foreground">→</span>
+                                    {isPaidAfter || (isThisPartial && isCarryOn) ? (
+                                      <span className="text-green-600 dark:text-green-400 font-medium">
+                                        PAID ✅{isThisPartial && isCarryOn && nextRowForCarry ? ` (carry ${formatCurrency(shortfall, cur)} → ${new Date(nextRowForCarry.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})` : ''}
+                                      </span>
+                                    ) : (
+                                      <span className="text-yellow-600 dark:text-yellow-400 font-medium">PARTIAL 🟡</span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              {/* Remaining after (only if no carry-over) */}
+                              {!isCarryOn && (() => {
+                                const lastAlloc = wf.allocations[wf.allocations.length - 1];
+                                const lastRow = scheduleViewRows[a.id]?.find(r => r.id === lastAlloc?.scheduleId);
+                                if (!lastRow) return null;
+                                const rowTotal = Number(lastRow.base_installment_amount) + Number(lastRow.penalty_amount || 0) + Number(lastRow.carried_amount || 0);
+                                const newAllocated = (Number(lastRow.allocated) || 0) + lastAlloc.amount;
+                                const remainAfter = Math.max(0, rowTotal - newAllocated);
+                                if (remainAfter > 0.01) {
+                                  return (
+                                    <p className="text-[10px] text-muted-foreground mt-1">
+                                      Remaining after: {formatCurrency(remainAfter, cur)}
+                                    </p>
+                                  );
+                                }
+                                return null;
+                              })()}
+                              {/* Accept & Carry Over toggle */}
+                              {hasPartial && isAdminOrFinance && nextRowForCarry && (
+                                <div className="mt-2 pt-2 border-t border-border">
+                                  <label className="flex items-center gap-2 cursor-pointer">
+                                    <Switch
+                                      checked={isCarryOn}
+                                      onCheckedChange={(v) => setCarryOverMap(prev => ({ ...prev, [a.id]: v }))}
+                                    />
+                                    <span className="text-[11px] font-medium text-card-foreground">Accept & Carry Over</span>
+                                  </label>
+                                  <p className="text-[10px] text-muted-foreground mt-0.5 ml-9">
+                                    Mark Month {partialInfo!.row.installment_number} as paid, carry {formatCurrency(shortfall, cur)} to {new Date(nextRowForCarry.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                  </p>
+                                  {isCarryOn && (
+                                    <div className="mt-1.5 ml-9 rounded-md bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800/40 px-2 py-1.5 flex items-start gap-1.5">
+                                      <AlertTriangle className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-400 mt-0.5 shrink-0" />
+                                      <p className="text-[10px] text-yellow-700 dark:text-yellow-300">
+                                        {formatCurrency(shortfall, cur)} will be carried to {new Date(nextRowForCarry.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                      </p>
+                                    </div>
                                   )}
                                 </div>
-                              );
-                            })}
-                            {(() => {
-                              const wf = waterfallResults[a.id];
-                              const lastAlloc = wf.allocations[wf.allocations.length - 1];
-                              const lastRow = scheduleViewRows[a.id]?.find(r => r.id === lastAlloc?.scheduleId);
-                              if (!lastRow) return null;
-                              const rowTotal = Number(lastRow.base_installment_amount) + Number(lastRow.penalty_amount || 0) + Number(lastRow.carried_amount || 0);
-                              const newAllocated = (Number(lastRow.allocated) || 0) + lastAlloc.amount;
-                              const remainAfter = Math.max(0, rowTotal - newAllocated);
-                              if (remainAfter > 0.01) {
-                                return (
-                                  <p className="text-[10px] text-muted-foreground mt-1">
-                                    Remaining after: {formatCurrency(remainAfter, cur)}
-                                  </p>
-                                );
-                              }
-                              return null;
-                            })()}
-                          </div>
-                        )}
-                        {acctIsUnderpayment && !carryOverMap[a.id] && (
-                          <div className="mt-2 rounded-md border border-warning/40 bg-warning/5 p-2 space-y-1.5">
-                            <p className="text-[11px] font-semibold text-warning flex items-center gap-1">
-                              ⚠ Underpayment — shortfall {formatCurrency(acctShortfall, cur)}
-                            </p>
-                            <div className="flex gap-1.5">
-                              <button
-                                type="button"
-                                className="flex-1 rounded px-2 py-1 text-[11px] font-medium border border-warning/30 bg-warning/10 text-warning hover:bg-warning/20"
-                                onClick={() => setCarryOverMap(prev => ({ ...prev, [a.id]: true }))}
-                              >
-                                Carry to {acctSecondItem
-                                  ? new Date(acctSecondItem.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                                  : 'next'}
-                              </button>
-                              <button
-                                type="button"
-                                className="rounded px-2 py-1 text-[11px] font-medium border border-border text-muted-foreground hover:bg-muted"
-                                onClick={() => setAmounts(prev => ({ ...prev, [a.id]: '' }))}
-                              >
-                                Cancel
-                              </button>
+                              )}
                             </div>
-                          </div>
-                        )}
-                        {carryOverMap[a.id] && (
-                          <p className="text-[11px] text-warning mt-1.5 flex items-center gap-1">
-                            ⚡ Shortfall will carry to next month
-                            <button
-                              type="button"
-                              className="ml-1 text-muted-foreground underline hover:no-underline"
-                              onClick={() => setCarryOverMap(prev => ({ ...prev, [a.id]: false }))}
-                            >undo</button>
-                          </p>
-                        )}
+                          );
+                        })()}
                       </div>
                     </div>
                   );
