@@ -8,11 +8,14 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Switch } from '@/components/ui/switch';
+
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription,
+} from '@/components/ui/alert-dialog';
 import {
   AlertTriangle, Check, CheckCircle, Clock, CreditCard, Eye, ExternalLink,
   Filter, Image as ImageIcon, Loader2, MessageSquare, Search, Send, XCircle, FileText,
@@ -134,16 +137,24 @@ export default function PaymentSubmissions() {
   // Waterfall state for confirm dialog
   const [confirmScheduleRows, setConfirmScheduleRows] = useState<ScheduleViewRow[]>([]);
   const [confirmWaterfall, setConfirmWaterfall] = useState<WaterfallResult | null>(null);
-  const [confirmCarryOver, setConfirmCarryOver] = useState(false);
   const [confirmLoadingSchedule, setConfirmLoadingSchedule] = useState(false);
   const [confirmResults, setConfirmResults] = useState<Array<{ ok: boolean; msg: string }> | null>(null);
+
+  // Underpayment decision modal state
+  const [underpaymentModal, setUnderpaymentModal] = useState<{
+    scheduleId: string;
+    accountId: string;
+    row: ScheduleViewRow;
+    shortfall: number;
+    currency: 'PHP' | 'JPY';
+  } | null>(null);
+  const [underpaymentLoading, setUnderpaymentLoading] = useState<'partial' | 'carry' | null>(null);
 
   // Fetch schedule and compute waterfall when confirm dialog opens
   useEffect(() => {
     if (!actionDialog || actionDialog.action !== 'confirmed') {
       setConfirmScheduleRows([]);
       setConfirmWaterfall(null);
-      setConfirmCarryOver(false);
       setConfirmResults(null);
       return;
     }
@@ -242,43 +253,38 @@ export default function PaymentSubmissions() {
     (allAllocations || []).filter(a => a.submission_id === subId);
 
   const reviewMutation = useMutation({
-    mutationFn: async ({ submissionId, action, notes, carryOver }: { submissionId: string; action: string; notes: string; carryOver?: boolean }) => {
+    mutationFn: async ({ submissionId, action, notes }: { submissionId: string; action: string; notes: string }) => {
       const { data, error } = await supabase.functions.invoke('review-payment-submission', {
         body: { submission_id: submissionId, action, reviewer_notes: notes },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      return { ...data, carryOver };
+      return data;
     },
-    onSuccess: async (data, vars) => {
-      const results: Array<{ ok: boolean; msg: string }> = [];
-      results.push({ ok: true, msg: '✅ Payment approved and recorded' });
-
-      // If carry-over requested, call accept-underpayment
-      if (vars.carryOver && getConfirmPartialRow && vars.action === 'confirmed') {
-        try {
-          const { data: carryData, error: carryError } = await supabase.functions.invoke('accept-underpayment', {
-            body: {
-              schedule_row_id: getConfirmPartialRow.scheduleId,
-              account_id: actionDialog?.sub.account_id,
-              reason: 'Submission review carry-over accepted by admin',
-            },
-          });
-          if (carryError) throw carryError;
-          if (carryData?.error) throw new Error(carryData.error);
-          const nextDate = getConfirmNextRow ? new Date(getConfirmNextRow.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'next month';
-          results.push({ ok: true, msg: `✅ Carry-over applied to ${nextDate}` });
-        } catch (carryErr: any) {
-          results.push({ ok: false, msg: `❌ Carry-over failed: ${carryErr.message || 'Unknown error'}` });
-        }
-      }
-
+    onSuccess: async (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
       queryClient.invalidateQueries({ queryKey: ['pending-submission-count'] });
 
       if (vars.action === 'confirmed') {
-        setConfirmResults(results);
-        // Don't close dialog — show results
+        // Check if underpayment occurred — show decision modal
+        if (getConfirmPartialRow && actionDialog) {
+          const cur = (actionDialog.sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY';
+          setUnderpaymentModal({
+            scheduleId: getConfirmPartialRow.scheduleId,
+            accountId: actionDialog.sub.account_id,
+            row: getConfirmPartialRow.row,
+            shortfall: getConfirmPartialRow.shortfall,
+            currency: cur,
+          });
+          setActionDialog(null);
+          setReviewerNotes('');
+          setConfirmResults(null);
+        } else {
+          toast.success('Payment approved and recorded');
+          setActionDialog(null);
+          setReviewerNotes('');
+          setConfirmResults(null);
+        }
       } else {
         toast.success(`Submission ${vars.action.replace('_', ' ')}`);
         setActionDialog(null);
@@ -573,156 +579,233 @@ export default function PaymentSubmissions() {
             </DialogDescription>
           </DialogHeader>
 
-          {/* Confirm results view */}
-          {confirmResults ? (
-            <div className="space-y-3">
-              <div className="space-y-2">
-                {confirmResults.map((r, i) => (
-                  <div key={i} className={`flex items-center gap-2 text-sm ${r.ok ? 'text-green-600 dark:text-green-400' : 'text-destructive'}`}>
-                    {r.ok ? <CheckCircle className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
-                    <span>{r.msg}</span>
-                  </div>
-                ))}
-              </div>
-              <DialogFooter>
-                <Button onClick={() => { setActionDialog(null); setReviewerNotes(''); setConfirmResults(null); }}>
-                  Done
-                </Button>
-              </DialogFooter>
-            </div>
-          ) : (
-            <>
-              <div className="space-y-3">
-                {/* Waterfall breakdown for confirm action */}
-                {actionDialog?.action === 'confirmed' && (() => {
-                  const cur = (actionDialog.sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY';
-                  if (confirmLoadingSchedule) {
-                    return (
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading allocation preview…
-                      </div>
-                    );
-                  }
-                  if (confirmWaterfall?.valid && confirmWaterfall.allocations.length > 0) {
-                    const hasPartial = !!getConfirmPartialRow;
-                    const isCarryOn = confirmCarryOver;
-
-                    return (
-                      <div className="rounded-md border border-border bg-muted/30 p-2.5">
-                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Allocation breakdown</p>
-                        {confirmWaterfall.allocations.map((alloc) => {
-                          const row = confirmScheduleRows.find(r => r.id === alloc.scheduleId);
-                          if (!row) return null;
-                          const rowTotal = Number(row.base_installment_amount) + Number(row.penalty_amount || 0) + Number(row.carried_amount || 0);
-                          const newAllocated = (Number(row.allocated) || 0) + alloc.amount;
-                          const isPaidAfter = newAllocated >= rowTotal - 0.01;
-                          const isThisPartial = getConfirmPartialRow?.scheduleId === row.id;
-                          const dateLabel = new Date(row.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                          return (
-                            <div key={alloc.scheduleId} className="flex items-center gap-2 text-[11px] py-0.5 flex-wrap">
-                              <span className="text-muted-foreground">Month {row.installment_number}</span>
-                              <span className="text-muted-foreground">{dateLabel}</span>
-                              <span className="font-medium text-foreground tabular-nums">{formatCurrency(alloc.amount, cur)}</span>
-                              <span className="text-muted-foreground">→</span>
-                              {isPaidAfter || (isThisPartial && isCarryOn) ? (
-                                <span className="text-green-600 dark:text-green-400 font-medium">
-                                  PAID ✅{isThisPartial && isCarryOn && getConfirmNextRow ? ` (carry ${formatCurrency(getConfirmPartialRow!.shortfall, cur)} → ${new Date(getConfirmNextRow.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})` : ''}
-                                </span>
-                              ) : (
-                                <span className="text-yellow-600 dark:text-yellow-400 font-medium">PARTIAL 🟡</span>
-                              )}
-                            </div>
-                          );
-                        })}
-                        {/* Remaining after */}
-                        {!isCarryOn && (() => {
-                          const lastAlloc = confirmWaterfall.allocations[confirmWaterfall.allocations.length - 1];
-                          const lastRow = confirmScheduleRows.find(r => r.id === lastAlloc?.scheduleId);
-                          if (!lastRow) return null;
-                          const rowTotal = Number(lastRow.base_installment_amount) + Number(lastRow.penalty_amount || 0) + Number(lastRow.carried_amount || 0);
-                          const newAllocated = (Number(lastRow.allocated) || 0) + lastAlloc.amount;
-                          const remainAfter = Math.max(0, rowTotal - newAllocated);
-                          if (remainAfter > 0.01) {
-                            return (
-                              <p className="text-[10px] text-muted-foreground mt-1">
-                                Remaining after: {formatCurrency(remainAfter, cur)}
-                              </p>
-                            );
-                          }
-                          return null;
-                        })()}
-                        {/* Carry-over toggle */}
-                        {hasPartial && getConfirmNextRow && (
-                          <div className="mt-2 pt-2 border-t border-border">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                              <Switch
-                                checked={confirmCarryOver}
-                                onCheckedChange={setConfirmCarryOver}
-                              />
-                              <span className="text-[11px] font-medium text-foreground">Accept & Carry Over</span>
-                            </label>
-                            <p className="text-[10px] text-muted-foreground mt-0.5 ml-9">
-                              Mark Month {getConfirmPartialRow!.row.installment_number} as paid, carry {formatCurrency(getConfirmPartialRow!.shortfall, cur)} to {new Date(getConfirmNextRow.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            </p>
+          <div className="space-y-3">
+              {/* Waterfall breakdown for confirm action */}
+              {actionDialog?.action === 'confirmed' && (() => {
+                const cur = (actionDialog.sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY';
+                if (confirmLoadingSchedule) {
+                  return (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading allocation preview…
+                    </div>
+                  );
+                }
+                if (confirmWaterfall?.valid && confirmWaterfall.allocations.length > 0) {
+                  return (
+                    <div className="rounded-md border border-border bg-muted/30 p-2.5">
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Allocation breakdown</p>
+                      {confirmWaterfall.allocations.map((alloc) => {
+                        const row = confirmScheduleRows.find(r => r.id === alloc.scheduleId);
+                        if (!row) return null;
+                        const rowTotal = Number(row.base_installment_amount) + Number(row.penalty_amount || 0) + Number(row.carried_amount || 0);
+                        const newAllocated = (Number(row.allocated) || 0) + alloc.amount;
+                        const isPaidAfter = newAllocated >= rowTotal - 0.01;
+                        const dateLabel = new Date(row.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                        return (
+                          <div key={alloc.scheduleId} className="flex items-center gap-2 text-[11px] py-0.5 flex-wrap">
+                            <span className="text-muted-foreground">Month {row.installment_number}</span>
+                            <span className="text-muted-foreground">{dateLabel}</span>
+                            <span className="font-medium text-foreground tabular-nums">{formatCurrency(alloc.amount, cur)}</span>
+                            <span className="text-muted-foreground">→</span>
+                            {isPaidAfter ? (
+                              <span className="text-green-600 dark:text-green-400 font-medium">PAID ✅</span>
+                            ) : (
+                              <span className="text-yellow-600 dark:text-yellow-400 font-medium">PARTIAL 🟡</span>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    );
-                  }
-                  if (confirmWaterfall && !confirmWaterfall.valid) {
-                    return (
-                      <div className="p-2 rounded-md bg-destructive/10 border border-destructive/20 text-xs text-destructive">
-                        ⚠️ {confirmWaterfall.error}
-                      </div>
-                    );
-                  }
-                  return null;
-                })()}
+                        );
+                      })}
+                      {(() => {
+                        const lastAlloc = confirmWaterfall.allocations[confirmWaterfall.allocations.length - 1];
+                        const lastRow = confirmScheduleRows.find(r => r.id === lastAlloc?.scheduleId);
+                        if (!lastRow) return null;
+                        const rowTotal = Number(lastRow.base_installment_amount) + Number(lastRow.penalty_amount || 0) + Number(lastRow.carried_amount || 0);
+                        const newAllocated = (Number(lastRow.allocated) || 0) + lastAlloc.amount;
+                        const remainAfter = Math.max(0, rowTotal - newAllocated);
+                        if (remainAfter > 0.01) {
+                          return (
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              Remaining after: {formatCurrency(remainAfter, cur)}
+                            </p>
+                          );
+                        }
+                        return null;
+                      })()}
+                      {getConfirmPartialRow && (
+                        <p className="text-[10px] text-warning mt-1.5">
+                          ⚠️ Underpayment of {formatCurrency(getConfirmPartialRow.shortfall, cur)} — you'll choose how to handle it after confirming.
+                        </p>
+                      )}
+                    </div>
+                  );
+                }
+                if (confirmWaterfall && !confirmWaterfall.valid) {
+                  return (
+                    <div className="p-2 rounded-md bg-destructive/10 border border-destructive/20 text-xs text-destructive">
+                      ⚠️ {confirmWaterfall.error}
+                    </div>
+                  );
+                }
+                return null;
+              })()}
 
-                <div>
-                  <label className="text-xs font-medium text-foreground">
-                    {actionDialog?.action === 'confirmed' ? 'Note (optional)' : 'Reason / Message *'}
-                  </label>
-                  <Textarea
-                    value={reviewerNotes}
-                    onChange={(e) => setReviewerNotes(e.target.value)}
-                    placeholder={
-                      actionDialog?.action === 'confirmed' ? 'Optional note...' :
-                      actionDialog?.action === 'rejected' ? 'Reason for rejection...' :
-                      'What information do you need?'
-                    }
-                    rows={3}
-                    className="mt-1.5"
-                  />
-                </div>
+              <div>
+                <label className="text-xs font-medium text-foreground">
+                  {actionDialog?.action === 'confirmed' ? 'Note (optional)' : 'Reason / Message *'}
+                </label>
+                <Textarea
+                  value={reviewerNotes}
+                  onChange={(e) => setReviewerNotes(e.target.value)}
+                  placeholder={
+                    actionDialog?.action === 'confirmed' ? 'Optional note...' :
+                    actionDialog?.action === 'rejected' ? 'Reason for rejection...' :
+                    'What information do you need?'
+                  }
+                  rows={3}
+                  className="mt-1.5"
+                />
               </div>
+            </div>
 
-              <DialogFooter>
-                <Button variant="ghost" onClick={() => { setActionDialog(null); setReviewerNotes(''); }}>Cancel</Button>
-                <Button
-                  variant={actionDialog?.action === 'rejected' ? 'destructive' : 'default'}
-                  disabled={reviewMutation.isPending || (actionDialog?.action !== 'confirmed' && !reviewerNotes.trim())}
-                  onClick={() => {
-                    if (actionDialog) {
-                      reviewMutation.mutate({
-                        submissionId: actionDialog.sub.id,
-                        action: actionDialog.action,
-                        notes: reviewerNotes,
-                        carryOver: actionDialog.action === 'confirmed' ? confirmCarryOver : undefined,
-                      });
-                    }
-                  }}
-                >
-                  {reviewMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                  {actionDialog?.action === 'confirmed' ? 'Confirm & Record Payment' :
-                   actionDialog?.action === 'rejected' ? 'Reject Submission' :
-                   'Send Clarification Request'}
-                </Button>
-              </DialogFooter>
-            </>
-          )}
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => { setActionDialog(null); setReviewerNotes(''); }}>Cancel</Button>
+              <Button
+                variant={actionDialog?.action === 'rejected' ? 'destructive' : 'default'}
+                disabled={reviewMutation.isPending || (actionDialog?.action !== 'confirmed' && !reviewerNotes.trim())}
+                onClick={() => {
+                  if (actionDialog) {
+                    reviewMutation.mutate({
+                      submissionId: actionDialog.sub.id,
+                      action: actionDialog.action,
+                      notes: reviewerNotes,
+                    });
+                  }
+                }}
+              >
+                {reviewMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                {actionDialog?.action === 'confirmed' ? 'Confirm & Record Payment' :
+                 actionDialog?.action === 'rejected' ? 'Reject Submission' :
+                 'Send Clarification Request'}
+              </Button>
+            </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Underpayment Decision Modal */}
+      <AlertDialog open={!!underpaymentModal}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-display flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-warning" />
+              Underpayment Detected
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                {underpaymentModal && (
+                  <>
+                    <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1.5">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Month</span>
+                        <span className="font-medium text-foreground">
+                          Month {underpaymentModal.row.installment_number} — {new Date(underpaymentModal.row.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Base amount due</span>
+                        <span className="font-medium text-foreground tabular-nums">
+                          {formatCurrency(
+                            Number(underpaymentModal.row.base_installment_amount) + Number(underpaymentModal.row.penalty_amount || 0) + Number(underpaymentModal.row.carried_amount || 0),
+                            underpaymentModal.currency
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Amount paid</span>
+                        <span className="font-medium text-foreground tabular-nums">
+                          {formatCurrency(
+                            Number(underpaymentModal.row.base_installment_amount) + Number(underpaymentModal.row.penalty_amount || 0) + Number(underpaymentModal.row.carried_amount || 0) - underpaymentModal.shortfall,
+                            underpaymentModal.currency
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm pt-1.5 border-t border-border">
+                        <span className="text-warning font-medium">Shortfall</span>
+                        <span className="font-bold text-warning tabular-nums">
+                          {formatCurrency(underpaymentModal.shortfall, underpaymentModal.currency)}
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2 mt-2">
+            <Button
+              variant="outline"
+              className="w-full justify-start text-left h-auto py-3 px-4"
+              disabled={!!underpaymentLoading}
+              onClick={async () => {
+                // Keep as Partial — do nothing, just close
+                setUnderpaymentModal(null);
+                setUnderpaymentLoading(null);
+                toast.success('Payment recorded. Month stays partially paid.');
+                queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
+              }}
+            >
+              {underpaymentLoading === 'partial' ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2 shrink-0" />
+              ) : (
+                <CreditCard className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
+              )}
+              <div>
+                <p className="font-medium text-foreground text-sm">Keep as Partial</p>
+                <p className="text-xs text-muted-foreground font-normal mt-0.5">
+                  This month stays open. Customer must settle the remaining {underpaymentModal ? formatCurrency(underpaymentModal.shortfall, underpaymentModal.currency) : ''} before moving to the next month.
+                </p>
+              </div>
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full justify-start text-left h-auto py-3 px-4 border-primary/30 hover:bg-primary/5"
+              disabled={!!underpaymentLoading}
+              onClick={async () => {
+                if (!underpaymentModal) return;
+                setUnderpaymentLoading('carry');
+                try {
+                  const { data, error } = await supabase.functions.invoke('carry-over', {
+                    body: {
+                      schedule_row_id: underpaymentModal.scheduleId,
+                      account_id: underpaymentModal.accountId,
+                    },
+                  });
+                  if (error) throw error;
+                  if (data?.error) throw new Error(data.error);
+                  toast.success('Carry-over applied successfully');
+                  queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
+                  setUnderpaymentModal(null);
+                } catch (err: any) {
+                  toast.error(`Carry-over failed: ${err.message || 'Unknown error'}`);
+                } finally {
+                  setUnderpaymentLoading(null);
+                }
+              }}
+            >
+              {underpaymentLoading === 'carry' ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2 shrink-0" />
+              ) : (
+                <Check className="h-4 w-4 mr-2 shrink-0 text-primary" />
+              )}
+              <div>
+                <p className="font-medium text-foreground text-sm">Accept & Carry Over</p>
+                <p className="text-xs text-muted-foreground font-normal mt-0.5">
+                  Close this month and add {underpaymentModal ? formatCurrency(underpaymentModal.shortfall, underpaymentModal.currency) : ''} to next month's balance.
+                </p>
+              </div>
+            </Button>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Proof Preview Dialog */}
       <Dialog open={!!proofDialog} onOpenChange={(open) => !open && setProofDialog(null)}>
