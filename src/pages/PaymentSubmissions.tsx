@@ -242,18 +242,48 @@ export default function PaymentSubmissions() {
     (allAllocations || []).filter(a => a.submission_id === subId);
 
   const reviewMutation = useMutation({
-    mutationFn: async ({ submissionId, action, notes }: { submissionId: string; action: string; notes: string }) => {
+    mutationFn: async ({ submissionId, action, notes, carryOver }: { submissionId: string; action: string; notes: string; carryOver?: boolean }) => {
       const { data, error } = await supabase.functions.invoke('review-payment-submission', {
         body: { submission_id: submissionId, action, reviewer_notes: notes },
       });
       if (error) throw error;
-      return data;
+      if (data?.error) throw new Error(data.error);
+      return { ...data, carryOver };
     },
-    onSuccess: (_, vars) => {
+    onSuccess: async (data, vars) => {
+      const results: Array<{ ok: boolean; msg: string }> = [];
+      results.push({ ok: true, msg: '✅ Payment approved and recorded' });
+
+      // If carry-over requested, call accept-underpayment
+      if (vars.carryOver && getConfirmPartialRow && vars.action === 'confirmed') {
+        try {
+          const { data: carryData, error: carryError } = await supabase.functions.invoke('accept-underpayment', {
+            body: {
+              schedule_row_id: getConfirmPartialRow.scheduleId,
+              account_id: actionDialog?.sub.account_id,
+              reason: 'Submission review carry-over accepted by admin',
+            },
+          });
+          if (carryError) throw carryError;
+          if (carryData?.error) throw new Error(carryData.error);
+          const nextDate = getConfirmNextRow ? new Date(getConfirmNextRow.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'next month';
+          results.push({ ok: true, msg: `✅ Carry-over applied to ${nextDate}` });
+        } catch (carryErr: any) {
+          results.push({ ok: false, msg: `❌ Carry-over failed: ${carryErr.message || 'Unknown error'}` });
+        }
+      }
+
       queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
-      toast.success(`Submission ${vars.action === 'confirmed' ? 'confirmed and payment recorded' : vars.action.replace('_', ' ')}`);
-      setActionDialog(null);
-      setReviewerNotes('');
+      queryClient.invalidateQueries({ queryKey: ['pending-submission-count'] });
+
+      if (vars.action === 'confirmed') {
+        setConfirmResults(results);
+        // Don't close dialog — show results
+      } else {
+        toast.success(`Submission ${vars.action.replace('_', ' ')}`);
+        setActionDialog(null);
+        setReviewerNotes('');
+      }
     },
     onError: (err: any) => {
       toast.error(err.message || 'Failed to process submission');
