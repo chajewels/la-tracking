@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Layers, CheckCircle2, Copy, Check, MessageCircle, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,10 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import { type AppRole } from '@/lib/role-permissions';
+import {
+  computeWaterfall, getRowStatus, isRowPaid, getRowRemaining, getRowAllocated,
+  type ScheduleViewRow, type WaterfallResult,
+} from '@/lib/business-rules';
 
 interface ScheduleItem {
   id: string;
@@ -136,10 +140,50 @@ export default function MultiInvoicePaymentDialog({
   const [referenceNumber, setReferenceNumber] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Waterfall state
+  const [scheduleViewRows, setScheduleViewRows] = useState<Record<string, ScheduleViewRow[]>>({});
+  const [waterfallResults, setWaterfallResults] = useState<Record<string, WaterfallResult>>({});
+  const waterfallTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
   const payableAccounts = useMemo(() =>
     accounts.filter(a => (a.status === 'active' || a.status === 'overdue') && a.remaining_balance > 0),
     [accounts]
   );
+
+  // Fetch schedule_with_actuals for all payable accounts when dialog opens
+  useEffect(() => {
+    if (!open || payableAccounts.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const rowsMap: Record<string, ScheduleViewRow[]> = {};
+      for (const a of payableAccounts) {
+        const { data } = await supabase
+          .from('schedule_with_actuals')
+          .select('*')
+          .eq('account_id', a.id)
+          .order('due_date', { ascending: true });
+        if (cancelled) return;
+        if (data) {
+          rowsMap[a.id] = data.map((r: any) => ({
+            id: r.id,
+            account_id: r.account_id,
+            installment_number: r.installment_number,
+            due_date: r.due_date,
+            base_installment_amount: r.base_installment_amount,
+            penalty_amount: r.penalty_amount,
+            carried_amount: r.carried_amount,
+            currency: r.currency,
+            db_status: r.db_status,
+            allocated: r.allocated,
+            actual_remaining: r.actual_remaining,
+            computed_status: r.computed_status,
+          }));
+        }
+      }
+      if (!cancelled) setScheduleViewRows(rowsMap);
+    })();
+    return () => { cancelled = true; };
+  }, [open, payableAccounts]);
 
   // Initialize: pre-check all, pre-fill amounts
   useEffect(() => {
@@ -154,6 +198,35 @@ export default function MultiInvoicePaymentDialog({
       setAmounts(amts);
     }
   }, [open, payableAccounts]);
+
+  // Debounced waterfall computation per account
+  const runWaterfall = useCallback((accountId: string, amount: number) => {
+    if (waterfallTimers.current[accountId]) clearTimeout(waterfallTimers.current[accountId]);
+    waterfallTimers.current[accountId] = setTimeout(() => {
+      const rows = scheduleViewRows[accountId];
+      if (!rows || rows.length === 0 || isNaN(amount) || amount <= 0) {
+        setWaterfallResults(prev => {
+          const next = { ...prev };
+          delete next[accountId];
+          return next;
+        });
+        return;
+      }
+      const result = computeWaterfall(amount, rows);
+      setWaterfallResults(prev => ({ ...prev, [accountId]: result }));
+    }, 300);
+  }, [scheduleViewRows]);
+
+  // Trigger waterfall when amounts or scheduleViewRows change
+  useEffect(() => {
+    for (const a of payableAccounts) {
+      if (selectedIds.has(a.id)) {
+        const val = parseFloat(amounts[a.id] || '0') || 0;
+        runWaterfall(a.id, val);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amounts, selectedIds, scheduleViewRows]);
 
   const selectedAccounts = useMemo(() =>
     payableAccounts.filter(a => selectedIds.has(a.id)),
@@ -171,9 +244,12 @@ export default function MultiInvoicePaymentDialog({
       const val = parseFloat(amounts[a.id] || '0') || 0;
       if (val <= 0) errs[a.id] = 'Enter an amount';
       else if (val > a.remaining_balance + 1) errs[a.id] = 'Exceeds balance';
+      // Waterfall error
+      const wf = waterfallResults[a.id];
+      if (wf && !wf.valid && val > 0) errs[a.id] = wf.error || 'Invalid allocation';
     }
     return errs;
-  }, [selectedAccounts, amounts]);
+  }, [selectedAccounts, amounts, waterfallResults]);
 
   const canSubmit =
     selectedAccounts.length >= 1 &&
@@ -299,6 +375,8 @@ export default function MultiInvoicePaymentDialog({
     setStep('input');
     setConsolidatedMessage('');
     setMsgCopied(false);
+    setWaterfallResults({});
+    setScheduleViewRows({});
     setOpen(false);
   };
 
@@ -397,6 +475,52 @@ export default function MultiInvoicePaymentDialog({
                         />
                         {checked && allocationErrors[a.id] && (
                           <p className="text-xs text-destructive mt-0.5">{allocationErrors[a.id]}</p>
+                        )}
+                        {/* Waterfall allocation breakdown */}
+                        {checked && waterfallResults[a.id]?.valid && waterfallResults[a.id].allocations.length > 0 && (
+                          <div className="mt-2 rounded-md border border-border bg-muted/30 p-2">
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Allocation breakdown</p>
+                            {waterfallResults[a.id].allocations.map((alloc) => {
+                              const row = scheduleViewRows[a.id]?.find(r => r.id === alloc.scheduleId);
+                              if (!row) return null;
+                              const rowTotal = Number(row.base_installment_amount) + Number(row.penalty_amount || 0) + Number(row.carried_amount || 0);
+                              const allocatedBefore = Number(row.allocated) || 0;
+                              const newAllocated = allocatedBefore + alloc.amount;
+                              const isPaidAfter = newAllocated >= rowTotal - 0.01;
+                              const isPartialAfter = !isPaidAfter && newAllocated > 0;
+                              const dateLabel = new Date(row.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                              return (
+                                <div key={alloc.scheduleId} className="flex items-center gap-2 text-[11px] py-0.5">
+                                  <span className="text-muted-foreground">Month {row.installment_number}</span>
+                                  <span className="text-muted-foreground">{dateLabel}</span>
+                                  <span className="font-medium text-card-foreground tabular-nums">{formatCurrency(alloc.amount, cur)}</span>
+                                  <span className="text-muted-foreground">→</span>
+                                  {isPaidAfter ? (
+                                    <span className="text-green-600 dark:text-green-400 font-medium">PAID ✅</span>
+                                  ) : (
+                                    <span className="text-yellow-600 dark:text-yellow-400 font-medium">PARTIAL 🟡</span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {(() => {
+                              const wf = waterfallResults[a.id];
+                              const lastAlloc = wf.allocations[wf.allocations.length - 1];
+                              const lastRow = scheduleViewRows[a.id]?.find(r => r.id === lastAlloc?.scheduleId);
+                              if (!lastRow) return null;
+                              const rowTotal = Number(lastRow.base_installment_amount) + Number(lastRow.penalty_amount || 0) + Number(lastRow.carried_amount || 0);
+                              const newAllocated = (Number(lastRow.allocated) || 0) + lastAlloc.amount;
+                              const remainAfter = Math.max(0, rowTotal - newAllocated);
+                              if (remainAfter > 0.01) {
+                                return (
+                                  <p className="text-[10px] text-muted-foreground mt-1">
+                                    Remaining after: {formatCurrency(remainAfter, cur)}
+                                  </p>
+                                );
+                              }
+                              return null;
+                            })()}
+                          </div>
                         )}
                         {acctIsUnderpayment && !carryOverMap[a.id] && (
                           <div className="mt-2 rounded-md border border-warning/40 bg-warning/5 p-2 space-y-1.5">
