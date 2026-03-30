@@ -1056,6 +1056,30 @@ function OverviewTab({ account, statementUrl, today }: {
         </div>
       </div>
 
+      {/* Additional Services */}
+      {account.services && account.services.length > 0 && (
+        <div>
+          <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'12px'}}>Additional Services</p>
+          <div>
+            {account.services.map((svc, idx) => {
+              const SERVICE_LABELS: Record<string, string> = {
+                resize: 'Resize', certificate: 'Certificate', polish: 'Polish',
+                change_color: 'Change Color', engraving: 'Engraving', repair: 'Repair', other: 'Other',
+              };
+              return (
+                <div key={idx} className="flex items-center justify-between py-3" style={{borderBottom:`1px solid ${P.s2}`}}>
+                  <div>
+                    <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:P.tp,fontWeight:500}}>{SERVICE_LABELS[svc.service_type] || svc.service_type}</p>
+                    {svc.description && <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,marginTop:'2px'}}>{svc.description}</p>}
+                  </div>
+                  <p style={{fontFamily:"Inter,sans-serif",fontSize:'14px',fontWeight:600,color:P.gp}}>{fmt(svc.amount, currency)}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Payment History */}
       {account.payments.length > 0 && (
         <div>
