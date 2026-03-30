@@ -357,6 +357,12 @@ Deno.serve(async (req) => {
           reference: p.reference_number,
           remarks: p.remarks,
         })),
+        services: acctServices.map((sv: any) => ({
+          service_type: sv.service_type,
+          description: sv.description,
+          amount: Number(sv.amount),
+          currency: sv.currency,
+        })),
         submissions: (submissionsByAccount[acc.id] || []).map((sub: any) => ({
           id: sub.id,
           submitted_amount: Number(sub.submitted_amount),
