@@ -90,6 +90,7 @@ interface PortalAccount {
     reference: string | null;
     remarks: string | null;
   }>;
+  services: Array<{ service_type: string; description: string | null; amount: number; currency: string }>;
   submissions: Submission[];
 }
 
