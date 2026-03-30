@@ -5,60 +5,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// After a payment is recorded, find any partially_paid schedule row from its
-// allocations and call accept-underpayment to carry the shortfall to the next row.
-// schedule_row_id is sourced from payment_allocations AFTER writes — not before.
-async function triggerCarryOver(
-  supabase: any,
-  paymentId: string,
-  accountId: string,
-  authHeader: string,
-) {
-  const { data: allocs } = await supabase
-    .from("payment_allocations")
-    .select("schedule_id")
-    .eq("payment_id", paymentId)
-    .eq("allocation_type", "installment");
-
-  for (const alloc of (allocs || [])) {
-    const { data: sched } = await supabase
-      .from("layaway_schedule")
-      .select("status")
-      .eq("id", alloc.schedule_id)
-      .single();
-
-    if (sched?.status === "partially_paid") {
-      try {
-        const res = await fetch(
-          `${Deno.env.get("SUPABASE_URL")}/functions/v1/accept-underpayment`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": authHeader,
-            },
-            body: JSON.stringify({
-              schedule_row_id: alloc.schedule_id,
-              account_id: accountId,
-              reason: "Payment submission carry-over",
-            }),
-          }
-        );
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          console.warn(
-            `[review-payment-submission] accept-underpayment ${res.status} for ` +
-            `schedule ${alloc.schedule_id}:`, body
-          );
-        }
-      } catch (e) {
-        console.warn("[review-payment-submission] accept-underpayment call failed:", e);
-      }
-      break; // At most one partially_paid row per payment
-    }
-  }
-}
-
 async function hasPermission(supabase: any, userId: string, permissionKey: string) {
   const { data: roles, error: roleError } = await supabase
     .from("user_roles")
@@ -466,11 +412,6 @@ Deno.serve(async (req) => {
           });
         }
         confirmedPaymentIds.push(result.paymentId);
-        // Carry-over: if payment resulted in a partially_paid row, accept it.
-        // schedule_row_id sourced from payment_allocations AFTER writes.
-        if (!submissionIsDP) {
-          await triggerCarryOver(supabase, result.paymentId, submission.account_id, authHeader!);
-        }
       } else {
         // Multi-account split: process each allocation separately.
         // For these, alloc.allocated_amount is the per-account split amount.
@@ -501,10 +442,6 @@ Deno.serve(async (req) => {
             continue;
           }
           confirmedPaymentIds.push(result.paymentId);
-          // Carry-over per split account
-          if (!submissionIsDP) {
-            await triggerCarryOver(supabase, result.paymentId, alloc.account_id, authHeader!);
-          }
         }
 
         if (confirmedPaymentIds.length === 0) {
