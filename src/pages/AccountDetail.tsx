@@ -1680,12 +1680,16 @@ export default function AccountDetail() {
             accountId={account.id}
             invoiceNumber={account.invoice_number}
             currency={currency}
-            penalties={waivablePenalties.map(p => ({
-              id: p.id,
-              scheduleId: p.schedule_id,
-              amount: Number(p.penalty_amount),
-              stage: p.penalty_stage,
-            }))}
+            penalties={waivablePenalties.map(p => {
+              const schedItem = scheduleItems.find((s: any) => s.id === p.schedule_id);
+              return {
+                id: p.id,
+                scheduleId: p.schedule_id,
+                amount: Number(p.penalty_amount),
+                stage: p.penalty_stage,
+                installmentNumber: schedItem?.installment_number ?? null,
+              };
+            })}
           />
         )}
 

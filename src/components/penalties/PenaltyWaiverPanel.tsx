@@ -21,6 +21,12 @@ interface PenaltyItem {
   scheduleId: string;
   amount: number;
   stage: string;
+  installmentNumber?: number | null;
+}
+
+function monthLabel(n: number | null | undefined): string {
+  if (n == null || n === 0) return 'Downpayment';
+  return `Month ${n}`;
 }
 
 interface PenaltyWaiverPanelProps {
@@ -156,6 +162,7 @@ export default function PenaltyWaiverPanel({ accountId, invoiceNumber, currency,
                         <div className="flex-1">
                           <span className="text-xs font-medium text-card-foreground">{p.stage} Penalty</span>
                           {hasWaiver && <Badge variant="outline" className="ml-2 text-[10px] bg-warning/10 text-warning">Waiver Pending</Badge>}
+                          <span className="block text-[10px] text-muted-foreground">{monthLabel(p.installmentNumber)}</span>
                         </div>
                         <span className="text-xs font-semibold text-destructive tabular-nums">{formatCurrency(p.amount, currency)}</span>
                       </label>
@@ -194,7 +201,10 @@ export default function PenaltyWaiverPanel({ accountId, invoiceNumber, currency,
       <div className="space-y-2">
         {penalties.map(p => (
           <div key={p.id} className="flex items-center justify-between p-2 rounded-lg bg-destructive/5 border border-destructive/10">
-            <span className="text-xs text-card-foreground">{p.stage} Penalty</span>
+            <div>
+              <span className="text-xs text-card-foreground">{p.stage} Penalty</span>
+              <span className="block text-[10px] text-muted-foreground">{monthLabel(p.installmentNumber)}</span>
+            </div>
             <span className="text-xs font-semibold text-destructive tabular-nums">{formatCurrency(p.amount, currency)}</span>
           </div>
         ))}
