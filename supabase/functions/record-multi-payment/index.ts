@@ -236,8 +236,8 @@ Deno.serve(async (req) => {
 
           } else if (isNowFullyPaid) {
             // PENDING MONTH FULLY PAID — store actual cash; cascade excess to reduce subsequent months
-            const storedPaid = Math.round((currentPaid + availableForThisMonth) * 100) / 100;
-            paymentAllocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: availableForThisMonth });
+            const storedPaid = Math.round((currentPaid + toApply) * 100) / 100;
+            paymentAllocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
             scheduleUpdates.push({ id: item.id, paid_amount: storedPaid, status: "paid" });
             if (remaining > 0) {
               for (const nextItem of unpaidItems) {
