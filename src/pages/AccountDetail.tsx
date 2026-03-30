@@ -360,6 +360,7 @@ export default function AccountDetail() {
   const accountServices = ((services || []) as AccountService[]);
   const totalServicesAmount = accountServices.reduce((s, svc) => s + Number(svc.amount), 0);
   const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
+  const waivablePenalties = (penalties || []).filter(p => p.status === 'unpaid' || p.status === 'paid');
   const unpaidPenaltySum = unpaidPenalties.reduce((sum, penalty) => sum + Number(penalty.penalty_amount), 0);
   // Penalty-paid = sum of penalty_fees with status='paid' (principal/penalty separation)
   const paidPenaltySum = (penalties || []).filter(p => p.status === 'paid').reduce((sum, p) => sum + Number(p.penalty_amount), 0);
@@ -1674,12 +1675,12 @@ export default function AccountDetail() {
         </div>
 
         {/* Penalty Waiver Panel */}
-        {unpaidPenalties.length > 0 && (
+        {waivablePenalties.length > 0 && (
           <PenaltyWaiverPanel
             accountId={account.id}
             invoiceNumber={account.invoice_number}
             currency={currency}
-            penalties={unpaidPenalties.map(p => ({
+            penalties={waivablePenalties.map(p => ({
               id: p.id,
               scheduleId: p.schedule_id,
               amount: Number(p.penalty_amount),
