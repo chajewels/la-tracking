@@ -152,7 +152,7 @@ export default function PaymentSubmissions() {
 
   // Fetch schedule and compute waterfall when confirm dialog opens
   useEffect(() => {
-    if (!actionDialog || actionDialog.action !== 'confirmed') {
+    if (!actionDialog || actionDialog.action !== 'confirmed' || actionDialog.sub.submission_type === 'downpayment') {
       setConfirmScheduleRows([]);
       setConfirmWaterfall(null);
       setConfirmResults(null);
@@ -255,7 +255,7 @@ export default function PaymentSubmissions() {
   const reviewMutation = useMutation({
     mutationFn: async ({ submissionId, action, notes }: { submissionId: string; action: string; notes: string }) => {
       const { data, error } = await supabase.functions.invoke('review-payment-submission', {
-        body: { submission_id: submissionId, action, reviewer_notes: notes },
+        body: { submission_id: submissionId, action, reviewer_notes: notes, submission_type: actionDialog?.sub.submission_type ?? 'single' },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
