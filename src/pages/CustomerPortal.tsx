@@ -1358,6 +1358,7 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
 
   // Split payment state
   const [paymentMode, setPaymentMode] = useState<'single' | 'split'>(initialPaymentMode);
+  const [portalPaymentType, setPortalPaymentType] = useState<'installment' | 'downpayment'>('installment');
   const payableAccounts = allAccounts.filter(a =>
     a.remaining_balance > 0 &&
     !['completed', 'cancelled', 'forfeited', 'final_forfeited'].includes(a.status) &&
@@ -1580,7 +1581,7 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
           sender_name: senderName || null,
           notes: notes || null,
           proof_url: proofUrl,
-          submission_type: isSplit ? 'split' : 'single',
+          submission_type: isSplit ? 'split' : portalPaymentType,
           allocations: isSplit ? allocations : undefined,
         }),
       });
@@ -1691,6 +1692,27 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
             ))}
           </div>
         )}
+
+        {/* Payment Type Toggle — shown for single-mode when DP is still unpaid */}
+        {paymentMode === 'single' && (account.downpayment_amount || 0) > 0 && (() => {
+          const dpTaggedPaid = (account.payments || [])
+            .filter((p: any) => (p.reference && String(p.reference).startsWith('DP-')) ||
+                                (p.remarks && /\bdown/i.test(String(p.remarks || ''))))
+            .reduce((s: number, p: any) => s + Number(p.amount), 0);
+          if (dpTaggedPaid >= (account.downpayment_amount || 0)) return null;
+          return (
+            <div className="flex" style={{borderBottom:`1px solid ${P.br}`}}>
+              {(['installment','downpayment'] as const).map(t => (
+                <button key={t} onClick={() => setPortalPaymentType(t)}
+                  style={{flex:1,padding:'8px',fontFamily:"Inter,sans-serif",fontSize:'11px',fontWeight:portalPaymentType===t?600:400,letterSpacing:'0.1em',textTransform:'uppercase' as const,
+                    color:portalPaymentType===t?P.gp:P.ts,background:'transparent',border:'none',
+                    borderBottom:portalPaymentType===t?`2px solid ${P.gp}`:'2px solid transparent',cursor:'pointer',transition:'all 0.15s'}}>
+                  {t === 'installment' ? 'Installment' : 'Downpayment'}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
 
         {/* Form */}
         <div className="space-y-4">

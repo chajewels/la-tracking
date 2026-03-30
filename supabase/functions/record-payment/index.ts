@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { account_id, amount_paid, date_paid, payment_method, reference_number, remarks, preview_only, is_downpayment, carry_over = false } = body;
+    const { account_id, amount_paid, date_paid, payment_method, reference_number, remarks, preview_only, is_downpayment, carry_over = false, submission_type } = body;
 
     if (!account_id || !amount_paid || amount_paid <= 0) {
       return new Response(JSON.stringify({ error: "Invalid payment data" }), {
@@ -85,6 +85,7 @@ Deno.serve(async (req) => {
           reference_number: reference_number || null,
           notes: remarks || null,
           status: "submitted",
+          submission_type: submission_type ?? 'single',
         })
         .select("id")
         .single();

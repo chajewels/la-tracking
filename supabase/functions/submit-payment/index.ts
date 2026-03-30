@@ -166,7 +166,7 @@ Deno.serve(async (req) => {
         proof_url: proof_url || null,
         portal_token,
         status: "submitted",
-        submission_type: isSplit ? "split" : "single",
+        submission_type: body.submission_type ?? (isSplit ? "split" : "single"),
       })
       .select("id, status, created_at")
       .single();
