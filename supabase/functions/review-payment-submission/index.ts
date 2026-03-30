@@ -416,6 +416,7 @@ Deno.serve(async (req) => {
       const subRef = String(submission.reference_number || '');
       const subNotes = String(submission.notes || '');
       const submissionIsDP =
+        submission.submission_type === 'downpayment' ||
         subRef.toUpperCase().startsWith('DP-') ||
         /\bdown(payment)?\b|\bdp\b/i.test(subNotes);
 
