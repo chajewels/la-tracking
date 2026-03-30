@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
     paths:
-      - 'supabase/functions/reconcile-account/**'
       - 'supabase/functions/daily-reconciliation/**'
       - 'supabase/functions/record-payment/**'
       - 'supabase/functions/record-multi-payment/**'
@@ -17,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       function:
-        description: 'Function to deploy (carry-over, accept-underpayment, review-payment-submission, edit-schedule-item, reconcile-account, daily-reconciliation, record-payment, record-multi-payment, bulk-import, or "all")'
+        description: 'Function to deploy (carry-over, accept-underpayment, review-payment-submission, edit-schedule-item, daily-reconciliation, record-payment, record-multi-payment, bulk-import, or "all")'
         required: false
         default: 'all'
 
@@ -30,12 +29,6 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: latest
-
-      - name: Deploy reconcile-account
-        if: ${{ github.event_name == 'push' || contains(fromJson('["reconcile-account","all"]'), github.event.inputs.function) }}
-        run: supabase functions deploy reconcile-account --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy daily-reconciliation
         if: ${{ github.event_name == 'push' || contains(fromJson('["daily-reconciliation","all"]'), github.event.inputs.function) }}
