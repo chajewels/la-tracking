@@ -246,7 +246,14 @@ Deno.serve(async (req) => {
                 const nextDue = Number(nextItem.total_due_amount);
                 const creditAmt = Math.round(Math.min(remaining, nextDue) * 100) / 100;
                 remaining = Math.round((remaining - creditAmt) * 100) / 100;
-                scheduleUpdates.push({ id: nextItem.id, paid_amount: 0, total_due_amount: Math.max(0, Math.round((nextDue - creditAmt) * 100) / 100), status: "pending" });
+                scheduleUpdates.push({ id: nextItem.id, paid_amount: creditAmt, total_due_amount: Math.max(0, Math.round((nextDue - creditAmt) * 100) / 100), status: creditAmt >= nextDue ? "paid" : "partially_paid" });
+                if (creditAmt > 0.005) {
+                  paymentAllocations.push({
+                    schedule_id: nextItem.id,
+                    allocation_type: "installment",
+                    allocated_amount: creditAmt,
+                  });
+                }
               }
               remaining = 0;
             }
@@ -359,8 +366,17 @@ Deno.serve(async (req) => {
         }
         console.log(`[multi-pay] Payment inserted: ${payment.id}`);
 
-        // Create allocations
+        // Create allocations (duplicate guard: skip if row already exists)
         for (const alloc of paymentAllocations) {
+          const { data: existing } = await supabase
+            .from("payment_allocations")
+            .select("id")
+            .eq("schedule_id", alloc.schedule_id)
+            .eq("payment_id", payment.id)
+            .eq("allocation_type", alloc.allocation_type)
+            .maybeSingle();
+          if (existing) continue;
+
           const { error: allocErr } = await supabase.from("payment_allocations").insert({
             payment_id: payment.id,
             schedule_id: alloc.schedule_id,
