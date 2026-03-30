@@ -121,13 +121,19 @@ Deno.serve(async (req) => {
       ? existingPenalties[0].penalty_cycle + 1
       : 1;
 
-    // Check for pending payment submission — warn but do not block
+    // Freeze guard: block if account has a pending payment submission
     const { count: pendingCount } = await supabase
       .from("payment_submissions")
       .select("*", { count: "exact", head: true })
       .eq("account_id", account_id)
       .in("status", ["submitted", "under_review"]);
-    const hasPendingSubmission = pendingCount !== null && pendingCount > 0;
+    if (pendingCount !== null && pendingCount > 0) {
+      console.log(`[penalty-skip] ${account.invoice_number} — pending submission (${pendingCount}), skipping`);
+      return new Response(JSON.stringify({
+        skipped: true,
+        reason: "Account has a pending payment submission. Penalty not added until submission is resolved.",
+      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
     // Insert penalty_fees record
     const { data: penaltyFee, error: penErr } = await supabase
@@ -213,18 +219,11 @@ Deno.serve(async (req) => {
       },
     });
 
-    const responseBody: Record<string, unknown> = {
+    return new Response(JSON.stringify({
       success: true,
       penalty_id: penaltyFee.id,
       penalty: penaltyFee,
-    };
-    if (hasPendingSubmission) {
-      responseBody.warning =
-        "This account has a pending payment submission. " +
-        "Penalty recorded but auto-apply is paused until resolved.";
-    }
-
-    return new Response(JSON.stringify(responseBody), {
+    }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

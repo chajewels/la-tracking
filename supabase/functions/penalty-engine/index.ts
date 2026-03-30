@@ -192,6 +192,23 @@ Deno.serve(async (req) => {
     const scheduleUpdates = new Map<string, { totalPenalty: number; baseAmount: number; accountId: string }>();
     const accountsToMarkOverdue = new Set<string>();
 
+    // ── Freeze guard: batch-fetch accounts with pending payment submissions ──
+    // An account with a pending submission is frozen — no new penalties until resolved.
+    const uniqueAccountIds = [...new Set(allOverdueItems.map((i: any) => i.layaway_accounts.id))];
+    const frozenAccountIds = new Set<string>();
+    for (let i = 0; i < uniqueAccountIds.length; i += 200) {
+      const chunk = uniqueAccountIds.slice(i, i + 200);
+      const { data: frozenRows } = await supabase
+        .from("payment_submissions")
+        .select("account_id")
+        .in("account_id", chunk)
+        .in("status", ["submitted", "under_review"]);
+      if (frozenRows) frozenRows.forEach((r: any) => frozenAccountIds.add(r.account_id));
+    }
+    if (frozenAccountIds.size > 0) {
+      console.log(`[penalty-engine] ${frozenAccountIds.size} account(s) frozen due to pending submissions — skipped`);
+    }
+
     for (const item of allOverdueItems) {
       const dueDate = new Date(item.due_date + "T00:00:00Z");
       const currency = (item as any).layaway_accounts.currency;
@@ -200,6 +217,9 @@ Deno.serve(async (req) => {
       const installmentNumber = item.installment_number;
       const existingKeys = existingPenaltyMap.get(item.id) || new Set();
       const dueDayOfMonth = dueDate.getUTCDate();
+
+      // Skip this item if the account has a pending submission
+      if (frozenAccountIds.has(accountId)) continue;
 
       const currentTotal = currentPenaltyTotals.get(item.id) || 0;
       const overrideCap = overrideMap.get(accountId);
