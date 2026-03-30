@@ -756,11 +756,8 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
         const isItemOverdue = diffDays < 0;
         const urgencyColor = isItemOverdue ? '#E74C3C' : diffDays === 0 ? '#E8916A' : P.tp;
         const dueLabel = isItemOverdue ? `${Math.abs(diffDays)}d overdue` : diffDays === 0 ? 'Due today' : `Due in ${diffDays}d`;
-        // For partial items: if paid < total_due → not reconciled, remaining = total_due - paid;
-        // if paid >= total_due → reconciled, total_due IS the remaining shortfall
-        const amount = isPartial(nextItem)
-          ? (nextItem.paid_amount < nextItem.total_due ? nextItem.total_due - nextItem.paid_amount : nextItem.total_due)
-          : (nextItem.total_due > 0 ? nextItem.total_due : nextItem.base_amount);
+        // total_due is already the final amount owed — do not subtract paid_amount.
+        const amount = nextItem.total_due > 0 ? nextItem.total_due : nextItem.base_amount;
         const dateLabel = dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
         return (
@@ -1367,14 +1364,8 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
     }
 
     // Target = next installment remaining + outstanding penalties + services
-    // For partial items: if paid < total_due → not reconciled, remaining = total_due - paid;
-    // if paid >= total_due → reconciled, total_due IS the remaining shortfall
-    const isPartialNext = nextItem.status === 'partially_paid' ||
-      (nextItem.status !== 'paid' && nextItem.paid_amount > 0 && nextItem.paid_amount < nextItem.base_amount);
-    const nextDueRemaining = isPartialNext
-      ? (nextItem.paid_amount < nextItem.total_due ? nextItem.total_due - nextItem.paid_amount : nextItem.total_due)
-      : nextItem.total_due - nextItem.paid_amount;
-    const targetAmount = Math.max(0, nextDueRemaining + (acct.outstanding_penalties || 0) + (acct.total_services || 0));
+    // total_due is already the final amount owed — do not subtract paid_amount.
+    const targetAmount = Math.max(0, nextItem.total_due + (acct.outstanding_penalties || 0) + (acct.total_services || 0));
 
     const dueDate = nextItem.due_date;
     const todayDate = new Date(today + 'T00:00:00');

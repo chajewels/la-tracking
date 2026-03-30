@@ -300,17 +300,10 @@ Deno.serve(async (req) => {
       // Penalty-aware next due date calculation
       const nextDueInfo = computeNextDueDate(unpaidSchedule, today, todayDate);
       const nextDue = unpaidSchedule[0] || null;
-      // For partial items: if paid < total_due → not reconciled, remaining = total_due - paid;
-      // if paid >= total_due → reconciled, total_due IS the remaining shortfall. Never negative.
-      const nextDueAmount = (() => {
-        if (!nextDue) return null;
-        const td = Number(nextDue.total_due_amount);
-        const pa = Number(nextDue.paid_amount);
-        if (nextDue.status === 'partially_paid') {
-          return pa < td ? Math.max(0, td - pa) : Math.max(0, td);
-        }
-        return Math.max(0, td - pa);
-      })();
+      // total_due_amount is already the final amount owed for the row — do not subtract paid_amount.
+      // For partially_paid rows: total_due_amount IS the remaining shortfall.
+      // For pending/overdue rows with carry-over applied: total_due_amount is already reduced.
+      const nextDueAmount = nextDue ? Math.max(0, Number(nextDue.total_due_amount)) : null;
 
       const progressPercent = Number(acc.total_amount) > 0
         ? Math.min(100, Math.round((totalPayments / Number(acc.total_amount)) * 100))
