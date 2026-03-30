@@ -693,7 +693,7 @@ export default function PaymentSubmissions() {
 
       {/* Underpayment Decision Modal */}
       <AlertDialog open={!!underpaymentModal}>
-        <AlertDialogContent className="max-w-md">
+        <AlertDialogContent className="max-w-md z-[1001] [&~.fixed]:z-[1000]">
           <AlertDialogHeader>
             <AlertDialogTitle className="font-display flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-warning" />
