@@ -178,7 +178,19 @@ async function allocatePaymentToAccount(
               const nextDue = Number(nextItem.total_due_amount);
               const creditAmt = Math.min(remaining, nextDue);
               remaining -= creditAmt;
-              scheduleUpdates.push({ id: nextItem.id, paid_amount: 0, total_due_amount: Math.max(0, nextDue - creditAmt), status: "pending" });
+              scheduleUpdates.push({
+                id: nextItem.id,
+                paid_amount: creditAmt,
+                total_due_amount: Math.max(0, nextDue - creditAmt),
+                status: creditAmt >= nextDue ? "paid" : "partially_paid",
+              });
+              if (creditAmt > 0.005) {
+                allocations.push({
+                  schedule_id: nextItem.id,
+                  allocation_type: "installment",
+                  allocated_amount: creditAmt,
+                });
+              }
             }
             remaining = 0;
           }
@@ -225,8 +237,17 @@ async function allocatePaymentToAccount(
     return { paymentId: "", error: "Failed to create payment record" };
   }
 
-  // Create allocations
+  // Create allocations (duplicate guard: skip if allocation already exists for this payment+schedule)
   for (const alloc of allocations) {
+    const { data: existing } = await supabase
+      .from("payment_allocations")
+      .select("id")
+      .eq("schedule_id", alloc.schedule_id)
+      .eq("payment_id", payment.id)
+      .eq("allocation_type", alloc.allocation_type)
+      .maybeSingle();
+    if (existing) continue;
+
     await supabase.from("payment_allocations").insert({
       payment_id: payment.id,
       schedule_id: alloc.schedule_id,
