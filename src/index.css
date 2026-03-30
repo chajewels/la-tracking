@@ -178,3 +178,11 @@
     background: linear-gradient(90deg, hsl(43 74% 42%), hsl(43 74% 52%), hsl(43 74% 62%));
   }
 }
+
+/* Underpayment AlertDialog must layer above the Action Dialog */
+[role="alertdialog"][data-state="open"] {
+  z-index: 60 !important;
+}
+[role="alertdialog"][data-state="open"] ~ [data-state="open"] {
+  z-index: 60 !important;
+}
