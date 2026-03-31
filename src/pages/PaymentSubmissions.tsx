@@ -729,8 +729,9 @@ export default function PaymentSubmissions() {
       </Dialog>
 
       {/* Underpayment Decision Modal — must layer above the Action Dialog */}
+      {!!underpaymentModal && <div className="fixed inset-0 bg-black/80" style={{ zIndex: 70 }} />}
       <AlertDialog open={!!underpaymentModal}>
-        <AlertDialogContent className="max-w-md !z-[60]">
+        <AlertDialogContent className="max-w-md" style={{ zIndex: 71 }}>
           <AlertDialogHeader>
             <AlertDialogTitle className="font-display flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-warning" />
