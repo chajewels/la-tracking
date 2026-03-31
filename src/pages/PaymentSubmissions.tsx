@@ -848,7 +848,7 @@ export default function PaymentSubmissions() {
       </AlertDialog>
 
       {/* Overpayment Decision Modal */}
-      {overpaymentModal && <div className="fixed inset-0 bg-black/50" style={{ zIndex: 70 }} />}
+      {overpaymentModal && <div className="fixed inset-0 bg-black/50 pointer-events-none" style={{ zIndex: 70 }} />}
       <AlertDialog open={!!overpaymentModal}>
         <AlertDialogContent className="max-w-md" style={{ zIndex: 71 }}>
           <AlertDialogHeader>
@@ -911,6 +911,7 @@ export default function PaymentSubmissions() {
               variant="outline"
               className="w-full justify-start text-left h-auto py-3 px-4"
               onClick={async () => {
+                console.log('[Keep] RAW modal at click time:', overpaymentModal);
                 const modal = overpaymentModal;
                 setOverpaymentModal(null);
                 if (modal && modal.row && modal.sourceRowId) {
