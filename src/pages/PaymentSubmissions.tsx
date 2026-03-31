@@ -729,7 +729,7 @@ export default function PaymentSubmissions() {
       </Dialog>
 
       {/* Underpayment Decision Modal — must layer above the Action Dialog */}
-      {!!underpaymentModal && <div className="fixed inset-0 bg-black/80" style={{ zIndex: 70 }} />}
+      {!!underpaymentModal && <div className="fixed inset-0 bg-black/50" style={{ zIndex: 70 }} />}
       <AlertDialog open={!!underpaymentModal}>
         <AlertDialogContent className="max-w-md" style={{ zIndex: 71 }}>
           <AlertDialogHeader>
@@ -846,7 +846,7 @@ export default function PaymentSubmissions() {
       </AlertDialog>
 
       {/* Overpayment Decision Modal */}
-      {overpaymentModal && <div className="fixed inset-0 bg-black/80" style={{ zIndex: 70 }} />}
+      {overpaymentModal && <div className="fixed inset-0 bg-black/50" style={{ zIndex: 70 }} />}
       <AlertDialog open={!!overpaymentModal}>
         <AlertDialogContent className="max-w-md" style={{ zIndex: 71 }}>
           <AlertDialogHeader>
