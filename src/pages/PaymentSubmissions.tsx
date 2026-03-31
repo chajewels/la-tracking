@@ -912,26 +912,41 @@ export default function PaymentSubmissions() {
               className="w-full justify-start text-left h-auto py-3 px-4"
               onClick={async () => {
                 const modal = overpaymentModal;
+                console.log('[Keep] clicked, modal:', JSON.stringify(modal));
                 setOverpaymentModal(null);
                 if (modal) {
+                  console.log('[Keep] sourceRowId:', modal.sourceRowId);
+                  console.log('[Keep] row:', modal.row?.id);
+
                   // Step 1 — record full submitted amount on source month (admin override)
                   if (modal.sourceRowId) {
-                    await supabase
+                    console.log('[Keep] Step 1 executing - paid_amount:', modal.paidAmount);
+                    const { data: d1, error: e1 } = await supabase
                       .from('layaway_schedule')
                       .update({ paid_amount: modal.paidAmount })
                       .eq('id', modal.sourceRowId);
+                    console.log('[Keep] Step 1 result:', d1, 'error:', e1);
+                  } else {
+                    console.log('[Keep] Step 1 SKIPPED - sourceRowId is null/undefined');
                   }
+
                   // Step 2 — reduce next month total_due_amount by surplus
                   if (modal.row) {
                     const newTotalDue = Number(modal.row.base_installment_amount) +
                                         Number(modal.row.penalty_amount || 0) +
                                         Number(modal.row.carried_amount || 0) -
                                         modal.surplus;
-                    await supabase
+                    console.log('[Keep] Step 2 executing - total_due_amount:', Math.max(0, newTotalDue));
+                    const { data: d2, error: e2 } = await supabase
                       .from('layaway_schedule')
                       .update({ total_due_amount: Math.max(0, newTotalDue) })
                       .eq('id', modal.row.id);
+                    console.log('[Keep] Step 2 result:', d2, 'error:', e2);
+                  } else {
+                    console.log('[Keep] Step 2 SKIPPED - modal.row is null');
                   }
+                } else {
+                  console.log('[Keep] ABORTED - modal is null');
                 }
                 toast.success('Payment recorded.');
                 queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
