@@ -945,13 +945,12 @@ export default function PaymentSubmissions() {
                     console.log('[Keep] existingAlloc:', existingAlloc, 'error:', existingAllocError);
 
                     if (existingAlloc) {
-                      const { data: updateData, error: updateError } = await supabase
-                        .from('payment_allocations')
-                        .update({
-                          allocated_amount: Number(existingAlloc.allocated_amount) + modal.surplus,
-                        })
-                        .eq('id', existingAlloc.id);
-                      console.log('[Keep] UPDATE result:', updateData, 'error:', updateError);
+                      const newAmount = Number(existingAlloc.allocated_amount) + modal.surplus;
+                      const { error: rpcError } = await supabase.rpc('admin_keep_allocation_override', {
+                        p_allocation_id: existingAlloc.id,
+                        p_amount: newAmount,
+                      });
+                      console.log('[Keep] RPC override result, error:', rpcError);
                     }
                   }
                 }

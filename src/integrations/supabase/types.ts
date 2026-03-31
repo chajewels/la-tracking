@@ -1570,6 +1570,10 @@ export type Database = {
       }
     }
     Functions: {
+      admin_keep_allocation_override: {
+        Args: { p_allocation_id: string; p_amount: number }
+        Returns: undefined
+      }
       admin_update_schedule_base: {
         Args: {
           p_is_paid: boolean
