@@ -915,13 +915,14 @@ export default function PaymentSubmissions() {
                 setOverpaymentModal(null);
                 if (modal && modal.row && modal.sourceRowId) {
                   // Step 1 — get the payment_id from the surplus allocation on Month 2
-                  const { data: surplusAlloc } = await supabase
+                  const { data: allAllocs } = await supabase
                     .from('payment_allocations')
-                    .select('id, payment_id')
-                    .eq('schedule_id', modal.row.id)
-                    .eq('allocated_amount', modal.surplus)
-                    .limit(1)
-                    .single();
+                    .select('id, payment_id, allocated_amount')
+                    .eq('schedule_id', modal.row.id);
+                  const surplusAlloc = (allAllocs || []).find(
+                    a => Math.abs(Number(a.allocated_amount) - modal.surplus) < 0.01
+                  );
+                  console.log('[Keep] allAllocs:', allAllocs, 'surplusAlloc:', surplusAlloc);
 
                   // Step 2 — delete the surplus allocation from Month 2
                   if (surplusAlloc) {
