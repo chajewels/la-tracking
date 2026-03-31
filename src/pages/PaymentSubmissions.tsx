@@ -912,41 +912,36 @@ export default function PaymentSubmissions() {
               className="w-full justify-start text-left h-auto py-3 px-4"
               onClick={async () => {
                 const modal = overpaymentModal;
-                console.log('[Keep] clicked, modal:', JSON.stringify(modal));
                 setOverpaymentModal(null);
-                if (modal) {
-                  console.log('[Keep] sourceRowId:', modal.sourceRowId);
-                  console.log('[Keep] row:', modal.row?.id);
+                if (modal && modal.row && modal.sourceRowId) {
+                  // Step 1 — get the payment_id from the surplus allocation on Month 2
+                  const { data: surplusAlloc } = await supabase
+                    .from('payment_allocations')
+                    .select('id, payment_id')
+                    .eq('schedule_id', modal.row.id)
+                    .eq('allocated_amount', modal.surplus)
+                    .limit(1)
+                    .single();
 
-                  // Step 1 — record full submitted amount on source month (admin override)
-                  if (modal.sourceRowId) {
-                    console.log('[Keep] Step 1 executing - paid_amount:', modal.paidAmount);
-                    const { data: d1, error: e1 } = await supabase
-                      .from('layaway_schedule')
-                      .update({ paid_amount: modal.paidAmount })
-                      .eq('id', modal.sourceRowId);
-                    console.log('[Keep] Step 1 result:', d1, 'error:', e1);
-                  } else {
-                    console.log('[Keep] Step 1 SKIPPED - sourceRowId is null/undefined');
+                  // Step 2 — delete the surplus allocation from Month 2
+                  if (surplusAlloc) {
+                    await supabase
+                      .from('payment_allocations')
+                      .delete()
+                      .eq('id', surplusAlloc.id);
                   }
 
-                  // Step 2 — reduce next month total_due_amount by surplus
-                  if (modal.row) {
-                    const newTotalDue = Number(modal.row.base_installment_amount) +
-                                        Number(modal.row.penalty_amount || 0) +
-                                        Number(modal.row.carried_amount || 0) -
-                                        modal.surplus;
-                    console.log('[Keep] Step 2 executing - total_due_amount:', Math.max(0, newTotalDue));
-                    const { data: d2, error: e2 } = await supabase
-                      .from('layaway_schedule')
-                      .update({ total_due_amount: Math.max(0, newTotalDue) })
-                      .eq('id', modal.row.id);
-                    console.log('[Keep] Step 2 result:', d2, 'error:', e2);
-                  } else {
-                    console.log('[Keep] Step 2 SKIPPED - modal.row is null');
+                  // Step 3 — insert the surplus allocation on Month 1 (source row)
+                  if (surplusAlloc && modal.sourceRowId) {
+                    await supabase
+                      .from('payment_allocations')
+                      .insert({
+                        schedule_id: modal.sourceRowId,
+                        payment_id: surplusAlloc.payment_id,
+                        allocated_amount: modal.surplus,
+                        allocation_type: 'installment',
+                      });
                   }
-                } else {
-                  console.log('[Keep] ABORTED - modal is null');
                 }
                 toast.success('Payment recorded.');
                 queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
