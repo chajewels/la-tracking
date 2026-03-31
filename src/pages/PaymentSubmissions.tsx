@@ -908,8 +908,32 @@ export default function PaymentSubmissions() {
             <Button
               variant="outline"
               className="w-full justify-start text-left h-auto py-3 px-4"
-              onClick={() => {
+              onClick={async () => {
+                const modal = overpaymentModal;
                 setOverpaymentModal(null);
+                if (modal) {
+                  // Step 1 — record full submitted amount on source month (admin override)
+                  const sourceRow = confirmScheduleRows.find(
+                    r => r.id === confirmWaterfall?.allocations[0]?.scheduleId
+                  );
+                  if (sourceRow) {
+                    await supabase
+                      .from('layaway_schedule')
+                      .update({ paid_amount: modal.paidAmount })
+                      .eq('id', sourceRow.id);
+                  }
+                  // Step 2 — reduce next month total_due_amount by surplus
+                  if (modal.row) {
+                    const newTotalDue = Number(modal.row.base_installment_amount) +
+                                        Number(modal.row.penalty_amount || 0) +
+                                        Number(modal.row.carried_amount || 0) -
+                                        modal.surplus;
+                    await supabase
+                      .from('layaway_schedule')
+                      .update({ total_due_amount: Math.max(0, newTotalDue) })
+                      .eq('id', modal.row.id);
+                  }
+                }
                 toast.success('Payment recorded.');
                 queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
               }}
