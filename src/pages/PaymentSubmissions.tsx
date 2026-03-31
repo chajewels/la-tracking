@@ -151,6 +151,7 @@ export default function PaymentSubmissions() {
   const [underpaymentLoading, setUnderpaymentLoading] = useState<'partial' | 'carry' | null>(null);
   const [overpaymentModal, setOverpaymentModal] = useState<{
     row: ScheduleViewRow | null;
+    sourceRowId: string | null;
     dueAmount: number;
     paidAmount: number;
     surplus: number;
@@ -307,6 +308,7 @@ export default function PaymentSubmissions() {
             const cur = (actionDialog.sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY';
             setOverpaymentModal({
               row: partialRow,
+              sourceRowId: confirmWaterfall.allocations[0]?.scheduleId ?? null,
               dueAmount,
               paidAmount: Number(actionDialog.sub.submitted_amount),
               surplus: partialAlloc.amount,
@@ -913,14 +915,11 @@ export default function PaymentSubmissions() {
                 setOverpaymentModal(null);
                 if (modal) {
                   // Step 1 — record full submitted amount on source month (admin override)
-                  const sourceRow = confirmScheduleRows.find(
-                    r => r.id === confirmWaterfall?.allocations[0]?.scheduleId
-                  );
-                  if (sourceRow) {
+                  if (modal.sourceRowId) {
                     await supabase
                       .from('layaway_schedule')
                       .update({ paid_amount: modal.paidAmount })
-                      .eq('id', sourceRow.id);
+                      .eq('id', modal.sourceRowId);
                   }
                   // Step 2 — reduce next month total_due_amount by surplus
                   if (modal.row) {
@@ -936,6 +935,9 @@ export default function PaymentSubmissions() {
                 }
                 toast.success('Payment recorded.');
                 queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
+                queryClient.invalidateQueries({ queryKey: ['account'] });
+                queryClient.invalidateQueries({ queryKey: ['schedule'] });
+                queryClient.invalidateQueries({ queryKey: ['payments'] });
               }}
             >
               <CreditCard className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
