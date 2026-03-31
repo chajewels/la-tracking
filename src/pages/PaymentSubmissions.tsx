@@ -933,21 +933,25 @@ export default function PaymentSubmissions() {
 
                   // Step 3 — add surplus to existing Month 1 allocation
                   // instead of inserting new row (avoids unique constraint on schedule_id, payment_id)
+                  console.log('[Keep] surplusAlloc.payment_id:', surplusAlloc?.payment_id);
+                  console.log('[Keep] modal.sourceRowId:', modal.sourceRowId);
                   if (surplusAlloc && modal.sourceRowId) {
-                    const { data: existingAlloc } = await supabase
+                    const { data: existingAlloc, error: existingAllocError } = await supabase
                       .from('payment_allocations')
                       .select('id, allocated_amount')
                       .eq('schedule_id', modal.sourceRowId)
                       .eq('payment_id', surplusAlloc.payment_id)
                       .single();
+                    console.log('[Keep] existingAlloc:', existingAlloc, 'error:', existingAllocError);
 
                     if (existingAlloc) {
-                      await supabase
+                      const { data: updateData, error: updateError } = await supabase
                         .from('payment_allocations')
                         .update({
                           allocated_amount: Number(existingAlloc.allocated_amount) + modal.surplus,
                         })
                         .eq('id', existingAlloc.id);
+                      console.log('[Keep] UPDATE result:', updateData, 'error:', updateError);
                     }
                   }
                 }
