@@ -51,12 +51,18 @@ Deno.serve(async (req) => {
 
     const accountIds = accounts.map(a => a.id);
 
-    // Fetch all schedules, penalties, and customers in parallel
-    const [schedRes, penRes, custRes] = await Promise.all([
+    // Fetch all schedules, penalties, customers, and allocations in parallel
+    const [schedRes, penRes, custRes, allocRes] = await Promise.all([
       fetchAll(supabase, "layaway_schedule", accountIds),
       fetchAll(supabase, "penalty_fees", accountIds),
       supabase.from("customers").select("id, full_name").in("id", [...new Set(accounts.map(a => a.customer_id))]),
+      fetchAllocations(supabase, accountIds),
     ]);
+    // Build allocation sum map: schedule_id → total allocated (non-voided payments only)
+    const allocBySchedule = new Map<string, number>();
+    for (const alloc of allocRes) {
+      allocBySchedule.set(alloc.schedule_id, (allocBySchedule.get(alloc.schedule_id) || 0) + Number(alloc.allocated_amount));
+    }
 
     const customerMap = new Map((custRes.data || []).map((c: any) => [c.id, c.full_name]));
     const schedByAccount = groupBy(schedRes, "account_id");
@@ -109,6 +115,22 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      // Safety guard: skip if a payment was received within the last 90 days
+      const { data: recentPayments } = await supabase
+        .from("payments")
+        .select("date_paid")
+        .eq("account_id", account.id)
+        .is("voided_at", null)
+        .order("date_paid", { ascending: false })
+        .limit(1);
+      const lastPaymentDate = recentPayments?.[0]?.date_paid ?? null;
+      const ninetyDaysAgo = new Date(now);
+      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+      if (lastPaymentDate && new Date(lastPaymentDate + "T00:00:00Z") >= ninetyDaysAgo) {
+        console.log(`Skipped forfeit for ${account.id} — payment within 90 days (${lastPaymentDate})`);
+        continue;
+      }
+
       const schedItems = (schedByAccount.get(account.id) || [])
         .filter((s: any) => s.status !== "cancelled")
         .sort((a: any, b: any) => a.installment_number - b.installment_number);
@@ -117,12 +139,16 @@ Deno.serve(async (req) => {
       if (schedItems.length === 0) continue;
 
       // ── Determine FIRST UNPAID DUE DATE (forfeiture reference) ──
-      const paidItems = schedItems.filter((s: any) =>
-        s.status === "paid" || Number(s.paid_amount) >= Number(s.total_due_amount)
-      );
-      const unpaidItems = schedItems.filter((s: any) =>
-        s.status !== "paid" && Number(s.paid_amount) < Number(s.total_due_amount)
-      );
+      const paidItems = schedItems.filter((s: any) => {
+        const allocated = allocBySchedule.get(s.id) || 0;
+        const rowDue = Number(s.base_installment_amount) + Number(s.penalty_amount || 0) + Number(s.carried_amount || 0);
+        return allocated >= rowDue - 0.01;
+      });
+      const unpaidItems = schedItems.filter((s: any) => {
+        const allocated = allocBySchedule.get(s.id) || 0;
+        const rowDue = Number(s.base_installment_amount) + Number(s.penalty_amount || 0) + Number(s.carried_amount || 0);
+        return allocated < rowDue - 0.01;
+      });
 
       if (unpaidItems.length === 0) continue;
 
@@ -279,6 +305,41 @@ Deno.serve(async (req) => {
     });
   }
 });
+
+/** Fetch payment_allocations joined with non-voided payments for all account schedule rows */
+async function fetchAllocations(supabase: any, accountIds: string[]): Promise<any[]> {
+  let all: any[] = [];
+  for (let i = 0; i < accountIds.length; i += 200) {
+    const chunk = accountIds.slice(i, i + 200);
+    const { data: schedIds } = await supabase
+      .from("layaway_schedule")
+      .select("id")
+      .in("account_id", chunk);
+    if (!schedIds || schedIds.length === 0) continue;
+    const ids = schedIds.map((r: any) => r.id);
+    for (let j = 0; j < ids.length; j += 200) {
+      const idChunk = ids.slice(j, j + 200);
+      const { data } = await supabase
+        .from("payment_allocations")
+        .select("schedule_id, allocated_amount, payment_id")
+        .in("schedule_id", idChunk);
+      if (data) all = all.concat(data);
+    }
+  }
+  if (all.length === 0) return [];
+  const paymentIds = [...new Set(all.map((a: any) => a.payment_id))];
+  const voidedIds = new Set<string>();
+  for (let i = 0; i < paymentIds.length; i += 200) {
+    const chunk = paymentIds.slice(i, i + 200);
+    const { data } = await supabase
+      .from("payments")
+      .select("id")
+      .in("id", chunk)
+      .not("voided_at", "is", null);
+    if (data) data.forEach((p: any) => voidedIds.add(p.id));
+  }
+  return all.filter((a: any) => !voidedIds.has(a.payment_id));
+}
 
 /** Fetch all rows from a table filtered by account_id IN (ids), paginated */
 async function fetchAll(supabase: any, table: string, accountIds: string[]): Promise<any[]> {
