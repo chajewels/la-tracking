@@ -27,17 +27,21 @@ export function formatCurrencyWithCode(amount: number, currency: Currency): stri
  * Each installment falls on the same day of month as the order date.
  */
 export function generateScheduleDates(orderDate: string, planMonths: number): string[] {
-  const start = new Date(orderDate);
-  const dayOfMonth = start.getDate();
+  const [y, m, d] = orderDate.split('-').map(Number);
+  const dayOfMonth = d;                               // exact day from string — no timezone involved
   const dates: string[] = [];
 
   for (let i = 0; i < planMonths; i++) {
-    const date = new Date(start.getFullYear(), start.getMonth() + i, dayOfMonth);
-    // Handle months with fewer days (e.g., Feb 30 -> Feb 28)
+    const date = new Date(y, m - 1, dayOfMonth);      // local-time constructor — no UTC parsing
+    date.setMonth(date.getMonth() + i);               // setMonth handles year rollover automatically
+    // Handle months with fewer days (e.g., Feb 30 → Feb 28)
     if (date.getDate() !== dayOfMonth) {
       date.setDate(0); // last day of previous month
     }
-    dates.push(date.toISOString().split('T')[0]);
+    const yy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    dates.push(`${yy}-${mm}-${dd}`);                 // manual format — no UTC conversion
   }
   return dates;
 }
