@@ -199,14 +199,17 @@ export default function PaymentSubmissions() {
   // Helpers for waterfall partial detection
   const getConfirmPartialRow = useMemo(() => {
     if (!confirmWaterfall?.valid || confirmScheduleRows.length === 0) return null;
-    for (const alloc of confirmWaterfall.allocations) {
-      const row = confirmScheduleRows.find(r => r.id === alloc.scheduleId);
-      if (!row) continue;
-      const rowTotal = Number(row.base_installment_amount) + Number(row.penalty_amount || 0) + Number(row.carried_amount || 0);
-      const newAllocated = (Number(row.allocated) || 0) + alloc.amount;
-      if (newAllocated < rowTotal - 0.01 && newAllocated > 0) {
-        return { scheduleId: row.id, row, shortfall: Math.round((rowTotal - newAllocated) * 100) / 100 };
-      }
+    // Only check the FIRST allocation. A partial here means the payment couldn't
+    // even fill month 1 — true underpayment. Partial in alloc[1+] means overpayment
+    // (surplus flowed forward) and is handled separately in onSuccess.
+    const firstAlloc = confirmWaterfall.allocations[0];
+    if (!firstAlloc) return null;
+    const row = confirmScheduleRows.find(r => r.id === firstAlloc.scheduleId);
+    if (!row) return null;
+    const rowTotal = Number(row.base_installment_amount) + Number(row.penalty_amount || 0) + Number(row.carried_amount || 0);
+    const newAllocated = (Number(row.allocated) || 0) + firstAlloc.amount;
+    if (newAllocated < rowTotal - 0.01 && newAllocated > 0) {
+      return { scheduleId: row.id, row, shortfall: Math.round((rowTotal - newAllocated) * 100) / 100 };
     }
     return null;
   }, [confirmWaterfall, confirmScheduleRows]);
@@ -286,29 +289,38 @@ export default function PaymentSubmissions() {
           setActionDialog(null);
           setReviewerNotes('');
           setConfirmResults(null);
-        } else if (confirmWaterfall && !confirmWaterfall.valid && actionDialog) {
-          // Overpayment — submitted amount exceeds total remaining
-          const unpaidRows = confirmScheduleRows
-            .filter(r => !isRowPaid(r) && getRowStatus(r) !== 'cancelled');
-          const totalRem = unpaidRows.reduce((s, r) => s + Number(getRowRemaining(r)), 0);
-          const surplus = Math.round((Number(actionDialog.sub.submitted_amount) - totalRem) * 100) / 100;
-          const lastRow = [...unpaidRows].sort((a, b) => a.due_date.localeCompare(b.due_date)).pop() || null;
-          const cur = (actionDialog.sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY';
-          setOverpaymentModal({
-            row: lastRow,
-            dueAmount: totalRem,
-            paidAmount: Number(actionDialog.sub.submitted_amount),
-            surplus: Math.max(0, surplus),
-            currency: cur,
+        } else if (actionDialog) {
+          // No underpayment on first month. Check if surplus from fully-paid months
+          // flowed into a later month (overpayment case).
+          const partialAlloc = confirmWaterfall?.allocations.find(a => {
+            const row = confirmScheduleRows.find(r => r.id === a.scheduleId);
+            return row && a.amount < Number(getRowRemaining(row)) - 0.01;
           });
-          setActionDialog(null);
-          setReviewerNotes('');
-          setConfirmResults(null);
-        } else {
-          toast.success('Payment approved and recorded');
-          setActionDialog(null);
-          setReviewerNotes('');
-          setConfirmResults(null);
+          const firstAllocId = confirmWaterfall?.allocations[0]?.scheduleId;
+          if (partialAlloc && partialAlloc.scheduleId !== firstAllocId && confirmWaterfall) {
+            // OVERPAYMENT — earlier months fully paid, surplus partially covers next month
+            const partialIndex = confirmWaterfall.allocations.findIndex(a => a.scheduleId === partialAlloc.scheduleId);
+            const dueAmount = confirmWaterfall.allocations
+              .slice(0, partialIndex)
+              .reduce((s, a) => s + a.amount, 0);
+            const partialRow = confirmScheduleRows.find(r => r.id === partialAlloc.scheduleId) ?? null;
+            const cur = (actionDialog.sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY';
+            setOverpaymentModal({
+              row: partialRow,
+              dueAmount,
+              paidAmount: Number(actionDialog.sub.submitted_amount),
+              surplus: partialAlloc.amount,
+              currency: cur,
+            });
+            setActionDialog(null);
+            setReviewerNotes('');
+            setConfirmResults(null);
+          } else {
+            toast.success('Payment approved and recorded');
+            setActionDialog(null);
+            setReviewerNotes('');
+            setConfirmResults(null);
+          }
         }
       } else {
         toast.success(`Submission ${vars.action.replace('_', ' ')}`);
