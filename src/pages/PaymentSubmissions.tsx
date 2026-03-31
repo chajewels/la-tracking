@@ -846,7 +846,7 @@ export default function PaymentSubmissions() {
 
       {/* Overpayment Decision Modal */}
       <AlertDialog open={!!overpaymentModal}>
-        <AlertDialogContent className="max-w-md !z-[60]">
+        <AlertDialogContent className="max-w-md !z-[70]">
           <AlertDialogHeader>
             <AlertDialogTitle className="font-display">
               ⬆️ Overpayment Detected
