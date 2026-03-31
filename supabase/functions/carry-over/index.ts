@@ -29,10 +29,18 @@ serve(async (req) => {
 
     const { data: alloc } = await supabase
       .from("payment_allocations")
-      .select("allocated_amount")
+      .select("allocated_amount, payment_id")
       .eq("schedule_id", schedule_row_id);
 
-    const allocated = (alloc || []).reduce((sum, r) => sum + Number(r.allocated_amount), 0);
+    const { data: voidedPmts } = await supabase
+      .from("payments")
+      .select("id")
+      .eq("account_id", account_id)
+      .not("voided_at", "is", null);
+    const voidedIds = new Set((voidedPmts || []).map((p: any) => p.id));
+    const allocated = (alloc || [])
+      .filter((r: any) => !voidedIds.has(r.payment_id))
+      .reduce((sum: number, r: any) => sum + Number(r.allocated_amount), 0);
     const shortfall = Number(source.base_installment_amount) + Number(source.penalty_amount || 0) + Number(source.carried_amount || 0) - allocated;
 
     if (shortfall <= 0) return new Response(JSON.stringify({ error: "No shortfall to carry" }), { status: 400, headers: corsHeaders });
@@ -41,15 +49,17 @@ serve(async (req) => {
       .from("layaway_schedule")
       .select("id")
       .eq("account_id", account_id)
-      .eq("installment_number", source.installment_number + 1)
+      .gt("installment_number", source.installment_number)
       .not("status", "in", '("paid","cancelled")')
+      .order("installment_number", { ascending: true })
+      .limit(1)
       .single();
 
     if (nextErr || !nextRow) return new Response(JSON.stringify({ error: "No eligible next row found" }), { status: 400, headers: corsHeaders });
 
     await supabase
       .from("layaway_schedule")
-      .update({ status: "paid", updated_at: new Date().toISOString() })
+      .update({ status: "paid", paid_amount: allocated, updated_at: new Date().toISOString() })
       .eq("id", schedule_row_id);
 
     const { error: carryErr } = await supabase
