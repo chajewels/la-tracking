@@ -242,7 +242,6 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
         remarks: dpRemarks,
         is_downpayment: isDP,
         carry_over: carryOver,
-        submission_type: isDP ? 'downpayment' : 'installment',
       });
       toast.success(`Payment of ${formatCurrency(parsedAmount, currency)} recorded successfully`);
       if (paymentType !== 'downpayment') {
