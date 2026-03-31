@@ -911,7 +911,6 @@ export default function PaymentSubmissions() {
               variant="outline"
               className="w-full justify-start text-left h-auto py-3 px-4"
               onClick={async () => {
-                console.log('[Keep] RAW modal at click time:', overpaymentModal);
                 const modal = overpaymentModal;
                 setOverpaymentModal(null);
                 if (modal && modal.row && modal.sourceRowId) {
@@ -923,7 +922,6 @@ export default function PaymentSubmissions() {
                   const surplusAlloc = (allAllocs || []).find(
                     a => Math.abs(Number(a.allocated_amount) - modal.surplus) < 0.01
                   );
-                  console.log('[Keep] allAllocs:', allAllocs, 'surplusAlloc:', surplusAlloc);
 
                   // Step 2 — delete the surplus allocation from Month 2
                   if (surplusAlloc) {
@@ -933,16 +931,24 @@ export default function PaymentSubmissions() {
                       .eq('id', surplusAlloc.id);
                   }
 
-                  // Step 3 — insert the surplus allocation on Month 1 (source row)
+                  // Step 3 — add surplus to existing Month 1 allocation
+                  // instead of inserting new row (avoids unique constraint on schedule_id, payment_id)
                   if (surplusAlloc && modal.sourceRowId) {
-                    await supabase
+                    const { data: existingAlloc } = await supabase
                       .from('payment_allocations')
-                      .insert({
-                        schedule_id: modal.sourceRowId,
-                        payment_id: surplusAlloc.payment_id,
-                        allocated_amount: modal.surplus,
-                        allocation_type: 'installment',
-                      });
+                      .select('id, allocated_amount')
+                      .eq('schedule_id', modal.sourceRowId)
+                      .eq('payment_id', surplusAlloc.payment_id)
+                      .single();
+
+                    if (existingAlloc) {
+                      await supabase
+                        .from('payment_allocations')
+                        .update({
+                          allocated_amount: Number(existingAlloc.allocated_amount) + modal.surplus,
+                        })
+                        .eq('id', existingAlloc.id);
+                    }
                   }
                 }
                 toast.success('Payment recorded.');
