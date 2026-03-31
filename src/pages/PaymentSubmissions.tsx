@@ -913,46 +913,25 @@ export default function PaymentSubmissions() {
               onClick={async () => {
                 const modal = overpaymentModal;
                 setOverpaymentModal(null);
-                if (modal && modal.row && modal.sourceRowId) {
-                  // Step 1 — get the payment_id from the surplus allocation on Month 2
-                  const { data: allAllocs } = await supabase
+                if (modal && modal.sourceRowId) {
+                  // Find the existing Month 1 allocation — get by schedule_id only
+                  const { data: allMonth1Allocs } = await supabase
                     .from('payment_allocations')
-                    .select('id, payment_id, allocated_amount')
-                    .eq('schedule_id', modal.row.id);
-                  const surplusAlloc = (allAllocs || []).find(
-                    a => Math.abs(Number(a.allocated_amount) - modal.surplus) < 0.01
-                  );
+                    .select('id, allocated_amount')
+                    .eq('schedule_id', modal.sourceRowId);
 
-                  // Step 2 — delete the surplus allocation from Month 2
-                  if (surplusAlloc) {
-                    await supabase
-                      .from('payment_allocations')
-                      .delete()
-                      .eq('id', surplusAlloc.id);
+                  // Pick the allocation with the largest amount (the base installment)
+                  const existingAlloc = (allMonth1Allocs || [])
+                    .sort((a, b) => Number(b.allocated_amount) - Number(a.allocated_amount))[0];
+
+                  if (existingAlloc) {
+                    // Update Month 1 allocation to full submitted amount via RPC bypass
+                    await supabase.rpc('admin_keep_allocation_override', {
+                      p_allocation_id: existingAlloc.id,
+                      p_amount: modal.paidAmount,
+                    });
                   }
-
-                  // Step 3 — add surplus to existing Month 1 allocation
-                  // instead of inserting new row (avoids unique constraint on schedule_id, payment_id)
-                  console.log('[Keep] surplusAlloc.payment_id:', surplusAlloc?.payment_id);
-                  console.log('[Keep] modal.sourceRowId:', modal.sourceRowId);
-                  if (surplusAlloc && modal.sourceRowId) {
-                    const { data: existingAlloc, error: existingAllocError } = await supabase
-                      .from('payment_allocations')
-                      .select('id, allocated_amount')
-                      .eq('schedule_id', modal.sourceRowId)
-                      .eq('payment_id', surplusAlloc.payment_id)
-                      .single();
-                    console.log('[Keep] existingAlloc:', existingAlloc, 'error:', existingAllocError);
-
-                    if (existingAlloc) {
-                      const newAmount = Number(existingAlloc.allocated_amount) + modal.surplus;
-                      const { error: rpcError } = await supabase.rpc('admin_keep_allocation_override', {
-                        p_allocation_id: existingAlloc.id,
-                        p_amount: newAmount,
-                      });
-                      console.log('[Keep] RPC override result, error:', rpcError);
-                    }
-                  }
+                  // Month 2 allocation is left untouched — surplus already allocated there
                 }
                 toast.success('Payment recorded.');
                 queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
