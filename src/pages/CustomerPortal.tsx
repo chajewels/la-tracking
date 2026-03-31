@@ -216,6 +216,7 @@ export default function CustomerPortal() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('newest');
   const [portalView, setPortalView] = useState<'accounts' | 'profile'>('accounts');
+  const [accountSelectModal, setAccountSelectModal] = useState<'single' | 'split' | null>(null);
 
   const openAccountPay = (account: PortalAccount, mode: 'single' | 'split' = 'single') => {
     setInitialDetailTab('pay');
@@ -358,7 +359,7 @@ export default function CustomerPortal() {
                     textTransform:'uppercase' as const,
                     cursor:'pointer',
                   }}
-                  onClick={() => openAccountPay(firstPayable, 'single')}
+                  onClick={() => payableAccounts.length === 1 ? openAccountPay(firstPayable, 'single') : setAccountSelectModal('single')}
                 >
                   Pay Now
                 </button>
@@ -425,7 +426,7 @@ export default function CustomerPortal() {
             {payableAccounts.length > 0 && (
               <div className={`grid gap-3 ${payableAccounts.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
                 <button
-                  onClick={() => openAccountPay(firstPayable, 'single')}
+                  onClick={() => payableAccounts.length === 1 ? openAccountPay(firstPayable, 'single') : setAccountSelectModal('single')}
                   style={{
                     background: P.gr,
                     border: hasOverdue ? `1px solid #E74C3C` : 'none',
@@ -454,7 +455,7 @@ export default function CustomerPortal() {
                 </button>
                 {payableAccounts.length > 1 && (
                   <button
-                    onClick={() => openAccountPay(firstPayable, 'split')}
+                    onClick={() => setAccountSelectModal('split')}
                     style={{
                       background:'transparent',
                       border:`1px solid ${P.gp}`,
@@ -555,7 +556,7 @@ export default function CustomerPortal() {
             <button
               className="flex-1 h-12 font-medium transition-opacity hover:opacity-90"
               style={{background:P.gr,color:P.bg,borderRadius:'2px',fontSize:'12px',letterSpacing:'0.15em',textTransform:'uppercase' as const,cursor:'pointer',border:'none'}}
-              onClick={() => openAccountPay(firstPayable, 'single')}
+              onClick={() => payableAccounts.length === 1 ? openAccountPay(firstPayable, 'single') : setAccountSelectModal('single')}
             >
               Pay Now
             </button>
@@ -563,7 +564,7 @@ export default function CustomerPortal() {
               <button
                 className="h-12 px-4 transition-all"
                 style={{background:'transparent',border:`1px solid ${P.gp}`,color:P.gp,borderRadius:'2px',fontSize:'12px',letterSpacing:'0.1em',textTransform:'uppercase' as const,cursor:'pointer'}}
-                onClick={() => openAccountPay(firstPayable, 'split')}
+                onClick={() => setAccountSelectModal('split')}
               >
                 Split
               </button>
@@ -571,6 +572,67 @@ export default function CustomerPortal() {
           </div>
         </div>
       )}
+
+      {/* Account Selection Sheet — shown when top-level Pay Now / Split is clicked with 2+ accounts */}
+      <Sheet open={!!accountSelectModal} onOpenChange={(open) => { if (!open) setAccountSelectModal(null); }}>
+        <SheetContent side="bottom" className="p-0 rounded-t-lg" style={{background:P.s,border:'none',borderTop:`2px solid ${P.gp}`}}>
+          <SheetHeader className="px-5 pt-5 pb-3" style={{borderBottom:`1px solid ${P.br}`}}>
+            <SheetTitle style={{color:P.gp,fontFamily:CG,fontSize:'15px',letterSpacing:'0.15em',textTransform:'uppercase' as const,fontWeight:600}}>
+              {accountSelectModal === 'split' ? 'Select Account — Split Payment' : 'Select Account to Pay'}
+            </SheetTitle>
+          </SheetHeader>
+          <div className="px-4 py-3 space-y-2 pb-10">
+            {payableAccounts.map((account) => (
+              <button
+                key={account.id}
+                onClick={() => { setAccountSelectModal(null); openAccountPay(account, accountSelectModal!); }}
+                className="w-full text-left transition-all hover:opacity-90"
+                style={{
+                  background: P.s2,
+                  border: `1px solid ${account.status_label === 'Overdue' ? '#E74C3C55' : P.br}`,
+                  borderRadius: '2px',
+                  padding: '14px 16px',
+                  cursor: 'pointer',
+                }}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div style={{color:P.tp,fontFamily:CG,fontSize:'18px',fontWeight:600,lineHeight:1.2}}>
+                      #{account.invoice_number}
+                    </div>
+                    <div className="flex items-center gap-3 mt-1 flex-wrap">
+                      {account.next_due_date && (
+                        <span style={{color:P.ts,fontSize:'12px'}}>
+                          Due {fmtDate(account.next_due_date)}
+                        </span>
+                      )}
+                      {account.next_due_amount != null && (
+                        <span style={{color:P.gp,fontSize:'13px',fontWeight:600}}>
+                          {fmt(account.next_due_amount, account.currency)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span style={{
+                      fontSize: '10px',
+                      letterSpacing: '0.1em',
+                      textTransform: 'uppercase' as const,
+                      color: account.status_label === 'Overdue' ? '#E74C3C' : P.gp,
+                      border: `1px solid ${account.status_label === 'Overdue' ? '#E74C3C55' : P.gp + '55'}`,
+                      borderRadius: '2px',
+                      padding: '2px 8px',
+                    }}>
+                      {account.status_label}
+                    </span>
+                    <ChevronRight className="h-4 w-4" style={{color:P.gd}} />
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* Detail Sheet */}
       <Sheet open={!!selectedAccount} onOpenChange={(open) => { if (!open) { setSelectedAccount(null); setInitialDetailTab('overview'); setInitialPaymentMode('single'); } }}>
