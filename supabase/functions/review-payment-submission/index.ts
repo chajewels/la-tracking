@@ -187,65 +187,89 @@ async function allocatePaymentToAccount(
     return { paymentId: "", error: "Failed to create payment record" };
   }
 
-  // Create allocations (duplicate guard: skip if allocation already exists for this payment+schedule)
-  for (const alloc of allocations) {
-    const { data: existing } = await supabase
-      .from("payment_allocations")
-      .select("id")
-      .eq("schedule_id", alloc.schedule_id)
-      .eq("payment_id", payment.id)
-      .eq("allocation_type", alloc.allocation_type)
-      .maybeSingle();
-    if (existing) continue;
-
-    await supabase.from("payment_allocations").insert({
-      payment_id: payment.id,
-      schedule_id: alloc.schedule_id,
-      allocation_type: alloc.allocation_type,
-      allocated_amount: alloc.allocated_amount,
-    });
+  // Guard: skip allocation waterfall if this payment was already allocated (idempotency)
+  const { data: existingAllocsGuard } = await supabase
+    .from("payment_allocations")
+    .select("id")
+    .eq("payment_id", payment.id)
+    .limit(1);
+  const skipWaterfall = existingAllocsGuard != null && existingAllocsGuard.length > 0;
+  if (skipWaterfall) {
+    console.log(`[review] Payment ${payment.id} already has allocations — skipping waterfall`);
   }
 
-  // Update penalty statuses
-  for (const pen of penaltyUpdates) {
-    await supabase.from("penalty_fees").update({ status: pen.status }).eq("id", pen.id);
+  if (!skipWaterfall) {
+    // Create allocations (duplicate guard: skip if allocation already exists for this payment+schedule)
+    for (const alloc of allocations) {
+      const { data: existing } = await supabase
+        .from("payment_allocations")
+        .select("id")
+        .eq("schedule_id", alloc.schedule_id)
+        .eq("payment_id", payment.id)
+        .eq("allocation_type", alloc.allocation_type)
+        .maybeSingle();
+      if (existing) continue;
+
+      await supabase.from("payment_allocations").insert({
+        payment_id: payment.id,
+        schedule_id: alloc.schedule_id,
+        allocation_type: alloc.allocation_type,
+        allocated_amount: alloc.allocated_amount,
+      });
+    }
+
+    // Update penalty statuses
+    for (const pen of penaltyUpdates) {
+      await supabase.from("penalty_fees").update({ status: pen.status }).eq("id", pen.id);
+    }
+
+    // Update schedule items
+    for (const item of scheduleUpdates) {
+      const fields: any = { paid_amount: item.paid_amount, status: item.status };
+      if (item.total_due_amount !== undefined) fields.total_due_amount = item.total_due_amount;
+      await supabase.from("layaway_schedule").update(fields).eq("id", item.id);
+    }
   }
 
-  // Update schedule items
-  for (const item of scheduleUpdates) {
-    const fields: any = { paid_amount: item.paid_amount, status: item.status };
-    if (item.total_due_amount !== undefined) fields.total_due_amount = item.total_due_amount;
-    await supabase.from("layaway_schedule").update(fields).eq("id", item.id);
-  }
-
-  // Update account totals
-  const { data: fullAccount } = await supabase
-    .from("layaway_accounts")
-    .select("total_amount, total_paid, status")
-    .eq("id", accountId)
-    .single();
-
-  const newTotalPaid = Number(fullAccount?.total_paid || 0) + amountPaid;
-  const totalAmount = Number(fullAccount?.total_amount || 0);
-
-  // PRINCIPAL-ONLY remaining: exclude penalty payments
-  const { data: paidPenaltyFees } = await supabase
+  // Re-derive remaining_balance from payment_allocations (post-insert, source of truth)
+  const { data: allSchedIds } = await supabase
+    .from("layaway_schedule")
+    .select("id")
+    .eq("account_id", accountId);
+  const { data: allocTotals } = await supabase
+    .from("payment_allocations")
+    .select("allocated_amount, payment_id")
+    .in("schedule_id", (allSchedIds || []).map((r: any) => r.id));
+  const { data: voidedPmts } = await supabase
+    .from("payments")
+    .select("id")
+    .eq("account_id", accountId)
+    .not("voided_at", "is", null);
+  const voidedPmtIds = new Set((voidedPmts || []).map((p: any) => p.id));
+  const totalAllocatedVerified = (allocTotals || [])
+    .filter((a: any) => !voidedPmtIds.has(a.payment_id))
+    .reduce((sum: number, a: any) => sum + Number(a.allocated_amount), 0);
+  const { data: activePenaltiesData } = await supabase
     .from("penalty_fees")
     .select("penalty_amount")
     .eq("account_id", accountId)
-    .eq("status", "paid");
-  const penaltyPaidForAccount = (paidPenaltyFees || []).reduce((s: number, f: any) => s + Number(f.penalty_amount), 0);
-  // Add penalties being paid in this allocation that haven't been committed yet
-  const newPenaltyInAlloc = allocations
-    .filter(a => a.allocation_type === "penalty")
-    .reduce((s, a) => s + a.allocated_amount, 0);
-  const totalPenaltyPaid = penaltyPaidForAccount + newPenaltyInAlloc;
-  const newRemaining = Math.max(0, totalAmount - (newTotalPaid - totalPenaltyPaid));
+    .neq("status", "waived");
+  const totalPenaltiesVerified = (activePenaltiesData || [])
+    .reduce((sum: number, p: any) => sum + Number(p.penalty_amount), 0);
+
+  const { data: fullAccount } = await supabase
+    .from("layaway_accounts")
+    .select("total_amount, status")
+    .eq("id", accountId)
+    .single();
+  const totalAmount = Number(fullAccount?.total_amount || 0);
+  const verifiedRemaining = Math.max(0, totalAmount + totalPenaltiesVerified - totalAllocatedVerified);
+  const verifiedTotalPaid = Math.max(0, totalAllocatedVerified - totalPenaltiesVerified);
 
   // Recalculate correct status
   const currentStatus = fullAccount?.status || "active";
   let newStatus: string | undefined;
-  if (newRemaining <= 0) {
+  if (verifiedRemaining <= 0) {
     newStatus = "completed";
   } else if (["active", "overdue"].includes(currentStatus)) {
     const todayStr = new Date().toISOString().split("T")[0];
@@ -259,8 +283,8 @@ async function allocatePaymentToAccount(
   }
 
   const accountUpdate: Record<string, unknown> = {
-    total_paid: newTotalPaid,
-    remaining_balance: newRemaining,
+    total_paid: verifiedTotalPaid,
+    remaining_balance: verifiedRemaining,
   };
   if (newStatus) accountUpdate.status = newStatus;
 
