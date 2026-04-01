@@ -615,7 +615,16 @@ export function useForfeitAccount() {
       const { data, error } = await supabase.functions.invoke('manual-forfeit', {
         body: { account_id: accountId },
       });
-      if (error) throw error;
+      if (error) {
+        let detailedMsg = error.message;
+        if ('context' in error && (error as any).context?.body) {
+          try {
+            const body = await new Response((error as any).context.body).json();
+            if (body?.error) detailedMsg = body.error;
+          } catch {}
+        }
+        throw new Error(detailedMsg);
+      }
       return data;
     },
     onSuccess: () => invalidateAll(qc),
