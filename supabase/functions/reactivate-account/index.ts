@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,17 +29,41 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { account_id, staff_user_id } = await req.json();
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Missing Authorization header" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      { global: { headers: { Authorization: authHeader } } }
+    );
+
+    const { data: { user }, error: authErr } = await supabase.auth.getUser();
+    if (authErr || !user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const allowed = await checkPermission(supabase, user.id, "reactivate_account");
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "Permission denied: reactivate_account not allowed" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const { account_id } = await req.json();
     if (!account_id) {
       return new Response(JSON.stringify({ error: "account_id is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    const staffUserId = user.id;
 
     // Fetch account
     const { data: account, error: accErr } = await supabase
@@ -116,7 +141,7 @@ Deno.serve(async (req) => {
         status: "extension_active",
         is_reactivated: true,
         reactivated_at: now,
-        reactivated_by_user_id: staff_user_id || null,
+        reactivated_by_user_id: staffUserId,
         extension_end_date: extensionEndDate,
         penalty_count_at_reactivation: currentPenaltyCount,
         updated_at: now,
@@ -137,7 +162,7 @@ Deno.serve(async (req) => {
       entity_type: "layaway_account",
       entity_id: account_id,
       action: "reactivated",
-      performed_by_user_id: staff_user_id || null,
+      performed_by_user_id: staffUserId,
       new_value_json: {
         invoice_number: account.invoice_number,
         customer_name: cust?.full_name || "Unknown",
