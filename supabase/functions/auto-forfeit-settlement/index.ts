@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
     const { data: accounts, error: accErr } = await supabase
       .from("layaway_accounts")
       .select("id, invoice_number, customer_id, currency, status, total_amount, total_paid, remaining_balance, payment_plan_months, downpayment_amount, is_reactivated, extension_end_date")
-      .in("status", ["active", "overdue", "extension_active"]);
+      .in("status", ["active", "overdue", "extension_active", "final_settlement"]);
 
     if (accErr) throw accErr;
     if (!accounts || accounts.length === 0) {
