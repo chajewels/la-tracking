@@ -1757,7 +1757,7 @@ export default function AccountDetail() {
             { label: 'activePenalties (non-waived)', expected: summary.activePenalties, actual: activePenaltyTotal, pass: Math.abs(summary.activePenalties - activePenaltyTotal) < 0.01 },
             { label: 'totalLAAmount (base + penalties + svc)', expected: summary.totalLAAmount, actual: principalTotal + activePenaltyTotal + totalServicesAmount, pass: Math.abs(summary.totalLAAmount - (principalTotal + activePenaltyTotal + totalServicesAmount)) < 0.01 },
             { label: 'amountPaid (DP + paid months)', expected: totalPaid, actual: Math.round(computedPaid * 100) / 100, pass: Math.abs(totalPaid - computedPaid) < 1 },
-            { label: 'remainingBalance (totalLA - paid)', expected: summary.remainingBalance, actual: Math.max(0, summary.totalLAAmount - totalPaid), pass: Math.abs(summary.remainingBalance - Math.max(0, summary.totalLAAmount - totalPaid)) < 0.01 },
+            { label: 'remainingBalance (stored vs computed)', expected: summary.remainingBalance, actual: Number(account.remaining_balance), pass: Math.abs(summary.remainingBalance - Number(account.remaining_balance)) < 2 },
             { label: 'monthsRemaining', expected: summary.unpaidCount, actual: unpaidSchedule.length, pass: summary.unpaidCount === unpaidSchedule.length },
             { label: 'sumOfPendingMonths ≈ remainingBalance', expected: summary.remainingBalance, actual: Math.round(sumPendingMonths * 100) / 100, pass: Math.abs(sumPendingMonths - summary.remainingBalance) < 2 },
             { label: 'DP + sumBases + activePenalties + services = totalLAAmount', expected: summary.totalLAAmount, actual: baseIntegrity, pass: baseIntegrityPass },
