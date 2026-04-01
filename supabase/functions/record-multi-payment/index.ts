@@ -414,20 +414,49 @@ Deno.serve(async (req) => {
         }
         console.log(`[multi-pay] Schedule updated for ${acct.invoice_number}`);
 
+        // Re-derive remaining_balance from payment_allocations (post-insert, source of truth)
+        const { data: schedIds } = await supabase
+          .from('layaway_schedule')
+          .select('id')
+          .eq('account_id', inputAlloc.account_id);
+        const { data: allocTotals } = await supabase
+          .from('payment_allocations')
+          .select('allocated_amount, payment_id')
+          .in('schedule_id', (schedIds || []).map((r: any) => r.id));
+        const { data: voidedPmts } = await supabase
+          .from('payments')
+          .select('id')
+          .eq('account_id', inputAlloc.account_id)
+          .not('voided_at', 'is', null);
+        const voidedPmtIds = new Set((voidedPmts || []).map((p: any) => p.id));
+        const totalAllocatedVerified = (allocTotals || [])
+          .filter((a: any) => !voidedPmtIds.has(a.payment_id))
+          .reduce((sum: number, a: any) => sum + Number(a.allocated_amount), 0);
+        const { data: activePenaltiesData } = await supabase
+          .from('penalty_fees')
+          .select('penalty_amount')
+          .eq('account_id', inputAlloc.account_id)
+          .neq('status', 'waived');
+        const totalPenaltiesVerified = (activePenaltiesData || [])
+          .reduce((sum: number, p: any) => sum + Number(p.penalty_amount), 0);
+        const verifiedRemaining = Math.max(0, Number(acct.total_amount) + totalPenaltiesVerified - totalAllocatedVerified);
+        const verifiedTotalPaid = Math.max(0, totalAllocatedVerified - totalPenaltiesVerified);
+        const verifiedStatus = verifiedRemaining <= 0 ? "completed" : newStatus;
+
         // Update account
         const { error: acctErr } = await supabase
           .from("layaway_accounts")
           .update({
-            total_paid: newTotalPaid,
-            remaining_balance: Math.max(0, newRemainingBalance),
-            status: newStatus,
+            total_paid: verifiedTotalPaid,
+            remaining_balance: verifiedRemaining,
+            status: verifiedStatus,
           })
           .eq("id", inputAlloc.account_id);
         if (acctErr) {
           console.error(`[multi-pay] Account update error:`, acctErr);
           throw acctErr;
         }
-        console.log(`[multi-pay] Account updated: total_paid=${newTotalPaid}, remaining=${Math.max(0, newRemainingBalance)}, status=${newStatus}`);
+        console.log(`[multi-pay] Account updated: total_paid=${verifiedTotalPaid}, remaining=${verifiedRemaining}, status=${verifiedStatus}`);
 
         // Audit log
         await supabase.from("audit_logs").insert({
