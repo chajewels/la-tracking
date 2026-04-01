@@ -105,15 +105,16 @@ Deno.serve(async (req) => {
       if (wErr) throw new Error(`Failed to approve waiver ${waiver.id}: ${wErr.message}`);
     }
 
-    // ── Step 2: Waive each linked penalty fee (only if currently unpaid) ──────
+    // ── Step 2: Waive each linked penalty fee (unpaid or paid) ──────────────
     const waivedPenaltyFeeIds: string[] = [];
     for (const waiver of waivers as any[]) {
-      if (waiver.penalty_fees?.status === "unpaid") {
+      if (waiver.penalty_fees?.status === "unpaid" ||
+          waiver.penalty_fees?.status === "paid") {
         const { error: pErr } = await supabase
           .from("penalty_fees")
           .update({ status: "waived", waived_at: now })
           .eq("id", waiver.penalty_fee_id)
-          .eq("status", "unpaid"); // guard: only update if still unpaid
+          .in("status", ["unpaid", "paid"]); // guard: only update if not already waived
         if (pErr) throw new Error(`Failed to waive penalty fee ${waiver.penalty_fee_id}: ${pErr.message}`);
         waivedPenaltyFeeIds.push(waiver.penalty_fee_id);
       }
