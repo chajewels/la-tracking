@@ -115,6 +115,57 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      const currency = account.currency;
+      const schedItems = (schedByAccount.get(account.id) || [])
+        .filter((s: any) => s.status !== "cancelled")
+        .sort((a: any, b: any) => a.installment_number - b.installment_number);
+      const penalties = penByAccount.get(account.id) || [];
+
+      if (schedItems.length === 0) continue;
+
+      // ── RULE: FORFEIT if final month penalty reaches ¥6,000/₱3,000 ──
+      const finalMonthItem = schedItems[schedItems.length - 1];
+      if (finalMonthItem) {
+        const finalMonthPenalties = penalties.filter((p: any) =>
+          p.schedule_id === finalMonthItem.id &&
+          (p.status === "unpaid" || p.status === "paid")
+        );
+        const finalMonthPenaltyTotal = finalMonthPenalties.reduce(
+          (sum: number, p: any) => sum + Number(p.penalty_amount), 0
+        );
+        const finalMonthCap = currency === "PHP" ? 3000 : 6000;
+
+        if (finalMonthPenaltyTotal >= finalMonthCap) {
+          console.log(`[auto-forfeit] ${account.invoice_number} — final month penalty ${finalMonthPenaltyTotal} >= ${finalMonthCap} → forfeiting`);
+          await supabase.from("layaway_accounts")
+            .update({ status: "forfeited", updated_at: now.toISOString() })
+            .eq("id", account.id);
+          await supabase.from("layaway_schedule")
+            .update({ status: "cancelled", updated_at: now.toISOString() })
+            .eq("account_id", account.id)
+            .not("status", "eq", "paid");
+          await supabase.from("audit_logs").insert({
+            entity_type: "layaway_account",
+            entity_id: account.id,
+            action: "auto_forfeit_final_month_penalty",
+            performed_by_user_id: null,
+            new_value_json: {
+              invoice_number: account.invoice_number,
+              final_month_penalty_total: finalMonthPenaltyTotal,
+              cap: finalMonthCap,
+              currency,
+              forfeited_at: now.toISOString(),
+            },
+          });
+          forfeitResults.push({
+            account_id: account.id,
+            invoice_number: account.invoice_number,
+            reason: "final_month_penalty_cap"
+          });
+          continue;
+        }
+      }
+
       // Safety guard: skip if a payment was received within the last 90 days
       const { data: recentPayments } = await supabase
         .from("payments")
@@ -130,13 +181,6 @@ Deno.serve(async (req) => {
         console.log(`Skipped forfeit for ${account.id} — payment within 90 days (${lastPaymentDate})`);
         continue;
       }
-
-      const schedItems = (schedByAccount.get(account.id) || [])
-        .filter((s: any) => s.status !== "cancelled")
-        .sort((a: any, b: any) => a.installment_number - b.installment_number);
-      const penalties = penByAccount.get(account.id) || [];
-
-      if (schedItems.length === 0) continue;
 
       // ── Determine FIRST UNPAID DUE DATE (forfeiture reference) ──
       const paidItems = schedItems.filter((s: any) => {
@@ -168,8 +212,6 @@ Deno.serve(async (req) => {
       // ── Calculate months overdue from FIRST UNPAID DUE DATE ──
       const refDate = new Date(firstUnpaidDueDate + "T00:00:00Z");
       const monthsOverdue = monthsDiff(refDate, now);
-
-      const currency = account.currency;
 
       // ── RULE 2: AUTO FORFEIT at 3 months overdue ──
       if (monthsOverdue >= 3 && account.status !== "forfeited") {
