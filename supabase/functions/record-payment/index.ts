@@ -189,7 +189,11 @@ Deno.serve(async (req) => {
         if (remaining <= 0) break;
 
         const currentPaid = Number(item.paid_amount);
-        const targetAmount = Number(item.total_due_amount); // DB value — may be adjusted from prior rollover
+        // Subtract penalties already allocated for this row in this payment to avoid double-counting
+        const alreadyAllocatedPenalty = allocations
+          .filter(a => a.schedule_id === item.id && a.allocation_type === "penalty")
+          .reduce((sum, a) => sum + a.allocated_amount, 0);
+        const targetAmount = Math.max(0, Number(item.total_due_amount) - alreadyAllocatedPenalty);
         // For partially_paid rows where total_due_amount was set to the remaining (new semantics),
         // paid_amount exceeds total_due_amount — use total_due_amount directly as the remaining.
         const isNewPartialSemantics = item.status === "partially_paid" && currentPaid > targetAmount;
