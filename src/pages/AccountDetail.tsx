@@ -1726,7 +1726,10 @@ export default function AccountDetail() {
           const sumPendingMonths = sumPendingRows(scheduleItems as any[]);
           const sumAllBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
           // Check both account models: DP separate (DP + installments + penalties = totalLAAmount) or DP-inclusive
-          const baseIntegrityA = Math.round((downpaymentAmount + sumAllBases + activePenaltyTotal) * 100) / 100;
+          const servicesTotalForVerify = (accountServices || []).reduce(
+            (s, svc) => s + Number(svc.amount), 0
+          );
+          const baseIntegrityA = Math.round((downpaymentAmount + sumAllBases + activePenaltyTotal + servicesTotalForVerify) * 100) / 100;
           const baseIntegrityB = Math.round((sumAllBases + activePenaltyTotal) * 100) / 100;
           const baseIntegrityPass = Math.abs(baseIntegrityA - summary.totalLAAmount) < 2 ||
                                     Math.abs(baseIntegrityB - summary.totalLAAmount) < 2;
@@ -1757,7 +1760,7 @@ export default function AccountDetail() {
             { label: 'remainingBalance (totalLA - paid)', expected: summary.remainingBalance, actual: Math.max(0, summary.totalLAAmount - totalPaid), pass: Math.abs(summary.remainingBalance - Math.max(0, summary.totalLAAmount - totalPaid)) < 0.01 },
             { label: 'monthsRemaining', expected: summary.unpaidCount, actual: unpaidSchedule.length, pass: summary.unpaidCount === unpaidSchedule.length },
             { label: 'sumOfPendingMonths ≈ remainingBalance', expected: summary.remainingBalance, actual: Math.round(sumPendingMonths * 100) / 100, pass: Math.abs(sumPendingMonths - summary.remainingBalance) < 2 },
-            { label: 'DP + sumBases + activePenalties = totalLAAmount', expected: summary.totalLAAmount, actual: baseIntegrity, pass: baseIntegrityPass },
+            { label: 'DP + sumBases + activePenalties + services = totalLAAmount', expected: summary.totalLAAmount, actual: baseIntegrity, pass: baseIntegrityPass },
             { label: 'downPayment recorded and marked paid', expected: dpExpected, actual: dpActual8, pass: dpCheck8Pass },
             { label: 'nextPaymentDate uses due_date not payment date', expected: check9Exp, actual: check9Act, pass: !firstPendingItem9 || check9Exp === check9Act },
           ];
