@@ -214,6 +214,7 @@ function MemberMatrix({
   members: TeamMember[];
 }) {
   const queryClient = useQueryClient();
+  const { refresh } = usePermissions();
   const [selectedId, setSelectedId] = useState<string>(members[0]?.user_id ?? '');
   const [saving, setSaving] = useState<string | null>(null);
   const [resettingAll, setResettingAll] = useState(false);
@@ -265,6 +266,7 @@ function MemberMatrix({
         );
       if (error) throw error;
       await refetchOverrides();
+      await refresh();
       queryClient.invalidateQueries({ queryKey: ['user-permission-overrides-counts'] });
       toast({ title: `Permission updated for ${selectedMember.full_name}` });
     } catch (e: any) {
@@ -284,6 +286,7 @@ function MemberMatrix({
         .eq('permission_key', key);
       if (error) throw error;
       await refetchOverrides();
+      await refresh();
       queryClient.invalidateQueries({ queryKey: ['user-permission-overrides-counts'] });
       toast({ title: `Reset to role default for ${selectedMember.full_name}` });
     } catch (e: any) {
@@ -302,6 +305,7 @@ function MemberMatrix({
         .eq('user_id', selectedId);
       if (error) throw error;
       await refetchOverrides();
+      await refresh();
       queryClient.invalidateQueries({ queryKey: ['user-permission-overrides-counts'] });
       toast({ title: `Reset all to role defaults for ${selectedMember.full_name}` });
     } catch (e: any) {
@@ -443,7 +447,7 @@ function MemberMatrix({
 
 // ── Main export ─────────────────────────────────────────────────────────────
 export default function PermissionMatrixTab() {
-  const { allPermissions, updatePermission } = usePermissions();
+  const { allPermissions, updatePermission, refresh } = usePermissions();
   const [updating, setUpdating] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('role');
 
@@ -475,6 +479,7 @@ export default function PermissionMatrixTab() {
     setUpdating(id);
     try {
       await updatePermission(role, key, !current);
+      await refresh();
       toast({ title: 'Permission updated', description: `${key} for ${role}: ${!current ? 'Enabled' : 'Disabled'}` });
     } catch {
       toast({ title: 'Error', description: 'Failed to update permission', variant: 'destructive' });
