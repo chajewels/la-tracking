@@ -34,15 +34,44 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Admin role check
-    const { data: roleRow } = await supabase
+    // Permission check — resolve forfeit_account per CLAUDE.md order:
+    // 1. user_permission_overrides (user-specific override)
+    // 2. role_permissions (role default)
+    // 3. admin role → always allowed
+    const { data: userRole } = await supabase
       .from("user_roles")
       .select("role")
       .eq("user_id", user.id)
-      .eq("role", "admin")
       .maybeSingle();
-    if (!roleRow) {
-      return new Response(JSON.stringify({ error: "Forbidden: admin role required" }), {
+
+    const role = userRole?.role;
+    let allowed = role === "admin"; // admin always allowed
+
+    if (!allowed) {
+      // Check user_permission_overrides first
+      const { data: override } = await supabase
+        .from("user_permission_overrides")
+        .select("granted")
+        .eq("user_id", user.id)
+        .eq("permission_key", "forfeit_account")
+        .maybeSingle();
+
+      if (override !== null) {
+        allowed = override.granted;
+      } else {
+        // Fall back to role_permissions
+        const { data: rolePerm } = await supabase
+          .from("role_permissions")
+          .select("is_allowed")
+          .eq("role", role)
+          .eq("permission_key", "forfeit_account")
+          .maybeSingle();
+        allowed = rolePerm?.is_allowed ?? false;
+      }
+    }
+
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "Permission denied: forfeit_account not allowed for your role" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

@@ -89,6 +89,7 @@ const NAV_PATHS = ['/', '/accounts', '/customers', '/monitoring', '/reminders', 
 export function PermissionsProvider({ children }: { children: ReactNode }) {
   const { user, roles, loading: authLoading } = useAuth();
   const [allPermissions, setAllPermissions] = useState<RolePermission[]>([]);
+  const [userOverrides, setUserOverrides] = useState<{ permission_key: string; granted: boolean }[]>([]);
   const [featureToggles, setFeatureToggles] = useState<FeatureToggle[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -103,9 +104,10 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const [permRes, toggleRes] = await Promise.all([
+      const [permRes, toggleRes, overrideRes] = await Promise.all([
         supabase.from('role_permissions').select('role, permission_key, is_allowed'),
         supabase.from('feature_toggles').select('feature_key, is_enabled, label, description, module, sort_order').order('sort_order'),
+        supabase.from('user_permission_overrides').select('permission_key, granted').eq('user_id', userId),
       ]);
 
       if (permRes.error || toggleRes.error) {
@@ -118,6 +120,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
 
       setAllPermissions((permRes.data as RolePermission[] | null) ?? []);
       setFeatureToggles((toggleRes.data as FeatureToggle[] | null) ?? []);
+      setUserOverrides((overrideRes.data as { permission_key: string; granted: boolean }[] | null) ?? []);
     } catch (err) {
       console.error('Permissions fetch failed:', err);
       if (retryCount < 2) {
@@ -137,12 +140,15 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
 
   const can = useCallback((permissionKey: PermissionKey): boolean => {
     if (roles.length === 0) return false;
-    // Check if any of the user's roles has this permission
+    // 1. Check user_permission_overrides first
+    const override = userOverrides.find(o => o.permission_key === permissionKey);
+    if (override) return override.granted;
+    // 2. Fall back to role_permissions
     return roles.some(role => {
       const perm = allPermissions.find(p => p.role === role && p.permission_key === permissionKey);
       return perm?.is_allowed ?? false;
     });
-  }, [roles, allPermissions]);
+  }, [roles, allPermissions, userOverrides]);
 
   const isFeatureEnabled = useCallback((featureKey: string): boolean => {
     const toggle = featureToggles.find(t => t.feature_key === featureKey);
