@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
     };
 
     const getPenaltyCap = (currency: string, installmentNumber: number, planMonths: number): number => {
-      if (installmentNumber >= planMonths) return Infinity;
+      if (installmentNumber >= planMonths) return currency === "PHP" ? 3000 : 6000;
       return currency === "PHP" ? 1000 : 2000;
     };
 
@@ -224,7 +224,7 @@ Deno.serve(async (req) => {
       const currentTotal = currentPenaltyTotals.get(item.id) || 0;
       const overrideCap = overrideMap.get(accountId);
       const cap = overrideCap !== undefined
-        ? (installmentNumber >= planMonths ? Infinity : overrideCap)
+        ? (installmentNumber >= planMonths ? (currency === "PHP" ? 3000 : 6000) : overrideCap)
         : getPenaltyCap(currency, installmentNumber, planMonths);
 
       if (currentTotal >= cap) continue;
