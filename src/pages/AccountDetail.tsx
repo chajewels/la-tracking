@@ -1232,7 +1232,7 @@ export default function AccountDetail() {
                             {penaltyFeeStatus === 'paid' ? ' (Paid)' : ''}
                           </span>
                         )}
-                        {penaltyCapOverride && item.installment_number <= 5 && penaltyFeeStatus !== 'waived' && (
+                        {overCap && (
                           <Badge variant="outline" className="text-[9px] h-4 px-1 bg-primary/10 text-primary border-primary/20">
                             Capped
                           </Badge>
@@ -1300,7 +1300,7 @@ export default function AccountDetail() {
                           <Badge variant="outline" className="text-[9px] h-4 px-1 bg-success/10 text-success border-success/20">Paid</Badge>
                         ) : item.status === 'partially_paid' ? (
                           <Badge variant="outline" className="text-[9px] h-4 px-1 bg-amber-500/10 text-amber-500 border-amber-500/20">Partial</Badge>
-                        ) : penaltyCapOverride && item.installment_number <= 5 && penaltyAmt > 0 ? (
+                        ) : overCap ? (
                           <Badge variant="outline" className="text-[9px] h-4 px-1 bg-primary/10 text-primary border-primary/20">Capped</Badge>
                         ) : item.status === 'overdue' ? (
                           <Badge variant="outline" className="text-[9px] h-4 px-1 bg-destructive/10 text-destructive border-destructive/20">Overdue</Badge>
