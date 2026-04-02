@@ -239,6 +239,18 @@ function VaultDetail({
 
   // Group entries: invoice → month → entries (newest first)
   const groupedByInvoice = useMemo(() => {
+    // DEBUG: log raw entries for INV #18330
+    const debug18330 = entries.filter((e) => e.invoice_number === '18330');
+    if (debug18330.length > 0) {
+      console.log('[VaultDebug] RAW entries for INV #18330 BEFORE grouping:', debug18330.map(e => ({
+        id: e.id,
+        payment_date: e.payment_date,
+        amount: e.amount,
+        monthLabel: monthLabel(e.payment_date),
+        submission_type: e.submission_type,
+      })));
+    }
+
     const invMap = new Map<string, Map<string, VaultEntry[]>>();
     const sorted = [...entries].sort(
       (a, b) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime()
@@ -251,6 +263,16 @@ function VaultDetail({
       if (!monthMap.has(key)) monthMap.set(key, []);
       monthMap.get(key)!.push(e);
     }
+
+    // DEBUG: log grouped result for INV #18330
+    if (invMap.has('18330')) {
+      const monthMap = invMap.get('18330')!;
+      const grouped: Record<string, number> = {};
+      monthMap.forEach((rows, month) => { grouped[month] = rows.length; });
+      console.log('[VaultDebug] GROUPED result for INV #18330:', grouped);
+      console.log('[VaultDebug] Month keys:', Array.from(monthMap.keys()));
+    }
+
     return invMap;
   }, [entries]);
 
