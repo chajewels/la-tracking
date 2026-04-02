@@ -327,6 +327,7 @@ Deno.serve(async (req) => {
             reference_number: batchId,
             notes: remarks ? `[Multi-invoice] ${remarks}` : `[Multi-invoice batch: ${batchId}]`,
             status: "submitted",
+            submission_type: inputAlloc.is_downpayment ? 'downpayment' : 'installment',
           })
           .select("id")
           .single();

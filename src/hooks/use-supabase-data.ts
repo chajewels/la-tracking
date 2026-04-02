@@ -431,6 +431,7 @@ export function useRecordPayment() {
       is_downpayment?: boolean;
       preview_only?: boolean;
       carry_over?: boolean;
+      submission_type?: string;
     }) => {
       const { amount, ...rest } = payload;
       const { data, error } = await supabase.functions.invoke('record-payment', {
