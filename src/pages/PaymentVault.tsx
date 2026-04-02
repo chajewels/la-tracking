@@ -18,14 +18,15 @@ import {
   Vault,
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/calculations';
+import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-interface VaultCustomer {
-  invoice_number: string;
+interface VaultCustomerGroup {
   customer_name: string;
+  invoice_numbers: string[];
   payment_count: number;
   currency: string;
 }
@@ -85,11 +86,11 @@ function CustomerList({
   onSelect,
   loading,
 }: {
-  items: VaultCustomer[];
+  items: VaultCustomerGroup[];
   search: string;
   onSearch: (v: string) => void;
   selected: string | null;
-  onSelect: (inv: string) => void;
+  onSelect: (name: string) => void;
   loading: boolean;
 }) {
   const filtered = useMemo(() => {
@@ -98,7 +99,7 @@ function CustomerList({
     return items.filter(
       (i) =>
         i.customer_name.toLowerCase().includes(q) ||
-        i.invoice_number.toLowerCase().includes(q)
+        i.invoice_numbers.some((inv) => inv.toLowerCase().includes(q))
     );
   }, [items, search]);
 
@@ -128,18 +129,20 @@ function CustomerList({
           <div className="p-2 space-y-0.5">
             {filtered.map((item) => (
               <button
-                key={item.invoice_number}
-                onClick={() => onSelect(item.invoice_number)}
+                key={item.customer_name}
+                onClick={() => onSelect(item.customer_name)}
                 className={cn(
                   'w-full rounded-md px-3 py-2.5 text-left text-sm transition-colors',
-                  selected === item.invoice_number
+                  selected === item.customer_name
                     ? 'bg-primary/15 border border-primary/30 text-primary'
                     : 'hover:bg-muted/50 text-foreground'
                 )}
               >
                 <div className="font-medium truncate">{item.customer_name}</div>
                 <div className="flex items-center justify-between mt-0.5">
-                  <span className="text-xs text-muted-foreground">Inv #{item.invoice_number}</span>
+                  <span className="text-xs text-muted-foreground truncate max-w-[60%]">
+                    {item.invoice_numbers.map((inv) => `#${inv}`).join(', ')}
+                  </span>
                   <span className="text-xs text-muted-foreground">{item.payment_count} payments</span>
                 </div>
               </button>
@@ -215,125 +218,70 @@ function WarningItem({ label, warn }: { label: string; warn: boolean }) {
 // ── Right panel: vault detail for selected invoice ─────────────────────────
 
 function VaultDetail({
-  invoiceNumber,
   customerName,
-  accountStatus,
-  planType,
-  currency,
   entries,
   loadingEntries,
+  currency,
 }: {
-  invoiceNumber: string;
   customerName: string;
-  accountStatus: string | null;
-  planType: string | null;
-  currency: string;
   entries: VaultEntry[];
   loadingEntries: boolean;
+  currency: string;
 }) {
-  const [revalidating, setRevalidating] = useState(false);
-  const [revalidateResult, setRevalidateResult] = useState<RevalidateResult | null>(null);
-
-  const handleRevalidate = async () => {
-    setRevalidating(true);
-    setRevalidateResult(null);
-    try {
-      const { data, error } = await supabase.rpc(
-        'revalidate_account_from_vault' as any,
-        { p_invoice_number: invoiceNumber } as any
-      );
-      if (error) throw error;
-      setRevalidateResult(data as unknown as RevalidateResult);
-    } catch (err: any) {
-      toast.error(err.message || 'Revalidation failed');
-    } finally {
-      setRevalidating(false);
-    }
-  };
-
   const activeEntries = entries.filter((e) => !e.voided_at);
   const voidedEntries = entries.filter((e) => !!e.voided_at);
-
   const vaultTotal = activeEntries.reduce((s, e) => s + Number(e.amount), 0);
-  const liveTotal = revalidateResult?.live_total ?? null;
-  const remainingBalance = revalidateResult?.remaining_balance ?? null;
+  const invoiceNumbers = [...new Set(entries.map((e) => e.invoice_number))].sort();
 
-  // Group entries by month (newest first)
-  const grouped = useMemo(() => {
-    const map = new Map<string, VaultEntry[]>();
+  // Group entries: invoice → month → entries (newest first)
+  const groupedByInvoice = useMemo(() => {
+    const invMap = new Map<string, Map<string, VaultEntry[]>>();
     const sorted = [...entries].sort(
       (a, b) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime()
     );
     for (const e of sorted) {
+      const inv = e.invoice_number;
+      if (!invMap.has(inv)) invMap.set(inv, new Map());
+      const monthMap = invMap.get(inv)!;
       const key = monthLabel(e.payment_date);
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(e);
+      if (!monthMap.has(key)) monthMap.set(key, []);
+      monthMap.get(key)!.push(e);
     }
-    return map;
+    return invMap;
   }, [entries]);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col bg-background">
       {/* Header */}
       <div className="flex items-start justify-between px-5 py-4 border-b border-border shrink-0">
         <div>
           <h2 className="text-base font-semibold text-foreground">{customerName}</h2>
           <div className="flex items-center gap-2 mt-1 flex-wrap">
-            <span className="text-sm text-muted-foreground">Inv #{invoiceNumber}</span>
-            {planType && (
-              <Badge variant="outline" className="text-xs">{planType}</Badge>
-            )}
-            {accountStatus && (
-              <Badge
-                variant="outline"
-                className={cn(
-                  'text-xs',
-                  accountStatus === 'completed' && 'border-emerald-500/40 text-emerald-400',
-                  accountStatus === 'active' && 'border-blue-500/40 text-blue-400',
-                  accountStatus === 'overdue' && 'border-amber-500/40 text-amber-400',
-                  accountStatus === 'forfeited' && 'border-red-500/40 text-red-400',
-                )}
-              >
-                {accountStatus}
-              </Badge>
-            )}
+            {invoiceNumbers.map((inv) => (
+              <span key={inv} className="text-sm text-muted-foreground">Inv #{inv}</span>
+            ))}
           </div>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={revalidating}
-          onClick={handleRevalidate}
-          className="shrink-0"
-        >
-          <RefreshCw className={cn('h-3.5 w-3.5 mr-1.5', revalidating && 'animate-spin')} />
-          {revalidating ? 'Checking…' : 'Revalidate'}
-        </Button>
       </div>
 
       <ScrollArea className="flex-1">
         <div className="px-5 py-4 space-y-5">
-          {/* Revalidate result */}
-          {revalidateResult && <RevalidatePanel result={revalidateResult} />}
-
           {/* Stat cards */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatCard
               label="Vault Total Paid"
-              value={formatCurrency(vaultTotal, currency)}
+              value={formatCurrency(vaultTotal, currency as Currency)}
               sub="active payments"
             />
             <StatCard
-              label="Live Total Paid"
-              value={liveTotal !== null ? formatCurrency(liveTotal, currency) : '—'}
-              sub="from DB"
-              muted={liveTotal === null}
+              label="Total Payments"
+              value={String(entries.length)}
+              sub={`across ${invoiceNumbers.length} invoice${invoiceNumbers.length !== 1 ? 's' : ''}`}
             />
             <StatCard
-              label="Remaining Balance"
-              value={remainingBalance !== null ? formatCurrency(remainingBalance, currency) : '—'}
-              sub="after revalidate"
-              muted={remainingBalance === null}
+              label="Active"
+              value={String(activeEntries.length)}
+              sub="payments"
             />
             <StatCard
               label="Voided"
@@ -343,7 +291,7 @@ function VaultDetail({
             />
           </div>
 
-          {/* Payment list grouped by month */}
+          {/* Payment list grouped by invoice then month */}
           {loadingEntries ? (
             <div className="space-y-2">
               {Array.from({ length: 5 }).map((_, i) => (
@@ -353,55 +301,55 @@ function VaultDetail({
           ) : entries.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">No vault records found</p>
           ) : (
-            Array.from(grouped.entries()).map(([month, rows]) => (
-              <div key={month}>
-                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                  {month}
-                </div>
-                <div className="rounded-lg border border-border overflow-hidden">
-                  {rows.map((row, idx) => {
-                    const isVoided = !!row.voided_at;
-                    return (
-                      <div
-                        key={row.id}
-                        className={cn(
-                          'flex items-center gap-3 px-4 py-2.5 text-sm',
-                          idx !== rows.length - 1 && 'border-b border-border',
-                          isVoided && 'opacity-50'
-                        )}
-                      >
-                        {/* Lock dot */}
-                        <div
-                          className={cn(
-                            'h-2 w-2 rounded-full shrink-0',
-                            isVoided ? 'bg-destructive' : 'bg-emerald-500'
-                          )}
-                        />
-                        {/* Description */}
-                        <span className={cn('flex-1 truncate text-foreground', isVoided && 'line-through text-muted-foreground')}>
-                          {row.notes || `Payment ${idx + 1}`}
-                        </span>
-                        {/* Type pill */}
-                        <div className="shrink-0">{typePill(row.submission_type, isVoided)}</div>
-                        {/* Method */}
-                        {row.payment_method && (
-                          <span className="text-xs text-muted-foreground shrink-0 hidden sm:inline">
-                            {row.payment_method}
-                          </span>
-                        )}
-                        {/* Amount */}
-                        <span
-                          className={cn(
-                            'font-mono text-sm font-medium shrink-0 tabular-nums',
-                            isVoided ? 'line-through text-muted-foreground' : 'text-foreground'
-                          )}
-                        >
-                          {formatCurrency(Number(row.amount), row.currency || currency)}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
+            Array.from(groupedByInvoice.entries()).map(([inv, monthMap]) => (
+              <div key={inv} className="space-y-3">
+                <h3 className="text-sm font-semibold text-foreground">Inv #{inv}</h3>
+                {Array.from(monthMap.entries()).map(([month, rows]) => (
+                  <div key={month}>
+                    <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                      {month}
+                    </div>
+                    <div className="rounded-lg border border-border overflow-hidden">
+                      {rows.map((row, idx) => {
+                        const isVoided = !!row.voided_at;
+                        return (
+                          <div
+                            key={row.id}
+                            className={cn(
+                              'flex items-center gap-3 px-4 py-2.5 text-sm',
+                              idx !== rows.length - 1 && 'border-b border-border',
+                              isVoided && 'opacity-50'
+                            )}
+                          >
+                            <div
+                              className={cn(
+                                'h-2 w-2 rounded-full shrink-0',
+                                isVoided ? 'bg-destructive' : 'bg-emerald-500'
+                              )}
+                            />
+                            <span className={cn('flex-1 truncate text-foreground', isVoided && 'line-through text-muted-foreground')}>
+                              {row.notes || `Payment ${idx + 1}`}
+                            </span>
+                            <div className="shrink-0">{typePill(row.submission_type, isVoided)}</div>
+                            {row.payment_method && (
+                              <span className="text-xs text-muted-foreground shrink-0 hidden sm:inline">
+                                {row.payment_method}
+                              </span>
+                            )}
+                            <span
+                              className={cn(
+                                'font-mono text-sm font-medium shrink-0 tabular-nums',
+                                isVoided ? 'line-through text-muted-foreground' : 'text-foreground'
+                              )}
+                            >
+                              {formatCurrency(Number(row.amount), (row.currency || currency) as Currency)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             ))
           )}
@@ -410,7 +358,6 @@ function VaultDetail({
     </div>
   );
 }
-
 function StatCard({
   label,
   value,
@@ -442,9 +389,9 @@ function StatCard({
 export default function PaymentVault() {
   const { can } = usePermissions();
   const [search, setSearch] = useState('');
-  const [selectedInvoice, setSelectedInvoice] = useState<string | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
 
-  // Fetch all vault entries to build customer list
+  // Fetch all vault entries
   const { data: allEntries = [], isLoading: loadingAll } = useQuery({
     queryKey: ['payment-vault-all'],
     queryFn: async () => {
@@ -458,31 +405,36 @@ export default function PaymentVault() {
     },
   });
 
-  // Build customer list (one row per invoice_number, name from first row)
-  const customerList: VaultCustomer[] = useMemo(() => {
-    const map = new Map<string, VaultCustomer>();
+  // Build customer list grouped by customer_name
+  const customerList: VaultCustomerGroup[] = useMemo(() => {
+    const map = new Map<string, VaultCustomerGroup>();
     for (const e of allEntries) {
+      const name = (e.customer_name || e.invoice_number || 'Unknown') as string;
       const inv = e.invoice_number as string;
-      if (!map.has(inv)) {
-        map.set(inv, {
-          invoice_number: inv,
-          customer_name: e.customer_name || inv,
+      if (!map.has(name)) {
+        map.set(name, {
+          customer_name: name,
+          invoice_numbers: [],
           payment_count: 0,
           currency: e.currency || 'PHP',
         });
       }
-      map.get(inv)!.payment_count++;
+      const group = map.get(name)!;
+      if (!group.invoice_numbers.includes(inv)) {
+        group.invoice_numbers.push(inv);
+      }
+      group.payment_count++;
     }
     return Array.from(map.values()).sort((a, b) => a.customer_name.localeCompare(b.customer_name));
   }, [allEntries]);
 
-  // Entries for selected invoice
+  // Entries for selected customer (all invoices)
   const selectedEntries: VaultEntry[] = useMemo(() => {
-    if (!selectedInvoice) return [];
-    return allEntries.filter((e) => e.invoice_number === selectedInvoice);
-  }, [allEntries, selectedInvoice]);
+    if (!selectedCustomer) return [];
+    return allEntries.filter((e) => (e.customer_name || e.invoice_number) === selectedCustomer);
+  }, [allEntries, selectedCustomer]);
 
-  const selectedCustomer = customerList.find((c) => c.invoice_number === selectedInvoice);
+  const selectedGroup = customerList.find((c) => c.customer_name === selectedCustomer);
 
   if (!can('admin_settings')) {
     return (
@@ -505,7 +457,7 @@ export default function PaymentVault() {
             <p className="text-xs text-muted-foreground">Historical payment backup records</p>
           </div>
           <Badge variant="outline" className="ml-auto text-xs">
-            {customerList.length} accounts
+            {customerList.length} customers
           </Badge>
         </div>
 
@@ -517,26 +469,23 @@ export default function PaymentVault() {
               items={customerList}
               search={search}
               onSearch={setSearch}
-              selected={selectedInvoice}
-              onSelect={setSelectedInvoice}
+              selected={selectedCustomer}
+              onSelect={setSelectedCustomer}
               loading={loadingAll}
             />
           </div>
 
           {/* Right — detail */}
           <div className="flex-1 overflow-hidden">
-            {!selectedInvoice ? (
+            {!selectedCustomer ? (
               <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
                 <Vault className="h-10 w-10 opacity-20" />
-                <p className="text-sm">Select an account to view vault records</p>
+                <p className="text-sm">Select a customer to view vault records</p>
               </div>
             ) : (
               <VaultDetail
-                invoiceNumber={selectedInvoice}
-                customerName={selectedCustomer?.customer_name ?? selectedInvoice}
-                accountStatus={null}
-                planType={null}
-                currency={selectedCustomer?.currency ?? 'PHP'}
+                customerName={selectedCustomer}
+                currency={selectedGroup?.currency ?? 'PHP'}
                 entries={selectedEntries}
                 loadingEntries={loadingAll}
               />
