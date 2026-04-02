@@ -15,4 +15,5 @@ export const ROUTES = {
   SYSTEM_AUDIT: "/system-audit",
   SETTINGS: "/settings",
   PAYMENT_SUBMISSIONS: "/payment-submissions",
+  PAYMENT_VAULT: "/admin/payment-vault",
 };

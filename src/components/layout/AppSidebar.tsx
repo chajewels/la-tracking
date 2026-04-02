@@ -13,6 +13,7 @@ import {
   ClipboardCheck,
   Settings,
   LogOut,
+  Vault,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
@@ -39,6 +40,7 @@ const menuItems = [
   { label: 'Analytics', icon: BarChart3, path: ROUTES.ANALYTICS },
   { label: 'Admin Audit', icon: ShieldCheck, path: ROUTES.ADMIN_AUDIT },
   { label: 'System Audit', icon: ClipboardCheck, path: ROUTES.SYSTEM_AUDIT },
+  { label: 'Payment Vault', icon: Vault, path: ROUTES.PAYMENT_VAULT },
   { label: 'Settings', icon: Settings, path: ROUTES.SETTINGS },
 ];
 

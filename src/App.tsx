@@ -50,6 +50,7 @@ const PaymentSubmissions = lazyWithRetry(() => import("./pages/PaymentSubmission
 const Reminders = lazyWithRetry(() => import("./pages/Reminders"));
 const NewAccount = lazyWithRetry(() => import("./pages/NewAccount"));
 const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
+const PaymentVault = lazyWithRetry(() => import("./pages/PaymentVault"));
 const Unsubscribe = lazyWithRetry(() => import("./pages/Unsubscribe"));
 
 const queryClient = new QueryClient({
@@ -104,6 +105,7 @@ const App = () => (
                 <Route path="/system-audit" element={<Protected><SystemAudit /></Protected>} />
                 <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
                 <Route path="/payment-submissions" element={<Protected><PaymentSubmissions /></Protected>} />
+                <Route path="/admin/payment-vault" element={<Protected><PaymentVault /></Protected>} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>
