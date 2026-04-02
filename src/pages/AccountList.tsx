@@ -49,6 +49,7 @@ export default function AccountList() {
   const debouncedSearch = useDebouncedValue(search, 250);
   const [filterCurrency, setFilterCurrency] = useState<Currency | 'all'>('all');
   const [filterStatus, setFilterStatus] = useState<string>(searchParams.get('status') || 'all');
+  const [filterPeriod, setFilterPeriod] = useState<string>(searchParams.get('period') || '');
   const [hideTest, setHideTest] = useState(true);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 30;
@@ -58,19 +59,26 @@ export default function AccountList() {
   useEffect(() => {
     const s = searchParams.get('status');
     if (s && statusOptions.includes(s as any)) setFilterStatus(s);
+    setFilterPeriod(searchParams.get('period') || '');
   }, [searchParams]);
 
   // Reset page on filter change
-  useEffect(() => { setPage(0); }, [debouncedSearch, filterCurrency, filterStatus, hideTest]);
+  useEffect(() => { setPage(0); }, [debouncedSearch, filterCurrency, filterStatus, filterPeriod, hideTest]);
 
   const filtered = useMemo(() => (accounts || []).filter(a => {
     const matchesSearch = !debouncedSearch || a.invoice_number.includes(debouncedSearch) ||
       (a.customers?.full_name || '').toLowerCase().includes(debouncedSearch.toLowerCase());
     const matchesCurrency = filterCurrency === 'all' || a.currency === filterCurrency;
-    const matchesStatus = filterStatus === 'all' || a.status === filterStatus;
+    const todayStr = new Date().toISOString().split('T')[0];
+    const matchesStatus = filterStatus === 'all'
+      ? true
+      : filterStatus === 'forfeited' && filterPeriod === 'today'
+        ? (a.status === 'forfeited' || a.status === 'final_forfeited') &&
+          (a.updated_at || '').startsWith(todayStr)
+        : a.status === filterStatus;
     const matchesTest = !hideTest || !TEST_INVOICES.has(a.invoice_number);
     return matchesSearch && matchesCurrency && matchesStatus && matchesTest;
-  }), [accounts, debouncedSearch, filterCurrency, filterStatus, hideTest]);
+  }), [accounts, debouncedSearch, filterCurrency, filterStatus, filterPeriod, hideTest]);
 
   const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
