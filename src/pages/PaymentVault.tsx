@@ -63,8 +63,12 @@ interface RevalidateResult {
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function monthLabel(dateStr: string) {
-  const d = new Date(dateStr + 'T00:00:00Z');
-  return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  // dateStr may be "2026-01-27" or "2026-01-27T..." — extract YYYY-MM
+  const parts = dateStr.substring(0, 7).split('-');
+  const year = parts[0];
+  const monthIdx = parseInt(parts[1], 10) - 1;
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return `${months[monthIdx]} ${year}`;
 }
 
 function typePill(type: string | null, isVoided: boolean) {
