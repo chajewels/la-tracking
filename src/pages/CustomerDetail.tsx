@@ -224,17 +224,20 @@ export default function CustomerDetail() {
           return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
         });
 
-      const paymentParts = activePayments.map((p: any) => {
+      const paymentParts = activePayments.map((p: any, index: number) => {
         const amt = Number(p.amount_paid);
-        if (currency === 'JPY') return Math.round(amt).toLocaleString('en-US');
-        const rounded = Math.round(amt * 100) / 100;
-        return rounded % 1 === 0
-          ? rounded.toLocaleString('en-US')
-          : rounded.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const formatted = formatCurrency(amt, currency);
+        // First payment is downpayment — label it
+        const isDP = p.submission_type === 'downpayment' ||
+                     (index === 0 && amt === downpayment);
+        return isDP ? `${formatted} (DP)` : formatted;
       });
+      const breakdownTotal = activePayments.reduce(
+        (sum: number, p: any) => sum + Number(p.amount_paid), 0
+      );
       const paymentBreakdownText = activePayments.length > 0
-        ? `${paymentParts.join(' + ')} = ${formatCurrency(totalPaid, currency)}`
-        : formatCurrency(totalPaid, currency);
+        ? `${paymentParts.join(' + ')} = ${formatCurrency(breakdownTotal, currency)}`
+        : formatCurrency(breakdownTotal, currency);
       const messageScheduleCoverage = getMessageSchedulePaymentCoverage(scheduleItems, totalPaid, downpayment);
 
       // LA month label from last schedule item
