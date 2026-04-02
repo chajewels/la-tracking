@@ -778,6 +778,78 @@ export type Database = {
           },
         ]
       }
+      payment_history_backup: {
+        Row: {
+          account_id: string
+          amount: number
+          approved_at: string | null
+          approved_by: string | null
+          approved_by_name: string | null
+          backed_up_at: string
+          currency: string
+          customer_name: string | null
+          event_type: string
+          id: string
+          invoice_number: string
+          notes: string | null
+          payment_date: string
+          payment_id: string
+          payment_method: string | null
+          status: string
+          submission_type: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+          voided_by_name: string | null
+        }
+        Insert: {
+          account_id: string
+          amount: number
+          approved_at?: string | null
+          approved_by?: string | null
+          approved_by_name?: string | null
+          backed_up_at?: string
+          currency: string
+          customer_name?: string | null
+          event_type: string
+          id?: string
+          invoice_number: string
+          notes?: string | null
+          payment_date: string
+          payment_id: string
+          payment_method?: string | null
+          status: string
+          submission_type?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+          voided_by_name?: string | null
+        }
+        Update: {
+          account_id?: string
+          amount?: number
+          approved_at?: string | null
+          approved_by?: string | null
+          approved_by_name?: string | null
+          backed_up_at?: string
+          currency?: string
+          customer_name?: string | null
+          event_type?: string
+          id?: string
+          invoice_number?: string
+          notes?: string | null
+          payment_date?: string
+          payment_id?: string
+          payment_method?: string | null
+          status?: string
+          submission_type?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+          voided_by_name?: string | null
+        }
+        Relationships: []
+      }
       payment_methods: {
         Row: {
           account_name: string | null
@@ -1633,6 +1705,10 @@ export type Database = {
           msg_id: number
           read_ct: number
         }[]
+      }
+      revalidate_account_from_vault: {
+        Args: { p_invoice_number: string }
+        Returns: Json
       }
     }
     Enums: {
