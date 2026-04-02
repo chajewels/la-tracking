@@ -389,9 +389,9 @@ function StatCard({
 export default function PaymentVault() {
   const { can } = usePermissions();
   const [search, setSearch] = useState('');
-  const [selectedInvoice, setSelectedInvoice] = useState<string | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
 
-  // Fetch all vault entries to build customer list
+  // Fetch all vault entries
   const { data: allEntries = [], isLoading: loadingAll } = useQuery({
     queryKey: ['payment-vault-all'],
     queryFn: async () => {
@@ -405,31 +405,36 @@ export default function PaymentVault() {
     },
   });
 
-  // Build customer list (one row per invoice_number, name from first row)
-  const customerList: VaultCustomer[] = useMemo(() => {
-    const map = new Map<string, VaultCustomer>();
+  // Build customer list grouped by customer_name
+  const customerList: VaultCustomerGroup[] = useMemo(() => {
+    const map = new Map<string, VaultCustomerGroup>();
     for (const e of allEntries) {
+      const name = (e.customer_name || e.invoice_number || 'Unknown') as string;
       const inv = e.invoice_number as string;
-      if (!map.has(inv)) {
-        map.set(inv, {
-          invoice_number: inv,
-          customer_name: e.customer_name || inv,
+      if (!map.has(name)) {
+        map.set(name, {
+          customer_name: name,
+          invoice_numbers: [],
           payment_count: 0,
           currency: e.currency || 'PHP',
         });
       }
-      map.get(inv)!.payment_count++;
+      const group = map.get(name)!;
+      if (!group.invoice_numbers.includes(inv)) {
+        group.invoice_numbers.push(inv);
+      }
+      group.payment_count++;
     }
     return Array.from(map.values()).sort((a, b) => a.customer_name.localeCompare(b.customer_name));
   }, [allEntries]);
 
-  // Entries for selected invoice
+  // Entries for selected customer (all invoices)
   const selectedEntries: VaultEntry[] = useMemo(() => {
-    if (!selectedInvoice) return [];
-    return allEntries.filter((e) => e.invoice_number === selectedInvoice);
-  }, [allEntries, selectedInvoice]);
+    if (!selectedCustomer) return [];
+    return allEntries.filter((e) => (e.customer_name || e.invoice_number) === selectedCustomer);
+  }, [allEntries, selectedCustomer]);
 
-  const selectedCustomer = customerList.find((c) => c.invoice_number === selectedInvoice);
+  const selectedGroup = customerList.find((c) => c.customer_name === selectedCustomer);
 
   if (!can('admin_settings')) {
     return (
@@ -452,7 +457,7 @@ export default function PaymentVault() {
             <p className="text-xs text-muted-foreground">Historical payment backup records</p>
           </div>
           <Badge variant="outline" className="ml-auto text-xs">
-            {customerList.length} accounts
+            {customerList.length} customers
           </Badge>
         </div>
 
@@ -464,26 +469,23 @@ export default function PaymentVault() {
               items={customerList}
               search={search}
               onSearch={setSearch}
-              selected={selectedInvoice}
-              onSelect={setSelectedInvoice}
+              selected={selectedCustomer}
+              onSelect={setSelectedCustomer}
               loading={loadingAll}
             />
           </div>
 
           {/* Right — detail */}
           <div className="flex-1 overflow-hidden">
-            {!selectedInvoice ? (
+            {!selectedCustomer ? (
               <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
                 <Vault className="h-10 w-10 opacity-20" />
-                <p className="text-sm">Select an account to view vault records</p>
+                <p className="text-sm">Select a customer to view vault records</p>
               </div>
             ) : (
               <VaultDetail
-                invoiceNumber={selectedInvoice}
-                customerName={selectedCustomer?.customer_name ?? selectedInvoice}
-                accountStatus={null}
-                planType={null}
-                currency={selectedCustomer?.currency ?? 'PHP'}
+                customerName={selectedCustomer}
+                currency={selectedGroup?.currency ?? 'PHP'}
                 entries={selectedEntries}
                 loadingEntries={loadingAll}
               />
