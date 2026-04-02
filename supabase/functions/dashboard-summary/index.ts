@@ -92,6 +92,13 @@ Deno.serve(async (req) => {
     let forfeitedQ = supabase.from("layaway_accounts").select("id").in("status", ["forfeited", "final_forfeited"]);
     if (currencyWhere) forfeitedQ = forfeitedQ.eq("currency", currencyWhere);
 
+    // Forfeited today — accounts forfeited on current date
+    let forfeitedTodayQ = supabase.from("layaway_accounts").select("id").in("status", ["forfeited", "final_forfeited"]).gte("updated_at", today + "T00:00:00").lt("updated_at", today + "T23:59:59.999999");
+    if (currencyWhere) forfeitedTodayQ = forfeitedTodayQ.eq("currency", currencyWhere);
+
+    // All-time completed accounts
+    const completedAllTimeQ = supabase.from("layaway_accounts").select("id").eq("status", "completed");
+
     const penaltiesTodayQ = supabase
       .from("penalty_fees")
       .select("id, penalty_amount, currency, account_id")
@@ -136,10 +143,13 @@ Deno.serve(async (req) => {
       { data: allPenalties },
       { data: reminderLogs },
       allUnpaidScheduleItems,
+      { data: forfeitedTodayAccounts },
+      { data: completedAllTimeAccounts },
     ] = await Promise.all([
       accountsQ, todayPayQ, monthPayQ, completedQ, forfeitedQ,
       penaltiesTodayQ, pendingWaiversQ,
       totalPenaltiesQ, reminderLogsQ, fetchAllScheduleItems(),
+      forfeitedTodayQ, completedAllTimeQ,
     ]);
 
     // ── Build account currency map ──
@@ -336,6 +346,8 @@ Deno.serve(async (req) => {
       overdue_amount: overdueAmount,
       completed_this_month: (completedAccounts || []).length,
       forfeited_accounts: (forfeitedAccounts || []).length,
+      forfeited_today: (forfeitedTodayAccounts || []).length,
+      completed_all_time: (completedAllTimeAccounts || []).length,
       // Operations — based on NEXT due date per account (single bucket)
       due_today_count: dueTodayAccountIds.size,
       due_3_days_count: due3DaysAccountIds.size,

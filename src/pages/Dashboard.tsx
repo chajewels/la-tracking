@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { ROUTES } from '@/constants/routes';
-import { DollarSign, FileText, AlertTriangle, TrendingUp, CheckCircle2, Banknote, Users, ShieldAlert, Gem } from 'lucide-react';
+import { DollarSign, FileText, AlertTriangle, TrendingUp, CheckCircle2, Banknote, Users, ShieldAlert, Gem, Award, Flame } from 'lucide-react';
 import PendingSubmissionsAlert from '@/components/dashboard/PendingSubmissionsAlert';
 import AppLayout from '@/components/layout/AppLayout';
 import StatCard from '@/components/dashboard/StatCard';
@@ -110,9 +110,9 @@ export default function Dashboard() {
         {canSeePendingSubmissions && <PendingSubmissionsAlert />}
 
         {/* Secondary KPIs */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
           {summaryLoading ? (
-            [...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+            [...Array(6)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
           ) : (
             <>
               <StatCard
@@ -144,6 +144,20 @@ export default function Dashboard() {
                 icon={ShieldAlert}
                 variant="danger"
                 href={`${ROUTES.ACCOUNTS}?status=forfeited`}
+              />
+              <StatCard
+                title="Forfeited Today"
+                value={(summary?.forfeited_today ?? 0).toString()}
+                icon={Flame}
+                variant="warning"
+                href={`${ROUTES.ACCOUNTS}?status=forfeited&period=today`}
+              />
+              <StatCard
+                title="All Time Completed"
+                value={(summary?.completed_all_time ?? 0).toString()}
+                icon={Award}
+                variant="success"
+                href={`${ROUTES.ACCOUNTS}?status=completed`}
               />
             </>
           )}
