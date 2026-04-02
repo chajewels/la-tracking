@@ -462,9 +462,9 @@ export default function PaymentVault() {
         </div>
 
         {/* Two-panel layout */}
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-1 overflow-hidden bg-background">
           {/* Left — customer list */}
-          <div className="w-72 shrink-0 overflow-hidden">
+          <div className="w-72 shrink-0 overflow-hidden bg-background">
             <CustomerList
               items={customerList}
               search={search}
@@ -476,7 +476,7 @@ export default function PaymentVault() {
           </div>
 
           {/* Right — detail */}
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-hidden bg-background">
             {!selectedCustomer ? (
               <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
                 <Vault className="h-10 w-10 opacity-20" />
