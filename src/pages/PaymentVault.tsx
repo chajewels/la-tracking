@@ -86,11 +86,11 @@ function CustomerList({
   onSelect,
   loading,
 }: {
-  items: VaultCustomer[];
+  items: VaultCustomerGroup[];
   search: string;
   onSearch: (v: string) => void;
   selected: string | null;
-  onSelect: (inv: string) => void;
+  onSelect: (name: string) => void;
   loading: boolean;
 }) {
   const filtered = useMemo(() => {
@@ -99,7 +99,7 @@ function CustomerList({
     return items.filter(
       (i) =>
         i.customer_name.toLowerCase().includes(q) ||
-        i.invoice_number.toLowerCase().includes(q)
+        i.invoice_numbers.some((inv) => inv.toLowerCase().includes(q))
     );
   }, [items, search]);
 
@@ -129,18 +129,20 @@ function CustomerList({
           <div className="p-2 space-y-0.5">
             {filtered.map((item) => (
               <button
-                key={item.invoice_number}
-                onClick={() => onSelect(item.invoice_number)}
+                key={item.customer_name}
+                onClick={() => onSelect(item.customer_name)}
                 className={cn(
                   'w-full rounded-md px-3 py-2.5 text-left text-sm transition-colors',
-                  selected === item.invoice_number
+                  selected === item.customer_name
                     ? 'bg-primary/15 border border-primary/30 text-primary'
                     : 'hover:bg-muted/50 text-foreground'
                 )}
               >
                 <div className="font-medium truncate">{item.customer_name}</div>
                 <div className="flex items-center justify-between mt-0.5">
-                  <span className="text-xs text-muted-foreground">Inv #{item.invoice_number}</span>
+                  <span className="text-xs text-muted-foreground truncate max-w-[60%]">
+                    {item.invoice_numbers.map((inv) => `#${inv}`).join(', ')}
+                  </span>
                   <span className="text-xs text-muted-foreground">{item.payment_count} payments</span>
                 </div>
               </button>
