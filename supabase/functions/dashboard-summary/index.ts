@@ -346,6 +346,8 @@ Deno.serve(async (req) => {
       overdue_amount: overdueAmount,
       completed_this_month: (completedAccounts || []).length,
       forfeited_accounts: (forfeitedAccounts || []).length,
+      forfeited_today: (forfeitedTodayAccounts || []).length,
+      completed_all_time: (completedAllTimeAccounts || []).length,
       // Operations — based on NEXT due date per account (single bucket)
       due_today_count: dueTodayAccountIds.size,
       due_3_days_count: due3DaysAccountIds.size,

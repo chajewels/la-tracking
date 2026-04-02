@@ -145,6 +145,20 @@ export default function Dashboard() {
                 variant="danger"
                 href={`${ROUTES.ACCOUNTS}?status=forfeited`}
               />
+              <StatCard
+                title="Forfeited Today"
+                value={(summary?.forfeited_today ?? 0).toString()}
+                icon={Flame}
+                variant="warning"
+                href={`${ROUTES.ACCOUNTS}?status=forfeited&period=today`}
+              />
+              <StatCard
+                title="All Time Completed"
+                value={(summary?.completed_all_time ?? 0).toString()}
+                icon={Award}
+                variant="success"
+                href={`${ROUTES.ACCOUNTS}?status=completed`}
+              />
             </>
           )}
         </div>
