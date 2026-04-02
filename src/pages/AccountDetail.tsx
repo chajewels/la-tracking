@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
-import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus } from 'lucide-react';
+import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 
@@ -158,6 +158,10 @@ export default function AccountDetail() {
   const [acceptCarryLoading, setAcceptCarryLoading] = useState(false);
   const [acceptCarryReason, setAcceptCarryReason] = useState('');
   const [acceptCarryError, setAcceptCarryError] = useState('');
+  const [editingPaidId, setEditingPaidId] = useState<string | null>(null);
+  const [editingPaidAmount, setEditingPaidAmount] = useState('');
+  const [editingPaidLoading, setEditingPaidLoading] = useState(false);
+  const [editingPaidError, setEditingPaidError] = useState('');
   const [showVerify, setShowVerify] = useState(false);
   const queryClient = useQueryClient();
   const { roles } = useAuth();
@@ -323,6 +327,37 @@ export default function AccountDetail() {
       setAcceptCarryError(err.message || 'Failed to accept carry over');
     } finally {
       setAcceptCarryLoading(false);
+    }
+  };
+
+  const handleSavePaidAmount = async (scheduleId: string) => {
+    const newAmount = parseFloat(editingPaidAmount);
+    if (isNaN(newAmount) || newAmount < 0) { setEditingPaidError('Invalid amount'); return; }
+    setEditingPaidLoading(true);
+    setEditingPaidError('');
+    try {
+      const { data: allocs, error: allocErr } = await supabase
+        .from('payment_allocations')
+        .select('id, allocated_amount')
+        .eq('schedule_id', scheduleId)
+        .eq('allocation_type', 'installment');
+      if (allocErr) throw allocErr;
+      const alloc = (allocs || []).sort((a: any, b: any) => Number(b.allocated_amount) - Number(a.allocated_amount))[0];
+      if (!alloc) throw new Error('No allocation found for this row');
+      const { error: rpcErr } = await supabase.rpc('admin_keep_allocation_override', {
+        p_allocation_id: alloc.id,
+        p_amount: newAmount,
+      });
+      if (rpcErr) throw rpcErr;
+      queryClient.invalidateQueries({ queryKey: ['account', id] });
+      queryClient.invalidateQueries({ queryKey: ['schedule', id] });
+      setEditingPaidId(null);
+      setEditingPaidAmount('');
+      toast.success('Paid amount updated');
+    } catch (err: any) {
+      setEditingPaidError(err.message || 'Failed to update');
+    } finally {
+      setEditingPaidLoading(false);
     }
   };
 
@@ -1287,9 +1322,43 @@ export default function AccountDetail() {
                       </div>
                       {/* Paid column */}
                       <div className="text-right">
-                        <p className={`text-xs tabular-nums ${effPaid ? 'text-success font-semibold' : partial ? 'text-warning font-medium' : 'text-muted-foreground'}`}>
-                          {paidAmt > 0 ? formatCurrency(paidAmt, currency) : '—'}
-                        </p>
+                        {editingPaidId === item.id ? (
+                          <div className="flex flex-col items-end gap-1">
+                            <div className="flex items-center gap-0.5">
+                              <input
+                                type="number"
+                                className="w-20 text-xs text-right border border-primary/40 rounded px-1 py-0.5 bg-background text-card-foreground"
+                                value={editingPaidAmount}
+                                onChange={e => setEditingPaidAmount(e.target.value)}
+                                disabled={editingPaidLoading}
+                                autoFocus
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') handleSavePaidAmount(item.id);
+                                  if (e.key === 'Escape') { setEditingPaidId(null); setEditingPaidError(''); }
+                                }}
+                              />
+                              <Button variant="ghost" size="icon" className="h-5 w-5 text-success hover:text-success" disabled={editingPaidLoading} onClick={() => handleSavePaidAmount(item.id)}>
+                                {editingPaidLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-5 w-5 text-muted-foreground" disabled={editingPaidLoading} onClick={() => { setEditingPaidId(null); setEditingPaidError(''); }}>
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
+                            {editingPaidError && <p className="text-[9px] text-destructive">{editingPaidError}</p>}
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-end gap-0.5">
+                            <p className={`text-xs tabular-nums ${effPaid ? 'text-success font-semibold' : partial ? 'text-warning font-medium' : 'text-muted-foreground'}`}>
+                              {paidAmt > 0 ? formatCurrency(paidAmt, currency) : '—'}
+                            </p>
+                            {paidAmt > 0 && can('edit_schedule') && (
+                              <Button variant="ghost" size="icon" className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" title="Edit paid amount"
+                                onClick={() => { setEditingPaidId(item.id); setEditingPaidAmount(String(paidAmt)); setEditingPaidError(''); }}>
+                                <Pencil className="h-2.5 w-2.5" />
+                              </Button>
+                            )}
+                          </div>
+                        )}
                       </div>
                       {/* Remaining column */}
                       <div className="text-right">
