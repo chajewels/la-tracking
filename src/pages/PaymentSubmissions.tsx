@@ -156,6 +156,7 @@ export default function PaymentSubmissions() {
     paidAmount: number;
     surplus: number;
     currency: 'PHP' | 'JPY';
+    accountId: string;
   } | null>(null);
 
   // Fetch schedule and compute waterfall when confirm dialog opens
@@ -275,6 +276,7 @@ export default function PaymentSubmissions() {
     onSuccess: async (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
       queryClient.invalidateQueries({ queryKey: ['pending-submission-count'] });
+      const approvedAccountId = actionDialog?.sub.account_id;
 
       if (vars.action === 'confirmed') {
         // Check if underpayment occurred — show decision modal
@@ -313,12 +315,19 @@ export default function PaymentSubmissions() {
               paidAmount: Number(actionDialog.sub.submitted_amount),
               surplus: partialAlloc.amount,
               currency: cur,
+              accountId: actionDialog.sub.account_id,
             });
             setActionDialog(null);
             setReviewerNotes('');
             setConfirmResults(null);
           } else {
             toast.success('Payment approved and recorded');
+            if (approvedAccountId) {
+              queryClient.invalidateQueries({ queryKey: ['account', approvedAccountId] });
+              queryClient.invalidateQueries({ queryKey: ['schedule', approvedAccountId] });
+              queryClient.invalidateQueries({ queryKey: ['payments', approvedAccountId] });
+              queryClient.invalidateQueries({ queryKey: ['penalties', approvedAccountId] });
+            }
             setActionDialog(null);
             setReviewerNotes('');
             setConfirmResults(null);
@@ -787,10 +796,17 @@ export default function PaymentSubmissions() {
               disabled={!!underpaymentLoading}
               onClick={async () => {
                 // Keep as Partial — do nothing, just close
+                const keepAccountId = underpaymentModal?.accountId;
                 setUnderpaymentModal(null);
                 setUnderpaymentLoading(null);
                 toast.success('Payment recorded. Month stays partially paid.');
                 queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
+                if (keepAccountId) {
+                  queryClient.invalidateQueries({ queryKey: ['account', keepAccountId] });
+                  queryClient.invalidateQueries({ queryKey: ['schedule', keepAccountId] });
+                  queryClient.invalidateQueries({ queryKey: ['payments', keepAccountId] });
+                  queryClient.invalidateQueries({ queryKey: ['penalties', keepAccountId] });
+                }
               }}
             >
               {underpaymentLoading === 'partial' ? (
@@ -823,6 +839,13 @@ export default function PaymentSubmissions() {
                   if (data?.error) throw new Error(data.error);
                   toast.success('Carry-over applied successfully');
                   queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
+                  const carryAccountId = underpaymentModal.accountId;
+                  if (carryAccountId) {
+                    queryClient.invalidateQueries({ queryKey: ['account', carryAccountId] });
+                    queryClient.invalidateQueries({ queryKey: ['schedule', carryAccountId] });
+                    queryClient.invalidateQueries({ queryKey: ['payments', carryAccountId] });
+                    queryClient.invalidateQueries({ queryKey: ['penalties', carryAccountId] });
+                  }
                   setUnderpaymentModal(null);
                 } catch (err: any) {
                   toast.error(`Carry-over failed: ${err.message || 'Unknown error'}`);
@@ -894,9 +917,16 @@ export default function PaymentSubmissions() {
               variant="outline"
               className="w-full justify-start text-left h-auto py-3 px-4 border-primary/30 hover:bg-primary/5"
               onClick={() => {
+                const overAccountId = overpaymentModal?.accountId;
                 setOverpaymentModal(null);
                 toast.success('Payment recorded. Surplus applied to next month.');
                 queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
+                if (overAccountId) {
+                  queryClient.invalidateQueries({ queryKey: ['account', overAccountId] });
+                  queryClient.invalidateQueries({ queryKey: ['schedule', overAccountId] });
+                  queryClient.invalidateQueries({ queryKey: ['payments', overAccountId] });
+                  queryClient.invalidateQueries({ queryKey: ['penalties', overAccountId] });
+                }
               }}
             >
               <Check className="h-4 w-4 mr-2 shrink-0 text-primary" />
@@ -935,9 +965,12 @@ export default function PaymentSubmissions() {
                 }
                 toast.success('Payment recorded.');
                 queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
-                queryClient.invalidateQueries({ queryKey: ['account'] });
-                queryClient.invalidateQueries({ queryKey: ['schedule'] });
-                queryClient.invalidateQueries({ queryKey: ['payments'] });
+                if (modal?.accountId) {
+                  queryClient.invalidateQueries({ queryKey: ['account', modal.accountId] });
+                  queryClient.invalidateQueries({ queryKey: ['schedule', modal.accountId] });
+                  queryClient.invalidateQueries({ queryKey: ['payments', modal.accountId] });
+                  queryClient.invalidateQueries({ queryKey: ['penalties', modal.accountId] });
+                }
               }}
             >
               <CreditCard className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
