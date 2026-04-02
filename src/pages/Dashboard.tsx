@@ -110,9 +110,9 @@ export default function Dashboard() {
         {canSeePendingSubmissions && <PendingSubmissionsAlert />}
 
         {/* Secondary KPIs */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
           {summaryLoading ? (
-            [...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+            [...Array(6)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
           ) : (
             <>
               <StatCard
