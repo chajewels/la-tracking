@@ -94,7 +94,7 @@ function CustomerList({
   search: string;
   onSearch: (v: string) => void;
   selected: string | null;
-  onSelect: (name: string) => void;
+  onSelect: (name: string, invoices: string[]) => void;
   loading: boolean;
 }) {
   const filtered = useMemo(() => {
@@ -134,7 +134,7 @@ function CustomerList({
             {filtered.map((item) => (
               <button
                 key={item.customer_name}
-                onClick={() => onSelect(item.customer_name)}
+                onClick={() => onSelect(item.customer_name, item.invoice_numbers)}
                 className={cn(
                   'w-full rounded-md px-3 py-2.5 text-left text-sm transition-colors',
                   selected === item.customer_name
@@ -416,6 +416,7 @@ export default function PaymentVault() {
   const { can } = usePermissions();
   const [search, setSearch] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
+  const [selectedInvoices, setSelectedInvoices] = useState<string[]>([]);
 
   // Fetch all vault entries
   const { data: allEntries = [], isLoading: loadingAll } = useQuery({
@@ -456,9 +457,9 @@ export default function PaymentVault() {
 
   // Entries for selected customer (all invoices)
   const selectedEntries: VaultEntry[] = useMemo(() => {
-    if (!selectedCustomer) return [];
-    return allEntries.filter((e) => (e.customer_name || e.invoice_number) === selectedCustomer);
-  }, [allEntries, selectedCustomer]);
+    if (selectedInvoices.length === 0) return [];
+    return allEntries.filter((e) => selectedInvoices.includes(e.invoice_number));
+  }, [allEntries, selectedInvoices]);
 
   const selectedGroup = customerList.find((c) => c.customer_name === selectedCustomer);
 
@@ -496,7 +497,7 @@ export default function PaymentVault() {
               search={search}
               onSearch={setSearch}
               selected={selectedCustomer}
-              onSelect={setSelectedCustomer}
+              onSelect={(name, invoices) => { setSelectedCustomer(name); setSelectedInvoices(invoices); }}
               loading={loadingAll}
             />
           </div>
