@@ -150,16 +150,27 @@ Deno.serve(async (req) => {
 
     if (updateErr) throw updateErr;
 
-    // Create Extension Month schedule row for penalty engine to target
-    await supabase.from("layaway_schedule").insert({
-      account_id: account_id,
-      installment_number: account.payment_plan_months + 1,
-      due_date: extensionEndDate,
-      base_installment_amount: 0,
-      total_due_amount: 0,
-      currency: account.currency,
-      status: "overdue",
-    });
+    // Only create Extension Month row if all plan months are paid
+    // (forfeited by final-month penalty cap — not by 3-month overdue rule)
+    const { data: unpaidRows } = await supabase
+      .from("layaway_schedule")
+      .select("id")
+      .eq("account_id", account_id)
+      .lte("installment_number", account.payment_plan_months)
+      .not("status", "eq", "paid")
+      .not("status", "eq", "cancelled");
+
+    if (!unpaidRows || unpaidRows.length === 0) {
+      await supabase.from("layaway_schedule").insert({
+        account_id: account_id,
+        installment_number: account.payment_plan_months + 1,
+        due_date: extensionEndDate,
+        base_installment_amount: 0,
+        total_due_amount: 0,
+        currency: account.currency,
+        status: "overdue",
+      });
+    }
 
     // Fetch customer name for audit
     const { data: cust } = await supabase
