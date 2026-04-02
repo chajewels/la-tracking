@@ -18,14 +18,15 @@ import {
   Vault,
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/calculations';
+import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-interface VaultCustomer {
-  invoice_number: string;
+interface VaultCustomerGroup {
   customer_name: string;
+  invoice_numbers: string[];
   payment_count: number;
   currency: string;
 }
