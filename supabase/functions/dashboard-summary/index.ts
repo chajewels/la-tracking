@@ -143,10 +143,13 @@ Deno.serve(async (req) => {
       { data: allPenalties },
       { data: reminderLogs },
       allUnpaidScheduleItems,
+      { data: forfeitedTodayAccounts },
+      { data: completedAllTimeAccounts },
     ] = await Promise.all([
       accountsQ, todayPayQ, monthPayQ, completedQ, forfeitedQ,
       penaltiesTodayQ, pendingWaiversQ,
       totalPenaltiesQ, reminderLogsQ, fetchAllScheduleItems(),
+      forfeitedTodayQ, completedAllTimeQ,
     ]);
 
     // ── Build account currency map ──
