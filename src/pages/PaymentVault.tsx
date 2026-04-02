@@ -240,7 +240,7 @@ function VaultDetail({
     try {
       const { data, error } = await supabase.rpc(
         'revalidate_account_from_vault' as any,
-        { invoice_number: invoiceNumber } as any
+        { p_invoice_number: invoiceNumber } as any
       );
       if (error) throw error;
       setRevalidateResult(data as unknown as RevalidateResult);
