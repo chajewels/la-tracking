@@ -38,7 +38,10 @@ const statusLabel: Record<string, string> = {
 
 const statusOptions = ['all', 'active', 'overdue', 'completed', 'forfeited', 'cancelled'] as const;
 
-const TEST_INVOICES = new Set(['TEST-001', 'TEST-002', 'TEST-003']);
+const TEST_INVOICES = new Set([
+  'TEST-001', 'TEST-002', 'TEST-003', 'TEST-004', 'TEST-005',
+  'TEST-WAIVER-001', 'TEST-FORFEIT-002', 'TEST-FORFEIT-003'
+]);
 
 export default function AccountList() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -83,7 +86,7 @@ export default function AccountList() {
             </div>
             <div>
               <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">Layaway Accounts</h1>
-              <p className="text-sm text-muted-foreground">{(accounts || []).length} total accounts</p>
+              <p className="text-sm text-muted-foreground">{filtered.length} total accounts</p>
             </div>
           </div>
           <Link to={ROUTES.NEW_ACCOUNT}>
