@@ -231,24 +231,16 @@ async function allocatePaymentToAccount(
     }
   }
 
-  // Re-derive remaining_balance from payment_allocations (post-insert, source of truth)
-  const { data: allSchedIds } = await supabase
-    .from("layaway_schedule")
-    .select("id")
-    .eq("account_id", accountId);
-  const { data: allocTotals } = await supabase
-    .from("payment_allocations")
-    .select("allocated_amount, payment_id")
-    .in("schedule_id", (allSchedIds || []).map((r: any) => r.id));
-  const { data: voidedPmts } = await supabase
+  // Re-derive remaining_balance from payments table (INVARIANT 1: SUM payments.amount_paid)
+  // Must use payments table directly — payment_allocations has no rows for DP payments,
+  // so allocation-based sums would incorrectly return 0 for downpayment approvals.
+  const { data: nonVoidedPayments } = await supabase
     .from("payments")
-    .select("id")
+    .select("amount_paid")
     .eq("account_id", accountId)
-    .not("voided_at", "is", null);
-  const voidedPmtIds = new Set((voidedPmts || []).map((p: any) => p.id));
-  const totalAllocatedVerified = (allocTotals || [])
-    .filter((a: any) => !voidedPmtIds.has(a.payment_id))
-    .reduce((sum: number, a: any) => sum + Number(a.allocated_amount), 0);
+    .is("voided_at", null);
+  const totalPaidFromPayments = (nonVoidedPayments || [])
+    .reduce((sum: number, p: any) => sum + Number(p.amount_paid), 0);
   const { data: activePenaltiesData } = await supabase
     .from("penalty_fees")
     .select("penalty_amount")
@@ -263,8 +255,8 @@ async function allocatePaymentToAccount(
     .eq("id", accountId)
     .single();
   const totalAmount = Number(fullAccount?.total_amount || 0);
-  const verifiedRemaining = Math.max(0, totalAmount + totalPenaltiesVerified - totalAllocatedVerified);
-  const verifiedTotalPaid = Math.max(0, totalAllocatedVerified - totalPenaltiesVerified);
+  const verifiedRemaining = Math.max(0, totalAmount + totalPenaltiesVerified - totalPaidFromPayments);
+  const verifiedTotalPaid = totalPaidFromPayments;
 
   // Recalculate correct status
   const currentStatus = fullAccount?.status || "active";
