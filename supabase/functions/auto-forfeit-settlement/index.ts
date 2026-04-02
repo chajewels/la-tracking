@@ -127,7 +127,10 @@ Deno.serve(async (req) => {
             )
             .reduce((sum: number, p: any) => sum + Number(p.penalty_amount), 0);
           const extCap = extCurrency === "PHP" ? 1000 : 2000;
-          if (extPenTotal >= extCap) {
+          if (
+            extPenTotal >= extCap &&
+            new Date(extensionMonthItem.due_date + "T00:00:00Z") <= now
+          ) {
             console.log(`[auto-forfeit] ${account.invoice_number} — extension month penalty ${extPenTotal} >= ${extCap} → final forfeiting`);
             await supabase.from("layaway_accounts").update({
               status: "final_forfeited",
@@ -181,7 +184,10 @@ Deno.serve(async (req) => {
         );
         const finalMonthCap = currency === "PHP" ? 3000 : 6000;
 
-        if (finalMonthPenaltyTotal >= finalMonthCap) {
+        if (
+          finalMonthPenaltyTotal >= finalMonthCap &&
+          new Date(finalMonthItem.due_date + "T00:00:00Z") <= now
+        ) {
           console.log(`[auto-forfeit] ${account.invoice_number} — final month penalty ${finalMonthPenaltyTotal} >= ${finalMonthCap} → forfeiting`);
           await supabase.from("layaway_accounts")
             .update({ status: "forfeited", updated_at: now.toISOString() })
