@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
     };
 
     const getPenaltyCap = (currency: string, installmentNumber: number, planMonths: number): number => {
-      if (installmentNumber >= planMonths) return currency === "PHP" ? 3000 : 6000;
+      if (installmentNumber === planMonths) return currency === "PHP" ? 3000 : 6000;
       return currency === "PHP" ? 1000 : 2000;
     };
 
@@ -323,7 +323,8 @@ Deno.serve(async (req) => {
     for (const accountId of accountsToMarkOverdue) {
       await supabase.from("layaway_accounts")
         .update({ status: "overdue" })
-        .eq("id", accountId);
+        .eq("id", accountId)
+        .not("status", "eq", "extension_active");
     }
 
     // ── Step 7: Batch audit log ──

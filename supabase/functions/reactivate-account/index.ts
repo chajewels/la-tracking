@@ -150,6 +150,17 @@ Deno.serve(async (req) => {
 
     if (updateErr) throw updateErr;
 
+    // Create Extension Month schedule row for penalty engine to target
+    await supabase.from("layaway_schedule").insert({
+      account_id: account_id,
+      installment_number: account.payment_plan_months + 1,
+      due_date: extensionEndDate,
+      base_installment_amount: 0,
+      total_due_amount: 0,
+      currency: account.currency,
+      status: "overdue",
+    });
+
     // Fetch customer name for audit
     const { data: cust } = await supabase
       .from("customers")

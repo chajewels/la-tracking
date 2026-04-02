@@ -111,7 +111,53 @@ Deno.serve(async (req) => {
           });
           continue;
         }
-        // Extension still active — skip further processing
+        // ── Check extension month penalty cap → final_forfeit ──
+        const extCurrency = account.currency;
+        const extSchedItems = (schedByAccount.get(account.id) || [])
+          .filter((s: any) => s.status !== "cancelled");
+        const extPenalties = penByAccount.get(account.id) || [];
+        const extensionMonthItem = extSchedItems.find(
+          (s: any) => s.installment_number === account.payment_plan_months + 1
+        );
+        if (extensionMonthItem) {
+          const extPenTotal = extPenalties
+            .filter((p: any) =>
+              p.schedule_id === extensionMonthItem.id &&
+              (p.status === "unpaid" || p.status === "paid")
+            )
+            .reduce((sum: number, p: any) => sum + Number(p.penalty_amount), 0);
+          const extCap = extCurrency === "PHP" ? 1000 : 2000;
+          if (extPenTotal >= extCap) {
+            console.log(`[auto-forfeit] ${account.invoice_number} — extension month penalty ${extPenTotal} >= ${extCap} → final forfeiting`);
+            await supabase.from("layaway_accounts").update({
+              status: "final_forfeited",
+              updated_at: now.toISOString(),
+            }).eq("id", account.id);
+            const extCustomerName = customerMap.get(account.customer_id) || "Unknown";
+            finalForfeitResults.push({
+              invoice_number: account.invoice_number,
+              customer_name: extCustomerName,
+              extension_penalty_total: extPenTotal,
+              cap: extCap,
+              status: "FINAL_FORFEITED",
+            });
+            auditEntries.push({
+              entity_type: "layaway_account",
+              entity_id: account.id,
+              action: "auto_forfeit_extension_penalty_cap",
+              new_value_json: {
+                invoice_number: account.invoice_number,
+                customer_name: extCustomerName,
+                extension_penalty_total: extPenTotal,
+                cap: extCap,
+                currency: extCurrency,
+                forfeited_at: now.toISOString(),
+              },
+            });
+            continue;
+          }
+        }
+        // Extension still active and under cap — skip further processing
         continue;
       }
 
