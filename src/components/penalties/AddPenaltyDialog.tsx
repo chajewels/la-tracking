@@ -57,6 +57,10 @@ export default function AddPenaltyDialog({ accountId, currency, scheduleItems }:
 
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
+      if (data?.skipped) {
+        toast.warning(data.reason || 'Penalty skipped — account has a pending submission');
+        return;
+      }
 
       toast.success(`Penalty of ${formatCurrency(Number(selectedAmount), selectedCurrency)} added`);
       queryClient.invalidateQueries({ queryKey: ['schedule', accountId] });
