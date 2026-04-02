@@ -465,6 +465,13 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
                 <option value="other">Other</option>
               </select>
             </div>
+            {paymentType === 'downpayment' && (
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-sm">
+                <span className="text-amber-400 font-medium">
+                  📋 This payment will be recorded as a 30% Downpayment
+                </span>
+              </div>
+            )}
             <div className="space-y-2">
               <Label className="text-card-foreground">Notes</Label>
               <Textarea
