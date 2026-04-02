@@ -79,7 +79,10 @@ Deno.serve(async (req) => {
 
     // Check for per-invoice penalty cap override
     const installmentNumber = schedItem.installment_number;
-    let cap = installmentNumber >= planMonths ? Infinity : (currency === "PHP" ? 1000 : 2000);
+    const isFinalMonth = installmentNumber === planMonths;
+    let cap = isFinalMonth
+      ? (currency === "PHP" ? 3000 : 6000)
+      : (currency === "PHP" ? 1000 : 2000);
 
     const { data: overrideRow } = await supabase
       .from("penalty_cap_overrides")
@@ -91,8 +94,14 @@ Deno.serve(async (req) => {
       cap = Number(overrideRow.penalty_cap_amount);
     }
 
-    // Enforce penalty cap for months 1-5
-    const currentPenalty = Number(schedItem.penalty_amount);
+    // Enforce penalty cap — use live SUM from penalty_fees (not stale schedItem.penalty_amount)
+    const { data: livePenalties } = await supabase
+      .from("penalty_fees")
+      .select("penalty_amount")
+      .eq("schedule_id", schedule_id)
+      .neq("status", "waived");
+    const currentPenalty = (livePenalties || [])
+      .reduce((sum: number, p: any) => sum + Number(p.penalty_amount), 0);
     if (currentPenalty + penalty_amount > cap) {
       const allowed = Math.max(0, cap - currentPenalty);
       if (allowed <= 0) {
