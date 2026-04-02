@@ -530,7 +530,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
             <div className="rounded-lg border border-border bg-background p-4 space-y-3">
               <h4 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
                 <CheckCircle2 className="h-4 w-4 text-primary" />
-                {payFullBalance ? 'Full Balance Payment' : 'Payment Breakdown'}
+                {payFullBalance ? 'Full Balance Payment' : paymentType === 'downpayment' ? 'Downpayment' : 'Payment Breakdown'}
               </h4>
               <div className="text-2xl font-bold text-card-foreground">
                 {formatCurrency(parsedAmount, currency)}
@@ -554,16 +554,25 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
                     </div>
                   )}
 
-                  {displayAllocs.map((alloc, idx) => (
-                    <div key={alloc.schedule_id} className="flex items-center justify-between py-1.5 border-b border-border last:border-0">
-                      <span className="text-muted-foreground">
-                        Installment #{idx + 1}
-                      </span>
-                      <span className="font-medium text-card-foreground">
-                        {formatCurrency(alloc.allocated_amount, currency)}
+                  {paymentType === 'downpayment' ? (
+                    <div className="flex justify-between items-center">
+                      <span>30% Downpayment</span>
+                      <span className="text-green-400 flex items-center gap-1">
+                        {formatCurrency(preview.new_total_paid, currency)} → PAID ✅
                       </span>
                     </div>
-                  ))}
+                  ) : (
+                    displayAllocs.map((alloc, idx) => (
+                      <div key={alloc.schedule_id} className="flex items-center justify-between py-1.5 border-b border-border last:border-0">
+                        <span className="text-muted-foreground">
+                          Installment #{idx + 1}
+                        </span>
+                        <span className="font-medium text-card-foreground">
+                          {formatCurrency(alloc.allocated_amount, currency)}
+                        </span>
+                      </div>
+                    ))
+                  )}
                 </div>
               )}
             </div>
