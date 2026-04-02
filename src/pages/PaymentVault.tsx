@@ -451,7 +451,8 @@ export default function PaymentVault() {
       const { data, error } = await supabase
         .from('payment_history_backup' as any)
         .select('id, payment_id, account_id, invoice_number, customer_name, amount, currency, payment_date, payment_method, submission_type, notes, status, event_type, voided_at, void_reason, backed_up_at')
-        .order('payment_date', { ascending: false });
+        .order('payment_date', { ascending: false })
+        .limit(5000);
       if (error) throw error;
       return (data || []) as any[];
     },
