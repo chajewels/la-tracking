@@ -25,25 +25,28 @@ import { cn } from '@/lib/utils';
 
 interface VaultCustomer {
   invoice_number: string;
-  customer_id: string | null;
-  full_name: string;
+  customer_name: string;
   payment_count: number;
   currency: string;
-  account_status: string | null;
-  plan_type: string | null;
 }
 
 interface VaultEntry {
   id: string;
+  payment_id: string | null;
+  account_id: string | null;
   invoice_number: string;
-  payment_date: string;
-  description: string | null;
-  payment_type: string | null;
-  payment_method: string | null;
+  customer_name: string | null;
   amount: number;
   currency: string;
+  payment_date: string;
+  payment_method: string | null;
+  submission_type: string | null;
+  notes: string | null;
+  status: string | null;
+  event_type: string | null;
   voided_at: string | null;
-  is_voided: boolean | null;
+  void_reason: string | null;
+  backed_up_at: string | null;
 }
 
 interface RevalidateResult {
@@ -94,7 +97,7 @@ function CustomerList({
     if (!q) return items;
     return items.filter(
       (i) =>
-        i.full_name.toLowerCase().includes(q) ||
+        i.customer_name.toLowerCase().includes(q) ||
         i.invoice_number.toLowerCase().includes(q)
     );
   }, [items, search]);
@@ -134,7 +137,7 @@ function CustomerList({
                     : 'hover:bg-muted/50 text-foreground'
                 )}
               >
-                <div className="font-medium truncate">{item.full_name}</div>
+                <div className="font-medium truncate">{item.customer_name}</div>
                 <div className="flex items-center justify-between mt-0.5">
                   <span className="text-xs text-muted-foreground">Inv #{item.invoice_number}</span>
                   <span className="text-xs text-muted-foreground">{item.payment_count} payments</span>
@@ -248,8 +251,8 @@ function VaultDetail({
     }
   };
 
-  const activeEntries = entries.filter((e) => !e.voided_at && !e.is_voided);
-  const voidedEntries = entries.filter((e) => e.voided_at || e.is_voided);
+  const activeEntries = entries.filter((e) => !e.voided_at);
+  const voidedEntries = entries.filter((e) => !!e.voided_at);
 
   const vaultTotal = activeEntries.reduce((s, e) => s + Number(e.amount), 0);
   const liveTotal = revalidateResult?.live_total ?? null;
@@ -357,7 +360,7 @@ function VaultDetail({
                 </div>
                 <div className="rounded-lg border border-border overflow-hidden">
                   {rows.map((row, idx) => {
-                    const isVoided = !!(row.voided_at || row.is_voided);
+                    const isVoided = !!row.voided_at;
                     return (
                       <div
                         key={row.id}
@@ -376,10 +379,10 @@ function VaultDetail({
                         />
                         {/* Description */}
                         <span className={cn('flex-1 truncate text-foreground', isVoided && 'line-through text-muted-foreground')}>
-                          {row.description || `Payment ${idx + 1}`}
+                          {row.notes || `Payment ${idx + 1}`}
                         </span>
                         {/* Type pill */}
-                        <div className="shrink-0">{typePill(row.payment_type, isVoided)}</div>
+                        <div className="shrink-0">{typePill(row.submission_type, isVoided)}</div>
                         {/* Method */}
                         {row.payment_method && (
                           <span className="text-xs text-muted-foreground shrink-0 hidden sm:inline">
@@ -447,42 +450,14 @@ export default function PaymentVault() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('payment_history_backup' as any)
-        .select('id, invoice_number, customer_id, payment_date, description, payment_type, payment_method, amount, currency, voided_at, is_voided, account_status, plan_type')
+        .select('id, payment_id, account_id, invoice_number, customer_name, amount, currency, payment_date, payment_method, submission_type, notes, status, event_type, voided_at, void_reason, backed_up_at')
         .order('payment_date', { ascending: false });
       if (error) throw error;
       return (data || []) as any[];
     },
   });
 
-  // Fetch customer names for all unique customer_ids
-  const customerIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const e of allEntries) {
-      if (e.customer_id) ids.add(e.customer_id);
-    }
-    return Array.from(ids);
-  }, [allEntries]);
-
-  const { data: customerNames = [] } = useQuery({
-    queryKey: ['vault-customer-names', customerIds.join(',')],
-    enabled: customerIds.length > 0,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('customers')
-        .select('id, full_name')
-        .in('id', customerIds);
-      if (error) throw error;
-      return (data || []) as { id: string; full_name: string }[];
-    },
-  });
-
-  const nameMap = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const c of customerNames) m.set(c.id, c.full_name);
-    return m;
-  }, [customerNames]);
-
-  // Build customer list (one row per invoice_number)
+  // Build customer list (one row per invoice_number, name from first row)
   const customerList: VaultCustomer[] = useMemo(() => {
     const map = new Map<string, VaultCustomer>();
     for (const e of allEntries) {
@@ -490,18 +465,15 @@ export default function PaymentVault() {
       if (!map.has(inv)) {
         map.set(inv, {
           invoice_number: inv,
-          customer_id: e.customer_id || null,
-          full_name: (e.customer_id && nameMap.get(e.customer_id)) || e.invoice_number,
+          customer_name: e.customer_name || inv,
           payment_count: 0,
           currency: e.currency || 'PHP',
-          account_status: e.account_status || null,
-          plan_type: e.plan_type || null,
         });
       }
       map.get(inv)!.payment_count++;
     }
-    return Array.from(map.values()).sort((a, b) => a.full_name.localeCompare(b.full_name));
-  }, [allEntries, nameMap]);
+    return Array.from(map.values()).sort((a, b) => a.customer_name.localeCompare(b.customer_name));
+  }, [allEntries]);
 
   // Entries for selected invoice
   const selectedEntries: VaultEntry[] = useMemo(() => {
@@ -560,9 +532,9 @@ export default function PaymentVault() {
             ) : (
               <VaultDetail
                 invoiceNumber={selectedInvoice}
-                customerName={selectedCustomer?.full_name ?? selectedInvoice}
-                accountStatus={selectedCustomer?.account_status ?? null}
-                planType={selectedCustomer?.plan_type ?? null}
+                customerName={selectedCustomer?.customer_name ?? selectedInvoice}
+                accountStatus={null}
+                planType={null}
                 currency={selectedCustomer?.currency ?? 'PHP'}
                 entries={selectedEntries}
                 loadingEntries={loadingAll}
