@@ -408,8 +408,10 @@ export default function AccountDetail() {
   // Build payment breakdown text: DP + actual paid per month = total
   const buildPaymentBreakdown = (): string => {
     const parts: string[] = [];
+    let breakdownTotal = 0;
     if (downpaymentAmount > 0 && dpPaidAmount > 0) {
-      parts.push(fmtVal(dpPaidAmount));
+      parts.push(`₱${fmtVal(dpPaidAmount)} (DP)`);
+      breakdownTotal += dpPaidAmount;
     }
     // Each paid/partial month's actual collected = base paid + penalty for that month
     const paidOrPartialSchedules = scheduleItems.filter(s => isEffectivelyPaid(s) || isPartiallyPaid(s));
@@ -419,9 +421,10 @@ export default function AccountDetail() {
       const penaltyAdd = paidAmt > baseAmt ? 0 : Number(s.penalty_amount);
       const actualPaid = paidAmt + penaltyAdd;
       parts.push(fmtVal(actualPaid));
+      breakdownTotal += actualPaid;
     });
     if (parts.length > 1) {
-      return `${parts.join(' + ')} = ${formatCurrency(totalPaid, currency)}`;
+      return `${parts.join(' + ')} = ${formatCurrency(breakdownTotal, currency)}`;
     }
     return formatCurrency(totalPaid, currency);
   };
