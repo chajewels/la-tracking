@@ -70,9 +70,9 @@ Deno.serve(async (req) => {
     const monthStart = new Date();
     monthStart.setDate(1);
     const monthStartStr = monthStart.toISOString().split("T")[0];
-    const nextMonthStart = new Date(monthStart);
-    nextMonthStart.setMonth(nextMonthStart.getMonth() + 1);
-    const nextMonthStartStr = nextMonthStart.toISOString().split("T")[0];
+    const completedNextMonth = new Date(monthStart);
+    completedNextMonth.setMonth(completedNextMonth.getMonth() + 1);
+    const nextMonthStartStr = completedNextMonth.toISOString().split("T")[0];
 
     // ── Build all queries in parallel ──
     // Active statuses must match ACTIVE_STATUSES in business-rules.ts
