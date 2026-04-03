@@ -343,11 +343,14 @@ export default function AccountDetail() {
         .eq('allocation_type', 'installment');
       if (allocErr) throw allocErr;
       const alloc = (allocs || []).sort((a: any, b: any) => Number(b.allocated_amount) - Number(a.allocated_amount))[0];
+      console.log('alloc found:', alloc);
       if (!alloc) throw new Error('No allocation found for this row');
-      const { error: rpcErr } = await supabase.rpc('admin_keep_allocation_override', {
+      console.log('RPC call:', { allocation_id: alloc.id, amount: newAmount });
+      const { data: rpcData, error: rpcErr } = await supabase.rpc('admin_keep_allocation_override', {
         p_allocation_id: alloc.id,
         p_amount: newAmount,
       });
+      console.log('RPC result:', { data: rpcData, error: rpcErr });
       if (rpcErr) throw rpcErr;
       queryClient.invalidateQueries({ queryKey: ['account', id] });
       queryClient.invalidateQueries({ queryKey: ['schedule', id] });
