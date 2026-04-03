@@ -463,6 +463,11 @@ export default function PaymentVault() {
 
   const selectedGroup = customerList.find((c) => c.customer_name === selectedCustomer);
 
+  console.log('selectedInvoices:', selectedInvoices);
+  console.log('allEntries count:', allEntries.length);
+  console.log('selectedEntries count:', selectedEntries.length);
+  console.log('selectedEntries dates:', selectedEntries.map(e => e.payment_date));
+
   if (!can('admin_settings')) {
     return (
       <AppLayout>
