@@ -486,7 +486,7 @@ export default function PaymentVault() {
         <div className="flex items-center gap-3 px-5 py-4 border-b border-border shrink-0">
           <Vault className="h-5 w-5 text-primary" />
           <div>
-            <h1 className="text-lg font-semibold text-foreground">Payment Vault</h1>
+            <h1 className="text-lg font-semibold text-foreground">Payment Vault </h1>
             <p className="text-xs text-muted-foreground">Historical payment backup records</p>
           </div>
           <Badge variant="outline" className="ml-auto text-xs">
