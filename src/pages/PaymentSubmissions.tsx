@@ -871,9 +871,9 @@ export default function PaymentSubmissions() {
       </AlertDialog>
 
       {/* Overpayment Decision Modal */}
-      {overpaymentModal && <div className="fixed inset-0 bg-black/50 pointer-events-auto" style={{ zIndex: 70 }} />}
+      {overpaymentModal && <div className="fixed inset-0 bg-black/60 pointer-events-auto" style={{ zIndex: 9998 }} />}
       <AlertDialog open={!!overpaymentModal}>
-        <AlertDialogContent className="max-w-md h-auto overflow-visible bg-background" style={{ zIndex: 71 }}>
+        <AlertDialogContent className="max-w-md h-auto overflow-visible bg-background" style={{ zIndex: 9999 }}>
           <AlertDialogHeader>
             <AlertDialogTitle className="font-display">
               ⬆️ Overpayment Detected
