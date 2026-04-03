@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger,
 } from '@/components/ui/dialog';
@@ -48,6 +49,7 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
   const [orderDate, setOrderDate] = useState('');
   const [notes, setNotes] = useState('');
   const [downpayment, setDownpayment] = useState('');
+  const [currencyValue, setCurrencyValue] = useState<'PHP' | 'JPY'>(account.currency as 'PHP' | 'JPY');
 
   // Schedule editing
   const [scheduleEdits, setScheduleEdits] = useState<Record<string, { due_date?: string; base_amount?: string }>>({});
@@ -58,6 +60,7 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
     setOrderDate(account.order_date);
     setNotes(account.notes || '');
     setDownpayment(String(account.downpayment_amount));
+    setCurrencyValue(account.currency as 'PHP' | 'JPY');
     setScheduleEdits({});
     setNewInstallments([]);
   }, [account]);
@@ -132,7 +135,16 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
         }]);
       }
 
-      // 2. Update schedule items that were edited
+      // 2. Update currency if changed
+      if (currencyValue !== account.currency) {
+        const { error } = await supabase
+          .from('layaway_accounts')
+          .update({ currency: currencyValue })
+          .eq('id', account.id);
+        if (error) throw error;
+      }
+
+      // 3. Update schedule items that were edited
       for (const [scheduleId, edits] of Object.entries(scheduleEdits)) {
         const original = schedule.find(s => s.id === scheduleId);
         if (!original) continue;
@@ -179,7 +191,7 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
         }
       }
 
-      // 3. Add new installments
+      // 4. Add new installments
       for (const newInst of newInstallments) {
         const amount = parseFloat(newInst.base_amount);
         if (isNaN(amount) || amount <= 0 || !newInst.due_date) continue;
@@ -292,6 +304,22 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
                   disabled
                   className="h-9 text-sm bg-muted"
                 />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Currency</Label>
+                <Select
+                  value={currencyValue}
+                  onValueChange={(v) => setCurrencyValue(v as 'PHP' | 'JPY')}
+                  disabled={isDisabledStatus}
+                >
+                  <SelectTrigger className="h-9 text-sm bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PHP">₱ PHP</SelectItem>
+                    <SelectItem value="JPY">¥ JPY</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div>
