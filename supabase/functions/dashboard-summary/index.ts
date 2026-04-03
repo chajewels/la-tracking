@@ -70,6 +70,9 @@ Deno.serve(async (req) => {
     const monthStart = new Date();
     monthStart.setDate(1);
     const monthStartStr = monthStart.toISOString().split("T")[0];
+    const nextMonthStart = new Date(monthStart);
+    nextMonthStart.setMonth(nextMonthStart.getMonth() + 1);
+    const nextMonthStartStr = nextMonthStart.toISOString().split("T")[0];
 
     // ── Build all queries in parallel ──
     // Active statuses must match ACTIVE_STATUSES in business-rules.ts
@@ -86,7 +89,8 @@ Deno.serve(async (req) => {
       .from("layaway_accounts")
       .select("id")
       .eq("status", "completed")
-      .gte("updated_at", monthStartStr);
+      .gte("updated_at", monthStartStr)
+      .lt("updated_at", nextMonthStartStr);
 
     // Include both forfeited and final_forfeited — both represent forfeited accounts
     let forfeitedQ = supabase.from("layaway_accounts").select("id").in("status", ["forfeited", "final_forfeited"]);
