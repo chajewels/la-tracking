@@ -155,6 +155,7 @@ export default function Dashboard() {
               <StatCard
                 title="All Time Completed"
                 value={(summary?.completed_all_time ?? 0).toString()}
+                subtitle="All time"
                 icon={Award}
                 variant="success"
                 href={`${ROUTES.ACCOUNTS}?status=completed`}

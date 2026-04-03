@@ -85,12 +85,12 @@ Deno.serve(async (req) => {
     let monthPayQ = supabase.from("payments").select("*").gte("date_paid", monthStartStr).is("voided_at", null);
     if (currencyWhere) monthPayQ = monthPayQ.eq("currency", currencyWhere);
 
-    const completedQ = supabase
+    const completedThisMonthQ = supabase
       .from("layaway_accounts")
-      .select("id")
+      .select("id", { count: "exact", head: true })
       .eq("status", "completed")
-      .gte("updated_at", monthStartStr)
-      .lt("updated_at", nextMonthStartStr);
+      .gte("completed_at", monthStartStr)
+      .lt("completed_at", nextMonthStartStr);
 
     // Include both forfeited and final_forfeited — both represent forfeited accounts
     let forfeitedQ = supabase.from("layaway_accounts").select("id").in("status", ["forfeited", "final_forfeited"]);
@@ -101,7 +101,10 @@ Deno.serve(async (req) => {
     if (currencyWhere) forfeitedTodayQ = forfeitedTodayQ.eq("currency", currencyWhere);
 
     // All-time completed accounts
-    const completedAllTimeQ = supabase.from("layaway_accounts").select("id").eq("status", "completed");
+    const completedAllTimeQ = supabase
+      .from("layaway_accounts")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "completed");
 
     const penaltiesTodayQ = supabase
       .from("penalty_fees")
@@ -140,7 +143,7 @@ Deno.serve(async (req) => {
       { data: accounts },
       { data: todayPayments },
       { data: monthPayments },
-      { data: completedAccounts },
+      { count: completedThisMonth },
       { data: forfeitedAccounts },
       { data: penaltiesToday },
       { data: pendingWaivers },
@@ -148,9 +151,9 @@ Deno.serve(async (req) => {
       { data: reminderLogs },
       allUnpaidScheduleItems,
       { data: forfeitedTodayAccounts },
-      { data: completedAllTimeAccounts },
+      { count: completedAllTime },
     ] = await Promise.all([
-      accountsQ, todayPayQ, monthPayQ, completedQ, forfeitedQ,
+      accountsQ, todayPayQ, monthPayQ, completedThisMonthQ, forfeitedQ,
       penaltiesTodayQ, pendingWaiversQ,
       totalPenaltiesQ, reminderLogsQ, fetchAllScheduleItems(),
       forfeitedTodayQ, completedAllTimeQ,
@@ -348,10 +351,10 @@ Deno.serve(async (req) => {
       collections_this_month: collectionsThisMonth,
       overdue_accounts: overdueAccountIds.size,
       overdue_amount: overdueAmount,
-      completed_this_month: (completedAccounts || []).length,
+      completed_this_month: completedThisMonth ?? 0,
       forfeited_accounts: (forfeitedAccounts || []).length,
       forfeited_today: (forfeitedTodayAccounts || []).length,
-      completed_all_time: (completedAllTimeAccounts || []).length,
+      completed_all_time: completedAllTime ?? 0,
       // Operations — based on NEXT due date per account (single bucket)
       due_today_count: dueTodayAccountIds.size,
       due_3_days_count: due3DaysAccountIds.size,
