@@ -423,13 +423,25 @@ export default function PaymentVault() {
   const { data: allEntries = [], isLoading: loadingAll } = useQuery({
     queryKey: ['payment-vault-all'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('payment_history_backup' as any)
-        .select('id, payment_id, account_id, invoice_number, customer_name, amount, currency, payment_date, payment_method, submission_type, notes, status, event_type, voided_at, void_reason, backed_up_at')
-        .order('payment_date', { ascending: false })
-        .limit(5000);
-      if (error) throw error;
-      return (data || []) as any[];
+      const PAGE_SIZE = 1000;
+      let allRows: any[] = [];
+      let from = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('payment_history_backup' as any)
+          .select('id, payment_id, account_id, invoice_number, customer_name, amount, currency, payment_date, payment_method, submission_type, notes, status, event_type, voided_at, void_reason, backed_up_at')
+          .order('payment_date', { ascending: false })
+          .range(from, from + PAGE_SIZE - 1);
+
+        if (error || !data || data.length === 0) break;
+        allRows = [...allRows, ...data];
+        hasMore = data.length === PAGE_SIZE;
+        from += PAGE_SIZE;
+      }
+
+      return allRows;
     },
   });
 
