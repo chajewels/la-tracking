@@ -871,9 +871,9 @@ export default function PaymentSubmissions() {
       </AlertDialog>
 
       {/* Overpayment Decision Modal */}
-      {overpaymentModal && <div className="fixed inset-0 bg-black/50 pointer-events-none" style={{ zIndex: 70 }} />}
+      {overpaymentModal && <div className="fixed inset-0 bg-black/50 pointer-events-auto" style={{ zIndex: 70 }} />}
       <AlertDialog open={!!overpaymentModal}>
-        <AlertDialogContent className="max-w-md h-auto overflow-visible" style={{ zIndex: 71 }}>
+        <AlertDialogContent className="max-w-md h-auto overflow-visible bg-background" style={{ zIndex: 71 }}>
           <AlertDialogHeader>
             <AlertDialogTitle className="font-display">
               ⬆️ Overpayment Detected
@@ -915,7 +915,7 @@ export default function PaymentSubmissions() {
           <div className="space-y-2 mt-2">
             <Button
               variant="outline"
-              className="w-full justify-start text-left h-auto py-3 px-4 border-primary/30 hover:bg-primary/5"
+              className="w-full justify-start text-left h-auto py-3 px-4 border-primary/30 hover:bg-primary/5 bg-background"
               onClick={() => {
                 const overAccountId = overpaymentModal?.accountId;
                 setOverpaymentModal(null);
@@ -939,7 +939,7 @@ export default function PaymentSubmissions() {
             </Button>
             <Button
               variant="outline"
-              className="w-full justify-start text-left h-auto py-3 px-4"
+              className="w-full justify-start text-left h-auto py-3 px-4 border-muted-foreground/30 hover:bg-muted/20 bg-background"
               onClick={async () => {
                 const modal = overpaymentModal;
                 setOverpaymentModal(null);
