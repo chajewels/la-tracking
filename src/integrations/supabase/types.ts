@@ -509,6 +509,7 @@ export type Database = {
           accepted_by_user_id: string | null
           agreement_acceptance_date: string | null
           agreement_version: string | null
+          completed_at: string | null
           created_at: string
           created_by_user_id: string | null
           currency: Database["public"]["Enums"]["account_currency"]
@@ -535,6 +536,7 @@ export type Database = {
           accepted_by_user_id?: string | null
           agreement_acceptance_date?: string | null
           agreement_version?: string | null
+          completed_at?: string | null
           created_at?: string
           created_by_user_id?: string | null
           currency: Database["public"]["Enums"]["account_currency"]
@@ -561,6 +563,7 @@ export type Database = {
           accepted_by_user_id?: string | null
           agreement_acceptance_date?: string | null
           agreement_version?: string | null
+          completed_at?: string | null
           created_at?: string
           created_by_user_id?: string | null
           currency?: Database["public"]["Enums"]["account_currency"]
