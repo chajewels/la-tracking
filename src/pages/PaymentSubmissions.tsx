@@ -871,118 +871,117 @@ export default function PaymentSubmissions() {
       </AlertDialog>
 
       {/* Overpayment Decision Modal */}
-      <AlertDialog open={!!overpaymentModal}>
-        <AlertDialogContent className="max-w-md h-auto overflow-visible bg-background" style={{ zIndex: 9999 }}>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="font-display">
-              ⬆️ Overpayment Detected
-            </AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3">
-                {overpaymentModal && (
-                  <>
-                    {overpaymentModal.row && (
-                      <p className="text-sm text-muted-foreground">
-                        Month {overpaymentModal.row.installment_number} — {new Date(overpaymentModal.row.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </p>
-                    )}
-                    <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1.5">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Total due</span>
-                        <span className="font-medium text-foreground tabular-nums">
-                          {formatCurrency(overpaymentModal.dueAmount, overpaymentModal.currency)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Amount paid</span>
-                        <span className="font-medium text-foreground tabular-nums">
-                          {formatCurrency(overpaymentModal.paidAmount, overpaymentModal.currency)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-sm pt-1.5 border-t border-border">
-                        <span className="text-blue-500 font-medium">Surplus</span>
-                        <span className="font-bold text-blue-500 tabular-nums">
-                          {formatCurrency(overpaymentModal.surplus, overpaymentModal.currency)}
-                        </span>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="space-y-2 mt-2">
-            <Button
-              variant="outline"
-              className="w-full justify-start text-left h-auto py-3 px-4 border-primary/30 hover:bg-primary/5 bg-background"
-              onClick={() => {
-                const overAccountId = overpaymentModal?.accountId;
-                setOverpaymentModal(null);
-                toast.success('Payment recorded. Surplus applied to next month.');
-                queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
-                if (overAccountId) {
-                  queryClient.invalidateQueries({ queryKey: ['account', overAccountId] });
-                  queryClient.invalidateQueries({ queryKey: ['schedule', overAccountId] });
-                  queryClient.invalidateQueries({ queryKey: ['payments', overAccountId] });
-                  queryClient.invalidateQueries({ queryKey: ['penalties', overAccountId] });
-                }
-              }}
-            >
-              <Check className="h-4 w-4 mr-2 shrink-0 text-primary" />
-              <div>
-                <p className="font-medium text-foreground text-sm">Carry Over</p>
-                <p className="text-xs text-muted-foreground font-normal mt-0.5">
-                  Surplus reduces next month's remaining balance. Already allocated — no further action needed.
+      {overpaymentModal && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/60"
+            style={{ zIndex: 9998, pointerEvents: 'auto' }}
+          />
+          <div
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-card border border-border rounded-xl p-6 shadow-xl"
+            style={{ zIndex: 9999, pointerEvents: 'auto' }}
+          >
+            <h2 className="text-lg font-semibold font-display mb-1">⬆️ Overpayment Detected</h2>
+            <div className="space-y-3 mb-4">
+              {overpaymentModal.row && (
+                <p className="text-sm text-muted-foreground">
+                  Month {overpaymentModal.row.installment_number} — {new Date(overpaymentModal.row.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                 </p>
+              )}
+              <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1.5">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Total due</span>
+                  <span className="font-medium text-foreground tabular-nums">
+                    {formatCurrency(overpaymentModal.dueAmount, overpaymentModal.currency)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Amount paid</span>
+                  <span className="font-medium text-foreground tabular-nums">
+                    {formatCurrency(overpaymentModal.paidAmount, overpaymentModal.currency)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm pt-1.5 border-t border-border">
+                  <span className="text-blue-500 font-medium">Surplus</span>
+                  <span className="font-bold text-blue-500 tabular-nums">
+                    {formatCurrency(overpaymentModal.surplus, overpaymentModal.currency)}
+                  </span>
+                </div>
               </div>
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full justify-start text-left h-auto py-3 px-4 border-muted-foreground/30 hover:bg-muted/20 bg-background"
-              onClick={async () => {
-                const modal = overpaymentModal;
-                setOverpaymentModal(null);
-                if (modal && modal.sourceRowId) {
-                  // Find the existing Month 1 allocation — get by schedule_id only
-                  const { data: allMonth1Allocs } = await supabase
-                    .from('payment_allocations')
-                    .select('id, allocated_amount')
-                    .eq('schedule_id', modal.sourceRowId);
-
-                  // Pick the allocation with the largest amount (the base installment)
-                  const existingAlloc = (allMonth1Allocs || [])
-                    .sort((a, b) => Number(b.allocated_amount) - Number(a.allocated_amount))[0];
-
-                  if (existingAlloc) {
-                    // Update Month 1 allocation to full submitted amount via RPC bypass
-                    await supabase.rpc('admin_keep_allocation_override', {
-                      p_allocation_id: existingAlloc.id,
-                      p_amount: modal.paidAmount,
-                    });
+            </div>
+            <div className="space-y-2">
+              <Button
+                variant="outline"
+                className="w-full justify-start text-left h-auto py-3 px-4 border-primary/30 hover:bg-primary/5 bg-background"
+                onClick={() => {
+                  const overAccountId = overpaymentModal?.accountId;
+                  setOverpaymentModal(null);
+                  toast.success('Payment recorded. Surplus applied to next month.');
+                  queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
+                  if (overAccountId) {
+                    queryClient.invalidateQueries({ queryKey: ['account', overAccountId] });
+                    queryClient.invalidateQueries({ queryKey: ['schedule', overAccountId] });
+                    queryClient.invalidateQueries({ queryKey: ['payments', overAccountId] });
+                    queryClient.invalidateQueries({ queryKey: ['penalties', overAccountId] });
                   }
-                  // Month 2 allocation is left untouched — surplus already allocated there
-                }
-                toast.success('Payment recorded.');
-                queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
-                if (modal?.accountId) {
-                  queryClient.invalidateQueries({ queryKey: ['account', modal.accountId] });
-                  queryClient.invalidateQueries({ queryKey: ['schedule', modal.accountId] });
-                  queryClient.invalidateQueries({ queryKey: ['payments', modal.accountId] });
-                  queryClient.invalidateQueries({ queryKey: ['penalties', modal.accountId] });
-                }
-              }}
-            >
-              <CreditCard className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
-              <div>
-                <p className="font-medium text-foreground text-sm">Keep</p>
-                <p className="text-xs text-muted-foreground font-normal mt-0.5">
-                  Record the overpayment as-is. No additional changes.
-                </p>
-              </div>
-            </Button>
+                }}
+              >
+                <Check className="h-4 w-4 mr-2 shrink-0 text-primary" />
+                <div>
+                  <p className="font-medium text-foreground text-sm">Carry Over</p>
+                  <p className="text-xs text-muted-foreground font-normal mt-0.5">
+                    Surplus reduces next month's remaining balance. Already allocated — no further action needed.
+                  </p>
+                </div>
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start text-left h-auto py-3 px-4 border-muted-foreground/30 hover:bg-muted/20 bg-background"
+                onClick={async () => {
+                  const modal = overpaymentModal;
+                  setOverpaymentModal(null);
+                  if (modal && modal.sourceRowId) {
+                    // Find the existing Month 1 allocation — get by schedule_id only
+                    const { data: allMonth1Allocs } = await supabase
+                      .from('payment_allocations')
+                      .select('id, allocated_amount')
+                      .eq('schedule_id', modal.sourceRowId);
+
+                    // Pick the allocation with the largest amount (the base installment)
+                    const existingAlloc = (allMonth1Allocs || [])
+                      .sort((a, b) => Number(b.allocated_amount) - Number(a.allocated_amount))[0];
+
+                    if (existingAlloc) {
+                      // Update Month 1 allocation to full submitted amount via RPC bypass
+                      await supabase.rpc('admin_keep_allocation_override', {
+                        p_allocation_id: existingAlloc.id,
+                        p_amount: modal.paidAmount,
+                      });
+                    }
+                    // Month 2 allocation is left untouched — surplus already allocated there
+                  }
+                  toast.success('Payment recorded.');
+                  queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
+                  if (modal?.accountId) {
+                    queryClient.invalidateQueries({ queryKey: ['account', modal.accountId] });
+                    queryClient.invalidateQueries({ queryKey: ['schedule', modal.accountId] });
+                    queryClient.invalidateQueries({ queryKey: ['payments', modal.accountId] });
+                    queryClient.invalidateQueries({ queryKey: ['penalties', modal.accountId] });
+                  }
+                }}
+              >
+                <CreditCard className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
+                <div>
+                  <p className="font-medium text-foreground text-sm">Keep</p>
+                  <p className="text-xs text-muted-foreground font-normal mt-0.5">
+                    Record the overpayment as-is. No additional changes.
+                  </p>
+                </div>
+              </Button>
+            </div>
           </div>
-        </AlertDialogContent>
-      </AlertDialog>
+        </>
+      )}
 
       {/* Proof Preview Dialog */}
       <Dialog open={!!proofDialog} onOpenChange={(open) => !open && setProofDialog(null)}>
