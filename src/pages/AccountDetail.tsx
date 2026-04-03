@@ -670,7 +670,7 @@ export default function AccountDetail() {
       }
       const monthLabel = new Date(nextUnpaidItem.dueDate + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       const nextAmt = computeRemaining(nextUnpaidItem);
-      return `\nNext payment: ${monthLabel} — ${formatCurrency(nextAmt, currency)}`;
+      return `\nNext payment: Month #${nextUnpaidItem.installmentNumber} ${monthLabel} — ${formatCurrency(nextAmt, currency)}`;
     };
 
     // Check if session payments exist and classify
@@ -720,7 +720,7 @@ export default function AccountDetail() {
       //  consolidated message — checking mostRecentPayment.remarks here caused the
       //  next payment line to be permanently suppressed for any account whose last
       //  payment was ever made via multi-invoice, regardless of when it happened.)
-      if (mostRecentPayment && !mostRecentPayment.remarks?.includes('[Multi-invoice')) {
+      if (mostRecentPayment) {
         message += `Thank you for your payment. ${formatCurrency(Number(mostRecentPayment.amount_paid), currency)} has been received.\n\n`;
       }
       message += `Inv # ${account.invoice_number}\n`;
