@@ -488,6 +488,7 @@ export function useVoidPayment() {
         body: payload,
       });
       if (error) throw error;
+      if (data?.error) throw new Error(data.error);
       return data;
     },
     onSuccess: () => invalidatePaymentRelated(qc),
