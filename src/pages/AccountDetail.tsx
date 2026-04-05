@@ -1971,33 +1971,43 @@ export default function AccountDetail() {
         </AlertDialog>
 
         {/* Delete Account Confirmation */}
-        <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-          <AlertDialogContent className="bg-card border-border">
-            <AlertDialogHeader>
-              <AlertDialogTitle className="text-card-foreground">Delete Account?</AlertDialogTitle>
-              <AlertDialogDescription>
+        {deleteConfirmOpen && (
+          <>
+            <div
+              className="fixed inset-0 bg-black/60"
+              style={{ zIndex: 9998, pointerEvents: 'auto' }}
+            />
+            <div
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-card border border-border rounded-xl p-6 shadow-xl"
+              style={{ zIndex: 9999, pointerEvents: 'auto' }}
+            >
+              <h2 className="text-lg font-semibold text-card-foreground mb-1">Delete Account?</h2>
+              <p className="text-sm text-muted-foreground mb-4">
                 This will permanently delete INV #{account.invoice_number} and all associated payments, schedule, and penalties. This action cannot be undone.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                disabled={deleteAccount.isPending}
-                onClick={async () => {
-                  try {
-                    await deleteAccount.mutateAsync(account.id);
-                    toast.success(`Account INV #${account.invoice_number} deleted`);
-                    navigate(ROUTES.ACCOUNTS);
-                  } catch (err: any) {
-                    toast.error(err.message || 'Failed to delete account');
-                  }
-                }}>
-                {deleteAccount.isPending ? 'Deleting…' : 'Delete Account'}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+              </p>
+              <div className="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2">
+                <Button variant="outline" className="border-border mt-2 sm:mt-0" onClick={() => setDeleteConfirmOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  disabled={deleteAccount.isPending}
+                  onClick={async () => {
+                    try {
+                      await deleteAccount.mutateAsync(account.id);
+                      toast.success(`Account INV #${account.invoice_number} deleted`);
+                      navigate(ROUTES.ACCOUNTS);
+                    } catch (err: any) {
+                      toast.error(err.message || 'Failed to delete account');
+                    }
+                  }}
+                >
+                  {deleteAccount.isPending ? 'Deleting…' : 'Delete Account'}
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Delete Schedule Item Confirmation */}
         {/* Accept & Carry Over confirmation */}
