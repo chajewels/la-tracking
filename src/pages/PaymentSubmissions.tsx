@@ -740,135 +740,135 @@ export default function PaymentSubmissions() {
       </Dialog>
 
       {/* Underpayment Decision Modal — must layer above the Action Dialog */}
-      {!!underpaymentModal && <div className="fixed inset-0 bg-black/50" style={{ zIndex: 70 }} />}
-      <AlertDialog open={!!underpaymentModal}>
-        <AlertDialogContent className="max-w-md" style={{ zIndex: 71 }}>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="font-display flex items-center gap-2">
+      {!!underpaymentModal && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/60"
+            style={{ zIndex: 9998, pointerEvents: 'auto' }}
+          />
+          <div
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-card border border-border rounded-xl p-6 shadow-xl"
+            style={{ zIndex: 9999, pointerEvents: 'auto' }}
+          >
+            <h2 className="font-display flex items-center gap-2 text-lg font-semibold mb-1">
               <AlertTriangle className="h-5 w-5 text-warning" />
               Underpayment Detected
-            </AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3">
-                {underpaymentModal && (
-                  <>
-                    <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1.5">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Month</span>
-                        <span className="font-medium text-foreground">
-                          Month {underpaymentModal.row.installment_number} — {new Date(underpaymentModal.row.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Base amount due</span>
-                        <span className="font-medium text-foreground tabular-nums">
-                          {formatCurrency(
-                            Number(underpaymentModal.row.base_installment_amount) + Number(underpaymentModal.row.penalty_amount || 0) + Number(underpaymentModal.row.carried_amount || 0),
-                            underpaymentModal.currency
-                          )}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Amount paid</span>
-                        <span className="font-medium text-foreground tabular-nums">
-                          {formatCurrency(
-                            Number(underpaymentModal.row.base_installment_amount) + Number(underpaymentModal.row.penalty_amount || 0) + Number(underpaymentModal.row.carried_amount || 0) - underpaymentModal.shortfall,
-                            underpaymentModal.currency
-                          )}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-sm pt-1.5 border-t border-border">
-                        <span className="text-warning font-medium">Shortfall</span>
-                        <span className="font-bold text-warning tabular-nums">
-                          {formatCurrency(underpaymentModal.shortfall, underpaymentModal.currency)}
-                        </span>
-                      </div>
-                    </div>
-                  </>
-                )}
+            </h2>
+            <div className="space-y-3 mb-4">
+              <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1.5">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Month</span>
+                  <span className="font-medium text-foreground">
+                    Month {underpaymentModal.row.installment_number} — {new Date(underpaymentModal.row.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Base amount due</span>
+                  <span className="font-medium text-foreground tabular-nums">
+                    {formatCurrency(
+                      Number(underpaymentModal.row.base_installment_amount) + Number(underpaymentModal.row.penalty_amount || 0) + Number(underpaymentModal.row.carried_amount || 0),
+                      underpaymentModal.currency
+                    )}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Amount paid</span>
+                  <span className="font-medium text-foreground tabular-nums">
+                    {formatCurrency(
+                      Number(underpaymentModal.row.base_installment_amount) + Number(underpaymentModal.row.penalty_amount || 0) + Number(underpaymentModal.row.carried_amount || 0) - underpaymentModal.shortfall,
+                      underpaymentModal.currency
+                    )}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm pt-1.5 border-t border-border">
+                  <span className="text-warning font-medium">Shortfall</span>
+                  <span className="font-bold text-warning tabular-nums">
+                    {formatCurrency(underpaymentModal.shortfall, underpaymentModal.currency)}
+                  </span>
+                </div>
               </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="space-y-2 mt-2">
-            <Button
-              variant="outline"
-              className="w-full justify-start text-left h-auto py-3 px-4"
-              disabled={!!underpaymentLoading}
-              onClick={async () => {
-                // Keep as Partial — do nothing, just close
-                const keepAccountId = underpaymentModal?.accountId;
-                setUnderpaymentModal(null);
-                setUnderpaymentLoading(null);
-                toast.success('Payment recorded. Month stays partially paid.');
-                queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
-                if (keepAccountId) {
-                  queryClient.invalidateQueries({ queryKey: ['account', keepAccountId] });
-                  queryClient.invalidateQueries({ queryKey: ['schedule', keepAccountId] });
-                  queryClient.invalidateQueries({ queryKey: ['payments', keepAccountId] });
-                  queryClient.invalidateQueries({ queryKey: ['penalties', keepAccountId] });
-                }
-              }}
-            >
-              {underpaymentLoading === 'partial' ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2 shrink-0" />
-              ) : (
-                <CreditCard className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
-              )}
-              <div>
-                <p className="font-medium text-foreground text-sm">Keep as Partial</p>
-                <p className="text-xs text-muted-foreground font-normal mt-0.5">
-                  This month stays open. Customer must settle the remaining {underpaymentModal ? formatCurrency(underpaymentModal.shortfall, underpaymentModal.currency) : ''} before moving to the next month.
-                </p>
-              </div>
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full justify-start text-left h-auto py-3 px-4 border-primary/30 hover:bg-primary/5"
-              disabled={!!underpaymentLoading}
-              onClick={async () => {
-                if (!underpaymentModal) return;
-                setUnderpaymentLoading('carry');
-                try {
-                  const { data, error } = await supabase.functions.invoke('carry-over', {
-                    body: {
-                      schedule_row_id: underpaymentModal.scheduleId,
-                      account_id: underpaymentModal.accountId,
-                    },
-                  });
-                  if (error) throw error;
-                  if (data?.error) throw new Error(data.error);
-                  toast.success('Carry-over applied successfully');
-                  queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
-                  const carryAccountId = underpaymentModal.accountId;
-                  if (carryAccountId) {
-                    queryClient.invalidateQueries({ queryKey: ['account', carryAccountId] });
-                    queryClient.invalidateQueries({ queryKey: ['schedule', carryAccountId] });
-                    queryClient.invalidateQueries({ queryKey: ['payments', carryAccountId] });
-                    queryClient.invalidateQueries({ queryKey: ['penalties', carryAccountId] });
-                  }
+            </div>
+            <div className="space-y-2">
+              <Button
+                variant="outline"
+                className="w-full justify-start text-left h-auto py-3 px-4"
+                disabled={!!underpaymentLoading}
+                onClick={async () => {
+                  // Keep as Partial — do nothing, just close
+                  const keepAccountId = underpaymentModal?.accountId;
                   setUnderpaymentModal(null);
-                } catch (err: any) {
-                  toast.error(`Carry-over failed: ${err.message || 'Unknown error'}`);
-                } finally {
                   setUnderpaymentLoading(null);
-                }
-              }}
-            >
-              {underpaymentLoading === 'carry' ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2 shrink-0" />
-              ) : (
-                <Check className="h-4 w-4 mr-2 shrink-0 text-primary" />
-              )}
-              <div>
-                <p className="font-medium text-foreground text-sm">Accept & Carry Over</p>
-                <p className="text-xs text-muted-foreground font-normal mt-0.5">
-                  Close this month and add {underpaymentModal ? formatCurrency(underpaymentModal.shortfall, underpaymentModal.currency) : ''} to next month's balance.
-                </p>
-              </div>
-            </Button>
+                  toast.success('Payment recorded. Month stays partially paid.');
+                  queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
+                  if (keepAccountId) {
+                    queryClient.invalidateQueries({ queryKey: ['account', keepAccountId] });
+                    queryClient.invalidateQueries({ queryKey: ['schedule', keepAccountId] });
+                    queryClient.invalidateQueries({ queryKey: ['payments', keepAccountId] });
+                    queryClient.invalidateQueries({ queryKey: ['penalties', keepAccountId] });
+                  }
+                }}
+              >
+                {underpaymentLoading === 'partial' ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2 shrink-0" />
+                ) : (
+                  <CreditCard className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
+                )}
+                <div>
+                  <p className="font-medium text-foreground text-sm">Keep as Partial</p>
+                  <p className="text-xs text-muted-foreground font-normal mt-0.5">
+                    This month stays open. Customer must settle the remaining {formatCurrency(underpaymentModal.shortfall, underpaymentModal.currency)} before moving to the next month.
+                  </p>
+                </div>
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start text-left h-auto py-3 px-4 border-primary/30 hover:bg-primary/5"
+                disabled={!!underpaymentLoading}
+                onClick={async () => {
+                  if (!underpaymentModal) return;
+                  setUnderpaymentLoading('carry');
+                  try {
+                    const { data, error } = await supabase.functions.invoke('carry-over', {
+                      body: {
+                        schedule_row_id: underpaymentModal.scheduleId,
+                        account_id: underpaymentModal.accountId,
+                      },
+                    });
+                    if (error) throw error;
+                    if (data?.error) throw new Error(data.error);
+                    toast.success('Carry-over applied successfully');
+                    queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
+                    const carryAccountId = underpaymentModal.accountId;
+                    if (carryAccountId) {
+                      queryClient.invalidateQueries({ queryKey: ['account', carryAccountId] });
+                      queryClient.invalidateQueries({ queryKey: ['schedule', carryAccountId] });
+                      queryClient.invalidateQueries({ queryKey: ['payments', carryAccountId] });
+                      queryClient.invalidateQueries({ queryKey: ['penalties', carryAccountId] });
+                    }
+                    setUnderpaymentModal(null);
+                  } catch (err: any) {
+                    toast.error(`Carry-over failed: ${err.message || 'Unknown error'}`);
+                  } finally {
+                    setUnderpaymentLoading(null);
+                  }
+                }}
+              >
+                {underpaymentLoading === 'carry' ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2 shrink-0" />
+                ) : (
+                  <Check className="h-4 w-4 mr-2 shrink-0 text-primary" />
+                )}
+                <div>
+                  <p className="font-medium text-foreground text-sm">Accept & Carry Over</p>
+                  <p className="text-xs text-muted-foreground font-normal mt-0.5">
+                    Close this month and add {formatCurrency(underpaymentModal.shortfall, underpaymentModal.currency)} to next month's balance.
+                  </p>
+                </div>
+              </Button>
+            </div>
           </div>
-        </AlertDialogContent>
-      </AlertDialog>
+        </>
+      )}
 
       {/* Overpayment Decision Modal */}
       {overpaymentModal && (
