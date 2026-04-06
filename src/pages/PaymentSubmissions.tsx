@@ -612,22 +612,31 @@ export default function PaymentSubmissions() {
       </div>
 
       {/* Action Dialog */}
-      <Dialog open={!!actionDialog} onOpenChange={(open) => { if (!open) { setActionDialog(null); setReviewerNotes(''); setConfirmResults(null); } }}>
-        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="font-display">
+      {!!actionDialog && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/60"
+            style={{ zIndex: 9998, pointerEvents: 'auto' }}
+            onClick={() => { setActionDialog(null); setReviewerNotes(''); setConfirmResults(null); }}
+          />
+          <div
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md max-h-[85vh] overflow-y-auto bg-card border border-border rounded-xl p-6 shadow-xl"
+            style={{ zIndex: 9999, pointerEvents: 'auto' }}
+          >
+          <div className="flex flex-col space-y-1.5 mb-4">
+            <h2 className="text-lg font-semibold leading-none tracking-tight font-display">
               {actionDialog?.action === 'confirmed' ? '✅ Confirm Payment' :
                actionDialog?.action === 'rejected' ? '❌ Reject Submission' :
                '💬 Request Clarification'}
-            </DialogTitle>
-            <DialogDescription>
+            </h2>
+            <p className="text-sm text-muted-foreground">
               {actionDialog?.action === 'confirmed'
                 ? `This will create a confirmed payment of ${actionDialog?.sub ? formatCurrency(actionDialog.sub.submitted_amount, (actionDialog.sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY') : ''} and update the account balance.`
                 : actionDialog?.action === 'rejected'
                 ? 'This submission will be marked as rejected. The customer will see your reason.'
                 : 'Send a message to the customer requesting more information.'}
-            </DialogDescription>
-          </DialogHeader>
+            </p>
+          </div>
 
           <div className="space-y-3">
               {/* Waterfall breakdown for confirm action */}
@@ -717,7 +726,7 @@ export default function PaymentSubmissions() {
               </div>
             </div>
 
-            <DialogFooter>
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 mt-4">
               <Button variant="ghost" onClick={() => { setActionDialog(null); setReviewerNotes(''); }}>Cancel</Button>
               <Button
                 variant={actionDialog?.action === 'rejected' ? 'destructive' : 'default'}
@@ -737,9 +746,10 @@ export default function PaymentSubmissions() {
                  actionDialog?.action === 'rejected' ? 'Reject Submission' :
                  'Send Clarification Request'}
               </Button>
-            </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Underpayment Decision Modal — must layer above the Action Dialog */}
       {!!underpaymentModal && (
