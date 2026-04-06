@@ -18,6 +18,9 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  define: {
+    __BUILD_TIME__: Date.now(),
+  },
   build: {
     rollupOptions: {
       output: {
