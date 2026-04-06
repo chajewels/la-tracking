@@ -1799,14 +1799,14 @@ export default function AccountDetail() {
 
         {/* ═══ Verification Debug Panel ═══ */}
         {(() => {
-          // sumOfPendingMonths: base for pending/overdue rows, remaining for partial rows
+          // sumOfPendingMonths: base + penalty for pending/overdue rows, remaining for partial rows
           const sumPendingMonths = scheduleItems
             .filter((i: any) => !isRowPaid(i as any) && getRowStatus(i as any) !== 'cancelled')
             .reduce((sum: number, i: any) => {
               if (isRowPartial(i as any)) {
                 return sum + getRowRemaining(i as any);
               }
-              return sum + Number(i.base_installment_amount);
+              return sum + Number(i.base_installment_amount) + Number(i.penalty_amount || 0);
             }, 0);
           const sumAllBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
           // Check both account models: DP separate (DP + installments + penalties = totalLAAmount) or DP-inclusive
