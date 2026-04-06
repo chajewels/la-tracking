@@ -204,6 +204,12 @@ async function allocatePaymentToAccount(
   }
 
   if (!skipWaterfall) {
+    // Helper: attempt to roll back by deleting the payment row just inserted.
+    // This is best-effort — full DB transactions are not available in edge functions.
+    const rollbackPayment = async () => {
+      await supabase.from("payments").delete().eq("id", payment.id);
+    };
+
     // Create allocations (duplicate guard: skip if allocation already exists for this payment+schedule)
     for (const alloc of allocations) {
       const { data: existing } = await supabase
@@ -215,24 +221,40 @@ async function allocatePaymentToAccount(
         .maybeSingle();
       if (existing) continue;
 
-      await supabase.from("payment_allocations").insert({
+      const { error: allocInsertErr } = await supabase.from("payment_allocations").insert({
         payment_id: payment.id,
         schedule_id: alloc.schedule_id,
         allocation_type: alloc.allocation_type,
         allocated_amount: alloc.allocated_amount,
       });
+
+      if (allocInsertErr) {
+        console.error(`[allocatePaymentToAccount] allocation insert failed for schedule ${alloc.schedule_id}:`, allocInsertErr);
+        await rollbackPayment();
+        return { paymentId: "", error: "Failed to create allocation: " + allocInsertErr.message };
+      }
     }
 
     // Update penalty statuses
     for (const pen of penaltyUpdates) {
-      await supabase.from("penalty_fees").update({ status: pen.status }).eq("id", pen.id);
+      const { error: penUpdateErr } = await supabase.from("penalty_fees").update({ status: pen.status }).eq("id", pen.id);
+      if (penUpdateErr) {
+        console.error(`[allocatePaymentToAccount] penalty update failed for ${pen.id}:`, penUpdateErr);
+        await rollbackPayment();
+        return { paymentId: "", error: "Failed to update penalty: " + penUpdateErr.message };
+      }
     }
 
     // Update schedule items
     for (const item of scheduleUpdates) {
       const fields: any = { paid_amount: item.paid_amount, status: item.status };
       if (item.total_due_amount !== undefined) fields.total_due_amount = item.total_due_amount;
-      await supabase.from("layaway_schedule").update(fields).eq("id", item.id);
+      const { error: schedUpdateErr } = await supabase.from("layaway_schedule").update(fields).eq("id", item.id);
+      if (schedUpdateErr) {
+        console.error(`[allocatePaymentToAccount] schedule update failed for ${item.id}:`, schedUpdateErr);
+        await rollbackPayment();
+        return { paymentId: "", error: "Failed to update schedule: " + schedUpdateErr.message };
+      }
     }
   }
 

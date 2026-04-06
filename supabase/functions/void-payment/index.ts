@@ -80,10 +80,17 @@ Deno.serve(async (req) => {
 
     // Step 1a: Delete payment_allocations for this payment so schedule_with_actuals
     // immediately reflects the void (view sums payment_allocations directly)
-    await supabase
+    const { error: allocDeleteErr } = await supabase
       .from("payment_allocations")
       .delete()
       .eq("payment_id", payment_id);
+
+    if (allocDeleteErr) {
+      return new Response(
+        JSON.stringify({ error: "Failed to delete allocations: " + allocDeleteErr.message }),
+        { status: 500, headers: corsHeaders }
+      );
+    }
 
     // Step 1b: Clear carried_amount on any schedule row where this payment triggered a carry
     // (carried_by_payment_id = payment_id). Guard with try/catch in case column doesn't exist yet.
