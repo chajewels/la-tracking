@@ -121,10 +121,15 @@ async function allocatePaymentToAccount(
         if (remaining <= 0) break;
         // CHANGE 2: due from payment_allocations, not stale cache columns
         const alreadyAllocated = allocatedBySchedule.get(item.id) || 0;
+        // Subtract any penalty already allocated in Phase 1 (in-memory) for this row
+        // to avoid double-counting when rowCeiling also includes penalty_amount.
+        const alreadyAllocatedPenalty = allocations
+          .filter(a => a.schedule_id === item.id && a.allocation_type === 'penalty')
+          .reduce((sum, a) => sum + a.allocated_amount, 0);
         const rowCeiling = Number(item.base_installment_amount) +
                            Number(item.penalty_amount || 0) +
                            Number(item.carried_amount || 0);
-        const due = Math.max(0, rowCeiling - alreadyAllocated);
+        const due = Math.max(0, rowCeiling - alreadyAllocated - alreadyAllocatedPenalty);
         if (due <= 0) continue;
 
         const toApply = Math.min(remaining, due);

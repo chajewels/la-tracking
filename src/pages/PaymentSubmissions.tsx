@@ -157,6 +157,7 @@ export default function PaymentSubmissions() {
     surplus: number;
     currency: 'PHP' | 'JPY';
     accountId: string;
+    paymentId: string | null;
   } | null>(null);
 
   // Fetch schedule and compute waterfall when confirm dialog opens
@@ -316,6 +317,7 @@ export default function PaymentSubmissions() {
               surplus: partialAlloc.amount,
               currency: cur,
               accountId: actionDialog.sub.account_id,
+              paymentId: (_data as any)?.confirmed_payment_ids?.[0] ?? null,
             });
             setActionDialog(null);
             setReviewerNotes('');
@@ -958,7 +960,21 @@ export default function PaymentSubmissions() {
                         p_amount: modal.paidAmount,
                       });
                     }
-                    // Month 2 allocation is left untouched — surplus already allocated there
+                    // Remove any spillover allocations to subsequent months from this payment
+                    if (modal.paymentId) {
+                      const { data: spillAllocations } = await supabase
+                        .from('payment_allocations')
+                        .select('id, schedule_id')
+                        .eq('payment_id', modal.paymentId)
+                        .neq('schedule_id', modal.sourceRowId);
+
+                      if (spillAllocations && spillAllocations.length > 0) {
+                        await supabase
+                          .from('payment_allocations')
+                          .delete()
+                          .in('id', spillAllocations.map((a: any) => a.id));
+                      }
+                    }
                   }
                   toast.success('Payment recorded.');
                   queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
