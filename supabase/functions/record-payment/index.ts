@@ -65,7 +65,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (account.status !== "active" && account.status !== "overdue") {
+    const payableStatuses = ["active", "overdue", "extension_active", "reactivated", "final_settlement"];
+    if (!payableStatuses.includes(account.status)) {
       return new Response(JSON.stringify({ error: "Account is not active" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
