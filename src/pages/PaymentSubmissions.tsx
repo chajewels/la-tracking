@@ -620,8 +620,8 @@ export default function PaymentSubmissions() {
             onClick={() => { setActionDialog(null); setReviewerNotes(''); setConfirmResults(null); }}
           />
           <div
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md max-h-[85vh] overflow-y-auto bg-card border border-border rounded-xl p-6 shadow-xl"
-            style={{ zIndex: 9999, pointerEvents: 'auto' }}
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md max-h-[85vh] overflow-y-auto border border-border rounded-xl p-6 shadow-xl"
+            style={{ zIndex: 9999, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', color: 'var(--foreground)' }}
           >
           <div className="flex flex-col space-y-1.5 mb-4">
             <h2 className="text-lg font-semibold leading-none tracking-tight font-display">
@@ -759,8 +759,8 @@ export default function PaymentSubmissions() {
             style={{ zIndex: 9998, pointerEvents: 'auto' }}
           />
           <div
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-card border border-border rounded-xl p-6 shadow-xl"
-            style={{ zIndex: 9999, pointerEvents: 'auto' }}
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md border border-border rounded-xl p-6 shadow-xl"
+            style={{ zIndex: 9999, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', color: 'var(--foreground)' }}
           >
             <h2 className="font-display flex items-center gap-2 text-lg font-semibold mb-1">
               <AlertTriangle className="h-5 w-5 text-warning" />
@@ -890,8 +890,8 @@ export default function PaymentSubmissions() {
             style={{ zIndex: 9998, pointerEvents: 'auto' }}
           />
           <div
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-card border border-border rounded-xl p-6 shadow-xl"
-            style={{ zIndex: 9999, pointerEvents: 'auto' }}
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md border border-border rounded-xl p-6 shadow-xl"
+            style={{ zIndex: 9999, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', color: 'var(--foreground)' }}
           >
             <h2 className="text-lg font-semibold font-display mb-1">⬆️ Overpayment Detected</h2>
             <div className="space-y-3 mb-4">
