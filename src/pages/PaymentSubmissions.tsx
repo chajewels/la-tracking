@@ -168,6 +168,13 @@ export default function PaymentSubmissions() {
       setConfirmResults(null);
       return;
     }
+    // Skip waterfall preview for split submissions — the total amount is split
+    // across multiple accounts and cannot be validated against a single account's schedule
+    if (actionDialog.sub.submission_type === 'split') {
+      setConfirmWaterfall(null);
+      setConfirmResults(null);
+      return;
+    }
     let cancelled = false;
     setConfirmLoadingSchedule(true);
     (async () => {
