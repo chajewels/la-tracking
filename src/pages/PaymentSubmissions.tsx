@@ -309,6 +309,8 @@ export default function PaymentSubmissions() {
               .reduce((s, a) => s + a.amount, 0);
             const partialRow = confirmScheduleRows.find(r => r.id === partialAlloc.scheduleId) ?? null;
             const cur = (actionDialog.sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY';
+            console.log('[Keep debug] _data:', _data);
+            console.log('[Keep debug] paymentId:', (_data as any)?.confirmed_payment_ids?.[0]);
             setOverpaymentModal({
               row: partialRow,
               sourceRowId: confirmWaterfall.allocations[0]?.scheduleId ?? null,
@@ -983,6 +985,16 @@ export default function PaymentSubmissions() {
                           .from('payment_allocations')
                           .delete()
                           .in('id', spillAllocations.map((a: any) => a.id));
+
+                        // Reset spillover schedule rows back to pending
+                        const spillScheduleIds = spillAllocations.map((a: any) => a.schedule_id);
+                        await supabase
+                          .from('layaway_schedule')
+                          .update({
+                            paid_amount: 0,
+                            status: 'pending'
+                          })
+                          .in('id', spillScheduleIds);
                       }
                     }
                   }
