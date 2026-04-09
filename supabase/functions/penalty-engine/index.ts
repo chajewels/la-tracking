@@ -229,15 +229,26 @@ Deno.serve(async (req) => {
 
       if (currentTotal >= cap) continue;
 
+      // Check if grace period is already consumed — account has penalties on OTHER schedule rows
+      // (from prior overdue months). Grace is given ONCE per account, not per month.
+      const { data: priorPenalties } = await supabase
+        .from("penalty_fees")
+        .select("schedule_id")
+        .eq("account_id", accountId)
+        .neq("schedule_id", item.id)
+        .limit(1);
+      const graceConsumed = priorPenalties && priorPenalties.length > 0;
+      const week1Offset = graceConsumed ? 0 : 7;
+
       // Build trigger dates using the alternating pattern
       const triggerDates: Array<{ date: Date; stage: "week1" | "week2"; cycle: number }> = [];
 
-      // Phase 1: due + 7 → week1:1
+      // Phase 1: week1:1 — due + 7 (grace) or due + 0 (grace consumed)
       const phase1Date = new Date(dueDate);
-      phase1Date.setUTCDate(phase1Date.getUTCDate() + 7);
+      phase1Date.setUTCDate(phase1Date.getUTCDate() + week1Offset);
       triggerDates.push({ date: phase1Date, stage: "week1", cycle: 1 });
 
-      // Phase 2: due + 14 → week2:1
+      // Phase 2: week2:1 — always due + 14
       const phase2Date = new Date(dueDate);
       phase2Date.setUTCDate(phase2Date.getUTCDate() + 14);
       triggerDates.push({ date: phase2Date, stage: "week2", cycle: 1 });
