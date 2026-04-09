@@ -13,6 +13,7 @@ on:
       - 'supabase/functions/accept-underpayment/**'
       - 'supabase/functions/review-payment-submission/**'
       - 'supabase/functions/manual-forfeit/**'
+      - 'supabase/functions/auto-forfeit-settlement/**'
   workflow_dispatch:
 
 jobs:
@@ -77,5 +78,11 @@ jobs:
       - name: Deploy manual-forfeit
         if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/manual-forfeit/')
         run: npx supabase functions deploy manual-forfeit --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy auto-forfeit-settlement
+        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/auto-forfeit-settlement/')
+        run: npx supabase functions deploy auto-forfeit-settlement --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

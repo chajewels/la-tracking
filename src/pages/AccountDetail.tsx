@@ -1016,7 +1016,9 @@ export default function AccountDetail() {
                   planMonths={account.payment_plan_months}
                 />
                 )}
-                {can('forfeit_account') && (
+              </>
+            )}
+            {can('forfeit_account') && !['forfeited', 'final_forfeited', 'completed', 'cancelled'].includes(account.status) && (
                 <Button
                   variant="outline"
                   className="border-orange-500/30 text-orange-500 hover:bg-orange-500/10"
@@ -1024,8 +1026,6 @@ export default function AccountDetail() {
                 >
                   <AlertTriangle className="h-4 w-4 mr-2" /> Forfeit
                 </Button>
-                )}
-              </>
             )}
             {can('delete_account') && (
             <Button
