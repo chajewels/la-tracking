@@ -319,6 +319,28 @@ Deno.serve(async (req) => {
       }).eq("id", schedId);
     }
 
+    // ── Step 5b: Self-heal — sync penalty_amount for all processed items
+    // regardless of whether new penalties were created in this run.
+    // Fixes stale schedule rows where penalty_fees exist but penalty_amount = 0.
+    for (const item of allOverdueItems) {
+      if (scheduleUpdates.has(item.id)) continue; // Already updated in Step 5
+      const { data: actualPenalty } = await supabase
+        .from("penalty_fees")
+        .select("penalty_amount")
+        .eq("schedule_id", item.id)
+        .neq("status", "waived");
+
+      const penaltySum = (actualPenalty || [])
+        .reduce((sum: number, p: any) => sum + Number(p.penalty_amount), 0);
+
+      if (Math.abs(penaltySum - Number(item.penalty_amount)) > 0.01) {
+        await supabase.from("layaway_schedule").update({
+          penalty_amount: penaltySum,
+          total_due_amount: Number(item.base_installment_amount) + penaltySum,
+        }).eq("id", item.id);
+      }
+    }
+
     // ── Step 6: Mark accounts as overdue ──
     for (const accountId of accountsToMarkOverdue) {
       await supabase.from("layaway_accounts")
