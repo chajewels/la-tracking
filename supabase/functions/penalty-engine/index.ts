@@ -314,7 +314,7 @@ Deno.serve(async (req) => {
     for (const [schedId, info] of scheduleUpdates) {
       await supabase.from("layaway_schedule").update({
         penalty_amount: info.totalPenalty,
-        total_due_amount: info.baseAmount,
+        total_due_amount: info.baseAmount + info.totalPenalty,
         status: "overdue",
       }).eq("id", schedId);
     }
