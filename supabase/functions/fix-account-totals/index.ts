@@ -63,15 +63,17 @@ Deno.serve(async (req) => {
       if (pays) allPayments = allPayments.concat(pays);
     }
 
-    // Batch fetch all schedules
+    // Batch fetch ALL schedules (including cancelled) so allocations pointing
+    // to cancelled rows are discoverable. Cancelled rows are filtered out
+    // later when iterating for sync/backfill, but their IDs are needed here
+    // so allocByPayment correctly recognizes payments allocated to them.
     let allSchedules: any[] = [];
     for (let i = 0; i < accountIds.length; i += 50) {
       const chunk = accountIds.slice(i, i + 50);
       const { data: scheds } = await supabase
         .from("layaway_schedule")
-        .select("id, account_id, status, paid_amount, base_installment_amount, due_date, installment_number")
+        .select("id, account_id, status, paid_amount, base_installment_amount, penalty_amount, due_date, installment_number")
         .in("account_id", chunk)
-        .neq("status", "cancelled")
         .order("installment_number")
         .limit(5000);
       if (scheds) allSchedules = allSchedules.concat(scheds);
@@ -155,9 +157,12 @@ Deno.serve(async (req) => {
       const payments = (payByAcct[acct.id] || []).sort(
         (a: any, b: any) => a.date_paid.localeCompare(b.date_paid)
       );
+      // schedule = ALL rows including cancelled (for allocation lookups)
       const schedule = (schedByAcct[acct.id] || []).sort(
         (a: any, b: any) => a.installment_number - b.installment_number
       );
+      // activeSchedule = non-cancelled rows only (for sync and backfill)
+      const activeSchedule = schedule.filter((s: any) => s.status !== 'cancelled');
 
       // ── Step 0: Create missing allocations for unallocated payments ──
       // Identify payments that have NO allocation records at all
@@ -167,7 +172,8 @@ Deno.serve(async (req) => {
       });
 
       if (unallocatedPayments.length > 0) {
-        // Build current allocation state per schedule row
+        // Build current allocation state per schedule row (using ALL rows
+        // including cancelled, so we don't re-allocate to cancelled rows later)
         const schedAllocated: Record<string, number> = {};
         for (const s of schedule) {
           const allocs = allocBySchedule[s.id] || [];
@@ -181,8 +187,9 @@ Deno.serve(async (req) => {
           const isDownpayment = (payment.remarks || "").toLowerCase().includes("downpayment");
           if (isDownpayment) continue;
 
-          // Allocate chronologically to schedule rows that still need payment
-          for (const sched of schedule) {
+          // Allocate chronologically to NON-CANCELLED schedule rows that still need payment
+          for (const sched of activeSchedule) {
+            if (sched.status === 'cancelled') continue; // defensive guard
             if (remaining <= 0) break;
             const base = Number(sched.base_installment_amount);
             const alreadyAllocated = schedAllocated[sched.id] || 0;
@@ -239,7 +246,9 @@ Deno.serve(async (req) => {
         Math.abs(Number(acct.remaining_balance) - correctRemaining) > 0.01;
 
       // SCHEDULE SYNC: recalculate paid_amount per row from allocations
-      for (const sched of schedule) {
+      // Iterate activeSchedule only — cancelled rows are preserved as-is
+      for (const sched of activeSchedule) {
+        if (sched.status === 'cancelled') continue; // defensive guard
         const allocations = allocBySchedule[sched.id] || [];
         const correctPaidAmount = allocations.reduce((s: number, a: any) => s + Number(a.allocated_amount), 0);
         const totalDue = Number(sched.base_installment_amount) + Number(sched.penalty_amount || 0);
@@ -273,7 +282,8 @@ Deno.serve(async (req) => {
       }
 
       if (accountNeedsUpdate) {
-        const hasOverdue = schedule.some((r: any) => {
+        // Only non-cancelled rows count toward overdue detection
+        const hasOverdue = activeSchedule.some((r: any) => {
           const allocs = allocBySchedule[r.id] || [];
           const paidAmt = allocs.reduce((s: number, a: any) => s + Number(a.allocated_amount), 0);
           return r.due_date < today && paidAmt < Number(r.base_installment_amount);
