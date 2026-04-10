@@ -1808,6 +1808,17 @@ export default function AccountDetail() {
               }
               return sum + Number(i.base_installment_amount) + Number(i.penalty_amount || 0);
             }, 0);
+          // Overpayment credit: paid rows where allocated > ceiling (e.g. Keep decision surplus)
+          const overpaymentCredit = scheduleItems
+            .filter((i: any) => isRowPaid(i as any))
+            .reduce((sum: number, i: any) => {
+              const allocated = Number(i.allocated || 0);
+              const ceiling = Number(i.base_installment_amount) +
+                              Number(i.penalty_amount || 0) +
+                              Number(i.carried_amount || 0);
+              return sum + Math.max(0, allocated - ceiling);
+            }, 0);
+          const adjustedPendingMonths = sumPendingMonths - overpaymentCredit;
           const sumAllBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
           // Check both account models: DP separate (DP + installments + penalties = totalLAAmount) or DP-inclusive
           const servicesTotalForVerify = (accountServices || []).reduce(
@@ -1843,7 +1854,7 @@ export default function AccountDetail() {
             { label: 'amountPaid (DP + paid months)', expected: totalPaid, actual: Math.round(computedPaid * 100) / 100, pass: Math.abs(totalPaid - computedPaid) < 1 },
             { label: 'remainingBalance (stored vs computed)', expected: summary.remainingBalance, actual: Number(account.remaining_balance), pass: Math.abs(summary.remainingBalance - Number(account.remaining_balance)) < 2 },
             { label: 'monthsRemaining', expected: summary.unpaidCount, actual: unpaidSchedule.length, pass: summary.unpaidCount === unpaidSchedule.length },
-            { label: 'sumOfPendingMonths ≈ remainingBalance', expected: summary.remainingBalance, actual: Math.round(sumPendingMonths * 100) / 100, pass: Math.abs(sumPendingMonths - summary.remainingBalance) < 500 },
+            { label: 'sumOfPendingMonths ≈ remainingBalance', expected: summary.remainingBalance, actual: Math.round(adjustedPendingMonths * 100) / 100, pass: Math.abs(adjustedPendingMonths - summary.remainingBalance) < 500 },
             { label: 'DP + sumBases + activePenalties + services = totalLAAmount', expected: summary.totalLAAmount, actual: baseIntegrity, pass: baseIntegrityPass },
             { label: 'downPayment recorded and marked paid', expected: dpExpected, actual: dpActual8, pass: dpCheck8Pass },
             { label: 'nextPaymentDate uses due_date not payment date', expected: check9Exp, actual: check9Act, pass: !firstPendingItem9 || check9Exp === check9Act },
