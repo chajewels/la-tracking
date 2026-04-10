@@ -6,15 +6,20 @@ const corsHeaders = {
 };
 
 /**
- * Fix account totals AND schedule allocations using SINGLE SOURCE OF TRUTH:
- * 1. remaining_balance = total_amount - SUM(actual non-voided payments)
- * 2. total_paid = SUM(actual non-voided payments)
+ * Fix account totals AND schedule allocations using CANONICAL FORMULA (CLAUDE.md):
+ * 1. total_paid = SUM(payments.amount_paid WHERE voided_at IS NULL)
+ * 2. remaining_balance = total_amount + Σ(non-waived penalty_fees) + Σ(services) - total_paid
  * 3. Creates missing allocation records for unallocated payments (e.g. bulk imports)
  * 4. Schedule paid_amount = SUM(non-voided allocations per schedule row)
- * 5. Schedule status = derived from paid_amount vs base_installment_amount
- * 
- * Never derives from schedule rows to avoid rounding/gap discrepancies.
+ * 5. Schedule status = derived from paid_amount vs base + penalty
+ *
+ * Guards:
+ *  - INVARIANT 6: never decrease total_paid (would violate void-payment-only rule)
+ *  - Skips special terminal statuses (forfeited, cancelled)
+ *  - Preserves forfeited/cancelled status
+ *
  * Supports ?offset=N&limit=N for chunked execution.
+ * Supports ?preview_only=true for dry-run mode (no DB writes).
  */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -23,6 +28,7 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const offset = parseInt(url.searchParams.get("offset") || "0");
     const limit = parseInt(url.searchParams.get("limit") || "200");
+    const previewOnly = url.searchParams.get("preview_only") === "true";
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -32,12 +38,12 @@ Deno.serve(async (req) => {
     const { data: accounts } = await supabase
       .from("layaway_accounts")
       .select("id, invoice_number, total_amount, remaining_balance, total_paid, downpayment_amount, status")
-      .in("status", ["active", "overdue"])
+      .in("status", ["active", "overdue", "final_settlement", "extension_active", "reactivated"])
       .order("invoice_number")
       .range(offset, offset + limit - 1);
 
     if (!accounts || accounts.length === 0) {
-      return new Response(JSON.stringify({ message: "No more accounts", accounts_fixed: 0, schedule_rows_fixed: 0, allocations_created: 0, fixes: [], offset, done: true }), {
+      return new Response(JSON.stringify({ message: "No more accounts", accounts_fixed: 0, schedule_rows_fixed: 0, allocations_created: 0, fixes: [], offset, done: true, preview_only: previewOnly }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -151,14 +157,18 @@ Deno.serve(async (req) => {
 
             if (needed > 0) {
               const toAllocate = Math.min(remaining, needed);
-              const { error: insertErr } = await supabase
-                .from("payment_allocations")
-                .insert({
-                  payment_id: payment.id,
-                  schedule_id: sched.id,
-                  allocated_amount: toAllocate,
-                  allocation_type: "installment",
-                });
+              let insertErr: any = null;
+              if (!previewOnly) {
+                const result = await supabase
+                  .from("payment_allocations")
+                  .insert({
+                    payment_id: payment.id,
+                    schedule_id: sched.id,
+                    allocated_amount: toAllocate,
+                    allocation_type: "installment",
+                  });
+                insertErr = result.error;
+              }
 
               if (!insertErr) {
                 allocationsCreated++;
@@ -173,17 +183,35 @@ Deno.serve(async (req) => {
         }
       }
 
-      // ACCOUNT TOTALS: total_paid = SUM(actual non-voided payments)
+      // ACCOUNT TOTALS: total_paid = SUM(actual non-voided payments) — INVARIANT 1
       const correctTotalPaid = payments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
 
-      // PRINCIPAL-ONLY remaining: exclude penalty payments from remaining balance calculation
-      const { data: paidPenalties } = await supabase
+      // INVARIANT 6 guard: never decrease total_paid (that's void-payment only)
+      if (correctTotalPaid < Number(acct.total_paid) - 0.01) {
+        console.warn(`[fix-account-totals] GUARD: would decrease total_paid for ${acct.invoice_number} from ${acct.total_paid} to ${correctTotalPaid} — skipped`);
+        continue;
+      }
+
+      // CANONICAL remaining_balance formula (CLAUDE.md):
+      // remaining = total_amount + Σ(non-waived penalty_fees) + Σ(services) - total_paid
+      const { data: activePenaltiesData } = await supabase
         .from("penalty_fees")
         .select("penalty_amount")
         .eq("account_id", acct.id)
-        .eq("status", "paid");
-      const penaltyPaidSum = (paidPenalties || []).reduce((s: number, f: any) => s + Number(f.penalty_amount), 0);
-      const correctRemaining = Math.max(0, Number(acct.total_amount) - (correctTotalPaid - penaltyPaidSum));
+        .neq("status", "waived");
+      const activePenaltySum = (activePenaltiesData || [])
+        .reduce((s: number, f: any) => s + Number(f.penalty_amount), 0);
+
+      const { data: servicesData } = await supabase
+        .from("account_services")
+        .select("amount")
+        .eq("account_id", acct.id);
+      const serviceSum = (servicesData || [])
+        .reduce((s: number, sv: any) => s + Number(sv.amount), 0);
+
+      const correctRemaining = Math.max(0, Math.round((
+        Number(acct.total_amount) + activePenaltySum + serviceSum - correctTotalPaid
+      ) * 100) / 100);
 
       const accountNeedsUpdate =
         Math.abs(Number(acct.total_paid) - correctTotalPaid) > 0.01 ||
@@ -193,16 +221,18 @@ Deno.serve(async (req) => {
       for (const sched of schedule) {
         const allocations = allocBySchedule[sched.id] || [];
         const correctPaidAmount = allocations.reduce((s: number, a: any) => s + Number(a.allocated_amount), 0);
-        const base = Number(sched.base_installment_amount);
+        const totalDue = Number(sched.base_installment_amount) + Number(sched.penalty_amount || 0);
 
         let correctStatus = sched.status;
-        if (correctPaidAmount >= base && base > 0) {
+        if (correctPaidAmount >= totalDue && totalDue > 0) {
           correctStatus = "paid";
-        } else if (correctPaidAmount > 0 && correctPaidAmount < base) {
+        } else if (correctPaidAmount >= Number(sched.base_installment_amount) && correctPaidAmount > 0) {
+          correctStatus = "partially_paid";
+        } else if (correctPaidAmount > 0) {
           correctStatus = "partially_paid";
         } else if (sched.due_date < today && correctPaidAmount === 0) {
           correctStatus = "overdue";
-        } else if (correctPaidAmount === 0) {
+        } else {
           correctStatus = "pending";
         }
 
@@ -211,10 +241,12 @@ Deno.serve(async (req) => {
           sched.status !== correctStatus;
 
         if (schedNeedsUpdate) {
-          await supabase.from("layaway_schedule").update({
-            paid_amount: correctPaidAmount,
-            status: correctStatus,
-          }).eq("id", sched.id);
+          if (!previewOnly) {
+            await supabase.from("layaway_schedule").update({
+              paid_amount: correctPaidAmount,
+              status: correctStatus,
+            }).eq("id", sched.id);
+          }
           scheduleRowsFixed++;
         }
       }
@@ -225,13 +257,39 @@ Deno.serve(async (req) => {
           const paidAmt = allocs.reduce((s: number, a: any) => s + Number(a.allocated_amount), 0);
           return r.due_date < today && paidAmt < Number(r.base_installment_amount);
         });
-        
-        await supabase.from("layaway_accounts").update({
-          remaining_balance: correctRemaining,
-          total_paid: correctTotalPaid,
-          status: hasOverdue ? "overdue" : acct.status,
-          updated_at: new Date().toISOString(),
-        }).eq("id", acct.id);
+
+        // Compute new status with completion detection
+        let newStatus = acct.status;
+        if (correctRemaining <= 0 && !["forfeited", "final_forfeited", "cancelled"].includes(acct.status)) {
+          newStatus = "completed";
+        } else if (hasOverdue) {
+          newStatus = "overdue";
+        }
+
+        if (!previewOnly) {
+          await supabase.from("layaway_accounts").update({
+            remaining_balance: correctRemaining,
+            total_paid: correctTotalPaid,
+            status: newStatus,
+            updated_at: new Date().toISOString(),
+          }).eq("id", acct.id);
+
+          // Audit log
+          await supabase.from("audit_logs").insert({
+            entity_type: "layaway_account",
+            entity_id: acct.id,
+            action: "fix_account_totals",
+            new_value_json: {
+              invoice_number: acct.invoice_number,
+              old_remaining: Number(acct.remaining_balance),
+              new_remaining: correctRemaining,
+              old_total_paid: Number(acct.total_paid),
+              new_total_paid: correctTotalPaid,
+              old_status: acct.status,
+              new_status: newStatus,
+            },
+          });
+        }
 
         fixes.push({
           invoice: acct.invoice_number,
@@ -239,12 +297,17 @@ Deno.serve(async (req) => {
           new_remaining: correctRemaining,
           old_total_paid: Number(acct.total_paid),
           new_total_paid: correctTotalPaid,
+          old_status: acct.status,
+          new_status: newStatus,
         });
       }
     }
 
     return new Response(JSON.stringify({
-      message: "Account totals and schedule allocations corrected",
+      message: previewOnly
+        ? "Dry-run complete — no changes written"
+        : "Account totals and schedule allocations corrected",
+      preview_only: previewOnly,
       accounts_processed: accounts.length,
       accounts_fixed: fixes.length,
       schedule_rows_fixed: scheduleRowsFixed,
