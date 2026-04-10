@@ -231,11 +231,13 @@ Deno.serve(async (req) => {
 
       // Check if grace period is already consumed — account has penalties on OTHER schedule rows
       // (from prior overdue months). Grace is given ONCE per account, not per month.
+      // Waived penalties don't count — treated as if they never existed.
       const { data: priorPenalties } = await supabase
         .from("penalty_fees")
         .select("schedule_id")
         .eq("account_id", accountId)
         .neq("schedule_id", item.id)
+        .neq("status", "waived")
         .limit(1);
       const graceConsumed = priorPenalties && priorPenalties.length > 0;
       const week1Offset = graceConsumed ? 0 : 7;
