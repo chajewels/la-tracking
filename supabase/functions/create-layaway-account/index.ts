@@ -128,6 +128,8 @@ Deno.serve(async (req) => {
     if (useCustom) {
       const customSum = custom_installments.reduce((s: number, v: number) => s + Math.round(Number(v)), 0);
       if (customSum !== baseForInstallments) {
+        // Rollback: delete the account row to prevent orphaned accounts
+        await supabase.from("layaway_accounts").delete().eq("id", account.id);
         return new Response(JSON.stringify({
           error: `Custom installments total (${customSum}) does not match remaining balance (${baseForInstallments})`
         }), {
@@ -173,7 +175,9 @@ Deno.serve(async (req) => {
       .insert(scheduleRows);
 
     if (scheduleError) {
-      return new Response(JSON.stringify({ error: scheduleError.message }), {
+      // Rollback: delete the account row to prevent orphaned accounts
+      await supabase.from("layaway_accounts").delete().eq("id", account.id);
+      return new Response(JSON.stringify({ error: "Failed to create schedule: " + scheduleError.message }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
