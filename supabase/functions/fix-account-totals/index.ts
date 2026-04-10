@@ -91,6 +91,29 @@ Deno.serve(async (req) => {
       if (allocs) allAllocations = allAllocations.concat(allocs);
     }
 
+    // Batch fetch all non-waived penalties (avoids N+1 queries inside the loop)
+    let allPenalties: any[] = [];
+    for (let i = 0; i < accountIds.length; i += 50) {
+      const chunk = accountIds.slice(i, i + 50);
+      const { data: pens } = await supabase
+        .from("penalty_fees")
+        .select("account_id, penalty_amount, status")
+        .in("account_id", chunk)
+        .neq("status", "waived");
+      if (pens) allPenalties = allPenalties.concat(pens);
+    }
+
+    // Batch fetch all account_services (avoids N+1 queries inside the loop)
+    let allServices: any[] = [];
+    for (let i = 0; i < accountIds.length; i += 50) {
+      const chunk = accountIds.slice(i, i + 50);
+      const { data: svcs } = await supabase
+        .from("account_services")
+        .select("account_id, amount")
+        .in("account_id", chunk);
+      if (svcs) allServices = allServices.concat(svcs);
+    }
+
     // Build valid payment ID set (non-voided)
     const validPaymentIds = new Set(allPayments.map((p: any) => p.id));
 
@@ -111,6 +134,16 @@ Deno.serve(async (req) => {
         (allocBySchedule[a.schedule_id] ||= []).push(a);
         (allocByPayment[a.payment_id] ||= []).push(a);
       }
+    }
+    // Index active penalty sums by account_id
+    const pensByAcct: Record<string, number> = {};
+    for (const p of allPenalties) {
+      pensByAcct[p.account_id] = (pensByAcct[p.account_id] || 0) + Number(p.penalty_amount);
+    }
+    // Index service sums by account_id
+    const svcsByAcct: Record<string, number> = {};
+    for (const sv of allServices) {
+      svcsByAcct[sv.account_id] = (svcsByAcct[sv.account_id] || 0) + Number(sv.amount);
     }
 
     const fixes: any[] = [];
@@ -194,20 +227,8 @@ Deno.serve(async (req) => {
 
       // CANONICAL remaining_balance formula (CLAUDE.md):
       // remaining = total_amount + Σ(non-waived penalty_fees) + Σ(services) - total_paid
-      const { data: activePenaltiesData } = await supabase
-        .from("penalty_fees")
-        .select("penalty_amount")
-        .eq("account_id", acct.id)
-        .neq("status", "waived");
-      const activePenaltySum = (activePenaltiesData || [])
-        .reduce((s: number, f: any) => s + Number(f.penalty_amount), 0);
-
-      const { data: servicesData } = await supabase
-        .from("account_services")
-        .select("amount")
-        .eq("account_id", acct.id);
-      const serviceSum = (servicesData || [])
-        .reduce((s: number, sv: any) => s + Number(sv.amount), 0);
+      const activePenaltySum = pensByAcct[acct.id] || 0;
+      const serviceSum = svcsByAcct[acct.id] || 0;
 
       const correctRemaining = Math.max(0, Math.round((
         Number(acct.total_amount) + activePenaltySum + serviceSum - correctTotalPaid
