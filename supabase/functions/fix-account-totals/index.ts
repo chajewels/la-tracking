@@ -243,15 +243,15 @@ Deno.serve(async (req) => {
         const allocations = allocBySchedule[sched.id] || [];
         const correctPaidAmount = allocations.reduce((s: number, a: any) => s + Number(a.allocated_amount), 0);
         const totalDue = Number(sched.base_installment_amount) + Number(sched.penalty_amount || 0);
+        const basePaid = correctPaidAmount >= Number(sched.base_installment_amount) - 0.005;
+        const fullyPaid = correctPaidAmount >= totalDue - 0.005;
 
-        let correctStatus = sched.status;
-        if (correctPaidAmount >= totalDue && totalDue > 0) {
+        let correctStatus: string;
+        if (fullyPaid) {
           correctStatus = "paid";
-        } else if (correctPaidAmount >= Number(sched.base_installment_amount) && correctPaidAmount > 0) {
+        } else if (correctPaidAmount > 0 || basePaid) {
           correctStatus = "partially_paid";
-        } else if (correctPaidAmount > 0) {
-          correctStatus = "partially_paid";
-        } else if (sched.due_date < today && correctPaidAmount === 0) {
+        } else if (sched.due_date < today) {
           correctStatus = "overdue";
         } else {
           correctStatus = "pending";
