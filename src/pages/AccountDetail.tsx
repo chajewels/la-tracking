@@ -315,7 +315,7 @@ export default function AccountDetail() {
     setAcceptCarryError('');
     try {
       const { data, error } = await supabase.functions.invoke('carry-over', {
-        body: { schedule_row_id: acceptCarryTarget.rowId, account_id: account.id },
+        body: { schedule_row_id: acceptCarryTarget.rowId, account_id: account.id, reason: acceptCarryReason },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
@@ -2023,68 +2023,90 @@ export default function AccountDetail() {
 
         {/* Delete Schedule Item Confirmation */}
         {/* Accept & Carry Over confirmation */}
-        <AlertDialog open={!!acceptCarryTarget} onOpenChange={(open) => { if (!open) { setAcceptCarryTarget(null); setAcceptCarryReason(''); setAcceptCarryError(''); } }}>
-          <AlertDialogContent className="bg-card border-border">
-            <AlertDialogHeader>
-              <AlertDialogTitle className="text-card-foreground">Accept Partial Payment</AlertDialogTitle>
-              <AlertDialogDescription asChild>
-                <div className="space-y-2 text-sm text-muted-foreground">
-                  <p>Accept {formatCurrency(acceptCarryTarget?.paidAmount ?? 0, currency)} as full payment for Month {acceptCarryTarget?.installmentNumber} ({acceptCarryTarget?.dueDateFormatted})?</p>
-                  <p>{formatCurrency(acceptCarryTarget?.shortfall ?? 0, currency)} will be carried to {acceptCarryTarget?.nextDueDateFormatted}.</p>
-                  <p className="font-medium text-card-foreground">Next installment new total: {formatCurrency(acceptCarryTarget?.nextTotal ?? 0, currency)}</p>
+        {!!acceptCarryTarget && (
+          <>
+            <div
+              className="fixed inset-0 bg-black/60"
+              style={{ zIndex: 9998, pointerEvents: 'auto' }}
+              onClick={() => { setAcceptCarryTarget(null); setAcceptCarryReason(''); setAcceptCarryError(''); }}
+            />
+            <div
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md border border-border rounded-xl p-6 shadow-xl"
+              style={{ zIndex: 9999, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', color: 'var(--foreground)' }}
+            >
+              <h2 className="text-lg font-semibold mb-1">Accept Partial Payment</h2>
+              <div className="space-y-2 text-sm text-muted-foreground mb-4">
+                <p>Accept {formatCurrency(acceptCarryTarget?.paidAmount ?? 0, currency)} as full payment for Month {acceptCarryTarget?.installmentNumber} ({acceptCarryTarget?.dueDateFormatted})?</p>
+                <p>{formatCurrency(acceptCarryTarget?.shortfall ?? 0, currency)} will be carried to {acceptCarryTarget?.nextDueDateFormatted}.</p>
+                <p className="font-medium text-foreground">Next installment new total: {formatCurrency(acceptCarryTarget?.nextTotal ?? 0, currency)}</p>
+              </div>
+              <div className="space-y-2 mb-4">
+                <label className="text-sm font-medium">Reason (required)</label>
+                <Input
+                  value={acceptCarryReason}
+                  onChange={(e) => setAcceptCarryReason(e.target.value)}
+                  placeholder="e.g. Customer request, payment arrangement"
+                  className="bg-background"
+                />
+              </div>
+              {acceptCarryError && (
+                <div className="rounded-md bg-destructive/10 border border-destructive/20 p-2 text-xs text-destructive mb-4">
+                  {acceptCarryError}
                 </div>
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-card-foreground">Reason (required)</label>
-              <Input
-                value={acceptCarryReason}
-                onChange={(e) => setAcceptCarryReason(e.target.value)}
-                placeholder="e.g. Customer request, payment arrangement"
-                className="bg-background"
-              />
+              )}
+              <div className="flex justify-end gap-3">
+                <button
+                  className="px-4 py-2 rounded-lg border border-border text-sm"
+                  onClick={() => { setAcceptCarryTarget(null); setAcceptCarryReason(''); setAcceptCarryError(''); }}>
+                  Cancel
+                </button>
+                <button
+                  className="px-4 py-2 rounded-lg bg-amber-500 text-white text-sm hover:bg-amber-600 disabled:opacity-50"
+                  disabled={acceptCarryLoading || !acceptCarryReason.trim()}
+                  onClick={handleAcceptCarryConfirm}>
+                  {acceptCarryLoading ? 'Processing…' : 'Confirm'}
+                </button>
+              </div>
             </div>
-            {acceptCarryError && (
-              <div className="rounded-md bg-destructive/10 border border-destructive/20 p-2 text-xs text-destructive">
-                {acceptCarryError}
-              </div>
-            )}
-            <AlertDialogFooter>
-              <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-amber-500 text-white hover:bg-amber-600"
-                disabled={acceptCarryLoading || !acceptCarryReason.trim()}
-                onClick={handleAcceptCarryConfirm}>
-                {acceptCarryLoading ? 'Processing…' : 'Confirm'}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+          </>
+        )}
 
-        <AlertDialog open={!!deleteScheduleTarget} onOpenChange={(open) => { if (!open) { setDeleteScheduleTarget(null); setDeleteScheduleError(''); } }}>
-          <AlertDialogContent className="bg-card border-border">
-            <AlertDialogHeader>
-              <AlertDialogTitle className="text-card-foreground">Delete Installment?</AlertDialogTitle>
-              <AlertDialogDescription>
+        {!!deleteScheduleTarget && (
+          <>
+            <div
+              className="fixed inset-0 bg-black/60"
+              style={{ zIndex: 9998, pointerEvents: 'auto' }}
+              onClick={() => { setDeleteScheduleTarget(null); setDeleteScheduleError(''); }}
+            />
+            <div
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md border border-border rounded-xl p-6 shadow-xl"
+              style={{ zIndex: 9999, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', color: 'var(--foreground)' }}
+            >
+              <h2 className="text-lg font-semibold mb-2">Delete Installment?</h2>
+              <p className="text-sm text-muted-foreground mb-4">
                 This will remove Installment #{deleteScheduleTarget?.installment_number} ({formatCurrency(deleteScheduleTarget?.amount || 0, currency)}) and deduct its amount from the total layaway amount and remaining balance. This cannot be undone.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            {deleteScheduleError && (
-              <div className="p-2.5 rounded-md bg-destructive/10 border border-destructive/20 text-xs text-destructive">
-                {deleteScheduleError}
+              </p>
+              {deleteScheduleError && (
+                <div className="p-2.5 rounded-md bg-destructive/10 border border-destructive/20 text-xs text-destructive mb-4">
+                  {deleteScheduleError}
+                </div>
+              )}
+              <div className="flex justify-end gap-3">
+                <button
+                  className="px-4 py-2 rounded-lg border border-border text-sm"
+                  onClick={() => { setDeleteScheduleTarget(null); setDeleteScheduleError(''); }}>
+                  Cancel
+                </button>
+                <button
+                  className="px-4 py-2 rounded-lg bg-destructive text-destructive-foreground text-sm hover:bg-destructive/90 disabled:opacity-50"
+                  disabled={deleteScheduleLoading}
+                  onClick={() => handleDeleteInstallment()}>
+                  {deleteScheduleLoading ? 'Deleting…' : 'Delete Installment'}
+                </button>
               </div>
-            )}
-            <AlertDialogFooter>
-              <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                disabled={deleteScheduleLoading}
-                onClick={(e) => { e.preventDefault(); handleDeleteInstallment(); }}>
-                {deleteScheduleLoading ? 'Deleting…' : 'Delete Installment'}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+            </div>
+          </>
+        )}
       </div>
     </AppLayout>
   );
