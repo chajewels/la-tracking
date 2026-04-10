@@ -209,7 +209,7 @@ export default function SystemAudit() {
       const { data: accounts, error: accErr } = await supabase
         .from('layaway_accounts')
         .select('*, customers(full_name)')
-        .in('status', ['active', 'overdue'])
+        .in('status', ['active', 'overdue', 'final_settlement', 'extension_active'])
         .order('invoice_number');
       if (accErr) throw accErr;
       if (!accounts?.length) { setResults([]); return; }
