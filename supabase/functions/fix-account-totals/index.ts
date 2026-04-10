@@ -29,16 +29,26 @@ Deno.serve(async (req) => {
     const offset = parseInt(url.searchParams.get("offset") || "0");
     const limit = parseInt(url.searchParams.get("limit") || "200");
     const previewOnly = url.searchParams.get("preview_only") === "true";
+    const invoiceNumbersParam = url.searchParams.get("invoice_numbers");
+    const invoiceNumbersFilter = invoiceNumbersParam
+      ? invoiceNumbersParam.split(",").map((s) => s.trim()).filter(Boolean)
+      : null;
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    const { data: accounts } = await supabase
+    let query = supabase
       .from("layaway_accounts")
       .select("id, invoice_number, total_amount, remaining_balance, total_paid, downpayment_amount, status")
-      .in("status", ["active", "overdue", "final_settlement", "extension_active", "reactivated"])
+      .in("status", ["active", "overdue", "final_settlement", "extension_active", "reactivated"]);
+
+    if (invoiceNumbersFilter && invoiceNumbersFilter.length > 0) {
+      query = query.in("invoice_number", invoiceNumbersFilter);
+    }
+
+    const { data: accounts } = await query
       .order("invoice_number")
       .range(offset, offset + limit - 1);
 
