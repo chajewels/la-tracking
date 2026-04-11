@@ -99,18 +99,16 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
       const userId = user?.id;
 
       // 1. Update account fields if changed
+      // total_amount is IMMUTABLE per CLAUDE.md INVARIANT 7 — only add/delete-installment may change it
       const accountUpdates: Record<string, unknown> = {};
-      const newTotal = parseFloat(totalAmount);
-      if (!isNaN(newTotal) && newTotal !== account.total_amount) {
-        accountUpdates.total_amount = Math.round(newTotal * 100) / 100;
-        accountUpdates.remaining_balance = Math.max(0, Math.round((newTotal - Number(account.total_amount) + Number(account.total_amount)) * 100) / 100);
-      }
       if (orderDate && orderDate !== account.order_date) accountUpdates.order_date = orderDate;
       if (notes !== (account.notes || '')) accountUpdates.notes = notes || null;
       const newDp = parseFloat(downpayment);
       if (!isNaN(newDp) && newDp !== account.downpayment_amount) {
         accountUpdates.downpayment_amount = Math.round(newDp * 100) / 100;
       }
+      // FIX 3 — belt-and-suspenders guard: never write total_amount from this dialog
+      delete (accountUpdates as any).total_amount;
 
       if (Object.keys(accountUpdates).length > 0) {
         const { error } = await supabase
@@ -271,10 +269,14 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
                   type="number"
                   step="0.01"
                   value={totalAmount}
-                  onChange={(e) => setTotalAmount(e.target.value)}
-                  className="h-9 text-sm bg-background tabular-nums"
-                  disabled={isDisabledStatus}
+                  readOnly
+                  disabled
+                  className="h-9 text-sm bg-muted tabular-nums cursor-not-allowed"
+                  title="total_amount is immutable — use Add/Delete Installment to change it"
                 />
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Read-only. Use Add/Delete Installment to change total amount.
+                </p>
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">30% Downpayment ({currency})</Label>
