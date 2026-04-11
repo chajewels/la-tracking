@@ -962,22 +962,33 @@ export default function PaymentSubmissions() {
                   const modal = overpaymentModal;
                   setOverpaymentModal(null);
                   if (modal && modal.sourceRowId) {
-                    // Find the existing Month 1 allocation — get by schedule_id only
-                    const { data: allMonth1Allocs } = await supabase
+                    // Find the existing allocation for THIS payment on the source row
+                    // (filter by payment_id so we don't accidentally update a prior payment's allocation)
+                    const allocQuery = supabase
                       .from('payment_allocations')
                       .select('id, allocated_amount')
                       .eq('schedule_id', modal.sourceRowId);
+                    const { data: allMonth1Allocs } = modal.paymentId
+                      ? await allocQuery.eq('payment_id', modal.paymentId)
+                      : await allocQuery;
 
                     // Pick the allocation with the largest amount (the base installment)
                     const existingAlloc = (allMonth1Allocs || [])
                       .sort((a, b) => Number(b.allocated_amount) - Number(a.allocated_amount))[0];
 
                     if (existingAlloc) {
-                      // Update Month 1 allocation to full submitted amount via RPC bypass
-                      await supabase.rpc('admin_keep_allocation_override', {
+                      // Update source row allocation to full submitted amount via RPC bypass
+                      const { error: rpcError } = await supabase.rpc('admin_keep_allocation_override', {
                         p_allocation_id: existingAlloc.id,
                         p_amount: modal.paidAmount,
                       });
+                      if (rpcError) {
+                        toast.error('Keep decision failed: ' + rpcError.message);
+                        return;
+                      }
+                    } else {
+                      toast.error('Keep decision failed: no existing allocation found for this payment on the source row.');
+                      return;
                     }
                     // Remove any spillover allocations to subsequent months from this payment
                     if (modal.paymentId) {
