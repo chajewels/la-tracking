@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { formatCurrency } from '@/lib/calculations';
+import { useAuth } from '@/contexts/AuthContext';
 import type { Currency } from '@/lib/types';
 
 interface ScheduleItem {
@@ -42,6 +43,8 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const queryClient = useQueryClient();
+  const { roles } = useAuth();
+  const isAdmin = (roles as any[]).includes('admin');
   const currency = account.currency as Currency;
 
   // Account fields
@@ -99,16 +102,49 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
       const userId = user?.id;
 
       // 1. Update account fields if changed
-      // total_amount is IMMUTABLE per CLAUDE.md INVARIANT 7 — only add/delete-installment may change it
+      // total_amount is normally immutable per CLAUDE.md INVARIANT 7, but admins
+      // may correct it here. For non-admins, the input is read-only and the
+      // guard below strips total_amount from any write attempt.
       const accountUpdates: Record<string, unknown> = {};
+      const newTotal = parseFloat(totalAmount);
+      if (isAdmin && !isNaN(newTotal) && newTotal !== account.total_amount) {
+        const roundedTotal = Math.round(newTotal * 100) / 100;
+        accountUpdates.total_amount = roundedTotal;
+
+        // Recompute remaining_balance using canonical formula:
+        // remaining = total_amount + Σ(non-waived penalties) + Σ(services) - total_paid
+        const [{ data: activePens }, { data: svcs }, { data: pays }] = await Promise.all([
+          supabase
+            .from('penalty_fees')
+            .select('penalty_amount')
+            .eq('account_id', account.id)
+            .neq('status', 'waived'),
+          (supabase as any)
+            .from('account_services')
+            .select('amount')
+            .eq('account_id', account.id),
+          supabase
+            .from('payments')
+            .select('amount_paid')
+            .eq('account_id', account.id)
+            .is('voided_at', null),
+        ]);
+        const activePenaltySum = (activePens || []).reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
+        const serviceSum = (svcs || []).reduce((s: number, sv: any) => s + Number(sv.amount), 0);
+        const totalPaid = (pays || []).reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+        accountUpdates.remaining_balance = Math.max(
+          0,
+          Math.round((roundedTotal + activePenaltySum + serviceSum - totalPaid) * 100) / 100
+        );
+      }
       if (orderDate && orderDate !== account.order_date) accountUpdates.order_date = orderDate;
       if (notes !== (account.notes || '')) accountUpdates.notes = notes || null;
       const newDp = parseFloat(downpayment);
       if (!isNaN(newDp) && newDp !== account.downpayment_amount) {
         accountUpdates.downpayment_amount = Math.round(newDp * 100) / 100;
       }
-      // FIX 3 — belt-and-suspenders guard: never write total_amount from this dialog
-      delete (accountUpdates as any).total_amount;
+      // Defensive guard: non-admins can never write total_amount from this dialog
+      if (!isAdmin) delete (accountUpdates as any).total_amount;
 
       if (Object.keys(accountUpdates).length > 0) {
         const { error } = await supabase
@@ -269,14 +305,17 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
                   type="number"
                   step="0.01"
                   value={totalAmount}
-                  readOnly
-                  disabled
-                  className="h-9 text-sm bg-muted tabular-nums cursor-not-allowed"
-                  title="total_amount is immutable — use Add/Delete Installment to change it"
+                  onChange={(e) => setTotalAmount(e.target.value)}
+                  readOnly={!isAdmin}
+                  disabled={!isAdmin || isDisabledStatus}
+                  className={`h-9 text-sm tabular-nums ${isAdmin ? 'bg-background' : 'bg-muted cursor-not-allowed'}`}
+                  title={isAdmin ? undefined : 'Only admins can edit total_amount. Use Add/Delete Installment otherwise.'}
                 />
-                <p className="text-[10px] text-muted-foreground mt-1">
-                  Read-only. Use Add/Delete Installment to change total amount.
-                </p>
+                {!isAdmin && (
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Read-only. Use Add/Delete Installment to change total amount.
+                  </p>
+                )}
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">30% Downpayment ({currency})</Label>
