@@ -418,7 +418,7 @@ export default function AccountDetail() {
   const accountServices = ((services || []) as AccountService[]);
   const totalServicesAmount = accountServices.reduce((s, svc) => s + Number(svc.amount), 0);
   const unpaidPenalties = (penalties || []).filter(p => p.status === 'unpaid');
-  const waivablePenalties = (penalties || []).filter(p => p.status === 'unpaid' || p.status === 'paid');
+  const waivablePenalties = (penalties || []).filter(p => p.status === 'unpaid');
   const unpaidPenaltySum = unpaidPenalties.reduce((sum, penalty) => sum + Number(penalty.penalty_amount), 0);
   // Penalty-paid = sum of penalty_fees with status='paid' (principal/penalty separation)
   const paidPenaltySum = (penalties || []).filter(p => p.status === 'paid').reduce((sum, p) => sum + Number(p.penalty_amount), 0);
