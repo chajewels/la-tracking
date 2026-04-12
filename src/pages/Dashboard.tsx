@@ -46,14 +46,25 @@ export default function Dashboard() {
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditResults, setAuditResults] = useState<any[] | null>(null);
   const [auditFilter, setAuditFilter] = useState<'all' | 'failed'>('failed');
+  const [auditError, setAuditError] = useState<string | null>(null);
 
   const runSystemAudit = async () => {
     setAuditLoading(true);
+    setAuditError(null);
+    setAuditResults(null);
     try {
-      const { data, error } = await supabase.rpc('audit_all_accounts');
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 25000);
+      const { data, error } = await supabase.rpc('audit_all_accounts', {}, { signal: controller.signal } as any);
+      clearTimeout(timeout);
       if (error) throw error;
       setAuditResults(data || []);
     } catch (err: any) {
+      if (err.name === 'AbortError' || err.message?.includes('abort')) {
+        setAuditError('Audit timed out — too many accounts. Run per-account health checks individually instead.');
+      } else {
+        setAuditError(err.message || 'System audit failed. The audit_all_accounts RPC may not exist yet — create it in the Supabase SQL Editor.');
+      }
       console.error('System audit error:', err);
     } finally {
       setAuditLoading(false);
@@ -249,7 +260,7 @@ export default function Dashboard() {
             <div
               className="fixed inset-0"
               style={{ zIndex: 9998, pointerEvents: 'auto', backgroundColor: 'rgba(0,0,0,0.7)' }}
-              onClick={() => { setAuditOpen(false); setAuditResults(null); }}
+              onClick={() => { setAuditOpen(false); setAuditResults(null); setAuditError(null); }}
             />
             <div
               className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
@@ -259,7 +270,7 @@ export default function Dashboard() {
                 <h2 className="text-lg font-semibold">System Audit — All Accounts</h2>
                 <button
                   className="text-muted-foreground hover:text-foreground text-lg leading-none px-2"
-                  onClick={() => { setAuditOpen(false); setAuditResults(null); }}
+                  onClick={() => { setAuditOpen(false); setAuditResults(null); setAuditError(null); }}
                 >×</button>
               </div>
 
@@ -267,6 +278,12 @@ export default function Dashboard() {
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-5 w-5 animate-spin text-primary mr-2" />
                   <span className="text-sm text-muted-foreground">Auditing all accounts...</span>
+                </div>
+              )}
+
+              {!auditLoading && auditError && (
+                <div className="rounded-md p-3 bg-destructive/10 border border-destructive/20 text-sm text-destructive">
+                  {auditError}
                 </div>
               )}
 
@@ -345,7 +362,7 @@ export default function Dashboard() {
                 </button>
                 <button
                   className="px-4 py-2 rounded-lg text-sm border border-border"
-                  onClick={() => { setAuditOpen(false); setAuditResults(null); }}
+                  onClick={() => { setAuditOpen(false); setAuditResults(null); setAuditError(null); }}
                 >
                   Close
                 </button>
