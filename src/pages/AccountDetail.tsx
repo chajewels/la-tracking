@@ -163,7 +163,6 @@ export default function AccountDetail() {
   const [editingPaidAmount, setEditingPaidAmount] = useState('');
   const [editingPaidLoading, setEditingPaidLoading] = useState(false);
   const [editingPaidError, setEditingPaidError] = useState('');
-  const [showVerify, setShowVerify] = useState(false);
   const queryClient = useQueryClient();
   const { roles } = useAuth();
   const isAdmin = (roles as any[]).includes('admin');
@@ -1797,102 +1796,6 @@ export default function AccountDetail() {
           </div>
         </div>
 
-        {/* ═══ Verification Debug Panel ═══ */}
-        {(() => {
-          // sumOfPendingMonths: base + penalty for pending/overdue rows, remaining for partial rows
-          const sumPendingMonths = scheduleItems
-            .filter((i: any) => !isRowPaid(i as any) && getRowStatus(i as any) !== 'cancelled')
-            .reduce((sum: number, i: any) => {
-              if (isRowPartial(i as any)) {
-                return sum + getRowRemaining(i as any);
-              }
-              return sum + Number(i.base_installment_amount) + Number(i.penalty_amount || 0);
-            }, 0);
-          // Overpayment credit: paid rows where allocated > ceiling (e.g. Keep decision surplus)
-          const overpaymentCredit = scheduleItems
-            .filter((i: any) => isRowPaid(i as any))
-            .reduce((sum: number, i: any) => {
-              const allocated = Number(i.allocated || 0);
-              const ceiling = Number(i.base_installment_amount) +
-                              Number(i.penalty_amount || 0) +
-                              Number(i.carried_amount || 0);
-              return sum + Math.max(0, allocated - ceiling);
-            }, 0);
-          const adjustedPendingMonths = sumPendingMonths - overpaymentCredit;
-          const sumAllBases = scheduleItems.reduce((s, i) => s + Number(i.base_installment_amount), 0);
-          // Check both account models: DP separate (DP + installments + penalties = totalLAAmount) or DP-inclusive
-          const servicesTotalForVerify = (accountServices || []).reduce(
-            (s, svc) => s + Number(svc.amount), 0
-          );
-          const baseIntegrityA = Math.round((downpaymentAmount + sumAllBases + activePenaltyTotal + servicesTotalForVerify) * 100) / 100;
-          const baseIntegrityB = Math.round((sumAllBases + activePenaltyTotal) * 100) / 100;
-          const baseIntegrityPass = Math.abs(baseIntegrityA - summary.totalLAAmount) < 2 ||
-                                    Math.abs(baseIntegrityB - summary.totalLAAmount) < 2;
-          const baseIntegrity = Math.abs(baseIntegrityA - summary.totalLAAmount) <= Math.abs(baseIntegrityB - summary.totalLAAmount)
-            ? baseIntegrityA : baseIntegrityB;
-          // computedPaid reads directly from payments table — same source as totalPaid
-          const computedPaid = confirmedActivePayments.reduce(
-            (sum, p) => sum + Number(p.amount_paid), 0);
-          // Check 8 prep — DP must have a payment record identifiable as downpayment
-          const dpExpected = Math.abs(downpaymentAmount);
-          const dpPayment8 = (payments || []).find((p: any) => !p.voided_at && isDownpaymentPayment(p));
-          const dpActual8 = dpPayment8 ? Number(dpPayment8.amount_paid) : 0;
-          const dpCheck8Pass = dpExpected === 0 || (dpPayment8 != null && dpActual8 >= dpExpected - 1);
-          // Check 9 prep — next payment date must come from due_date, not today/created_at
-          // Use isEffectivelyPaid consistently (matches overdue unpaid months, not just 'pending')
-          const firstPendingItem9 = [...scheduleItems]
-            .filter((i: any) => !isRowPaid(i as any) && getRowStatus(i as any) !== 'cancelled')
-            .sort((a: any, b: any) => a.installment_number - b.installment_number)[0] as any;
-          const nextUnpaidState9 = [...summary.scheduleStates]
-            .sort((a, b) => a.installmentNumber - b.installmentNumber)
-            .find(s => !s.isPaid);
-          const check9Exp = firstPendingItem9?.due_date ?? '—';
-          const check9Act = nextUnpaidState9?.dueDate ?? '—';
-          const checks = [
-            { label: 'activePenalties (non-waived)', expected: summary.activePenalties, actual: activePenaltyTotal, pass: Math.abs(summary.activePenalties - activePenaltyTotal) < 0.01 },
-            { label: 'totalLAAmount (base + penalties + svc)', expected: summary.totalLAAmount, actual: principalTotal + activePenaltyTotal + totalServicesAmount, pass: Math.abs(summary.totalLAAmount - (principalTotal + activePenaltyTotal + totalServicesAmount)) < 0.01 },
-            { label: 'amountPaid (DP + paid months)', expected: totalPaid, actual: Math.round(computedPaid * 100) / 100, pass: Math.abs(totalPaid - computedPaid) < 1 },
-            { label: 'remainingBalance (stored vs computed)', expected: summary.remainingBalance, actual: Number(account.remaining_balance), pass: Math.abs(summary.remainingBalance - Number(account.remaining_balance)) < 2 },
-            { label: 'monthsRemaining', expected: summary.unpaidCount, actual: unpaidSchedule.length, pass: summary.unpaidCount === unpaidSchedule.length },
-            { label: 'sumOfPendingMonths ≈ remainingBalance', expected: summary.remainingBalance, actual: Math.round(adjustedPendingMonths * 100) / 100, pass: Math.abs(adjustedPendingMonths - summary.remainingBalance) < 500 },
-            { label: 'DP + sumBases + activePenalties + services = totalLAAmount', expected: summary.totalLAAmount, actual: baseIntegrity, pass: baseIntegrityPass },
-            { label: 'downPayment recorded and marked paid', expected: dpExpected, actual: dpActual8, pass: dpCheck8Pass },
-            { label: 'nextPaymentDate uses due_date not payment date', expected: check9Exp, actual: check9Act, pass: !firstPendingItem9 || check9Exp === check9Act },
-          ];
-          const allPass = checks.every(c => c.pass);
-          return (
-            <div className="mt-4">
-              <Button
-                variant="outline"
-                size="sm"
-                className={`text-xs ${allPass ? 'border-success/30 text-success' : 'border-destructive/30 text-destructive'}`}
-                onClick={() => setShowVerify(!showVerify)}
-              >
-                <ShieldCheck className="h-3.5 w-3.5 mr-1" />
-                {showVerify ? 'Hide' : 'Verify'} Calculations {allPass ? '✅' : '❌'}
-              </Button>
-              {(showVerify || isTestAccount) && (
-                <div className="mt-2 rounded-lg border border-border bg-muted/30 p-3 space-y-1.5">
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Calculation Audit</p>
-                  {checks.map((c, i) => (
-                    <div key={i} className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">{c.pass ? '✅' : '❌'} {c.label}</span>
-                      <span className={`tabular-nums font-mono ${c.pass ? 'text-success' : 'text-destructive'}`}>
-                        {typeof c.actual === 'number' ? fmtVal(c.actual) : c.actual}
-                        {!c.pass && ` (expected: ${typeof c.expected === 'number' ? fmtVal(c.expected) : c.expected})`}
-                      </span>
-                    </div>
-                  ))}
-                  <div className="pt-2 border-t border-border mt-2">
-                    <p className={`text-xs font-semibold ${allPass ? 'text-success' : 'text-destructive'}`}>
-                      {allPass ? '✅ All checks passed' : '❌ Some checks failed — investigate'}
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })()}
 
         {/* Restore Payment Dialog */}
         <RestorePaymentDialog

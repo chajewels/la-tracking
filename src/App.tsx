@@ -44,7 +44,6 @@ const Analytics = lazyWithRetry(() => import("./pages/Analytics"));
 const SettingsPage = lazyWithRetry(() => import("./pages/SettingsPage"));
 const Waivers = lazyWithRetry(() => import("./pages/Waivers"));
 const AdminAudit = lazyWithRetry(() => import("./pages/AdminAudit"));
-const SystemAudit = lazyWithRetry(() => import("./pages/SystemAudit"));
 const CustomerStatement = lazyWithRetry(() => import("./pages/CustomerStatement"));
 const PaymentSubmissions = lazyWithRetry(() => import("./pages/PaymentSubmissions"));
 const Reminders = lazyWithRetry(() => import("./pages/Reminders"));
@@ -102,7 +101,6 @@ const App = () => (
                 <Route path="/reminders" element={<Protected><Reminders /></Protected>} />
                 <Route path="/waivers" element={<Protected><Waivers /></Protected>} />
                 <Route path="/admin-audit" element={<Protected><AdminAudit /></Protected>} />
-                <Route path="/system-audit" element={<Protected><SystemAudit /></Protected>} />
                 <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
                 <Route path="/payment-submissions" element={<Protected><PaymentSubmissions /></Protected>} />
                 <Route path="/admin/payment-vault" element={<Protected><PaymentVault /></Protected>} />
