@@ -390,11 +390,11 @@ export default function AccountDetail() {
   // Override DB status: account is only truly overdue if an unpaid month has a past due_date
   const todayStr = new Date().toISOString().split('T')[0];
   const hasUnpaidPastDue = scheduleItems.some(
-    (item: any) => !isRowPaid(item) && item.due_date < todayStr
+    (item: any) => !isRowPaid(item) && item.due_date <= todayStr
   );
   // Grace period: first time overdue, no penalties yet, all overdue rows within 7 days
   const overdueRows = scheduleItems.filter(
-    (item: any) => !isRowPaid(item) && item.due_date < todayStr
+    (item: any) => !isRowPaid(item) && item.due_date <= todayStr
   );
   const hasPenalties = (penalties || []).some(
     (p: any) => p.status !== 'waived'
