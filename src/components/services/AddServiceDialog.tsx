@@ -56,7 +56,42 @@ export default function AddServiceDialog({ accountId, currency }: AddServiceDial
 
       if (error) throw error;
 
+      // Update total_amount and remaining_balance per CLAUDE.md:
+      // total_amount includes services; remaining = total_amount + penalties - payments
+      const { data: account } = await supabase
+        .from('layaway_accounts')
+        .select('total_amount, total_paid, downpayment_amount')
+        .eq('id', accountId)
+        .single();
+
+      if (account) {
+        const newTotalAmount = Number(account.total_amount) + amountNum;
+
+        const { data: penalties } = await supabase
+          .from('penalty_fees')
+          .select('penalty_amount')
+          .eq('account_id', accountId)
+          .neq('status', 'waived');
+
+        const activePenalties = (penalties || [])
+          .reduce((sum: number, p: any) => sum + Number(p.penalty_amount), 0);
+
+        const newRemainingBalance = Math.max(0,
+          Math.round((newTotalAmount + activePenalties - Number(account.total_paid)) * 100) / 100
+        );
+
+        await supabase
+          .from('layaway_accounts')
+          .update({
+            total_amount: newTotalAmount,
+            remaining_balance: newRemainingBalance,
+          })
+          .eq('id', accountId);
+      }
+
       toast.success('Service added successfully');
+      queryClient.invalidateQueries({ queryKey: ['account', accountId] });
+      queryClient.invalidateQueries({ queryKey: ['schedule', accountId] });
       queryClient.invalidateQueries({ queryKey: ['account-services', accountId] });
       queryClient.invalidateQueries({ queryKey: ['customer-detail'] });
       setOpen(false);
