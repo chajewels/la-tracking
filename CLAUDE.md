@@ -42,10 +42,11 @@ When checking whether a user can perform an action:
   Managed via Settings → Permission Matrix → By Member view
   RLS: admins only (has_role(auth.uid(), 'admin'))
 
-## total_amount INVARIANT — NON-NEGOTIABLE
+## total_amount DEFINITION — NON-NEGOTIABLE (updated 2026-04-12)
 
-  layaway_accounts.total_amount = BASE PRINCIPAL ONLY.
-  It is set once at account creation and NEVER changes afterward.
+  layaway_accounts.total_amount = TOTAL ACCOUNT OBLIGATION.
+  Includes: downpayment_amount + SUM(base_installment_amounts) + SUM(account_services)
+  Services are included in total_amount at the time of service creation.
 
   The following operations MUST NOT write to total_amount:
   - Adding a penalty (add-penalty, recalculate-penalties)
@@ -55,20 +56,25 @@ When checking whether a user can perform an action:
 
   The only legitimate writes to total_amount are:
   - create-layaway-account  (initial set)
-  - edit-account            (admin correction of base amount)
+  - edit-account            (admin correction — admin only, via EditAccountDialog)
   - add/delete installment  (AccountDetail.tsx schedule editor)
+  - add-service             (adds service amount to total_amount)
 
-  Penalty impact on totals is captured via:
-    remaining_balance = total_amount + Σ(non-waived penalty_fees) + Σ(services) - Σ(payments)
+  Canonical remaining_balance formula:
+    remaining_balance = total_amount + Σ(non-waived penalty_fees) - Σ(non-voided payments)
     total_paid        = Σ(payments.amount_paid WHERE voided_at IS NULL)
+
+  NOTE: Services are already in total_amount — do NOT add services separately
+  in the remaining_balance formula. Only penalties are added separately.
 
   Never compute total_paid from SUM(schedule.paid_amount) — schedule rows are
   derived data; payments table is the single source of truth.
 
-## CALCULATION STANDARD — NON-NEGOTIABLE
+## CALCULATION STANDARD — NON-NEGOTIABLE (updated 2026-04-12)
 
 ### Core Formula
-  totalLAAmount     = base_total_amount + activePenalties + services
+  totalLAAmount     = total_amount + activePenalties
+                      (services are already in total_amount — do NOT add separately)
   remainingBalance  = totalLAAmount - totalPaid
 
 ### Penalty Status Rules
@@ -364,24 +370,27 @@ All values come from computeLayaway() in business-rules.ts
   TEST-004 — Split payment testing (can record payments)
   TEST-005 — Split payment testing (can record payments)
 
-## Verification Rule
+## Verification Rule (updated 2026-04-12)
 
-After ANY change to calculation or display logic:
-  1. Open TEST-001 in the app → Verify Calculations → all 9 green ✅
-  2. Open TEST-002 in the app → Verify Calculations → all 9 green ✅
-  3. Open TEST-003 in the app → Verify Calculations → all 9 green ✅
-  4. If any check is red, the change broke something
+  Frontend verify panel and SystemAudit.tsx have been REMOVED.
+  All account health checks are now server-side via SQL RPCs:
 
-There are 9 verify checks (not 7 — count was updated):
-  1. activePenalties (non-waived)
-  2. totalLAAmount (base + penalties + svc)
-  3. amountPaid (DP + paid months)
-  4. remainingBalance (totalLA - paid)
-  5. monthsRemaining
-  6. sumOfPendingMonths ≈ remainingBalance
-  7. DP + sumBases = principalTotal
-  8. downPayment recorded and marked paid
-  9. nextPaymentDate uses due_date not payment date
+  audit_account(p_invoice_number text) — per-account real-time audit
+    Called by "Check Health" button in AccountDetail (admin + finance)
+    Returns JSONB with checks array, each with label/expected/stored/pass
+
+  audit_all_accounts() — system-wide audit
+    Called by "Run System Audit" button in Dashboard (admin only)
+    Returns table of invoice_number, all_pass, failed_checks
+
+  Both RPCs live in Supabase SQL Editor — NOT in edge functions.
+  They use the canonical formula directly in PostgreSQL — no JavaScript
+  rounding issues, no stale cached values, no view data dependencies.
+
+  After ANY change to calculation or payment logic:
+    1. Run "Check Health" on TEST-001, TEST-002, TEST-003 → all checks pass
+    2. Run "System Audit" from Dashboard → check for new failures
+    3. If any check fails, the change broke something
 
 ## Payment Recording Rules
 
@@ -422,6 +431,15 @@ When completing a partially_paid month:
   - Split payment session tracking is per-account only
   - DP must never appear in split payment session list
   - Grand Total must include DP + base + penalties + services
+  - carry-over shortfall used SUM(allocations) instead of source.paid_amount — fixed
+  - carry-over wrote stale carried_by_payment_id — fixed
+  - auto-forfeit-settlement wrote audit log before confirming status update — fixed
+  - auto-forfeit-settlement had no error checking on status UPDATE or schedule cancels — fixed
+  - penalty-engine used due_date < today (strict) missing same-day penalties — fixed to due_date <= today
+  - Penalties & Waivers section showed paid penalties — fixed to show unpaid only
+  - Overpayment modal Carry Over button confirmed working — waterfall already allocates surplus
+  - admin_keep_allocation_override RPC silently failed for some users — added error handling
+  - recalculate-penalties silently waived correct penalties — DISABLED (returns 410)
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
@@ -486,17 +504,19 @@ When completing a partially_paid month:
     Staff clicks the "Carry Over" button on a partially_paid row in AccountDetail.
     This calls the carry-over edge function (NOT accept-underpayment).
 
-  carry-over edge function:
+  carry-over edge function (updated 2026-04-12):
     Endpoint: /functions/v1/carry-over
     Body: { schedule_row_id, account_id }
     Auth: Bearer token + admin role required
     Steps:
       1. Validates source row status === 'partially_paid'
-      2. Computes shortfall from SUM(payment_allocations.allocated_amount)
-      3. Finds next row by installment_number + 1
-      4. Marks source row as 'paid'
-      5. Writes carried_amount = shortfall to next row
-      6. Reverts step 4 if step 5 fails
+      2. Validates source row paid_amount > 0
+      3. Computes shortfall from source.paid_amount (NOT SUM of allocations)
+         shortfall = ceiling (base + penalty + carried) - paid_amount
+      4. Finds next row by installment_number + 1
+      5. Marks source row as 'paid' with paid_amount preserved
+      6. Writes carried_amount = shortfall to next row, clears carried_by_payment_id
+      7. Reverts step 5 if step 6 fails
     Net effect: source row closes as paid, next row carries the shortfall
 
   accept-underpayment edge function:
@@ -517,6 +537,91 @@ When completing a partially_paid month:
     - Inflating total_due_amount on any row
     - Writing carried_amount from accept-underpayment
     - carried_amount written when source row is still partially_paid
+    - Running carry-over on a paid source row (must be partially_paid)
+    - Writing carried_amount without a valid carried_from_schedule_id
+    - Writing carried_amount when source row paid_amount = 0
+    - Adding services separately to remaining_balance (services are in total_amount)
+
+## PENALTY STANDARD — NON-NEGOTIABLE (added 2026-04-12)
+
+### PHP accounts:
+  - Week 1: ₱500 per event
+  - Week 2: ₱500 per event
+  - Non-final months (months 1 to n-1): cap ₱1,000 (2 events — Cycle 1 only)
+  - Final month only (installmentNumber === planMonths): cap ₱3,000 (6 events — Cycles 1+2+3)
+
+### JPY accounts:
+  - Week 1: ¥1,000 per event
+  - Week 2: ¥1,000 per event
+  - Non-final months (months 1 to n-1): cap ¥2,000 (2 events — Cycle 1 only)
+  - Final month only (installmentNumber === planMonths): cap ¥6,000 (6 events — Cycles 1+2+3)
+
+### Grace period rule:
+  - Given ONCE per account — first time account goes overdue only
+  - week1:1 triggers at due_date + 7 days (first overdue month only)
+  - All subsequent overdue months: week1:1 triggers at due_date + 0 (no grace)
+  - Waived penalties do NOT count as consuming the grace period
+  - Paid months do NOT count as consuming the grace period
+
+### Penalty trigger schedule (per overdue month):
+  Cycle 1: week1:1 → due_date + 7 (or +0 if grace consumed), week2:1 → due_date + 14
+  Cycle 2: week1:2 → due_date + 1 month, week2:2 → due_date + 1 month + 14 days
+  Cycle 3: week1:3 → due_date + 2 months, week2:3 → due_date + 2 months + 14 days
+  (Final month only gets Cycles 2 and 3 — non-final months cap at Cycle 1)
+
+### Penalty engine timing:
+  Cron: 00:05 UTC daily (= 8:05 AM PHT)
+  Due date filter: due_date <= today (includes the due date itself)
+  Penalties apply ON the due date at 8 AM PHT — the grace period is
+  the customer's consideration time, not the filter.
+
+### Freeze guard:
+  Accounts with pending payment submissions (status='submitted' or 'under_review')
+  are frozen — no new penalties until the submission is resolved.
+
+## FORFEITURE STANDARD — NON-NEGOTIABLE (added 2026-04-12)
+
+### Status flow:
+  OVERDUE → FORFEITED → EXTENSION_ACTIVE → FINAL_FORFEITED
+
+### PATH 1 — Final month penalty cap reached:
+  Condition: final month penalty total >= cap (₱3,000/¥6,000)
+             AND final month due_date <= today
+  Effect: account status → 'forfeited', unpaid schedule rows → 'cancelled'
+  No 90-day payment guard on this path.
+
+### PATH 2 — 3 calendar months overdue:
+  Condition: first unpaid due date is 3+ calendar months ago (day-level precision)
+             AND last non-voided payment > 90 days ago (safety guard)
+  Effect: account status → 'forfeited', unpaid schedule rows → 'cancelled'
+
+### PATH 3 — 6th penalty occurrence → final_settlement:
+  Condition: total penalty_fees rows (unpaid + paid) across all unpaid months >= 6
+             AND no existing final_settlement_records for this account
+  Effect: creates final_settlement_records, account status → 'final_settlement'
+
+### After forfeiture:
+  - Admin can grant ONE-TIME extension → status = 'extension_active'
+  - Extension has an end date (typically 1 month)
+  - extension_active + extension expires → 'final_forfeited' (PERMANENT)
+  - extension_active + extension month penalty cap reached → 'final_forfeited' (PERMANENT)
+  - FINAL_FORFEITED blocks all further negotiation/reactivation
+
+### Independence rule:
+  penalty-engine and auto-forfeit-settlement are INDEPENDENT
+  — neither calls the other. Penalty engine creates penalties;
+  auto-forfeit-settlement checks forfeiture conditions.
+
+## SERVICES RULE (added 2026-04-12)
+
+  account_services are included in total_amount at the time of service creation.
+  When a service is added:
+    total_amount = downpayment_amount + SUM(base_installment_amounts) + SUM(account_services)
+
+  remaining_balance = total_amount + Σ(non-waived penalties) - Σ(non-voided payments)
+  Services are NOT added separately in remaining_balance formula — they are in total_amount.
+
+  NEVER add services as a separate term alongside total_amount in the formula.
 
 ## DECIMAL RULES
 
@@ -554,35 +659,42 @@ When completing a partially_paid month:
   Check 20: carried amount on paid row — no unconsumed carry on paid rows
   Check 21: double carry — no account has carry on multiple rows
 
-## SYSTEM STATUS (as of 2026-03-29)
+## SYSTEM STATUS (as of 2026-04-12)
 
-  System Health: 20/20 ✅
-  Reconciliation: 803/803 ALL CLEAR ✅
-  Double-count bug (INV #18031, #17977): FIXED ✅
   accept-underpayment auto-carry: REMOVED ✅
   carry-over edge function: DEPLOYED ✅
   review-payment-submission auto-carry: REMOVED ✅
-  Underpayment decision modal: PENDING (not yet built)
+  recalculate-penalties: DISABLED (returns 410) — was silently waiving penalties ✅
+  Underpayment decision modal: BUILT ✅ (in PaymentSubmissions.tsx)
+  Overpayment/Keep decision modal: BUILT ✅ (in PaymentSubmissions.tsx)
+  penalty-engine due_date filter: FIXED to <= (includes due date) ✅
+  penalty-engine grace period: FIXED to once-per-account ✅
+  penalty-engine self-healing Step 5b: ADDED ✅
+  auto-forfeit-settlement error checking: ADDED ✅
+  auto-forfeit-settlement immediate audit logs: ADDED ✅
+  fix-account-totals: REWRITTEN with canonical formula + guards ✅
+  Account Health button: ADDED to AccountDetail ✅
+  System Audit button: ADDED to Dashboard ✅
+  SystemAudit.tsx page: REMOVED ✅
+  AccountDetail verify panel: REMOVED ✅
 
-## PENDING ITEMS (as of 2026-03-29)
+## PENDING ITEMS (as of 2026-04-12)
 
-  1. Underpayment decision modal in UI
-     - "Keep as Partial" → calls accept-underpayment (audit log only)
-     - "Accept & Carry Over" → calls carry-over edge function
-     - Appears after payment confirmed with shortfall > 0
-     - Admin cannot dismiss without choosing
+  1. record-payment remaining_balance formula uses principal-only — needs canonical fix
+  2. void-payment remaining_balance formula uses principal-only — needs canonical fix
+  3. edit-payment-amount remaining_balance formula uses principal-only — needs canonical fix
+  4. record-multi-payment remaining_balance formula uses wrong sources — needs canonical fix
+  5. restore-payment uses schedule cache instead of canonical formula — needs fix
+  6. daily-reconciliation has no cron job — needs pg_cron entry
+  7. Firebase signing page connection (Steps 13-17)
 
-  2. E3 — Total Penalties footer showing waived amounts
-  3. E4 — INV #17541 cosmetic row status fix
-  4. Firebase signing page connection (Steps 13-17)
-
-## AUTO-DEPLOY RULES (locked — updated 2026-03-30)
+## AUTO-DEPLOY RULES (updated 2026-04-12)
 
 GitHub Actions auto-deploys on every push to main:
 
 FRONTEND: Firebase Hosting — ALL pushes trigger rebuild and deploy
 
-SUPABASE EDGE FUNCTIONS — these 8 auto-deploy when their files change:
+SUPABASE EDGE FUNCTIONS — these auto-deploy when their files change:
 - reconcile-account
 - daily-reconciliation
 - record-payment
@@ -591,7 +703,10 @@ SUPABASE EDGE FUNCTIONS — these 8 auto-deploy when their files change:
 - carry-over
 - accept-underpayment
 - review-payment-submission
+- manual-forfeit
+- auto-forfeit-settlement
+- recalculate-penalties (DISABLED — returns 410)
 
-All other edge functions still require manual deploy via Lovable.
+All other edge functions still require manual deploy via Cloud Shell.
 Always check .github/workflows/supabase-functions-deploy.yml
 before adding new functions.
