@@ -78,17 +78,21 @@ Deno.serve(async (req) => {
     const settlementResults: any[] = [];
     const forfeitResults: any[] = [];
     const finalForfeitResults: any[] = [];
-    const auditEntries: any[] = [];
 
     for (const account of accounts) {
       // ── RULE: FINAL FORFEITURE for extension_active past end date ──
       if (account.status === "extension_active") {
         const extEnd = account.extension_end_date;
         if (extEnd && new Date(extEnd + "T23:59:59Z") < now) {
-          await supabase.from("layaway_accounts").update({
+          const { error: ffErr } = await supabase.from("layaway_accounts").update({
             status: "final_forfeited",
             updated_at: now.toISOString(),
           }).eq("id", account.id);
+
+          if (ffErr) {
+            console.error(`[auto-forfeit] Failed to final-forfeit ${account.invoice_number} (ext expired):`, ffErr);
+            continue;
+          }
 
           const customerName = customerMap.get(account.customer_id) || "Unknown";
           finalForfeitResults.push({
@@ -97,7 +101,7 @@ Deno.serve(async (req) => {
             extension_end_date: extEnd,
             status: "FINAL_FORFEITED",
           });
-          auditEntries.push({
+          await supabase.from("audit_logs").insert({
             entity_type: "layaway_account",
             entity_id: account.id,
             action: "final_forfeited",
@@ -132,10 +136,16 @@ Deno.serve(async (req) => {
             new Date(extensionMonthItem.due_date + "T00:00:00Z") <= now
           ) {
             console.log(`[auto-forfeit] ${account.invoice_number} — extension month penalty ${extPenTotal} >= ${extCap} → final forfeiting`);
-            await supabase.from("layaway_accounts").update({
+            const { error: extFfErr } = await supabase.from("layaway_accounts").update({
               status: "final_forfeited",
               updated_at: now.toISOString(),
             }).eq("id", account.id);
+
+            if (extFfErr) {
+              console.error(`[auto-forfeit] Failed to final-forfeit ${account.invoice_number} (ext penalty cap):`, extFfErr);
+              continue;
+            }
+
             const extCustomerName = customerMap.get(account.customer_id) || "Unknown";
             finalForfeitResults.push({
               invoice_number: account.invoice_number,
@@ -144,7 +154,7 @@ Deno.serve(async (req) => {
               cap: extCap,
               status: "FINAL_FORFEITED",
             });
-            auditEntries.push({
+            await supabase.from("audit_logs").insert({
               entity_type: "layaway_account",
               entity_id: account.id,
               action: "auto_forfeit_extension_penalty_cap",
@@ -189,13 +199,23 @@ Deno.serve(async (req) => {
           new Date(finalMonthItem.due_date + "T00:00:00Z") <= now
         ) {
           console.log(`[auto-forfeit] ${account.invoice_number} — final month penalty ${finalMonthPenaltyTotal} >= ${finalMonthCap} → forfeiting`);
-          await supabase.from("layaway_accounts")
+          const { error: p1Err } = await supabase.from("layaway_accounts")
             .update({ status: "forfeited", updated_at: now.toISOString() })
             .eq("id", account.id);
-          await supabase.from("layaway_schedule")
+
+          if (p1Err) {
+            console.error(`[auto-forfeit] Failed to forfeit ${account.invoice_number} (final month cap):`, p1Err);
+            continue;
+          }
+
+          const { error: p1SchedErr } = await supabase.from("layaway_schedule")
             .update({ status: "cancelled", updated_at: now.toISOString() })
             .eq("account_id", account.id)
             .not("status", "eq", "paid");
+          if (p1SchedErr) {
+            console.error(`[auto-forfeit] Failed to cancel schedule for ${account.invoice_number}:`, p1SchedErr);
+          }
+
           await supabase.from("audit_logs").insert({
             entity_type: "layaway_account",
             entity_id: account.id,
@@ -267,17 +287,25 @@ Deno.serve(async (req) => {
 
       // ── RULE 2: AUTO FORFEIT at 3 months overdue ──
       if (monthsOverdue >= 3 && account.status !== "forfeited") {
-        await supabase.from("layaway_accounts").update({
+        const { error: forfeitErr } = await supabase.from("layaway_accounts").update({
           status: "forfeited",
           updated_at: now.toISOString(),
         }).eq("id", account.id);
 
+        if (forfeitErr) {
+          console.error(`[auto-forfeit] Failed to forfeit ${account.invoice_number}:`, forfeitErr);
+          continue;
+        }
+
         // Cancel remaining schedule items
         for (const item of unpaidItems) {
-          await supabase.from("layaway_schedule").update({
+          const { error: cancelErr } = await supabase.from("layaway_schedule").update({
             status: "cancelled",
             updated_at: now.toISOString(),
           }).eq("id", item.id);
+          if (cancelErr) {
+            console.error(`[auto-forfeit] Failed to cancel schedule ${item.id}:`, cancelErr);
+          }
         }
 
         const customerName = customerMap.get(account.customer_id) || "Unknown";
@@ -289,7 +317,7 @@ Deno.serve(async (req) => {
           status: "FORFEITED",
         });
 
-        auditEntries.push({
+        await supabase.from("audit_logs").insert({
           entity_type: "layaway_account",
           entity_id: account.id,
           action: "auto_forfeited",
@@ -314,7 +342,7 @@ Deno.serve(async (req) => {
 
         const finalSettlementAmount = Math.max(0, remainingPrincipal) + penaltyTotalFromLastPaid;
 
-        await supabase.from("final_settlement_records").insert({
+        const { error: settlInsertErr } = await supabase.from("final_settlement_records").insert({
           account_id: account.id,
           last_paid_month_date: firstUnpaidDueDate,
           penalty_occurrence_count: penaltyOccurrenceCount,
@@ -336,11 +364,20 @@ Deno.serve(async (req) => {
           },
         });
 
-        await supabase.from("layaway_accounts").update({
+        if (settlInsertErr) {
+          console.error(`[auto-forfeit] Failed to create settlement for ${account.invoice_number}:`, settlInsertErr);
+          continue;
+        }
+
+        const { error: settlStatusErr } = await supabase.from("layaway_accounts").update({
           status: "final_settlement",
           remaining_balance: finalSettlementAmount,
           updated_at: now.toISOString(),
         }).eq("id", account.id);
+
+        if (settlStatusErr) {
+          console.error(`[auto-forfeit] Failed to update status for ${account.invoice_number}:`, settlStatusErr);
+        }
 
         const customerName = customerMap.get(account.customer_id) || "Unknown";
         settlementResults.push({
@@ -354,7 +391,7 @@ Deno.serve(async (req) => {
           status: "FINAL_SETTLEMENT",
         });
 
-        auditEntries.push({
+        await supabase.from("audit_logs").insert({
           entity_type: "layaway_account",
           entity_id: account.id,
           action: "final_settlement_created",
@@ -369,13 +406,6 @@ Deno.serve(async (req) => {
             timestamp: now.toISOString(),
           },
         });
-      }
-    }
-
-    // Insert audit logs
-    if (auditEntries.length > 0) {
-      for (let i = 0; i < auditEntries.length; i += 100) {
-        await supabase.from("audit_logs").insert(auditEntries.slice(i, i + 100));
       }
     }
 
