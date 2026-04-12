@@ -55,7 +55,7 @@ export default function Dashboard() {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 25000);
-      const { data, error } = await supabase.rpc('audit_all_accounts', {}, { signal: controller.signal } as any);
+      const { data, error } = await (supabase.rpc as any)('audit_all_accounts', undefined, { signal: controller.signal });
       clearTimeout(timeout);
       if (error) throw error;
       setAuditResults(data || []);
