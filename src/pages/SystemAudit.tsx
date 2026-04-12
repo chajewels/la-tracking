@@ -273,19 +273,28 @@ export default function SystemAudit() {
         supabase.from('account_services' as any).select('*').in('account_id', ids),
       ]);
 
+      console.log('[SystemAudit] schRes rows:', schRes.data?.length,
+                  'error:', schRes.error,
+                  'sample row:', schRes.data?.[0]);
+
       const scheduleMap = groupBy(schRes.data || [], 'account_id');
       const paymentsMap = groupBy(payRes.data || [], 'account_id');
       const penaltiesMap = groupBy(penRes.data || [], 'account_id');
       const servicesMap = groupBy(svcRes.data || [], 'account_id');
 
       const auditResults: AccountAuditResult[] = accounts.map((acc: any) => {
-        const checks = runAccountChecks(
-          acc,
-          scheduleMap[acc.id] || [],
-          paymentsMap[acc.id] || [],
-          penaltiesMap[acc.id] || [],
-          servicesMap[acc.id] || [],
-        );
+        let checks: any[] = [];
+        try {
+          checks = runAccountChecks(
+            acc,
+            scheduleMap[acc.id] || [],
+            paymentsMap[acc.id] || [],
+            penaltiesMap[acc.id] || [],
+            servicesMap[acc.id] || [],
+          );
+        } catch (err) {
+          console.error('[SystemAudit] runAccountChecks error for', acc.invoice_number, err);
+        }
         const allPass = checks.length === 0 || checks.every(c => c.pass);
         return {
           accountId: acc.id,
