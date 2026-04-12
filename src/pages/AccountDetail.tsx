@@ -392,15 +392,16 @@ export default function AccountDetail() {
   const hasUnpaidPastDue = scheduleItems.some(
     (item: any) => !isRowPaid(item) && item.due_date <= todayStr
   );
-  // Grace period: first time overdue, no penalties yet, all overdue rows within 7 days
+  // Grace period: current overdue month has no penalties yet, within 7 days of due date
   const overdueRows = scheduleItems.filter(
     (item: any) => !isRowPaid(item) && item.due_date <= todayStr
   );
-  const hasPenalties = (penalties || []).some(
-    (p: any) => p.status !== 'waived'
+  const overdueRowIds = new Set(overdueRows.map((r: any) => r.id));
+  const hasPenaltiesOnOverdueRows = (penalties || []).some(
+    (p: any) => p.status !== 'waived' && overdueRowIds.has(p.schedule_id)
   );
   const isInGracePeriod = overdueRows.length > 0
-    && !hasPenalties
+    && !hasPenaltiesOnOverdueRows
     && overdueRows.every((r: any) => {
       const daysSinceDue = Math.floor(
         (Date.now() - new Date(r.due_date + 'T00:00:00Z').getTime()) / 86400000
