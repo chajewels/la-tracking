@@ -209,17 +209,17 @@ export default function PaymentSubmissions() {
   // Helpers for waterfall partial detection
   const getConfirmPartialRow = useMemo(() => {
     if (!confirmWaterfall?.valid || confirmScheduleRows.length === 0) return null;
-    // Only check the FIRST allocation. A partial here means the payment couldn't
-    // even fill month 1 — true underpayment. Partial in alloc[1+] means overpayment
-    // (surplus flowed forward) and is handled separately in onSuccess.
+    // Check if TOTAL submitted payment amount is less than the first unpaid month's ceiling.
+    // This detects underpayment based on what the customer submitted vs what is owed —
+    // not on stale actual_remaining from the view.
     const firstAlloc = confirmWaterfall.allocations[0];
     if (!firstAlloc) return null;
     const row = confirmScheduleRows.find(r => r.id === firstAlloc.scheduleId);
     if (!row) return null;
-    const rowTotal = Number(row.base_installment_amount) + Number(row.penalty_amount || 0) + Number(row.carried_amount || 0);
-    const newAllocated = (Number(row.allocated) || 0) + firstAlloc.amount;
-    if (newAllocated < rowTotal - 0.01 && newAllocated > 0) {
-      return { scheduleId: row.id, row, shortfall: Math.round((rowTotal - newAllocated) * 100) / 100 };
+    const firstRowCeiling = Number(row.base_installment_amount) + Number(row.penalty_amount || 0) + Number(row.carried_amount || 0);
+    const submittedAmount = confirmWaterfall.allocations.reduce((sum, a) => sum + a.amount, 0);
+    if (submittedAmount < firstRowCeiling - 0.01 && submittedAmount > 0) {
+      return { scheduleId: row.id, row, shortfall: Math.round((firstRowCeiling - submittedAmount) * 100) / 100 };
     }
     return null;
   }, [confirmWaterfall, confirmScheduleRows]);

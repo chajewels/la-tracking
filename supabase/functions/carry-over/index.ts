@@ -19,29 +19,19 @@ serve(async (req) => {
 
     const { data: source, error: srcErr } = await supabase
       .from("layaway_schedule")
-      .select("id, account_id, installment_number, base_installment_amount, penalty_amount, carried_amount, status")
+      .select("id, account_id, installment_number, base_installment_amount, penalty_amount, carried_amount, paid_amount, status")
       .eq("id", schedule_row_id)
       .eq("account_id", account_id)
       .single();
 
     if (srcErr || !source) return new Response(JSON.stringify({ error: "Source row not found" }), { status: 404, headers: corsHeaders });
     if (source.status !== "partially_paid") return new Response(JSON.stringify({ error: "Source row is not partially_paid" }), { status: 400, headers: corsHeaders });
+    if (!Number(source.paid_amount)) return new Response(JSON.stringify({ error: "Source row has no paid amount — nothing to carry over" }), { status: 400, headers: corsHeaders });
 
-    const { data: alloc } = await supabase
-      .from("payment_allocations")
-      .select("allocated_amount, payment_id")
-      .eq("schedule_id", schedule_row_id);
-
-    const { data: voidedPmts } = await supabase
-      .from("payments")
-      .select("id")
-      .eq("account_id", account_id)
-      .not("voided_at", "is", null);
-    const voidedIds = new Set((voidedPmts || []).map((p: any) => p.id));
-    const allocated = (alloc || [])
-      .filter((r: any) => !voidedIds.has(r.payment_id))
-      .reduce((sum: number, r: any) => sum + Number(r.allocated_amount), 0);
-    const shortfall = Number(source.base_installment_amount) + Number(source.penalty_amount || 0) + Number(source.carried_amount || 0) - allocated;
+    // Use paid_amount from the schedule row as the authoritative source for how much was paid
+    const paidOnRow = Number(source.paid_amount);
+    const ceiling = Number(source.base_installment_amount) + Number(source.penalty_amount || 0) + Number(source.carried_amount || 0);
+    const shortfall = Math.round((ceiling - paidOnRow) * 100) / 100;
 
     if (shortfall <= 0) return new Response(JSON.stringify({ error: "No shortfall to carry" }), { status: 400, headers: corsHeaders });
 
@@ -59,7 +49,7 @@ serve(async (req) => {
 
     await supabase
       .from("layaway_schedule")
-      .update({ status: "paid", paid_amount: allocated, updated_at: new Date().toISOString() })
+      .update({ status: "paid", paid_amount: paidOnRow, updated_at: new Date().toISOString() })
       .eq("id", schedule_row_id);
 
     const { error: carryErr } = await supabase
@@ -67,6 +57,7 @@ serve(async (req) => {
       .update({
         carried_amount: shortfall,
         carried_from_schedule_id: schedule_row_id,
+        carried_by_payment_id: null,
         updated_at: new Date().toISOString()
       })
       .eq("id", nextRow.id);
