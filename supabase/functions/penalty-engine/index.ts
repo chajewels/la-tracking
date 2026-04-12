@@ -80,7 +80,7 @@ Deno.serve(async (req) => {
         .from("layaway_schedule")
         .select("*, layaway_accounts!inner(id, currency, status, payment_plan_months)")
         .in("status", ["pending", "overdue", "partially_paid"])
-        .lt("due_date", today)
+        .lte("due_date", today)
         .in("layaway_accounts.status", ["active", "overdue", "extension_active"])
         .order("installment_number", { ascending: true })
         .range(page * pageSize, (page + 1) * pageSize - 1);
