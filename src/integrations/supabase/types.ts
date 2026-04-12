@@ -1658,6 +1658,16 @@ export type Database = {
         }
         Returns: undefined
       }
+      audit_account: { Args: { p_invoice_number: string }; Returns: Json }
+      audit_all_accounts: {
+        Args: never
+        Returns: {
+          all_pass: boolean
+          failed_checks: string[]
+          invoice_number: string
+          status: string
+        }[]
+      }
       delete_email: {
         Args: { message_id: number; queue_name: string }
         Returns: boolean
