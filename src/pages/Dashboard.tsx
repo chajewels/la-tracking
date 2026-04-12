@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { ROUTES } from '@/constants/routes';
-import { DollarSign, FileText, AlertTriangle, TrendingUp, CheckCircle2, Banknote, Users, ShieldAlert, Gem, Award, Flame } from 'lucide-react';
+import { DollarSign, FileText, AlertTriangle, TrendingUp, CheckCircle2, Banknote, Users, ShieldAlert, Gem, Award, Flame, ShieldCheck, Loader2 } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 import PendingSubmissionsAlert from '@/components/dashboard/PendingSubmissionsAlert';
 import AppLayout from '@/components/layout/AppLayout';
 import StatCard from '@/components/dashboard/StatCard';
@@ -22,7 +23,7 @@ import { usePermissions } from '@/contexts/PermissionsContext';
 
 export default function Dashboard() {
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
-  const { session, loading: authLoading, profile } = useAuth();
+  const { session, loading: authLoading, profile, roles } = useAuth();
   const { can, canAccessPage } = usePermissions();
   const displayCurrency: Currency = getDisplayCurrencyForFilter(currencyFilter);
   const canSeePendingSubmissions = canAccessPage('/payment-submissions');
@@ -38,6 +39,26 @@ export default function Dashboard() {
   // Note: accounts/customers are cached with staleTime so these calls are cheap when already loaded
 
   const customerCount = customers?.length ?? 0;
+
+  // System Audit (admin only)
+  const isAdmin = (roles as any[]).includes('admin');
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditResults, setAuditResults] = useState<any[] | null>(null);
+  const [auditFilter, setAuditFilter] = useState<'all' | 'failed'>('failed');
+
+  const runSystemAudit = async () => {
+    setAuditLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('audit_all_accounts');
+      if (error) throw error;
+      setAuditResults(data || []);
+    } catch (err: any) {
+      console.error('System audit error:', err);
+    } finally {
+      setAuditLoading(false);
+    }
+  };
 
   const greeting = useMemo(() => {
     const h = new Date().getHours();
@@ -204,6 +225,134 @@ export default function Dashboard() {
             {can('view_system_health') && <SystemHealthPanel summary={summary} />}
           </div>
         </div>
+
+        {/* System Audit — admin only */}
+        {isAdmin && (
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[10px] font-semibold text-primary uppercase tracking-widest">Account Audit</p>
+              <button
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-primary/30 text-primary hover:bg-primary/10 disabled:opacity-50"
+                disabled={auditLoading}
+                onClick={() => { setAuditOpen(true); runSystemAudit(); }}
+              >
+                {auditLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+                Run System Audit
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* System Audit Modal */}
+        {auditOpen && (
+          <>
+            <div
+              className="fixed inset-0"
+              style={{ zIndex: 9998, pointerEvents: 'auto', backgroundColor: 'rgba(0,0,0,0.7)' }}
+              onClick={() => { setAuditOpen(false); setAuditResults(null); }}
+            />
+            <div
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+              style={{ zIndex: 9999, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', borderRadius: 8, padding: 24, maxWidth: 700, width: '95%', maxHeight: '85vh', overflowY: 'auto', color: 'var(--foreground)' }}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold">System Audit — All Accounts</h2>
+                <button
+                  className="text-muted-foreground hover:text-foreground text-lg leading-none px-2"
+                  onClick={() => { setAuditOpen(false); setAuditResults(null); }}
+                >×</button>
+              </div>
+
+              {auditLoading && (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary mr-2" />
+                  <span className="text-sm text-muted-foreground">Auditing all accounts...</span>
+                </div>
+              )}
+
+              {!auditLoading && auditResults && (
+                <div className="space-y-3">
+                  {(() => {
+                    const failedAccounts = auditResults.filter((r: any) => !r.all_pass);
+                    const passedCount = auditResults.length - failedAccounts.length;
+                    const filtered = auditFilter === 'failed' ? failedAccounts : auditResults;
+                    return (
+                      <>
+                        <div className={`rounded-md p-3 text-sm font-medium ${
+                          failedAccounts.length === 0 ? 'bg-success/10 text-success border border-success/20' : 'bg-destructive/10 text-destructive border border-destructive/20'
+                        }`}>
+                          {failedAccounts.length === 0
+                            ? `✅ All ${auditResults.length} accounts passed`
+                            : `❌ ${failedAccounts.length} failed / ${passedCount} passed / ${auditResults.length} total`}
+                        </div>
+
+                        <div className="flex gap-2 text-xs">
+                          <button
+                            className={`px-3 py-1 rounded-md border ${auditFilter === 'failed' ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}
+                            onClick={() => setAuditFilter('failed')}
+                          >Failed Only ({failedAccounts.length})</button>
+                          <button
+                            className={`px-3 py-1 rounded-md border ${auditFilter === 'all' ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}
+                            onClick={() => setAuditFilter('all')}
+                          >All ({auditResults.length})</button>
+                        </div>
+
+                        {filtered.length === 0 && (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            {auditFilter === 'failed' ? 'No failing accounts' : 'No accounts found'}
+                          </p>
+                        )}
+
+                        {filtered.length > 0 && (
+                          <div className="rounded-md border border-border overflow-hidden">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="bg-muted/30 border-b border-border">
+                                  <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Invoice</th>
+                                  <th className="text-center px-3 py-2 font-semibold text-muted-foreground">Health</th>
+                                  <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Failed Checks</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {filtered.map((r: any, i: number) => (
+                                  <tr key={i} className="border-b border-border/50 last:border-0">
+                                    <td className="px-3 py-2 font-mono font-medium text-foreground">#{r.invoice_number}</td>
+                                    <td className="px-3 py-2 text-center">{r.all_pass ? '✅' : '❌'}</td>
+                                    <td className="px-3 py-2 text-muted-foreground">
+                                      {r.failed_checks ? (
+                                        Array.isArray(r.failed_checks) ? r.failed_checks.join(', ') : String(r.failed_checks)
+                                      ) : '—'}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 mt-4 pt-3 border-t border-border">
+                <button
+                  className="px-4 py-2 rounded-lg text-sm text-primary border border-primary/30 hover:bg-primary/10 disabled:opacity-50"
+                  disabled={auditLoading}
+                  onClick={runSystemAudit}
+                >
+                  {auditLoading ? 'Running...' : 'Re-run Audit'}
+                </button>
+                <button
+                  className="px-4 py-2 rounded-lg text-sm border border-border"
+                  onClick={() => { setAuditOpen(false); setAuditResults(null); }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </AppLayout>
   );

@@ -163,13 +163,33 @@ export default function AccountDetail() {
   const [editingPaidAmount, setEditingPaidAmount] = useState('');
   const [editingPaidLoading, setEditingPaidLoading] = useState(false);
   const [editingPaidError, setEditingPaidError] = useState('');
+  const [healthCheckOpen, setHealthCheckOpen] = useState(false);
+  const [healthCheckLoading, setHealthCheckLoading] = useState(false);
+  const [healthCheckResult, setHealthCheckResult] = useState<any>(null);
   const queryClient = useQueryClient();
   const { roles } = useAuth();
   const isAdmin = (roles as any[]).includes('admin');
+  const isFinance = (roles as any[]).includes('finance');
   const isTestAccount = TEST_INVOICES.has(account?.invoice_number || '');
   const isLockedTest = account?.invoice_number === LOCKED_TEST_INVOICE;
   const { can: canPerm } = usePermissions();
   const can = (action: string) => canPerm(action);
+
+  const runHealthCheck = async () => {
+    if (!account) return;
+    setHealthCheckLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('audit_account', {
+        p_invoice_number: account.invoice_number,
+      });
+      if (error) throw error;
+      setHealthCheckResult(data);
+    } catch (err: any) {
+      toast.error('Health check failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setHealthCheckLoading(false);
+    }
+  };
 
 
   const handleInvoiceSave = useCallback(async () => {
@@ -1035,6 +1055,15 @@ export default function AccountDetail() {
               <Trash2 className="h-4 w-4 mr-2" /> Delete Account
             </Button>
             )}
+            {(isAdmin || isFinance) && (
+            <Button
+              variant="outline"
+              className="border-primary/30 text-primary hover:bg-primary/10"
+              onClick={() => { setHealthCheckOpen(true); runHealthCheck(); }}
+            >
+              <ShieldCheck className="h-4 w-4 mr-2" /> Check Health
+            </Button>
+            )}
           </div>
           )}
         </div>
@@ -1796,6 +1825,101 @@ export default function AccountDetail() {
           </div>
         </div>
 
+
+        {/* Account Health Check Modal */}
+        {healthCheckOpen && (
+          <>
+            <div
+              className="fixed inset-0"
+              style={{ zIndex: 9998, pointerEvents: 'auto', backgroundColor: 'rgba(0,0,0,0.7)' }}
+              onClick={() => { setHealthCheckOpen(false); setHealthCheckResult(null); }}
+            />
+            <div
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+              style={{ zIndex: 9999, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', borderRadius: 8, padding: 24, maxWidth: 520, width: '90%', maxHeight: '80vh', overflowY: 'auto', color: 'var(--foreground)' }}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-lg font-semibold">Account Health — INV #{account.invoice_number}</h2>
+                  <span className={`inline-block mt-1 text-[10px] font-semibold px-2 py-0.5 rounded ${
+                    account.status === 'active' ? 'bg-success/10 text-success' :
+                    account.status === 'overdue' ? 'bg-destructive/10 text-destructive' :
+                    'bg-muted text-muted-foreground'
+                  }`}>{account.status.toUpperCase()}</span>
+                </div>
+                <button
+                  className="text-muted-foreground hover:text-foreground text-lg leading-none px-2"
+                  onClick={() => { setHealthCheckOpen(false); setHealthCheckResult(null); }}
+                >×</button>
+              </div>
+
+              {healthCheckLoading && (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary mr-2" />
+                  <span className="text-sm text-muted-foreground">Running health checks...</span>
+                </div>
+              )}
+
+              {!healthCheckLoading && healthCheckResult && (
+                <div className="space-y-3">
+                  {(() => {
+                    const checks = healthCheckResult.checks || [];
+                    const allPass = checks.every((c: any) => c.pass);
+                    const failCount = checks.filter((c: any) => !c.pass).length;
+                    return (
+                      <>
+                        <div className={`rounded-md p-3 text-sm font-medium ${
+                          allPass ? 'bg-success/10 text-success border border-success/20' : 'bg-destructive/10 text-destructive border border-destructive/20'
+                        }`}>
+                          {allPass ? '✅ All checks passed' : `❌ ${failCount} check(s) failed`}
+                        </div>
+                        <div className="space-y-2">
+                          {checks.map((c: any, i: number) => (
+                            <div key={i} className={`rounded-md p-2.5 border ${c.pass ? 'border-success/10 bg-success/5' : 'border-destructive/20 bg-destructive/5'}`}>
+                              <div className="flex items-start gap-2">
+                                <span className="text-sm mt-0.5">{c.pass ? '✅' : '❌'}</span>
+                                <div className="flex-1 min-w-0">
+                                  <p className={`text-xs font-medium ${c.pass ? 'text-success' : 'text-destructive'}`}>{c.label}</p>
+                                  {c.expected !== undefined && c.stored !== undefined && (
+                                    <p className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
+                                      Expected: {typeof c.expected === 'number' ? Number(c.expected).toLocaleString() : String(c.expected)} | Stored: {typeof c.stored === 'number' ? Number(c.stored).toLocaleString() : String(c.stored)}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {!healthCheckLoading && healthCheckResult?.error && (
+                <div className="rounded-md p-3 bg-destructive/10 border border-destructive/20 text-sm text-destructive">
+                  {healthCheckResult.error}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 mt-4 pt-3 border-t border-border">
+                <button
+                  className="px-4 py-2 rounded-lg text-sm text-primary border border-primary/30 hover:bg-primary/10 disabled:opacity-50"
+                  disabled={healthCheckLoading}
+                  onClick={runHealthCheck}
+                >
+                  {healthCheckLoading ? 'Checking...' : 'Re-check'}
+                </button>
+                <button
+                  className="px-4 py-2 rounded-lg text-sm border border-border"
+                  onClick={() => { setHealthCheckOpen(false); setHealthCheckResult(null); }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Restore Payment Dialog */}
         <RestorePaymentDialog
