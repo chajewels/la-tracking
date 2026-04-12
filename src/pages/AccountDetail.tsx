@@ -392,9 +392,26 @@ export default function AccountDetail() {
   const hasUnpaidPastDue = scheduleItems.some(
     (item: any) => !isRowPaid(item) && item.due_date < todayStr
   );
-  const effectiveStatus = account?.status === 'overdue' && !hasUnpaidPastDue
-    ? 'active'
-    : (account?.status ?? 'active');
+  // Grace period: first time overdue, no penalties yet, all overdue rows within 7 days
+  const overdueRows = scheduleItems.filter(
+    (item: any) => !isRowPaid(item) && item.due_date < todayStr
+  );
+  const hasPenalties = (penalties || []).some(
+    (p: any) => p.status !== 'waived'
+  );
+  const isInGracePeriod = overdueRows.length > 0
+    && !hasPenalties
+    && overdueRows.every((r: any) => {
+      const daysSinceDue = Math.floor(
+        (Date.now() - new Date(r.due_date + 'T00:00:00Z').getTime()) / 86400000
+      );
+      return daysSinceDue <= 7;
+    });
+  const effectiveStatus = isInGracePeriod
+    ? 'grace_period'
+    : account?.status === 'overdue' && !hasUnpaidPastDue
+      ? 'active'
+      : (account?.status ?? 'active');
   const downpaymentAmount = Number((account as any)?.downpayment_amount || 0);
 
   // Identify downpayment payments — check multiple fields since import sources vary
@@ -839,6 +856,7 @@ export default function AccountDetail() {
                 effectiveStatus === 'forfeited' ? 'bg-orange-500/10 text-orange-500 border-orange-500/20 text-xs' :
                 effectiveStatus === 'extension_active' ? 'bg-info/10 text-info border-info/20 text-xs' :
                 effectiveStatus === 'final_settlement' ? 'bg-amber-600/10 text-amber-600 border-amber-600/20 text-xs' :
+                effectiveStatus === 'grace_period' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20 text-xs' :
                 effectiveStatus === 'overdue' ? 'bg-destructive/10 text-destructive border-destructive/20 text-xs' :
                 effectiveStatus === 'completed' ? 'bg-primary/10 text-primary border-primary/20 text-xs' :
                 'bg-success/10 text-success border-success/20 text-xs'
@@ -846,6 +864,7 @@ export default function AccountDetail() {
                 {effectiveStatus === 'final_settlement' ? 'FINAL SETTLEMENT' :
                  effectiveStatus === 'extension_active' ? 'EXTENSION ACTIVE' :
                  effectiveStatus === 'final_forfeited' ? 'PERMANENTLY FORFEITED' :
+                 effectiveStatus === 'grace_period' ? 'GRACE PERIOD' :
                  effectiveStatus.toUpperCase()}
               </Badge>
               {isTestAccount && (
