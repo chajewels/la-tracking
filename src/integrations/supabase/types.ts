@@ -14,6 +14,41 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_notes: {
+        Row: {
+          account_id: string
+          created_at: string
+          created_by_name: string | null
+          created_by_user_id: string | null
+          id: string
+          note_text: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          created_by_name?: string | null
+          created_by_user_id?: string | null
+          id?: string
+          note_text: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          created_by_name?: string | null
+          created_by_user_id?: string | null
+          id?: string
+          note_text?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_notes_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       account_services: {
         Row: {
           account_id: string
