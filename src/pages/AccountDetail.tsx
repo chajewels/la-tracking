@@ -980,7 +980,7 @@ export default function AccountDetail() {
                 </Button>
               </a>
             )}
-            {canAddService(account.status) && can('add_service') && (
+            {isAdmin && canAddService(account.status) && can('add_service') && (
               <AddServiceDialog accountId={account.id} currency={currency} />
             )}
             {/* Reactivate button — only for forfeited, non-reactivated accounts */}
