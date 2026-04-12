@@ -285,7 +285,17 @@ Deno.serve(async (req) => {
       }
 
       const newTotalPaid = Number(acct.total_paid) + amountForAccount;
-      const newRemainingBalance = Number(acct.total_amount) - newTotalPaid;
+      // Preview approximation: total_amount + activePenalties - newTotalPaid
+      // (uses cached acct.total_paid + new amount as approximation before DB insert)
+      const { data: previewPens } = await supabase
+        .from("penalty_fees")
+        .select("penalty_amount")
+        .eq("account_id", inputAlloc.account_id)
+        .neq("status", "waived");
+      const previewPenaltySum = (previewPens || [])
+        .reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
+      const newRemainingBalance = Math.max(0,
+        Math.round((Number(acct.total_amount) + previewPenaltySum - newTotalPaid) * 100) / 100);
 
       // Recalculate correct status based on updated schedule state
       let newStatus: string;
@@ -415,24 +425,14 @@ Deno.serve(async (req) => {
         }
         console.log(`[multi-pay] Schedule updated for ${acct.invoice_number}`);
 
-        // Re-derive remaining_balance from payment_allocations (post-insert, source of truth)
-        const { data: schedIds } = await supabase
-          .from('layaway_schedule')
-          .select('id')
-          .eq('account_id', inputAlloc.account_id);
-        const { data: allocTotals } = await supabase
-          .from('payment_allocations')
-          .select('allocated_amount, payment_id')
-          .in('schedule_id', (schedIds || []).map((r: any) => r.id));
-        const { data: voidedPmts } = await supabase
+        // Canonical formula (CLAUDE.md): total_paid = SUM(payments), remaining = total_amount + penalties - total_paid
+        const { data: verifiedPays } = await supabase
           .from('payments')
-          .select('id')
+          .select('amount_paid')
           .eq('account_id', inputAlloc.account_id)
-          .not('voided_at', 'is', null);
-        const voidedPmtIds = new Set((voidedPmts || []).map((p: any) => p.id));
-        const totalAllocatedVerified = (allocTotals || [])
-          .filter((a: any) => !voidedPmtIds.has(a.payment_id))
-          .reduce((sum: number, a: any) => sum + Number(a.allocated_amount), 0);
+          .is('voided_at', null);
+        const verifiedTotalPaid = (verifiedPays || [])
+          .reduce((sum: number, p: any) => sum + Number(p.amount_paid), 0);
         const { data: activePenaltiesData } = await supabase
           .from('penalty_fees')
           .select('penalty_amount')
@@ -440,8 +440,8 @@ Deno.serve(async (req) => {
           .neq('status', 'waived');
         const totalPenaltiesVerified = (activePenaltiesData || [])
           .reduce((sum: number, p: any) => sum + Number(p.penalty_amount), 0);
-        const verifiedRemaining = Math.max(0, Number(acct.total_amount) + totalPenaltiesVerified - totalAllocatedVerified);
-        const verifiedTotalPaid = Math.max(0, totalAllocatedVerified - totalPenaltiesVerified);
+        const verifiedRemaining = Math.max(0,
+          Math.round((Number(acct.total_amount) + totalPenaltiesVerified - verifiedTotalPaid) * 100) / 100);
         const verifiedStatus = verifiedRemaining <= 0 ? "completed" : newStatus;
 
         // Update account

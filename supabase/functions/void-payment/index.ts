@@ -188,14 +188,15 @@ Deno.serve(async (req) => {
         })()
       : 0;
 
-    // PRINCIPAL-ONLY remaining: exclude penalty payments
-    const { data: paidPenaltyFees } = await supabase
+    // Canonical remaining_balance (CLAUDE.md):
+    // remaining = total_amount + Σ(non-waived penalties) - total_paid
+    const { data: activePensFees } = await supabase
       .from("penalty_fees")
       .select("penalty_amount")
       .eq("account_id", payment.account_id)
-      .eq("status", "paid");
-    const penaltyPaidSum = (paidPenaltyFees || []).reduce((s: number, f: any) => s + Number(f.penalty_amount), 0);
-    const newRemainingBalance = Math.max(0, Number(account.total_amount) - (newTotalPaid - penaltyPaidSum));
+      .neq("status", "waived");
+    const activePenaltySum = (activePensFees || []).reduce((s: number, f: any) => s + Number(f.penalty_amount), 0);
+    const newRemainingBalance = Math.max(0, Math.round((Number(account.total_amount) + activePenaltySum - newTotalPaid) * 100) / 100);
 
     const { data: updatedSchedule } = await supabase
       .from("layaway_schedule")

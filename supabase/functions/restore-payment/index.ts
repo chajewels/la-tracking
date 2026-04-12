@@ -26,17 +26,6 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-function calcPrincipalRemaining(schedule: any[]): number {
-  let remaining = 0;
-  for (const item of schedule) {
-    if (item.status !== "paid" && item.status !== "cancelled") {
-      // PRINCIPAL-ONLY: exclude penalty_amount from remaining balance
-      remaining += Math.max(0, round2(Number(item.base_installment_amount) - Number(item.paid_amount)));
-    }
-  }
-  return round2(remaining);
-}
-
 function scheduleStatusFor(base: number, paid: number, dueDate: string): string {
   if (round2(paid) >= round2(base)) return "paid";
   if (paid > 0) return "partially_paid";
@@ -222,24 +211,43 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Update account totals
+    // Update account totals using canonical formula (CLAUDE.md):
+    // total_paid = SUM(payments.amount_paid WHERE voided_at IS NULL)
+    // remaining = total_amount + Σ(non-waived penalties) - total_paid
+    const accountId = payment.account_id;
+
+    const { data: activePens } = await supabase
+      .from("penalty_fees")
+      .select("penalty_amount")
+      .eq("account_id", accountId)
+      .neq("status", "waived");
+    const activePenaltySum = (activePens || [])
+      .reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
+
+    const { data: allPays } = await supabase
+      .from("payments")
+      .select("amount_paid")
+      .eq("account_id", accountId)
+      .is("voided_at", null);
+    const newTotalPaid = round2((allPays || [])
+      .reduce((s: number, p: any) => s + Number(p.amount_paid), 0));
+
+    const newRemaining = Math.max(0,
+      round2(Number(account.total_amount) + activePenaltySum - newTotalPaid));
+
     const { data: updatedSchedule } = await supabase
       .from("layaway_schedule")
-      .select("*")
-      .eq("account_id", payment.account_id)
-      .order("installment_number", { ascending: true });
+      .select("status, due_date")
+      .eq("account_id", accountId);
+    const newStatus = updatedSchedule
+      ? determineAccountStatus(updatedSchedule, account.status)
+      : account.status;
 
-    if (updatedSchedule) {
-      const newTotalPaid = round2(Number(account.total_paid) + Number(payment.amount_paid));
-      const newRemaining = calcPrincipalRemaining(updatedSchedule);
-      const newStatus = determineAccountStatus(updatedSchedule, account.status);
-
-      await supabase.from("layaway_accounts").update({
-        total_paid: newTotalPaid,
-        remaining_balance: Math.max(0, newRemaining),
-        status: newStatus,
-      }).eq("id", payment.account_id);
-    }
+    await supabase.from("layaway_accounts").update({
+      total_paid: newTotalPaid,
+      remaining_balance: newRemaining,
+      status: newStatus,
+    }).eq("id", accountId);
 
     // Clear voided flags — LAST step so everything is consistent
     await supabase.from("payments").update({
