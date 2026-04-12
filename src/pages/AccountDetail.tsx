@@ -29,7 +29,7 @@ import ContractAgreementSection from '@/components/contract/ContractAgreementSec
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
-import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useEditPaymentAmount, useRestorePayment, useDeleteAccount, useForfeitAccount, useAccountServices, usePenaltyCapOverride } from '@/hooks/use-supabase-data';
+import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useEditPaymentAmount, useRestorePayment, useDeleteAccount, useForfeitAccount, useAccountServices, usePenaltyCapOverride, useAccountNotes } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -55,7 +55,11 @@ export default function AccountDetail() {
   const { data: penalties } = usePenalties(id);
   const { data: services } = useAccountServices(id);
   const { data: penaltyCapOverride } = usePenaltyCapOverride(id);
+  const { data: accountNotes } = useAccountNotes(id);
   const [copied, setCopied] = useState(false);
+  const [noteText, setNoteText] = useState('');
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [noteFormOpen, setNoteFormOpen] = useState(false);
 
   // ── Session payment tracking (state-based, per-account) ──
   const [sessionPayments, setSessionPayments] = useState<SessionPaymentInfo[]>([]);
@@ -1797,6 +1801,91 @@ export default function AccountDetail() {
             )}
           </div>
         </div>
+
+        {/* Account Notes Panel */}
+        {(isAdmin || isFinance || (roles as any[]).includes('staff')) && (
+          <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
+                <MessageCircle className="h-4 w-4 text-primary" /> Account Notes
+              </h3>
+              {!noteFormOpen && (
+                <Button variant="outline" size="sm" className="h-7 text-xs border-primary/30 text-primary hover:bg-primary/10"
+                  onClick={() => setNoteFormOpen(true)}>
+                  <Plus className="h-3 w-3 mr-1" /> Add Note
+                </Button>
+              )}
+            </div>
+
+            {noteFormOpen && (
+              <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
+                <textarea
+                  className="w-full rounded-md border border-border bg-background p-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+                  rows={4}
+                  maxLength={1000}
+                  placeholder="Type a note..."
+                  value={noteText}
+                  onChange={e => setNoteText(e.target.value)}
+                />
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">{noteText.length}/1000</span>
+                  <div className="flex gap-2">
+                    <Button variant="ghost" size="sm" className="h-7 text-xs"
+                      onClick={() => { setNoteFormOpen(false); setNoteText(''); }}>
+                      Cancel
+                    </Button>
+                    <Button size="sm" className="h-7 text-xs gold-gradient text-primary-foreground"
+                      disabled={noteSaving || !noteText.trim()}
+                      onClick={async () => {
+                        setNoteSaving(true);
+                        try {
+                          const { data: { user } } = await supabase.auth.getUser();
+                          const userName = (user?.user_metadata as any)?.full_name || user?.email || 'Unknown';
+                          const { error } = await supabase.from('account_notes' as any).insert({
+                            account_id: account.id,
+                            note_text: noteText.trim(),
+                            created_by_user_id: user?.id,
+                            created_by_name: userName,
+                          } as any);
+                          if (error) throw error;
+                          toast.success('Note added');
+                          setNoteText('');
+                          setNoteFormOpen(false);
+                          queryClient.invalidateQueries({ queryKey: ['account-notes', id] });
+                        } catch (err: any) {
+                          toast.error(err.message || 'Failed to add note');
+                        } finally {
+                          setNoteSaving(false);
+                        }
+                      }}>
+                      {noteSaving ? 'Saving...' : 'Save Note'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {(!accountNotes || accountNotes.length === 0) && !noteFormOpen && (
+              <p className="text-xs text-muted-foreground text-center py-4">No notes yet</p>
+            )}
+
+            {accountNotes && accountNotes.length > 0 && (
+              <div className="space-y-2">
+                {accountNotes.map((note: any) => (
+                  <div key={note.id} className="rounded-lg border border-border bg-muted/30 p-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-medium text-card-foreground">{note.created_by_name || 'Unknown'}</span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {new Date(note.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground whitespace-pre-wrap">{note.note_text}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Penalty Waiver Panel */}
         {waivablePenalties.length > 0 && (

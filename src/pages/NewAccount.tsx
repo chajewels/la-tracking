@@ -14,6 +14,7 @@ import { generateScheduleDates, calculateInstallments, formatCurrency } from '@/
 import { Currency, PaymentPlan } from '@/lib/types';
 import { toast } from 'sonner';
 import { useCustomers, useAccounts, useCreateAccount, DbCustomer } from '@/hooks/use-supabase-data';
+import { supabase } from '@/integrations/supabase/client';
 import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
 import { Badge } from '@/components/ui/badge';
 import { useAccountDraft, clearAccountDraft } from '@/hooks/use-account-draft';
@@ -41,6 +42,7 @@ export default function NewAccount() {
   const [orderDate, setOrderDate] = useState('');
   const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>(3);
   const [downpaymentInput, setDownpaymentInput] = useState('');
+  const [initialNote, setInitialNote] = useState('');
 
   // Custom installment mode
   const [installmentMode, setInstallmentMode] = useState<InstallmentMode>('equal');
@@ -316,6 +318,22 @@ export default function NewAccount() {
       submittedRef.current = true;
       clearDraft();
       setFormDirty(false);
+
+      // Insert initial note if provided
+      if (initialNote.trim() && result?.account?.id) {
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          const userName = (user?.user_metadata as any)?.full_name || user?.email || 'Unknown';
+          await supabase.from('account_notes' as any).insert({
+            account_id: result.account.id,
+            note_text: initialNote.trim(),
+            created_by_user_id: user?.id,
+            created_by_name: userName,
+          } as any);
+        } catch {
+          // Non-critical — don't block account creation success
+        }
+      }
 
       toast.success(`Layaway account #${invoiceNumber} created successfully`);
 
@@ -821,6 +839,20 @@ export default function NewAccount() {
               )}
             </div>
           )}
+
+          {/* Initial Note (optional) */}
+          <div className="rounded-xl border border-border bg-card p-6 space-y-2">
+            <Label className="text-card-foreground">Initial Note (optional)</Label>
+            <textarea
+              className="w-full rounded-md border border-border bg-background p-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+              rows={3}
+              maxLength={1000}
+              placeholder="Add an initial note for this account..."
+              value={initialNote}
+              onChange={e => { setInitialNote(e.target.value); markDirty(); }}
+            />
+            <p className="text-[10px] text-muted-foreground">{initialNote.length}/1000</p>
+          </div>
 
           <div className="flex justify-end gap-3">
             <Button

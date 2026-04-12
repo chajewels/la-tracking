@@ -226,6 +226,23 @@ export function useAccountServices(accountId: string | undefined) {
   });
 }
 
+export function useAccountNotes(accountId: string | undefined) {
+  return useQuery({
+    queryKey: ['account-notes', accountId],
+    enabled: !!accountId,
+    staleTime: STALE_SHORT,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('account_notes' as any)
+        .select('*')
+        .eq('account_id', accountId!)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data as any[];
+    },
+  });
+}
+
 // ──────────────────────────────────────────────
 // PAYMENTS
 // ──────────────────────────────────────────────
