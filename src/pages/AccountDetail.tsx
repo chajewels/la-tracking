@@ -75,16 +75,19 @@ export default function AccountDetail() {
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteFormOpen, setNoteFormOpen] = useState(false);
 
-  // Build a lookup of proof_url by payment_date for inline display in Payment History.
+  // Build a lookup of proof info by payment_date for inline display in Payment History.
   // If multiple submissions share a date, the most recent one wins (they come back ordered DESC).
   const proofByDate = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const s of (submissionProofs || []) as any[]) {
-      if (s.proof_url && s.payment_date && !m.has(s.payment_date)) {
-        m.set(s.payment_date, s.proof_url as string);
+    const map = new Map<string, { url: string; sender: string }>();
+    (submissionProofs || []).forEach((s: any) => {
+      if (s.proof_url && s.payment_date && !map.has(s.payment_date)) {
+        map.set(s.payment_date, {
+          url: s.proof_url as string,
+          sender: s.sender_name || 'Unknown',
+        });
       }
-    }
-    return m;
+    });
+    return map;
   }, [submissionProofs]);
 
   // ── Session payment tracking (state-based, per-account) ──
@@ -1784,14 +1787,21 @@ export default function AccountDetail() {
                           {p.remarks && !isDpPayment && ` · ${p.remarks}`}
                           {isVoided && ` · VOIDED${(p as any).void_reason ? `: ${(p as any).void_reason}` : ''}`}
                         </p>
-                        {proofByDate.get(p.date_paid) && (
-                          <button
-                            type="button"
-                            onClick={() => window.open(proofByDate.get(p.date_paid)!, '_blank', 'noopener,noreferrer')}
-                            className="mt-1 inline-flex items-center gap-1 text-[10px] sm:text-xs text-primary hover:underline">
-                            📎 View Proof
-                          </button>
-                        )}
+                        {(() => {
+                          const proof = proofByDate.get(p.date_paid);
+                          if (!proof) return null;
+                          return (
+                            <div className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">
+                              <button
+                                type="button"
+                                onClick={() => window.open(proof.url, '_blank', 'noopener,noreferrer')}
+                                className="text-primary hover:underline">
+                                📎 View Proof
+                              </button>
+                              {proof.sender && <span className="ml-1">· {proof.sender}</span>}
+                            </div>
+                          );
+                        })()}
                       </div>
                       <div className="flex items-center gap-2">
                         <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isVoided ? 'text-muted-foreground' : 'text-success'}`}>

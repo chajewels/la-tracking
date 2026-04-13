@@ -544,7 +544,7 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
                         )}
 
                         {/* Inline proof preview — always shown regardless of status */}
-                        {sub.proof_url ? (
+                        {(sub.proof_url && sub.proof_url.trim().length > 0) ? (
                           <div className="mt-1 space-y-1.5">
                             <p className="text-[10px] text-muted-foreground font-medium">Proof of Payment</p>
                             {sub.proof_url.match(/\.pdf$/i) ? (
@@ -667,7 +667,7 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
           <div className="space-y-3">
               {/* Proof preview — always shown regardless of status */}
               {actionDialog?.sub && (
-                actionDialog.sub.proof_url ? (
+                (actionDialog.sub.proof_url && actionDialog.sub.proof_url.trim().length > 0) ? (
                   <div className="rounded-md border border-border bg-muted/20 p-2.5 space-y-1.5">
                     <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Proof of Payment</p>
                     {actionDialog.sub.proof_url.match(/\.pdf$/i) ? (
