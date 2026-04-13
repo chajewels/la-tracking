@@ -28,6 +28,7 @@ Deno.serve(async (req) => {
       sender_name,
       notes,
       proof_url,
+      installment_number,
       submission_type,    // 'single' | 'split'
       allocations,        // Array<{ account_id, invoice_number, allocated_amount }>
     } = body;
@@ -164,6 +165,7 @@ Deno.serve(async (req) => {
         sender_name: sender_name || null,
         notes: notes || null,
         proof_url: proof_url || null,
+        installment_number: installment_number || null,
         portal_token,
         status: "submitted",
         submission_type: body.submission_type ?? (isSplit ? "split" : "single"),
