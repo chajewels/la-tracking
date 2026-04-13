@@ -1,3 +1,6 @@
+// Contract & Agreement panel — signature preview uses a forced white background
+// so transparent-PNG signatures are visible against the dark theme.
+// Build-touch 2026-04-13: bust stale Firebase Hosting cache.
 import { useState, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -228,7 +231,10 @@ export default function ContractAgreementSection({ accountId }: Props) {
                   searchResults.map((sig) => (
                     <button
                       key={sig.id}
-                      onClick={() => setConfirmSig(sig)}
+                      onClick={() => {
+                        setLinkOpen(false);
+                        setConfirmSig(sig);
+                      }}
                       className="w-full text-left px-3 py-2 rounded-lg hover:bg-muted/60 transition text-sm border border-transparent hover:border-border"
                     >
                       <span className="font-medium">{sig.full_name}</span>
