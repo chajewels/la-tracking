@@ -105,8 +105,8 @@ Deno.serve(async (req) => {
     if (currentPenalty + penalty_amount > cap) {
       const allowed = Math.max(0, cap - currentPenalty);
       if (allowed <= 0) {
-        return new Response(JSON.stringify({ 
-          error: `Penalty cap reached for month ${installmentNumber}. Max ${currency === "PHP" ? "\u20b11,000" : "\u00a52,000"} for months 1-5.` 
+        return new Response(JSON.stringify({
+          error: `Penalty cap reached for this month. Maximum ${currency === "PHP" ? "\u20b11,000" : "\u00a52,000"} for non-final months, ${currency === "PHP" ? "\u20b13,000" : "\u00a56,000"} for final month.`
         }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -161,6 +161,17 @@ Deno.serve(async (req) => {
 
     if (penErr) {
       console.error("Failed to insert penalty:", penErr);
+      // Unique-constraint violation on (schedule_id, penalty_stage, penalty_cycle)
+      const isDup = (penErr as any).code === "23505"
+        || /duplicate key|unique/i.test(penErr.message || "");
+      if (isDup) {
+        return new Response(JSON.stringify({
+          error: `A ${penalty_stage} penalty (Cycle ${nextCycle}) already exists for this month. Cannot add duplicate.`
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       return new Response(JSON.stringify({ error: "Failed to add penalty", details: penErr.message }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
