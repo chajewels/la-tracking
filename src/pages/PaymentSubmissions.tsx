@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -119,7 +119,7 @@ const statusConfig: Record<string, { label: string; color: string; icon: React.R
   needs_clarification: { label: 'Needs Clarification', color: 'bg-warning/10 text-warning border-warning/20', icon: <MessageSquare className="h-3 w-3" /> },
 };
 
-export default function PaymentSubmissions() {
+export default function PaymentSubmissions({ embedded = false }: { embedded?: boolean } = {}) {
   const { session } = useAuth();
   const { can } = usePermissions();
   const canConfirm = can('confirm_payment');
@@ -369,9 +369,11 @@ export default function PaymentSubmissions() {
 
   const pendingCount = (submissions || []).filter(s => ['submitted', 'under_review'].includes(s.status)).length;
 
+  const Wrapper = embedded ? ({ children }: { children: ReactNode }) => <>{children}</> : AppLayout;
+
   return (
-    <AppLayout>
-      <div className="p-4 sm:p-6 space-y-6 max-w-6xl mx-auto">
+    <Wrapper>
+      <div className={embedded ? 'space-y-6' : 'p-4 sm:p-6 space-y-6 max-w-6xl mx-auto'}>
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -1249,6 +1251,6 @@ export default function PaymentSubmissions() {
           )}
         </DialogContent>
       </Dialog>
-    </AppLayout>
+    </Wrapper>
   );
 }

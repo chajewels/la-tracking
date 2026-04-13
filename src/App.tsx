@@ -2,7 +2,7 @@
 import { ROUTES } from "@/constants/routes";
 import { lazy, Suspense, ComponentType } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -45,12 +45,11 @@ const SettingsPage = lazyWithRetry(() => import("./pages/SettingsPage"));
 const Waivers = lazyWithRetry(() => import("./pages/Waivers"));
 const AdminAudit = lazyWithRetry(() => import("./pages/AdminAudit"));
 const CustomerStatement = lazyWithRetry(() => import("./pages/CustomerStatement"));
-const PaymentSubmissions = lazyWithRetry(() => import("./pages/PaymentSubmissions"));
 const Reminders = lazyWithRetry(() => import("./pages/Reminders"));
 const NewAccount = lazyWithRetry(() => import("./pages/NewAccount"));
 const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
 const PaymentVault = lazyWithRetry(() => import("./pages/PaymentVault"));
-const PaymentProofs = lazyWithRetry(() => import("./pages/PaymentProofs"));
+const PaymentsHub = lazyWithRetry(() => import("./pages/PaymentsHub"));
 const Unsubscribe = lazyWithRetry(() => import("./pages/Unsubscribe"));
 
 const queryClient = new QueryClient({
@@ -103,9 +102,11 @@ const App = () => (
                 <Route path="/waivers" element={<Protected><Waivers /></Protected>} />
                 <Route path="/admin-audit" element={<Protected><AdminAudit /></Protected>} />
                 <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
-                <Route path="/payment-submissions" element={<Protected><PaymentSubmissions /></Protected>} />
+                <Route path="/payments-hub" element={<Protected><PaymentsHub /></Protected>} />
+                {/* Legacy routes — redirect to the combined hub */}
+                <Route path="/payment-submissions" element={<Navigate to="/payments-hub" replace />} />
+                <Route path="/payment-proofs" element={<Navigate to="/payments-hub?tab=proofs" replace />} />
                 <Route path="/admin/payment-vault" element={<Protected><PaymentVault /></Protected>} />
-                <Route path="/payment-proofs" element={<Protected><PaymentProofs /></Protected>} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>

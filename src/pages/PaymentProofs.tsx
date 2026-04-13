@@ -1,5 +1,5 @@
 // Payment Proofs — system-wide index sourced from customer payment_submissions
-import { useState, useMemo } from 'react';
+import { useState, useMemo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import AppLayout from '@/components/layout/AppLayout';
@@ -11,7 +11,7 @@ import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { FileText, Search, Eye, Download } from 'lucide-react';
 
-export default function PaymentProofs() {
+export default function PaymentProofs({ embedded = false }: { embedded?: boolean } = {}) {
   const { roles } = useAuth();
   const isAdmin = (roles as any[]).includes('admin');
   const isFinance = (roles as any[]).includes('finance');
@@ -47,19 +47,21 @@ export default function PaymentProofs() {
     });
   }, [proofs, search]);
 
+  const Wrapper = embedded ? ({ children }: { children: ReactNode }) => <>{children}</> : AppLayout;
+
   if (!isAdmin && !isFinance && !isStaff) {
     return (
-      <AppLayout>
-        <div className="p-6">
+      <Wrapper>
+        <div className={embedded ? '' : 'p-6'}>
           <p className="text-sm text-muted-foreground">You do not have access to this page.</p>
         </div>
-      </AppLayout>
+      </Wrapper>
     );
   }
 
   return (
-    <AppLayout>
-      <div className="p-4 sm:p-6 space-y-4">
+    <Wrapper>
+      <div className={embedded ? 'space-y-4' : 'p-4 sm:p-6 space-y-4'}>
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-xl font-semibold text-foreground flex items-center gap-2">
@@ -180,6 +182,6 @@ export default function PaymentProofs() {
           )}
         </div>
       </div>
-    </AppLayout>
+    </Wrapper>
   );
 }
