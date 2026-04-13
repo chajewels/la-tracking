@@ -217,7 +217,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
         sender_name: senderName,
         notes: notes || null,
         proof_url: proofUrl,
-        status: 'confirmed',
+        status: 'submitted',
         submission_type: isDP ? 'downpayment' : 'installment',
       };
       if (installmentNumber != null) submissionRow.installment_number = installmentNumber;
