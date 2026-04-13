@@ -127,7 +127,7 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
   const canReject = can('reject_submission');
   const canModerate = canConfirm || canReview || canReject;
   const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState<string>('pending');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [actionDialog, setActionDialog] = useState<{ sub: SubmissionRow; action: string } | null>(null);
   const [reviewerNotes, setReviewerNotes] = useState('');
@@ -456,6 +456,20 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
                               {isSplit && (
                                 <Badge variant="outline" className="text-[9px] bg-primary/10 text-primary border-primary/20">
                                   Split
+                                </Badge>
+                              )}
+                              {(sub.proof_url && sub.proof_url.trim().length > 0) ? (
+                                <span
+                                  title="Proof attached"
+                                  className="inline-flex items-center text-sm leading-none text-emerald-500">
+                                  📎
+                                </span>
+                              ) : (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[9px] bg-destructive/10 text-destructive border-destructive/30"
+                                  title="No proof of payment attached">
+                                  No proof
                                 </Badge>
                               )}
                             </div>
