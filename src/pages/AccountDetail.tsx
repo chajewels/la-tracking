@@ -62,7 +62,7 @@ export default function AccountDetail() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('payment_submissions')
-        .select('*')
+        .select('id, proof_url, payment_date, submitted_amount, sender_name, status, installment_number, reference_number, created_at')
         .eq('account_id', id!)
         .not('proof_url', 'is', null)
         .order('created_at', { ascending: false });
@@ -1972,15 +1972,22 @@ export default function AccountDetail() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => {
-                                const a = document.createElement('a');
-                                a.href = sub.proof_url;
-                                a.download = downloadName || 'proof-of-payment';
-                                a.target = '_blank';
-                                a.rel = 'noopener noreferrer';
-                                document.body.appendChild(a);
-                                a.click();
-                                document.body.removeChild(a);
+                              onClick={async () => {
+                                try {
+                                  const res = await fetch(sub.proof_url);
+                                  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                                  const blob = await res.blob();
+                                  const blobUrl = URL.createObjectURL(blob);
+                                  const a = document.createElement('a');
+                                  a.href = blobUrl;
+                                  a.download = downloadName || 'proof-of-payment';
+                                  document.body.appendChild(a);
+                                  a.click();
+                                  document.body.removeChild(a);
+                                  URL.revokeObjectURL(blobUrl);
+                                } catch (err: any) {
+                                  toast.error('Download failed: ' + (err?.message || 'unknown error'));
+                                }
                               }}
                               className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-border text-muted-foreground hover:text-primary hover:border-primary/30">
                               <Download className="h-3 w-3" /> Download

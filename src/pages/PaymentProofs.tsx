@@ -22,7 +22,7 @@ export default function PaymentProofs() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('payment_submissions')
-        .select('*, layaway_accounts(invoice_number, currency), customers(full_name)')
+        .select('id, account_id, proof_url, payment_date, submitted_amount, sender_name, status, installment_number, reference_number, created_at, layaway_accounts(invoice_number, currency), customers(full_name)')
         .not('proof_url', 'is', null)
         .order('created_at', { ascending: false });
       if (error) throw error;
@@ -148,15 +148,22 @@ export default function PaymentProofs() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => {
-                                const a = document.createElement('a');
-                                a.href = sub.proof_url;
-                                a.download = downloadName || 'proof-of-payment';
-                                a.target = '_blank';
-                                a.rel = 'noopener noreferrer';
-                                document.body.appendChild(a);
-                                a.click();
-                                document.body.removeChild(a);
+                              onClick={async () => {
+                                try {
+                                  const res = await fetch(sub.proof_url);
+                                  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                                  const blob = await res.blob();
+                                  const blobUrl = URL.createObjectURL(blob);
+                                  const a = document.createElement('a');
+                                  a.href = blobUrl;
+                                  a.download = downloadName || 'proof-of-payment';
+                                  document.body.appendChild(a);
+                                  a.click();
+                                  document.body.removeChild(a);
+                                  URL.revokeObjectURL(blobUrl);
+                                } catch (err) {
+                                  console.error('Download failed:', err);
+                                }
                               }}
                               className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-border text-muted-foreground hover:text-primary hover:border-primary/30">
                               <Download className="h-3 w-3" /> Download
