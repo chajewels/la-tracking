@@ -2,7 +2,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
-import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus, Loader2, FileText, Upload, Download, Eye } from 'lucide-react';
+import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus, Loader2, FileText, Download, Eye } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 
@@ -29,7 +29,7 @@ import ContractAgreementSection from '@/components/contract/ContractAgreementSec
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
-import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useEditPaymentAmount, useRestorePayment, useDeleteAccount, useForfeitAccount, useAccountServices, usePenaltyCapOverride, useAccountNotes, usePaymentProofs } from '@/hooks/use-supabase-data';
+import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useEditPaymentAmount, useRestorePayment, useDeleteAccount, useForfeitAccount, useAccountServices, usePenaltyCapOverride, useAccountNotes } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -56,7 +56,20 @@ export default function AccountDetail() {
   const { data: services } = useAccountServices(id);
   const { data: penaltyCapOverride } = usePenaltyCapOverride(id);
   const { data: accountNotes } = useAccountNotes(id);
-  const { data: paymentProofs } = usePaymentProofs(id);
+  const { data: submissionProofs } = useQuery({
+    queryKey: ['submission-proofs', id],
+    enabled: !!id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('payment_submissions')
+        .select('*')
+        .eq('account_id', id!)
+        .not('proof_url', 'is', null)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data as any[];
+    },
+  });
   const [copied, setCopied] = useState(false);
   const [noteText, setNoteText] = useState('');
   const [noteSaving, setNoteSaving] = useState(false);
@@ -1808,22 +1821,27 @@ export default function AccountDetail() {
           </div>
         </div>
 
-        {/* Proof of Payment Panel */}
+        {/* Proof of Payment Panel (read-only — sourced from customer submissions) */}
         <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
               <FileText className="h-4 w-4 text-primary" /> Proof of Payment
             </h3>
             {(isAdmin || isFinance || (roles as any[]).includes('staff')) && !proofFormOpen && (
-              <Button variant="outline" size="sm" className="h-7 text-xs border-primary/30 text-primary hover:bg-primary/10"
-                onClick={() => setProofFormOpen(true)}>
-                <Upload className="h-3 w-3 mr-1" /> Upload Proof
-              </Button>
+              <button
+                onClick={() => setProofFormOpen(true)}
+                className="text-[10px] text-muted-foreground hover:text-primary underline underline-offset-2"
+                title="Upload proof for a bulk-imported payment (no customer submission)">
+                Staff upload
+              </button>
             )}
           </div>
 
           {proofFormOpen && (
             <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-3">
+              <p className="text-[11px] text-muted-foreground">
+                For bulk-imported payments only — customer submissions already include proof.
+              </p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="text-[10px] text-muted-foreground uppercase block mb-1">Month #</label>
@@ -1894,7 +1912,6 @@ export default function AccountDetail() {
                       setProofMonth('');
                       setProofFile(null);
                       setProofDate(new Date().toISOString().split('T')[0]);
-                      queryClient.invalidateQueries({ queryKey: ['payment-proofs', id] });
                     } catch (err: any) {
                       toast.error(err.message || 'Failed to upload proof');
                     } finally {
@@ -1907,47 +1924,55 @@ export default function AccountDetail() {
             </div>
           )}
 
-          {(!paymentProofs || paymentProofs.length === 0) && !proofFormOpen && (
-            <p className="text-xs text-muted-foreground text-center py-4">No proof of payment uploaded yet</p>
+          {(!submissionProofs || submissionProofs.length === 0) && !proofFormOpen && (
+            <p className="text-xs text-muted-foreground text-center py-4">No proof of payment on file yet</p>
           )}
 
-          {paymentProofs && paymentProofs.length > 0 && (
+          {submissionProofs && submissionProofs.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-left text-[10px] text-muted-foreground uppercase border-b border-border">
-                    <th className="py-2 pr-2">Month</th>
-                    <th className="py-2 pr-2">Submitted</th>
-                    <th className="py-2 pr-2">File</th>
-                    <th className="py-2 pr-2">Uploaded By</th>
-                    <th className="py-2 pr-2">Upload Date</th>
+                    <th className="py-2 pr-2">Date</th>
+                    <th className="py-2 pr-2">Amount</th>
+                    <th className="py-2 pr-2">Reference</th>
+                    <th className="py-2 pr-2">Submitted By</th>
+                    <th className="py-2 pr-2">Status</th>
                     <th className="py-2 pr-2 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {paymentProofs.map((proof: any) => (
-                    <tr key={proof.id} className="border-b border-border/50">
-                      <td className="py-2 pr-2">Month {proof.installment_number}</td>
-                      <td className="py-2 pr-2">{proof.submission_date}</td>
-                      <td className="py-2 pr-2 truncate max-w-[200px]" title={proof.file_name}>{proof.file_name}</td>
-                      <td className="py-2 pr-2">{proof.uploaded_by_name || 'Unknown'}</td>
-                      <td className="py-2 pr-2 text-muted-foreground">
-                        {new Date(proof.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </td>
-                      <td className="py-2 pr-2 text-right">
-                        <div className="inline-flex gap-1">
-                          <a href={proof.file_url} target="_blank" rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-border text-muted-foreground hover:text-primary hover:border-primary/30">
-                            <Eye className="h-3 w-3" /> View
-                          </a>
-                          <a href={proof.file_url} download={proof.file_name}
-                            className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-border text-muted-foreground hover:text-primary hover:border-primary/30">
-                            <Download className="h-3 w-3" /> Download
-                          </a>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {submissionProofs.map((sub: any) => {
+                    const statusColor = sub.status === 'confirmed' ? 'text-emerald-400'
+                      : sub.status === 'rejected' ? 'text-red-400'
+                      : sub.status === 'needs_clarification' ? 'text-amber-400'
+                      : 'text-muted-foreground';
+                    const ext = (sub.proof_url || '').split('.').pop()?.split('?')[0] || 'file';
+                    const downloadName = `${(account.customers?.full_name || 'Customer').replace(/\s+/g, '')}_${account.invoice_number || ''}_${sub.payment_date}.${ext}`;
+                    return (
+                      <tr key={sub.id} className="border-b border-border/50">
+                        <td className="py-2 pr-2">{sub.payment_date}</td>
+                        <td className="py-2 pr-2 font-medium">{formatCurrency(Number(sub.submitted_amount), currency as Currency)}</td>
+                        <td className="py-2 pr-2 truncate max-w-[180px]" title={sub.notes || sub.reference_number || ''}>
+                          {sub.reference_number || sub.notes || <span className="text-muted-foreground">—</span>}
+                        </td>
+                        <td className="py-2 pr-2">{sub.sender_name || <span className="text-muted-foreground">—</span>}</td>
+                        <td className={`py-2 pr-2 capitalize ${statusColor}`}>{(sub.status || '').replace(/_/g, ' ')}</td>
+                        <td className="py-2 pr-2 text-right">
+                          <div className="inline-flex gap-1">
+                            <a href={sub.proof_url} target="_blank" rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-border text-muted-foreground hover:text-primary hover:border-primary/30">
+                              <Eye className="h-3 w-3" /> View
+                            </a>
+                            <a href={sub.proof_url} download={downloadName}
+                              className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-border text-muted-foreground hover:text-primary hover:border-primary/30">
+                              <Download className="h-3 w-3" /> Download
+                            </a>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
