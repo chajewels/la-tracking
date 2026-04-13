@@ -149,10 +149,11 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
 
   const isValid = parsedAmount > 0 && parsedAmount <= remainingBalance && paymentDate && !!proofFile;
 
-  // Upload proof and insert a payment_submissions row linked to this payment.
-  // Returns proof_url on success, null on failure (which we surface as a toast but
-  // do not block the already-recorded payment for).
-  const uploadProofAndRecordSubmission = async (opts: { isDP: boolean }): Promise<string | null> => {
+  // Upload proof and insert/update a payment_submissions row linked to this payment.
+  // When existingSubmissionId is supplied (the staff path, where record-payment
+  // already created the row), UPDATE that row with proof_url + sender_name instead
+  // of inserting a duplicate. Returns proof_url on success, null on failure.
+  const uploadProofAndRecordSubmission = async (opts: { isDP: boolean; existingSubmissionId?: string | null }): Promise<string | null> => {
     if (!proofFile) return null;
     try {
       const isDP = opts.isDP;
@@ -175,14 +176,34 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
         .getPublicUrl(storagePath);
       const proofUrl = urlData.publicUrl;
 
-      // Fetch customer_id for the submission row
+      const senderName = profile?.full_name || user?.email || 'Staff';
+
+      if (opts.existingSubmissionId) {
+        // Staff path: record-payment already created the payment_submissions row.
+        // Update that row in place — never insert a duplicate.
+        const updateFields: any = {
+          proof_url: proofUrl,
+          sender_name: senderName,
+        };
+        if (installmentNumber != null) updateFields.installment_number = installmentNumber;
+
+        const { error: updErr } = await supabase
+          .from('payment_submissions')
+          .update(updateFields)
+          .eq('id', opts.existingSubmissionId);
+        if (updErr) {
+          console.warn('[RecordPaymentDialog] payment_submissions update failed:', updErr.message);
+          toast.warning('Payment recorded, but proof could not be attached to the submission. Please re-upload via account page.');
+        }
+        return proofUrl;
+      }
+
+      // Admin/finance path: no prior submission row exists — insert one.
       const { data: acct } = await supabase
         .from('layaway_accounts')
         .select('customer_id')
         .eq('id', accountId)
         .single();
-
-      const senderName = profile?.full_name || user?.email || 'Staff';
 
       const submissionRow: any = {
         account_id: accountId,
@@ -273,7 +294,9 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
         },
       });
       if (error) throw error;
-      await uploadProofAndRecordSubmission({ isDP });
+      const result = data as any;
+      const existingSubmissionId: string | null = result?.submission_id ?? null;
+      await uploadProofAndRecordSubmission({ isDP, existingSubmissionId });
       if (data?.submitted_for_confirmation) {
         toast.success('Payment submitted for confirmation. Admin/Finance will review.');
       } else {
