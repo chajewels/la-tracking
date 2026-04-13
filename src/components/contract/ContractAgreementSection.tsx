@@ -170,7 +170,8 @@ export default function ContractAgreementSection({ accountId }: Props) {
                 <img
                   src={signature.signature_image}
                   alt="Customer signature"
-                  className="w-full rounded-lg border border-border"
+                  className="w-full rounded-lg border border-border bg-white"
+                  style={{ backgroundColor: '#ffffff' }}
                 />
                 <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                   <div><span className="text-muted-foreground">Email:</span> <span>{signature.email}</span></div>
@@ -210,11 +211,14 @@ export default function ContractAgreementSection({ accountId }: Props) {
                 <DialogTitle>Link Signature to Account</DialogTitle>
               </DialogHeader>
               <Input
-                placeholder="Search by name or email"
+                placeholder="Type at least 2 characters to search..."
                 value={searchQuery}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 autoFocus
               />
+              <p className="text-xs text-muted-foreground mt-1">
+                Search by name or email (minimum 2 characters)
+              </p>
               <div className="max-h-60 overflow-y-auto space-y-1 mt-2">
                 {debouncedQuery.length < 2 ? (
                   <p className="text-xs text-muted-foreground text-center py-4">Type at least 2 characters to search</p>
