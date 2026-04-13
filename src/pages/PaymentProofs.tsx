@@ -24,6 +24,7 @@ export default function PaymentProofs({ embedded = false }: { embedded?: boolean
       const { data, error } = await supabase
         .from('payment_submissions')
         .select('id, account_id, proof_url, payment_date, submitted_amount, sender_name, status, installment_number, reference_number, created_at, layaway_accounts(invoice_number, currency), customers(full_name)')
+        .eq('status', 'confirmed')
         .not('proof_url', 'is', null)
         .order('created_at', { ascending: false });
       if (error) throw error;

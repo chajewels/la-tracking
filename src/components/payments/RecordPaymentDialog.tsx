@@ -198,7 +198,9 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
         return proofUrl;
       }
 
-      // Admin/finance path: no prior submission row exists — insert one.
+      // Admin/finance path: record-payment already confirmed the payment directly
+      // in `payments`. Insert a matching payment_submissions row with
+      // status='confirmed' so the proof surfaces in Proof of Payment immediately.
       const { data: acct } = await supabase
         .from('layaway_accounts')
         .select('customer_id')
@@ -215,7 +217,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
         sender_name: senderName,
         notes: notes || null,
         proof_url: proofUrl,
-        status: 'submitted',
+        status: 'confirmed',
         submission_type: isDP ? 'downpayment' : 'installment',
       };
       if (installmentNumber != null) submissionRow.installment_number = installmentNumber;
