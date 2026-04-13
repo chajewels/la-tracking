@@ -1933,10 +1933,10 @@ export default function AccountDetail() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-left text-[10px] text-muted-foreground uppercase border-b border-border">
-                    <th className="py-2 pr-2">Date</th>
+                    <th className="py-2 pr-2">Month</th>
+                    <th className="py-2 pr-2">Submitted Date</th>
                     <th className="py-2 pr-2">Amount</th>
-                    <th className="py-2 pr-2">Reference</th>
-                    <th className="py-2 pr-2">Submitted By</th>
+                    <th className="py-2 pr-2">Sender</th>
                     <th className="py-2 pr-2">Status</th>
                     <th className="py-2 pr-2 text-right">Actions</th>
                   </tr>
@@ -1948,26 +1948,43 @@ export default function AccountDetail() {
                       : sub.status === 'needs_clarification' ? 'text-amber-400'
                       : 'text-muted-foreground';
                     const ext = (sub.proof_url || '').split('.').pop()?.split('?')[0] || 'file';
-                    const downloadName = `${(account.customers?.full_name || 'Customer').replace(/\s+/g, '')}_${account.invoice_number || ''}_${sub.payment_date}.${ext}`;
+                    const safeCustomer = (account.customers?.full_name || 'Customer').replace(/[^a-zA-Z0-9]/g, '');
+                    const safeInvoice = (account.invoice_number || '').replace(/[^a-zA-Z0-9]/g, '');
+                    const monthSeg = sub.installment_number ? `Month${sub.installment_number}` : 'Month';
+                    const downloadName = `${safeCustomer}_${safeInvoice}_${monthSeg}_${sub.payment_date}.${ext}`;
+                    const senderLabel = sub.sender_name || sub.submitted_by_name || account.customers?.full_name || '—';
                     return (
                       <tr key={sub.id} className="border-b border-border/50">
+                        <td className="py-2 pr-2">
+                          {sub.installment_number ? `Month ${sub.installment_number}` : <span className="text-muted-foreground">—</span>}
+                        </td>
                         <td className="py-2 pr-2">{sub.payment_date}</td>
                         <td className="py-2 pr-2 font-medium">{formatCurrency(Number(sub.submitted_amount), currency as Currency)}</td>
-                        <td className="py-2 pr-2 truncate max-w-[180px]" title={sub.notes || sub.reference_number || ''}>
-                          {sub.reference_number || sub.notes || <span className="text-muted-foreground">—</span>}
-                        </td>
-                        <td className="py-2 pr-2">{sub.sender_name || <span className="text-muted-foreground">—</span>}</td>
+                        <td className="py-2 pr-2">{senderLabel}</td>
                         <td className={`py-2 pr-2 capitalize ${statusColor}`}>{(sub.status || '').replace(/_/g, ' ')}</td>
                         <td className="py-2 pr-2 text-right">
                           <div className="inline-flex gap-1">
-                            <a href={sub.proof_url} target="_blank" rel="noopener noreferrer"
+                            <button
+                              type="button"
+                              onClick={() => window.open(sub.proof_url, '_blank', 'noopener,noreferrer')}
                               className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-border text-muted-foreground hover:text-primary hover:border-primary/30">
                               <Eye className="h-3 w-3" /> View
-                            </a>
-                            <a href={sub.proof_url} download={downloadName}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const a = document.createElement('a');
+                                a.href = sub.proof_url;
+                                a.download = downloadName || 'proof-of-payment';
+                                a.target = '_blank';
+                                a.rel = 'noopener noreferrer';
+                                document.body.appendChild(a);
+                                a.click();
+                                document.body.removeChild(a);
+                              }}
                               className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-border text-muted-foreground hover:text-primary hover:border-primary/30">
                               <Download className="h-3 w-3" /> Download
-                            </a>
+                            </button>
                           </div>
                         </td>
                       </tr>

@@ -95,7 +95,8 @@ export default function PaymentProofs() {
                   <tr className="text-left text-[10px] text-muted-foreground uppercase border-b border-border bg-muted/30">
                     <th className="py-2.5 px-3">Customer</th>
                     <th className="py-2.5 px-3">Invoice</th>
-                    <th className="py-2.5 px-3">Submitted</th>
+                    <th className="py-2.5 px-3">Month</th>
+                    <th className="py-2.5 px-3">Submitted Date</th>
                     <th className="py-2.5 px-3">Amount</th>
                     <th className="py-2.5 px-3">Sender</th>
                     <th className="py-2.5 px-3">Status</th>
@@ -113,7 +114,11 @@ export default function PaymentProofs() {
                       : sub.status === 'needs_clarification' ? 'text-amber-400'
                       : 'text-muted-foreground';
                     const ext = (sub.proof_url || '').split('.').pop()?.split('?')[0] || 'file';
-                    const downloadName = `${(customerName || 'Customer').replace(/\s+/g, '')}_${invoice}_${sub.payment_date}.${ext}`;
+                    const safeCustomer = (customerName || 'Customer').replace(/[^a-zA-Z0-9]/g, '');
+                    const safeInvoice = (invoice || '').replace(/[^a-zA-Z0-9]/g, '');
+                    const monthSeg = sub.installment_number ? `Month${sub.installment_number}` : 'Month';
+                    const downloadName = `${safeCustomer}_${safeInvoice}_${monthSeg}_${sub.payment_date}.${ext}`;
+                    const senderLabel = sub.sender_name || sub.submitted_by_name || customerName;
                     return (
                       <tr key={sub.id} className="border-b border-border/50 hover:bg-muted/20">
                         <td className="py-2 px-3 text-foreground">{customerName}</td>
@@ -126,20 +131,36 @@ export default function PaymentProofs() {
                             <span className="text-muted-foreground">#{invoice}</span>
                           )}
                         </td>
+                        <td className="py-2 px-3">
+                          {sub.installment_number ? `Month ${sub.installment_number}` : <span className="text-muted-foreground">—</span>}
+                        </td>
                         <td className="py-2 px-3">{sub.payment_date}</td>
                         <td className="py-2 px-3 font-medium">{formatCurrency(Number(sub.submitted_amount), currency)}</td>
-                        <td className="py-2 px-3">{sub.sender_name || <span className="text-muted-foreground">—</span>}</td>
+                        <td className="py-2 px-3">{senderLabel}</td>
                         <td className={`py-2 px-3 capitalize ${statusColor}`}>{(sub.status || '').replace(/_/g, ' ')}</td>
                         <td className="py-2 px-3 text-right">
                           <div className="inline-flex gap-1">
-                            <a href={sub.proof_url} target="_blank" rel="noopener noreferrer"
+                            <button
+                              type="button"
+                              onClick={() => window.open(sub.proof_url, '_blank', 'noopener,noreferrer')}
                               className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-border text-muted-foreground hover:text-primary hover:border-primary/30">
                               <Eye className="h-3 w-3" /> View
-                            </a>
-                            <a href={sub.proof_url} download={downloadName}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const a = document.createElement('a');
+                                a.href = sub.proof_url;
+                                a.download = downloadName || 'proof-of-payment';
+                                a.target = '_blank';
+                                a.rel = 'noopener noreferrer';
+                                document.body.appendChild(a);
+                                a.click();
+                                document.body.removeChild(a);
+                              }}
                               className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-border text-muted-foreground hover:text-primary hover:border-primary/30">
                               <Download className="h-3 w-3" /> Download
-                            </a>
+                            </button>
                           </div>
                         </td>
                       </tr>

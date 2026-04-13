@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, ArrowRight, AlertTriangle, CheckCircle2, Clock, Save } from 'lucide-react';
+import { Plus, ArrowRight, AlertTriangle, CheckCircle2, Clock, Save, Upload, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -74,9 +74,10 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   const [step, setStep] = useState<'input' | 'preview'>('input');
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [proofFile, setProofFile] = useState<File | null>(null);
   const submittingRef = useRef(false); // duplicate-submission guard
   const recordPayment = useRecordPayment();
-  const { roles } = useAuth();
+  const { roles, user, profile } = useAuth();
   const r = roles as AppRole[];
   const isAdminOrFinance = r.includes('admin') || r.includes('finance');
   const { loadDraft, saveDraft, clearDraft, restoredDraft, setRestoredDraft } = usePaymentDraft(accountId);
@@ -146,7 +147,72 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     }
   }
 
-  const isValid = parsedAmount > 0 && parsedAmount <= remainingBalance && paymentDate;
+  const isValid = parsedAmount > 0 && parsedAmount <= remainingBalance && paymentDate && !!proofFile;
+
+  // Upload proof and insert a payment_submissions row linked to this payment.
+  // Returns proof_url on success, null on failure (which we surface as a toast but
+  // do not block the already-recorded payment for).
+  const uploadProofAndRecordSubmission = async (opts: { isDP: boolean }): Promise<string | null> => {
+    if (!proofFile) return null;
+    try {
+      const isDP = opts.isDP;
+      const firstUnpaid = unpaidItems[0];
+      const installmentNumber = isDP ? null : (firstUnpaid?.installment_number ?? null);
+      const customerName = (profile?.full_name || 'Staff').replace(/[^a-zA-Z0-9]/g, '');
+      const safeInvoice = (invoiceNumber || '').replace(/[^a-zA-Z0-9]/g, '');
+      const ext = (proofFile.name.split('.').pop() || 'jpg').toLowerCase();
+      const monthSegment = isDP ? 'DP' : (installmentNumber ? `Month${installmentNumber}` : 'MonthX');
+      const fileName = `${customerName}_${safeInvoice}_${monthSegment}_${paymentDate}.${ext}`;
+      const storagePath = `${accountId}/${fileName}`;
+
+      const { error: uploadErr } = await supabase.storage
+        .from('payment-proofs')
+        .upload(storagePath, proofFile, { cacheControl: '3600', upsert: false });
+      if (uploadErr) throw uploadErr;
+
+      const { data: urlData } = supabase.storage
+        .from('payment-proofs')
+        .getPublicUrl(storagePath);
+      const proofUrl = urlData.publicUrl;
+
+      // Fetch customer_id for the submission row
+      const { data: acct } = await supabase
+        .from('layaway_accounts')
+        .select('customer_id')
+        .eq('id', accountId)
+        .single();
+
+      const senderName = profile?.full_name || user?.email || 'Staff';
+
+      const submissionRow: any = {
+        account_id: accountId,
+        customer_id: acct?.customer_id,
+        submitted_amount: parsedAmount,
+        payment_date: paymentDate,
+        payment_method: paymentMethod,
+        reference_number: isDP && invoiceNumber ? `DP-${invoiceNumber}` : null,
+        sender_name: senderName,
+        notes: notes || null,
+        proof_url: proofUrl,
+        status: 'confirmed',
+        submission_type: isDP ? 'downpayment' : 'installment',
+      };
+      if (installmentNumber != null) submissionRow.installment_number = installmentNumber;
+
+      const { error: insErr } = await supabase
+        .from('payment_submissions')
+        .insert(submissionRow);
+      if (insErr) {
+        console.warn('[RecordPaymentDialog] payment_submissions insert failed:', insErr.message);
+        toast.warning('Payment recorded, but proof record could not be saved. Please re-upload via account page.');
+      }
+      return proofUrl;
+    } catch (err: any) {
+      console.warn('[RecordPaymentDialog] proof upload failed:', err?.message);
+      toast.warning(`Proof upload failed: ${err?.message || 'unknown error'}`);
+      return null;
+    }
+  };
 
   const handlePreview = async () => {
     if (!isValid) return;
@@ -207,6 +273,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
         },
       });
       if (error) throw error;
+      await uploadProofAndRecordSubmission({ isDP });
       if (data?.submitted_for_confirmation) {
         toast.success('Payment submitted for confirmation. Admin/Finance will review.');
       } else {
@@ -244,6 +311,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
         carry_over: carryOver,
         submission_type: isDP ? 'downpayment' : 'installment',
       });
+      await uploadProofAndRecordSubmission({ isDP });
       toast.success(`Payment of ${formatCurrency(parsedAmount, currency)} recorded successfully`);
       if (paymentType !== 'downpayment') {
         const info = buildSessionPaymentInfo();
@@ -289,6 +357,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     setPaymentDate(new Date().toISOString().split('T')[0]);
     setStep('input');
     setPreview(null);
+    setProofFile(null);
     clearDraft();
     setOpen(false);
   };
@@ -481,6 +550,41 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
                 className="bg-background border-border resize-none"
                 rows={2}
               />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-card-foreground">Proof of Payment *</Label>
+              {proofFile ? (
+                <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs">
+                  <Upload className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <span className="truncate flex-1 text-card-foreground">{proofFile.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => setProofFile(null)}
+                    className="text-muted-foreground hover:text-destructive"
+                    aria-label="Remove file">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <label className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background/50 px-3 py-3 text-xs text-muted-foreground cursor-pointer hover:border-primary/50 hover:text-primary transition-colors">
+                  <Upload className="h-4 w-4" />
+                  <span>Attach screenshot or receipt (required)</span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/jpg,image/png,image/webp,application/pdf"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) return;
+                      if (f.size > 10 * 1024 * 1024) { toast.error('File must be less than 10MB'); return; }
+                      setProofFile(f);
+                    }}
+                  />
+                </label>
+              )}
+              <p className="text-[10px] text-muted-foreground">
+                Required — images (JPG, PNG, WEBP) or PDF, max 10MB
+              </p>
             </div>
             {/* Underpayment warning — shown instead of normal footer when amount < first installment due */}
             {isUnderpayment ? (

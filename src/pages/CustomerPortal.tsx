@@ -643,6 +643,7 @@ export default function CustomerPortal() {
               allAccounts={data.accounts}
               paymentMethods={data.payment_methods}
               portalToken={token!}
+              customerName={data.customer_name}
               onClose={() => { setSelectedAccount(null); setInitialDetailTab('overview'); setInitialPaymentMode('single'); }}
               onRefresh={fetchPortal}
               initialTab={initialDetailTab}
@@ -883,11 +884,12 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
 }
 
 /* ─── Account Detail Panel ─── */
-function AccountDetail({ account, allAccounts, paymentMethods, portalToken, onClose, onRefresh, initialTab = 'overview', initialPaymentMode = 'single' }: {
+function AccountDetail({ account, allAccounts, paymentMethods, portalToken, customerName, onClose, onRefresh, initialTab = 'overview', initialPaymentMode = 'single' }: {
   account: PortalAccount;
   allAccounts: PortalAccount[];
   paymentMethods: PaymentMethod[];
   portalToken: string;
+  customerName: string;
   onClose: () => void;
   onRefresh: () => void;
   initialTab?: 'overview' | 'pay' | 'submissions';
@@ -985,6 +987,7 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, onCl
             allAccounts={allAccounts}
             paymentMethods={paymentMethods}
             portalToken={portalToken}
+            customerName={customerName}
             initialPaymentMode={initialPaymentMode}
             onSuccess={() => {
               setActiveTab('submissions');
@@ -1402,11 +1405,12 @@ function PaymentMethodCard({ method, onSelect, copiedField, setCopied }: {
 }
 
 /* ─── Pay Now Tab ─── */
-function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalToken, onSuccess, initialPaymentMode = 'single' }: {
+function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalToken, customerName, onSuccess, initialPaymentMode = 'single' }: {
   account: PortalAccount;
   allAccounts: PortalAccount[];
   paymentMethods: PaymentMethod[];
   portalToken: string;
+  customerName: string;
   onSuccess: () => void;
   initialPaymentMode?: 'single' | 'split';
 }) {
@@ -1587,12 +1591,25 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
 
     setSubmitting(true);
 
+    // Derive installment number from first unpaid schedule row for the primary account
+    const isSplit = paymentMode === 'split';
+    const primaryAccountForName = isSplit
+      ? (allAccounts.find(a => a.id === Object.entries(splitAllocations).find(([, v]) => parseFloat(v) > 0)?.[0]) || account)
+      : account;
+    const firstUnpaidRow = [...(primaryAccountForName.schedule || [])]
+      .filter(s => s.status !== 'paid' && s.status !== 'cancelled')
+      .sort((a, b) => a.installment_number - b.installment_number)[0];
+    const installmentNumber = firstUnpaidRow?.installment_number ?? null;
+
     try {
       let proofUrl: string | null = null;
       if (proofFile) {
-        const ext = proofFile.name.split('.').pop() || 'jpg';
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const filePath = `${account.id}/${timestamp}_${proofFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')}.${ext}`;
+        const ext = (proofFile.name.split('.').pop() || 'jpg').toLowerCase();
+        const safeCustomer = (customerName || 'Customer').replace(/[^a-zA-Z0-9]/g, '');
+        const safeInvoice = (primaryAccountForName.invoice_number || '').replace(/[^a-zA-Z0-9]/g, '');
+        const monthSegment = installmentNumber ? `Month${installmentNumber}` : 'MonthX';
+        const fileName = `${safeCustomer}_${safeInvoice}_${monthSegment}_${paymentDate}.${ext}`;
+        const filePath = `${primaryAccountForName.id}/${fileName}`;
         const uploadRes = await fetch(
           `${SUPABASE_URL}/storage/v1/object/payment-proofs/${filePath}`,
           {
@@ -1611,7 +1628,6 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
       }
 
       // Build allocations for split
-      const isSplit = paymentMode === 'split';
       const allocations = isSplit
         ? Object.entries(splitAllocations)
             .filter(([, v]) => parseFloat(v) > 0)
@@ -1643,6 +1659,7 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
           sender_name: senderName || null,
           notes: notes || null,
           proof_url: proofUrl,
+          installment_number: installmentNumber,
           submission_type: isSplit ? 'split' : portalPaymentType,
           allocations: isSplit ? allocations : undefined,
         }),
