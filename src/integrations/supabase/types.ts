@@ -930,6 +930,60 @@ export type Database = {
         }
         Relationships: []
       }
+      payment_proofs: {
+        Row: {
+          account_id: string
+          created_at: string
+          file_name: string | null
+          file_url: string
+          id: string
+          installment_number: number | null
+          payment_id: string | null
+          submission_date: string | null
+          uploaded_by_name: string | null
+          uploaded_by_user_id: string | null
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          file_name?: string | null
+          file_url: string
+          id?: string
+          installment_number?: number | null
+          payment_id?: string | null
+          submission_date?: string | null
+          uploaded_by_name?: string | null
+          uploaded_by_user_id?: string | null
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          file_name?: string | null
+          file_url?: string
+          id?: string
+          installment_number?: number | null
+          payment_id?: string | null
+          submission_date?: string | null
+          uploaded_by_name?: string | null
+          uploaded_by_user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_proofs_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_proofs_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payment_submission_allocations: {
         Row: {
           account_id: string
@@ -980,6 +1034,7 @@ export type Database = {
           customer_edited_at: string | null
           customer_id: string
           id: string
+          installment_number: number | null
           notes: string | null
           payment_date: string
           payment_method: string
@@ -1001,6 +1056,7 @@ export type Database = {
           customer_edited_at?: string | null
           customer_id: string
           id?: string
+          installment_number?: number | null
           notes?: string | null
           payment_date: string
           payment_method: string
@@ -1022,6 +1078,7 @@ export type Database = {
           customer_edited_at?: string | null
           customer_id?: string
           id?: string
+          installment_number?: number | null
           notes?: string | null
           payment_date?: string
           payment_method?: string
