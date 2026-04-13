@@ -37,7 +37,7 @@ serve(async (req) => {
 
     const { data: nextRow, error: nextErr } = await supabase
       .from("layaway_schedule")
-      .select("id")
+      .select("id, carried_amount")
       .eq("account_id", account_id)
       .gt("installment_number", source.installment_number)
       .not("status", "in", '("paid","cancelled")')
@@ -46,6 +46,18 @@ serve(async (req) => {
       .single();
 
     if (nextErr || !nextRow) return new Response(JSON.stringify({ error: "No eligible next row found" }), { status: 400, headers: corsHeaders });
+
+    // Guard against overwriting an existing carried_amount on the next row.
+    // Health Check 21 flags accounts with multiple carried rows — this prevents
+    // silently nuking a prior carry with a new one.
+    if (Number(nextRow.carried_amount) > 0) {
+      return new Response(
+        JSON.stringify({
+          error: "Next row already has a carried amount. Clear it first before applying carry-over."
+        }),
+        { status: 400, headers: corsHeaders }
+      );
+    }
 
     await supabase
       .from("layaway_schedule")
@@ -68,6 +80,35 @@ serve(async (req) => {
         .update({ status: "partially_paid", updated_at: new Date().toISOString() })
         .eq("id", schedule_row_id);
       return new Response(JSON.stringify({ error: "Failed to write carry, reverted" }), { status: 500, headers: corsHeaders });
+    }
+
+    // Recompute account.status after the source row transitioned to 'paid'.
+    // If there are no more overdue rows, an account previously marked 'overdue'
+    // should flip back to 'active'. (total_paid and remaining_balance do not change
+    // from a carry-over — no money moved — so they are not touched here.)
+    const { data: schedRows } = await supabase
+      .from("layaway_schedule")
+      .select("status, due_date")
+      .eq("account_id", account_id)
+      .neq("status", "cancelled");
+
+    const today = new Date().toISOString().split("T")[0];
+    const hasOverdue = (schedRows || []).some(
+      (r: any) => r.status === "overdue" ||
+        (r.status !== "paid" && r.due_date < today)
+    );
+
+    const { data: acct } = await supabase
+      .from("layaway_accounts")
+      .select("status")
+      .eq("id", account_id)
+      .single();
+
+    if (acct && acct.status === "overdue" && !hasOverdue) {
+      await supabase
+        .from("layaway_accounts")
+        .update({ status: "active" })
+        .eq("id", account_id);
     }
 
     await supabase.from("audit_logs").insert({

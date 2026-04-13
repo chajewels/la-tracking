@@ -988,9 +988,14 @@ export default function PaymentSubmissions() {
                       .from('payment_allocations')
                       .select('id, allocated_amount')
                       .eq('schedule_id', modal.sourceRowId);
-                    const { data: allMonth1Allocs } = modal.paymentId
+                    const { data: allMonth1Allocs, error: allocQueryErr } = modal.paymentId
                       ? await allocQuery.eq('payment_id', modal.paymentId)
                       : await allocQuery;
+
+                    if (allocQueryErr) {
+                      toast.error('Keep decision failed: ' + allocQueryErr.message);
+                      return;
+                    }
 
                     // Pick the allocation with the largest amount (the base installment)
                     const existingAlloc = (allMonth1Allocs || [])
@@ -1012,28 +1017,182 @@ export default function PaymentSubmissions() {
                     }
                     // Remove any spillover allocations to subsequent months from this payment
                     if (modal.paymentId) {
-                      const { data: spillAllocations } = await supabase
+                      const { data: spillAllocations, error: spillFetchErr } = await supabase
                         .from('payment_allocations')
                         .select('id, schedule_id')
                         .eq('payment_id', modal.paymentId)
                         .neq('schedule_id', modal.sourceRowId);
 
+                      if (spillFetchErr) {
+                        toast.error('Keep decision failed while fetching spillover allocations: ' + spillFetchErr.message);
+                        return;
+                      }
+
                       if (spillAllocations && spillAllocations.length > 0) {
-                        await supabase
+                        const { error: spillDelErr } = await supabase
                           .from('payment_allocations')
                           .delete()
                           .in('id', spillAllocations.map((a: any) => a.id));
+                        if (spillDelErr) {
+                          toast.error('Keep decision failed while deleting spillover allocations: ' + spillDelErr.message);
+                          return;
+                        }
 
-                        // Reset spillover schedule rows back to pending
-                        const spillScheduleIds = spillAllocations.map((a: any) => a.schedule_id);
-                        await supabase
-                          .from('layaway_schedule')
-                          .update({
-                            paid_amount: 0,
-                            status: 'pending'
-                          })
-                          .in('id', spillScheduleIds);
+                        // Recompute each spillover row from its remaining non-voided allocations
+                        const spillScheduleIds = Array.from(new Set(spillAllocations.map((a: any) => a.schedule_id)));
+
+                        // Fetch voided payment ids once for the account
+                        const { data: voidedPmts, error: voidedErr } = await supabase
+                          .from('payments')
+                          .select('id')
+                          .eq('account_id', modal.accountId)
+                          .not('voided_at', 'is', null);
+                        if (voidedErr) {
+                          toast.error('Keep decision failed while reading payments: ' + voidedErr.message);
+                          return;
+                        }
+                        const voidedIds = new Set((voidedPmts || []).map((p: any) => p.id));
+
+                        const todayStr = new Date().toISOString().split('T')[0];
+
+                        for (const scheduleId of spillScheduleIds) {
+                          const { data: validAllocs, error: validAllocsErr } = await supabase
+                            .from('payment_allocations')
+                            .select('allocated_amount, payment_id')
+                            .eq('schedule_id', scheduleId);
+                          if (validAllocsErr) {
+                            toast.error('Keep decision failed while recomputing schedule row: ' + validAllocsErr.message);
+                            return;
+                          }
+                          const activeAllocs = (validAllocs || []).filter(
+                            (a: any) => !voidedIds.has(a.payment_id)
+                          );
+                          const newPaidAmount = Math.round(
+                            activeAllocs.reduce((sum: number, a: any) => sum + Number(a.allocated_amount), 0) * 100
+                          ) / 100;
+
+                          const { data: row, error: rowErr } = await supabase
+                            .from('layaway_schedule')
+                            .select('base_installment_amount, penalty_amount, carried_amount, due_date')
+                            .eq('id', scheduleId)
+                            .single();
+                          if (rowErr || !row) {
+                            toast.error('Keep decision failed while reading schedule row: ' + (rowErr?.message || 'not found'));
+                            return;
+                          }
+
+                          const ceiling = Number(row.base_installment_amount)
+                            + Number(row.penalty_amount || 0)
+                            + Number(row.carried_amount || 0);
+                          const isPastDue = row.due_date < todayStr;
+
+                          let newStatus: string;
+                          if (newPaidAmount >= ceiling - 0.01) {
+                            newStatus = 'paid';
+                          } else if (newPaidAmount > 0) {
+                            newStatus = 'partially_paid';
+                          } else if (isPastDue) {
+                            newStatus = 'overdue';
+                          } else {
+                            newStatus = 'pending';
+                          }
+
+                          const { error: schedUpdErr } = await supabase
+                            .from('layaway_schedule')
+                            .update({ paid_amount: newPaidAmount, status: newStatus })
+                            .eq('id', scheduleId);
+                          if (schedUpdErr) {
+                            toast.error('Keep decision failed while updating schedule row: ' + schedUpdErr.message);
+                            return;
+                          }
+                        }
                       }
+                    }
+
+                    // Sync source row paid_amount to match the override amount
+                    const { error: srcUpdErr } = await supabase
+                      .from('layaway_schedule')
+                      .update({ paid_amount: modal.paidAmount })
+                      .eq('id', modal.sourceRowId);
+                    if (srcUpdErr) {
+                      toast.error('Keep decision failed while syncing source row: ' + srcUpdErr.message);
+                      return;
+                    }
+
+                    // ── Recompute account totals using canonical formula ──
+                    // total_paid        = SUM(payments.amount_paid WHERE voided_at IS NULL)
+                    // remaining_balance = total_amount + Σ(non-waived penalties) - total_paid
+                    const { data: allPays, error: paysErr } = await supabase
+                      .from('payments')
+                      .select('amount_paid')
+                      .eq('account_id', modal.accountId)
+                      .is('voided_at', null);
+                    if (paysErr) {
+                      toast.error('Keep decision failed while reading payments: ' + paysErr.message);
+                      return;
+                    }
+                    const newTotalPaid = Math.round(
+                      (allPays || []).reduce((s: number, p: any) => s + Number(p.amount_paid), 0) * 100
+                    ) / 100;
+
+                    const { data: activePens, error: pensErr } = await supabase
+                      .from('penalty_fees')
+                      .select('penalty_amount')
+                      .eq('account_id', modal.accountId)
+                      .neq('status', 'waived');
+                    if (pensErr) {
+                      toast.error('Keep decision failed while reading penalties: ' + pensErr.message);
+                      return;
+                    }
+                    const activePenaltySum = (activePens || [])
+                      .reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
+
+                    const { data: acctData, error: acctErr } = await supabase
+                      .from('layaway_accounts')
+                      .select('total_amount, status')
+                      .eq('id', modal.accountId)
+                      .single();
+                    if (acctErr || !acctData) {
+                      toast.error('Keep decision failed while reading account: ' + (acctErr?.message || 'not found'));
+                      return;
+                    }
+
+                    const newRemaining = Math.max(0, Math.round(
+                      (Number(acctData.total_amount) + activePenaltySum - newTotalPaid) * 100
+                    ) / 100);
+
+                    // Recompute account status from schedule rows
+                    const { data: schedRows, error: schedErr } = await supabase
+                      .from('layaway_schedule')
+                      .select('status, due_date')
+                      .eq('account_id', modal.accountId)
+                      .neq('status', 'cancelled');
+                    if (schedErr) {
+                      toast.error('Keep decision failed while reading schedule: ' + schedErr.message);
+                      return;
+                    }
+
+                    const todayStr2 = new Date().toISOString().split('T')[0];
+                    const hasOverdue = (schedRows || []).some(
+                      (r: any) => r.status === 'overdue' ||
+                        (r.status !== 'paid' && r.due_date < todayStr2)
+                    );
+
+                    const nextAcctStatus = hasOverdue
+                      ? 'overdue'
+                      : (acctData.status === 'overdue' ? 'active' : acctData.status);
+
+                    const { error: acctUpdErr } = await supabase
+                      .from('layaway_accounts')
+                      .update({
+                        total_paid: newTotalPaid,
+                        remaining_balance: newRemaining,
+                        status: nextAcctStatus,
+                      })
+                      .eq('id', modal.accountId);
+                    if (acctUpdErr) {
+                      toast.error('Keep decision failed while updating account totals: ' + acctUpdErr.message);
+                      return;
                     }
                   }
                   toast.success('Payment recorded.');
