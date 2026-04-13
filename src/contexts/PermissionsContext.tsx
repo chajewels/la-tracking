@@ -72,6 +72,7 @@ const PAGE_PERMISSION_MAP: Record<string, PermissionKey> = {
   '/admin-audit': 'view_audit_logs',
   '/settings': 'admin_settings',
   '/admin/payment-vault': 'admin_settings',
+  '/payment-proofs': 'view_submissions',
 };
 
 // Map page paths to feature toggle keys
@@ -85,7 +86,7 @@ const PAGE_FEATURE_MAP: Record<string, string> = {
 };
 
 // Sidebar nav paths (same as PAGE_PERMISSION_MAP minus dynamic routes)
-const NAV_PATHS = ['/', '/accounts', '/customers', '/monitoring', '/reminders', '/collections', '/finance', '/payment-submissions', '/waivers', '/analytics', '/admin-audit', '/settings', '/admin/payment-vault'];
+const NAV_PATHS = ['/', '/accounts', '/customers', '/monitoring', '/reminders', '/collections', '/finance', '/payment-submissions', '/payment-proofs', '/waivers', '/analytics', '/admin-audit', '/settings', '/admin/payment-vault'];
 
 export function PermissionsProvider({ children }: { children: ReactNode }) {
   const { user, roles, loading: authLoading } = useAuth();

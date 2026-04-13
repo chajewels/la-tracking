@@ -15,4 +15,5 @@ export const ROUTES = {
   SETTINGS: "/settings",
   PAYMENT_SUBMISSIONS: "/payment-submissions",
   PAYMENT_VAULT: "/admin/payment-vault",
+  PAYMENT_PROOFS: "/payment-proofs",
 };

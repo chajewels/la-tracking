@@ -243,6 +243,38 @@ export function useAccountNotes(accountId: string | undefined) {
   });
 }
 
+export function usePaymentProofs(accountId: string | undefined) {
+  return useQuery({
+    queryKey: ['payment-proofs', accountId],
+    enabled: !!accountId,
+    staleTime: STALE_SHORT,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('payment_proofs' as any)
+        .select('*')
+        .eq('account_id', accountId!)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data as any[];
+    },
+  });
+}
+
+export function useAllPaymentProofs() {
+  return useQuery({
+    queryKey: ['payment-proofs-all'],
+    staleTime: STALE_SHORT,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('payment_proofs' as any)
+        .select('*, layaway_accounts(invoice_number, customers(full_name))')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data as any[];
+    },
+  });
+}
+
 // ──────────────────────────────────────────────
 // PAYMENTS
 // ──────────────────────────────────────────────

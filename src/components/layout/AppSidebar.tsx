@@ -35,6 +35,7 @@ const menuItems = [
   { label: 'Collections', icon: Wallet, path: ROUTES.COLLECTIONS },
   { label: 'Finance', icon: Wallet, path: ROUTES.FINANCE },
   { label: 'Payment Submissions', icon: FileText, path: ROUTES.PAYMENT_SUBMISSIONS },
+  { label: 'Payment Proofs', icon: FileText, path: ROUTES.PAYMENT_PROOFS },
   { label: 'Waivers', icon: FileText, path: ROUTES.WAIVERS },
   { label: 'Analytics', icon: BarChart3, path: ROUTES.ANALYTICS },
   { label: 'Admin Audit', icon: ShieldCheck, path: ROUTES.ADMIN_AUDIT },
