@@ -15,6 +15,7 @@ export default function PaymentProofs() {
   const { roles } = useAuth();
   const isAdmin = (roles as any[]).includes('admin');
   const isFinance = (roles as any[]).includes('finance');
+  const isStaff = (roles as any[]).includes('staff');
   const [search, setSearch] = useState('');
 
   const { data: proofs, isLoading } = useQuery({
@@ -46,7 +47,7 @@ export default function PaymentProofs() {
     });
   }, [proofs, search]);
 
-  if (!isAdmin && !isFinance) {
+  if (!isAdmin && !isFinance && !isStaff) {
     return (
       <AppLayout>
         <div className="p-6">
