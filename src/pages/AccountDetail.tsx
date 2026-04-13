@@ -1332,7 +1332,7 @@ export default function AccountDetail() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        {!effPaid && !partial && canEdit && can('edit_schedule') && item.status !== 'cancelled' && (
+                        {!effPaid && !partial && canEdit && can('edit_schedule') && item.status !== 'cancelled' && (isAdmin || isFinance) && (
                           <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive"
                             title="Delete installment"
                             onClick={(e) => {
@@ -1487,7 +1487,7 @@ export default function AccountDetail() {
                             <Pencil className="h-3 w-3" />
                           </Button>
                         ) : null}
-                        {!effPaid && !partial && canEdit && can('edit_schedule') && item.status !== 'cancelled' ? (
+                        {!effPaid && !partial && canEdit && can('edit_schedule') && item.status !== 'cancelled' && (isAdmin || isFinance) ? (
                           <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive transition-opacity"
                             title="Delete installment"
                             onClick={(e) => {
