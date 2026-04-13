@@ -440,6 +440,21 @@ When completing a partially_paid month:
   - Overpayment modal Carry Over button confirmed working — waterfall already allocates surplus
   - admin_keep_allocation_override RPC silently failed for some users — added error handling
   - recalculate-penalties silently waived correct penalties — DISABLED (returns 410)
+  - 17. Grace period was permanently consumed — fixed to reset when
+    account fully caught up (2026-04-13)
+  - 18. Keep handler did not recompute account totals after override
+    — fixed to use canonical formula (2026-04-13)
+  - 19. carry-over did not recompute account.status — fixed (2026-04-13)
+  - 20. carry-over could overwrite existing carried_amount — fixed with
+    400 guard (2026-04-13)
+  - 21. void-payment, edit-payment-amount, restore-payment, and
+    record-multi-payment used wrong remaining_balance formula —
+    all fixed to canonical formula (2026-04-12)
+  - 22. Staff payment submissions bypassed review and went directly to
+    confirmed — fixed, all go through Submissions review now
+    (2026-04-13)
+  - 23. Proof of Payment tab showed unconfirmed submissions — fixed
+    with status='confirmed' filter (2026-04-13)
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
@@ -556,12 +571,22 @@ When completing a partially_paid month:
   - Non-final months (months 1 to n-1): cap ¥2,000 (2 events — Cycle 1 only)
   - Final month only (installmentNumber === planMonths): cap ¥6,000 (6 events — Cycles 1+2+3)
 
-### Grace period rule:
-  - Given ONCE per account — first time account goes overdue only
-  - week1:1 triggers at due_date + 7 days (first overdue month only)
-  - All subsequent overdue months: week1:1 triggers at due_date + 0 (no grace)
-  - Waived penalties do NOT count as consuming the grace period
-  - Paid months do NOT count as consuming the grace period
+### Grace period rule (updated 2026-04-13):
+  - Grace period (7 days) is NOT permanently consumed.
+  - It applies when ALL of these are true:
+    * Account has an overdue row within 7 days of due date
+    * No UNPAID penalties exist on any schedule row
+    * No other rows are overdue or partially_paid
+  - Grace RESETS when account is fully caught up:
+    * All schedule rows paid
+    * No unpaid penalties on any row
+  - When fully caught up and goes overdue again → grace applies again
+  - Waived penalties do NOT count against grace
+  - Paid penalties do NOT count against grace
+
+  Implemented in:
+    supabase/functions/penalty-engine/index.ts (week1Offset = graceConsumed ? 0 : 7)
+    src/pages/AccountDetail.tsx (isInGracePeriod display)
 
 ### Penalty trigger schedule (per overdue month):
   Cycle 1: week1:1 → due_date + 7 (or +0 if grace consumed), week2:1 → due_date + 14
@@ -611,6 +636,58 @@ When completing a partially_paid month:
   penalty-engine and auto-forfeit-settlement are INDEPENDENT
   — neither calls the other. Penalty engine creates penalties;
   auto-forfeit-settlement checks forfeiture conditions.
+
+## PAYMENT SUBMISSION FLOW (locked — 2026-04-13)
+
+  ALL payments regardless of submitter must go through
+  Submissions review before appearing in Proof of Payment.
+
+  Flow:
+    1. Customer submits via portal → status='submitted'
+    2. Staff submits from AccountDetail → status='submitted'
+    3. Admin/Finance submits from AccountDetail → status='submitted'
+    4. Admin/Finance reviews in Submissions tab → clicks Confirm
+       → status='confirmed'
+    5. ONLY confirmed submissions appear in Proof of Payment
+
+  NO payment goes directly to Proof of Payment without
+  confirmation in Submissions tab.
+
+  The only way status becomes 'confirmed' is via explicit reviewer
+  click in the Submissions tab (review-payment-submission edge
+  function). Nothing else writes status='confirmed' — all INSERT
+  paths (submit-payment, record-payment staff path, record-payment
+  admin/finance client-side insert from RecordPaymentDialog) use
+  status='submitted'.
+
+## PROOF OF PAYMENT (added 2026-04-13)
+
+  - Stored in Supabase Storage bucket: payment-proofs
+  - File naming: {CustomerName}_{InvoiceNumber}_Month{N}_{Date}.{ext}
+  - Linked to payment_submissions.proof_url
+  - Only confirmed submissions (status='confirmed') appear in the
+    Proof of Payment tab (.eq('status', 'confirmed') filter)
+  - Visible to all roles (admin, finance, staff, customer)
+  - Upload available to admin, finance, staff only
+  - Standalone page: /payments-hub (Submissions & Proofs)
+  - Per-account view: integrated into Payment History as inline
+    "📎 View Proof · {sender}" link (AccountDetail.tsx)
+
+  Staff-submission flow for proof:
+    record-payment (server) INSERTs submission row without proof →
+    client uploads file to payment-proofs bucket → client UPDATEs
+    the same row with proof_url + sender_name. No duplicate row.
+
+## ACCOUNT NOTES (added 2026-04-13)
+
+  - Table: account_notes
+  - Columns: id, account_id, note_text, created_by_user_id,
+    created_by_name, created_at
+  - Immutable — no edit or delete after creation
+  - Max 1000 chars per note
+  - Visible to admin, finance, staff roles
+  - Inline panel in AccountDetail — after Payment History
+  - Optional initial note on new account creation (NewAccount.tsx)
 
 ## SERVICES RULE (added 2026-04-12)
 
@@ -678,7 +755,7 @@ When completing a partially_paid month:
   SystemAudit.tsx page: REMOVED ✅
   AccountDetail verify panel: REMOVED ✅
 
-## PENDING ITEMS (as of 2026-04-12)
+## PENDING ITEMS (as of 2026-04-13)
 
   1. record-payment remaining_balance formula uses principal-only — needs canonical fix
   2. void-payment remaining_balance formula uses principal-only — needs canonical fix
@@ -687,6 +764,9 @@ When completing a partially_paid month:
   5. restore-payment uses schedule cache instead of canonical formula — needs fix
   6. daily-reconciliation has no cron job — needs pg_cron entry
   7. Firebase signing page connection (Steps 13-17)
+  8. Update submit-payment edge function to auto-deploy list
+  9. Extension lifecycle test stages 3 & 4
+  10. TEST-FORFEIT-002 and TEST-FORFEIT-003
 
 ## AUTO-DEPLOY RULES (updated 2026-04-12)
 
