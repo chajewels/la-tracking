@@ -543,15 +543,24 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
                           </div>
                         )}
 
-                        {/* Inline proof preview */}
-                        {sub.proof_url && (
+                        {/* Inline proof preview — always shown regardless of status */}
+                        {sub.proof_url ? (
                           <div className="mt-1 space-y-1.5">
                             <p className="text-[10px] text-muted-foreground font-medium">Proof of Payment</p>
                             {sub.proof_url.match(/\.pdf$/i) ? (
-                              <a href={sub.proof_url} target="_blank" rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1.5 text-xs text-primary underline p-2 rounded border border-primary/20 bg-primary/5">
-                                <FileText className="h-3.5 w-3.5" /> Open PDF
-                              </a>
+                              <div className="flex items-center gap-2 rounded border border-primary/20 bg-primary/5 p-2">
+                                <FileText className="h-4 w-4 text-primary shrink-0" />
+                                <span className="text-xs text-foreground truncate flex-1" title={sub.proof_url.split('/').pop()}>
+                                  {decodeURIComponent(sub.proof_url.split('/').pop() || 'proof.pdf').split('?')[0]}
+                                </span>
+                                <a
+                                  href={sub.proof_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[10px] text-primary underline whitespace-nowrap">
+                                  View Proof
+                                </a>
+                              </div>
                             ) : (
                               <>
                                 <button onClick={() => setProofDialog(sub.proof_url!)} className="block w-full text-left">
@@ -559,9 +568,15 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
                                     className="w-full max-h-48 object-cover rounded border border-[hsl(var(--border))] hover:opacity-90 transition-opacity cursor-zoom-in" />
                                 </button>
                                 <div className="flex gap-2">
-                                  <button onClick={() => setProofDialog(sub.proof_url!)}
+                                  <button
+                                    type="button"
+                                    onClick={() => window.open(sub.proof_url!, '_blank', 'noopener,noreferrer')}
                                     className="text-[10px] text-primary underline flex items-center gap-1">
-                                    <ImageIcon className="h-3 w-3" /> View full size
+                                    <ImageIcon className="h-3 w-3" /> View Proof
+                                  </button>
+                                  <button onClick={() => setProofDialog(sub.proof_url!)}
+                                    className="text-[10px] text-muted-foreground underline flex items-center gap-1">
+                                    View full size
                                   </button>
                                   <a href={sub.proof_url} download target="_blank" rel="noopener noreferrer"
                                     className="text-[10px] text-muted-foreground underline flex items-center gap-1">
@@ -571,9 +586,8 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
                               </>
                             )}
                           </div>
-                        )}
-                        {!sub.proof_url && (
-                          <p className="text-[10px] text-muted-foreground italic">No proof attached</p>
+                        ) : (
+                          <p className="text-[10px] text-destructive italic font-medium">No proof attached</p>
                         )}
                       </div>
 
@@ -651,6 +665,51 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
           </div>
 
           <div className="space-y-3">
+              {/* Proof preview — always shown regardless of status */}
+              {actionDialog?.sub && (
+                actionDialog.sub.proof_url ? (
+                  <div className="rounded-md border border-border bg-muted/20 p-2.5 space-y-1.5">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Proof of Payment</p>
+                    {actionDialog.sub.proof_url.match(/\.pdf$/i) ? (
+                      <div className="flex items-center gap-2 rounded border border-primary/20 bg-primary/5 p-2">
+                        <FileText className="h-4 w-4 text-primary shrink-0" />
+                        <span className="text-xs text-foreground truncate flex-1" title={actionDialog.sub.proof_url.split('/').pop()}>
+                          {decodeURIComponent(actionDialog.sub.proof_url.split('/').pop() || 'proof.pdf').split('?')[0]}
+                        </span>
+                        <a
+                          href={actionDialog.sub.proof_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[10px] text-primary underline whitespace-nowrap">
+                          View Proof
+                        </a>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setProofDialog(actionDialog.sub.proof_url!)}
+                          className="block w-full text-left">
+                          <ProofImage
+                            url={actionDialog.sub.proof_url}
+                            className="w-full max-h-40 object-cover rounded border border-[hsl(var(--border))] hover:opacity-90 transition-opacity cursor-zoom-in" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => window.open(actionDialog.sub.proof_url!, '_blank', 'noopener,noreferrer')}
+                          className="text-[10px] text-primary underline inline-flex items-center gap-1">
+                          <ImageIcon className="h-3 w-3" /> View Proof
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2">
+                    <p className="text-xs text-destructive italic font-medium">No proof attached</p>
+                  </div>
+                )
+              )}
+
               {/* Waterfall breakdown for confirm action */}
               {actionDialog?.action === 'confirmed' && (() => {
                 const cur = (actionDialog.sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY';

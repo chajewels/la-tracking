@@ -2,7 +2,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
-import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus, Loader2, FileText, Download, Eye } from 'lucide-react';
+import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 
@@ -74,11 +74,18 @@ export default function AccountDetail() {
   const [noteText, setNoteText] = useState('');
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteFormOpen, setNoteFormOpen] = useState(false);
-  const [proofFormOpen, setProofFormOpen] = useState(false);
-  const [proofMonth, setProofMonth] = useState<string>('');
-  const [proofDate, setProofDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
-  const [proofFile, setProofFile] = useState<File | null>(null);
-  const [proofUploading, setProofUploading] = useState(false);
+
+  // Build a lookup of proof_url by payment_date for inline display in Payment History.
+  // If multiple submissions share a date, the most recent one wins (they come back ordered DESC).
+  const proofByDate = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of (submissionProofs || []) as any[]) {
+      if (s.proof_url && s.payment_date && !m.has(s.payment_date)) {
+        m.set(s.payment_date, s.proof_url as string);
+      }
+    }
+    return m;
+  }, [submissionProofs]);
 
   // ── Session payment tracking (state-based, per-account) ──
   const [sessionPayments, setSessionPayments] = useState<SessionPaymentInfo[]>([]);
@@ -1777,6 +1784,14 @@ export default function AccountDetail() {
                           {p.remarks && !isDpPayment && ` · ${p.remarks}`}
                           {isVoided && ` · VOIDED${(p as any).void_reason ? `: ${(p as any).void_reason}` : ''}`}
                         </p>
+                        {proofByDate.get(p.date_paid) && (
+                          <button
+                            type="button"
+                            onClick={() => window.open(proofByDate.get(p.date_paid)!, '_blank', 'noopener,noreferrer')}
+                            className="mt-1 inline-flex items-center gap-1 text-[10px] sm:text-xs text-primary hover:underline">
+                            📎 View Proof
+                          </button>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <p className={`text-xs sm:text-sm font-semibold tabular-nums ${isVoided ? 'text-muted-foreground' : 'text-success'}`}>
@@ -1819,188 +1834,6 @@ export default function AccountDetail() {
               </div>
             )}
           </div>
-        </div>
-
-        {/* Proof of Payment Panel (read-only — sourced from customer submissions) */}
-        <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
-              <FileText className="h-4 w-4 text-primary" /> Proof of Payment
-            </h3>
-            {(isAdmin || isFinance || (roles as any[]).includes('staff')) && !proofFormOpen && (
-              <button
-                onClick={() => setProofFormOpen(true)}
-                className="text-[10px] text-muted-foreground hover:text-primary underline underline-offset-2"
-                title="Upload proof for a bulk-imported payment (no customer submission)">
-                Staff upload
-              </button>
-            )}
-          </div>
-
-          {proofFormOpen && (
-            <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-3">
-              <p className="text-[11px] text-muted-foreground">
-                For bulk-imported payments only — customer submissions already include proof.
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="text-[10px] text-muted-foreground uppercase block mb-1">Month #</label>
-                  <Select value={proofMonth} onValueChange={setProofMonth}>
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue placeholder="Select month" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Array.from({ length: account.payment_plan_months }, (_, i) => i + 1).map(n => (
-                        <SelectItem key={n} value={String(n)} className="text-xs">Month {n}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-[10px] text-muted-foreground uppercase block mb-1">Submission Date</label>
-                  <Input type="date" className="h-8 text-xs" value={proofDate} onChange={e => setProofDate(e.target.value)} />
-                </div>
-                <div>
-                  <label className="text-[10px] text-muted-foreground uppercase block mb-1">File</label>
-                  <input type="file"
-                    accept="image/jpeg,image/jpg,image/png,image/webp,application/pdf"
-                    onChange={e => setProofFile(e.target.files?.[0] || null)}
-                    className="block w-full text-xs text-muted-foreground file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:bg-primary/10 file:text-primary hover:file:bg-primary/20" />
-                </div>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="ghost" size="sm" className="h-7 text-xs"
-                  onClick={() => { setProofFormOpen(false); setProofMonth(''); setProofFile(null); setProofDate(new Date().toISOString().split('T')[0]); }}>
-                  Cancel
-                </Button>
-                <Button size="sm" className="h-7 text-xs gold-gradient text-primary-foreground"
-                  disabled={proofUploading || !proofMonth || !proofDate || !proofFile}
-                  onClick={async () => {
-                    if (!proofFile || !proofMonth || !proofDate) return;
-                    setProofUploading(true);
-                    try {
-                      const { data: { user } } = await supabase.auth.getUser();
-                      const userName = (user?.user_metadata as any)?.full_name || user?.email || 'Unknown';
-                      const customerName = (account.customers?.full_name || 'Customer').replace(/\s+/g, '');
-                      const invoice = account.invoice_number || account.id.slice(0, 8);
-                      const ext = proofFile.name.split('.').pop() || 'bin';
-                      const fileName = `${customerName}_${invoice}_Month${proofMonth}_${proofDate}.${ext}`;
-                      const storagePath = `${account.id}/${fileName}`;
-
-                      const { error: uploadErr } = await supabase.storage
-                        .from('payment-proofs')
-                        .upload(storagePath, proofFile, { cacheControl: '3600', upsert: false });
-                      if (uploadErr) throw uploadErr;
-
-                      const { data: urlData } = supabase.storage
-                        .from('payment-proofs')
-                        .getPublicUrl(storagePath);
-
-                      const { error: insErr } = await supabase.from('payment_proofs' as any).insert({
-                        account_id: account.id,
-                        installment_number: Number(proofMonth),
-                        submission_date: proofDate,
-                        file_url: urlData.publicUrl,
-                        file_name: fileName,
-                        uploaded_by_user_id: user?.id,
-                        uploaded_by_name: userName,
-                      } as any);
-                      if (insErr) throw insErr;
-
-                      toast.success('Proof uploaded');
-                      setProofFormOpen(false);
-                      setProofMonth('');
-                      setProofFile(null);
-                      setProofDate(new Date().toISOString().split('T')[0]);
-                    } catch (err: any) {
-                      toast.error(err.message || 'Failed to upload proof');
-                    } finally {
-                      setProofUploading(false);
-                    }
-                  }}>
-                  {proofUploading ? 'Uploading...' : 'Upload'}
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {(!submissionProofs || submissionProofs.length === 0) && !proofFormOpen && (
-            <p className="text-xs text-muted-foreground text-center py-4">No proof of payment on file yet</p>
-          )}
-
-          {submissionProofs && submissionProofs.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-left text-[10px] text-muted-foreground uppercase border-b border-border">
-                    <th className="py-2 pr-2">Month</th>
-                    <th className="py-2 pr-2">Submitted Date</th>
-                    <th className="py-2 pr-2">Amount</th>
-                    <th className="py-2 pr-2">Sender</th>
-                    <th className="py-2 pr-2">Status</th>
-                    <th className="py-2 pr-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {submissionProofs.map((sub: any) => {
-                    const statusColor = sub.status === 'confirmed' ? 'text-emerald-400'
-                      : sub.status === 'rejected' ? 'text-red-400'
-                      : sub.status === 'needs_clarification' ? 'text-amber-400'
-                      : 'text-muted-foreground';
-                    const ext = (sub.proof_url || '').split('.').pop()?.split('?')[0] || 'file';
-                    const safeCustomer = (account.customers?.full_name || 'Customer').replace(/[^a-zA-Z0-9]/g, '');
-                    const safeInvoice = (account.invoice_number || '').replace(/[^a-zA-Z0-9]/g, '');
-                    const monthSeg = sub.installment_number ? `Month${sub.installment_number}` : 'Month';
-                    const downloadName = `${safeCustomer}_${safeInvoice}_${monthSeg}_${sub.payment_date}.${ext}`;
-                    const senderLabel = sub.sender_name || sub.submitted_by_name || account.customers?.full_name || '—';
-                    return (
-                      <tr key={sub.id} className="border-b border-border/50">
-                        <td className="py-2 pr-2">
-                          {sub.installment_number ? `Month ${sub.installment_number}` : <span className="text-muted-foreground">—</span>}
-                        </td>
-                        <td className="py-2 pr-2">{sub.payment_date}</td>
-                        <td className="py-2 pr-2 font-medium">{formatCurrency(Number(sub.submitted_amount), currency as Currency)}</td>
-                        <td className="py-2 pr-2">{senderLabel}</td>
-                        <td className={`py-2 pr-2 capitalize ${statusColor}`}>{(sub.status || '').replace(/_/g, ' ')}</td>
-                        <td className="py-2 pr-2 text-right">
-                          <div className="inline-flex gap-1">
-                            <button
-                              type="button"
-                              onClick={() => window.open(sub.proof_url, '_blank', 'noopener,noreferrer')}
-                              className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-border text-muted-foreground hover:text-primary hover:border-primary/30">
-                              <Eye className="h-3 w-3" /> View
-                            </button>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                try {
-                                  const res = await fetch(sub.proof_url);
-                                  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                                  const blob = await res.blob();
-                                  const blobUrl = URL.createObjectURL(blob);
-                                  const a = document.createElement('a');
-                                  a.href = blobUrl;
-                                  a.download = downloadName || 'proof-of-payment';
-                                  document.body.appendChild(a);
-                                  a.click();
-                                  document.body.removeChild(a);
-                                  URL.revokeObjectURL(blobUrl);
-                                } catch (err: any) {
-                                  toast.error('Download failed: ' + (err?.message || 'unknown error'));
-                                }
-                              }}
-                              className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-border text-muted-foreground hover:text-primary hover:border-primary/30">
-                              <Download className="h-3 w-3" /> Download
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
         </div>
 
         {/* Account Notes Panel */}
