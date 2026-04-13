@@ -425,16 +425,26 @@ export default function AccountDetail() {
   const hasUnpaidPastDue = scheduleItems.some(
     (item: any) => !isRowPaid(item) && item.due_date <= todayStr
   );
-  // Grace period: current overdue month has no penalties yet, within 7 days of due date
+  // Grace period: current overdue month has no UNPAID penalties yet, within
+  // 7 days of due date, and no OTHER row on the account is overdue/partially_paid.
+  // Grace resets once the account is fully caught up (no unpaid penalties, no
+  // overdue/partial rows), matching the server-side penalty-engine rule.
   const overdueRows = scheduleItems.filter(
     (item: any) => !isRowPaid(item) && item.due_date <= todayStr
   );
   const overdueRowIds = new Set(overdueRows.map((r: any) => r.id));
   const hasPenaltiesOnOverdueRows = (penalties || []).some(
-    (p: any) => p.status !== 'waived' && overdueRowIds.has(p.schedule_id)
+    (p: any) => p.status === 'unpaid' && overdueRowIds.has(p.schedule_id)
+  );
+  const hasOtherUnpaidRows = scheduleItems.some(
+    (item: any) =>
+      !isRowPaid(item) &&
+      !overdueRowIds.has(item.id) &&
+      (item.status === 'overdue' || item.status === 'partially_paid')
   );
   const isInGracePeriod = overdueRows.length > 0
     && !hasPenaltiesOnOverdueRows
+    && !hasOtherUnpaidRows
     && overdueRows.every((r: any) => {
       const daysSinceDue = Math.floor(
         (Date.now() - new Date(r.due_date + 'T00:00:00Z').getTime()) / 86400000

@@ -229,17 +229,31 @@ Deno.serve(async (req) => {
 
       if (currentTotal >= cap) continue;
 
-      // Check if grace period is already consumed — account has penalties on OTHER schedule rows
-      // (from prior overdue months). Grace is given ONCE per account, not per month.
-      // Waived penalties don't count — treated as if they never existed.
-      const { data: priorPenalties } = await supabase
+      // Grace period is given ONCE only while the account is not caught up.
+      // It RESETS when the account becomes fully current (no unpaid penalties,
+      // no overdue/partially_paid rows). So grace is "consumed" for this row
+      // only if there is:
+      //   (a) an UNPAID penalty on some other schedule row, or
+      //   (b) an overdue / partially_paid row on the account other than this one
+      const { data: priorActivePenalties } = await supabase
         .from("penalty_fees")
         .select("schedule_id")
         .eq("account_id", accountId)
         .neq("schedule_id", item.id)
-        .neq("status", "waived")
+        .eq("status", "unpaid")
         .limit(1);
-      const graceConsumed = priorPenalties && priorPenalties.length > 0;
+
+      const { data: priorUnpaidRows } = await supabase
+        .from("layaway_schedule")
+        .select("id")
+        .eq("account_id", accountId)
+        .neq("id", item.id)
+        .in("status", ["overdue", "partially_paid"])
+        .limit(1);
+
+      const graceConsumed =
+        (priorActivePenalties && priorActivePenalties.length > 0) ||
+        (priorUnpaidRows && priorUnpaidRows.length > 0);
       const week1Offset = graceConsumed ? 0 : 7;
 
       // Build trigger dates using the alternating pattern
