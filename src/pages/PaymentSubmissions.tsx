@@ -127,7 +127,7 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
   const canReject = can('reject_submission');
   const canModerate = canConfirm || canReview || canReject;
   const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('pending');
   const [search, setSearch] = useState('');
   const [actionDialog, setActionDialog] = useState<{ sub: SubmissionRow; action: string } | null>(null);
   const [reviewerNotes, setReviewerNotes] = useState('');
@@ -239,6 +239,7 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
       let query = (supabase as any)
         .from('payment_submissions')
         .select('*, customers(full_name, customer_code), layaway_accounts(invoice_number, currency, remaining_balance, total_amount)')
+        .not('portal_token', 'is', null)
         .order('created_at', { ascending: false });
 
       if (statusFilter === 'pending') {
