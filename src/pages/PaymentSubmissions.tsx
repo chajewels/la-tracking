@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, memo, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -119,6 +119,213 @@ const statusConfig: Record<string, { label: string; color: string; icon: React.R
   needs_clarification: { label: 'Needs Clarification', color: 'bg-warning/10 text-warning border-warning/20', icon: <MessageSquare className="h-3 w-3" /> },
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ActionDialogModal
+// Extracted so `reviewerNotes` state lives LOCAL to this modal instead of in
+// PaymentSubmissions. Typing no longer re-renders the 1,300-line list parent;
+// only this small component re-renders on each keystroke. The modal mounts on
+// open (actionDialog truthy) and unmounts on close, so state resets naturally.
+// ─────────────────────────────────────────────────────────────────────────────
+interface ActionDialogModalProps {
+  actionDialog: { sub: SubmissionRow; action: string };
+  confirmLoadingSchedule: boolean;
+  confirmWaterfall: WaterfallResult | null;
+  confirmScheduleRows: ScheduleViewRow[];
+  confirmPartialRow: { scheduleId: string; row: ScheduleViewRow; shortfall: number } | null;
+  isPending: boolean;
+  setProofDialog: (url: string | null) => void;
+  onCancel: () => void;
+  onSubmit: (notes: string) => void;
+}
+
+const ActionDialogModal = memo(function ActionDialogModal({
+  actionDialog,
+  confirmLoadingSchedule,
+  confirmWaterfall,
+  confirmScheduleRows,
+  confirmPartialRow,
+  isPending,
+  setProofDialog,
+  onCancel,
+  onSubmit,
+}: ActionDialogModalProps) {
+  const [reviewerNotes, setReviewerNotes] = useState('');
+  const cur = (actionDialog.sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY';
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 bg-black/60"
+        style={{ zIndex: 9998, pointerEvents: 'auto' }}
+        onClick={onCancel}
+      />
+      <div
+        className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md max-h-[85vh] overflow-y-auto border border-border rounded-xl p-6 shadow-xl"
+        style={{ zIndex: 9999, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', color: 'var(--foreground)' }}
+      >
+        <div className="flex flex-col space-y-1.5 mb-4">
+          <h2 className="text-lg font-semibold leading-none tracking-tight font-display">
+            {actionDialog.action === 'confirmed' ? '✅ Confirm Payment' :
+             actionDialog.action === 'rejected' ? '❌ Reject Submission' :
+             '💬 Request Clarification'}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            {actionDialog.action === 'confirmed'
+              ? `This will create a confirmed payment of ${formatCurrency(actionDialog.sub.submitted_amount, cur)} and update the account balance.`
+              : actionDialog.action === 'rejected'
+              ? 'This submission will be marked as rejected. The customer will see your reason.'
+              : 'Send a message to the customer requesting more information.'}
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          {/* Proof preview — always shown regardless of status */}
+          {(actionDialog.sub.proof_url && actionDialog.sub.proof_url.trim().length > 0) ? (
+            <div className="rounded-md border border-border bg-muted/20 p-2.5 space-y-1.5">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Proof of Payment</p>
+              {actionDialog.sub.proof_url.match(/\.pdf$/i) ? (
+                <div className="flex items-center gap-2 rounded border border-primary/20 bg-primary/5 p-2">
+                  <FileText className="h-4 w-4 text-primary shrink-0" />
+                  <span className="text-xs text-foreground truncate flex-1" title={actionDialog.sub.proof_url.split('/').pop()}>
+                    {decodeURIComponent(actionDialog.sub.proof_url.split('/').pop() || 'proof.pdf').split('?')[0]}
+                  </span>
+                  <a
+                    href={actionDialog.sub.proof_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[10px] text-primary underline whitespace-nowrap">
+                    View Proof
+                  </a>
+                </div>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setProofDialog(actionDialog.sub.proof_url!)}
+                    className="block w-full text-left">
+                    <ProofImage
+                      url={actionDialog.sub.proof_url}
+                      className="w-full max-h-40 object-cover rounded border border-[hsl(var(--border))] hover:opacity-90 transition-opacity cursor-zoom-in" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => window.open(actionDialog.sub.proof_url!, '_blank', 'noopener,noreferrer')}
+                    className="text-[10px] text-primary underline inline-flex items-center gap-1">
+                    <ImageIcon className="h-3 w-3" /> View Proof
+                  </button>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2">
+              <p className="text-xs text-destructive italic font-medium">No proof attached</p>
+            </div>
+          )}
+
+          {/* Waterfall breakdown for confirm action */}
+          {actionDialog.action === 'confirmed' && (() => {
+            if (confirmLoadingSchedule) {
+              return (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading allocation preview…
+                </div>
+              );
+            }
+            if (confirmWaterfall?.valid && confirmWaterfall.allocations.length > 0) {
+              return (
+                <div className="rounded-md border border-border bg-muted/30 p-2.5">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Allocation breakdown</p>
+                  {confirmWaterfall.allocations.map((alloc) => {
+                    const row = confirmScheduleRows.find(r => r.id === alloc.scheduleId);
+                    if (!row) return null;
+                    const rowTotal = Number(row.base_installment_amount) + Number(row.penalty_amount || 0) + Number(row.carried_amount || 0);
+                    const newAllocated = (Number(row.allocated) || 0) + alloc.amount;
+                    const isPaidAfter = newAllocated >= rowTotal - 0.01;
+                    const dateLabel = new Date(row.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    return (
+                      <div key={alloc.scheduleId} className="flex items-center gap-2 text-[11px] py-0.5 flex-wrap">
+                        <span className="text-muted-foreground">Month {row.installment_number}</span>
+                        <span className="text-muted-foreground">{dateLabel}</span>
+                        <span className="font-medium text-foreground tabular-nums">{formatCurrency(alloc.amount, cur)}</span>
+                        <span className="text-muted-foreground">→</span>
+                        {isPaidAfter ? (
+                          <span className="text-green-600 dark:text-green-400 font-medium">PAID ✅</span>
+                        ) : (
+                          <span className="text-yellow-600 dark:text-yellow-400 font-medium">PARTIAL 🟡</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {(() => {
+                    const lastAlloc = confirmWaterfall.allocations[confirmWaterfall.allocations.length - 1];
+                    const lastRow = confirmScheduleRows.find(r => r.id === lastAlloc?.scheduleId);
+                    if (!lastRow) return null;
+                    const rowTotal = Number(lastRow.base_installment_amount) + Number(lastRow.penalty_amount || 0) + Number(lastRow.carried_amount || 0);
+                    const newAllocated = (Number(lastRow.allocated) || 0) + lastAlloc.amount;
+                    const remainAfter = Math.max(0, rowTotal - newAllocated);
+                    if (remainAfter > 0.01) {
+                      return (
+                        <p className="text-[10px] text-muted-foreground mt-1">
+                          Remaining after: {formatCurrency(remainAfter, cur)}
+                        </p>
+                      );
+                    }
+                    return null;
+                  })()}
+                  {confirmPartialRow && (
+                    <p className="text-[10px] text-warning mt-1.5">
+                      ⚠️ Underpayment of {formatCurrency(confirmPartialRow.shortfall, cur)} — you'll choose how to handle it after confirming.
+                    </p>
+                  )}
+                </div>
+              );
+            }
+            if (confirmWaterfall && !confirmWaterfall.valid) {
+              return (
+                <div className="p-2 rounded-md bg-destructive/10 border border-destructive/20 text-xs text-destructive">
+                  ⚠️ {confirmWaterfall.error}
+                </div>
+              );
+            }
+            return null;
+          })()}
+
+          <div>
+            <label className="text-xs font-medium text-foreground">
+              {actionDialog.action === 'confirmed' ? 'Note (optional)' : 'Reason / Message *'}
+            </label>
+            <Textarea
+              value={reviewerNotes}
+              onChange={(e) => setReviewerNotes(e.target.value)}
+              placeholder={
+                actionDialog.action === 'confirmed' ? 'Optional note...' :
+                actionDialog.action === 'rejected' ? 'Reason for rejection...' :
+                'What information do you need?'
+              }
+              rows={3}
+              className="mt-1.5"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 mt-4">
+          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+          <Button
+            variant={actionDialog.action === 'rejected' ? 'destructive' : 'default'}
+            disabled={isPending || (actionDialog.action !== 'confirmed' && !reviewerNotes.trim())}
+            onClick={() => onSubmit(reviewerNotes)}
+          >
+            {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            {actionDialog.action === 'confirmed' ? 'Confirm & Record Payment' :
+             actionDialog.action === 'rejected' ? 'Reject Submission' :
+             'Send Clarification Request'}
+          </Button>
+        </div>
+      </div>
+    </>
+  );
+});
+
 export default function PaymentSubmissions({ embedded = false }: { embedded?: boolean } = {}) {
   const { session } = useAuth();
   const { can } = usePermissions();
@@ -130,7 +337,6 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
   const [statusFilter, setStatusFilter] = useState<string>('pending');
   const [search, setSearch] = useState('');
   const [actionDialog, setActionDialog] = useState<{ sub: SubmissionRow; action: string } | null>(null);
-  const [reviewerNotes, setReviewerNotes] = useState('');
   const [proofDialog, setProofDialog] = useState<string | null>(null);
   const [expandedAllocs, setExpandedAllocs] = useState<string | null>(null);
 
@@ -298,7 +504,6 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
             currency: cur,
           });
           setActionDialog(null);
-          setReviewerNotes('');
           setConfirmResults(null);
         } else if (actionDialog) {
           // No underpayment on first month. Check if surplus from fully-paid months
@@ -329,7 +534,6 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
               paymentId: (_data as any)?.confirmed_payment_ids?.[0] ?? null,
             });
             setActionDialog(null);
-            setReviewerNotes('');
             setConfirmResults(null);
           } else {
             toast.success('Payment approved and recorded');
@@ -340,14 +544,12 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
               queryClient.invalidateQueries({ queryKey: ['penalties', approvedAccountId] });
             }
             setActionDialog(null);
-            setReviewerNotes('');
             setConfirmResults(null);
           }
         }
       } else {
         toast.success(`Submission ${vars.action.replace('_', ' ')}`);
         setActionDialog(null);
-        setReviewerNotes('');
       }
     },
     onError: (err: any) => {
@@ -650,189 +852,26 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
         )}
       </div>
 
-      {/* Action Dialog */}
-      {!!actionDialog && (
-        <>
-          <div
-            className="fixed inset-0 bg-black/60"
-            style={{ zIndex: 9998, pointerEvents: 'auto' }}
-            onClick={() => { setActionDialog(null); setReviewerNotes(''); setConfirmResults(null); }}
-          />
-          <div
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md max-h-[85vh] overflow-y-auto border border-border rounded-xl p-6 shadow-xl"
-            style={{ zIndex: 9999, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', color: 'var(--foreground)' }}
-          >
-          <div className="flex flex-col space-y-1.5 mb-4">
-            <h2 className="text-lg font-semibold leading-none tracking-tight font-display">
-              {actionDialog?.action === 'confirmed' ? '✅ Confirm Payment' :
-               actionDialog?.action === 'rejected' ? '❌ Reject Submission' :
-               '💬 Request Clarification'}
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              {actionDialog?.action === 'confirmed'
-                ? `This will create a confirmed payment of ${actionDialog?.sub ? formatCurrency(actionDialog.sub.submitted_amount, (actionDialog.sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY') : ''} and update the account balance.`
-                : actionDialog?.action === 'rejected'
-                ? 'This submission will be marked as rejected. The customer will see your reason.'
-                : 'Send a message to the customer requesting more information.'}
-            </p>
-          </div>
-
-          <div className="space-y-3">
-              {/* Proof preview — always shown regardless of status */}
-              {actionDialog?.sub && (
-                (actionDialog.sub.proof_url && actionDialog.sub.proof_url.trim().length > 0) ? (
-                  <div className="rounded-md border border-border bg-muted/20 p-2.5 space-y-1.5">
-                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Proof of Payment</p>
-                    {actionDialog.sub.proof_url.match(/\.pdf$/i) ? (
-                      <div className="flex items-center gap-2 rounded border border-primary/20 bg-primary/5 p-2">
-                        <FileText className="h-4 w-4 text-primary shrink-0" />
-                        <span className="text-xs text-foreground truncate flex-1" title={actionDialog.sub.proof_url.split('/').pop()}>
-                          {decodeURIComponent(actionDialog.sub.proof_url.split('/').pop() || 'proof.pdf').split('?')[0]}
-                        </span>
-                        <a
-                          href={actionDialog.sub.proof_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[10px] text-primary underline whitespace-nowrap">
-                          View Proof
-                        </a>
-                      </div>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => setProofDialog(actionDialog.sub.proof_url!)}
-                          className="block w-full text-left">
-                          <ProofImage
-                            url={actionDialog.sub.proof_url}
-                            className="w-full max-h-40 object-cover rounded border border-[hsl(var(--border))] hover:opacity-90 transition-opacity cursor-zoom-in" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => window.open(actionDialog.sub.proof_url!, '_blank', 'noopener,noreferrer')}
-                          className="text-[10px] text-primary underline inline-flex items-center gap-1">
-                          <ImageIcon className="h-3 w-3" /> View Proof
-                        </button>
-                      </>
-                    )}
-                  </div>
-                ) : (
-                  <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2">
-                    <p className="text-xs text-destructive italic font-medium">No proof attached</p>
-                  </div>
-                )
-              )}
-
-              {/* Waterfall breakdown for confirm action */}
-              {actionDialog?.action === 'confirmed' && (() => {
-                const cur = (actionDialog.sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY';
-                if (confirmLoadingSchedule) {
-                  return (
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading allocation preview…
-                    </div>
-                  );
-                }
-                if (confirmWaterfall?.valid && confirmWaterfall.allocations.length > 0) {
-                  return (
-                    <div className="rounded-md border border-border bg-muted/30 p-2.5">
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Allocation breakdown</p>
-                      {confirmWaterfall.allocations.map((alloc) => {
-                        const row = confirmScheduleRows.find(r => r.id === alloc.scheduleId);
-                        if (!row) return null;
-                        const rowTotal = Number(row.base_installment_amount) + Number(row.penalty_amount || 0) + Number(row.carried_amount || 0);
-                        const newAllocated = (Number(row.allocated) || 0) + alloc.amount;
-                        const isPaidAfter = newAllocated >= rowTotal - 0.01;
-                        const dateLabel = new Date(row.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                        return (
-                          <div key={alloc.scheduleId} className="flex items-center gap-2 text-[11px] py-0.5 flex-wrap">
-                            <span className="text-muted-foreground">Month {row.installment_number}</span>
-                            <span className="text-muted-foreground">{dateLabel}</span>
-                            <span className="font-medium text-foreground tabular-nums">{formatCurrency(alloc.amount, cur)}</span>
-                            <span className="text-muted-foreground">→</span>
-                            {isPaidAfter ? (
-                              <span className="text-green-600 dark:text-green-400 font-medium">PAID ✅</span>
-                            ) : (
-                              <span className="text-yellow-600 dark:text-yellow-400 font-medium">PARTIAL 🟡</span>
-                            )}
-                          </div>
-                        );
-                      })}
-                      {(() => {
-                        const lastAlloc = confirmWaterfall.allocations[confirmWaterfall.allocations.length - 1];
-                        const lastRow = confirmScheduleRows.find(r => r.id === lastAlloc?.scheduleId);
-                        if (!lastRow) return null;
-                        const rowTotal = Number(lastRow.base_installment_amount) + Number(lastRow.penalty_amount || 0) + Number(lastRow.carried_amount || 0);
-                        const newAllocated = (Number(lastRow.allocated) || 0) + lastAlloc.amount;
-                        const remainAfter = Math.max(0, rowTotal - newAllocated);
-                        if (remainAfter > 0.01) {
-                          return (
-                            <p className="text-[10px] text-muted-foreground mt-1">
-                              Remaining after: {formatCurrency(remainAfter, cur)}
-                            </p>
-                          );
-                        }
-                        return null;
-                      })()}
-                      {getConfirmPartialRow && (
-                        <p className="text-[10px] text-warning mt-1.5">
-                          ⚠️ Underpayment of {formatCurrency(getConfirmPartialRow.shortfall, cur)} — you'll choose how to handle it after confirming.
-                        </p>
-                      )}
-                    </div>
-                  );
-                }
-                if (confirmWaterfall && !confirmWaterfall.valid) {
-                  return (
-                    <div className="p-2 rounded-md bg-destructive/10 border border-destructive/20 text-xs text-destructive">
-                      ⚠️ {confirmWaterfall.error}
-                    </div>
-                  );
-                }
-                return null;
-              })()}
-
-              <div>
-                <label className="text-xs font-medium text-foreground">
-                  {actionDialog?.action === 'confirmed' ? 'Note (optional)' : 'Reason / Message *'}
-                </label>
-                <Textarea
-                  value={reviewerNotes}
-                  onChange={(e) => setReviewerNotes(e.target.value)}
-                  placeholder={
-                    actionDialog?.action === 'confirmed' ? 'Optional note...' :
-                    actionDialog?.action === 'rejected' ? 'Reason for rejection...' :
-                    'What information do you need?'
-                  }
-                  rows={3}
-                  className="mt-1.5"
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 mt-4">
-              <Button variant="ghost" onClick={() => { setActionDialog(null); setReviewerNotes(''); }}>Cancel</Button>
-              <Button
-                variant={actionDialog?.action === 'rejected' ? 'destructive' : 'default'}
-                disabled={reviewMutation.isPending || (actionDialog?.action !== 'confirmed' && !reviewerNotes.trim())}
-                onClick={() => {
-                  if (actionDialog) {
-                    reviewMutation.mutate({
-                      submissionId: actionDialog.sub.id,
-                      action: actionDialog.action,
-                      notes: reviewerNotes,
-                    });
-                  }
-                }}
-              >
-                {reviewMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                {actionDialog?.action === 'confirmed' ? 'Confirm & Record Payment' :
-                 actionDialog?.action === 'rejected' ? 'Reject Submission' :
-                 'Send Clarification Request'}
-              </Button>
-            </div>
-          </div>
-        </>
+      {/* Action Dialog — reviewerNotes state lives INSIDE this component, not here,
+          so typing no longer re-renders the whole PaymentSubmissions tree. */}
+      {actionDialog && (
+        <ActionDialogModal
+          actionDialog={actionDialog}
+          confirmLoadingSchedule={confirmLoadingSchedule}
+          confirmWaterfall={confirmWaterfall}
+          confirmScheduleRows={confirmScheduleRows}
+          confirmPartialRow={getConfirmPartialRow}
+          isPending={reviewMutation.isPending}
+          setProofDialog={setProofDialog}
+          onCancel={() => { setActionDialog(null); setConfirmResults(null); }}
+          onSubmit={(notes) => {
+            reviewMutation.mutate({
+              submissionId: actionDialog.sub.id,
+              action: actionDialog.action,
+              notes,
+            });
+          }}
+        />
       )}
 
       {/* Underpayment Decision Modal — must layer above the Action Dialog */}
