@@ -63,40 +63,21 @@ interface SubmissionAllocation {
   allocated_amount: number;
 }
 
-/** Extract the bucket-relative path from any proof_url variant:
- *  - https://.../storage/v1/object/public/payment-proofs/{path}
- *  - https://.../storage/v1/object/sign/payment-proofs/{path}?token=...
- *  - bare path like "{account_id}/file.jpg" */
-function getProofPath(url: string): string {
-  const m = url.match(/\/storage\/v1\/object\/(?:public|sign)\/payment-proofs\/(.+?)(?:\?|$)/);
-  if (m) return decodeURIComponent(m[1]);
-  // Already a bare path
-  if (!url.startsWith('http')) return url;
-  return url;
-}
-
-/** Renders a proof-of-payment image using a fresh Supabase signed URL (1 hr TTL).
- *  Falls back to the original URL if signing fails, and shows a link-only
- *  fallback if the image still won't load. */
+/** Renders a proof-of-payment image directly from its public URL.
+ *  The payment-proofs bucket is public (migration 20260322083531 sets
+ *  public: true with an Anyone-can-view SELECT policy), so no signed-URL
+ *  round-trip is needed. Falls back to a text link if the image fails to
+ *  load (e.g. non-image content, legacy URL, or bucket access change).
+ *  Rendering directly from `url` also eliminates the setSrc(null) flash
+ *  that the previous signed-URL implementation produced on every render. */
 function ProofImage({ url, className }: { url: string; className?: string }) {
-  const [src, setSrc] = useState<string | null>(null);
   const [imgError, setImgError] = useState(false);
+  // Normalise path variants (bare path, /object/sign/... with token) to the
+  // public URL so legacy rows still render correctly.
+  const src = /^https?:\/\//.test(url)
+    ? url.replace('/storage/v1/object/sign/payment-proofs/', '/storage/v1/object/public/payment-proofs/').split('?')[0]
+    : `${(import.meta as any).env?.VITE_SUPABASE_URL ?? ''}/storage/v1/object/public/payment-proofs/${url}`;
 
-  useEffect(() => {
-    let cancelled = false;
-    setImgError(false);
-    setSrc(null);
-    const path = getProofPath(url);
-    supabase.storage.from('payment-proofs').createSignedUrl(path, 3600).then(({ data }) => {
-      if (cancelled) return;
-      setSrc(data?.signedUrl ?? url);
-    });
-    return () => { cancelled = true; };
-  }, [url]);
-
-  if (!src) {
-    return <div className="w-full h-20 rounded bg-muted/30 animate-pulse" />;
-  }
   if (imgError) {
     return (
       <a href={url} target="_blank" rel="noopener noreferrer"
