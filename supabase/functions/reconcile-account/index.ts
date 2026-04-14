@@ -188,18 +188,24 @@ Deno.serve(async (req) => {
       if (rowPaid <= 0) continue; // No allocations — skip; never reset to pending
 
       const base = Number(sched.base_installment_amount);
-      const newRowStatus = rowPaid >= base - 0.005 ? "paid" : "partially_paid";
-      // Cap paid_amount at base to avoid overflow; allocations should never exceed base
-      const newPaidAmount = Math.min(Math.round(rowPaid * 100) / 100, base);
+      const penalty = Number(sched.penalty_amount || 0);
+      const carried = Number(sched.carried_amount || 0);
+      const ceiling = base + penalty + carried;
+
+      const newRowStatus = rowPaid >= ceiling - 0.005 ? "paid" : "partially_paid";
+      // Cap paid_amount at the full obligation (base + penalty + carried) so an
+      // over-allocation doesn't inflate the cached paid_amount.
+      const newPaidAmount = Math.min(Math.round(rowPaid * 100) / 100, ceiling);
 
       const statusChanged = sched.status !== newRowStatus;
       const paidChanged = Math.abs(Number(sched.paid_amount) - newPaidAmount) > 0.005;
 
       if (statusChanged || paidChanged) {
-        // When a row transitions to paid and it had a carried_amount, clear the carry
-        // fields — the carry was consumed by this payment.
+        // Only clear carry when the FULL obligation (base + penalty + carried)
+        // has been met. Reaching base alone is NOT enough — that leaves the
+        // carry debt unpaid and must remain recorded.
         const clearCarry =
-          newRowStatus === "paid" && Number(sched.carried_amount) > 0.005;
+          newRowStatus === "paid" && carried > 0.005;
 
         await supabase
           .from("layaway_schedule")
