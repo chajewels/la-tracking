@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { Layers, CheckCircle2, Copy, Check, MessageCircle, ExternalLink, AlertTriangle } from 'lucide-react';
+import { Layers, CheckCircle2, Copy, Check, MessageCircle, ExternalLink, AlertTriangle, Upload, X, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
@@ -124,7 +124,7 @@ export default function MultiInvoicePaymentDialog({
   portalLink,
 }: MultiInvoicePaymentDialogProps) {
   const queryClient = useQueryClient();
-  const { roles } = useAuth();
+  const { roles, user, profile } = useAuth();
   const r = roles as AppRole[];
   const isAdminOrFinance = r.includes('admin') || r.includes('finance');
   const submittingRef = useRef(false);
@@ -132,6 +132,8 @@ export default function MultiInvoicePaymentDialog({
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<'input' | 'results' | 'message'>('input');
   const [carryOverMap, setCarryOverMap] = useState<Record<string, boolean>>({});
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [proofPreview, setProofPreview] = useState<string | null>(null);
   const [consolidatedMessage, setConsolidatedMessage] = useState('');
   const [msgCopied, setMsgCopied] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -256,7 +258,8 @@ export default function MultiInvoicePaymentDialog({
   const canSubmit =
     selectedAccounts.length >= 1 &&
     Object.keys(allocationErrors).length === 0 &&
-    totalAllocated > 0;
+    totalAllocated > 0 &&
+    !!proofFile;
 
   const showRefField = METHODS_WITH_REF.includes(paymentMethod);
 
@@ -321,6 +324,44 @@ export default function MultiInvoicePaymentDialog({
         },
       });
       if (error) throw error;
+
+      // Upload proof and attach to the payment_submissions rows created by record-multi-payment.
+      // batch_id is returned on both submitted_for_confirmation and the direct-record path.
+      const batchId: string | null = (data as any)?.batch_id ?? null;
+      if (proofFile && batchId) {
+        try {
+          const staffName = (profile?.full_name || user?.email || 'Staff').replace(/[^a-zA-Z0-9]/g, '');
+          const ext = (proofFile.name.split('.').pop() || 'jpg').toLowerCase();
+          const fileName = `${staffName}_Multi_${batchId}_${paymentDate}.${ext}`;
+          const primaryAccountId = selectedAccounts[0]?.id;
+          const storagePath = `${primaryAccountId}/${fileName}`;
+
+          const { error: uploadErr } = await supabase.storage
+            .from('payment-proofs')
+            .upload(storagePath, proofFile, { cacheControl: '3600', upsert: false });
+          if (uploadErr) throw uploadErr;
+
+          const { data: urlData } = supabase.storage
+            .from('payment-proofs')
+            .getPublicUrl(storagePath);
+          const proofUrl = urlData.publicUrl;
+
+          const senderName = profile?.full_name || user?.email || 'Staff';
+
+          const { error: updErr } = await supabase
+            .from('payment_submissions')
+            .update({ proof_url: proofUrl, sender_name: senderName })
+            .eq('reference_number', batchId);
+          if (updErr) {
+            console.warn('[MultiInvoicePaymentDialog] payment_submissions update failed:', updErr.message);
+            toast.warning('Payment recorded, but proof could not be attached to the submissions. Please re-upload via account page.');
+          }
+        } catch (err: any) {
+          console.warn('[MultiInvoicePaymentDialog] proof upload failed:', err?.message);
+          toast.warning(`Proof upload failed: ${err?.message || 'unknown error'}`);
+        }
+      }
+
       if (data?.submitted_for_confirmation) {
         toast.success('Payments submitted for confirmation. Admin/Finance will review.');
         resetAndClose();
@@ -436,6 +477,8 @@ export default function MultiInvoicePaymentDialog({
     setWaterfallResults({});
     setScheduleViewRows({});
     setSubmitResults([]);
+    setProofFile(null);
+    setProofPreview(null);
     setOpen(false);
   };
 
@@ -665,6 +708,64 @@ export default function MultiInvoicePaymentDialog({
                   />
                 </div>
               )}
+
+              {/* Proof of Payment (required) */}
+              <div className="space-y-1.5">
+                <Label className="text-card-foreground text-xs">Proof of Payment *</Label>
+                {proofFile ? (
+                  <div className="rounded-md border border-border bg-muted/30 p-2 space-y-2">
+                    {proofPreview ? (
+                      <img
+                        src={proofPreview}
+                        alt="Proof preview"
+                        className="w-full max-h-40 object-contain rounded"
+                        style={{ backgroundColor: '#ffffff' }}
+                      />
+                    ) : (
+                      <div className="flex items-center gap-2 text-xs">
+                        <FileText className="h-4 w-4 text-primary shrink-0" />
+                        <span className="truncate flex-1 text-card-foreground" title={proofFile.name}>{proofFile.name}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span className="truncate max-w-[70%]" title={proofFile.name}>{proofFile.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => { setProofFile(null); setProofPreview(null); }}
+                        className="inline-flex items-center gap-1 text-muted-foreground hover:text-destructive"
+                        aria-label="Remove file">
+                        <X className="h-3 w-3" /> Remove
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <label className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background/50 px-3 py-3 text-xs text-muted-foreground cursor-pointer hover:border-primary/50 hover:text-primary transition-colors">
+                    <Upload className="h-4 w-4" />
+                    <span>Attach screenshot or receipt (required)</span>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/jpg,image/png,image/webp,application/pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (!f) return;
+                        if (f.size > 10 * 1024 * 1024) { toast.error('File must be less than 10MB'); return; }
+                        setProofFile(f);
+                        if (f.type.startsWith('image/')) {
+                          const reader = new FileReader();
+                          reader.onload = () => setProofPreview(reader.result as string);
+                          reader.readAsDataURL(f);
+                        } else {
+                          setProofPreview(null);
+                        }
+                      }}
+                    />
+                  </label>
+                )}
+                <p className="text-[10px] text-muted-foreground">
+                  Required — images (JPG, PNG, WEBP) or PDF, max 10MB
+                </p>
+              </div>
 
               {/* Total */}
               <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 flex items-center justify-between">
