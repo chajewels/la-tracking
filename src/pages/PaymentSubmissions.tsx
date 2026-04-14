@@ -149,7 +149,6 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
     currency: 'PHP' | 'JPY';
   } | null>(null);
   const [underpaymentLoading, setUnderpaymentLoading] = useState<'partial' | 'carry' | null>(null);
-  const [overpaymentLoading, setOverpaymentLoading] = useState<'carryover' | null>(null);
   const [overpaymentModal, setOverpaymentModal] = useState<{
     row: ScheduleViewRow | null;
     sourceRowId: string | null;
@@ -1010,43 +1009,24 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
               <Button
                 variant="outline"
                 className="w-full justify-start text-left h-auto py-3 px-4 border-primary/30 hover:bg-primary/5 bg-background"
-                disabled={overpaymentLoading === 'carryover'}
-                onClick={async () => {
-                  if (!overpaymentModal?.row) return;
-                  setOverpaymentLoading('carryover');
-                  try {
-                    const { data, error } = await supabase.functions.invoke('carry-over', {
-                      body: {
-                        schedule_row_id: overpaymentModal.row.id,
-                        account_id: overpaymentModal.accountId,
-                      },
-                    });
-                    if (error) throw error;
-                    if (data?.error) throw new Error(data.error);
-                    toast.success('Carry-over applied successfully');
-                    const overAccountId = overpaymentModal.accountId;
-                    setOverpaymentModal(null);
-                    queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
+                onClick={() => {
+                  const overAccountId = overpaymentModal?.accountId;
+                  setOverpaymentModal(null);
+                  toast.success('Payment recorded. Surplus applied to next month.');
+                  queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
+                  if (overAccountId) {
                     queryClient.invalidateQueries({ queryKey: ['account', overAccountId] });
                     queryClient.invalidateQueries({ queryKey: ['schedule', overAccountId] });
                     queryClient.invalidateQueries({ queryKey: ['payments', overAccountId] });
                     queryClient.invalidateQueries({ queryKey: ['penalties', overAccountId] });
-                  } catch (err: any) {
-                    toast.error(`Carry-over failed: ${err.message || 'Unknown error'}`);
-                  } finally {
-                    setOverpaymentLoading(null);
                   }
                 }}
               >
-                {overpaymentLoading === 'carryover' ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2 shrink-0 text-primary" />
-                ) : (
-                  <Check className="h-4 w-4 mr-2 shrink-0 text-primary" />
-                )}
+                <Check className="h-4 w-4 mr-2 shrink-0 text-primary" />
                 <div>
                   <p className="font-medium text-foreground text-sm">Carry Over</p>
                   <p className="text-xs text-muted-foreground font-normal mt-0.5">
-                    Close this month as paid and carry the shortfall to the next month.
+                    Accept the waterfall allocation — surplus applied to the next month as a partial payment.
                   </p>
                 </div>
               </Button>
