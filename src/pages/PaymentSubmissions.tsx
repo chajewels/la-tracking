@@ -1161,7 +1161,7 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
                             + Number(row.carried_amount || 0);
                           const isPastDue = row.due_date < todayStr;
 
-                          let newStatus: string;
+                          let newStatus: "paid" | "partially_paid" | "overdue" | "pending";
                           if (newPaidAmount >= ceiling - 0.01) {
                             newStatus = 'paid';
                           } else if (newPaidAmount > 0) {
