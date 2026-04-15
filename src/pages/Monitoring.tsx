@@ -99,11 +99,21 @@ export default function Monitoring() {
     queryKey: ['csr-notifications'],
     staleTime: 30_000,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('csr_notifications')
-        .select('schedule_id, reminder_stage, notified_by_name, notified_at');
-      if (error) throw error;
-      return data;
+      const PAGE_SIZE = 1000;
+      let from = 0;
+      let allRows: any[] = [];
+      while (true) {
+        const { data, error } = await supabase
+          .from('csr_notifications')
+          .select('schedule_id, reminder_stage, notified_by_name, notified_at')
+          .range(from, from + PAGE_SIZE - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        allRows = [...allRows, ...data];
+        if (data.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+      return allRows;
     },
   });
 
