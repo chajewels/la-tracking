@@ -168,6 +168,84 @@ export default function Promotions() {
     queryFn: fetchPhpJpyRate,
   });
 
+  // Aggregate view counts per promo: total views and unique customers.
+  // Computed client-side by streaming all rows (paginated for the 1000-cap).
+  const { data: viewStats } = useQuery({
+    queryKey: ['promo-view-stats'],
+    queryFn: async () => {
+      const PAGE_SIZE = 1000;
+      let from = 0;
+      const totals = new Map<string, number>();
+      const uniqueCustomers = new Map<string, Set<string>>();
+      while (true) {
+        const { data, error } = await (supabase.from('promo_views' as any) as any)
+          .select('promo_id, customer_id')
+          .range(from, from + PAGE_SIZE - 1);
+        if (error) throw error;
+        const rows = (data ?? []) as { promo_id: string; customer_id: string | null }[];
+        if (rows.length === 0) break;
+        for (const r of rows) {
+          totals.set(r.promo_id, (totals.get(r.promo_id) ?? 0) + 1);
+          if (r.customer_id) {
+            if (!uniqueCustomers.has(r.promo_id)) uniqueCustomers.set(r.promo_id, new Set());
+            uniqueCustomers.get(r.promo_id)!.add(r.customer_id);
+          }
+        }
+        if (rows.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+      const out = new Map<string, { total: number; unique: number }>();
+      const ids = new Set<string>([...totals.keys(), ...uniqueCustomers.keys()]);
+      ids.forEach(id => {
+        out.set(id, {
+          total: totals.get(id) ?? 0,
+          unique: uniqueCustomers.get(id)?.size ?? 0,
+        });
+      });
+      return out;
+    },
+  });
+
+  // Per-category stats for the currently-editing promo, loaded lazily.
+  const editingPromoId = editing?.id ?? null;
+  const { data: editingStats, isLoading: editingStatsLoading } = useQuery({
+    queryKey: ['promo-view-stats-by-category', editingPromoId],
+    enabled: !!editingPromoId && dialogOpen,
+    queryFn: async () => {
+      if (!editingPromoId) return [];
+      const PAGE_SIZE = 1000;
+      let from = 0;
+      const rows: { category_id: string | null; customer_id: string | null }[] = [];
+      while (true) {
+        const { data, error } = await (supabase.from('promo_views' as any) as any)
+          .select('category_id, customer_id')
+          .eq('promo_id', editingPromoId)
+          .range(from, from + PAGE_SIZE - 1);
+        if (error) throw error;
+        const batch = (data ?? []) as { category_id: string | null; customer_id: string | null }[];
+        if (batch.length === 0) break;
+        rows.push(...batch);
+        if (batch.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+      const byCat = new Map<string | null, { total: number; unique: Set<string> }>();
+      for (const r of rows) {
+        const key = r.category_id;
+        if (!byCat.has(key)) byCat.set(key, { total: 0, unique: new Set() });
+        const agg = byCat.get(key)!;
+        agg.total += 1;
+        if (r.customer_id) agg.unique.add(r.customer_id);
+      }
+      return Array.from(byCat.entries())
+        .map(([catId, agg]) => ({
+          category_id: catId,
+          total: agg.total,
+          unique: agg.unique.size,
+        }))
+        .sort((a, b) => b.total - a.total);
+    },
+  });
+
   // All categories (for both Categories tab and the promo form's checkboxes)
   const { data: categories } = useQuery({
     queryKey: ['promo-categories'],
@@ -547,6 +625,8 @@ export default function Promotions() {
                   <TableHead>Title</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Price</TableHead>
+                  <TableHead>Views</TableHead>
+                  <TableHead>Unique</TableHead>
                   <TableHead>Order</TableHead>
                   <TableHead>Active</TableHead>
                   <TableHead>Expires</TableHead>
@@ -594,6 +674,12 @@ export default function Promotions() {
                       {p.price != null && p.currency
                         ? formatPromoPrice(Number(p.price), p.currency)
                         : <span className="text-muted-foreground">—</span>}
+                    </TableCell>
+                    <TableCell className="text-sm tabular-nums">
+                      {viewStats?.get(p.id)?.total ?? 0}
+                    </TableCell>
+                    <TableCell className="text-sm tabular-nums">
+                      {viewStats?.get(p.id)?.unique ?? 0}
                     </TableCell>
                     <TableCell>{p.display_order}</TableCell>
                     <TableCell>
@@ -942,6 +1028,45 @@ export default function Promotions() {
                 </p>
               )}
             </div>
+
+            {editing && (
+              <details className="rounded-md border open:pb-2">
+                <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium hover:bg-muted">
+                  View Stats
+                </summary>
+                <div className="px-3">
+                  {editingStatsLoading ? (
+                    <p className="text-xs text-muted-foreground py-2">Loading stats…</p>
+                  ) : !editingStats || editingStats.length === 0 ? (
+                    <p className="text-xs text-muted-foreground py-2">No views recorded yet.</p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Category</TableHead>
+                          <TableHead className="text-right">Total Views</TableHead>
+                          <TableHead className="text-right">Unique Customers</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {editingStats.map((row) => {
+                          const categoryName = row.category_id
+                            ? (categories?.find(c => c.id === row.category_id)?.name ?? 'Unknown category')
+                            : 'No category';
+                          return (
+                            <TableRow key={row.category_id ?? 'none'}>
+                              <TableCell className="text-sm">{categoryName}</TableCell>
+                              <TableCell className="text-sm tabular-nums text-right">{row.total}</TableCell>
+                              <TableCell className="text-sm tabular-nums text-right">{row.unique}</TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  )}
+                </div>
+              </details>
+            )}
           </div>
 
           <DialogFooter>

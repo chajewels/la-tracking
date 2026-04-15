@@ -396,7 +396,10 @@ export default function CustomerPortal() {
         ) : (
           <>
             {/* Promotional banner — hidden when no active promos */}
-            <PromoBanner />
+            <PromoBanner
+              customerId={data.customer_id}
+              invoiceNumber={data.accounts[0]?.invoice_number ?? ''}
+            />
 
             {/* Summary Stats — luxury panel */}
             <div>

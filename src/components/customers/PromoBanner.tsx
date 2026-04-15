@@ -46,7 +46,14 @@ interface Slide {
 const ROTATE_MS = 5000;
 const SWIPE_THRESHOLD = 50; // px
 
-export default function PromoBanner() {
+interface PromoBannerProps {
+  /** Current customer id from the portal (null/'' if unavailable). */
+  customerId?: string;
+  /** Current account's invoice number (null/'' if unavailable). */
+  invoiceNumber?: string;
+}
+
+export default function PromoBanner({ customerId = '', invoiceNumber = '' }: PromoBannerProps) {
   const [promos, setPromos] = useState<Promo[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -62,6 +69,8 @@ export default function PromoBanner() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   const touchStartXRef = useRef<number | null>(null);
+  /** Promo ids already recorded this session — dedup across slide changes. */
+  const recordedPromoIdsRef = useRef<Set<string>>(new Set());
 
   // Fetch active promos, categories, and assignments in parallel.
   useEffect(() => {
@@ -195,6 +204,42 @@ export default function PromoBanner() {
   useEffect(() => {
     videoRefs.current.forEach(v => { v.muted = muted; });
   }, [muted, slides.length]);
+
+  // Record a promo_views row (fire-and-forget) when the current slide's
+  // promo hasn't been seen this session yet. One row per assigned category,
+  // or a single null-category row when no categories are assigned.
+  useEffect(() => {
+    if (!loaded) return;
+    const current = slides[index];
+    if (!current) return;
+    const promoId = current.promoId;
+    if (recordedPromoIdsRef.current.has(promoId)) return;
+    recordedPromoIdsRef.current.add(promoId);
+
+    try {
+      const categoryIds = assignments
+        .filter(a => a.promo_id === promoId)
+        .map(a => a.category_id);
+      const rows = categoryIds.length === 0
+        ? [{ promo_id: promoId, category_id: null }]
+        : categoryIds.map(cid => ({ promo_id: promoId, category_id: cid }));
+
+      const payloads = rows.map(r => ({
+        ...r,
+        customer_id: customerId || null,
+        invoice_number: invoiceNumber || null,
+      }));
+
+      // Fire-and-forget; never let view tracking break the banner.
+      Promise.all(
+        payloads.map(p =>
+          (supabase.from('promo_views' as any) as any).insert(p),
+        ),
+      ).catch(() => { /* swallow */ });
+    } catch {
+      /* swallow */
+    }
+  }, [loaded, index, slides, assignments, customerId, invoiceNumber]);
 
   // Reset index if slides shrink below current
   useEffect(() => {
