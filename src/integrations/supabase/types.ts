@@ -1403,6 +1403,160 @@ export type Database = {
         }
         Relationships: []
       }
+      promo_categories: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          display_order: number | null
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          display_order?: number | null
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          display_order?: number | null
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      promo_category_assignments: {
+        Row: {
+          category_id: string
+          promo_id: string
+        }
+        Insert: {
+          category_id: string
+          promo_id: string
+        }
+        Update: {
+          category_id?: string
+          promo_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promo_category_assignments_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "promo_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "promo_category_assignments_promo_id_fkey"
+            columns: ["promo_id"]
+            isOneToOne: false
+            referencedRelation: "promotions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      promo_views: {
+        Row: {
+          category_id: string | null
+          customer_id: string
+          id: string
+          invoice_number: string
+          promo_id: string
+          viewed_at: string | null
+        }
+        Insert: {
+          category_id?: string | null
+          customer_id: string
+          id?: string
+          invoice_number: string
+          promo_id: string
+          viewed_at?: string | null
+        }
+        Update: {
+          category_id?: string | null
+          customer_id?: string
+          id?: string
+          invoice_number?: string
+          promo_id?: string
+          viewed_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promo_views_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "promo_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "promo_views_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "promo_views_promo_id_fkey"
+            columns: ["promo_id"]
+            isOneToOne: false
+            referencedRelation: "promotions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      promotions: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          currency: string | null
+          description: string | null
+          display_order: number | null
+          expires_at: string | null
+          id: string
+          is_active: boolean | null
+          link_url: string | null
+          media_type: string | null
+          media_url: string | null
+          price: number | null
+          title: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          currency?: string | null
+          description?: string | null
+          display_order?: number | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          link_url?: string | null
+          media_type?: string | null
+          media_url?: string | null
+          price?: number | null
+          title: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          currency?: string | null
+          description?: string | null
+          display_order?: number | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          link_url?: string | null
+          media_type?: string | null
+          media_url?: string | null
+          price?: number | null
+          title?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       reminder_logs: {
         Row: {
           account_id: string
@@ -1764,6 +1918,7 @@ export type Database = {
           status: string
         }[]
       }
+      deactivate_expired_promotions: { Args: never; Returns: undefined }
       delete_email: {
         Args: { message_id: number; queue_name: string }
         Returns: boolean
@@ -1813,6 +1968,16 @@ export type Database = {
           message: Json
           msg_id: number
           read_ct: number
+        }[]
+      }
+      reconcile_failing_accounts: {
+        Args: never
+        Returns: {
+          invoice_number: string
+          new_remaining: number
+          new_total_paid: number
+          old_remaining: number
+          old_total_paid: number
         }[]
       }
       revalidate_account_from_vault: {
