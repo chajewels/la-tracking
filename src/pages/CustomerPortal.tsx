@@ -395,8 +395,9 @@ export default function CustomerPortal() {
           />
         ) : (
           <>
-            {/* Promotional banner — hidden when no active promos */}
-            <PromoBanner />
+            {/* Promotional banner — hidden when no active promos.
+                Temporarily restricted to TEST accounts via invoiceNumber prop. */}
+            <PromoBanner invoiceNumber={data.accounts[0]?.invoice_number ?? ''} />
 
             {/* Summary Stats — luxury panel */}
             <div>

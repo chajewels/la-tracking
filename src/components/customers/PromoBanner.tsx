@@ -14,15 +14,25 @@ interface Promo {
 
 const ROTATE_MS = 5000;
 
-export default function PromoBanner() {
+interface PromoBannerProps {
+  /** Invoice number of the current account. Banner is temporarily
+   *  restricted to invoice numbers starting with 'TEST' for testing. */
+  invoiceNumber: string;
+}
+
+export default function PromoBanner({ invoiceNumber }: PromoBannerProps) {
+  // Temporary restriction: only render for test accounts.
+  const isTestAccount = typeof invoiceNumber === 'string' && invoiceNumber.startsWith('TEST');
+
   const [promos, setPromos] = useState<Promo[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fetch active promos once on mount
+  // Fetch active promos once on mount (skipped for non-test accounts)
   useEffect(() => {
+    if (!isTestAccount) return;
     let cancelled = false;
     (async () => {
       try {
@@ -41,7 +51,7 @@ export default function PromoBanner() {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [isTestAccount]);
 
   // Auto-rotate
   useEffect(() => {
@@ -55,6 +65,7 @@ export default function PromoBanner() {
     };
   }, [index, paused, promos.length]);
 
+  if (!isTestAccount) return null;
   if (!loaded || promos.length === 0) return null;
 
   const go = (next: number) => {
