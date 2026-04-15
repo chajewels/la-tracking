@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Megaphone, Plus, Pencil, Trash2, Upload, Image as ImageIcon, Video, ExternalLink } from 'lucide-react';
+import { Megaphone, Plus, Pencil, Trash2, Upload, Image as ImageIcon, Video, ExternalLink, Tag } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,6 +8,8 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -45,6 +47,8 @@ interface PromoFormState {
   images: string[];
   /** Single video URL (when media_type === 'video'). */
   video_url: string | null;
+  /** Selected category ids (managed via promo_category_assignments). */
+  selectedCategoryIds: string[];
 }
 
 const EMPTY_FORM: PromoFormState = {
@@ -56,6 +60,25 @@ const EMPTY_FORM: PromoFormState = {
   media_type: null,
   images: [],
   video_url: null,
+  selectedCategoryIds: [],
+};
+
+interface PromoCategory {
+  id: string;
+  name: string;
+  display_order: number;
+  created_by: string | null;
+  created_at: string;
+}
+
+interface CategoryFormState {
+  name: string;
+  display_order: number;
+}
+
+const EMPTY_CATEGORY_FORM: CategoryFormState = {
+  name: '',
+  display_order: 0,
 };
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -64,12 +87,21 @@ export default function Promotions() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
+  const [tab, setTab] = useState<'promos' | 'categories'>('promos');
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Promotion | null>(null);
   const [form, setForm] = useState<PromoFormState>(EMPTY_FORM);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Promotion | null>(null);
+
+  // Categories tab state
+  const [catDialogOpen, setCatDialogOpen] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<PromoCategory | null>(null);
+  const [catForm, setCatForm] = useState<CategoryFormState>(EMPTY_CATEGORY_FORM);
+  const [savingCategory, setSavingCategory] = useState(false);
+  const [deleteCategoryTarget, setDeleteCategoryTarget] = useState<PromoCategory | null>(null);
 
   const { data: promos, isLoading } = useQuery({
     queryKey: ['promotions-admin'],
@@ -80,6 +112,19 @@ export default function Promotions() {
         .order('created_at', { ascending: false });
       if (error) throw error;
       return (data ?? []) as Promotion[];
+    },
+  });
+
+  // All categories (for both Categories tab and the promo form's checkboxes)
+  const { data: categories } = useQuery({
+    queryKey: ['promo-categories'],
+    queryFn: async () => {
+      const { data, error } = await (supabase.from('promo_categories' as any) as any)
+        .select('*')
+        .order('display_order', { ascending: true })
+        .order('name', { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as PromoCategory[];
     },
   });
 
@@ -106,10 +151,22 @@ export default function Promotions() {
     setDialogOpen(true);
   }
 
-  function openEdit(p: Promotion) {
+  async function openEdit(p: Promotion) {
     setEditing(p);
     const isImage = p.media_type === 'image';
     const isVideo = p.media_type === 'video';
+    // Load existing category assignments
+    let assignedIds: string[] = [];
+    try {
+      const { data, error } = await (supabase.from('promo_category_assignments' as any) as any)
+        .select('category_id')
+        .eq('promo_id', p.id);
+      if (!error && Array.isArray(data)) {
+        assignedIds = data.map((r: any) => r.category_id);
+      }
+    } catch {
+      /* leave empty on error */
+    }
     setForm({
       title: p.title,
       description: p.description ?? '',
@@ -119,8 +176,96 @@ export default function Promotions() {
       media_type: p.media_type,
       images: isImage ? parseImageUrls(p.media_url) : [],
       video_url: isVideo ? p.media_url : null,
+      selectedCategoryIds: assignedIds,
     });
     setDialogOpen(true);
+  }
+
+  function toggleCategorySelection(categoryId: string) {
+    setForm(f => {
+      const has = f.selectedCategoryIds.includes(categoryId);
+      return {
+        ...f,
+        selectedCategoryIds: has
+          ? f.selectedCategoryIds.filter(id => id !== categoryId)
+          : [...f.selectedCategoryIds, categoryId],
+      };
+    });
+  }
+
+  async function syncPromoCategoryAssignments(promoId: string, categoryIds: string[]) {
+    // Replace strategy: delete all existing for this promo, then insert.
+    const { error: delErr } = await (supabase.from('promo_category_assignments' as any) as any)
+      .delete()
+      .eq('promo_id', promoId);
+    if (delErr) throw delErr;
+    if (categoryIds.length === 0) return;
+    const rows = categoryIds.map(cid => ({ promo_id: promoId, category_id: cid }));
+    const { error: insErr } = await (supabase.from('promo_category_assignments' as any) as any)
+      .insert(rows);
+    if (insErr) throw insErr;
+  }
+
+  // ── Categories tab handlers ──────────────────────────────────────
+  function openCreateCategory() {
+    setEditingCategory(null);
+    setCatForm(EMPTY_CATEGORY_FORM);
+    setCatDialogOpen(true);
+  }
+
+  function openEditCategory(c: PromoCategory) {
+    setEditingCategory(c);
+    setCatForm({ name: c.name, display_order: c.display_order });
+    setCatDialogOpen(true);
+  }
+
+  async function handleSaveCategory() {
+    if (!catForm.name.trim()) {
+      toast.error('Name is required.');
+      return;
+    }
+    setSavingCategory(true);
+    try {
+      const payload: any = {
+        name: catForm.name.trim(),
+        display_order: Number(catForm.display_order) || 0,
+      };
+      if (editingCategory) {
+        const { error } = await (supabase.from('promo_categories' as any) as any)
+          .update(payload)
+          .eq('id', editingCategory.id);
+        if (error) throw error;
+        toast.success('Category updated.');
+      } else {
+        payload.created_by = user?.id ?? null;
+        const { error } = await (supabase.from('promo_categories' as any) as any).insert(payload);
+        if (error) throw error;
+        toast.success('Category created.');
+      }
+      setCatDialogOpen(false);
+      queryClient.invalidateQueries({ queryKey: ['promo-categories'] });
+      queryClient.invalidateQueries({ queryKey: ['promo-categories-active'] });
+    } catch (err: any) {
+      toast.error(`Save failed: ${err.message || err}`);
+    } finally {
+      setSavingCategory(false);
+    }
+  }
+
+  async function handleDeleteCategory() {
+    if (!deleteCategoryTarget) return;
+    try {
+      const { error } = await (supabase.from('promo_categories' as any) as any)
+        .delete()
+        .eq('id', deleteCategoryTarget.id);
+      if (error) throw error;
+      toast.success('Category deleted.');
+      setDeleteCategoryTarget(null);
+      queryClient.invalidateQueries({ queryKey: ['promo-categories'] });
+      queryClient.invalidateQueries({ queryKey: ['promo-categories-active'] });
+    } catch (err: any) {
+      toast.error(`Delete failed: ${err.message || err}`);
+    }
   }
 
   async function uploadOne(file: File): Promise<string> {
@@ -227,21 +372,30 @@ export default function Promotions() {
         media_url: serializedMediaUrl,
         media_type: resolvedType,
       };
+      let promoId: string;
       if (editing) {
         const { error } = await (supabase.from('promotions' as any) as any)
           .update(payload)
           .eq('id', editing.id);
         if (error) throw error;
+        promoId = editing.id;
         toast.success('Promotion updated.');
       } else {
         payload.created_by = user?.id ?? null;
-        const { error } = await (supabase.from('promotions' as any) as any).insert(payload);
+        const { data: inserted, error } = await (supabase.from('promotions' as any) as any)
+          .insert(payload)
+          .select('id')
+          .single();
         if (error) throw error;
+        promoId = (inserted as any).id;
         toast.success('Promotion created.');
       }
+      // Sync category assignments (replace strategy)
+      await syncPromoCategoryAssignments(promoId, form.selectedCategoryIds);
       setDialogOpen(false);
       queryClient.invalidateQueries({ queryKey: ['promotions-admin'] });
       queryClient.invalidateQueries({ queryKey: ['promotions-active'] });
+      queryClient.invalidateQueries({ queryKey: ['promo-categories-active'] });
     } catch (err: any) {
       toast.error(`Save failed: ${err.message || err}`);
     } finally {
@@ -291,12 +445,26 @@ export default function Promotions() {
               </p>
             </div>
           </div>
-          <Button onClick={openCreate}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Promo
-          </Button>
+          {tab === 'promos' ? (
+            <Button onClick={openCreate}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Promo
+            </Button>
+          ) : (
+            <Button onClick={openCreateCategory}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Category
+            </Button>
+          )}
         </div>
 
+        <Tabs value={tab} onValueChange={(v) => setTab(v as 'promos' | 'categories')} className="w-full">
+          <TabsList className="grid grid-cols-2 w-full max-w-sm">
+            <TabsTrigger value="promos">Promos</TabsTrigger>
+            <TabsTrigger value="categories">Categories</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="promos" className="mt-4">
         <div className="rounded-lg border bg-card">
           {isLoading ? (
             <div className="p-6 space-y-2">
@@ -382,6 +550,59 @@ export default function Promotions() {
             </div>
           )}
         </div>
+          </TabsContent>
+
+          <TabsContent value="categories" className="mt-4">
+            <div className="rounded-lg border bg-card">
+              {categories && categories.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Display order</TableHead>
+                      <TableHead>Created at</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {categories.map(c => (
+                      <TableRow key={c.id}>
+                        <TableCell className="font-medium">
+                          <div className="inline-flex items-center gap-2">
+                            <Tag className="h-3.5 w-3.5 text-muted-foreground" />
+                            {c.name}
+                          </div>
+                        </TableCell>
+                        <TableCell>{c.display_order}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {new Date(c.created_at).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell className="text-right space-x-1">
+                          <Button size="sm" variant="ghost" onClick={() => openEditCategory(c)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => setDeleteCategoryTarget(c)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <div className="p-12 text-center text-muted-foreground">
+                  <Tag className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No categories yet. Click "Add Category" to create one.</p>
+                </div>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Add/Edit dialog */}
@@ -523,6 +744,33 @@ export default function Promotions() {
                 </div>
               </div>
             </div>
+
+            <div className="space-y-1.5">
+              <Label>Categories</Label>
+              {categories && categories.length > 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 rounded-md border p-3">
+                  {categories.map(c => {
+                    const checked = form.selectedCategoryIds.includes(c.id);
+                    return (
+                      <label
+                        key={c.id}
+                        className="flex items-center gap-2 text-sm cursor-pointer hover:text-primary"
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={() => toggleCategorySelection(c.id)}
+                        />
+                        <span>{c.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  No categories yet. Create one in the Categories tab to assign it here.
+                </p>
+              )}
+            </div>
           </div>
 
           <DialogFooter>
@@ -548,6 +796,66 @@ export default function Promotions() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
             <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Category Add/Edit dialog */}
+      <Dialog open={catDialogOpen} onOpenChange={setCatDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingCategory ? 'Edit Category' : 'New Category'}</DialogTitle>
+            <DialogDescription>
+              {editingCategory ? 'Update this category.' : 'Create a new promo category.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="cat-name">Name *</Label>
+              <Input
+                id="cat-name"
+                value={catForm.name}
+                onChange={e => setCatForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="Secret Vault"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="cat-order">Display order</Label>
+              <Input
+                id="cat-order"
+                type="number"
+                value={catForm.display_order}
+                onChange={e => setCatForm(f => ({ ...f, display_order: Number(e.target.value) || 0 }))}
+              />
+              <p className="text-[11px] text-muted-foreground">Lower = shown first.</p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCatDialogOpen(false)} disabled={savingCategory}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveCategory} disabled={savingCategory}>
+              {savingCategory ? 'Saving…' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Category Delete confirmation — plain Dialog */}
+      <Dialog open={!!deleteCategoryTarget} onOpenChange={(o) => !o && setDeleteCategoryTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete category?</DialogTitle>
+            <DialogDescription>
+              This will permanently remove "{deleteCategoryTarget?.name}" and unassign it
+              from all promos. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteCategoryTarget(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDeleteCategory}>Delete</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
