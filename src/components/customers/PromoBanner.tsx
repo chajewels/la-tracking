@@ -324,10 +324,10 @@ export default function PromoBanner() {
                   <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none" />
 
                   {/* Text + CTA */}
-                  <div className="absolute inset-x-0 bottom-0 p-4 sm:p-6 text-white">
+                  <div className="absolute inset-x-0 bottom-0 p-4 sm:p-6 text-white max-h-[60%] overflow-hidden">
                     <h3 className="text-lg sm:text-2xl font-bold drop-shadow">{s.title}</h3>
                     {s.description && (
-                      <p className="mt-1 text-xs sm:text-sm opacity-90 max-w-2xl drop-shadow">
+                      <p className="mt-1 text-xs sm:text-sm opacity-90 max-w-2xl drop-shadow line-clamp-2">
                         {s.description}
                       </p>
                     )}
