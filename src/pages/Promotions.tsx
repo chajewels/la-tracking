@@ -20,7 +20,7 @@ import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { parseImageUrls } from '@/lib/promo-media';
+import { parseImageUrls, fetchPhpJpyRate, formatPromoPrice } from '@/lib/promo-media';
 
 interface Promotion {
   id: string;
@@ -35,6 +35,8 @@ interface Promotion {
   created_at: string;
   updated_at: string;
   expires_at: string | null;
+  price: number | null;
+  currency: 'PHP' | 'JPY' | null;
 }
 
 interface PromoFormState {
@@ -52,6 +54,9 @@ interface PromoFormState {
   selectedCategoryIds: string[];
   /** datetime-local string ('' when no expiry). Converted to ISO on save. */
   expires_at_local: string;
+  /** String to allow trailing decimals while typing; parsed on save. */
+  price: string;
+  currency: 'PHP' | 'JPY';
 }
 
 const EMPTY_FORM: PromoFormState = {
@@ -65,6 +70,8 @@ const EMPTY_FORM: PromoFormState = {
   video_url: null,
   selectedCategoryIds: [],
   expires_at_local: '',
+  price: '',
+  currency: 'PHP',
 };
 
 /** Convert an ISO timestamp (UTC) into a local `datetime-local` input value. */
@@ -155,6 +162,12 @@ export default function Promotions() {
     },
   });
 
+  // Live PHP↔JPY rate for the auto-conversion helper text in the form.
+  const { data: rate } = useQuery({
+    queryKey: ['php-jpy-rate'],
+    queryFn: fetchPhpJpyRate,
+  });
+
   // All categories (for both Categories tab and the promo form's checkboxes)
   const { data: categories } = useQuery({
     queryKey: ['promo-categories'],
@@ -218,6 +231,8 @@ export default function Promotions() {
       video_url: isVideo ? p.media_url : null,
       selectedCategoryIds: assignedIds,
       expires_at_local: isoToDatetimeLocal(p.expires_at),
+      price: p.price != null ? String(p.price) : '',
+      currency: (p.currency === 'JPY' ? 'JPY' : 'PHP'),
     });
     setDialogOpen(true);
   }
@@ -388,6 +403,15 @@ export default function Promotions() {
       toast.error('Title is required.');
       return;
     }
+    const priceNum = parseFloat(form.price);
+    if (!form.price.trim() || !Number.isFinite(priceNum) || priceNum < 0) {
+      toast.error('Price is required and must be a non-negative number.');
+      return;
+    }
+    if (form.currency !== 'PHP' && form.currency !== 'JPY') {
+      toast.error('Currency is required.');
+      return;
+    }
     setSaving(true);
     try {
       // media_url storage format:
@@ -413,6 +437,8 @@ export default function Promotions() {
         media_url: serializedMediaUrl,
         media_type: resolvedType,
         expires_at: datetimeLocalToIso(form.expires_at_local),
+        price: priceNum,
+        currency: form.currency,
       };
       let promoId: string;
       if (editing) {
@@ -520,6 +546,7 @@ export default function Promotions() {
                 <TableRow>
                   <TableHead>Title</TableHead>
                   <TableHead>Type</TableHead>
+                  <TableHead>Price</TableHead>
                   <TableHead>Order</TableHead>
                   <TableHead>Active</TableHead>
                   <TableHead>Expires</TableHead>
@@ -562,6 +589,11 @@ export default function Promotions() {
                       ) : (
                         <Badge variant="outline">—</Badge>
                       )}
+                    </TableCell>
+                    <TableCell className="text-sm font-medium">
+                      {p.price != null && p.currency
+                        ? formatPromoPrice(Number(p.price), p.currency)
+                        : <span className="text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell>{p.display_order}</TableCell>
                     <TableCell>
@@ -804,6 +836,56 @@ export default function Promotions() {
                     {form.is_active ? 'Shown to customers' : 'Hidden'}
                   </span>
                 </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Currency *</Label>
+                <div className="inline-flex rounded-md border overflow-hidden">
+                  {(['PHP', 'JPY'] as const).map(c => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setForm(f => ({ ...f, currency: c }))}
+                      className={`px-4 py-2 text-sm font-medium transition ${
+                        form.currency === c
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-background hover:bg-muted'
+                      }`}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="promo-price">Price *</Label>
+                <Input
+                  id="promo-price"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  inputMode="decimal"
+                  value={form.price}
+                  onChange={e => setForm(f => ({ ...f, price: e.target.value }))}
+                  placeholder="0.00"
+                />
+                {(() => {
+                  const n = parseFloat(form.price);
+                  if (!Number.isFinite(n) || n <= 0 || !rate || rate <= 0) {
+                    return <p className="text-[11px] text-muted-foreground">Enter a price to see the converted amount.</p>;
+                  }
+                  // Per CLAUDE.md:
+                  //   JPY → PHP: PHP = JPY × rate
+                  //   PHP → JPY: JPY = PHP ÷ rate
+                  if (form.currency === 'JPY') {
+                    const php = Math.round(n * rate);
+                    return <p className="text-[11px] text-muted-foreground">≈ ₱{php.toLocaleString()} PHP</p>;
+                  }
+                  const jpy = Math.round(n / rate);
+                  return <p className="text-[11px] text-muted-foreground">≈ ¥{jpy.toLocaleString()} JPY</p>;
+                })()}
               </div>
             </div>
 

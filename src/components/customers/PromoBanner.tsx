@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Volume2, VolumeX, X } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
-import { parseImageUrls } from '@/lib/promo-media';
+import { parseImageUrls, fetchPhpJpyRate, formatPromoPrice, DEFAULT_PHP_JPY_RATE } from '@/lib/promo-media';
 
 interface Promo {
   id: string;
@@ -12,6 +12,8 @@ interface Promo {
   link_url: string | null;
   display_order: number;
   expires_at: string | null;
+  price: number | null;
+  currency: 'PHP' | 'JPY' | null;
 }
 
 interface Category {
@@ -37,6 +39,8 @@ interface Slide {
   mediaUrl: string | null;
   /** For image slides only: index within the parent promo's image array. */
   imageIndex?: number;
+  price: number | null;
+  currency: 'PHP' | 'JPY' | null;
 }
 
 const ROTATE_MS = 5000;
@@ -46,6 +50,7 @@ export default function PromoBanner() {
   const [promos, setPromos] = useState<Promo[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [rate, setRate] = useState<number>(DEFAULT_PHP_JPY_RATE);
   const [loaded, setLoaded] = useState(false);
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -63,9 +68,9 @@ export default function PromoBanner() {
     let cancelled = false;
     (async () => {
       try {
-        const [promoRes, catRes, assignRes] = await Promise.all([
+        const [promoRes, catRes, assignRes, rateValue] = await Promise.all([
           (supabase.from('promotions' as any) as any)
-            .select('id, title, description, media_url, media_type, link_url, display_order, expires_at')
+            .select('id, title, description, media_url, media_type, link_url, display_order, expires_at, price, currency')
             .eq('is_active', true)
             .order('display_order', { ascending: true }),
           (supabase.from('promo_categories' as any) as any)
@@ -73,6 +78,7 @@ export default function PromoBanner() {
             .order('display_order', { ascending: true }),
           (supabase.from('promo_category_assignments' as any) as any)
             .select('promo_id, category_id'),
+          fetchPhpJpyRate(),
         ]);
         if (cancelled) return;
         if (!promoRes.error && Array.isArray(promoRes.data)) {
@@ -84,6 +90,7 @@ export default function PromoBanner() {
         if (!assignRes.error && Array.isArray(assignRes.data)) {
           setAssignments(assignRes.data as Assignment[]);
         }
+        if (rateValue > 0) setRate(rateValue);
       } catch {
         /* swallow — banner just hides on error */
       } finally {
@@ -142,6 +149,8 @@ export default function PromoBanner() {
           link_url: p.link_url,
           mediaType: 'video',
           mediaUrl: p.media_url,
+          price: p.price,
+          currency: p.currency,
         });
       } else if (p.media_type === 'image') {
         const urls = parseImageUrls(p.media_url);
@@ -156,6 +165,8 @@ export default function PromoBanner() {
             mediaType: 'image',
             mediaUrl: url,
             imageIndex: i,
+            price: p.price,
+            currency: p.currency,
           });
         });
       }
@@ -322,6 +333,22 @@ export default function PromoBanner() {
 
                   {/* Gradient overlay for legibility */}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none" />
+
+                  {/* Price badge — bottom-right, above caption */}
+                  {s.price != null && s.currency && (
+                    <div className="absolute bottom-3 right-3 z-20 px-3 py-1 rounded-lg bg-black/60 text-white text-right leading-tight pointer-events-none">
+                      <div className="font-bold text-sm sm:text-base">
+                        {formatPromoPrice(Number(s.price), s.currency)}
+                      </div>
+                      {rate > 0 && (
+                        <div className="text-[10px] sm:text-xs opacity-75">
+                          {s.currency === 'JPY'
+                            ? `≈ ₱${Math.round(Number(s.price) * rate).toLocaleString()}`
+                            : `≈ ¥${Math.round(Number(s.price) / rate).toLocaleString()}`}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Text + CTA */}
                   <div className="absolute inset-x-0 bottom-0 p-4 sm:p-6 text-white max-h-[60%] overflow-hidden">
