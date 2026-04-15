@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, Volume2, VolumeX } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { parseImageUrls } from '@/lib/promo-media';
 
 interface Promo {
   id: string;
@@ -10,6 +11,18 @@ interface Promo {
   media_type: 'image' | 'video' | null;
   link_url: string | null;
   display_order: number;
+}
+
+/** A single carousel slide. Image promos are flattened into one slide per image,
+ *  all carrying the parent promo's title/description/CTA. Video promos stay as one slide. */
+interface Slide {
+  key: string;
+  promoId: string;
+  title: string;
+  description: string | null;
+  link_url: string | null;
+  mediaType: 'image' | 'video' | null;
+  mediaUrl: string | null;
 }
 
 const ROTATE_MS = 5000;
@@ -28,7 +41,9 @@ export default function PromoBanner({ invoiceNumber }: PromoBannerProps) {
   const [loaded, setLoaded] = useState(false);
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [muted, setMuted] = useState(true);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
 
   // Fetch active promos once on mount (skipped for non-test accounts)
   useEffect(() => {
@@ -53,25 +68,70 @@ export default function PromoBanner({ invoiceNumber }: PromoBannerProps) {
     return () => { cancelled = true; };
   }, [isTestAccount]);
 
+  // Flatten promos: images expand into one slide per image URL.
+  const slides = useMemo<Slide[]>(() => {
+    const out: Slide[] = [];
+    for (const p of promos) {
+      if (p.media_type === 'video' && p.media_url) {
+        out.push({
+          key: p.id,
+          promoId: p.id,
+          title: p.title,
+          description: p.description,
+          link_url: p.link_url,
+          mediaType: 'video',
+          mediaUrl: p.media_url,
+        });
+      } else if (p.media_type === 'image') {
+        const urls = parseImageUrls(p.media_url);
+        if (urls.length === 0) continue;
+        urls.forEach((url, i) => {
+          out.push({
+            key: `${p.id}:${i}`,
+            promoId: p.id,
+            title: p.title,
+            description: p.description,
+            link_url: p.link_url,
+            mediaType: 'image',
+            mediaUrl: url,
+          });
+        });
+      }
+    }
+    return out;
+  }, [promos]);
+
   // Auto-rotate
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    if (paused || promos.length < 2) return;
+    if (paused || slides.length < 2) return;
     timerRef.current = setTimeout(() => {
-      setIndex(i => (i + 1) % promos.length);
+      setIndex(i => (i + 1) % slides.length);
     }, ROTATE_MS);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [index, paused, promos.length]);
+  }, [index, paused, slides.length]);
+
+  // Sync muted state to all rendered <video> elements via ref.
+  useEffect(() => {
+    videoRefs.current.forEach(v => { v.muted = muted; });
+  }, [muted, slides.length]);
+
+  // Reset index if slides shrink below current
+  useEffect(() => {
+    if (index >= slides.length && slides.length > 0) setIndex(0);
+  }, [slides.length, index]);
 
   if (!isTestAccount) return null;
-  if (!loaded || promos.length === 0) return null;
+  if (!loaded || slides.length === 0) return null;
 
   const go = (next: number) => {
-    const n = promos.length;
+    const n = slides.length;
     setIndex(((next % n) + n) % n);
   };
+
+  const currentIsVideo = slides[index]?.mediaType === 'video';
 
   return (
     <div
@@ -84,25 +144,26 @@ export default function PromoBanner({ invoiceNumber }: PromoBannerProps) {
         className="flex transition-transform duration-500 ease-in-out"
         style={{ transform: `translateX(-${index * 100}%)` }}
       >
-        {promos.map(p => (
-          <div key={p.id} className="relative w-full flex-shrink-0" style={{ flexBasis: '100%' }}>
-            <div
-              className="relative w-full bg-black"
-              style={{ height: 300, maxHeight: 300 }}
-            >
-              {p.media_type === 'video' && p.media_url ? (
+        {slides.map(s => (
+          <div key={s.key} className="relative w-full flex-shrink-0" style={{ flexBasis: '100%' }}>
+            <div className="relative w-full bg-black" style={{ height: 300, maxHeight: 300 }}>
+              {s.mediaType === 'video' && s.mediaUrl ? (
                 <video
-                  src={p.media_url}
+                  ref={el => {
+                    if (el) videoRefs.current.set(s.key, el);
+                    else videoRefs.current.delete(s.key);
+                  }}
+                  src={s.mediaUrl}
                   className="absolute inset-0 h-full w-full object-cover"
                   autoPlay
                   muted
                   loop
                   playsInline
                 />
-              ) : p.media_type === 'image' && p.media_url ? (
+              ) : s.mediaType === 'image' && s.mediaUrl ? (
                 <img
-                  src={p.media_url}
-                  alt={p.title}
+                  src={s.mediaUrl}
+                  alt={s.title}
                   className="absolute inset-0 h-full w-full object-cover"
                 />
               ) : null}
@@ -112,15 +173,15 @@ export default function PromoBanner({ invoiceNumber }: PromoBannerProps) {
 
               {/* Text + CTA */}
               <div className="absolute inset-x-0 bottom-0 p-4 sm:p-6 text-white">
-                <h3 className="text-lg sm:text-2xl font-bold drop-shadow">{p.title}</h3>
-                {p.description && (
+                <h3 className="text-lg sm:text-2xl font-bold drop-shadow">{s.title}</h3>
+                {s.description && (
                   <p className="mt-1 text-xs sm:text-sm opacity-90 max-w-2xl drop-shadow">
-                    {p.description}
+                    {s.description}
                   </p>
                 )}
-                {p.link_url && (
+                {s.link_url && (
                   <a
-                    href={p.link_url}
+                    href={s.link_url}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="mt-3 inline-flex items-center px-4 py-2 text-xs font-semibold uppercase tracking-wider rounded bg-white text-black hover:bg-white/90 transition"
@@ -134,7 +195,19 @@ export default function PromoBanner({ invoiceNumber }: PromoBannerProps) {
         ))}
       </div>
 
-      {promos.length > 1 && (
+      {/* Mute / unmute toggle — only visible when current slide is a video */}
+      {currentIsVideo && (
+        <button
+          type="button"
+          aria-label={muted ? 'Unmute video' : 'Mute video'}
+          onClick={() => setMuted(m => !m)}
+          className="absolute bottom-3 right-3 z-10 h-9 w-9 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition"
+        >
+          {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+        </button>
+      )}
+
+      {slides.length > 1 && (
         <>
           <button
             type="button"
@@ -154,14 +227,14 @@ export default function PromoBanner({ invoiceNumber }: PromoBannerProps) {
           </button>
 
           <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1.5">
-            {promos.map((p, i) => (
+            {slides.map((s, i) => (
               <button
-                key={p.id}
+                key={s.key}
                 type="button"
-                aria-label={`Go to promo ${i + 1}`}
+                aria-label={`Go to slide ${i + 1}`}
                 onClick={() => go(i)}
-                className={`h-2 w-2 rounded-full transition ${
-                  i === index ? 'bg-white w-5' : 'bg-white/50 hover:bg-white/80'
+                className={`h-2 rounded-full transition ${
+                  i === index ? 'bg-white w-5' : 'bg-white/50 hover:bg-white/80 w-2'
                 }`}
               />
             ))}
