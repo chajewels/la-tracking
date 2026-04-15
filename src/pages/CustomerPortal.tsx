@@ -330,7 +330,7 @@ export default function CustomerPortal() {
     <div style={{background:P.bg,minHeight:'100vh'}}>
       {/* Header */}
       <div style={{background:P.bg,borderBottom:`1px solid ${P.gd}`}}>
-        <div className="max-w-lg mx-auto px-4 py-5">
+        <div className="max-w-lg sm:max-w-2xl lg:max-w-5xl mx-auto px-4 py-5">
           <div className="flex items-center justify-between">
             <div>
               <div style={{color:P.gp,fontFamily:CG,fontSize:'24px',fontWeight:600,letterSpacing:'0.15em',textTransform:'uppercase' as const,lineHeight:1.1}}>
@@ -386,7 +386,7 @@ export default function CustomerPortal() {
         </div>
       </div>
 
-      <div className="max-w-lg mx-auto px-4 py-6 space-y-6">
+      <div className="max-w-lg sm:max-w-2xl lg:max-w-5xl mx-auto px-4 py-6 space-y-6">
         {portalView === 'profile' ? (
           <ProfileEditor
             profile={data.profile}
@@ -530,7 +530,7 @@ export default function CustomerPortal() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-4">
                 {filtered.map((account) => (
                   <AccountCard
                     key={account.id}
@@ -556,7 +556,7 @@ export default function CustomerPortal() {
       {/* Sticky Mobile Pay Now Bar */}
       {firstPayable && portalView === 'accounts' && !selectedAccount && (
         <div className="fixed bottom-0 left-0 right-0 sm:hidden z-40 px-4 py-3" style={{background:P.bg,borderTop:`1px solid ${P.gd}`}}>
-          <div className="flex gap-2 max-w-lg mx-auto">
+          <div className="flex gap-2 max-w-lg sm:max-w-2xl lg:max-w-5xl mx-auto">
             <button
               className="flex-1 h-12 font-medium transition-opacity hover:opacity-90"
               style={{background:P.gr,color:P.bg,borderRadius:'2px',fontSize:'12px',letterSpacing:'0.15em',textTransform:'uppercase' as const,cursor:'pointer',border:'none'}}
