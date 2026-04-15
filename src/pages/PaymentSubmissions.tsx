@@ -1148,12 +1148,32 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
 
                           const { data: row, error: rowErr } = await supabase
                             .from('layaway_schedule')
-                            .select('base_installment_amount, penalty_amount, carried_amount, due_date')
+                            .select('installment_number, base_installment_amount, penalty_amount, carried_amount, due_date')
                             .eq('id', scheduleId)
                             .single();
                           if (rowErr || !row) {
                             toast.error('Keep decision failed while reading schedule row: ' + (rowErr?.message || 'not found'));
                             return;
+                          }
+
+                          // Guard: if the NEXT installment row already carries a
+                          // non-zero carried_amount, an admin carry-over decision
+                          // has already been made for this row. The carry-over is
+                          // the source of truth — do NOT overwrite this row's
+                          // paid_amount/status based on allocations alone.
+                          const { data: nextRowAfter, error: nextRowErr } = await supabase
+                            .from('layaway_schedule')
+                            .select('carried_amount')
+                            .eq('account_id', modal.accountId)
+                            .eq('installment_number', Number(row.installment_number) + 1)
+                            .maybeSingle();
+                          if (nextRowErr) {
+                            toast.error('Keep decision failed while reading next row: ' + nextRowErr.message);
+                            return;
+                          }
+                          if (nextRowAfter && Number(nextRowAfter.carried_amount || 0) > 0.005) {
+                            // A carry-over already settled this row; skip it.
+                            continue;
                           }
 
                           const ceiling = Number(row.base_installment_amount)
