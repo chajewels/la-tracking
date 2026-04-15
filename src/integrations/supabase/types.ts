@@ -1741,6 +1741,10 @@ export type Database = {
         Args: { p_allocation_id: string; p_amount: number }
         Returns: undefined
       }
+      admin_renumber_installment: {
+        Args: { p_new_number: number; p_schedule_id: string }
+        Returns: undefined
+      }
       admin_update_schedule_base: {
         Args: {
           p_is_paid: boolean
