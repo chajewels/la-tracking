@@ -11,6 +11,7 @@ interface Promo {
   media_type: 'image' | 'video' | null;
   link_url: string | null;
   display_order: number;
+  expires_at: string | null;
 }
 
 interface Category {
@@ -58,7 +59,7 @@ export default function PromoBanner() {
       try {
         const [promoRes, catRes, assignRes] = await Promise.all([
           (supabase.from('promotions' as any) as any)
-            .select('id, title, description, media_url, media_type, link_url, display_order')
+            .select('id, title, description, media_url, media_type, link_url, display_order, expires_at')
             .eq('is_active', true)
             .order('display_order', { ascending: true }),
           (supabase.from('promo_categories' as any) as any)
@@ -96,21 +97,33 @@ export default function PromoBanner() {
     return m;
   }, [assignments]);
 
-  // Categories that have at least one active promo (preserving display order).
+  // Exclude expired promos (expires_at IS NOT NULL AND expires_at < now).
+  // The DB keeps them with is_active=true until the hourly cron flips them;
+  // the UI must never show them regardless of that lag.
+  const nonExpiredPromos = useMemo(() => {
+    const now = Date.now();
+    return promos.filter(p => {
+      if (!p.expires_at) return true;
+      const t = new Date(p.expires_at).getTime();
+      return !Number.isFinite(t) || t >= now;
+    });
+  }, [promos]);
+
+  // Categories that have at least one active, non-expired promo (preserving display order).
   const activeCategories = useMemo(() => {
-    const activePromoIds = new Set(promos.map(p => p.id));
+    const activePromoIds = new Set(nonExpiredPromos.map(p => p.id));
     const usedCategoryIds = new Set<string>();
     for (const a of assignments) {
       if (activePromoIds.has(a.promo_id)) usedCategoryIds.add(a.category_id);
     }
     return categories.filter(c => usedCategoryIds.has(c.id));
-  }, [promos, assignments, categories]);
+  }, [nonExpiredPromos, assignments, categories]);
 
   // Filter promos by selected category, then flatten into slides.
   const slides = useMemo<Slide[]>(() => {
     const filteredPromos = selectedCategoryId === null
-      ? promos
-      : promos.filter(p => promoToCategories.get(p.id)?.has(selectedCategoryId));
+      ? nonExpiredPromos
+      : nonExpiredPromos.filter(p => promoToCategories.get(p.id)?.has(selectedCategoryId));
 
     const out: Slide[] = [];
     for (const p of filteredPromos) {
@@ -141,7 +154,7 @@ export default function PromoBanner() {
       }
     }
     return out;
-  }, [promos, promoToCategories, selectedCategoryId]);
+  }, [nonExpiredPromos, promoToCategories, selectedCategoryId]);
 
   // Reset index when filter changes
   useEffect(() => {
@@ -171,8 +184,8 @@ export default function PromoBanner() {
   }, [slides.length, index]);
 
   if (!loaded) return null;
-  // Hide entirely when there are no active promos at all (banner + tabs)
-  if (promos.length === 0) return null;
+  // Hide entirely when there are no active, non-expired promos (banner + tabs)
+  if (nonExpiredPromos.length === 0) return null;
 
   const go = (next: number) => {
     const n = slides.length;

@@ -34,6 +34,7 @@ interface Promotion {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  expires_at: string | null;
 }
 
 interface PromoFormState {
@@ -49,6 +50,8 @@ interface PromoFormState {
   video_url: string | null;
   /** Selected category ids (managed via promo_category_assignments). */
   selectedCategoryIds: string[];
+  /** datetime-local string ('' when no expiry). Converted to ISO on save. */
+  expires_at_local: string;
 }
 
 const EMPTY_FORM: PromoFormState = {
@@ -61,7 +64,44 @@ const EMPTY_FORM: PromoFormState = {
   images: [],
   video_url: null,
   selectedCategoryIds: [],
+  expires_at_local: '',
 };
+
+/** Convert an ISO timestamp (UTC) into a local `datetime-local` input value. */
+function isoToDatetimeLocal(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Convert a `datetime-local` input value to an ISO timestamp, or null if empty. */
+function datetimeLocalToIso(s: string): string | null {
+  if (!s) return null;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
+function isExpired(iso: string | null): boolean {
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  return Number.isFinite(t) && t < Date.now();
+}
+
+function formatExpiry(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
 
 interface PromoCategory {
   id: string;
@@ -177,6 +217,7 @@ export default function Promotions() {
       images: isImage ? parseImageUrls(p.media_url) : [],
       video_url: isVideo ? p.media_url : null,
       selectedCategoryIds: assignedIds,
+      expires_at_local: isoToDatetimeLocal(p.expires_at),
     });
     setDialogOpen(true);
   }
@@ -371,6 +412,7 @@ export default function Promotions() {
         is_active: form.is_active,
         media_url: serializedMediaUrl,
         media_type: resolvedType,
+        expires_at: datetimeLocalToIso(form.expires_at_local),
       };
       let promoId: string;
       if (editing) {
@@ -480,17 +522,25 @@ export default function Promotions() {
                   <TableHead>Type</TableHead>
                   <TableHead>Order</TableHead>
                   <TableHead>Active</TableHead>
+                  <TableHead>Expires</TableHead>
                   <TableHead>Created by</TableHead>
                   <TableHead>Created at</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {promos.map(p => (
-                  <TableRow key={p.id}>
+                {promos.map(p => {
+                  const expired = isExpired(p.expires_at);
+                  return (
+                  <TableRow key={p.id} className={expired ? 'opacity-50' : undefined}>
                     <TableCell className="font-medium">
                       <div className="flex flex-col">
-                        <span>{p.title}</span>
+                        <div className="flex items-center gap-2">
+                          <span>{p.title}</span>
+                          {expired && (
+                            <Badge variant="destructive" className="text-[10px]">Expired</Badge>
+                          )}
+                        </div>
                         {p.link_url && (
                           <a
                             href={p.link_url}
@@ -520,6 +570,17 @@ export default function Promotions() {
                         onCheckedChange={(v) => toggleActive(p, v)}
                       />
                     </TableCell>
+                    <TableCell className="text-sm">
+                      {!p.expires_at ? (
+                        <span className="text-muted-foreground">No expiry</span>
+                      ) : expired ? (
+                        <Badge variant="destructive">Expired</Badge>
+                      ) : (
+                        <span className="text-emerald-600 dark:text-emerald-400">
+                          {formatExpiry(p.expires_at)}
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {p.created_by && creators?.get(p.created_by) || '—'}
                     </TableCell>
@@ -540,7 +601,8 @@ export default function Promotions() {
                       </Button>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           ) : (
@@ -743,6 +805,33 @@ export default function Promotions() {
                   </span>
                 </div>
               </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="promo-expires">Expires At (optional)</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="promo-expires"
+                  type="datetime-local"
+                  value={form.expires_at_local}
+                  onChange={e => setForm(f => ({ ...f, expires_at_local: e.target.value }))}
+                  className="max-w-xs"
+                />
+                {form.expires_at_local && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setForm(f => ({ ...f, expires_at_local: '' }))}
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                When set, the promo is hidden from customers after this moment.
+                Leave blank for no expiry.
+              </p>
             </div>
 
             <div className="space-y-1.5">
