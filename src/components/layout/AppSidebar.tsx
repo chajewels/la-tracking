@@ -14,6 +14,7 @@ import {
   LogOut,
   Vault,
   Inbox,
+  Megaphone,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
@@ -40,6 +41,7 @@ const menuItems = [
   { label: 'Analytics', icon: BarChart3, path: ROUTES.ANALYTICS },
   { label: 'Admin Audit', icon: ShieldCheck, path: ROUTES.ADMIN_AUDIT },
   { label: 'Payment Vault', icon: Vault, path: ROUTES.PAYMENT_VAULT },
+  { label: 'Promotions', icon: Megaphone, path: ROUTES.PROMOTIONS },
   { label: 'Settings', icon: Settings, path: ROUTES.SETTINGS },
 ];
 

@@ -49,6 +49,7 @@ const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
 const PaymentVault = lazyWithRetry(() => import("./pages/PaymentVault"));
 const PaymentsHub = lazyWithRetry(() => import("./pages/PaymentsHub"));
 const Unsubscribe = lazyWithRetry(() => import("./pages/Unsubscribe"));
+const Promotions = lazyWithRetry(() => import("./pages/Promotions"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -101,6 +102,7 @@ const App = () => (
                 <Route path="/admin-audit" element={<Protected><AdminAudit /></Protected>} />
                 <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
                 <Route path="/payments-hub" element={<Protected><PaymentsHub /></Protected>} />
+                <Route path="/promotions" element={<Protected><Promotions /></Protected>} />
                 {/* Legacy routes — redirect to the combined hub */}
                 <Route path="/payment-submissions" element={<Navigate to="/payments-hub" replace />} />
                 <Route path="/payment-proofs" element={<Navigate to="/payments-hub?tab=proofs" replace />} />

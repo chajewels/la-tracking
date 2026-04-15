@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
 import CountrySelect from '@/components/customers/CountrySelect';
+import PromoBanner from '@/components/customers/PromoBanner';
 import { LocationType, parseLocation, toLocationString } from '@/lib/countries';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -394,6 +395,9 @@ export default function CustomerPortal() {
           />
         ) : (
           <>
+            {/* Promotional banner — hidden when no active promos */}
+            <PromoBanner />
+
             {/* Summary Stats — luxury panel */}
             <div>
               <div style={{height:'1px',background:P.gd}} />
