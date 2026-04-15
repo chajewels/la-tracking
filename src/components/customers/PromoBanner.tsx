@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Volume2, VolumeX } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Volume2, VolumeX, X } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { parseImageUrls } from '@/lib/promo-media';
 
@@ -35,9 +35,12 @@ interface Slide {
   link_url: string | null;
   mediaType: 'image' | 'video' | null;
   mediaUrl: string | null;
+  /** For image slides only: index within the parent promo's image array. */
+  imageIndex?: number;
 }
 
 const ROTATE_MS = 5000;
+const SWIPE_THRESHOLD = 50; // px
 
 export default function PromoBanner() {
   const [promos, setPromos] = useState<Promo[]>([]);
@@ -49,8 +52,11 @@ export default function PromoBanner() {
   const [muted, setMuted] = useState(true);
   /** null = "All" tab selected */
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  /** Lightbox state — null when closed. */
+  const [lightbox, setLightbox] = useState<{ promoId: string; imageIndex: number } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
+  const touchStartXRef = useRef<number | null>(null);
 
   // Fetch active promos, categories, and assignments in parallel.
   useEffect(() => {
@@ -149,6 +155,7 @@ export default function PromoBanner() {
             link_url: p.link_url,
             mediaType: 'image',
             mediaUrl: url,
+            imageIndex: i,
           });
         });
       }
@@ -161,17 +168,17 @@ export default function PromoBanner() {
     setIndex(0);
   }, [selectedCategoryId]);
 
-  // Auto-rotate
+  // Auto-rotate — paused while the lightbox is open.
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    if (paused || slides.length < 2) return;
+    if (paused || lightbox || slides.length < 2) return;
     timerRef.current = setTimeout(() => {
       setIndex(i => (i + 1) % slides.length);
     }, ROTATE_MS);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [index, paused, slides.length]);
+  }, [index, paused, lightbox, slides.length]);
 
   // Sync muted state to all rendered <video> elements via ref.
   useEffect(() => {
@@ -182,6 +189,41 @@ export default function PromoBanner() {
   useEffect(() => {
     if (index >= slides.length && slides.length > 0) setIndex(0);
   }, [slides.length, index]);
+
+  // Lightbox: images for the active promo, and current image (with safe indexing).
+  const lightboxImages = useMemo(() => {
+    if (!lightbox) return [];
+    const promo = promos.find(p => p.id === lightbox.promoId);
+    if (!promo) return [];
+    return parseImageUrls(promo.media_url);
+  }, [lightbox, promos]);
+
+  const lightboxIndex = lightbox && lightboxImages.length > 0
+    ? Math.max(0, Math.min(lightbox.imageIndex, lightboxImages.length - 1))
+    : 0;
+
+  // Keyboard shortcuts for lightbox: Escape / ArrowLeft / ArrowRight
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightbox(null);
+      else if (e.key === 'ArrowLeft') {
+        setLightbox(lb => {
+          if (!lb || lightboxImages.length === 0) return lb;
+          const n = lightboxImages.length;
+          return { ...lb, imageIndex: (lb.imageIndex - 1 + n) % n };
+        });
+      } else if (e.key === 'ArrowRight') {
+        setLightbox(lb => {
+          if (!lb || lightboxImages.length === 0) return lb;
+          const n = lightboxImages.length;
+          return { ...lb, imageIndex: (lb.imageIndex + 1) % n };
+        });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [lightbox, lightboxImages.length]);
 
   if (!loaded) return null;
   // Hide entirely when there are no active, non-expired promos (banner + tabs)
@@ -194,6 +236,18 @@ export default function PromoBanner() {
   };
 
   const currentIsVideo = slides[index]?.mediaType === 'video';
+
+  const openLightboxForSlide = (s: Slide) => {
+    if (s.mediaType !== 'image' || !s.mediaUrl) return;
+    if (s.link_url) return; // link takes precedence — do nothing here
+    setLightbox({ promoId: s.promoId, imageIndex: s.imageIndex ?? 0 });
+  };
+
+  const stepLightbox = (delta: number) => {
+    if (lightboxImages.length === 0) return;
+    const n = lightboxImages.length;
+    setLightbox(lb => lb ? { ...lb, imageIndex: ((lb.imageIndex + delta) % n + n) % n } : lb);
+  };
 
   return (
     <div className="space-y-2">
@@ -239,7 +293,9 @@ export default function PromoBanner() {
             className="flex transition-transform duration-500 ease-in-out"
             style={{ transform: `translateX(-${index * 100}%)` }}
           >
-            {slides.map(s => (
+            {slides.map(s => {
+              const imageIsClickable = s.mediaType === 'image' && !s.link_url && !!s.mediaUrl;
+              return (
               <div key={s.key} className="relative w-full flex-shrink-0" style={{ flexBasis: '100%' }}>
                 <div className="relative w-full bg-black" style={{ height: 300, maxHeight: 300 }}>
                   {s.mediaType === 'video' && s.mediaUrl ? (
@@ -259,12 +315,13 @@ export default function PromoBanner() {
                     <img
                       src={s.mediaUrl}
                       alt={s.title}
-                      className="absolute inset-0 h-full w-full object-cover"
+                      onClick={imageIsClickable ? () => openLightboxForSlide(s) : undefined}
+                      className={`absolute inset-0 h-full w-full object-cover ${imageIsClickable ? 'cursor-zoom-in' : ''}`}
                     />
                   ) : null}
 
                   {/* Gradient overlay for legibility */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none" />
 
                   {/* Text + CTA */}
                   <div className="absolute inset-x-0 bottom-0 p-4 sm:p-6 text-white">
@@ -287,7 +344,8 @@ export default function PromoBanner() {
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Mute / unmute toggle — only visible when current slide is a video */}
@@ -333,6 +391,75 @@ export default function PromoBanner() {
                     }`}
                   />
                 ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Lightbox — fullscreen image viewer for image slides without a link_url */}
+      {lightbox && lightboxImages.length > 0 && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Image viewer"
+          onClick={() => setLightbox(null)}
+          onTouchStart={(e) => {
+            touchStartXRef.current = e.changedTouches[0]?.clientX ?? null;
+          }}
+          onTouchEnd={(e) => {
+            const startX = touchStartXRef.current;
+            if (startX === null) return;
+            const endX = e.changedTouches[0]?.clientX ?? startX;
+            const dx = endX - startX;
+            touchStartXRef.current = null;
+            if (Math.abs(dx) < SWIPE_THRESHOLD) return;
+            stepLightbox(dx < 0 ? 1 : -1);
+          }}
+        >
+          {/* Close button */}
+          <button
+            type="button"
+            aria-label="Close image viewer"
+            onClick={(e) => { e.stopPropagation(); setLightbox(null); }}
+            className="absolute top-4 right-4 h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition"
+          >
+            <X className="h-5 w-5" />
+          </button>
+
+          {/* Image — click is stopped so tapping the image itself does not close */}
+          <img
+            src={lightboxImages[lightboxIndex]}
+            alt="promo image"
+            onClick={(e) => e.stopPropagation()}
+            className="max-w-[95vw] max-h-[90vh] object-contain select-none"
+            draggable={false}
+          />
+
+          {lightboxImages.length > 1 && (
+            <>
+              <button
+                type="button"
+                aria-label="Previous image"
+                onClick={(e) => { e.stopPropagation(); stepLightbox(-1); }}
+                className="absolute left-3 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition"
+              >
+                <ChevronLeft className="h-6 w-6" />
+              </button>
+              <button
+                type="button"
+                aria-label="Next image"
+                onClick={(e) => { e.stopPropagation(); stepLightbox(1); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition"
+              >
+                <ChevronRight className="h-6 w-6" />
+              </button>
+
+              <div className="absolute bottom-4 left-0 right-0 flex justify-center">
+                <span className="px-3 py-1 text-xs text-white/90 rounded-full bg-white/10">
+                  {lightboxIndex + 1} / {lightboxImages.length}
+                </span>
               </div>
             </>
           )}
