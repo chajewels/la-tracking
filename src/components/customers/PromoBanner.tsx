@@ -27,16 +27,7 @@ interface Slide {
 
 const ROTATE_MS = 5000;
 
-interface PromoBannerProps {
-  /** Invoice number of the current account. Banner is temporarily
-   *  restricted to invoice numbers starting with 'TEST' for testing. */
-  invoiceNumber: string;
-}
-
-export default function PromoBanner({ invoiceNumber }: PromoBannerProps) {
-  // Temporary restriction: only render for test accounts.
-  const isTestAccount = typeof invoiceNumber === 'string' && invoiceNumber.startsWith('TEST');
-
+export default function PromoBanner() {
   const [promos, setPromos] = useState<Promo[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [index, setIndex] = useState(0);
@@ -45,9 +36,8 @@ export default function PromoBanner({ invoiceNumber }: PromoBannerProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
 
-  // Fetch active promos once on mount (skipped for non-test accounts)
+  // Fetch active promos once on mount
   useEffect(() => {
-    if (!isTestAccount) return;
     let cancelled = false;
     (async () => {
       try {
@@ -66,7 +56,7 @@ export default function PromoBanner({ invoiceNumber }: PromoBannerProps) {
       }
     })();
     return () => { cancelled = true; };
-  }, [isTestAccount]);
+  }, []);
 
   // Flatten promos: images expand into one slide per image URL.
   const slides = useMemo<Slide[]>(() => {
@@ -123,7 +113,6 @@ export default function PromoBanner({ invoiceNumber }: PromoBannerProps) {
     if (index >= slides.length && slides.length > 0) setIndex(0);
   }, [slides.length, index]);
 
-  if (!isTestAccount) return null;
   if (!loaded || slides.length === 0) return null;
 
   const go = (next: number) => {
