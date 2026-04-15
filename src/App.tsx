@@ -9,16 +9,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { PermissionsProvider } from "@/contexts/PermissionsContext";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
-import Login from "./pages/Login";
-
-// Core pages — loaded eagerly for instant navigation
-import Dashboard from "./pages/Dashboard";
-import AccountList from "./pages/AccountList";
-import AccountDetail from "./pages/AccountDetail";
-import Customers from "./pages/Customers";
-import CustomerDetail from "./pages/CustomerDetail";
-import Monitoring from "./pages/Monitoring";
-import CustomerPortal from "./pages/CustomerPortal";
 
 // Retry wrapper for lazy imports — handles stale chunks after dev server restart
 function lazyWithRetry(factory: () => Promise<{ default: ComponentType<any> }>) {
@@ -37,7 +27,15 @@ function lazyWithRetry(factory: () => Promise<{ default: ComponentType<any> }>) 
   );
 }
 
-// Secondary pages — lazy loaded (visited less frequently)
+// All pages are lazy-loaded to keep initial bundle small
+const Login = lazyWithRetry(() => import("./pages/Login"));
+const Dashboard = lazyWithRetry(() => import("./pages/Dashboard"));
+const AccountList = lazyWithRetry(() => import("./pages/AccountList"));
+const AccountDetail = lazyWithRetry(() => import("./pages/AccountDetail"));
+const Customers = lazyWithRetry(() => import("./pages/Customers"));
+const CustomerDetail = lazyWithRetry(() => import("./pages/CustomerDetail"));
+const Monitoring = lazyWithRetry(() => import("./pages/Monitoring"));
+const CustomerPortal = lazyWithRetry(() => import("./pages/CustomerPortal"));
 const Collections = lazyWithRetry(() => import("./pages/Collections"));
 const Finance = lazyWithRetry(() => import("./pages/Finance"));
 const Analytics = lazyWithRetry(() => import("./pages/Analytics"));
