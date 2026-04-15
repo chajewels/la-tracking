@@ -132,6 +132,23 @@ async function allocatePaymentToAccount(
         const due = Math.max(0, rowCeiling - alreadyAllocated - alreadyAllocatedPenalty);
         if (due <= 0) continue;
 
+        // Guard: respect admin carry-over decisions. If the NEXT installment
+        // row already holds a non-zero carried_amount, this row was
+        // administratively closed via carry-over. Do NOT re-allocate to it —
+        // skip and let the waterfall continue to the next iteration so any
+        // remaining funds flow onward.
+        //
+        // Uses the full `schedule` array (which includes `paid`/`cancelled`
+        // rows excluded from `unpaidItems`), because the next row may
+        // already be in a non-unpaid state.
+        const nextItem = (schedule || []).find(
+          (i: any) => Number(i.installment_number) === Number(item.installment_number) + 1
+        );
+        if (nextItem && Number(nextItem.carried_amount || 0) > 0.005) {
+          // Admin carry-over already closed this row — skip it
+          continue;
+        }
+
         const toApply = Math.min(remaining, due);
         remaining -= toApply;
         const newPaid = alreadyAllocated + toApply;
