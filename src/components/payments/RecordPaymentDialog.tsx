@@ -168,7 +168,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
 
       const { error: uploadErr } = await supabase.storage
         .from('payment-proofs')
-        .upload(storagePath, proofFile, { cacheControl: '3600', upsert: false });
+        .upload(storagePath, proofFile, { cacheControl: '3600', upsert: true });
       if (uploadErr) throw uploadErr;
 
       const { data: urlData } = supabase.storage
