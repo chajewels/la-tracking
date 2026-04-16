@@ -2122,38 +2122,46 @@ export default function AccountDetail() {
         />
 
         {/* Void Confirmation Dialog */}
-        <AlertDialog open={!!voidTarget} onOpenChange={(open) => { if (!open) setVoidTarget(null); }}>
-          <AlertDialogContent className="bg-card border-border">
-            <AlertDialogHeader>
-              <AlertDialogTitle className="text-card-foreground">Void Payment</AlertDialogTitle>
-              <AlertDialogDescription>
+        {!!voidTarget && (
+          <>
+            <div
+              className="fixed inset-0 bg-black/60"
+              style={{ zIndex: 9998, pointerEvents: 'auto' }}
+              onClick={() => setVoidTarget(null)}
+            />
+            <div
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md border border-border rounded-xl p-6 shadow-xl"
+              style={{ zIndex: 9999, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', color: 'var(--foreground)' }}
+            >
+              <h2 className="text-lg font-semibold text-card-foreground mb-1">Void Payment</h2>
+              <p className="text-sm text-muted-foreground mb-4">
                 This will reverse the payment and restore the balance. The payment record will be kept for audit purposes. Amount changes require voiding and re-entering.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <div className="space-y-2">
-              <label className="text-xs text-muted-foreground">Reason (optional)</label>
-              <Textarea value={voidReason} onChange={(e) => setVoidReason(e.target.value)} rows={2} placeholder="e.g. Recorded wrong amount" className="bg-background border-border text-sm resize-none" />
+              </p>
+              <div className="space-y-2 mb-4">
+                <label className="text-xs text-muted-foreground">Reason (optional)</label>
+                <Textarea value={voidReason} onChange={(e) => setVoidReason(e.target.value)} rows={2} placeholder="e.g. Recorded wrong amount" className="bg-background border-border text-sm resize-none" />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setVoidTarget(null)}>Cancel</Button>
+                <Button
+                  variant="destructive"
+                  disabled={voidPayment.isPending}
+                  onClick={async () => {
+                    if (!voidTarget) return;
+                    try {
+                      await voidPayment.mutateAsync({ payment_id: voidTarget, reason: voidReason || undefined });
+                      toast.success('Payment voided successfully');
+                      setVoidTarget(null);
+                    } catch (err: any) {
+                      toast.error(err.message || 'Failed to void payment');
+                    }
+                  }}>
+                  {voidPayment.isPending ? 'Voiding…' : 'Void Payment'}
+                </Button>
+              </div>
             </div>
-            <AlertDialogFooter>
-              <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                disabled={voidPayment.isPending}
-                onClick={async () => {
-                  if (!voidTarget) return;
-                  try {
-                    await voidPayment.mutateAsync({ payment_id: voidTarget, reason: voidReason || undefined });
-                    toast.success('Payment voided successfully');
-                    setVoidTarget(null);
-                  } catch (err: any) {
-                    toast.error(err.message || 'Failed to void payment');
-                  }
-                }}>
-                {voidPayment.isPending ? 'Voiding…' : 'Void Payment'}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+          </>
+        )}
 
         {/* Forfeit Account Confirmation */}
         {forfeitConfirmOpen && (
