@@ -5,7 +5,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const MAX_ACCOUNTS_PER_RUN = 10;
+const MAX_ACCOUNTS_PER_RUN = 800;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -27,7 +27,7 @@ Deno.serve(async (req) => {
     const { data: accounts, error: acctErr } = await supabase
       .from("layaway_accounts")
       .select("id, invoice_number, status, total_paid, remaining_balance")
-      .in("status", ["active", "overdue"])
+      .in("status", ["active", "overdue", "extension_active", "final_settlement"])
       .order("updated_at", { ascending: true })
       .limit(MAX_ACCOUNTS_PER_RUN);
 
