@@ -139,7 +139,7 @@ export default function NewAccount() {
       const { data } = await supabase
         .from('customers')
         .select('id, full_name, mobile_number, email, facebook_name, messenger_link, location')
-        .ilike('full_name', `%${term}%`)
+        .or(`full_name.ilike.%${term}%,mobile_number.ilike.%${term}%`)
         .order('full_name', { ascending: true })
         .limit(10);
       setCustomerResults(((data as any) || []) as DbCustomer[]);
