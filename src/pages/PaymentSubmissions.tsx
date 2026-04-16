@@ -502,8 +502,6 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
               .reduce((s, a) => s + a.amount, 0);
             const partialRow = confirmScheduleRows.find(r => r.id === partialAlloc.scheduleId) ?? null;
             const cur = (actionDialog.sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY';
-            console.log('[Keep debug] _data:', _data);
-            console.log('[Keep debug] paymentId:', (_data as any)?.confirmed_payment_ids?.[0]);
             setOverpaymentModal({
               row: partialRow,
               sourceRowId: confirmWaterfall.allocations[0]?.scheduleId ?? null,
@@ -1126,10 +1124,6 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
                         .select('id, schedule_id')
                         .eq('payment_id', modal.paymentId)
                         .neq('schedule_id', modal.sourceRowId);
-
-                      console.log('[Keep debug] sourceRowId:', modal.sourceRowId);
-                      console.log('[Keep debug] spillAllocations:', spillAllocations);
-                      console.log('[Keep debug] spillFetchErr:', spillFetchErr);
 
                       if (spillFetchErr) {
                         toast.error('Keep decision failed while fetching spillover allocations: ' + spillFetchErr.message);
