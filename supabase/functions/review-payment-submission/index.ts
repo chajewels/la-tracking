@@ -155,11 +155,10 @@ async function allocatePaymentToAccount(
         const isNowFullyPaid = newPaid >= rowCeiling;
 
         if (isNowFullyPaid && item.status === "partially_paid") {
-          // GHOST PREVENTION: topping up a partial month — cap at ceiling, stop
+          // Topping up a partial month — cap paid_amount at ceiling.
+          // Surplus flows naturally to the next unpaidItems iteration.
           allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
           scheduleUpdates.push({ id: item.id, paid_amount: rowCeiling, status: "paid" });
-          remaining = 0;
-          break;
 
         } else if (isNowFullyPaid) {
           // CHANGE 3: remove cascade that wrote paid_amount/total_due_amount on next
