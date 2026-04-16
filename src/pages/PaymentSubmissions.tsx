@@ -1127,6 +1127,10 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
                         .eq('payment_id', modal.paymentId)
                         .neq('schedule_id', modal.sourceRowId);
 
+                      console.log('[Keep debug] sourceRowId:', modal.sourceRowId);
+                      console.log('[Keep debug] spillAllocations:', spillAllocations);
+                      console.log('[Keep debug] spillFetchErr:', spillFetchErr);
+
                       if (spillFetchErr) {
                         toast.error('Keep decision failed while fetching spillover allocations: ' + spillFetchErr.message);
                         return;
