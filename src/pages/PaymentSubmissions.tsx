@@ -1057,12 +1057,12 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
                   const modal = overpaymentModal;
                   setOverpaymentModal(null);
                   if (modal && modal.sourceRowId) {
-                    // Fetch source row to compute its ceiling. The Keep decision
-                    // must cap the source-row allocation at ceiling so we never
-                    // write paid_amount > total_due_amount on that row.
+                    // Fetch source row so we can (a) compute its ceiling for
+                    // the surplus calculation, and (b) know its
+                    // installment_number for the next-row lookup below.
                     const { data: sourceRowData, error: sourceRowErr } = await supabase
                       .from('layaway_schedule')
-                      .select('base_installment_amount, penalty_amount, carried_amount')
+                      .select('installment_number, base_installment_amount, penalty_amount, carried_amount')
                       .eq('id', modal.sourceRowId)
                       .single();
                     if (sourceRowErr || !sourceRowData) {
@@ -1074,7 +1074,13 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
                         + Number(sourceRowData.penalty_amount || 0)
                         + Number(sourceRowData.carried_amount || 0)) * 100
                     ) / 100;
-                    const cappedKeepAmount = Math.min(Number(modal.paidAmount), sourceCeiling);
+                    // Keep records the full payment on the source row; the surplus
+                    // beyond the source-row ceiling is applied to the next pending
+                    // row by REDUCING its total_due_amount (waterfall overpayment).
+                    const keepSurplus = Math.max(
+                      0,
+                      Math.round((Number(modal.paidAmount) - sourceCeiling) * 100) / 100
+                    );
 
                     // Find the existing allocation for THIS payment on the source row
                     // (filter by payment_id so we don't accidentally update a prior payment's allocation)
@@ -1096,17 +1102,14 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
                       .sort((a, b) => Number(b.allocated_amount) - Number(a.allocated_amount))[0];
 
                     if (existingAlloc) {
-                      // Cap the source-row allocation at the row ceiling. The
+                      // Record the full submitted amount on the source row. The
                       // admin_keep_allocation_override RPC bypasses the ceiling
-                      // trigger (SECURITY DEFINER), but we cap the amount here
-                      // so paid_amount never exceeds total_due_amount on this
-                      // row. Any surplus beyond ceiling is left unallocated —
-                      // it stays in payments.amount_paid and is captured by
-                      // total_paid / remaining_balance via the canonical
-                      // formula recompute below.
+                      // trigger so allocated_amount may exceed the row ceiling —
+                      // the accompanying surplus is applied to the next pending
+                      // row by reducing its total_due_amount (below).
                       const { error: rpcError } = await supabase.rpc('admin_keep_allocation_override', {
                         p_allocation_id: existingAlloc.id,
-                        p_amount: cappedKeepAmount,
+                        p_amount: modal.paidAmount,
                       });
                       if (rpcError) {
                         toast.error('Keep decision failed: ' + rpcError.message);
@@ -1230,14 +1233,48 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
                       }
                     }
 
-                    // Sync source row: capped at ceiling, flipped to 'paid'.
+                    // Sync source row: full payment amount recorded, flipped to 'paid'.
                     const { error: srcUpdErr } = await supabase
                       .from('layaway_schedule')
-                      .update({ paid_amount: cappedKeepAmount, status: 'paid' })
+                      .update({ paid_amount: modal.paidAmount, status: 'paid' })
                       .eq('id', modal.sourceRowId);
                     if (srcUpdErr) {
                       toast.error('Keep decision failed while syncing source row: ' + srcUpdErr.message);
                       return;
+                    }
+
+                    // Apply the overpayment surplus to the NEXT pending/partial
+                    // row by reducing its total_due_amount. The next row is the
+                    // lowest installment_number greater than the source row that
+                    // is NOT already paid or cancelled.
+                    if (keepSurplus > 0.005) {
+                      const { data: nextUnpaidRow, error: nextUnpaidErr } = await supabase
+                        .from('layaway_schedule')
+                        .select('id, total_due_amount')
+                        .eq('account_id', modal.accountId)
+                        .gt('installment_number', Number(sourceRowData.installment_number))
+                        .not('status', 'in', '("paid","cancelled")')
+                        .order('installment_number', { ascending: true })
+                        .limit(1)
+                        .maybeSingle();
+                      if (nextUnpaidErr) {
+                        toast.error('Keep decision failed while locating next pending row: ' + nextUnpaidErr.message);
+                        return;
+                      }
+                      if (nextUnpaidRow) {
+                        const newTotalDue = Math.max(
+                          0,
+                          Math.round((Number(nextUnpaidRow.total_due_amount) - keepSurplus) * 100) / 100
+                        );
+                        const { error: nextUnpaidUpdErr } = await supabase
+                          .from('layaway_schedule')
+                          .update({ total_due_amount: newTotalDue })
+                          .eq('id', nextUnpaidRow.id);
+                        if (nextUnpaidUpdErr) {
+                          toast.error('Keep decision failed while reducing next row total_due_amount: ' + nextUnpaidUpdErr.message);
+                          return;
+                        }
+                      }
                     }
 
                     // ── Recompute account totals using canonical formula ──
