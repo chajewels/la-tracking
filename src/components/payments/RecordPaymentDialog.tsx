@@ -135,7 +135,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     let cumulative = 0;
     for (let i = 0; i < Math.min(5, unpaidItems.length); i++) {
       const item = unpaidItems[i];
-      const due = Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
+      const due = Math.max(0, Number(item.total_due_amount));
       cumulative += due;
       if (cumulative > 0) {
         const dateLabel = new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
