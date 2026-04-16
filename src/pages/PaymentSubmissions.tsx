@@ -1057,6 +1057,25 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
                   const modal = overpaymentModal;
                   setOverpaymentModal(null);
                   if (modal && modal.sourceRowId) {
+                    // Fetch source row to compute its ceiling. The Keep decision
+                    // must cap the source-row allocation at ceiling so we never
+                    // write paid_amount > total_due_amount on that row.
+                    const { data: sourceRowData, error: sourceRowErr } = await supabase
+                      .from('layaway_schedule')
+                      .select('base_installment_amount, penalty_amount, carried_amount')
+                      .eq('id', modal.sourceRowId)
+                      .single();
+                    if (sourceRowErr || !sourceRowData) {
+                      toast.error('Keep decision failed while reading source row: ' + (sourceRowErr?.message || 'not found'));
+                      return;
+                    }
+                    const sourceCeiling = Math.round(
+                      (Number(sourceRowData.base_installment_amount)
+                        + Number(sourceRowData.penalty_amount || 0)
+                        + Number(sourceRowData.carried_amount || 0)) * 100
+                    ) / 100;
+                    const cappedKeepAmount = Math.min(Number(modal.paidAmount), sourceCeiling);
+
                     // Find the existing allocation for THIS payment on the source row
                     // (filter by payment_id so we don't accidentally update a prior payment's allocation)
                     const allocQuery = supabase
@@ -1077,10 +1096,17 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
                       .sort((a, b) => Number(b.allocated_amount) - Number(a.allocated_amount))[0];
 
                     if (existingAlloc) {
-                      // Update source row allocation to full submitted amount via RPC bypass
+                      // Cap the source-row allocation at the row ceiling. The
+                      // admin_keep_allocation_override RPC bypasses the ceiling
+                      // trigger (SECURITY DEFINER), but we cap the amount here
+                      // so paid_amount never exceeds total_due_amount on this
+                      // row. Any surplus beyond ceiling is left unallocated —
+                      // it stays in payments.amount_paid and is captured by
+                      // total_paid / remaining_balance via the canonical
+                      // formula recompute below.
                       const { error: rpcError } = await supabase.rpc('admin_keep_allocation_override', {
                         p_allocation_id: existingAlloc.id,
-                        p_amount: modal.paidAmount,
+                        p_amount: cappedKeepAmount,
                       });
                       if (rpcError) {
                         toast.error('Keep decision failed: ' + rpcError.message);
@@ -1204,10 +1230,10 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
                       }
                     }
 
-                    // Sync source row paid_amount to match the override amount
+                    // Sync source row: capped at ceiling, flipped to 'paid'.
                     const { error: srcUpdErr } = await supabase
                       .from('layaway_schedule')
-                      .update({ paid_amount: modal.paidAmount })
+                      .update({ paid_amount: cappedKeepAmount, status: 'paid' })
                       .eq('id', modal.sourceRowId);
                     if (srcUpdErr) {
                       toast.error('Keep decision failed while syncing source row: ' + srcUpdErr.message);
