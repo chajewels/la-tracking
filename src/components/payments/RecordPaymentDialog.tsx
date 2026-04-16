@@ -198,9 +198,38 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
         return proofUrl;
       }
 
-      // Admin/finance path: record-payment already confirmed the payment directly
-      // in `payments`. Insert a matching payment_submissions row with
-      // status='confirmed' so the proof surfaces in Proof of Payment immediately.
+      // Admin/finance path: review-payment-submission already created a confirmed
+      // payment_submissions row when the reviewer clicked Confirm. Find that row
+      // and UPDATE it with the proof, rather than inserting a duplicate.
+      const updateProofFields: any = {
+        proof_url: proofUrl,
+        sender_name: senderName,
+      };
+      if (installmentNumber != null) updateProofFields.installment_number = installmentNumber;
+
+      const { data: existingSub } = await supabase
+        .from('payment_submissions')
+        .select('id')
+        .eq('account_id', accountId)
+        .eq('status', 'confirmed')
+        .eq('submitted_amount', parsedAmount)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existingSub) {
+        const { error: updExistErr } = await supabase
+          .from('payment_submissions')
+          .update(updateProofFields)
+          .eq('id', existingSub.id);
+        if (updExistErr) {
+          console.warn('[RecordPaymentDialog] payment_submissions confirmed-row update failed:', updExistErr.message);
+          toast.warning('Payment recorded, but proof could not be attached. Please re-upload via account page.');
+        }
+        return proofUrl;
+      }
+
+      // Fallback: no existing confirmed row found — INSERT a new one.
       const { data: acct } = await supabase
         .from('layaway_accounts')
         .select('customer_id')
