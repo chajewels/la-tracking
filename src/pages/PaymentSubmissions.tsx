@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/layout/AppLayout';
+import RefreshControl from '@/components/common/RefreshControl';
+import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -315,6 +317,11 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
   const canReject = can('reject_submission');
   const canModerate = canConfirm || canReview || canReject;
   const queryClient = useQueryClient();
+  const { lastRefreshedAt, refreshing, refresh } = useAutoRefresh([
+    ['payment-submissions'],
+    ['submission-allocations'],
+    ['pending-submission-count'],
+  ]);
   const [statusFilter, setStatusFilter] = useState<string>('pending');
   const [search, setSearch] = useState('');
   const [actionDialog, setActionDialog] = useState<{ sub: SubmissionRow; action: string } | null>(null);
@@ -564,11 +571,14 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
               Review and process customer payment submissions from the portal.
             </p>
           </div>
-          {pendingCount > 0 && (
-            <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20 text-sm px-3 py-1 self-start">
-              {pendingCount} pending review
-            </Badge>
-          )}
+          <div className="flex items-center gap-3 self-start">
+            {pendingCount > 0 && (
+              <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20 text-sm px-3 py-1">
+                {pendingCount} pending review
+              </Badge>
+            )}
+            <RefreshControl lastRefreshedAt={lastRefreshedAt} refreshing={refreshing} onRefresh={refresh} />
+          </div>
         </div>
 
         {/* Filters */}

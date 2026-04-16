@@ -17,6 +17,7 @@ import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { getDisplayCurrencyForFilter } from '@/lib/currency-converter';
 import { useAccounts, useCustomers, useDashboardSummary } from '@/hooks/use-supabase-data';
+import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
@@ -36,6 +37,11 @@ export default function Dashboard() {
   const needsGeo = can('view_geo_breakdown');
   const { data: accounts } = useAccounts();
   const { data: customers } = useCustomers();
+  useAutoRefresh([
+    ['accounts'],
+    ['customers'],
+    ['dashboard-summary'],
+  ]);
   // Note: accounts/customers are cached with staleTime so these calls are cheap when already loaded
 
   const customerCount = customers?.length ?? 0;

@@ -14,6 +14,8 @@ import EditAccountDialog from '@/components/accounts/EditAccountDialog';
 import AddPenaltyDialog from '@/components/penalties/AddPenaltyDialog';
 import ApplyPenaltyCapDialog from '@/components/penalties/ApplyPenaltyCapDialog';
 import AppLayout from '@/components/layout/AppLayout';
+import RefreshControl from '@/components/common/RefreshControl';
+import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -200,6 +202,16 @@ export default function AccountDetail() {
   const [healthCheckLoading, setHealthCheckLoading] = useState(false);
   const [healthCheckResult, setHealthCheckResult] = useState<any>(null);
   const queryClient = useQueryClient();
+  const { lastRefreshedAt, refreshing, refresh } = useAutoRefresh([
+    ['account', id],
+    ['schedule', id],
+    ['payments', id],
+    ['penalties', id],
+    ['account-services', id],
+    ['penalty-cap-override', id],
+    ['account-notes', id],
+    ['submission-proofs', id],
+  ]);
   const { roles } = useAuth();
   const isAdmin = (roles as any[]).includes('admin');
   const isFinance = (roles as any[]).includes('finance');
@@ -980,6 +992,7 @@ export default function AccountDetail() {
               </div>
             )}
           </div>
+          <RefreshControl lastRefreshedAt={lastRefreshedAt} refreshing={refreshing} onRefresh={refresh} />
           {!isLockedTest && (
           <div className="flex gap-2 flex-wrap">
             {isAdmin && can('edit_invoice') && (

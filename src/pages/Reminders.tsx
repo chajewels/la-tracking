@@ -7,6 +7,8 @@ import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import RefreshControl from '@/components/common/RefreshControl';
+import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { supabase } from '@/integrations/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Link } from 'react-router-dom';
@@ -15,6 +17,10 @@ import { categorizeScheduleItems, remainingDue, daysOverdueFromToday, alertTypeC
 export default function Reminders() {
   const [generating, setGenerating] = useState(false);
   const queryClient = useQueryClient();
+  const { lastRefreshedAt, refreshing, refresh } = useAutoRefresh([
+    ['reminder-logs'],
+    ['reminder-actionable'],
+  ]);
 
   const { data: reminderLogs, isLoading: logsLoading } = useQuery({
     queryKey: ['reminder-logs'],
@@ -160,6 +166,8 @@ export default function Reminders() {
               <p className="text-sm text-muted-foreground mt-0.5">Automated daily at 8:00 AM PHT · Live data</p>
             </div>
           </div>
+          <div className="flex items-center gap-3">
+            <RefreshControl lastRefreshedAt={lastRefreshedAt} refreshing={refreshing} onRefresh={refresh} />
           <Button
             onClick={handleGenerate}
             variant="outline"
@@ -169,6 +177,7 @@ export default function Reminders() {
             <RefreshCw className={`h-4 w-4 mr-1.5 ${generating ? 'animate-spin' : ''}`} />
             {generating ? 'Sending...' : 'Send Reminders Now'}
           </Button>
+          </div>
         </div>
 
         {/* Stats */}

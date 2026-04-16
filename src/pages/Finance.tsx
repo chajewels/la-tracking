@@ -9,6 +9,7 @@ import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { getDisplayCurrencyForFilter } from '@/lib/currency-converter';
 import { useAccounts, useDashboardSummary } from '@/hooks/use-supabase-data';
+import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useAuth } from '@/contexts/AuthContext';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Link } from 'react-router-dom';
@@ -23,6 +24,10 @@ export default function Finance() {
     Boolean(session) && !authLoading,
   );
   const { data: accounts } = useAccounts();
+  useAutoRefresh([
+    ['accounts'],
+    ['dashboard-summary'],
+  ]);
 
   const forecastData = summary?.forecast_6_months || [];
   const maxForecast = Math.max(...forecastData.map(d => d.expected), 1);

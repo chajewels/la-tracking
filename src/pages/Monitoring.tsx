@@ -6,6 +6,8 @@ import PenaltyFollowUpSection from '@/components/monitoring/PenaltyFollowUpSecti
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useQuery } from '@tanstack/react-query';
+import RefreshControl from '@/components/common/RefreshControl';
+import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { supabase } from '@/integrations/supabase/client';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
@@ -52,6 +54,12 @@ export default function Monitoring() {
   const [sending, setSending] = useState(false);
   const [messengerDialog, setMessengerDialog] = useState<{ alert: AlertItem; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
+
+  const { lastRefreshedAt, refreshing, refresh } = useAutoRefresh([
+    ['monitoring-schedules'],
+    ['csr-notifications'],
+    ['portal-tokens-active'],
+  ]);
 
   // Fetch ALL unpaid schedule items for active/overdue accounts
   const { data: scheduleItems, isLoading: schedLoading } = useQuery({
@@ -343,6 +351,8 @@ export default function Monitoring() {
               <p className="text-sm text-muted-foreground mt-0.5">Stage-based payment alerts with portal link integration</p>
             </div>
           </div>
+          <div className="flex items-center gap-3">
+            <RefreshControl lastRefreshedAt={lastRefreshedAt} refreshing={refreshing} onRefresh={refresh} />
           <Button
             onClick={handleSendReminders}
             disabled={sending || sortedAlerts.length === 0}
@@ -351,6 +361,7 @@ export default function Monitoring() {
             {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             {sending ? 'Sending...' : 'Send All Reminders'}
           </Button>
+          </div>
         </div>
 
         {/* Summary Cards */}

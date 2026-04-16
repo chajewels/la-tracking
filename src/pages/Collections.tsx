@@ -13,6 +13,7 @@ import { useAccounts, usePayments, useDashboardSummary } from '@/hooks/use-supab
 import { useAuth } from '@/contexts/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { Skeleton } from '@/components/ui/skeleton';
 import { computeCollectionStats, todayStr } from '@/lib/business-rules';
 
@@ -30,6 +31,12 @@ export default function Collections() {
   const { data: summary } = useDashboardSummary(currencyFilter, Boolean(session) && !authLoading);
   const { data: allPayments, isLoading: payLoading } = usePayments();
   const { data: accounts } = useAccounts();
+  useAutoRefresh([
+    ['accounts'],
+    ['collections-forecast-6m'],
+    ['forecast-drilldown'],
+    ['profiles-lookup'],
+  ]);
 
   // ── 6-month receivables forecast (server-side RPC avoids .in() URL limit) ──
   const { data: forecastSchedule, isLoading: forecastLoading } = useQuery({
