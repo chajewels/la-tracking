@@ -1244,16 +1244,16 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
                     }
 
                     // Apply the overpayment surplus to the NEXT pending/partial
-                    // row by INSERTING a payment_allocations row on it. The
-                    // schedule_with_actuals view computes actual_remaining as
-                    // base + penalty + carried − SUM(non-voided allocations),
-                    // so a new allocation is what actually moves the REMAINING
-                    // column in the UI. The row is the lowest installment_number
-                    // greater than the source row that is NOT paid or cancelled.
-                    if (keepSurplus > 0.005 && modal.paymentId) {
+                    // row by REDUCING its total_due_amount. The waterfall in
+                    // review-payment-submission reads total_due_amount and
+                    // clamps rowCeiling to it, so a lowered total_due_amount
+                    // becomes a Keep credit that later payments respect.
+                    // NO new allocation is inserted — the next row's PAID
+                    // column stays at 0 until a real payment lands on it.
+                    if (keepSurplus > 0.005) {
                       const { data: nextUnpaidRow, error: nextUnpaidErr } = await supabase
                         .from('layaway_schedule')
-                        .select('id, base_installment_amount, penalty_amount, carried_amount, paid_amount, status')
+                        .select('id, base_installment_amount, penalty_amount, carried_amount')
                         .eq('account_id', modal.accountId)
                         .gt('installment_number', Number(sourceRowData.installment_number))
                         .not('status', 'in', '("paid","cancelled")')
@@ -1265,39 +1265,19 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
                         return;
                       }
                       if (nextUnpaidRow) {
-                        const nextCeiling = Math.round(
-                          (Number(nextUnpaidRow.base_installment_amount)
-                            + Number(nextUnpaidRow.penalty_amount || 0)
-                            + Number(nextUnpaidRow.carried_amount || 0)) * 100
-                        ) / 100;
-                        // Cap allocation at the next row's ceiling so we never
-                        // breach the check_allocation_ceiling trigger.
-                        const nextAllocAmount = Math.min(keepSurplus, nextCeiling);
-
-                        const { error: allocInsertErr } = await supabase
-                          .from('payment_allocations')
-                          .insert({
-                            payment_id: modal.paymentId,
-                            schedule_id: nextUnpaidRow.id,
-                            allocation_type: 'installment',
-                            allocated_amount: nextAllocAmount,
-                          });
-                        if (allocInsertErr) {
-                          toast.error('Keep decision failed while inserting surplus allocation: ' + allocInsertErr.message);
-                          return;
-                        }
-
-                        // Sync next row's paid_amount cache and status.
-                        const priorPaid = Number(nextUnpaidRow.paid_amount || 0);
-                        const newNextPaid = Math.round((priorPaid + nextAllocAmount) * 100) / 100;
-                        const newNextStatus: 'paid' | 'partially_paid' =
-                          newNextPaid >= nextCeiling - 0.005 ? 'paid' : 'partially_paid';
+                        const naturalCeiling = Number(nextUnpaidRow.base_installment_amount)
+                          + Number(nextUnpaidRow.penalty_amount || 0)
+                          + Number(nextUnpaidRow.carried_amount || 0);
+                        const newTotalDue = Math.max(
+                          0,
+                          Math.round((naturalCeiling - keepSurplus) * 100) / 100
+                        );
                         const { error: nextUpdErr } = await supabase
                           .from('layaway_schedule')
-                          .update({ paid_amount: newNextPaid, status: newNextStatus })
+                          .update({ total_due_amount: newTotalDue })
                           .eq('id', nextUnpaidRow.id);
                         if (nextUpdErr) {
-                          toast.error('Keep decision failed while updating next row: ' + nextUpdErr.message);
+                          toast.error('Keep decision failed while reducing next row total_due_amount: ' + nextUpdErr.message);
                           return;
                         }
                       }

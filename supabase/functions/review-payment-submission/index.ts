@@ -126,9 +126,16 @@ async function allocatePaymentToAccount(
         const alreadyAllocatedPenalty = allocations
           .filter(a => a.schedule_id === item.id && a.allocation_type === 'penalty')
           .reduce((sum, a) => sum + a.allocated_amount, 0);
-        const rowCeiling = Number(item.base_installment_amount) +
-                           Number(item.penalty_amount || 0) +
-                           Number(item.carried_amount || 0);
+        const naturalCeiling = Number(item.base_installment_amount) +
+                               Number(item.penalty_amount || 0) +
+                               Number(item.carried_amount || 0);
+        // Keep credits: a lowered total_due_amount (written by the Keep
+        // handler on the next pending row) caps the obligation BELOW the
+        // natural ceiling. Respect it here so the waterfall does not refill
+        // the credited portion.
+        const rowCeiling = item.total_due_amount
+          ? Math.min(naturalCeiling, Number(item.total_due_amount))
+          : naturalCeiling;
         const due = Math.max(0, rowCeiling - alreadyAllocated - alreadyAllocatedPenalty);
         if (due <= 0) continue;
 
