@@ -1856,6 +1856,7 @@ export type Database = {
           id: string | null
           installment_number: number | null
           penalty_amount: number | null
+          total_due_amount: number | null
           updated_at: string | null
         }
         Relationships: [
