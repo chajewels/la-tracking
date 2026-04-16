@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
-import { ArrowLeft, UserPlus, ChevronDown, ChevronUp, Banknote, Copy, Check, MessageCircle, Wand2, Save, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, UserPlus, ChevronDown, ChevronUp, Banknote, Copy, Check, MessageCircle, Wand2, Save, AlertTriangle, Loader2, X } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,6 +37,14 @@ export default function NewAccount() {
 
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [customerId, setCustomerId] = useState('');
+
+  // ── Customer search combobox state ──
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerResults, setCustomerResults] = useState<DbCustomer[]>([]);
+  const [customerSearching, setCustomerSearching] = useState(false);
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
+  const [selectedExistingCustomer, setSelectedExistingCustomer] = useState<DbCustomer | null>(null);
+  const customerSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [currency, setCurrency] = useState<Currency>('PHP');
   const [totalAmount, setTotalAmount] = useState('');
   const [orderDate, setOrderDate] = useState('');
@@ -114,6 +122,45 @@ export default function NewAccount() {
   const markDirty = useCallback(() => {
     if (!formDirty) setFormDirty(true);
   }, [formDirty]);
+
+  // Debounced customer search — query customers by full_name ILIKE.
+  // Runs on every keystroke (no minimum char requirement for CJK support);
+  // debounced 300ms so we don't hammer the DB.
+  useEffect(() => {
+    if (customerSearchTimer.current) clearTimeout(customerSearchTimer.current);
+    const term = customerSearch.trim();
+    if (!term) {
+      setCustomerResults([]);
+      setCustomerSearching(false);
+      return;
+    }
+    setCustomerSearching(true);
+    customerSearchTimer.current = setTimeout(async () => {
+      const { data } = await supabase
+        .from('customers')
+        .select('id, full_name, mobile_number, email, facebook_name, messenger_link, location')
+        .ilike('full_name', `%${term}%`)
+        .order('full_name', { ascending: true })
+        .limit(10);
+      setCustomerResults(((data as any) || []) as DbCustomer[]);
+      setCustomerSearching(false);
+    }, 300);
+    return () => {
+      if (customerSearchTimer.current) clearTimeout(customerSearchTimer.current);
+    };
+  }, [customerSearch]);
+
+  // When customerId is already set (e.g. from draft restore or NewCustomerDialog),
+  // sync the search input and selected-customer preview from the loaded customers.
+  useEffect(() => {
+    if (customerId && !selectedExistingCustomer && customers) {
+      const match = customers.find(c => c.id === customerId);
+      if (match) {
+        setSelectedExistingCustomer(match as DbCustomer);
+        setCustomerSearch(match.full_name);
+      }
+    }
+  }, [customerId, customers, selectedExistingCustomer]);
 
   // Browser beforeunload protection
   useEffect(() => {
@@ -437,25 +484,120 @@ export default function NewAccount() {
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-card-foreground">Customer *</Label>
+                <Label className="text-card-foreground flex items-center gap-2">
+                  Customer *
+                  {selectedExistingCustomer && (
+                    <Badge variant="outline" className="text-[10px] bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/30">
+                      ✓ Existing customer selected
+                    </Badge>
+                  )}
+                </Label>
                 <div className="flex gap-2">
-                  <Select value={customerId} onValueChange={(v) => {
-                    setCustomerId(v);
-                    setSplitAllocations([]);
-                    setEnableSplitPayment(false);
-                    markDirty();
-                  }}>
-                    <SelectTrigger className="bg-background border-border flex-1">
-                      <SelectValue placeholder="Select customer" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(customers || []).map(c => (
-                        <SelectItem key={c.id} value={c.id}>{c.full_name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="relative flex-1">
+                    <Input
+                      value={customerSearch}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setCustomerSearch(v);
+                        // Clear the prior selection as soon as the user edits the name.
+                        if (selectedExistingCustomer) {
+                          setSelectedExistingCustomer(null);
+                          setCustomerId('');
+                          setSplitAllocations([]);
+                          setEnableSplitPayment(false);
+                        }
+                        setCustomerDropdownOpen(true);
+                        markDirty();
+                      }}
+                      onFocus={() => { if (customerSearch) setCustomerDropdownOpen(true); }}
+                      onBlur={() => { setTimeout(() => setCustomerDropdownOpen(false), 150); }}
+                      placeholder="Search customer by name…"
+                      className="bg-background border-border pr-8"
+                      autoComplete="off"
+                    />
+                    {customerSearch && (
+                      <button
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setCustomerSearch('');
+                          setSelectedExistingCustomer(null);
+                          setCustomerId('');
+                          setCustomerResults([]);
+                          setCustomerDropdownOpen(false);
+                          setSplitAllocations([]);
+                          setEnableSplitPayment(false);
+                          markDirty();
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-destructive"
+                        aria-label="Clear customer">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    {customerDropdownOpen && customerSearch.trim() && (
+                      <div
+                        className="absolute left-0 right-0 top-full mt-1 max-h-60 overflow-y-auto rounded-md border border-border bg-background shadow-xl"
+                        style={{ zIndex: 60 }}
+                      >
+                        {customerSearching ? (
+                          <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Searching…
+                          </div>
+                        ) : customerResults.length === 0 ? (
+                          <div className="px-3 py-2 text-xs text-muted-foreground italic">
+                            No customer found — creating new customer
+                          </div>
+                        ) : (
+                          customerResults.map(c => {
+                            const term = customerSearch.trim();
+                            const nameLower = (c.full_name || '').toLowerCase();
+                            const idx = term ? nameLower.indexOf(term.toLowerCase()) : -1;
+                            return (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  setSelectedExistingCustomer(c);
+                                  setCustomerId(c.id);
+                                  setCustomerSearch(c.full_name || '');
+                                  setCustomerDropdownOpen(false);
+                                  setSplitAllocations([]);
+                                  setEnableSplitPayment(false);
+                                  markDirty();
+                                }}
+                                className="block w-full text-left px-3 py-2 text-sm hover:bg-muted/60 border-b border-border/40 last:border-0"
+                              >
+                                <span className="font-medium text-foreground">
+                                  {idx >= 0 ? (
+                                    <>
+                                      {c.full_name!.slice(0, idx)}
+                                      <mark className="bg-primary/20 text-foreground rounded-sm px-0.5">
+                                        {c.full_name!.slice(idx, idx + term.length)}
+                                      </mark>
+                                      {c.full_name!.slice(idx + term.length)}
+                                    </>
+                                  ) : (
+                                    c.full_name
+                                  )}
+                                </span>
+                                {c.mobile_number && (
+                                  <span className="text-muted-foreground ml-2">{c.mobile_number}</span>
+                                )}
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
                   <NewCustomerDialog
-                    onCreated={(c) => { setCustomerId(c.id); markDirty(); }}
+                    onCreated={(c) => {
+                      setCustomerId(c.id);
+                      setSelectedExistingCustomer(c as DbCustomer);
+                      setCustomerSearch(c.full_name || '');
+                      markDirty();
+                    }}
                     trigger={
                       <Button type="button" variant="outline" size="icon" className="shrink-0" title="Add new customer">
                         <UserPlus className="h-4 w-4" />
@@ -463,6 +605,40 @@ export default function NewAccount() {
                     }
                   />
                 </div>
+                {selectedExistingCustomer && (
+                  <div className="rounded-md border border-green-500/30 bg-green-500/5 p-3 text-xs space-y-1">
+                    {selectedExistingCustomer.mobile_number && (
+                      <div>
+                        <span className="text-muted-foreground">Mobile:</span>{' '}
+                        <span className="text-foreground">{selectedExistingCustomer.mobile_number}</span>
+                      </div>
+                    )}
+                    {selectedExistingCustomer.email && (
+                      <div>
+                        <span className="text-muted-foreground">Email:</span>{' '}
+                        <span className="text-foreground">{selectedExistingCustomer.email}</span>
+                      </div>
+                    )}
+                    {(selectedExistingCustomer as any).facebook_name && (
+                      <div>
+                        <span className="text-muted-foreground">Facebook:</span>{' '}
+                        <span className="text-foreground">{(selectedExistingCustomer as any).facebook_name}</span>
+                      </div>
+                    )}
+                    {(selectedExistingCustomer as any).messenger_link && (
+                      <div>
+                        <span className="text-muted-foreground">Messenger:</span>{' '}
+                        <span className="text-foreground">{(selectedExistingCustomer as any).messenger_link}</span>
+                      </div>
+                    )}
+                    {(selectedExistingCustomer as any).location && (
+                      <div>
+                        <span className="text-muted-foreground">Location:</span>{' '}
+                        <span className="text-foreground">{(selectedExistingCustomer as any).location}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
