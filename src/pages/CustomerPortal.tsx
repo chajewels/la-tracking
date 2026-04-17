@@ -728,9 +728,15 @@ export default function CustomerPortal() {
             {announcement.image_url && (
               <img
                 src={announcement.image_url}
-                alt=""
-                className="w-full rounded-lg mb-4"
-                style={{ maxHeight: 200, objectFit: 'cover' }}
+                alt={announcement.title || ''}
+                style={{
+                  width: '100%',
+                  height: 'auto',
+                  borderRadius: '8px',
+                  marginBottom: '16px',
+                  display: 'block',
+                  objectFit: 'contain',
+                }}
               />
             )}
             <h2 style={{ fontFamily: 'Inter, sans-serif', fontSize: '18px', fontWeight: 700, color: P.gp, marginBottom: 8 }}>
