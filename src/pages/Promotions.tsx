@@ -134,7 +134,7 @@ export default function Promotions() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  const [tab, setTab] = useState<'promos' | 'categories'>('promos');
+  const [tab, setTab] = useState<'promos' | 'categories' | 'announcements'>('promos');
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Promotion | null>(null);
@@ -578,6 +578,58 @@ export default function Promotions() {
     }
   }
 
+  // ── Announcements tab state ──
+  const [annEditOpen, setAnnEditOpen] = useState(false);
+  const [annDeleteTarget, setAnnDeleteTarget] = useState<any>(null);
+  const [annForm, setAnnForm] = useState<any>({ title: '', content: '', image_url: null, link_url: null, link_label: null, is_active: true, show_once: true });
+  const [annSaving, setAnnSaving] = useState(false);
+  const [annImageFile, setAnnImageFile] = useState<File | null>(null);
+
+  const { data: announcements } = useQuery({
+    queryKey: ['announcements'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).from('announcements').select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data || []) as any[];
+    },
+  });
+
+  const openNewAnn = () => { setAnnForm({ title: '', content: '', image_url: null, link_url: null, link_label: null, is_active: true, show_once: true }); setAnnImageFile(null); setAnnEditOpen(true); };
+  const openEditAnn = (a: any) => { setAnnForm({ ...a }); setAnnImageFile(null); setAnnEditOpen(true); };
+
+  const handleSaveAnn = async () => {
+    if (!annForm.title?.trim() || !annForm.content?.trim()) { toast.error('Title and content required'); return; }
+    setAnnSaving(true);
+    try {
+      let imageUrl = annForm.image_url || null;
+      if (annImageFile) {
+        const ext = (annImageFile.name.split('.').pop() || 'jpg').toLowerCase();
+        const path = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+        const { error: upErr } = await supabase.storage.from('announcements').upload(path, annImageFile, { cacheControl: '3600', upsert: true });
+        if (upErr) throw upErr;
+        const { data: urlData } = supabase.storage.from('announcements').getPublicUrl(path);
+        imageUrl = urlData.publicUrl;
+      }
+      const payload = { title: annForm.title.trim(), content: annForm.content.trim(), image_url: imageUrl, link_url: annForm.link_url?.trim() || null, link_label: annForm.link_label?.trim() || null, is_active: annForm.is_active ?? true, show_once: annForm.show_once ?? true };
+      if (annForm.id) {
+        const { error } = await (supabase as any).from('announcements').update(payload).eq('id', annForm.id);
+        if (error) throw error;
+        toast.success('Announcement updated');
+      } else {
+        const { error } = await (supabase as any).from('announcements').insert({ ...payload, created_by: user?.id });
+        if (error) throw error;
+        toast.success('Announcement created');
+      }
+      queryClient.invalidateQueries({ queryKey: ['announcements'] });
+      setAnnEditOpen(false);
+    } catch (err: any) { toast.error(err.message || 'Save failed'); }
+    finally { setAnnSaving(false); }
+  };
+
+  const toggleAnnActive = async (a: any) => { await (supabase as any).from('announcements').update({ is_active: !a.is_active }).eq('id', a.id); queryClient.invalidateQueries({ queryKey: ['announcements'] }); };
+  const toggleAnnShowOnce = async (a: any) => { await (supabase as any).from('announcements').update({ show_once: !a.show_once }).eq('id', a.id); queryClient.invalidateQueries({ queryKey: ['announcements'] }); };
+  const handleDeleteAnn = async () => { if (!annDeleteTarget) return; await (supabase as any).from('announcements').delete().eq('id', annDeleteTarget.id); toast.success('Deleted'); setAnnDeleteTarget(null); queryClient.invalidateQueries({ queryKey: ['announcements'] }); };
+
   return (
     <AppLayout>
       <div className="p-6 space-y-6">
@@ -604,10 +656,11 @@ export default function Promotions() {
           )}
         </div>
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v as 'promos' | 'categories')} className="w-full">
-          <TabsList className="grid grid-cols-2 w-full max-w-sm">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as 'promos' | 'categories' | 'announcements')} className="w-full">
+          <TabsList className="grid grid-cols-3 w-full max-w-md">
             <TabsTrigger value="promos">Promos</TabsTrigger>
             <TabsTrigger value="categories">Categories</TabsTrigger>
+            <TabsTrigger value="announcements">Announcements</TabsTrigger>
           </TabsList>
 
           <TabsContent value="promos" className="mt-4">
@@ -782,8 +835,98 @@ export default function Promotions() {
               )}
             </div>
           </TabsContent>
+
+          {/* ── Announcements Tab ── */}
+          <TabsContent value="announcements" className="mt-4">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm text-muted-foreground">Customer-facing announcements shown in the portal.</p>
+              <Button onClick={openNewAnn} size="sm" className="gold-gradient text-primary-foreground gap-1.5">
+                <Plus className="h-3.5 w-3.5" /> Add Announcement
+              </Button>
+            </div>
+            {!announcements || announcements.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">No announcements yet.</div>
+            ) : (
+              <div className="rounded-lg border bg-card overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Title</TableHead>
+                      <TableHead className="text-center w-24">Active</TableHead>
+                      <TableHead className="text-center w-24">Show Once</TableHead>
+                      <TableHead className="w-32">Created</TableHead>
+                      <TableHead className="text-right w-24">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {announcements.map((a: any) => (
+                      <TableRow key={a.id}>
+                        <TableCell>
+                          <span className="font-medium">{a.title}</span>
+                          {a.image_url && <Badge variant="outline" className="ml-2 text-[9px]">📷</Badge>}
+                          {a.link_url && <Badge variant="outline" className="ml-1 text-[9px]">🔗</Badge>}
+                        </TableCell>
+                        <TableCell className="text-center"><Switch checked={a.is_active} onCheckedChange={() => toggleAnnActive(a)} /></TableCell>
+                        <TableCell className="text-center"><Switch checked={a.show_once} onCheckedChange={() => toggleAnnShowOnce(a)} /></TableCell>
+                        <TableCell className="text-muted-foreground text-xs">{new Date(a.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="inline-flex gap-1">
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditAnn(a)}><Pencil className="h-3 w-3" /></Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setAnnDeleteTarget(a)}><Trash2 className="h-3 w-3" /></Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </TabsContent>
         </Tabs>
       </div>
+
+      {/* Announcement Add/Edit dialog */}
+      <Dialog open={annEditOpen} onOpenChange={setAnnEditOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader><DialogTitle>{annForm.id ? 'Edit' : 'New'} Announcement</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2"><Label>Title *</Label><Input value={annForm.title || ''} onChange={e => setAnnForm((f: any) => ({ ...f, title: e.target.value }))} /></div>
+            <div className="space-y-2"><Label>Content *</Label><Textarea rows={4} value={annForm.content || ''} onChange={e => setAnnForm((f: any) => ({ ...f, content: e.target.value }))} /></div>
+            <div className="space-y-2">
+              <Label>Image (optional)</Label>
+              {annForm.image_url && !annImageFile && <img src={annForm.image_url} alt="" className="w-full max-h-32 object-cover rounded border border-border" />}
+              <label className="flex items-center gap-2 rounded-md border border-dashed border-border bg-background/50 px-3 py-2 text-xs text-muted-foreground cursor-pointer hover:border-primary/50">
+                <Upload className="h-4 w-4" /> {annImageFile ? annImageFile.name : 'Choose image'}
+                <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) setAnnImageFile(f); }} />
+              </label>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2"><Label>Link URL</Label><Input value={annForm.link_url || ''} onChange={e => setAnnForm((f: any) => ({ ...f, link_url: e.target.value }))} placeholder="https://..." /></div>
+              <div className="space-y-2"><Label>Link Label</Label><Input value={annForm.link_label || ''} onChange={e => setAnnForm((f: any) => ({ ...f, link_label: e.target.value }))} placeholder="Learn More" /></div>
+            </div>
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-2"><Switch checked={annForm.is_active ?? true} onCheckedChange={(v: boolean) => setAnnForm((f: any) => ({ ...f, is_active: v }))} /><Label>Active</Label></div>
+              <div className="flex items-center gap-2"><Switch checked={annForm.show_once ?? true} onCheckedChange={(v: boolean) => setAnnForm((f: any) => ({ ...f, show_once: v }))} /><Label>Show Once</Label></div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAnnEditOpen(false)}>Cancel</Button>
+            <Button onClick={handleSaveAnn} disabled={annSaving} className="gold-gradient text-primary-foreground">{annSaving ? 'Saving…' : annForm.id ? 'Update' : 'Create'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Announcement Delete confirmation — plain Dialog */}
+      <Dialog open={!!annDeleteTarget} onOpenChange={open => { if (!open) setAnnDeleteTarget(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>Delete Announcement?</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">This will permanently delete "{annDeleteTarget?.title}". This cannot be undone.</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAnnDeleteTarget(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDeleteAnn}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Add/Edit dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

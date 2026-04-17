@@ -20,7 +20,6 @@ const PAGE_ACCESS: Record<string, AppRole[]> = {
   '/waivers':             ['admin', 'finance'],
   '/analytics':           ['admin', 'finance'],
   '/admin-audit':         ['admin'],
-  '/announcements':       ['admin', 'staff'],
   '/settings':            ['admin'],
 };
 
@@ -38,7 +37,6 @@ export const SIDEBAR_ACCESS: Record<string, AppRole[]> = {
   '/waivers':             ['admin', 'finance'],
   '/analytics':           ['admin', 'finance'],
   '/admin-audit':         ['admin'],
-  '/announcements':       ['admin', 'staff'],
   '/settings':            ['admin'],
 };
 
