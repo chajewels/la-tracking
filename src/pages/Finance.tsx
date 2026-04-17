@@ -160,7 +160,7 @@ export default function Finance() {
   });
 
   const activeAccounts = useMemo(() =>
-    (accounts || []).filter(a => (a.status === 'active' || a.status === 'overdue') && (!currency || a.currency === currency)),
+    (accounts || []).filter(a => (['active', 'overdue', 'final_settlement', 'extension_active'].includes(a.status)) && (!currency || a.currency === currency)),
     [accounts, currency]
   );
 
