@@ -71,7 +71,7 @@ export default function Finance() {
         months_back: 6,
       });
       if (error) throw error;
-      return (data || []) as Array<{
+      return (data?.[0]?.get_collection_analytics ?? []) as Array<{
         month: string;
         collected: number;
         expected: number;
@@ -88,7 +88,7 @@ export default function Finance() {
     queryFn: async () => {
       const { data, error } = await (supabase as any).rpc('get_staff_performance', { months_back: 1 });
       if (error) throw error;
-      return (data || []) as Array<{
+      return (data?.[0]?.get_staff_performance ?? []) as Array<{
         staff_email: string;
         payments_confirmed: number;
         avg_confirmation_hours: number | null;
