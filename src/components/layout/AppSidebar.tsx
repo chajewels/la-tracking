@@ -29,7 +29,6 @@ import {
 
 const menuItems = [
   { label: 'Dashboard', icon: LayoutDashboard, path: ROUTES.DASHBOARD },
-  { label: 'Layaway Accounts', icon: Wallet, path: ROUTES.ACCOUNTS },
   { label: 'Customers', icon: Users, path: ROUTES.CUSTOMERS },
   { label: 'CSR Monitoring', icon: Bell, path: ROUTES.MONITORING },
   { label: 'Finance', icon: Wallet, path: ROUTES.FINANCE },

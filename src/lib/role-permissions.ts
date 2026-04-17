@@ -8,8 +8,8 @@ const PAGE_ACCESS: Record<string, AppRole[]> = {
   '/accounts':            ['admin', 'staff', 'finance'],
   '/accounts/new':        ['admin', 'staff'],
   '/accounts/:id':        ['admin', 'staff', 'finance'],
-  '/customers':           ['admin', 'staff', 'csr'],
-  '/customers/:customerId': ['admin', 'staff', 'csr'],
+  '/customers':           ['admin', 'staff', 'finance', 'csr'],
+  '/customers/:customerId': ['admin', 'staff', 'finance', 'csr'],
   '/monitoring':          ['admin', 'staff', 'csr'],
   '/finance':             ['admin', 'finance'],
   '/payment-submissions': ['admin', 'finance', 'staff', 'csr'],
@@ -23,8 +23,7 @@ const PAGE_ACCESS: Record<string, AppRole[]> = {
 // ── Sidebar items that each role can see ──
 export const SIDEBAR_ACCESS: Record<string, AppRole[]> = {
   '/':                    ['admin', 'staff', 'finance', 'csr'],
-  '/accounts':            ['admin', 'staff', 'finance'],
-  '/customers':           ['admin', 'staff', 'csr'],
+  '/customers':           ['admin', 'staff', 'finance', 'csr'],
   '/monitoring':          ['admin', 'staff', 'csr'],
   '/finance':             ['admin', 'finance'],
   '/payments-hub':        ['admin', 'finance', 'staff', 'csr'],

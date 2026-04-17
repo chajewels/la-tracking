@@ -2,6 +2,8 @@ import { useState, useMemo, useCallback, useRef } from 'react';
 import { parseLocation, LocationType } from '@/lib/countries';
 import { Users, Search, LayoutGrid, ListFilter, Layers } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import AccountList from './AccountList';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useCustomers, useAccounts } from '@/hooks/use-supabase-data';
@@ -17,6 +19,7 @@ import { usePermissions } from '@/contexts/PermissionsContext';
 type ViewMode = 'all' | 'filter' | 'grouped';
 
 export default function Customers() {
+  const [activeTab, setActiveTab] = useState<'customers' | 'accounts'>('customers');
   const { data: customers, isLoading } = useCustomers();
   const { data: accounts } = useAccounts();
   const { roles } = useAuth();
@@ -150,14 +153,22 @@ export default function Customers() {
               <Users className="h-5 w-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">Customers</h1>
+              <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">Customers & Accounts</h1>
               <p className="text-sm text-muted-foreground">
-                {displayed.length} of {sorted.length} customers
+                Manage customers and layaway accounts
               </p>
             </div>
           </div>
           {can('edit_customer') && <NewCustomerDialog />}
         </div>
+
+        <Tabs value={activeTab} onValueChange={v => setActiveTab(v as 'customers' | 'accounts')} className="w-full">
+          <TabsList className="grid grid-cols-2 w-full max-w-xs">
+            <TabsTrigger value="customers">Customers ({sorted.length})</TabsTrigger>
+            <TabsTrigger value="accounts">Layaway Accounts</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="customers" className="mt-5 space-y-5">
 
         {/* Search + View Toggle */}
         <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
@@ -255,6 +266,14 @@ export default function Customers() {
         editForm={editForm}
         setEditForm={setEditForm}
       />
+
+          </TabsContent>
+
+          <TabsContent value="accounts" className="mt-5">
+            <AccountList embedded />
+          </TabsContent>
+        </Tabs>
+      </div>
     </AppLayout>
   );
 }

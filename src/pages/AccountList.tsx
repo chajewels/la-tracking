@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
 import { Plus, Search, Eye, MessageCircle, FileText, ChevronRight, ChevronLeft } from 'lucide-react';
@@ -45,7 +45,7 @@ const TEST_INVOICES = new Set([
   'TEST-WAIVER-001', 'TEST-FORFEIT-002', 'TEST-FORFEIT-003'
 ]);
 
-export default function AccountList() {
+export default function AccountList({ embedded = false }: { embedded?: boolean } = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebouncedValue(search, 250);
@@ -85,9 +85,11 @@ export default function AccountList() {
   const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
 
+  const Wrapper = embedded ? ({ children }: { children: ReactNode }) => <>{children}</> : AppLayout;
+
   return (
-    <AppLayout>
-      <div className="animate-fade-in space-y-6">
+    <Wrapper>
+      <div className={embedded ? 'space-y-6' : 'animate-fade-in space-y-6'}>
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -286,6 +288,6 @@ export default function AccountList() {
           </>
         )}
       </div>
-    </AppLayout>
+    </Wrapper>
   );
 }
