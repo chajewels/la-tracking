@@ -80,6 +80,7 @@ Deno.serve(async (req) => {
     const finalForfeitResults: any[] = [];
 
     for (const account of accounts) {
+      console.log(`[forfeit-debug] Processing ${account.invoice_number}, status: ${account.status}`);
       // ── RULE: FINAL FORFEITURE for extension_active past end date ──
       if (account.status === "extension_active") {
         const extEnd = account.extension_end_date;
@@ -284,6 +285,9 @@ Deno.serve(async (req) => {
       // ── Calculate months overdue from FIRST UNPAID DUE DATE ──
       const refDate = new Date(firstUnpaidDueDate + "T00:00:00Z");
       const monthsOverdue = monthsDiff(refDate, now);
+
+      console.log(`[forfeit-debug] ${account.invoice_number} lastPayment: ${lastPaymentDate}, monthsOverdue: ${monthsOverdue}, unpaidItems: ${unpaidItems?.length}`);
+      console.log(`[forfeit-debug] ${account.invoice_number} PATH2 check: monthsOverdue=${monthsOverdue} >= 3: ${monthsOverdue >= 3}`);
 
       // ── RULE 2: AUTO FORFEIT at 3 months overdue ──
       if (monthsOverdue >= 3 && account.status !== "forfeited") {
