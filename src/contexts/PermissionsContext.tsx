@@ -65,8 +65,6 @@ const PAGE_PERMISSION_MAP: Record<string, PermissionKey> = {
   '/monitoring': 'view_monitoring',
   '/finance': 'view_finance',
   '/payment-submissions': 'view_submissions',
-  '/payments-hub': 'view_submissions',
-  '/waivers': 'view_waivers',
   '/admin-audit': 'view_audit_logs',
   '/settings': 'admin_settings',
   '/admin/payment-vault': 'admin_settings',
@@ -78,12 +76,10 @@ const PAGE_PERMISSION_MAP: Record<string, PermissionKey> = {
 const PAGE_FEATURE_MAP: Record<string, string> = {
   '/monitoring': 'csr_monitoring',
   '/payment-submissions': 'payment_submissions',
-  '/payments-hub': 'payment_submissions',
-  '/waivers': 'waiver_system',
 };
 
 // Sidebar nav paths (same as PAGE_PERMISSION_MAP minus dynamic routes)
-const NAV_PATHS = ['/', '/customers', '/monitoring', '/finance', '/payments-hub', '/bulk-payment-import', '/waivers', '/admin-audit', '/settings', '/admin/payment-vault', '/promotions'];
+const NAV_PATHS = ['/', '/customers', '/monitoring', '/finance', '/bulk-payment-import', '/admin-audit', '/settings', '/admin/payment-vault', '/promotions'];
 
 export function PermissionsProvider({ children }: { children: ReactNode }) {
   const { user, roles, loading: authLoading } = useAuth();

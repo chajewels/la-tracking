@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Scale, CheckCircle, XCircle, Clock, Eye, ChevronDown, ChevronUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
@@ -89,7 +89,7 @@ function groupWaivers(waivers: WaiverRow[]): WaiverGroup[] {
   return [...map.values()].sort((a, b) => b.totalAmount - a.totalAmount);
 }
 
-export default function Waivers() {
+export default function Waivers({ embedded = false }: { embedded?: boolean } = {}) {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [filter, setFilter] = useState<FilterStatus>('pending');
@@ -225,9 +225,11 @@ export default function Waivers() {
     }
   };
 
+  const Wrapper = embedded ? ({ children }: { children: ReactNode }) => <>{children}</> : AppLayout;
+
   return (
-    <AppLayout>
-      <div className="animate-fade-in space-y-6">
+    <Wrapper>
+      <div className={embedded ? 'space-y-6' : 'animate-fade-in space-y-6'}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <p className="text-xs font-semibold text-primary uppercase tracking-widest mb-1">Operations</p>
@@ -452,6 +454,6 @@ export default function Waivers() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </AppLayout>
+    </Wrapper>
   );
 }

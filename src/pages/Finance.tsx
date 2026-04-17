@@ -27,13 +27,14 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Link } from 'react-router-dom';
+import PaymentsHub from './PaymentsHub';
 import {
   assessRisk, predictCompletion, assessCLV, riskStyles,
 } from '@/lib/business-rules';
 
 export default function Finance() {
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
-  const [tab, setTab] = useState<'overview' | 'analytics' | 'collections'>('overview');
+  const [tab, setTab] = useState<'overview' | 'analytics' | 'collections' | 'docs'>('overview');
   const { session, loading: authLoading } = useAuth();
   const isAllMode = currencyFilter === 'ALL';
   const displayCurrency: Currency = getDisplayCurrencyForFilter(currencyFilter);
@@ -346,11 +347,12 @@ export default function Finance() {
           <CurrencyToggle value={currencyFilter} onChange={setCurrencyFilter} />
         </div>
 
-        <Tabs value={tab} onValueChange={v => setTab(v as 'overview' | 'analytics' | 'collections')} className="w-full">
-          <TabsList className="grid grid-cols-3 w-full max-w-md">
+        <Tabs value={tab} onValueChange={v => setTab(v as 'overview' | 'analytics' | 'collections' | 'docs')} className="w-full">
+          <TabsList className="grid grid-cols-4 w-full max-w-lg">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="analytics">Analytics</TabsTrigger>
             <TabsTrigger value="collections">Collections</TabsTrigger>
+            <TabsTrigger value="docs">Documentation</TabsTrigger>
           </TabsList>
 
           {/* ═══════ Overview Tab ═══════ */}
@@ -788,6 +790,11 @@ export default function Finance() {
                 </div>
               )}
             </div>
+          </TabsContent>
+
+          {/* ═══════ Documentation Tab ═══════ */}
+          <TabsContent value="docs" className="mt-5">
+            <PaymentsHub embedded />
           </TabsContent>
         </Tabs>
       </div>

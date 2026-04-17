@@ -1,55 +1,62 @@
-// Payments Hub — combines Payment Submissions and Proof of Payment under one page
-import { useEffect, useState } from 'react';
+// Financial Documentation — combines Submissions, Proof of Payment, and Waivers
+import { useEffect, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Wallet } from 'lucide-react';
 import PaymentSubmissions from './PaymentSubmissions';
 import PaymentProofs from './PaymentProofs';
+import Waivers from './Waivers';
 
-type TabKey = 'submissions' | 'proofs';
+type TabKey = 'submissions' | 'proofs' | 'waivers';
 
-export default function PaymentsHub() {
+export default function PaymentsHub({ embedded = false }: { embedded?: boolean } = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialTab: TabKey = searchParams.get('tab') === 'proofs' ? 'proofs' : 'submissions';
+  const initialTab: TabKey = (['proofs', 'waivers'].includes(searchParams.get('tab') || '') ? searchParams.get('tab') as TabKey : 'submissions');
   const [tab, setTab] = useState<TabKey>(initialTab);
 
-  // Keep URL in sync so deep links work and browser back/forward behave.
   useEffect(() => {
+    if (embedded) return;
     const current = searchParams.get('tab');
-    const desired = tab === 'proofs' ? 'proofs' : null;
+    const desired = tab !== 'submissions' ? tab : null;
     if (current !== desired) {
       const next = new URLSearchParams(searchParams);
       if (desired) next.set('tab', desired);
       else next.delete('tab');
       setSearchParams(next, { replace: true });
     }
-  }, [tab, searchParams, setSearchParams]);
+  }, [tab, searchParams, setSearchParams, embedded]);
 
-  // If the URL tab param changes (e.g. via external navigation), reflect it.
   useEffect(() => {
-    const urlTab: TabKey = searchParams.get('tab') === 'proofs' ? 'proofs' : 'submissions';
-    if (urlTab !== tab) setTab(urlTab);
+    if (embedded) return;
+    const urlTab = searchParams.get('tab') as TabKey | null;
+    const resolved: TabKey = urlTab && ['proofs', 'waivers'].includes(urlTab) ? urlTab : 'submissions';
+    if (resolved !== tab) setTab(resolved);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, embedded]);
+
+  const Wrapper = embedded ? ({ children }: { children: ReactNode }) => <>{children}</> : AppLayout;
 
   return (
-    <AppLayout>
-      <div className="p-4 sm:p-6 space-y-5 max-w-6xl mx-auto">
-        <div>
-          <h1 className="text-2xl font-bold font-display text-foreground tracking-tight flex items-center gap-2">
-            <Wallet className="h-6 w-6 text-primary" />
-            Submissions &amp; Proofs
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Review customer payment submissions and browse all uploaded proofs in one place.
-          </p>
-        </div>
+    <Wrapper>
+      <div className={embedded ? 'space-y-5' : 'p-4 sm:p-6 space-y-5 max-w-6xl mx-auto'}>
+        {!embedded && (
+          <div>
+            <h1 className="text-2xl font-bold font-display text-foreground tracking-tight flex items-center gap-2">
+              <Wallet className="h-6 w-6 text-primary" />
+              Financial Documentation
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Review submissions, browse proofs, and manage penalty waivers.
+            </p>
+          </div>
+        )}
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)} className="w-full">
-          <TabsList className="grid grid-cols-2 w-full max-w-md">
+          <TabsList className="grid grid-cols-3 w-full max-w-md">
             <TabsTrigger value="submissions">Submissions</TabsTrigger>
             <TabsTrigger value="proofs">Proof of Payment</TabsTrigger>
+            <TabsTrigger value="waivers">Waivers</TabsTrigger>
           </TabsList>
 
           <TabsContent value="submissions" className="mt-5">
@@ -59,8 +66,12 @@ export default function PaymentsHub() {
           <TabsContent value="proofs" className="mt-5">
             <PaymentProofs embedded />
           </TabsContent>
+
+          <TabsContent value="waivers" className="mt-5">
+            <Waivers embedded />
+          </TabsContent>
         </Tabs>
       </div>
-    </AppLayout>
+    </Wrapper>
   );
 }

@@ -26,9 +26,7 @@ export const SIDEBAR_ACCESS: Record<string, AppRole[]> = {
   '/customers':           ['admin', 'staff', 'finance', 'csr'],
   '/monitoring':          ['admin', 'staff', 'csr'],
   '/finance':             ['admin', 'finance'],
-  '/payments-hub':        ['admin', 'finance', 'staff', 'csr'],
   '/bulk-payment-import': ['admin', 'finance'],
-  '/waivers':             ['admin', 'finance'],
   '/admin-audit':         ['admin'],
   '/settings':            ['admin'],
 };
