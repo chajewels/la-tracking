@@ -704,7 +704,7 @@ export default function NewAccount() {
               <div className="space-y-2">
                 <Label className="text-card-foreground">Payment Plan *</Label>
                 <div className="flex gap-2">
-                  {([3, 6] as const).map(plan => (
+                  {([3, 6, 8] as const).map(plan => (
                     <button
                       key={plan}
                       type="button"
