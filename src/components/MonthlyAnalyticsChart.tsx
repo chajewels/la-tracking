@@ -7,7 +7,6 @@ import {
 } from 'recharts';
 import { supabase } from '@/integrations/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useAccounts } from '@/hooks/use-supabase-data';
 
 type Range = '6M' | '1Y' | 'All';
 
@@ -61,7 +60,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
           <span className="inline-block h-2 w-2 rounded-full flex-shrink-0" style={{ background: p.fill || p.stroke }} />
           <span className="text-zinc-400">{p.name}:</span>
           <span className="text-zinc-100 tabular-nums font-medium">
-            {p.dataKey === 'newSales' ? `${p.value} accounts` : fmtFull(p.value)}
+            {p.dataKey === 'newSales' ? `${p.value} new accounts` : fmtFull(p.value)}
           </span>
         </div>
       ))}
@@ -69,20 +68,24 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   );
 };
 
-export default function MonthlyAnalyticsChart() {
+interface MonthlySalesRow {
+  month: string;
+  new_sales_count: number;
+  total_sales_value: number;
+}
+
+export default function MonthlyAnalyticsChart({ monthlySalesData }: { monthlySalesData?: MonthlySalesRow[] } = {}) {
   const [range, setRange] = useState<Range>('1Y');
   const today = format(new Date(), 'yyyy-MM-dd');
-  const { data: accounts } = useAccounts();
 
-  const salesByMonth = useMemo(() => {
+  const salesByLabel = useMemo(() => {
     const map = new Map<string, number>();
-    if (!accounts) return map;
-    for (const a of accounts) {
-      const key = format(startOfMonth(new Date(a.created_at)), 'yyyy-MM-dd');
-      map.set(key, (map.get(key) || 0) + 1);
+    if (!monthlySalesData) return map;
+    for (const row of monthlySalesData) {
+      map.set(row.month, row.new_sales_count);
     }
     return map;
-  }, [accounts]);
+  }, [monthlySalesData]);
 
   const { data: rows, isLoading } = useQuery({
     queryKey: ['monthly-analytics', today],
@@ -121,14 +124,18 @@ export default function MonthlyAnalyticsChart() {
 
     const filtered = rows.filter(r => !cutoff || parseISO(r.month) >= cutoff);
 
-    const chartData: ChartRow[] = filtered.map(r => ({
-      label:      format(parseISO(r.month), 'MMM yy'),
-      collected:  Math.round(Number(r.collected_jpy)),
-      forfeited:  Math.round(Number(r.forfeited_jpy)),
-      penalties:  Math.round(Number(r.penalties_jpy)),
-      newSales:   salesByMonth.get(r.month) || 0,
-      isFuture:   r.month > currentMonthStart,
-    }));
+    const chartData: ChartRow[] = filtered.map(r => {
+      const label = format(parseISO(r.month), 'MMM yy');
+      const fullLabel = format(parseISO(r.month), 'MMM yyyy');
+      return {
+        label,
+        collected:  Math.round(Number(r.collected_jpy)),
+        forfeited:  Math.round(Number(r.forfeited_jpy)),
+        penalties:  Math.round(Number(r.penalties_jpy)),
+        newSales:   salesByLabel.get(fullLabel) || 0,
+        isFuture:   r.month > currentMonthStart,
+      };
+    });
 
     const collectedToDate = filtered
       .filter(r => r.month <= currentMonthStart)
@@ -146,7 +153,7 @@ export default function MonthlyAnalyticsChart() {
       currentMonthLabel: currentMonthLbl,
       hasFutureMonths,
     };
-  }, [rows, range, salesByMonth]);
+  }, [rows, range, salesByLabel]);
 
   const advanceAmount = collectedTotal - collectedToDate;
 
@@ -156,7 +163,7 @@ export default function MonthlyAnalyticsChart() {
       <div className="flex items-start justify-between mb-5">
         <div>
           <h3 className="text-sm font-semibold text-zinc-100">Monthly Performance</h3>
-          <p className="text-xs text-zinc-500 mt-0.5">Collected · Forfeited · Penalties · New Sales — All amounts in JPY</p>
+          <p className="text-xs text-zinc-500 mt-0.5">Collected · Forfeited · Penalties · Monthly Sales — All amounts in JPY</p>
         </div>
         <div className="flex gap-1">
           {(['6M', '1Y', 'All'] as Range[]).map(r => (
@@ -192,7 +199,7 @@ export default function MonthlyAnalyticsChart() {
           />
           <StatCard label="Total Forfeited" value={totalForfeited} color="text-red-400"   />
           <StatCard label="Penalties Paid"  value={totalPenalties} color="text-amber-400" />
-          <StatCard label="New Sales" value={totalNewSales} color="text-purple-400" subtitle="accounts created" formatValue={v => String(v)} />
+          <StatCard label="Monthly Sales" value={totalNewSales} color="text-purple-400" subtitle="new accounts" formatValue={v => String(v)} />
         </div>
       )}
 
@@ -244,7 +251,7 @@ export default function MonthlyAnalyticsChart() {
                 formatter={(value) =>
                   value === 'collected' ? 'Collected' :
                   value === 'forfeited' ? 'Forfeited' :
-                  value === 'newSales' ? 'New Sales' : 'Penalties Paid'
+                  value === 'newSales' ? 'Monthly Sales' : 'Penalties Paid'
                 }
               />
               {/* Today marker — vertical dashed line at current month */}

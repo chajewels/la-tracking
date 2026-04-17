@@ -177,27 +177,44 @@ export default function Finance() {
       .slice(0, 5);
   }, [accounts]);
 
-  const monthlySales = useMemo(() => {
-    if (!accounts) return { count: 0, total: 0, change: 0, lastMonthCount: 0 };
+  const { data: monthlySalesData } = useQuery({
+    queryKey: ['monthly-sales', currencyFilter],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .rpc('get_monthly_sales', {
+          currency_mode: currencyFilter,
+          months_back: 12,
+        });
+      if (error) throw error;
+      return (Array.isArray(data) ? data : []) as Array<{
+        month: string;
+        new_sales_count: number;
+        total_sales_value: number;
+      }>;
+    },
+    enabled: tab === 'overview' && !!session,
+  });
+
+  const thisMonthSales = useMemo(() => {
+    if (!monthlySalesData?.length) return { count: 0, total: 0, change: 0, lastMonthCount: 0 };
     const now = new Date();
-    const thisMonth = accounts.filter(a => {
-      const created = new Date(a.created_at);
-      return created.getMonth() === now.getMonth()
-        && created.getFullYear() === now.getFullYear();
-    });
-    const lastMonth = accounts.filter(a => {
-      const created = new Date(a.created_at);
-      const lm = new Date(now.getFullYear(), now.getMonth() - 1);
-      return created.getMonth() === lm.getMonth()
-        && created.getFullYear() === lm.getFullYear();
-    });
-    const total = thisMonth.reduce((s, a) => s + (isAllMode ? toJpy(Number(a.total_amount), a.currency as Currency) : Number(a.total_amount)), 0);
-    const lastTotal = lastMonth.reduce((s, a) => s + (isAllMode ? toJpy(Number(a.total_amount), a.currency as Currency) : Number(a.total_amount)), 0);
+    const thisMonthLabel = now.toLocaleString('en-US', { month: 'short' }) + ' ' + now.getFullYear();
+    const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1);
+    const lastMonthLabel = lastMonthDate.toLocaleString('en-US', { month: 'short' }) + ' ' + lastMonthDate.getFullYear();
+    const thisMonth = monthlySalesData.find(d => d.month === thisMonthLabel);
+    const lastMonth = monthlySalesData.find(d => d.month === lastMonthLabel);
+    const total = thisMonth?.total_sales_value ?? 0;
+    const lastTotal = lastMonth?.total_sales_value ?? 0;
     const change = lastTotal > 0
       ? Math.round(((total - lastTotal) / lastTotal) * 100)
       : 0;
-    return { count: thisMonth.length, total, change, lastMonthCount: lastMonth.length };
-  }, [accounts, isAllMode]);
+    return {
+      count: thisMonth?.new_sales_count ?? 0,
+      total,
+      change,
+      lastMonthCount: lastMonth?.new_sales_count ?? 0,
+    };
+  }, [monthlySalesData]);
 
   // ── Analytics tab queries ──
   const { data: collectionAnalytics, isLoading: analyticsLoading } = useQuery({
@@ -394,11 +411,11 @@ export default function Finance() {
                   <StatCard title="Collections This Month" value={formatCurrency(summary?.collections_this_month ?? 0, displayCurrency)} icon={BarChart3} variant="success" />
                   <StatCard
                     title="New Layaway Sales"
-                    value={formatCurrency(monthlySales.total, displayCurrency)}
-                    subtitle={`${monthlySales.count} new accounts · vs ${monthlySales.lastMonthCount} last month`}
+                    value={formatCurrency(thisMonthSales.total, displayCurrency)}
+                    subtitle={`${thisMonthSales.count} new accounts · vs ${thisMonthSales.lastMonthCount} last month`}
                     icon={ShoppingBag}
                     variant="gold"
-                    trend={monthlySales.change !== 0 ? { value: `${Math.abs(monthlySales.change)}% vs last month`, positive: monthlySales.change > 0 } : undefined}
+                    trend={thisMonthSales.change !== 0 ? { value: `${Math.abs(thisMonthSales.change)}% vs last month`, positive: thisMonthSales.change > 0 } : undefined}
                   />
                 </>
               )}
@@ -439,7 +456,7 @@ export default function Finance() {
               </div>
             </div>
 
-            <MonthlyAnalyticsChart />
+            <MonthlyAnalyticsChart monthlySalesData={monthlySalesData} />
 
             {recentCompleted.length > 0 && (
               <div className="rounded-xl border border-border bg-card p-5">
