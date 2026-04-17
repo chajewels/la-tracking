@@ -197,8 +197,11 @@ Deno.serve(async (req) => {
               dueDate: dueStr,
               amountDue: Math.round(alert.amount).toLocaleString("en-US"),
               currency: alert.currency,
-              stage: alert.stage,
+              type: alert.stage === 'overdue' || alert.stage === 'penalty' ? 'overdue'
+                    : alert.stage === 'due_today' ? 'due_today'
+                    : 'upcoming',
               daysOverdue: alert.daysOverdue,
+              portalUrl: `https://cha-jewels-layaway.web.app/portal?invoice=${alert.invoice}`,
             },
           }),
         });
