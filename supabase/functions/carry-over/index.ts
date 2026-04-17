@@ -28,10 +28,30 @@ serve(async (req) => {
     if (source.status !== "partially_paid") return new Response(JSON.stringify({ error: "Source row is not partially_paid" }), { status: 400, headers: corsHeaders });
     if (!Number(source.paid_amount)) return new Response(JSON.stringify({ error: "Source row has no paid amount — nothing to carry over" }), { status: 400, headers: corsHeaders });
 
-    // Use paid_amount from the schedule row as the authoritative source for how much was paid
-    const paidOnRow = Number(source.paid_amount);
+    // Derive how much has actually been paid on this row from the authoritative
+    // source: SUM(non-voided payment_allocations), NOT the stale paid_amount
+    // cache on layaway_schedule. paid_amount may only reflect the installment
+    // portion when a payment also covered a penalty on the same row.
+    const { data: allocData } = await supabase
+      .from("payment_allocations")
+      .select("allocated_amount, payment_id")
+      .eq("schedule_id", schedule_row_id);
+
+    const { data: voidedPayments } = await supabase
+      .from("payments")
+      .select("id")
+      .eq("account_id", account_id)
+      .not("voided_at", "is", null);
+
+    const voidedIds = new Set((voidedPayments || []).map((p: any) => p.id));
+    const totalAllocated = Math.round(
+      (allocData || [])
+        .filter((a: any) => !voidedIds.has(a.payment_id))
+        .reduce((sum: number, a: any) => sum + Number(a.allocated_amount), 0) * 100
+    ) / 100;
+
     const ceiling = Number(source.base_installment_amount) + Number(source.penalty_amount || 0) + Number(source.carried_amount || 0);
-    const shortfall = Math.round((ceiling - paidOnRow) * 100) / 100;
+    const shortfall = Math.round((ceiling - totalAllocated) * 100) / 100;
 
     if (shortfall <= 0) return new Response(JSON.stringify({ error: "No shortfall to carry" }), { status: 400, headers: corsHeaders });
 
@@ -61,7 +81,7 @@ serve(async (req) => {
 
     await supabase
       .from("layaway_schedule")
-      .update({ status: "paid", paid_amount: paidOnRow, updated_at: new Date().toISOString() })
+      .update({ status: "paid", paid_amount: totalAllocated, updated_at: new Date().toISOString() })
       .eq("id", schedule_row_id);
 
     // Compute the next row's total_due_amount to reflect the full amount owed
