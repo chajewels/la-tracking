@@ -9,7 +9,6 @@ import {
   ShieldCheck,
   Settings,
   LogOut,
-  Vault,
   Megaphone,
   Upload,
 } from 'lucide-react';
@@ -32,7 +31,6 @@ const menuItems = [
   { label: 'Finance', icon: Wallet, path: ROUTES.FINANCE },
   { label: 'Admin Audit', icon: ShieldCheck, path: ROUTES.ADMIN_AUDIT },
   { label: 'Bulk Import', icon: Upload, path: ROUTES.BULK_PAYMENT_IMPORT },
-  { label: 'Payment Vault', icon: Vault, path: ROUTES.PAYMENT_VAULT },
   { label: 'Promotions', icon: Megaphone, path: ROUTES.PROMOTIONS },
   { label: 'Settings', icon: Settings, path: ROUTES.SETTINGS },
 ];

@@ -1,5 +1,5 @@
 // Payment Vault
-import { useState, useMemo } from 'react';
+import { useState, useMemo, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import AppLayout from '@/components/layout/AppLayout';
@@ -392,7 +392,7 @@ function StatCard({
 
 // ── Main page ──────────────────────────────────────────────────────────────
 
-export default function PaymentVault() {
+export default function PaymentVault({ embedded = false }: { embedded?: boolean } = {}) {
   const { can } = usePermissions();
   const [search, setSearch] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
@@ -455,30 +455,41 @@ export default function PaymentVault() {
 
   const selectedGroup = customerList.find((c) => c.customer_name === selectedCustomer);
 
+  const Wrapper = embedded ? ({ children }: { children: ReactNode }) => <>{children}</> : AppLayout;
+
   if (!can('admin_settings')) {
     return (
-      <AppLayout>
+      <Wrapper>
         <div className="flex items-center justify-center h-64 text-muted-foreground">
           Access denied — admin only
         </div>
-      </AppLayout>
+      </Wrapper>
     );
   }
 
   return (
-    <AppLayout>
-      <div className="flex flex-col h-[calc(100vh-4rem)]">
-        {/* Page header */}
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-border shrink-0">
-          <Vault className="h-5 w-5 text-primary" />
-          <div>
-            <h1 className="text-lg font-semibold text-foreground">Payment Vault </h1>
-            <p className="text-xs text-muted-foreground">Historical payment backup records</p>
+    <Wrapper>
+      <div className={embedded ? 'flex flex-col h-[600px]' : 'flex flex-col h-[calc(100vh-4rem)]'}>
+        {!embedded && (
+          <div className="flex items-center gap-3 px-5 py-4 border-b border-border shrink-0">
+            <Vault className="h-5 w-5 text-primary" />
+            <div>
+              <h1 className="text-lg font-semibold text-foreground">Payment Vault </h1>
+              <p className="text-xs text-muted-foreground">Historical payment backup records</p>
+            </div>
+            <Badge variant="outline" className="ml-auto text-xs">
+              {customerList.length} customers
+            </Badge>
           </div>
-          <Badge variant="outline" className="ml-auto text-xs">
-            {customerList.length} customers
-          </Badge>
-        </div>
+        )}
+
+        {embedded && (
+          <div className="flex items-center gap-2 mb-3">
+            <Badge variant="outline" className="text-xs">
+              {customerList.length} customers
+            </Badge>
+          </div>
+        )}
 
         {/* Two-panel layout */}
         <div className="flex flex-1 overflow-hidden bg-background">
@@ -512,6 +523,6 @@ export default function PaymentVault() {
           </div>
         </div>
       </div>
-    </AppLayout>
+    </Wrapper>
   );
 }
