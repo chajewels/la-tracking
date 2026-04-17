@@ -601,7 +601,6 @@ export default function Monitoring() {
             ))}
           </div>
         )}
-      </div>
 
           </TabsContent>
 
@@ -692,6 +691,7 @@ export default function Monitoring() {
             </div>
           </TabsContent>
         </Tabs>
+      </div>
 
       {/* Messenger Message Dialog */}
       <Dialog open={!!messengerDialog} onOpenChange={(open) => !open && setMessengerDialog(null)}>
