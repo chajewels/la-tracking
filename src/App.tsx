@@ -48,6 +48,7 @@ const NewAccount = lazyWithRetry(() => import("./pages/NewAccount"));
 const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
 const PaymentVault = lazyWithRetry(() => import("./pages/PaymentVault"));
 const PaymentsHub = lazyWithRetry(() => import("./pages/PaymentsHub"));
+const BulkPaymentImport = lazyWithRetry(() => import("./pages/BulkPaymentImport"));
 const Unsubscribe = lazyWithRetry(() => import("./pages/Unsubscribe"));
 const Promotions = lazyWithRetry(() => import("./pages/Promotions"));
 
@@ -102,6 +103,7 @@ const App = () => (
                 <Route path="/admin-audit" element={<Protected><AdminAudit /></Protected>} />
                 <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
                 <Route path="/payments-hub" element={<Protected><PaymentsHub /></Protected>} />
+                <Route path="/bulk-payment-import" element={<Protected><BulkPaymentImport /></Protected>} />
                 <Route path="/promotions" element={<Protected><Promotions /></Protected>} />
                 {/* Legacy routes — redirect to the combined hub */}
                 <Route path="/payment-submissions" element={<Navigate to="/payments-hub" replace />} />

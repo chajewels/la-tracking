@@ -15,6 +15,7 @@ import {
   Vault,
   Inbox,
   Megaphone,
+  Upload,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
@@ -40,6 +41,7 @@ const menuItems = [
   { label: 'Waivers', icon: FileText, path: ROUTES.WAIVERS },
   { label: 'Analytics', icon: BarChart3, path: ROUTES.ANALYTICS },
   { label: 'Admin Audit', icon: ShieldCheck, path: ROUTES.ADMIN_AUDIT },
+  { label: 'Bulk Import', icon: Upload, path: ROUTES.BULK_PAYMENT_IMPORT },
   { label: 'Payment Vault', icon: Vault, path: ROUTES.PAYMENT_VAULT },
   { label: 'Promotions', icon: Megaphone, path: ROUTES.PROMOTIONS },
   { label: 'Settings', icon: Settings, path: ROUTES.SETTINGS },

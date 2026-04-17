@@ -17,5 +17,6 @@ export const ROUTES = {
   PAYMENT_VAULT: "/admin/payment-vault",
   PAYMENT_PROOFS: "/payment-proofs",
   PAYMENTS_HUB: "/payments-hub",
+  BULK_PAYMENT_IMPORT: "/bulk-payment-import",
   PROMOTIONS: "/promotions",
 };
