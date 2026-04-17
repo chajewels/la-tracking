@@ -26,10 +26,18 @@ const PERMISSION_MODULES: { module: string; permissions: { key: string; label: s
     ],
   },
   {
-    module: 'Layaway Accounts',
+    module: 'Customers & Accounts',
     permissions: [
+      { key: 'view_customers', label: 'View Customers' },
+      { key: 'edit_customer', label: 'Edit Customer' },
+      { key: 'delete_customer', label: 'Delete Customer' },
       { key: 'view_accounts', label: 'View Accounts' },
       { key: 'create_account', label: 'Create Account' },
+    ],
+  },
+  {
+    module: 'Layaway Accounts',
+    permissions: [
       { key: 'edit_account', label: 'Edit Account' },
       { key: 'delete_account', label: 'Delete Account' },
       { key: 'edit_schedule', label: 'Edit Schedule' },
@@ -49,32 +57,28 @@ const PERMISSION_MODULES: { module: string; permissions: { key: string; label: s
     ],
   },
   {
-    module: 'Payment Submissions',
+    module: 'Financial Documentation',
     permissions: [
       { key: 'view_submissions', label: 'View Submissions' },
       { key: 'review_submission', label: 'Review Submission' },
       { key: 'reject_submission', label: 'Reject Submission' },
+      { key: 'view_waivers', label: 'View Waivers' },
+      { key: 'manage_waivers', label: 'Manage Waivers' },
     ],
   },
   {
-    module: 'Customers',
-    permissions: [
-      { key: 'view_customers', label: 'View Customers' },
-      { key: 'edit_customer', label: 'Edit Customer' },
-      { key: 'delete_customer', label: 'Delete Customer' },
-    ],
-  },
-  {
-    module: 'Collections & Finance',
+    module: 'Finance',
     permissions: [
       { key: 'view_collections', label: 'View Collections' },
       { key: 'view_finance', label: 'View Finance' },
+      { key: 'view_analytics', label: 'View Analytics' },
       { key: 'run_reconciliation', label: 'Run Reconciliation' },
       { key: 'recalculate_balance', label: 'Recalculate Balance' },
+      { key: 'bulk_payment_import', label: 'Bulk Payment Import' },
     ],
   },
   {
-    module: 'Monitoring & Reminders',
+    module: 'CSR Monitoring',
     permissions: [
       { key: 'view_monitoring', label: 'View Monitoring' },
       { key: 'send_reminder', label: 'Send Reminders' },
@@ -87,7 +91,6 @@ const PERMISSION_MODULES: { module: string; permissions: { key: string; label: s
       { key: 'add_penalty', label: 'Add Penalty' },
       { key: 'waive_penalty', label: 'Waive Penalty' },
       { key: 'apply_cap_fix', label: 'Override Penalty Cap' },
-      { key: 'view_waivers', label: 'View Waivers' },
     ],
   },
   {
@@ -97,11 +100,18 @@ const PERMISSION_MODULES: { module: string; permissions: { key: string; label: s
     ],
   },
   {
-    module: 'Analytics & Audit',
+    module: 'Audit & System',
     permissions: [
-      { key: 'view_analytics', label: 'View Analytics' },
       { key: 'view_audit_logs', label: 'View Audit Logs' },
       { key: 'system_health', label: 'System Health Checks' },
+      { key: 'view_system_health', label: 'View System Health' },
+    ],
+  },
+  {
+    module: 'Promotions & Announcements',
+    permissions: [
+      { key: 'manage_promotions', label: 'Manage Promotions' },
+      { key: 'manage_announcements', label: 'Manage Announcements' },
     ],
   },
   {
