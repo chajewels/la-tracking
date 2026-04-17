@@ -238,14 +238,20 @@ export default function MonthlyAnalyticsChart({ monthlySalesData }: { monthlySal
       ? monthlySalesData
       : monthlySalesData.filter(d => d.month.endsWith(salesYear));
 
-    const chartRows = filtered.map(d => ({
+    const sorted = [...filtered].sort((a, b) => {
+      const dateA = new Date(a.month + ' 01');
+      const dateB = new Date(b.month + ' 01');
+      return dateA.getTime() - dateB.getTime();
+    });
+
+    const chartRows = sorted.map(d => ({
       label: d.month,
       salesValue: Math.round(Number(d.total_sales_value)),
       salesCount: Number(d.new_sales_count),
     }));
 
-    const totalValue = filtered.reduce((s, d) => s + Number(d.total_sales_value), 0);
-    const totalCount = filtered.reduce((s, d) => s + d.new_sales_count, 0);
+    const totalValue = sorted.reduce((s, d) => s + Number(d.total_sales_value), 0);
+    const totalCount = sorted.reduce((s, d) => s + d.new_sales_count, 0);
 
     return { salesChartData: chartRows, salesYears: years, salesTotalValue: totalValue, salesTotalCount: totalCount };
   }, [monthlySalesData, salesYear]);
