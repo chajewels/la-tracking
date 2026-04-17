@@ -365,6 +365,25 @@ export default function Finance() {
     [activeAccounts, allSchedules]
   );
 
+  const { data: submissionsReviewed } = useQuery({
+    queryKey: ['submissions-reviewed-counts'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('payment_submissions')
+        .select('reviewer_user_id')
+        .eq('status', 'confirmed')
+        .not('reviewer_user_id', 'is', null);
+      if (error) throw error;
+      const counts = new Map<string, number>();
+      for (const row of (data || [])) {
+        const uid = (row as any).reviewer_user_id as string;
+        counts.set(uid, (counts.get(uid) || 0) + 1);
+      }
+      return counts;
+    },
+    enabled: tab === 'analytics' && !!session,
+  });
+
   const csrPerformance = useMemo(() => {
     const staff = profilesWithRoles || [];
     const payments = (allPayments || []).filter((p: any) => !p.voided_at);
@@ -380,9 +399,10 @@ export default function Finance() {
           .map((sc: any) => sc.account_id)
       );
       const recoveries = userPayments.filter((p: any) => overdueAccountIds.has(p.account_id)).length;
-      return { userId: s.user_id, name: s.full_name, role: s.role, totalCollected, paymentCount: userPayments.length, accountsHandled: accountIds.size, accountsCreated: createdAccounts.length, recoveries };
+      const reviewedCount = submissionsReviewed?.get(s.user_id) || 0;
+      return { userId: s.user_id, name: s.full_name, role: s.role, totalCollected, paymentCount: userPayments.length, accountsHandled: accountIds.size, accountsCreated: createdAccounts.length, recoveries, reviewedCount };
     }).sort((x: any, y: any) => y.totalCollected - x.totalCollected);
-  }, [profilesWithRoles, allPayments, accounts, allSchedules]);
+  }, [profilesWithRoles, allPayments, accounts, allSchedules, submissionsReviewed]);
 
   const highRisk = risks.filter(r => r.riskLevel === 'high').length;
   const avgCompletion = completions.length > 0
@@ -751,10 +771,11 @@ export default function Finance() {
                           </div>
                           {i === 0 && <Badge className="gold-gradient text-primary-foreground text-[10px] border-0">Top Collector</Badge>}
                         </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
+                        <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 text-center">
                           {[
                             { label: 'Total Collected', value: formatCurrency(Math.round(csr.totalCollected), displayCurrency) },
                             { label: 'Payments', value: csr.paymentCount },
+                            { label: 'Submissions Reviewed', value: csr.reviewedCount },
                             { label: 'Accounts Handled', value: csr.accountsHandled },
                             { label: 'Accounts Created', value: csr.accountsCreated },
                             { label: 'Recoveries', value: csr.recoveries },
