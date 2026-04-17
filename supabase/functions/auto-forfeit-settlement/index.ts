@@ -5,6 +5,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const MAX_ACCOUNTS_PER_RUN = 100;
+
 /**
  * Auto Forfeit & Final Settlement Engine
  *
@@ -40,7 +42,9 @@ Deno.serve(async (req) => {
     const { data: accounts, error: accErr } = await supabase
       .from("layaway_accounts")
       .select("id, invoice_number, customer_id, currency, status, total_amount, total_paid, remaining_balance, payment_plan_months, downpayment_amount, is_reactivated, extension_end_date")
-      .in("status", ["active", "overdue", "extension_active", "final_settlement"]);
+      .in("status", ["active", "overdue", "extension_active", "final_settlement"])
+      .order("updated_at", { ascending: true })
+      .limit(MAX_ACCOUNTS_PER_RUN);
 
     if (accErr) throw accErr;
     if (!accounts || accounts.length === 0) {
