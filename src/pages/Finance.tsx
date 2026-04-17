@@ -70,6 +70,10 @@ export default function Finance() {
         currency_mode: currencyFilter,
         months_back: 6,
       });
+      console.log('[analytics-debug] raw data:', data);
+      console.log('[analytics-debug] error:', error);
+      console.log('[analytics-debug] data[0]:', data?.[0]);
+      console.log('[analytics-debug] unwrapped:', data?.[0]?.get_collection_analytics);
       if (error) throw error;
       return (data?.[0]?.get_collection_analytics ?? []) as Array<{
         month: string;
