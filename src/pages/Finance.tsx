@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { addMonths, endOfMonth, format, startOfMonth } from 'date-fns';
-import { DollarSign, TrendingUp, BarChart3, Sparkles, CalendarClock, Trophy, Clock, AlertTriangle, ShieldAlert, Crown, UserCheck, Target, Users, Activity, Banknote, X } from 'lucide-react';
+import { DollarSign, TrendingUp, BarChart3, Sparkles, CalendarClock, Trophy, Clock, AlertTriangle, ShieldAlert, Crown, UserCheck, Target, Users, Activity, Banknote, X, ShoppingBag } from 'lucide-react';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
@@ -176,6 +176,28 @@ export default function Finance() {
       })
       .slice(0, 5);
   }, [accounts]);
+
+  const monthlySales = useMemo(() => {
+    if (!accounts) return { count: 0, total: 0, change: 0, lastMonthCount: 0 };
+    const now = new Date();
+    const thisMonth = accounts.filter(a => {
+      const created = new Date(a.created_at);
+      return created.getMonth() === now.getMonth()
+        && created.getFullYear() === now.getFullYear();
+    });
+    const lastMonth = accounts.filter(a => {
+      const created = new Date(a.created_at);
+      const lm = new Date(now.getFullYear(), now.getMonth() - 1);
+      return created.getMonth() === lm.getMonth()
+        && created.getFullYear() === lm.getFullYear();
+    });
+    const total = thisMonth.reduce((s, a) => s + (isAllMode ? toJpy(Number(a.total_amount), a.currency as Currency) : Number(a.total_amount)), 0);
+    const lastTotal = lastMonth.reduce((s, a) => s + (isAllMode ? toJpy(Number(a.total_amount), a.currency as Currency) : Number(a.total_amount)), 0);
+    const change = lastTotal > 0
+      ? Math.round(((total - lastTotal) / lastTotal) * 100)
+      : 0;
+    return { count: thisMonth.length, total, change, lastMonthCount: lastMonth.length };
+  }, [accounts, isAllMode]);
 
   // ── Analytics tab queries ──
   const { data: collectionAnalytics, isLoading: analyticsLoading } = useQuery({
@@ -360,9 +382,9 @@ export default function Finance() {
           {/* ═══════ Overview Tab ═══════ */}
           <TabsContent value="overview" className="mt-5 space-y-6">
             {/* KPI Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
               {summaryLoading ? (
-                [...Array(5)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+                [...Array(6)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
               ) : (
                 <>
                   <StatCard title="Total Receivables" value={formatCurrency(summary?.total_receivables ?? 0, displayCurrency)} icon={DollarSign} variant="gold" />
@@ -370,6 +392,14 @@ export default function Finance() {
                   <StatCard title="Predicted (30d)" value={formatCurrency(summary?.predicted_30d ?? 0, displayCurrency)} subtitle={`of ${formatCurrency(summary?.predicted_30d_raw ?? 0, displayCurrency)} due`} icon={TrendingUp} variant="success" />
                   <StatCard title="Predicted (90d)" value={formatCurrency(summary?.predicted_90d ?? 0, displayCurrency)} subtitle={`of ${formatCurrency(summary?.predicted_90d_raw ?? 0, displayCurrency)} due`} icon={TrendingUp} />
                   <StatCard title="Collections This Month" value={formatCurrency(summary?.collections_this_month ?? 0, displayCurrency)} icon={BarChart3} variant="success" />
+                  <StatCard
+                    title="New Layaway Sales"
+                    value={formatCurrency(monthlySales.total, displayCurrency)}
+                    subtitle={`${monthlySales.count} new accounts · vs ${monthlySales.lastMonthCount} last month`}
+                    icon={ShoppingBag}
+                    variant="gold"
+                    trend={monthlySales.change !== 0 ? { value: `${Math.abs(monthlySales.change)}% vs last month`, positive: monthlySales.change > 0 } : undefined}
+                  />
                 </>
               )}
             </div>

@@ -7,6 +7,7 @@ import {
 } from 'recharts';
 import { supabase } from '@/integrations/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useAccounts } from '@/hooks/use-supabase-data';
 
 type Range = '6M' | '1Y' | 'All';
 
@@ -22,6 +23,7 @@ interface ChartRow {
   collected: number;
   forfeited: number;
   penalties: number;
+  newSales: number;
   isFuture: boolean;
 }
 
@@ -36,14 +38,14 @@ function fmtFull(v: number): string {
 }
 
 function StatCard({
-  label, value, subtitle, color,
+  label, value, subtitle, color, formatValue,
 }: {
-  label: string; value: number; subtitle?: string; color: string;
+  label: string; value: number; subtitle?: string; color: string; formatValue?: (v: number) => string;
 }) {
   return (
     <div className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900 p-4">
       <p className="text-xs text-zinc-400 mb-1">{label}</p>
-      <p className={`text-lg font-bold tabular-nums ${color}`}>{fmtFull(value)}</p>
+      <p className={`text-lg font-bold tabular-nums ${color}`}>{(formatValue || fmtFull)(value)}</p>
       {subtitle && <p className="text-[10px] text-zinc-500 mt-0.5">{subtitle}</p>}
     </div>
   );
@@ -56,9 +58,11 @@ const CustomTooltip = ({ active, payload, label }: any) => {
       <p className="font-semibold text-zinc-200 mb-2">{label}</p>
       {payload.map((p: any) => (
         <div key={p.dataKey} className="flex items-center gap-2 py-0.5">
-          <span className="inline-block h-2 w-2 rounded-full flex-shrink-0" style={{ background: p.fill }} />
+          <span className="inline-block h-2 w-2 rounded-full flex-shrink-0" style={{ background: p.fill || p.stroke }} />
           <span className="text-zinc-400">{p.name}:</span>
-          <span className="text-zinc-100 tabular-nums font-medium">{fmtFull(p.value)}</span>
+          <span className="text-zinc-100 tabular-nums font-medium">
+            {p.dataKey === 'newSales' ? `${p.value} accounts` : fmtFull(p.value)}
+          </span>
         </div>
       ))}
     </div>
@@ -68,6 +72,17 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 export default function MonthlyAnalyticsChart() {
   const [range, setRange] = useState<Range>('1Y');
   const today = format(new Date(), 'yyyy-MM-dd');
+  const { data: accounts } = useAccounts();
+
+  const salesByMonth = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!accounts) return map;
+    for (const a of accounts) {
+      const key = format(startOfMonth(new Date(a.created_at)), 'yyyy-MM-dd');
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    return map;
+  }, [accounts]);
 
   const { data: rows, isLoading } = useQuery({
     queryKey: ['monthly-analytics', today],
@@ -86,12 +101,13 @@ export default function MonthlyAnalyticsChart() {
     collectedTotal,
     totalForfeited,
     totalPenalties,
+    totalNewSales,
     currentMonthLabel,
     hasFutureMonths,
   } = useMemo(() => {
     if (!rows) return {
       chartData: [] as ChartRow[], collectedToDate: 0, collectedTotal: 0,
-      totalForfeited: 0, totalPenalties: 0, currentMonthLabel: '', hasFutureMonths: false,
+      totalForfeited: 0, totalPenalties: 0, totalNewSales: 0, currentMonthLabel: '', hasFutureMonths: false,
     };
 
     const now = new Date();
@@ -110,6 +126,7 @@ export default function MonthlyAnalyticsChart() {
       collected:  Math.round(Number(r.collected_jpy)),
       forfeited:  Math.round(Number(r.forfeited_jpy)),
       penalties:  Math.round(Number(r.penalties_jpy)),
+      newSales:   salesByMonth.get(r.month) || 0,
       isFuture:   r.month > currentMonthStart,
     }));
 
@@ -119,16 +136,17 @@ export default function MonthlyAnalyticsChart() {
     const collectedTotal  = filtered.reduce((s, r) => s + Number(r.collected_jpy), 0);
     const totalForfeited  = filtered.reduce((s, r) => s + Number(r.forfeited_jpy), 0);
     const totalPenalties  = filtered.reduce((s, r) => s + Number(r.penalties_jpy), 0);
+    const totalNewSales   = chartData.reduce((s, d) => s + d.newSales, 0);
 
     const hasFutureMonths = chartData.some(d => d.isFuture);
 
     return {
       chartData, collectedToDate, collectedTotal,
-      totalForfeited, totalPenalties,
+      totalForfeited, totalPenalties, totalNewSales,
       currentMonthLabel: currentMonthLbl,
       hasFutureMonths,
     };
-  }, [rows, range]);
+  }, [rows, range, salesByMonth]);
 
   const advanceAmount = collectedTotal - collectedToDate;
 
@@ -138,7 +156,7 @@ export default function MonthlyAnalyticsChart() {
       <div className="flex items-start justify-between mb-5">
         <div>
           <h3 className="text-sm font-semibold text-zinc-100">Monthly Performance</h3>
-          <p className="text-xs text-zinc-500 mt-0.5">Collected · Forfeited · Penalties — All in JPY</p>
+          <p className="text-xs text-zinc-500 mt-0.5">Collected · Forfeited · Penalties · New Sales — All amounts in JPY</p>
         </div>
         <div className="flex gap-1">
           {(['6M', '1Y', 'All'] as Range[]).map(r => (
@@ -174,6 +192,7 @@ export default function MonthlyAnalyticsChart() {
           />
           <StatCard label="Total Forfeited" value={totalForfeited} color="text-red-400"   />
           <StatCard label="Penalties Paid"  value={totalPenalties} color="text-amber-400" />
+          <StatCard label="New Sales" value={totalNewSales} color="text-purple-400" subtitle="accounts created" formatValue={v => String(v)} />
         </div>
       )}
 
@@ -202,28 +221,41 @@ export default function MonthlyAnalyticsChart() {
                 tickLine={false}
               />
               <YAxis
+                yAxisId="left"
                 tickFormatter={fmtJpy}
                 tick={{ fill: '#a1a1aa', fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
                 width={56}
               />
+              <YAxis
+                yAxisId="right"
+                orientation="right"
+                allowDecimals={false}
+                tick={{ fill: '#a1a1aa', fontSize: 11 }}
+                axisLine={false}
+                tickLine={false}
+                width={36}
+                label={{ value: 'Sales', angle: 90, position: 'insideRight', fill: '#71717a', fontSize: 10, dx: 12 }}
+              />
               <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
               <Legend
                 wrapperStyle={{ fontSize: 11, color: '#a1a1aa', paddingTop: 12 }}
                 formatter={(value) =>
                   value === 'collected' ? 'Collected' :
-                  value === 'forfeited' ? 'Forfeited' : 'Penalties Paid'
+                  value === 'forfeited' ? 'Forfeited' :
+                  value === 'newSales' ? 'New Sales' : 'Penalties Paid'
                 }
               />
               {/* Today marker — vertical dashed line at current month */}
               <ReferenceLine
+                yAxisId="left"
                 x={currentMonthLabel}
                 stroke="#71717a"
                 strokeDasharray="4 3"
                 label={{ value: 'Today', position: 'top', fill: '#a1a1aa', fontSize: 10 }}
               />
-              <Bar dataKey="collected" name="collected" radius={[3, 3, 0, 0]} maxBarSize={32}>
+              <Bar dataKey="collected" name="collected" yAxisId="left" radius={[3, 3, 0, 0]} maxBarSize={32}>
                 {chartData.map((entry, i) => (
                   <Cell
                     key={i}
@@ -235,7 +267,7 @@ export default function MonthlyAnalyticsChart() {
                   />
                 ))}
               </Bar>
-              <Bar dataKey="forfeited" name="forfeited" radius={[3, 3, 0, 0]} maxBarSize={32}>
+              <Bar dataKey="forfeited" name="forfeited" yAxisId="left" radius={[3, 3, 0, 0]} maxBarSize={32}>
                 {chartData.map((entry, i) => (
                   <Cell
                     key={i}
@@ -247,13 +279,25 @@ export default function MonthlyAnalyticsChart() {
                   />
                 ))}
               </Bar>
-              <Bar dataKey="penalties" name="penalties" radius={[3, 3, 0, 0]} maxBarSize={32}>
+              <Bar dataKey="penalties" name="penalties" yAxisId="left" radius={[3, 3, 0, 0]} maxBarSize={32}>
                 {chartData.map((entry, i) => (
                   <Cell
                     key={i}
                     fill="#f59e0b"
                     fillOpacity={entry.isFuture ? 0.35 : 1}
                     stroke={entry.isFuture ? '#f59e0b' : 'none'}
+                    strokeWidth={entry.isFuture ? 1 : 0}
+                    strokeDasharray={entry.isFuture ? '3 2' : undefined}
+                  />
+                ))}
+              </Bar>
+              <Bar dataKey="newSales" name="newSales" yAxisId="right" radius={[3, 3, 0, 0]} maxBarSize={24}>
+                {chartData.map((entry, i) => (
+                  <Cell
+                    key={i}
+                    fill="#a855f7"
+                    fillOpacity={entry.isFuture ? 0.35 : 1}
+                    stroke={entry.isFuture ? '#a855f7' : 'none'}
                     strokeWidth={entry.isFuture ? 1 : 0}
                     strokeDasharray={entry.isFuture ? '3 2' : undefined}
                   />
