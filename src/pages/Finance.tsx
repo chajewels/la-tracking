@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { DollarSign, TrendingUp, BarChart3, Sparkles, CalendarClock, Trophy, Clock, AlertTriangle } from 'lucide-react';
+import { DollarSign, TrendingUp, BarChart3, Sparkles, CalendarClock, Trophy, Clock, AlertTriangle, ShieldAlert, Crown, UserCheck, Target, Users } from 'lucide-react';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
@@ -9,18 +9,24 @@ import AppLayout from '@/components/layout/AppLayout';
 import StatCard from '@/components/dashboard/StatCard';
 import AgingBuckets from '@/components/dashboard/AgingBuckets';
 import CurrencyToggle, { CurrencyFilter } from '@/components/dashboard/CurrencyToggle';
+import RiskBadge from '@/components/dashboard/RiskBadge';
+import CLVBadge from '@/components/dashboard/CLVBadge';
+import CompletionBadge from '@/components/dashboard/CompletionBadge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { getDisplayCurrencyForFilter } from '@/lib/currency-converter';
-import { useAccounts, useDashboardSummary } from '@/hooks/use-supabase-data';
+import { useAccounts, useCustomers, usePayments, useDashboardSummary } from '@/hooks/use-supabase-data';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useAuth } from '@/contexts/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Link } from 'react-router-dom';
+import {
+  assessRisk, predictCompletion, assessCLV, riskStyles,
+} from '@/lib/business-rules';
 
 export default function Finance() {
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
@@ -33,8 +39,11 @@ export default function Finance() {
     Boolean(session) && !authLoading,
   );
   const { data: accounts } = useAccounts();
+  const { data: customers } = useCustomers();
+  const { data: allPayments } = usePayments();
   useAutoRefresh([
     ['accounts'],
+    ['customers'],
     ['dashboard-summary'],
   ]);
 
@@ -109,6 +118,106 @@ export default function Finance() {
     if (!collectionAnalytics?.length) return 0;
     return collectionAnalytics.reduce((s, m) => s + m.penalties_collected, 0);
   }, [collectionAnalytics]);
+
+  // ── Intelligence section data (from former Analytics.tsx) ──
+  const currency = currencyFilter === 'ALL' ? undefined : currencyFilter;
+
+  const { data: allSchedules } = useQuery({
+    queryKey: ['all-schedules-analytics'],
+    queryFn: async () => {
+      const allItems: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from('layaway_schedule')
+          .select('*')
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        allItems.push(...data);
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+      return allItems;
+    },
+    enabled: tab === 'analytics' && !!session,
+  });
+
+  const { data: profilesWithRoles } = useQuery({
+    queryKey: ['csr-profiles'],
+    queryFn: async () => {
+      const { data: profiles, error: pErr } = await supabase.from('profiles').select('*');
+      if (pErr) throw pErr;
+      const { data: roles, error: rErr } = await supabase.from('user_roles').select('*');
+      if (rErr) throw rErr;
+      return (profiles || []).map((p: any) => ({
+        ...p,
+        role: (roles || []).find((r: any) => r.user_id === p.user_id)?.role || 'staff',
+      }));
+    },
+    enabled: tab === 'analytics' && !!session,
+  });
+
+  const activeAccounts = useMemo(() =>
+    (accounts || []).filter(a => (a.status === 'active' || a.status === 'overdue') && (!currency || a.currency === currency)),
+    [accounts, currency]
+  );
+
+  const risks = useMemo(() =>
+    activeAccounts.map(a => {
+      const acctSchedules = (allSchedules || []).filter((s: any) => s.account_id === a.id);
+      return {
+        accountId: a.id,
+        customerName: a.customers?.full_name || 'Unknown',
+        invoiceNumber: a.invoice_number,
+        currency: a.currency as Currency,
+        ...assessRisk(acctSchedules),
+      };
+    }).sort((x, y) => y.score - x.score),
+    [activeAccounts, allSchedules]
+  );
+
+  const clvs = useMemo(() =>
+    (customers || []).map((c: any) => {
+      const custAccounts = (accounts || []).filter(a => a.customer_id === c.id);
+      return { customerId: c.id, customerName: c.full_name, ...assessCLV(custAccounts) };
+    }).sort((x: any, y: any) => y.score - x.score),
+    [customers, accounts]
+  );
+
+  const completions = useMemo(() =>
+    activeAccounts.map(a => {
+      const acctSchedules = (allSchedules || []).filter((s: any) => s.account_id === a.id);
+      const risk = assessRisk(acctSchedules);
+      const pred = predictCompletion(Number(a.total_paid), Number(a.total_amount), risk.score);
+      return { accountId: a.id, customerName: a.customers?.full_name || 'Unknown', invoiceNumber: a.invoice_number, ...pred };
+    }).sort((x, y) => x.score - y.score),
+    [activeAccounts, allSchedules]
+  );
+
+  const csrPerformance = useMemo(() => {
+    const staff = profilesWithRoles || [];
+    const payments = (allPayments || []).filter((p: any) => !p.voided_at);
+    const accts = accounts || [];
+    return staff.map((s: any) => {
+      const userPayments = payments.filter((p: any) => p.entered_by_user_id === s.user_id);
+      const totalCollected = userPayments.reduce((sum: number, p: any) => sum + Number(p.amount_paid), 0);
+      const accountIds = new Set(userPayments.map((p: any) => p.account_id));
+      const createdAccounts = accts.filter(a => a.created_by_user_id === s.user_id);
+      const overdueAccountIds = new Set(
+        (allSchedules || [])
+          .filter((sc: any) => sc.due_date < new Date().toISOString().split('T')[0] && ['pending', 'partially_paid'].includes(sc.status))
+          .map((sc: any) => sc.account_id)
+      );
+      const recoveries = userPayments.filter((p: any) => overdueAccountIds.has(p.account_id)).length;
+      return { userId: s.user_id, name: s.full_name, role: s.role, totalCollected, paymentCount: userPayments.length, accountsHandled: accountIds.size, accountsCreated: createdAccounts.length, recoveries };
+    }).sort((x: any, y: any) => y.totalCollected - x.totalCollected);
+  }, [profilesWithRoles, allPayments, accounts, allSchedules]);
+
+  const highRisk = risks.filter(r => r.riskLevel === 'high').length;
+  const avgCompletion = completions.length > 0
+    ? Math.round(completions.reduce((s, c) => s + c.score, 0) / completions.length) : 0;
 
   return (
     <AppLayout>
@@ -341,6 +450,146 @@ export default function Finance() {
                   </table>
                 </div>
               )}
+            </div>
+
+            {/* ═══════ SECTION B — Intelligence ═══════ */}
+            <h3 className="text-lg font-semibold text-card-foreground pt-4 border-t border-border">Intelligence & Predictions</h3>
+
+            {/* KPI row */}
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+              <StatCard title="Predicted (30d)" value={formatCurrency(summary?.predicted_30d ?? 0, displayCurrency)} icon={TrendingUp} variant="gold" />
+              <StatCard title="Predicted (90d)" value={formatCurrency(summary?.predicted_90d ?? 0, displayCurrency)} icon={TrendingUp} />
+              <StatCard title="Avg Completion" value={`${avgCompletion}%`} icon={Target} variant="success" />
+              <StatCard title="High Risk" value={highRisk.toString()} subtitle="accounts" icon={ShieldAlert} variant="danger" />
+              <StatCard title="Active Accounts" value={activeAccounts.length.toString()} icon={Users} />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Late Payment Risk Matrix */}
+              <div className="rounded-xl border border-border bg-card p-5">
+                <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2">
+                  <ShieldAlert className="h-4 w-4 text-primary" /> Late Payment Risk Matrix
+                </h3>
+                <div className="space-y-3 max-h-96 overflow-y-auto">
+                  {risks.slice(0, 15).map(risk => (
+                    <Link key={risk.accountId} to={`/accounts/${risk.accountId}`}>
+                      <div className="flex items-center justify-between p-3 rounded-lg border border-border hover:border-primary/30 transition-colors">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="text-sm font-medium text-card-foreground">{risk.customerName}</p>
+                            <RiskBadge level={risk.riskLevel} />
+                          </div>
+                          <p className="text-xs text-muted-foreground">INV #{risk.invoiceNumber} · {risk.maxOverdueDays > 0 ? `${risk.maxOverdueDays} days overdue` : 'Current'} · Score: {risk.score}/100</p>
+                        </div>
+                        <div className="text-right">
+                          <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] ${riskStyles[risk.riskLevel].bg} ${riskStyles[risk.riskLevel].text}`}>
+                            {risk.recommendation}
+                          </div>
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                  {risks.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No active accounts</p>}
+                </div>
+              </div>
+
+              {/* Completion Predictions */}
+              <div className="rounded-xl border border-border bg-card p-5">
+                <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-primary" /> Layaway Completion Prediction
+                </h3>
+                <div className="space-y-3 max-h-96 overflow-y-auto">
+                  {completions.slice(0, 15).map(p => (
+                    <Link key={p.accountId} to={`/accounts/${p.accountId}`}>
+                      <div className="flex items-center justify-between p-3 rounded-lg border border-border hover:border-primary/30 transition-colors">
+                        <div>
+                          <p className="text-sm font-medium text-card-foreground">{p.customerName}</p>
+                          <p className="text-xs text-muted-foreground">INV #{p.invoiceNumber}</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="w-20">
+                            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                              <div className="h-full gold-gradient rounded-full" style={{ width: `${p.progressPercent}%` }} />
+                            </div>
+                            <p className="text-[10px] text-muted-foreground text-right mt-0.5">{p.progressPercent}%</p>
+                          </div>
+                          <CompletionBadge probability={p.probability} />
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                  {completions.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No active accounts</p>}
+                </div>
+              </div>
+
+              {/* CLV Overview */}
+              <div className="rounded-xl border border-border bg-card p-5 lg:col-span-2">
+                <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2">
+                  <Crown className="h-4 w-4 text-primary" /> Customer Lifetime Value
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-96 overflow-y-auto">
+                  {clvs.slice(0, 20).map((clv: any) => (
+                    <Link key={clv.customerId} to={`/customers/${clv.customerId}`}>
+                      <div className="flex items-center justify-between p-3 rounded-lg border border-border hover:border-primary/30 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-bold">
+                            {clv.customerName.charAt(0)}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-card-foreground">{clv.customerName}</p>
+                            <p className="text-xs text-muted-foreground">{clv.completedContracts} completed · {clv.reliabilityScore}% reliability</p>
+                          </div>
+                        </div>
+                        <CLVBadge tier={clv.tier} />
+                      </div>
+                    </Link>
+                  ))}
+                  {clvs.length === 0 && <p className="text-sm text-muted-foreground text-center py-4 col-span-2">No customers</p>}
+                </div>
+              </div>
+
+              {/* CSR Performance */}
+              <div className="rounded-xl border border-border bg-card p-5 lg:col-span-2">
+                <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2">
+                  <UserCheck className="h-4 w-4 text-primary" /> CSR Performance
+                </h3>
+                {csrPerformance.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">No team members yet</p>
+                ) : (
+                  <div className="space-y-4">
+                    {csrPerformance.map((csr: any, i: number) => (
+                      <div key={csr.userId} className="p-4 rounded-lg border border-border">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-3">
+                            <div className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${i === 0 ? 'gold-gradient text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+                              #{i + 1}
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-card-foreground">{csr.name}</p>
+                              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{csr.role}</p>
+                            </div>
+                          </div>
+                          {i === 0 && <Badge className="gold-gradient text-primary-foreground text-[10px] border-0">Top Collector</Badge>}
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
+                          {[
+                            { label: 'Total Collected', value: formatCurrency(Math.round(csr.totalCollected), displayCurrency) },
+                            { label: 'Payments', value: csr.paymentCount },
+                            { label: 'Accounts Handled', value: csr.accountsHandled },
+                            { label: 'Accounts Created', value: csr.accountsCreated },
+                            { label: 'Recoveries', value: csr.recoveries },
+                          ].map(m => (
+                            <div key={m.label} className="p-2 rounded-lg bg-muted/30">
+                              <p className="text-[10px] text-muted-foreground">{m.label}</p>
+                              <p className="text-sm font-bold text-card-foreground">{m.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </TabsContent>
         </Tabs>
