@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Shield, Check, X, Loader2, RotateCcw, ChevronDown } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +10,7 @@ import { supabase } from '@/integrations/supabase/client';
 
 const ROLES = ['admin', 'staff', 'finance', 'csr'] as const;
 
-const PERMISSION_MODULES: { module: string; permissions: { key: string; label: string }[] }[] = [
+const PERMISSION_MODULES: { module: string; permissions: { key: string; label: string; section?: string }[] }[] = [
   {
     module: 'Dashboard',
     permissions: [
@@ -33,11 +33,6 @@ const PERMISSION_MODULES: { module: string; permissions: { key: string; label: s
       { key: 'delete_customer', label: 'Delete Customer' },
       { key: 'view_accounts', label: 'View Accounts' },
       { key: 'create_account', label: 'Create Account' },
-    ],
-  },
-  {
-    module: 'Layaway Accounts',
-    permissions: [
       { key: 'edit_account', label: 'Edit Account' },
       { key: 'delete_account', label: 'Delete Account' },
       { key: 'edit_schedule', label: 'Edit Schedule' },
@@ -45,36 +40,6 @@ const PERMISSION_MODULES: { module: string; permissions: { key: string; label: s
       { key: 'forfeit_account', label: 'Forfeit Account' },
       { key: 'reactivate_account', label: 'Reactivate Account' },
       { key: 'reassign_owner', label: 'Reassign Owner' },
-    ],
-  },
-  {
-    module: 'Payments',
-    permissions: [
-      { key: 'record_payment', label: 'Record Payment' },
-      { key: 'confirm_payment', label: 'Confirm Payment' },
-      { key: 'void_payment', label: 'Void Payment' },
-      { key: 'restore_payment', label: 'Restore Payment' },
-    ],
-  },
-  {
-    module: 'Financial Documentation',
-    permissions: [
-      { key: 'view_submissions', label: 'View Submissions' },
-      { key: 'review_submission', label: 'Review Submission' },
-      { key: 'reject_submission', label: 'Reject Submission' },
-      { key: 'view_waivers', label: 'View Waivers' },
-      { key: 'manage_waivers', label: 'Manage Waivers' },
-    ],
-  },
-  {
-    module: 'Finance',
-    permissions: [
-      { key: 'view_collections', label: 'View Collections' },
-      { key: 'view_finance', label: 'View Finance' },
-      { key: 'view_analytics', label: 'View Analytics' },
-      { key: 'run_reconciliation', label: 'Run Reconciliation' },
-      { key: 'recalculate_balance', label: 'Recalculate Balance' },
-      { key: 'bulk_payment_import', label: 'Bulk Payment Import' },
     ],
   },
   {
@@ -86,25 +51,42 @@ const PERMISSION_MODULES: { module: string; permissions: { key: string; label: s
     ],
   },
   {
-    module: 'Penalties & Waivers',
+    module: 'Finance',
     permissions: [
-      { key: 'add_penalty', label: 'Add Penalty' },
+      { key: 'view_finance', label: 'View Finance', section: 'Overview & Analytics' },
+      { key: 'view_analytics', label: 'View Analytics' },
+      { key: 'view_collections', label: 'View Collections' },
+      { key: 'run_reconciliation', label: 'Run Reconciliation' },
+      { key: 'recalculate_balance', label: 'Recalculate Balance' },
+      { key: 'bulk_payment_import', label: 'Bulk Payment Import' },
+      { key: 'record_payment', label: 'Record Payment', section: 'Payments' },
+      { key: 'confirm_payment', label: 'Confirm Payment' },
+      { key: 'void_payment', label: 'Void Payment' },
+      { key: 'restore_payment', label: 'Restore Payment' },
+      { key: 'view_submissions', label: 'View Submissions', section: 'Financial Documentation' },
+      { key: 'review_submission', label: 'Review Submission' },
+      { key: 'reject_submission', label: 'Reject Submission' },
+      { key: 'view_waivers', label: 'View Waivers' },
+      { key: 'manage_waivers', label: 'Manage Waivers' },
+      { key: 'add_penalty', label: 'Add Penalty', section: 'Penalties & Waivers' },
       { key: 'waive_penalty', label: 'Waive Penalty' },
       { key: 'apply_cap_fix', label: 'Override Penalty Cap' },
+      { key: 'add_service', label: 'Add Service', section: 'Services' },
+      { key: 'view_vault', label: 'View Payment Vault', section: 'Payment Vault' },
     ],
   },
   {
-    module: 'Services',
-    permissions: [
-      { key: 'add_service', label: 'Add Service' },
-    ],
-  },
-  {
-    module: 'Audit & System',
+    module: 'Admin Audit',
     permissions: [
       { key: 'view_audit_logs', label: 'View Audit Logs' },
       { key: 'system_health', label: 'System Health Checks' },
       { key: 'view_system_health', label: 'View System Health' },
+    ],
+  },
+  {
+    module: 'Bulk Import',
+    permissions: [
+      { key: 'bulk_payment_import', label: 'Bulk Payment Import' },
     ],
   },
   {
@@ -115,7 +97,7 @@ const PERMISSION_MODULES: { module: string; permissions: { key: string; label: s
     ],
   },
   {
-    module: 'Admin',
+    module: 'Admin & Settings',
     permissions: [
       { key: 'admin_settings', label: 'Access Settings' },
       { key: 'manage_team', label: 'Manage Team' },
@@ -182,30 +164,42 @@ function RoleMatrix({
                 </tr>
               </thead>
               <tbody>
-                {mod.permissions.map(perm => (
-                  <tr key={perm.key} className="border-b border-border/30 hover:bg-muted/20">
-                    <td className="py-2 px-3 text-foreground font-medium">{perm.label}</td>
-                    {ROLES.map(role => {
-                      const allowed = getPermission(role, perm.key);
-                      const isLocked = role === 'admin' && ADMIN_LOCKED.includes(perm.key);
-                      const isUpdating = updating === `${role}-${perm.key}`;
-                      return (
-                        <td key={role} className="text-center py-2 px-2">
-                          {isUpdating ? (
-                            <Loader2 className="h-4 w-4 animate-spin mx-auto text-primary" />
-                          ) : (
-                            <Switch
-                              checked={allowed}
-                              onCheckedChange={() => onToggle(role, perm.key, allowed)}
-                              disabled={isLocked}
-                              className={`mx-auto ${allowed ? 'data-[state=checked]:bg-primary' : ''}`}
-                            />
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+                {mod.permissions.map((perm, idx) => {
+                  const showSection = perm.section && (idx === 0 || perm.section !== mod.permissions[idx - 1]?.section);
+                  return (
+                    <React.Fragment key={perm.key}>
+                      {showSection && (
+                        <tr>
+                          <td colSpan={ROLES.length + 1} className="pt-3 pb-1 px-3">
+                            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{perm.section}</span>
+                          </td>
+                        </tr>
+                      )}
+                      <tr className="border-b border-border/30 hover:bg-muted/20">
+                        <td className="py-2 px-3 text-foreground font-medium">{perm.label}</td>
+                        {ROLES.map(role => {
+                          const allowed = getPermission(role, perm.key);
+                          const isLocked = role === 'admin' && ADMIN_LOCKED.includes(perm.key);
+                          const isUpdating = updating === `${role}-${perm.key}`;
+                          return (
+                            <td key={role} className="text-center py-2 px-2">
+                              {isUpdating ? (
+                                <Loader2 className="h-4 w-4 animate-spin mx-auto text-primary" />
+                              ) : (
+                                <Switch
+                                  checked={allowed}
+                                  onCheckedChange={() => onToggle(role, perm.key, allowed)}
+                                  disabled={isLocked}
+                                  className={`mx-auto ${allowed ? 'data-[state=checked]:bg-primary' : ''}`}
+                                />
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -384,15 +378,21 @@ function MemberMatrix({
               <span className="h-px flex-1 bg-border" />
             </h4>
             <div className="space-y-0.5">
-              {mod.permissions.map(perm => {
+              {mod.permissions.map((perm, idx) => {
                 const hasOverride = overrideMap.has(perm.key);
                 const roleDefault = getRoleDefault(perm.key);
                 const effectiveValue = hasOverride ? (overrideMap.get(perm.key) ?? false) : roleDefault;
                 const isSaving = saving === perm.key;
+                const showSection = perm.section && (idx === 0 || perm.section !== mod.permissions[idx - 1]?.section);
 
                 return (
+                  <React.Fragment key={perm.key}>
+                  {showSection && (
+                    <div className="pt-2 pb-1 px-3">
+                      <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{perm.section}</span>
+                    </div>
+                  )}
                   <div
-                    key={perm.key}
                     className={`group flex items-center justify-between rounded-lg px-3 py-2 transition-colors hover:bg-muted/20 ${
                       hasOverride ? 'border border-amber-500/20 bg-amber-500/5' : 'border border-transparent'
                     }`}
@@ -445,6 +445,7 @@ function MemberMatrix({
                       )}
                     </div>
                   </div>
+                  </React.Fragment>
                 );
               })}
             </div>
