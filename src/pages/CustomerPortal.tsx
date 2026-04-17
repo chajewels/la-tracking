@@ -212,6 +212,30 @@ export default function CustomerPortal() {
   const [loading, setLoading] = useState(true);
   const [selectedAccount, setSelectedAccount] = useState<PortalAccount | null>(null);
   const [initialDetailTab, setInitialDetailTab] = useState<'overview' | 'pay' | 'submissions'>('overview');
+
+  // ── Announcement pop-up state ──
+  const [announcement, setAnnouncement] = useState<any>(null);
+  const [showAnnouncement, setShowAnnouncement] = useState(false);
+
+  // Fetch latest active announcement on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(
+          `${SUPABASE_URL}/rest/v1/announcements?is_active=eq.true&order=created_at.desc&limit=1`,
+          { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+        );
+        if (!res.ok) return;
+        const rows = await res.json();
+        if (!rows || rows.length === 0) return;
+        const ann = rows[0];
+        const seenKey = `announcement_seen_${ann.id}`;
+        if (ann.show_once && localStorage.getItem(seenKey)) return;
+        setAnnouncement(ann);
+        setShowAnnouncement(true);
+      } catch { /* silent */ }
+    })();
+  }, []);
   const [initialPaymentMode, setInitialPaymentMode] = useState<'single' | 'split'>('single');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -659,6 +683,90 @@ export default function CustomerPortal() {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* ── Announcement pop-up modal ── */}
+      {showAnnouncement && announcement && (
+        <>
+          <div
+            className="fixed inset-0"
+            style={{ zIndex: 200, backgroundColor: 'rgba(0,0,0,0.7)', pointerEvents: 'auto' }}
+            onClick={() => {
+              if (announcement.show_once) localStorage.setItem(`announcement_seen_${announcement.id}`, 'true');
+              setShowAnnouncement(false);
+            }}
+          />
+          <div
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md rounded-xl p-6 shadow-xl"
+            style={{ zIndex: 201, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', color: '#fff' }}
+          >
+            {announcement.image_url && (
+              <img
+                src={announcement.image_url}
+                alt=""
+                className="w-full rounded-lg mb-4"
+                style={{ maxHeight: 200, objectFit: 'cover' }}
+              />
+            )}
+            <h2 style={{ fontFamily: 'Inter, sans-serif', fontSize: '18px', fontWeight: 700, color: P.gp, marginBottom: 8 }}>
+              {announcement.title}
+            </h2>
+            <p style={{ fontFamily: 'Inter, sans-serif', fontSize: '13px', color: '#ccc', lineHeight: 1.6, marginBottom: 16, whiteSpace: 'pre-wrap' }}>
+              {announcement.content}
+            </p>
+            {announcement.link_url && (
+              <a
+                href={announcement.link_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'inline-block', padding: '8px 20px', borderRadius: '4px',
+                  background: P.gr, color: P.bg, fontFamily: 'Inter, sans-serif',
+                  fontSize: '12px', fontWeight: 700, letterSpacing: '0.1em',
+                  textTransform: 'uppercase', textDecoration: 'none', marginBottom: 12,
+                }}
+              >
+                {announcement.link_label || 'Learn More'}
+              </a>
+            )}
+            <div style={{ marginBottom: 16 }}>
+              <a
+                href="https://cha-jewels-layaway.web.app/"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontFamily: 'Inter, sans-serif', fontSize: '11px', color: P.ts, textDecoration: 'underline' }}
+              >
+                📄 View Layaway Agreement
+              </a>
+            </div>
+            <button
+              onClick={() => {
+                if (announcement.show_once) localStorage.setItem(`announcement_seen_${announcement.id}`, 'true');
+                setShowAnnouncement(false);
+              }}
+              style={{
+                width: '100%', padding: '10px', borderRadius: '4px',
+                background: P.s2, color: P.tp, border: 'none',
+                fontFamily: 'Inter, sans-serif', fontSize: '12px', fontWeight: 600,
+                cursor: 'pointer', letterSpacing: '0.1em', textTransform: 'uppercase',
+              }}
+            >
+              Got it
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* ── Portal footer with agreement link ── */}
+      <div style={{ textAlign: 'center', padding: '24px 16px 32px', background: P.bg }}>
+        <a
+          href="https://cha-jewels-layaway.web.app/"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ fontFamily: 'Inter, sans-serif', fontSize: '11px', color: P.ts, textDecoration: 'none' }}
+        >
+          📄 Layaway Agreement
+        </a>
+      </div>
     </div>
   );
 }

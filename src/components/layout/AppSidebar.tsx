@@ -16,6 +16,7 @@ import {
   Inbox,
   Megaphone,
   Upload,
+  BellRing,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
@@ -44,6 +45,7 @@ const menuItems = [
   { label: 'Bulk Import', icon: Upload, path: ROUTES.BULK_PAYMENT_IMPORT },
   { label: 'Payment Vault', icon: Vault, path: ROUTES.PAYMENT_VAULT },
   { label: 'Promotions', icon: Megaphone, path: ROUTES.PROMOTIONS },
+  { label: 'Announcements', icon: BellRing, path: ROUTES.ANNOUNCEMENTS },
   { label: 'Settings', icon: Settings, path: ROUTES.SETTINGS },
 ];
 
