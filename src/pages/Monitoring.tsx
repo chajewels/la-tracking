@@ -1,11 +1,16 @@
-import { useMemo, useState } from 'react';
-import { Bell, Send, Copy, Check, Loader2, Filter, MessageCircle } from 'lucide-react';
+import { useMemo, useState, useCallback } from 'react';
+import { Bell, Send, Copy, Check, Loader2, Filter, MessageCircle, AlertTriangle, Clock, Calendar, CheckCircle, RefreshCw } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import PenaltyFollowUpSection from '@/components/monitoring/PenaltyFollowUpSection';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useQuery } from '@tanstack/react-query';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
+import { categorizeScheduleItems, remainingDue, daysOverdueFromToday, alertTypeConfig } from '@/lib/business-rules';
+import { formatCurrency } from '@/lib/calculations';
 import RefreshControl from '@/components/common/RefreshControl';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { supabase } from '@/integrations/supabase/client';
@@ -55,11 +60,115 @@ export default function Monitoring() {
   const [messengerDialog, setMessengerDialog] = useState<{ alert: AlertItem; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
+  const [monitoringTab, setMonitoringTab] = useState<'alerts' | 'reminders'>('alerts');
+  const queryClient = useQueryClient();
+
   const { lastRefreshedAt, refreshing, refresh } = useAutoRefresh([
     ['monitoring-schedules'],
     ['csr-notifications'],
     ['portal-tokens-active'],
+    ['reminder-logs'],
+    ['reminder-actionable'],
   ]);
+
+  // ── Reminders tab state ──
+  const [reminderGenerating, setReminderGenerating] = useState(false);
+
+  const { data: reminderLogs, isLoading: remLogsLoading } = useQuery({
+    queryKey: ['reminder-logs'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('reminder_logs')
+        .select('*, customers(full_name, messenger_link), layaway_accounts(invoice_number, currency, remaining_balance)')
+        .order('created_at', { ascending: false }).limit(100);
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const { data: actionableItems } = useQuery({
+    queryKey: ['reminder-actionable'],
+    queryFn: async () => {
+      const today = new Date().toISOString().split('T')[0];
+      const in7days = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+      const past730 = new Date(Date.now() - 730 * 86400000).toISOString().split('T')[0];
+      const { data, error } = await supabase.from('layaway_schedule')
+        .select('*, layaway_accounts!inner(id, status, currency, invoice_number, customer_id, customers(full_name, messenger_link))')
+        .in('layaway_accounts.status', ['active', 'overdue', 'final_settlement', 'extension_active'])
+        .in('status', ['pending', 'partially_paid', 'overdue'])
+        .gte('due_date', past730).lte('due_date', in7days)
+        .order('due_date', { ascending: true });
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const remSentCount = reminderLogs?.filter((r: any) => r.delivery_status === 'sent').length || 0;
+
+  const remCategorized = useMemo(() => {
+    if (!actionableItems) return { overdue: [], dueToday: [], upcoming: [] };
+    const accountMap = new Map<string, typeof actionableItems[0]>();
+    for (const row of actionableItems) {
+      if (remainingDue(row) <= 0) continue;
+      const acctId = (row as any).account_id as string;
+      const existing = accountMap.get(acctId);
+      if (!existing || row.due_date < existing.due_date) accountMap.set(acctId, row);
+    }
+    return categorizeScheduleItems(Array.from(accountMap.values()));
+  }, [actionableItems]);
+
+  const handleGenerateReminders = useCallback(async () => {
+    setReminderGenerating(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-reminders', { body: { dry_run: false } });
+      if (error) throw error;
+      toast.success(`Reminders processed: ${data?.sent || 0} sent`);
+      queryClient.invalidateQueries({ queryKey: ['reminder-logs'] });
+      queryClient.invalidateQueries({ queryKey: ['reminder-actionable'] });
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to generate reminders');
+    } finally {
+      setReminderGenerating(false);
+    }
+  }, [queryClient]);
+
+  const remIconMap = { overdue: AlertTriangle, due_today: Clock, upcoming: Bell };
+
+  const renderRemScheduleGroup = (items: any[], type: 'overdue' | 'due_today' | 'upcoming') => {
+    if (items.length === 0) return null;
+    const config = alertTypeConfig[type];
+    const Icon = remIconMap[type];
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 mb-2">
+          <Icon className={`h-4 w-4 ${config.iconColor}`} />
+          <h4 className="text-xs font-semibold text-card-foreground uppercase tracking-wider">{config.label}</h4>
+          <Badge variant="outline" className={`text-[10px] ${config.badgeClass}`}>{items.length}</Badge>
+        </div>
+        {items.map((item: any) => {
+          const acct = item.layaway_accounts;
+          const customer = acct?.customers;
+          const cur = acct?.currency as Currency;
+          const rem = remainingDue(item);
+          const daysFromDue = daysOverdueFromToday(item.due_date);
+          return (
+            <div key={item.id} className="flex items-center justify-between p-3 rounded-lg border border-border hover:border-primary/30 transition-colors">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${config.iconBg}`}><Icon className={`h-3.5 w-3.5 ${config.iconColor}`} /></div>
+                <div className="min-w-0">
+                  <Link to={`/accounts/${acct?.id}`} className="text-sm font-medium text-card-foreground hover:text-primary truncate block">{customer?.full_name || 'Unknown'}</Link>
+                  <p className="text-[10px] text-muted-foreground">INV #{acct?.invoice_number} · Due {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}{daysFromDue > 0 ? ` · ${daysFromDue}d overdue` : daysFromDue < 0 ? ` · in ${Math.abs(daysFromDue)}d` : ''}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs font-semibold text-card-foreground tabular-nums">{formatCurrency(rem, cur)}</span>
+                {customer?.messenger_link && <a href={customer.messenger_link} target="_blank" rel="noopener noreferrer"><Button size="sm" variant="outline" className="border-info/30 text-info hover:bg-info/10 text-xs h-7 px-2"><MessageCircle className="h-3 w-3" /></Button></a>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   // Fetch ALL unpaid schedule items for active/overdue accounts
   const { data: scheduleItems, isLoading: schedLoading } = useQuery({
@@ -347,8 +456,8 @@ export default function Monitoring() {
           <div className="flex items-center gap-3">
             <Bell className="h-5 w-5 text-primary" />
             <div>
-              <h1 className="text-2xl font-bold text-foreground font-display">Smart Reminder Center</h1>
-              <p className="text-sm text-muted-foreground mt-0.5">Stage-based payment alerts with portal link integration</p>
+              <h1 className="text-2xl font-bold text-foreground font-display">CSR Monitoring & Reminders</h1>
+              <p className="text-sm text-muted-foreground mt-0.5">Alerts, reminders, and payment tracking</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -364,6 +473,13 @@ export default function Monitoring() {
           </div>
         </div>
 
+        <Tabs value={monitoringTab} onValueChange={v => setMonitoringTab(v as 'alerts' | 'reminders')} className="w-full">
+          <TabsList className="grid grid-cols-2 w-full max-w-xs">
+            <TabsTrigger value="alerts">CSR Alerts</TabsTrigger>
+            <TabsTrigger value="reminders">Smart Reminders</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="alerts" className="mt-5 space-y-6">
         {/* Summary Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
           {([
@@ -486,6 +602,96 @@ export default function Monitoring() {
           </div>
         )}
       </div>
+
+          </TabsContent>
+
+          {/* ═══════ Reminders Tab ═══════ */}
+          <TabsContent value="reminders" className="mt-5 space-y-6">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">Automated daily at 8:00 AM PHT · Live data</p>
+              <Button onClick={handleGenerateReminders} variant="outline" disabled={reminderGenerating} className="border-primary/30 text-primary hover:bg-primary/10">
+                <RefreshCw className={`h-4 w-4 mr-1.5 ${reminderGenerating ? 'animate-spin' : ''}`} />
+                {reminderGenerating ? 'Sending...' : 'Send Reminders Now'}
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="rounded-xl border border-destructive/20 bg-card p-4 text-center">
+                <p className="text-2xl font-bold text-destructive font-display">{remCategorized.overdue.length}</p>
+                <p className="text-xs text-muted-foreground mt-1">Overdue</p>
+              </div>
+              <div className="rounded-xl border border-warning/20 bg-card p-4 text-center">
+                <p className="text-2xl font-bold text-warning font-display">{remCategorized.dueToday.length}</p>
+                <p className="text-xs text-muted-foreground mt-1">Due Today</p>
+              </div>
+              <div className="rounded-xl border border-info/20 bg-card p-4 text-center">
+                <p className="text-2xl font-bold text-info font-display">{remCategorized.upcoming.length}</p>
+                <p className="text-xs text-muted-foreground mt-1">Upcoming (7d)</p>
+              </div>
+              <div className="rounded-xl border border-success/20 bg-card p-4 text-center">
+                <p className="text-2xl font-bold text-success font-display">{remSentCount}</p>
+                <p className="text-xs text-muted-foreground mt-1">Sent (total)</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+                <h3 className="text-sm font-semibold text-card-foreground flex items-center gap-2"><Calendar className="h-4 w-4 text-primary" /> Action Items</h3>
+                {!actionableItems ? (
+                  <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}</div>
+                ) : (
+                  <div className="space-y-4 max-h-[600px] overflow-y-auto">
+                    {renderRemScheduleGroup(remCategorized.overdue, 'overdue')}
+                    {renderRemScheduleGroup(remCategorized.dueToday, 'due_today')}
+                    {renderRemScheduleGroup(remCategorized.upcoming, 'upcoming')}
+                    {remCategorized.overdue.length === 0 && remCategorized.dueToday.length === 0 && remCategorized.upcoming.length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-6">No pending reminders</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+                <h3 className="text-sm font-semibold text-card-foreground flex items-center gap-2"><Bell className="h-4 w-4 text-primary" /> Reminder History</h3>
+                {remLogsLoading ? (
+                  <div className="space-y-2">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+                ) : (!reminderLogs || reminderLogs.length === 0) ? (
+                  <div className="text-center py-12">
+                    <Send className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
+                    <p className="text-sm text-muted-foreground">No reminder history yet</p>
+                    <p className="text-xs text-muted-foreground/60 mt-1">Reminders are sent automatically at 8:00 AM PHT daily</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                    {reminderLogs.map((log: any) => {
+                      const customer = log.customers;
+                      const account = log.layaway_accounts;
+                      const isSent = log.delivery_status === 'sent';
+                      const isFailed = log.delivery_status === 'failed';
+                      return (
+                        <div key={log.id} className="flex items-center justify-between p-2.5 rounded-lg border border-border">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] ${isSent ? 'bg-success/10 text-success' : isFailed ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground'}`}>
+                              {isSent ? <CheckCircle className="h-3 w-3" /> : isFailed ? <AlertTriangle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium text-card-foreground truncate">{customer?.full_name || '—'}</p>
+                              <p className="text-[10px] text-muted-foreground">INV #{account?.invoice_number || '—'} · {log.channel} · {log.template_type || 'reminder'}</p>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <Badge variant="outline" className={`text-[10px] ${isSent ? 'bg-success/10 text-success border-success/20' : isFailed ? 'bg-destructive/10 text-destructive border-destructive/20' : 'bg-muted text-muted-foreground border-border'}`}>{log.delivery_status || 'pending'}</Badge>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">{log.sent_at ? new Date(log.sent_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
 
       {/* Messenger Message Dialog */}
       <Dialog open={!!messengerDialog} onOpenChange={(open) => !open && setMessengerDialog(null)}>

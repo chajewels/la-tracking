@@ -36,13 +36,11 @@ const Customers = lazyWithRetry(() => import("./pages/Customers"));
 const CustomerDetail = lazyWithRetry(() => import("./pages/CustomerDetail"));
 const Monitoring = lazyWithRetry(() => import("./pages/Monitoring"));
 const CustomerPortal = lazyWithRetry(() => import("./pages/CustomerPortal"));
-const Collections = lazyWithRetry(() => import("./pages/Collections"));
 const Finance = lazyWithRetry(() => import("./pages/Finance"));
 const SettingsPage = lazyWithRetry(() => import("./pages/SettingsPage"));
 const Waivers = lazyWithRetry(() => import("./pages/Waivers"));
 const AdminAudit = lazyWithRetry(() => import("./pages/AdminAudit"));
 const CustomerStatement = lazyWithRetry(() => import("./pages/CustomerStatement"));
-const Reminders = lazyWithRetry(() => import("./pages/Reminders"));
 const NewAccount = lazyWithRetry(() => import("./pages/NewAccount"));
 const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
 const PaymentVault = lazyWithRetry(() => import("./pages/PaymentVault"));
@@ -94,9 +92,7 @@ const App = () => (
                 <Route path="/customers" element={<Protected><Customers /></Protected>} />
                 <Route path="/customers/:customerId" element={<Protected><CustomerDetail /></Protected>} />
                 <Route path="/monitoring" element={<Protected><Monitoring /></Protected>} />
-                <Route path="/collections" element={<Protected><Collections /></Protected>} />
                 <Route path="/finance" element={<Protected><Finance /></Protected>} />
-                <Route path="/reminders" element={<Protected><Reminders /></Protected>} />
                 <Route path="/waivers" element={<Protected><Waivers /></Protected>} />
                 <Route path="/admin-audit" element={<Protected><AdminAudit /></Protected>} />
                 <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />

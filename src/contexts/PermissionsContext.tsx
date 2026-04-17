@@ -63,8 +63,6 @@ const PAGE_PERMISSION_MAP: Record<string, PermissionKey> = {
   '/accounts/new': 'create_account',
   '/customers': 'view_customers',
   '/monitoring': 'view_monitoring',
-  '/reminders': 'view_reminders',
-  '/collections': 'view_collections',
   '/finance': 'view_finance',
   '/payment-submissions': 'view_submissions',
   '/payments-hub': 'view_submissions',
@@ -79,15 +77,13 @@ const PAGE_PERMISSION_MAP: Record<string, PermissionKey> = {
 // Map page paths to feature toggle keys
 const PAGE_FEATURE_MAP: Record<string, string> = {
   '/monitoring': 'csr_monitoring',
-  '/reminders': 'reminder_system',
-  '/collections': 'collections_module',
   '/payment-submissions': 'payment_submissions',
   '/payments-hub': 'payment_submissions',
   '/waivers': 'waiver_system',
 };
 
 // Sidebar nav paths (same as PAGE_PERMISSION_MAP minus dynamic routes)
-const NAV_PATHS = ['/', '/accounts', '/customers', '/monitoring', '/reminders', '/collections', '/finance', '/payments-hub', '/bulk-payment-import', '/waivers', '/admin-audit', '/settings', '/admin/payment-vault', '/promotions'];
+const NAV_PATHS = ['/', '/accounts', '/customers', '/monitoring', '/finance', '/payments-hub', '/bulk-payment-import', '/waivers', '/admin-audit', '/settings', '/admin/payment-vault', '/promotions'];
 
 export function PermissionsProvider({ children }: { children: ReactNode }) {
   const { user, roles, loading: authLoading } = useAuth();
