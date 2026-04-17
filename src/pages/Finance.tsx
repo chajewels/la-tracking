@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { addMonths, endOfMonth, format, startOfMonth } from 'date-fns';
 import { DollarSign, TrendingUp, BarChart3, Sparkles, CalendarClock, Trophy, Clock, AlertTriangle, ShieldAlert, Crown, UserCheck, Target, Users, Activity, Banknote, X, ShoppingBag } from 'lucide-react';
 import {
@@ -24,6 +24,7 @@ import { toJpy } from '@/lib/currency-converter';
 import { computeCollectionStats, todayStr } from '@/lib/business-rules';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePermissions } from '@/contexts/PermissionsContext';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Link } from 'react-router-dom';
@@ -37,8 +38,22 @@ export default function Finance() {
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
   const [tab, setTab] = useState<'overview' | 'analytics' | 'collections' | 'docs' | 'vault'>('overview');
   const { session, loading: authLoading } = useAuth();
+  const { can } = usePermissions();
   const isAllMode = currencyFilter === 'ALL';
   const displayCurrency: Currency = getDisplayCurrencyForFilter(currencyFilter);
+
+  const showAnalytics = can('view_analytics');
+  const showCollections = can('view_collections');
+  const showDocs = can('view_submissions');
+  const showVault = can('admin_settings');
+  const visibleTabCount = 1 + (showAnalytics ? 1 : 0) + (showCollections ? 1 : 0) + (showDocs ? 1 : 0) + (showVault ? 1 : 0);
+
+  useEffect(() => {
+    if (tab === 'analytics' && !showAnalytics) setTab('overview');
+    if (tab === 'collections' && !showCollections) setTab('overview');
+    if (tab === 'docs' && !showDocs) setTab('overview');
+    if (tab === 'vault' && !showVault) setTab('overview');
+  }, [tab, showAnalytics, showCollections, showDocs, showVault]);
 
   const { data: summary, isLoading: summaryLoading } = useDashboardSummary(
     currencyFilter,
@@ -388,12 +403,12 @@ export default function Finance() {
         </div>
 
         <Tabs value={tab} onValueChange={v => setTab(v as 'overview' | 'analytics' | 'collections' | 'docs' | 'vault')} className="w-full">
-          <TabsList className="grid grid-cols-5 w-full max-w-xl">
+          <TabsList className={`grid w-full max-w-xl`} style={{ gridTemplateColumns: `repeat(${visibleTabCount}, minmax(0, 1fr))` }}>
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="analytics">Analytics</TabsTrigger>
-            <TabsTrigger value="collections">Collections</TabsTrigger>
-            <TabsTrigger value="docs">Documentation</TabsTrigger>
-            <TabsTrigger value="vault">Vault</TabsTrigger>
+            {showAnalytics && <TabsTrigger value="analytics">Analytics</TabsTrigger>}
+            {showCollections && <TabsTrigger value="collections">Collections</TabsTrigger>}
+            {showDocs && <TabsTrigger value="docs">Documentation</TabsTrigger>}
+            {showVault && <TabsTrigger value="vault">Vault</TabsTrigger>}
           </TabsList>
 
           {/* ═══════ Overview Tab ═══════ */}
@@ -477,7 +492,7 @@ export default function Finance() {
           </TabsContent>
 
           {/* ═══════ Analytics Tab ═══════ */}
-          <TabsContent value="analytics" className="mt-5 space-y-6">
+          {showAnalytics && <TabsContent value="analytics" className="mt-5 space-y-6">
 
             {/* Section 1 — Collection Performance */}
             <div className="space-y-4">
@@ -756,10 +771,10 @@ export default function Finance() {
                 )}
               </div>
             </div>
-          </TabsContent>
+          </TabsContent>}
 
           {/* ═══════ Collections Tab ═══════ */}
-          <TabsContent value="collections" className="mt-5 space-y-6">
+          {showCollections && <TabsContent value="collections" className="mt-5 space-y-6">
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
               <StatCard title="Today" value={formatCurrency(collStats.todayTotal, displayCurrency)} icon={TrendingUp} variant="gold" />
               <StatCard title="Yesterday" value={formatCurrency(collStats.yesterdayTotal, displayCurrency)} icon={TrendingUp} />
@@ -839,17 +854,17 @@ export default function Finance() {
                 </div>
               )}
             </div>
-          </TabsContent>
+          </TabsContent>}
 
           {/* ═══════ Documentation Tab ═══════ */}
-          <TabsContent value="docs" className="mt-5">
+          {showDocs && <TabsContent value="docs" className="mt-5">
             <PaymentsHub embedded />
-          </TabsContent>
+          </TabsContent>}
 
           {/* ═══════ Vault Tab ═══════ */}
-          <TabsContent value="vault" className="mt-5">
+          {showVault && <TabsContent value="vault" className="mt-5">
             <PaymentVault embedded />
-          </TabsContent>
+          </TabsContent>}
         </Tabs>
       </div>
 
