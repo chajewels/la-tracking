@@ -696,9 +696,35 @@ export default function CustomerPortal() {
             }}
           />
           <div
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md rounded-xl p-6 shadow-xl"
-            style={{ zIndex: 201, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', color: '#fff' }}
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md rounded-xl p-6 shadow-xl overflow-y-auto"
+            style={{ zIndex: 201, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', color: '#fff', position: 'fixed', maxHeight: '90vh' }}
           >
+            <button
+              onClick={() => {
+                if (announcement.show_once) localStorage.setItem(`announcement_seen_${announcement.id}`, 'true');
+                setShowAnnouncement(false);
+              }}
+              style={{
+                position: 'absolute',
+                top: '12px',
+                right: '12px',
+                zIndex: 202,
+                background: 'rgba(255,255,255,0.15)',
+                border: 'none',
+                borderRadius: '50%',
+                width: '32px',
+                height: '32px',
+                cursor: 'pointer',
+                color: 'white',
+                fontSize: '18px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              aria-label="Close"
+            >
+              ×
+            </button>
             {announcement.image_url && (
               <img
                 src={announcement.image_url}
