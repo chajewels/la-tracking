@@ -70,12 +70,8 @@ export default function Finance() {
         currency_mode: currencyFilter,
         months_back: 6,
       });
-      console.log('[analytics-debug] raw data:', data);
-      console.log('[analytics-debug] error:', error);
-      console.log('[analytics-debug] data[0]:', data?.[0]);
-      console.log('[analytics-debug] unwrapped:', data?.[0]?.get_collection_analytics);
       if (error) throw error;
-      return (data?.[0]?.get_collection_analytics ?? []) as Array<{
+      return (Array.isArray(data) ? data : []) as Array<{
         month: string;
         collected: number;
         expected: number;
@@ -92,7 +88,7 @@ export default function Finance() {
     queryFn: async () => {
       const { data, error } = await (supabase as any).rpc('get_staff_performance', { months_back: 1 });
       if (error) throw error;
-      return (data?.[0]?.get_staff_performance ?? []) as Array<{
+      return (Array.isArray(data) ? data : []) as Array<{
         staff_email: string;
         payments_confirmed: number;
         avg_confirmation_hours: number | null;
