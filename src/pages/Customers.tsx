@@ -257,16 +257,14 @@ export default function Customers() {
         ) : (
           renderCards(displayed)
         )}
-      </div>
 
-      <EditCustomerDialog
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        editId={editId}
-        editForm={editForm}
-        setEditForm={setEditForm}
-      />
-
+        <EditCustomerDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          editId={editId}
+          editForm={editForm}
+          setEditForm={setEditForm}
+        />
           </TabsContent>
 
           <TabsContent value="accounts" className="mt-5">
