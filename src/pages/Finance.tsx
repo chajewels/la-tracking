@@ -384,6 +384,23 @@ export default function Finance() {
     enabled: tab === 'analytics' && !!session,
   });
 
+  const { data: allSubmissions } = useQuery({
+    queryKey: ['submissions-by-account'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('payment_submissions')
+        .select('account_id');
+      if (error) throw error;
+      const counts = new Map<string, number>();
+      for (const row of (data || [])) {
+        const aid = (row as any).account_id as string;
+        if (aid) counts.set(aid, (counts.get(aid) || 0) + 1);
+      }
+      return counts;
+    },
+    enabled: tab === 'analytics' && !!session,
+  });
+
   const csrPerformance = useMemo(() => {
     const staff = profilesWithRoles || [];
     const payments = (allPayments || []).filter((p: any) => !p.voided_at);
@@ -400,9 +417,16 @@ export default function Finance() {
       );
       const recoveries = userPayments.filter((p: any) => overdueAccountIds.has(p.account_id)).length;
       const reviewedCount = submissionsReviewed?.get(s.user_id) || 0;
-      return { userId: s.user_id, name: s.full_name, role: s.role, totalCollected, paymentCount: userPayments.length, accountsHandled: accountIds.size, accountsCreated: createdAccounts.length, recoveries, reviewedCount };
+      const handledAccountIds = new Set([...accountIds, ...createdAccounts.map(a => a.id)]);
+      let submissionsHandled = 0;
+      if (allSubmissions) {
+        for (const aid of handledAccountIds) {
+          submissionsHandled += allSubmissions.get(aid) || 0;
+        }
+      }
+      return { userId: s.user_id, name: s.full_name, role: s.role, totalCollected, paymentCount: userPayments.length, accountsHandled: accountIds.size, accountsCreated: createdAccounts.length, recoveries, reviewedCount, submissionsHandled };
     }).sort((x: any, y: any) => y.totalCollected - x.totalCollected);
-  }, [profilesWithRoles, allPayments, accounts, allSchedules, submissionsReviewed]);
+  }, [profilesWithRoles, allPayments, accounts, allSchedules, submissionsReviewed, allSubmissions]);
 
   const highRisk = risks.filter(r => r.riskLevel === 'high').length;
   const avgCompletion = completions.length > 0
@@ -771,7 +795,7 @@ export default function Finance() {
                           </div>
                           {i === 0 && <Badge className="gold-gradient text-primary-foreground text-[10px] border-0">Top Collector</Badge>}
                         </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 text-center">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 text-center">
                           {[
                             { label: 'Total Collected', value: formatCurrency(Math.round(csr.totalCollected), displayCurrency) },
                             { label: 'Payments', value: csr.paymentCount },
@@ -779,6 +803,7 @@ export default function Finance() {
                             { label: 'Accounts Handled', value: csr.accountsHandled },
                             { label: 'Accounts Created', value: csr.accountsCreated },
                             { label: 'Recoveries', value: csr.recoveries },
+                            { label: 'Submissions', value: csr.submissionsHandled },
                           ].map(m => (
                             <div key={m.label} className="p-2 rounded-lg bg-muted/30">
                               <p className="text-[10px] text-muted-foreground">{m.label}</p>
