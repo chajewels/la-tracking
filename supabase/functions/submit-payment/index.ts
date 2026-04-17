@@ -230,6 +230,41 @@ Deno.serve(async (req) => {
       },
     });
 
+    // Send payment-submitted email to customer (fire-and-forget)
+    try {
+      const { data: acctForEmail } = await supabase
+        .from("layaway_accounts")
+        .select("invoice_number, currency, customers(full_name, email)")
+        .eq("id", primaryAccountId)
+        .single();
+      const customerEmail = (acctForEmail as any)?.customers?.email;
+      if (customerEmail) {
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            templateName: "payment-submitted",
+            recipientEmail: customerEmail,
+            idempotencyKey: `payment-submitted-${submission.id}`,
+            templateData: {
+              customerName: (acctForEmail as any)?.customers?.full_name || "Valued Customer",
+              invoiceNumber: acctForEmail?.invoice_number || "",
+              amountPaid: Number(submitted_amount).toLocaleString("en-US"),
+              paymentDate: payment_date,
+              paymentMethod: payment_method || "cash",
+              currency: acctForEmail?.currency || "PHP",
+              portalUrl: `https://cha-jewels-layaway.web.app/portal?invoice=${acctForEmail?.invoice_number || ""}`,
+            },
+          }),
+        });
+      }
+    } catch (emailErr) {
+      console.warn("[submit-payment] email send failed (non-blocking):", emailErr);
+    }
+
     return new Response(JSON.stringify({ success: true, submission }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

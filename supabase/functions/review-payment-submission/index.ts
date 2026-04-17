@@ -563,6 +563,57 @@ Deno.serve(async (req) => {
       old_value_json: { status: submission.status },
     });
 
+    // Send status-change email to customer (fire-and-forget)
+    try {
+      const { data: acctForEmail } = await supabase
+        .from("layaway_accounts")
+        .select("invoice_number, currency, remaining_balance, customers(full_name, email)")
+        .eq("id", submission.account_id)
+        .single();
+      const customerEmail = (acctForEmail as any)?.customers?.email;
+      if (customerEmail) {
+        let templateName = "";
+        const baseData: Record<string, unknown> = {
+          customerName: (acctForEmail as any)?.customers?.full_name || "Valued Customer",
+          invoiceNumber: acctForEmail?.invoice_number || "",
+          amountPaid: Number(submission.submitted_amount).toLocaleString("en-US"),
+          currency: acctForEmail?.currency || "PHP",
+          portalUrl: `https://cha-jewels-layaway.web.app/portal?invoice=${acctForEmail?.invoice_number || ""}`,
+        };
+
+        if (action === "confirmed") {
+          templateName = "payment-confirmed";
+          baseData.paymentDate = submission.payment_date;
+          baseData.paymentMethod = submission.payment_method || "cash";
+          baseData.remainingBalance = Number(acctForEmail?.remaining_balance ?? 0).toLocaleString("en-US");
+        } else if (action === "rejected") {
+          templateName = "payment-rejected";
+          baseData.rejectionReason = reviewer_notes || "";
+        } else if (action === "needs_clarification") {
+          templateName = "payment-needs-clarification";
+          baseData.clarificationNotes = reviewer_notes || "";
+        }
+
+        if (templateName) {
+          await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            },
+            body: JSON.stringify({
+              templateName,
+              recipientEmail: customerEmail,
+              idempotencyKey: `${templateName}-${submission_id}`,
+              templateData: baseData,
+            }),
+          });
+        }
+      }
+    } catch (emailErr) {
+      console.warn("[review-payment-submission] email send failed (non-blocking):", emailErr);
+    }
+
     return new Response(JSON.stringify({
       success: true,
       status: action,
