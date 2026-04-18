@@ -311,6 +311,7 @@ const ActionDialogModal = memo(function ActionDialogModal({
 });
 
 const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }: { embedded?: boolean } = {}) {
+  console.log('[PaymentSubmissions] render');
   const { session } = useAuth();
   const { can } = usePermissions();
   const canConfirm = can('confirm_payment');
