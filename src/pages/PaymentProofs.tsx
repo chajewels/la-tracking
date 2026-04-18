@@ -93,7 +93,7 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedd
             </div>
           ) : filtered.length === 0 ? (
             <p className="p-8 text-center text-sm text-muted-foreground">
-              {search ? 'No proofs match your search.' : 'No customer submissions with proof yet.'}
+              {searchRef.current ? 'No proofs match your search.' : 'No customer submissions with proof yet.'}
             </p>
           ) : (
             <div className="overflow-x-auto">
