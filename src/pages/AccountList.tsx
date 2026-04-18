@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
 import { Plus, Search, Eye, MessageCircle, FileText, ChevronRight, ChevronLeft } from 'lucide-react';
@@ -48,7 +48,7 @@ const TEST_INVOICES = new Set([
 export default function AccountList({ embedded = false }: { embedded?: boolean } = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
-  console.log('[AccountList] render', search);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const debouncedSearch = useDebouncedValue(search, 250);
   const [filterCurrency, setFilterCurrency] = useState<Currency | 'all'>('all');
   const [filterStatus, setFilterStatus] = useState<string>(searchParams.get('status') || 'all');
@@ -111,9 +111,10 @@ export default function AccountList({ embedded = false }: { embedded?: boolean }
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3">
-          <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <div className="relative flex-1 min-w-[200px] max-w-sm" onClick={(e) => e.stopPropagation()}>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
+              ref={searchInputRef}
               placeholder="Search invoice or customer..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}

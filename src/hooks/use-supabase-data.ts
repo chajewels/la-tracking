@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { Tables } from '@/integrations/supabase/types';
 
@@ -69,6 +69,8 @@ export function useAccounts() {
   return useQuery({
     queryKey: ['accounts'],
     staleTime: STALE_SHORT,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('layaway_accounts')
