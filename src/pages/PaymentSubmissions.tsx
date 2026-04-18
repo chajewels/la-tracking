@@ -589,7 +589,11 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
               placeholder="Search customer, invoice, or reference…"
               key="submissions-search"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                console.log('[change] value:', e.target.value);
+                setSearch(e.target.value);
+              }}
+              onKeyDown={(e) => console.log('[keydown] key:', e.key, 'defaultPrevented:', e.defaultPrevented)}
               onFocus={() => console.log('[focus] input gained focus')}
               onBlur={(e) => console.log('[blur] input lost focus, relatedTarget:', e.relatedTarget)}
               className="pl-9"
