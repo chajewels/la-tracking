@@ -46,7 +46,13 @@ export function useAutoRefresh(
 
   useEffect(() => {
     if (!intervalMs || intervalMs <= 0) return;
-    const id = setInterval(() => { void refresh(); }, intervalMs);
+    const id = setInterval(() => {
+      const activeEl = document.activeElement;
+      const isInputFocused = activeEl instanceof HTMLInputElement
+        || activeEl instanceof HTMLTextAreaElement;
+      if (isInputFocused) return;
+      void refresh();
+    }, intervalMs);
     return () => clearInterval(id);
   }, [refresh, intervalMs]);
 
