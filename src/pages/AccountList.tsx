@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { useAccounts } from '@/hooks/use-supabase-data';
-
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const statusStyles: Record<string, string> = {
@@ -45,10 +45,28 @@ const TEST_INVOICES = new Set([
   'TEST-WAIVER-001', 'TEST-FORFEIT-002', 'TEST-FORFEIT-003'
 ]);
 
-const AccountList = memo(function AccountList({ embedded = false }: { embedded?: boolean } = {}) {
+interface AccountListProps {
+  embedded?: boolean;
+  externalSearch?: string;
+  onSearchChange?: (value: string) => void;
+  debouncedSearch?: string;
+}
+
+const AccountList = memo(function AccountList({
+  embedded = false,
+  externalSearch,
+  onSearchChange,
+  debouncedSearch: externalDebouncedSearch,
+}: AccountListProps) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
+  const [internalSearch, setInternalSearch] = useState('');
+  const internalDebouncedSearch = useDebouncedValue(internalSearch, 250);
+
+  const isExternalSearch = embedded && externalSearch !== undefined;
+  const searchValue = isExternalSearch ? externalSearch : internalSearch;
+  const searchHandler = isExternalSearch ? onSearchChange! : setInternalSearch;
+  const effectiveSearch = isExternalSearch ? (externalDebouncedSearch ?? '') : internalDebouncedSearch;
+
   const [filterCurrency, setFilterCurrency] = useState<Currency | 'all'>('all');
   const [filterStatus, setFilterStatus] = useState<string>(searchParams.get('status') || 'all');
   const [filterPeriod, setFilterPeriod] = useState<string>(searchParams.get('period') || '');
@@ -65,11 +83,11 @@ const AccountList = memo(function AccountList({ embedded = false }: { embedded?:
   }, [searchParams]);
 
   // Reset page on filter change
-  useEffect(() => { setPage(0); }, [debouncedSearch, filterCurrency, filterStatus, filterPeriod, hideTest]);
+  useEffect(() => { setPage(0); }, [effectiveSearch, filterCurrency, filterStatus, filterPeriod, hideTest]);
 
   const filtered = useMemo(() => (accounts || []).filter(a => {
-    const matchesSearch = !debouncedSearch || a.invoice_number.includes(debouncedSearch) ||
-      (a.customers?.full_name || '').toLowerCase().includes(debouncedSearch.toLowerCase());
+    const matchesSearch = !effectiveSearch || a.invoice_number.includes(effectiveSearch) ||
+      (a.customers?.full_name || '').toLowerCase().includes(effectiveSearch.toLowerCase());
     const matchesCurrency = filterCurrency === 'all' || a.currency === filterCurrency;
     const todayStr = new Date().toISOString().split('T')[0];
     const matchesStatus = filterStatus === 'all'
@@ -80,7 +98,7 @@ const AccountList = memo(function AccountList({ embedded = false }: { embedded?:
         : a.status === filterStatus;
     const matchesTest = !hideTest || !TEST_INVOICES.has(a.invoice_number);
     return matchesSearch && matchesCurrency && matchesStatus && matchesTest;
-  }), [accounts, debouncedSearch, filterCurrency, filterStatus, filterPeriod, hideTest]);
+  }), [accounts, effectiveSearch, filterCurrency, filterStatus, filterPeriod, hideTest]);
 
   const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
@@ -113,12 +131,8 @@ const AccountList = memo(function AccountList({ embedded = false }: { embedded?:
           <div className="relative flex-1 min-w-[200px] max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              defaultValue=""
-              onChange={(e) => {
-                const value = e.target.value;
-                clearTimeout(debounceTimer.current);
-                debounceTimer.current = setTimeout(() => setDebouncedSearch(value), 250);
-              }}
+              value={searchValue}
+              onChange={(e) => searchHandler(e.target.value)}
               placeholder="Search invoice or customer..."
               className="pl-9 bg-card border-border"
             />

@@ -7,6 +7,7 @@ import AccountList from './AccountList';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useCustomers, useAccounts } from '@/hooks/use-supabase-data';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { Skeleton } from '@/components/ui/skeleton';
 import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
 import AlphabetNav, { LETTERS, SPECIAL } from '@/components/customers/AlphabetNav';
@@ -25,6 +26,8 @@ export default function Customers() {
   const { roles } = useAuth();
   const { can } = usePermissions();
   const [search, setSearch] = useState('');
+  const [accountSearch, setAccountSearch] = useState('');
+  const debouncedAccountSearch = useDebouncedValue(accountSearch, 250);
   const [viewMode, setViewMode] = useState<ViewMode>('all');
   const [activeLetter, setActiveLetter] = useState<string | null>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -268,7 +271,12 @@ export default function Customers() {
           </TabsContent>
 
           <TabsContent value="accounts" className="mt-5">
-            <AccountList embedded />
+            <AccountList
+              embedded
+              externalSearch={accountSearch}
+              onSearchChange={setAccountSearch}
+              debouncedSearch={debouncedAccountSearch}
+            />
           </TabsContent>
         </Tabs>
       </div>
