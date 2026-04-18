@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { memo, useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
 import { Plus, Search, Eye, MessageCircle, FileText, ChevronRight, ChevronLeft } from 'lucide-react';
@@ -45,7 +45,7 @@ const TEST_INVOICES = new Set([
   'TEST-WAIVER-001', 'TEST-FORFEIT-002', 'TEST-FORFEIT-003'
 ]);
 
-export default function AccountList({ embedded = false }: { embedded?: boolean } = {}) {
+const AccountList = memo(function AccountList({ embedded = false }: { embedded?: boolean } = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -292,4 +292,6 @@ export default function AccountList({ embedded = false }: { embedded?: boolean }
       </div>
     </Wrapper>
   );
-}
+});
+
+export default AccountList;
