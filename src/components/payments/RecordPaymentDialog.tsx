@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { Plus, ArrowRight, AlertTriangle, CheckCircle2, Clock, Save, Upload, X } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { Plus, ArrowRight, AlertTriangle, CheckCircle2, Clock, Save, Upload, X, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -81,6 +81,23 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   const r = roles as AppRole[];
   const isAdminOrFinance = r.includes('admin') || r.includes('finance');
   const { loadDraft, saveDraft, clearDraft, restoredDraft, setRestoredDraft } = usePaymentDraft(accountId);
+  const [targetMonth, setTargetMonth] = useState<string>('');
+
+  const targetMonthWarnings = useMemo(() => {
+    if (!targetMonth || !schedule) return [];
+    const row = schedule.find(s => s.id === targetMonth);
+    if (!row) return [];
+    const warnings: { type: 'critical' | 'soft'; message: string }[] = [];
+    if (row.status === 'paid') {
+      warnings.push({ type: 'critical', message: `Month ${row.installment_number} is already fully paid` });
+    }
+    if (row.status === 'partially_paid' && Number(row.paid_amount) > 0) {
+      warnings.push({ type: 'soft', message: `Partial payment exists: ${formatCurrency(Number(row.paid_amount), currency)} paid` });
+    }
+    return warnings;
+  }, [targetMonth, schedule, currency]);
+
+  const selectedScheduleRow = targetMonth ? schedule?.find(s => s.id === targetMonth) : null;
 
   // Auto-save draft whenever form fields change (only when dialog is open)
   useEffect(() => {
@@ -412,6 +429,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     setStep('input');
     setPreview(null);
     setProofFile(null);
+    setTargetMonth('');
     clearDraft();
     setOpen(false);
   };
@@ -506,6 +524,45 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
                     </span>
                   </button>
                 </div>
+              </div>
+            )}
+            {/* Target Month Selector */}
+            {!payFullBalance && paymentType === 'installment' && unpaidItems.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-card-foreground">Target Month (optional)</Label>
+                <select
+                  value={targetMonth}
+                  onChange={e => setTargetMonth(e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <option value="">Select month (optional)</option>
+                  {(schedule || [])
+                    .filter(s => s.status !== 'cancelled')
+                    .sort((a, b) => a.installment_number - b.installment_number)
+                    .map(s => {
+                      const remaining = Math.max(0, Number(s.total_due_amount) - Number(s.paid_amount));
+                      const dateLabel = new Date(s.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                      return (
+                        <option key={s.id} value={s.id}>
+                          Month {s.installment_number} — {dateLabel} — {formatCurrency(remaining, currency)} remaining
+                        </option>
+                      );
+                    })}
+                </select>
+                {targetMonthWarnings.map((w, i) => (
+                  <div key={i} className={`flex items-center gap-2 text-xs px-3 py-2 rounded-md ${
+                    w.type === 'critical' ? 'bg-destructive/10 text-destructive border border-destructive/20' : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+                  }`}>
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    {w.message}
+                  </div>
+                ))}
+                {selectedScheduleRow && targetMonthWarnings.length === 0 && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <Info className="h-3 w-3" />
+                    Due for this month: {formatCurrency(Math.max(0, Number(selectedScheduleRow.total_due_amount) - Number(selectedScheduleRow.paid_amount)), currency)}
+                  </p>
+                )}
               </div>
             )}
             {payFullBalance ? (

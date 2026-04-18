@@ -1693,6 +1693,27 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
   const [proofPreview, setProofPreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Target month selector
+  const [targetMonth, setTargetMonth] = useState<number | ''>('');
+  const unpaidScheduleRows = account.schedule
+    .filter(s => s.status !== 'paid' && s.status !== 'cancelled')
+    .sort((a, b) => a.installment_number - b.installment_number);
+  const selectedRow = targetMonth !== '' ? account.schedule.find(s => s.installment_number === targetMonth) : null;
+  const pendingSubs = account.submissions?.filter(s => ['submitted', 'under_review'].includes(s.status)) || [];
+  const targetMonthWarnings: { type: 'critical' | 'soft'; message: string }[] = [];
+  if (selectedRow) {
+    if (pendingSubs.length > 0) {
+      targetMonthWarnings.push({ type: 'critical', message: 'You already have a pending submission. Please wait for it to be reviewed before submitting another payment.' });
+    }
+    if (selectedRow.status === 'paid') {
+      targetMonthWarnings.push({ type: 'critical', message: 'This month is already fully paid.' });
+    }
+    if (selectedRow.status === 'partially_paid' && selectedRow.paid_amount > 0) {
+      targetMonthWarnings.push({ type: 'soft', message: `You have a partial payment of ${fmt(selectedRow.paid_amount, currency)} for this month.` });
+    }
+  }
+  const hasBlockingWarning = targetMonthWarnings.some(w => w.type === 'critical');
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1942,6 +1963,47 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
 
         {/* Form */}
         <div className="space-y-4">
+          {/* Target Month Selector */}
+          {paymentMode === 'single' && portalPaymentType === 'installment' && unpaidScheduleRows.length > 0 && (
+            <div>
+              <Label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts}}>Which month are you paying for?</Label>
+              <select
+                value={targetMonth}
+                onChange={e => setTargetMonth(e.target.value ? Number(e.target.value) : '')}
+                style={{display:'block',width:'100%',marginTop:'6px',padding:'8px 12px',fontFamily:"Inter,sans-serif",fontSize:'12px',color:P.tp,background:P.s,border:`1px solid ${P.br}`,borderRadius:'2px',outline:'none'}}
+              >
+                <option value="">Select month (optional)</option>
+                {account.schedule
+                  .filter(s => s.status !== 'cancelled')
+                  .sort((a, b) => a.installment_number - b.installment_number)
+                  .map(s => {
+                    const remaining = Math.max(0, s.total_due - s.paid_amount);
+                    const dateLabel = new Date(s.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    return (
+                      <option key={s.installment_number} value={s.installment_number}>
+                        Month {s.installment_number} — {dateLabel} — {fmt(remaining, currency)} remaining
+                      </option>
+                    );
+                  })}
+              </select>
+              {targetMonthWarnings.map((w, i) => (
+                <div key={i} style={{
+                  display:'flex',alignItems:'center',gap:'8px',marginTop:'8px',padding:'8px 12px',borderRadius:'2px',fontSize:'11px',fontFamily:"Inter,sans-serif",
+                  background: w.type === 'critical' ? 'rgba(231,76,60,0.1)' : 'rgba(243,156,18,0.1)',
+                  border: `1px solid ${w.type === 'critical' ? 'rgba(231,76,60,0.3)' : 'rgba(243,156,18,0.3)'}`,
+                  color: w.type === 'critical' ? '#E74C3C' : '#F39C12',
+                }}>
+                  <AlertTriangle style={{width:14,height:14,flexShrink:0}} />
+                  {w.message}
+                </div>
+              ))}
+              {selectedRow && targetMonthWarnings.length === 0 && (
+                <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,marginTop:'6px'}}>
+                  Due for this month: {fmt(Math.max(0, selectedRow.total_due - selectedRow.paid_amount), currency)}
+                </p>
+              )}
+            </div>
+          )}
           {paymentMode === 'single' ? (
             <div>
               <Label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts}}>Payment Amount <span style={{color:'#E74C3C'}}>*</span></Label>
@@ -2100,12 +2162,12 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
 
           <button
             className="w-full flex items-center justify-center gap-2 h-12 transition-opacity"
-            style={{background:(submitting||!proofFile)?P.s2:P.gr,border:'none',borderRadius:'2px',color:(submitting||!proofFile)?P.ts:P.bg,fontFamily:"Inter,sans-serif",fontSize:'12px',fontWeight:700,letterSpacing:'0.15em',textTransform:'uppercase' as const,cursor:(submitting||!proofFile)?'not-allowed':'pointer',opacity:(submitting||!proofFile)?0.5:1}}
+            style={{background:(submitting||!proofFile||hasBlockingWarning)?P.s2:P.gr,border:'none',borderRadius:'2px',color:(submitting||!proofFile||hasBlockingWarning)?P.ts:P.bg,fontFamily:"Inter,sans-serif",fontSize:'12px',fontWeight:700,letterSpacing:'0.15em',textTransform:'uppercase' as const,cursor:(submitting||!proofFile||hasBlockingWarning)?'not-allowed':'pointer',opacity:(submitting||!proofFile||hasBlockingWarning)?0.5:1}}
             onClick={handleSubmit}
-            disabled={submitting || !proofFile}
+            disabled={submitting || !proofFile || hasBlockingWarning}
           >
             {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-            {submitting ? 'Submitting…' : paymentMode === 'split' ? `Submit Split Payment (${fmt(splitTotal, currency)})` : 'Submit Payment'}
+            {hasBlockingWarning ? 'Please resolve the warning above' : submitting ? 'Submitting…' : paymentMode === 'split' ? `Submit Split Payment (${fmt(splitTotal, currency)})` : 'Submit Payment'}
           </button>
         </div>
       </div>
