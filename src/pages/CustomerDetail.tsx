@@ -49,7 +49,7 @@ export default function CustomerDetail() {
         .limit(1)
         .maybeSingle();
       if (tokenRow?.token) {
-        setPortalLink(`https://chajewelslayaway.web.app/portal?token=${tokenRow.token}`);
+        setPortalLink(`https://portal.chajewelsjp.com/portal?token=${tokenRow.token}`);
       }
     })();
   }, [customerId]);

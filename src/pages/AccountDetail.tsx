@@ -738,7 +738,7 @@ export default function AccountDetail() {
     //    Template A = single payment, Template B = split payment
     // ═══════════════════════════════════════════════════════════════
 
-    const PORTAL_BASE = 'https://chajewelslayaway.web.app';
+    const PORTAL_BASE = 'https://portal.chajewelsjp.com';
     const portalUrl = portalToken ? `${PORTAL_BASE}/portal?token=${portalToken}` : null;
 
     // Determine next due month info — priority: partially_paid → overdue → pending

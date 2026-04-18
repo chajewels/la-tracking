@@ -201,7 +201,7 @@ Deno.serve(async (req) => {
                     : alert.stage === 'due_today' ? 'due_today'
                     : 'upcoming',
               daysOverdue: alert.daysOverdue,
-              portalUrl: `https://cha-jewels-layaway.web.app/portal?invoice=${alert.invoice}`,
+              portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${alert.invoice}`,
             },
           }),
         });

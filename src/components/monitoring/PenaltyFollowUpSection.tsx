@@ -40,7 +40,7 @@ import type { Currency } from '@/lib/types';
 // ── Penalty Stage Definitions ──
 export type PenaltyStage = 'P1' | 'P2' | 'P3' | 'P4' | 'P5' | 'P6' | 'P7' | 'P8';
 
-const PORTAL_BASE = 'https://chajewelslayaway.web.app';
+const PORTAL_BASE = 'https://portal.chajewelsjp.com';
 
 interface StageConfig {
   key: PenaltyStage;

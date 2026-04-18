@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Copy, ExternalLink, MessageCircle, Send, Link2, Check } from 'lucide-react';
 import { toast } from 'sonner';
 
-const PORTAL_BASE = 'https://chajewelslayaway.web.app';
+const PORTAL_BASE = 'https://portal.chajewelsjp.com';
 
 interface Props {
   open: boolean;

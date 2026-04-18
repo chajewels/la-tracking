@@ -8,7 +8,7 @@ import { Copy, ExternalLink, Link2, RefreshCw, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import PortalActivationModal from './PortalActivationModal';
 
-const PORTAL_BASE = 'https://chajewelslayaway.web.app';
+const PORTAL_BASE = 'https://portal.chajewelsjp.com';
 
 interface Props {
   customerId: string;

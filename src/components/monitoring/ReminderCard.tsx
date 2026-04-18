@@ -25,7 +25,7 @@ import { Currency } from '@/lib/types';
 import { alertTypeConfig, type AlertType, type AccountBucket, daysOverdueFromToday } from '@/lib/business-rules';
 import { toast } from 'sonner';
 
-const PORTAL_BASE = 'https://chajewelslayaway.web.app';
+const PORTAL_BASE = 'https://portal.chajewelsjp.com';
 
 export interface AlertItem {
   type: AlertType | 'grace_period';

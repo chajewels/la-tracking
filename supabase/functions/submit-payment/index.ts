@@ -256,7 +256,7 @@ Deno.serve(async (req) => {
               paymentDate: payment_date,
               paymentMethod: payment_method || "cash",
               currency: acctForEmail?.currency || "PHP",
-              portalUrl: `https://cha-jewels-layaway.web.app/portal?invoice=${acctForEmail?.invoice_number || ""}`,
+              portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${acctForEmail?.invoice_number || ""}`,
             },
           }),
         });

@@ -578,7 +578,7 @@ Deno.serve(async (req) => {
           invoiceNumber: acctForEmail?.invoice_number || "",
           amountPaid: Number(submission.submitted_amount).toLocaleString("en-US"),
           currency: acctForEmail?.currency || "PHP",
-          portalUrl: `https://cha-jewels-layaway.web.app/portal?invoice=${acctForEmail?.invoice_number || ""}`,
+          portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${acctForEmail?.invoice_number || ""}`,
         };
 
         if (action === "confirmed") {

@@ -24,7 +24,7 @@ import { LocationType, parseLocation, toLocationString } from '@/lib/countries';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-const STATEMENT_BASE = 'https://chajewelslayaway.web.app';
+const STATEMENT_BASE = 'https://portal.chajewelsjp.com';
 
 /* ─── Types ─── */
 interface PaymentMethod {
@@ -762,7 +762,7 @@ export default function CustomerPortal() {
             )}
             <div style={{ marginBottom: 16 }}>
               <a
-                href="https://cha-jewels-layaway.web.app/"
+                href="https://portal.chajewelsjp.com/"
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ fontFamily: 'Inter, sans-serif', fontSize: '11px', color: P.ts, textDecoration: 'underline' }}
@@ -791,7 +791,7 @@ export default function CustomerPortal() {
       {/* ── Portal footer with agreement link ── */}
       <div style={{ textAlign: 'center', padding: '24px 16px 32px', background: P.bg }}>
         <a
-          href="https://cha-jewels-layaway.web.app/"
+          href="https://portal.chajewelsjp.com/"
           target="_blank"
           rel="noopener noreferrer"
           style={{ fontFamily: 'Inter, sans-serif', fontSize: '11px', color: P.ts, textDecoration: 'none' }}
