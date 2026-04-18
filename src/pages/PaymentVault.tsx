@@ -3,6 +3,8 @@ import { useState, useMemo, useCallback, useRef, memo, type ReactNode } from 're
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import AppLayout from '@/components/layout/AppLayout';
+
+const EmbeddedWrapper = ({ children }: { children: ReactNode }) => <>{children}</>;
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -453,7 +455,7 @@ const PaymentVault = memo(function PaymentVault({ embedded = false }: { embedded
 
   const selectedGroup = customerList.find((c) => c.customer_name === selectedCustomer);
 
-  const Wrapper = embedded ? ({ children }: { children: ReactNode }) => <>{children}</> : AppLayout;
+  const Wrapper = embedded ? EmbeddedWrapper : AppLayout;
 
   if (!can('admin_settings')) {
     return (

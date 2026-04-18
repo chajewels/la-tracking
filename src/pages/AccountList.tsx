@@ -3,6 +3,8 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
 import { Plus, Search, Eye, MessageCircle, FileText, ChevronRight, ChevronLeft } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
+
+const EmbeddedWrapper = ({ children }: { children: ReactNode }) => <>{children}</>;
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -94,7 +96,7 @@ const AccountList = memo(function AccountList({ embedded = false }: { embedded?:
   const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
 
-  const Wrapper = embedded ? ({ children }: { children: ReactNode }) => <>{children}</> : AppLayout;
+  const Wrapper = embedded ? EmbeddedWrapper : AppLayout;
 
   return (
     <Wrapper>

@@ -3,6 +3,8 @@ import { useState, useMemo, useCallback, useRef, memo, type ReactNode } from 're
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import AppLayout from '@/components/layout/AppLayout';
+
+const EmbeddedWrapper = ({ children }: { children: ReactNode }) => <>{children}</>;
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
@@ -57,7 +59,7 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedd
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proofs, filterTick]);
 
-  const Wrapper = embedded ? ({ children }: { children: ReactNode }) => <>{children}</> : AppLayout;
+  const Wrapper = embedded ? EmbeddedWrapper : AppLayout;
 
   if (!isAdmin && !isFinance && !isStaff) {
     return (

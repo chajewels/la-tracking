@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/layout/AppLayout';
+
+const EmbeddedWrapper = ({ children }: { children: ReactNode }) => <>{children}</>;
 import RefreshControl from '@/components/common/RefreshControl';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { Badge } from '@/components/ui/badge';
@@ -311,7 +313,6 @@ const ActionDialogModal = memo(function ActionDialogModal({
 });
 
 const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }: { embedded?: boolean } = {}) {
-  console.log('[PaymentSubmissions] render');
   const { session } = useAuth();
   const { can } = usePermissions();
   const canConfirm = can('confirm_payment');
@@ -566,7 +567,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
 
   const pendingCount = (submissions || []).filter(s => ['submitted', 'under_review'].includes(s.status)).length;
 
-  const Wrapper = embedded ? ({ children }: { children: ReactNode }) => <>{children}</> : AppLayout;
+  const Wrapper = embedded ? EmbeddedWrapper : AppLayout;
 
   return (
     <Wrapper>
