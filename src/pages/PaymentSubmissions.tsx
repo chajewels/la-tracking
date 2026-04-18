@@ -590,6 +590,8 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
               key="submissions-search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              onFocus={() => console.log('[focus] input gained focus')}
+              onBlur={(e) => console.log('[blur] input lost focus, relatedTarget:', e.relatedTarget)}
               className="pl-9"
             />
           </div>
