@@ -1,5 +1,5 @@
 // Payment Proofs — system-wide index sourced from customer payment_submissions
-import { useState, useMemo, type ReactNode } from 'react';
+import { useState, useMemo, memo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import AppLayout from '@/components/layout/AppLayout';
@@ -11,28 +11,12 @@ import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { FileText, Search, Eye, Download } from 'lucide-react';
 
-interface PaymentProofsProps {
-  embedded?: boolean;
-  externalSearch?: string;
-  onSearchChange?: (value: string) => void;
-  debouncedSearch?: string;
-}
-
-export default function PaymentProofs({
-  embedded = false,
-  externalSearch,
-  onSearchChange,
-  debouncedSearch: _externalDebouncedSearch,
-}: PaymentProofsProps) {
+const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedded?: boolean } = {}) {
   const { roles } = useAuth();
   const isAdmin = (roles as any[]).includes('admin');
   const isFinance = (roles as any[]).includes('finance');
   const isStaff = (roles as any[]).includes('staff');
-  const [internalSearch, setInternalSearch] = useState('');
-
-  const isExternalSearch = embedded && externalSearch !== undefined;
-  const search = isExternalSearch ? externalSearch : internalSearch;
-  const searchHandler = isExternalSearch ? onSearchChange! : setInternalSearch;
+  const [search, setSearch] = useState('');
 
   const { data: proofs, isLoading } = useQuery({
     queryKey: ['submission-proofs-all'],
@@ -90,8 +74,9 @@ export default function PaymentProofs({
             <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               placeholder="Search customer, invoice, sender, reference…"
+              key="proofs-search"
               value={search}
-              onChange={e => searchHandler(e.target.value)}
+              onChange={e => setSearch(e.target.value)}
               className="pl-8 h-9 text-sm"
             />
           </div>
@@ -201,4 +186,6 @@ export default function PaymentProofs({
       </div>
     </Wrapper>
   );
-}
+});
+
+export default PaymentProofs;

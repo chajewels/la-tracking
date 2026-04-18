@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, memo } from 'react';
 import { addMonths, endOfMonth, format, startOfMonth } from 'date-fns';
 import { DollarSign, TrendingUp, BarChart3, Sparkles, CalendarClock, Trophy, Clock, AlertTriangle, ShieldAlert, Crown, UserCheck, Target, Users, Activity, Banknote, X, ShoppingBag } from 'lucide-react';
 import {
@@ -23,7 +23,7 @@ import { useAccounts, useCustomers, usePayments, useDashboardSummary } from '@/h
 import { toJpy } from '@/lib/currency-converter';
 import { computeCollectionStats, todayStr } from '@/lib/business-rules';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
-import { useDebouncedValue } from '@/hooks/use-debounced-value';
+
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { useQuery } from '@tanstack/react-query';
@@ -31,23 +31,20 @@ import { supabase } from '@/integrations/supabase/client';
 import { Link } from 'react-router-dom';
 import PaymentsHub from './PaymentsHub';
 import PaymentVault from './PaymentVault';
+
+const MemoPaymentsHub = memo(PaymentsHub);
+const MemoPaymentVault = memo(PaymentVault);
 import {
   assessRisk, predictCompletion, assessCLV, riskStyles,
 } from '@/lib/business-rules';
 
 export default function Finance() {
-  console.log('[Finance] render', Date.now());
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
   const [tab, setTab] = useState<'overview' | 'analytics' | 'collections' | 'docs' | 'vault'>('overview');
   const { session, loading: authLoading } = useAuth();
   const { can } = usePermissions();
   const isAllMode = currencyFilter === 'ALL';
   const displayCurrency: Currency = getDisplayCurrencyForFilter(currencyFilter);
-
-  const [docsSearch, setDocsSearch] = useState('');
-  const debouncedDocsSearch = useDebouncedValue(docsSearch, 250);
-  const [vaultSearch, setVaultSearch] = useState('');
-  const debouncedVaultSearch = useDebouncedValue(vaultSearch, 250);
 
   const showAnalytics = can('view_analytics');
   const showCollections = can('view_collections');
@@ -911,22 +908,12 @@ export default function Finance() {
 
           {/* ═══════ Documentation Tab ═══════ */}
           {showDocs && <TabsContent value="docs" className="mt-5">
-            <PaymentsHub
-              embedded
-              externalSearch={docsSearch}
-              onSearchChange={setDocsSearch}
-              debouncedSearch={debouncedDocsSearch}
-            />
+            <MemoPaymentsHub embedded />
           </TabsContent>}
 
           {/* ═══════ Vault Tab ═══════ */}
           {showVault && <TabsContent value="vault" className="mt-5">
-            <PaymentVault
-              embedded
-              externalSearch={vaultSearch}
-              onSearchChange={setVaultSearch}
-              debouncedSearch={debouncedVaultSearch}
-            />
+            <MemoPaymentVault embedded />
           </TabsContent>}
         </Tabs>
       </div>

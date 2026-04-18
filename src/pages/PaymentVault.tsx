@@ -1,5 +1,5 @@
 // Payment Vault
-import { useState, useMemo, type ReactNode } from 'react';
+import { useState, useMemo, memo, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import AppLayout from '@/components/layout/AppLayout';
@@ -114,6 +114,7 @@ function CustomerList({
         <div className="relative">
           <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
           <Input
+            key="vault-search"
             placeholder="Search name or invoice…"
             value={search}
             onChange={(e) => onSearch(e.target.value)}
@@ -392,26 +393,9 @@ function StatCard({
 
 // ── Main page ──────────────────────────────────────────────────────────────
 
-interface PaymentVaultProps {
-  embedded?: boolean;
-  externalSearch?: string;
-  onSearchChange?: (value: string) => void;
-  debouncedSearch?: string;
-}
-
-export default function PaymentVault({
-  embedded = false,
-  externalSearch,
-  onSearchChange,
-  debouncedSearch: externalDebouncedSearch,
-}: PaymentVaultProps) {
+const PaymentVault = memo(function PaymentVault({ embedded = false }: { embedded?: boolean } = {}) {
   const { can } = usePermissions();
-  const [internalSearch, setInternalSearch] = useState('');
-
-  const isExternalSearch = embedded && externalSearch !== undefined;
-  const searchValue = isExternalSearch ? externalSearch : internalSearch;
-  const searchHandler = isExternalSearch ? onSearchChange! : setInternalSearch;
-
+  const [search, setSearch] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
   const [selectedInvoices, setSelectedInvoices] = useState<string[]>([]);
 
@@ -514,8 +498,8 @@ export default function PaymentVault({
           <div className="w-72 shrink-0 overflow-hidden bg-background">
             <CustomerList
               items={customerList}
-              search={searchValue}
-              onSearch={searchHandler}
+              search={search}
+              onSearch={setSearch}
               selected={selectedCustomer}
               onSelect={(name, invoices) => { setSelectedCustomer(name); setSelectedInvoices(invoices); }}
               loading={loadingAll}
@@ -542,4 +526,6 @@ export default function PaymentVault({
       </div>
     </Wrapper>
   );
-}
+});
+
+export default PaymentVault;

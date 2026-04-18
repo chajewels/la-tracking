@@ -10,20 +10,7 @@ import Waivers from './Waivers';
 
 type TabKey = 'submissions' | 'proofs' | 'waivers';
 
-interface PaymentsHubProps {
-  embedded?: boolean;
-  externalSearch?: string;
-  onSearchChange?: (value: string) => void;
-  debouncedSearch?: string;
-}
-
-export default function PaymentsHub({
-  embedded = false,
-  externalSearch,
-  onSearchChange,
-  debouncedSearch,
-}: PaymentsHubProps) {
-  console.log('[PaymentsHub] render', Date.now());
+export default function PaymentsHub({ embedded = false }: { embedded?: boolean } = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab: TabKey = (['proofs', 'waivers'].includes(searchParams.get('tab') || '') ? searchParams.get('tab') as TabKey : 'submissions');
   const [tab, setTab] = useState<TabKey>(initialTab);
@@ -73,21 +60,11 @@ export default function PaymentsHub({
           </TabsList>
 
           <TabsContent value="submissions" className="mt-5">
-            <PaymentSubmissions
-              embedded
-              externalSearch={externalSearch}
-              onSearchChange={onSearchChange}
-              debouncedSearch={debouncedSearch}
-            />
+            <PaymentSubmissions embedded />
           </TabsContent>
 
           <TabsContent value="proofs" className="mt-5">
-            <PaymentProofs
-              embedded
-              externalSearch={externalSearch}
-              onSearchChange={onSearchChange}
-              debouncedSearch={debouncedSearch}
-            />
+            <PaymentProofs embedded />
           </TabsContent>
 
           <TabsContent value="waivers" className="mt-5">

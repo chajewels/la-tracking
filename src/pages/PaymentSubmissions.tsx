@@ -309,20 +309,7 @@ const ActionDialogModal = memo(function ActionDialogModal({
   );
 });
 
-interface PaymentSubmissionsProps {
-  embedded?: boolean;
-  externalSearch?: string;
-  onSearchChange?: (value: string) => void;
-  debouncedSearch?: string;
-}
-
-export default function PaymentSubmissions({
-  embedded = false,
-  externalSearch,
-  onSearchChange,
-  debouncedSearch: _externalDebouncedSearch,
-}: PaymentSubmissionsProps) {
-  console.log('[PaymentSubmissions] render', Date.now());
+const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }: { embedded?: boolean } = {}) {
   const { session } = useAuth();
   const { can } = usePermissions();
   const canConfirm = can('confirm_payment');
@@ -336,11 +323,7 @@ export default function PaymentSubmissions({
     ['pending-submission-count'],
   ]);
   const [statusFilter, setStatusFilter] = useState<string>('pending');
-  const [internalSearch, setInternalSearch] = useState('');
-
-  const isExternalSearch = embedded && externalSearch !== undefined;
-  const search = isExternalSearch ? externalSearch : internalSearch;
-  const searchHandler = isExternalSearch ? onSearchChange! : setInternalSearch;
+  const [search, setSearch] = useState('');
   const [actionDialog, setActionDialog] = useState<{ sub: SubmissionRow; action: string } | null>(null);
   const [proofDialog, setProofDialog] = useState<string | null>(null);
   const [expandedAllocs, setExpandedAllocs] = useState<string | null>(null);
@@ -604,8 +587,9 @@ export default function PaymentSubmissions({
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search customer, invoice, or reference…"
+              key="submissions-search"
               value={search}
-              onChange={(e) => searchHandler(e.target.value)}
+              onChange={(e) => setSearch(e.target.value)}
               className="pl-9"
             />
           </div>
@@ -1440,4 +1424,6 @@ export default function PaymentSubmissions({
       </Dialog>
     </Wrapper>
   );
-}
+});
+
+export default PaymentSubmissions;
