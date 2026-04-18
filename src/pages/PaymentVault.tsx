@@ -88,10 +88,10 @@ const VaultSearchBar = memo(function VaultSearchBar({ onSearch }: { onSearch: (v
     <div className="p-3 border-b border-border">
       <div className="relative">
         <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-        <Input
+        <input
+          className="flex h-8 w-full rounded-md border border-input bg-card px-3 py-1 pl-8 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           placeholder="Search name or invoice…"
           onChange={(e) => onSearch(e.target.value)}
-          className="pl-8 h-8 text-sm"
         />
       </div>
     </div>

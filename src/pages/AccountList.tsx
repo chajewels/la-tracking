@@ -15,10 +15,10 @@ const AccountSearchBar = memo(function AccountSearchBar({ onSearch }: { onSearch
   return (
     <div className="relative flex-1 min-w-[200px] max-w-sm">
       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-      <Input
+      <input
+        className="flex h-10 w-full rounded-md border border-input bg-card px-3 py-2 pl-9 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         placeholder="Search invoice or customer..."
         onChange={(e) => onSearch(e.target.value)}
-        className="pl-9 bg-card border-border"
       />
     </div>
   );
