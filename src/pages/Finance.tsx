@@ -540,7 +540,7 @@ export default function Finance() {
           </TabsContent>
 
           {/* ═══════ Analytics Tab ═══════ */}
-          <TabsContent value="analytics" className="mt-5 space-y-6">
+          <TabsContent value="analytics" className="mt-5 space-y-6" tabIndex={-1}>
           {showAnalytics ? (<>
 
             {/* Section 1 — Collection Performance */}
@@ -828,7 +828,7 @@ export default function Finance() {
           </TabsContent>
 
           {/* ═══════ Collections Tab ═══════ */}
-          <TabsContent value="collections" className="mt-5 space-y-6">
+          <TabsContent value="collections" className="mt-5 space-y-6" tabIndex={-1}>
           {showCollections ? (<>
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
               <StatCard title="Today" value={formatCurrency(collStats.todayTotal, displayCurrency)} icon={TrendingUp} variant="gold" />
@@ -915,7 +915,7 @@ export default function Finance() {
           </TabsContent>
 
           {/* ═══════ Documentation Tab ═══════ */}
-          <TabsContent value="docs" className="mt-5">
+          <TabsContent value="docs" className="mt-5" tabIndex={-1}>
             {showDocs ? (
               <MemoPaymentsHub embedded />
             ) : (
@@ -924,7 +924,7 @@ export default function Finance() {
           </TabsContent>
 
           {/* ═══════ Vault Tab ═══════ */}
-          <TabsContent value="vault" className="mt-5">
+          <TabsContent value="vault" className="mt-5" tabIndex={-1}>
             {showVault ? (
               <MemoPaymentVault embedded />
             ) : (

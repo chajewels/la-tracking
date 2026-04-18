@@ -59,15 +59,15 @@ export default function PaymentsHub({ embedded = false }: { embedded?: boolean }
             <TabsTrigger value="waivers">Waivers</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="submissions" className="mt-5">
+          <TabsContent value="submissions" className="mt-5" tabIndex={-1}>
             <PaymentSubmissions embedded />
           </TabsContent>
 
-          <TabsContent value="proofs" className="mt-5">
+          <TabsContent value="proofs" className="mt-5" tabIndex={-1}>
             <PaymentProofs embedded />
           </TabsContent>
 
-          <TabsContent value="waivers" className="mt-5">
+          <TabsContent value="waivers" className="mt-5" tabIndex={-1}>
             <Waivers embedded />
           </TabsContent>
         </Tabs>
