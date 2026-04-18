@@ -468,6 +468,63 @@ export type Database = {
         }
         Relationships: []
       }
+      extension_requests: {
+        Row: {
+          account_id: string | null
+          customer_id: string | null
+          extension_expiry_date: string | null
+          id: string
+          portal_token: string | null
+          reason: string | null
+          requested_at: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          reviewer_notes: string | null
+          status: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          customer_id?: string | null
+          extension_expiry_date?: string | null
+          id?: string
+          portal_token?: string | null
+          reason?: string | null
+          requested_at?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          reviewer_notes?: string | null
+          status?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          customer_id?: string | null
+          extension_expiry_date?: string | null
+          id?: string
+          portal_token?: string | null
+          reason?: string | null
+          requested_at?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          reviewer_notes?: string | null
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "extension_requests_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "extension_requests_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       feature_toggles: {
         Row: {
           description: string | null
@@ -2001,6 +2058,7 @@ export type Database = {
         Returns: Json
       }
       get_staff_performance: { Args: { months_back?: number }; Returns: Json }
+      get_unpaid_schedule: { Args: { p_account_id: string }; Returns: Json }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
