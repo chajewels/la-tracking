@@ -57,7 +57,7 @@ serve(async (req) => {
 
     const { data: nextRow, error: nextErr } = await supabase
       .from("layaway_schedule")
-      .select("id, carried_amount, base_installment_amount")
+      .select("id, carried_amount, base_installment_amount, total_due_amount")
       .eq("account_id", account_id)
       .gt("installment_number", source.installment_number)
       .not("status", "in", '("paid","cancelled")')
@@ -84,11 +84,11 @@ serve(async (req) => {
       .update({ status: "paid", paid_amount: totalAllocated, updated_at: new Date().toISOString() })
       .eq("id", schedule_row_id);
 
-    // Compute the next row's total_due_amount to reflect the full amount owed
-    // (base + the new carried shortfall). Persisting this alongside carried_amount
-    // keeps the write-only cache consistent with the obligation.
+    // Add the shortfall to the next row's existing total_due_amount.
+    // Using the existing value (instead of recomputing from scratch)
+    // preserves any prior Keep reductions or penalty adjustments.
     const nextTotalDue = Math.round(
-      (Number(nextRow.base_installment_amount) + shortfall) * 100
+      (Number(nextRow.total_due_amount) + shortfall) * 100
     ) / 100;
 
     const { error: carryErr } = await supabase

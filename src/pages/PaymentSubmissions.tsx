@@ -1264,7 +1264,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                     if (keepSurplus > 0.005) {
                       const { data: nextUnpaidRow, error: nextUnpaidErr } = await supabase
                         .from('layaway_schedule')
-                        .select('id, base_installment_amount, penalty_amount, carried_amount')
+                        .select('id, base_installment_amount, penalty_amount, carried_amount, total_due_amount')
                         .eq('account_id', modal.accountId)
                         .gt('installment_number', Number(sourceRowData.installment_number))
                         .not('status', 'in', '("paid","cancelled")')
@@ -1276,12 +1276,9 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                         return;
                       }
                       if (nextUnpaidRow) {
-                        const naturalCeiling = Number(nextUnpaidRow.base_installment_amount)
-                          + Number(nextUnpaidRow.penalty_amount || 0)
-                          + Number(nextUnpaidRow.carried_amount || 0);
                         const newTotalDue = Math.max(
                           0,
-                          Math.round((naturalCeiling - keepSurplus) * 100) / 100
+                          Math.round((Number(nextUnpaidRow.total_due_amount) - keepSurplus) * 100) / 100
                         );
                         const { error: nextUpdErr } = await supabase
                           .from('layaway_schedule')
