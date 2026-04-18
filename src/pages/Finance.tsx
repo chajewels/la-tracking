@@ -540,7 +540,8 @@ export default function Finance() {
           </TabsContent>
 
           {/* ═══════ Analytics Tab ═══════ */}
-          {showAnalytics && <TabsContent value="analytics" className="mt-5 space-y-6">
+          <TabsContent value="analytics" className="mt-5 space-y-6">
+          {showAnalytics ? (<>
 
             {/* Section 1 — Collection Performance */}
             <div className="space-y-4">
@@ -821,10 +822,14 @@ export default function Finance() {
                 )}
               </div>
             </div>
-          </TabsContent>}
+          </>) : (
+            <div className="text-center text-muted-foreground py-12">You don't have permission to view this section.</div>
+          )}
+          </TabsContent>
 
           {/* ═══════ Collections Tab ═══════ */}
-          {showCollections && <TabsContent value="collections" className="mt-5 space-y-6">
+          <TabsContent value="collections" className="mt-5 space-y-6">
+          {showCollections ? (<>
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
               <StatCard title="Today" value={formatCurrency(collStats.todayTotal, displayCurrency)} icon={TrendingUp} variant="gold" />
               <StatCard title="Yesterday" value={formatCurrency(collStats.yesterdayTotal, displayCurrency)} icon={TrendingUp} />
@@ -904,17 +909,28 @@ export default function Finance() {
                 </div>
               )}
             </div>
-          </TabsContent>}
+          </>) : (
+            <div className="text-center text-muted-foreground py-12">You don't have permission to view this section.</div>
+          )}
+          </TabsContent>
 
           {/* ═══════ Documentation Tab ═══════ */}
-          {showDocs && <TabsContent value="docs" className="mt-5">
-            <MemoPaymentsHub embedded />
-          </TabsContent>}
+          <TabsContent value="docs" className="mt-5">
+            {showDocs ? (
+              <MemoPaymentsHub embedded />
+            ) : (
+              <div className="text-center text-muted-foreground py-12">You don't have permission to view this section.</div>
+            )}
+          </TabsContent>
 
           {/* ═══════ Vault Tab ═══════ */}
-          {showVault && <TabsContent value="vault" className="mt-5">
-            <MemoPaymentVault embedded />
-          </TabsContent>}
+          <TabsContent value="vault" className="mt-5">
+            {showVault ? (
+              <MemoPaymentVault embedded />
+            ) : (
+              <div className="text-center text-muted-foreground py-12">You don't have permission to view this section.</div>
+            )}
+          </TabsContent>
         </Tabs>
       </div>
 
