@@ -48,6 +48,7 @@ const TEST_INVOICES = new Set([
 export default function AccountList({ embedded = false }: { embedded?: boolean } = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
+  console.log('[AccountList] render', search);
   const debouncedSearch = useDebouncedValue(search, 250);
   const [filterCurrency, setFilterCurrency] = useState<Currency | 'all'>('all');
   const [filterStatus, setFilterStatus] = useState<string>(searchParams.get('status') || 'all');
