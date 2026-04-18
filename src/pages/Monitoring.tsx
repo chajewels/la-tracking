@@ -60,7 +60,7 @@ export default function Monitoring() {
   const [messengerDialog, setMessengerDialog] = useState<{ alert: AlertItem; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const [monitoringTab, setMonitoringTab] = useState<'alerts' | 'reminders'>('alerts');
+  const [monitoringTab, setMonitoringTab] = useState<'alerts' | 'reminders' | 'extensions'>('alerts');
   const queryClient = useQueryClient();
 
   const { lastRefreshedAt, refreshing, refresh } = useAutoRefresh([
@@ -473,10 +473,11 @@ export default function Monitoring() {
           </div>
         </div>
 
-        <Tabs value={monitoringTab} onValueChange={v => setMonitoringTab(v as 'alerts' | 'reminders')} className="w-full">
-          <TabsList className="grid grid-cols-2 w-full max-w-xs">
+        <Tabs value={monitoringTab} onValueChange={v => setMonitoringTab(v as 'alerts' | 'reminders' | 'extensions')} className="w-full">
+          <TabsList className="grid grid-cols-3 w-full max-w-md">
             <TabsTrigger value="alerts">CSR Alerts</TabsTrigger>
             <TabsTrigger value="reminders">Smart Reminders</TabsTrigger>
+            <TabsTrigger value="extensions">Extensions</TabsTrigger>
           </TabsList>
 
           <TabsContent value="alerts" className="mt-5 space-y-6">
@@ -690,6 +691,10 @@ export default function Monitoring() {
               </div>
             </div>
           </TabsContent>
+
+          <TabsContent value="extensions" className="mt-5 space-y-6" tabIndex={-1}>
+            <ExtensionRequestsPanel />
+          </TabsContent>
         </Tabs>
       </div>
 
@@ -722,5 +727,116 @@ export default function Monitoring() {
         </DialogContent>
       </Dialog>
     </AppLayout>
+  );
+}
+
+function ExtensionRequestsPanel() {
+  const [filter, setFilter] = useState<'pending' | 'reviewed'>('pending');
+  const queryClient = useQueryClient();
+
+  const { data: requests, isLoading } = useQuery({
+    queryKey: ['extension-requests', filter],
+    queryFn: async () => {
+      const query = supabase
+        .from('extension_requests' as any)
+        .select('*, layaway_accounts!inner(id, invoice_number, currency, remaining_balance, status, customers!inner(full_name))')
+        .order('created_at', { ascending: false });
+
+      if (filter === 'pending') {
+        query.eq('status', 'pending');
+      } else {
+        query.in('status', ['approved', 'denied']);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data || []) as any[];
+    },
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-card-foreground">Extension Requests</h3>
+        <div className="flex gap-1 rounded-lg border border-border p-1 bg-card">
+          {(['pending', 'reviewed'] as const).map(f => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-colors ${
+                filter === f ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {f === 'pending' ? `Pending${requests && filter === 'pending' ? ` (${requests.length})` : ''}` : 'Reviewed'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}
+        </div>
+      ) : !requests || requests.length === 0 ? (
+        <div className="rounded-xl border border-border bg-card p-12 text-center">
+          <Clock className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-40" />
+          <p className="text-sm text-muted-foreground">
+            {filter === 'pending' ? 'No pending extension requests' : 'No reviewed requests yet'}
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Customer</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Invoice</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Reason</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">
+                  {filter === 'pending' ? 'Requested' : 'Status'}
+                </th>
+                <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {requests.map((req: any) => {
+                const acct = req.layaway_accounts;
+                const customerName = acct?.customers?.full_name || '—';
+                const invoiceNumber = acct?.invoice_number || '—';
+                return (
+                  <tr key={req.id} className="border-b border-border/50 hover:bg-muted/20">
+                    <td className="px-4 py-3 font-medium text-foreground">{customerName}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      <Link to={`/accounts/${acct?.id}`} className="text-primary hover:underline font-mono">#{invoiceNumber}</Link>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs max-w-[200px] truncate">{req.reason || '—'}</td>
+                    <td className="px-4 py-3">
+                      {filter === 'pending' ? (
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(req.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      ) : (
+                        <Badge variant="outline" className={`text-[10px] ${
+                          req.status === 'approved' ? 'bg-success/10 text-success border-success/20' : 'bg-destructive/10 text-destructive border-destructive/20'
+                        }`}>
+                          {req.status}
+                        </Badge>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Link to={`/accounts/${acct?.id}`}>
+                        <Button variant="outline" size="sm" className="h-7 text-xs">
+                          View Account
+                        </Button>
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
