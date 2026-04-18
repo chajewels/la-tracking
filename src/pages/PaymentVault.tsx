@@ -1,5 +1,5 @@
 // Payment Vault
-import { useState, useMemo, useCallback, memo, type ReactNode } from 'react';
+import { useState, useMemo, useCallback, useRef, memo, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import AppLayout from '@/components/layout/AppLayout';
@@ -401,8 +401,12 @@ function StatCard({
 
 const PaymentVault = memo(function PaymentVault({ embedded = false }: { embedded?: boolean } = {}) {
   const { can } = usePermissions();
-  const [search, setSearch] = useState('');
-  const handleSearch = useCallback((v: string) => setSearch(v), []);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const handleSearch = useCallback((v: string) => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setDebouncedSearch(v), 300);
+  }, []);
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
   const [selectedInvoices, setSelectedInvoices] = useState<string[]>([]);
 
@@ -505,7 +509,7 @@ const PaymentVault = memo(function PaymentVault({ embedded = false }: { embedded
           <div className="w-72 shrink-0 overflow-hidden bg-background">
             <CustomerList
               items={customerList}
-              search={search}
+              search={debouncedSearch}
               onSearch={handleSearch}
               selected={selectedCustomer}
               onSelect={(name, invoices) => { setSelectedCustomer(name); setSelectedInvoices(invoices); }}

@@ -1,5 +1,5 @@
 // Payment Proofs — system-wide index sourced from customer payment_submissions
-import { useState, useMemo, useCallback, memo, type ReactNode } from 'react';
+import { useState, useMemo, useCallback, useRef, memo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import AppLayout from '@/components/layout/AppLayout';
@@ -29,8 +29,12 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedd
   const isAdmin = (roles as any[]).includes('admin');
   const isFinance = (roles as any[]).includes('finance');
   const isStaff = (roles as any[]).includes('staff');
-  const [search, setSearch] = useState('');
-  const handleSearch = useCallback((v: string) => setSearch(v), []);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const handleSearch = useCallback((v: string) => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setDebouncedSearch(v), 300);
+  }, []);
 
   const { data: proofs, isLoading } = useQuery({
     queryKey: ['submission-proofs-all'],
@@ -47,7 +51,7 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedd
   });
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = debouncedSearch.trim().toLowerCase();
     if (!q) return proofs || [];
     return (proofs || []).filter((p: any) => {
       const name = p.customers?.full_name || '';
@@ -60,7 +64,7 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedd
         (p.reference_number || '').toLowerCase().includes(q)
       );
     });
-  }, [proofs, search]);
+  }, [proofs, debouncedSearch]);
 
   const Wrapper = embedded ? ({ children }: { children: ReactNode }) => <>{children}</> : AppLayout;
 

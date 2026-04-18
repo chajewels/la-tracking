@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, memo, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, memo, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -336,8 +336,12 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
     ['pending-submission-count'],
   ]);
   const [statusFilter, setStatusFilter] = useState<string>('pending');
-  const [search, setSearch] = useState('');
-  const handleSearch = useCallback((v: string) => setSearch(v), []);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const handleSearch = useCallback((v: string) => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setDebouncedSearch(v), 300);
+  }, []);
   const [actionDialog, setActionDialog] = useState<{ sub: SubmissionRow; action: string } | null>(null);
   const [proofDialog, setProofDialog] = useState<string | null>(null);
   const [expandedAllocs, setExpandedAllocs] = useState<string | null>(null);
@@ -558,8 +562,8 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
   });
 
   const filtered = (submissions || []).filter((s) => {
-    if (!search) return true;
-    const q = search.toLowerCase();
+    if (!debouncedSearch) return true;
+    const q = debouncedSearch.toLowerCase();
     return (
       s.customers?.full_name?.toLowerCase().includes(q) ||
       s.layaway_accounts?.invoice_number?.toLowerCase().includes(q) ||
