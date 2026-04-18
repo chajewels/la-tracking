@@ -322,6 +322,7 @@ export default function PaymentSubmissions({
   onSearchChange,
   debouncedSearch: _externalDebouncedSearch,
 }: PaymentSubmissionsProps) {
+  console.log('[PaymentSubmissions] render', Date.now());
   const { session } = useAuth();
   const { can } = usePermissions();
   const canConfirm = can('confirm_payment');

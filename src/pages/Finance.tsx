@@ -36,6 +36,7 @@ import {
 } from '@/lib/business-rules';
 
 export default function Finance() {
+  console.log('[Finance] render', Date.now());
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
   const [tab, setTab] = useState<'overview' | 'analytics' | 'collections' | 'docs' | 'vault'>('overview');
   const { session, loading: authLoading } = useAuth();

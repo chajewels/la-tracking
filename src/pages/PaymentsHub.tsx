@@ -23,6 +23,7 @@ export default function PaymentsHub({
   onSearchChange,
   debouncedSearch,
 }: PaymentsHubProps) {
+  console.log('[PaymentsHub] render', Date.now());
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab: TabKey = (['proofs', 'waivers'].includes(searchParams.get('tab') || '') ? searchParams.get('tab') as TabKey : 'submissions');
   const [tab, setTab] = useState<TabKey>(initialTab);
