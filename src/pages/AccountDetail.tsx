@@ -1310,9 +1310,11 @@ export default function AccountDetail() {
                 const paidAmt = getRowAllocated(item as any);
                 const baseAmt = Number(item.base_installment_amount);
                 const displayRemaining = getRowRemaining(item as any);
-                // Penalty status from penalty_fees (paid/waived/unpaid) — drives label & color
-                const penaltyFee = (penalties || []).find((pf: any) => pf.schedule_id === item.id);
-                const penaltyFeeStatus = penaltyFee?.status ?? (penaltyAmt > 0 ? 'unpaid' : null);
+                const schedulePenalties = (penalties || []).filter((pf: any) => pf.schedule_id === item.id);
+                const allWaived = schedulePenalties.length > 0 && schedulePenalties.every((pf: any) => pf.status === 'waived');
+                const activePens = schedulePenalties.filter((pf: any) => pf.status !== 'waived');
+                const allPaid = activePens.length > 0 && activePens.every((pf: any) => pf.status === 'paid');
+                const penaltyFeeStatus = allWaived ? 'waived' : allPaid ? 'paid' : (penaltyAmt > 0 ? 'unpaid' : null);
                 const itemRemaining = remainingDue(item);
                 const isEditingThis = editingScheduleId === item.id;
                 const canEdit = account.status !== 'forfeited' && account.status !== 'cancelled' && item.status !== 'cancelled';
