@@ -9,7 +9,7 @@ export interface AccountDraft {
   currency: 'PHP' | 'JPY';
   totalAmount: string;
   orderDate: string;
-  paymentPlan: 3 | 6;
+  paymentPlan: 3 | 6 | 8;
   downpaymentInput: string;
   installmentMode: 'equal' | 'custom';
   customAmounts: string[];

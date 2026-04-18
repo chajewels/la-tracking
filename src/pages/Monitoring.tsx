@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { categorizeScheduleItems, remainingDue, daysOverdueFromToday, alertTypeConfig } from '@/lib/business-rules';
+import { categorizeScheduleItems, alertTypeConfig } from '@/lib/business-rules';
 import { formatCurrency } from '@/lib/calculations';
 import RefreshControl from '@/components/common/RefreshControl';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
