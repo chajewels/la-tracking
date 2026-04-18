@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { useAccounts } from '@/hooks/use-supabase-data';
-import { useDebouncedValue } from '@/hooks/use-debounced-value';
+
 import { Skeleton } from '@/components/ui/skeleton';
 
 const statusStyles: Record<string, string> = {
@@ -47,9 +47,8 @@ const TEST_INVOICES = new Set([
 
 const AccountList = memo(function AccountList({ embedded = false }: { embedded?: boolean } = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [search, setSearch] = useState('');
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const debouncedSearch = useDebouncedValue(search, 250);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
   const [filterCurrency, setFilterCurrency] = useState<Currency | 'all'>('all');
   const [filterStatus, setFilterStatus] = useState<string>(searchParams.get('status') || 'all');
   const [filterPeriod, setFilterPeriod] = useState<string>(searchParams.get('period') || '');
@@ -111,13 +110,16 @@ const AccountList = memo(function AccountList({ embedded = false }: { embedded?:
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3">
-          <div className="relative flex-1 min-w-[200px] max-w-sm" onClick={(e) => e.stopPropagation()}>
+          <div className="relative flex-1 min-w-[200px] max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              ref={searchInputRef}
+              defaultValue=""
+              onChange={(e) => {
+                const value = e.target.value;
+                clearTimeout(debounceTimer.current);
+                debounceTimer.current = setTimeout(() => setDebouncedSearch(value), 250);
+              }}
               placeholder="Search invoice or customer..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
               className="pl-9 bg-card border-border"
             />
           </div>
