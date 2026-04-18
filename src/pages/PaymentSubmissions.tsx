@@ -310,6 +310,11 @@ const ActionDialogModal = memo(function ActionDialogModal({
 });
 
 const SubmissionsSearchBar = memo(function SubmissionsSearchBar({ onSearch }: { onSearch: (v: string) => void }) {
+  useEffect(() => {
+    console.log('[SearchBar] MOUNTED');
+    return () => console.log('[SearchBar] UNMOUNTED');
+  }, []);
+
   return (
     <div className="relative flex-1">
       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
