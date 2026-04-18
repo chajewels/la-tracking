@@ -157,24 +157,34 @@ Deno.serve(async (req) => {
       total_due_amount?: number;
     }> = [];
 
-    // 1. Pay unpaid penalties first (not applicable for DP payments)
-    if (!is_downpayment && unpaidPenalties) {
-      for (const pen of unpaidPenalties) {
+    // 1. Pay unpaid penalties grouped by schedule row (installment order)
+    //    Ensures ALL penalties for a month are allocated together before
+    //    moving to the next month, regardless of penalty_date ordering.
+    if (!is_downpayment && unpaidPenalties && schedule) {
+      const sortedScheduleIds = [...schedule]
+        .sort((a: any, b: any) => a.installment_number - b.installment_number)
+        .map((s: any) => s.id);
+
+      for (const scheduleId of sortedScheduleIds) {
         if (remaining <= 0) break;
-        const penAmount = Number(pen.penalty_amount);
-        const toPay = Math.round(Math.min(remaining, penAmount) * 100) / 100;
-        remaining = Math.round((remaining - toPay) * 100) / 100;
-        allocations.push({
-          schedule_id: pen.schedule_id,
-          allocation_type: "penalty",
-          allocated_amount: toPay,
-          penalty_fee_id: pen.id,
-        });
-        penaltyUpdates.push({
-          id: pen.id,
-          status: toPay >= penAmount ? "paid" : "unpaid",
-          paid_amount: toPay,
-        });
+        const itemPenalties = unpaidPenalties.filter((pen: any) => pen.schedule_id === scheduleId);
+        for (const pen of itemPenalties) {
+          if (remaining <= 0) break;
+          const penAmount = Number(pen.penalty_amount);
+          const toPay = Math.round(Math.min(remaining, penAmount) * 100) / 100;
+          remaining = Math.round((remaining - toPay) * 100) / 100;
+          allocations.push({
+            schedule_id: pen.schedule_id,
+            allocation_type: "penalty",
+            allocated_amount: toPay,
+            penalty_fee_id: pen.id,
+          });
+          penaltyUpdates.push({
+            id: pen.id,
+            status: toPay >= penAmount ? "paid" : "unpaid",
+            paid_amount: toPay,
+          });
+        }
       }
     }
 

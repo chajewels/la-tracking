@@ -67,22 +67,32 @@ async function allocatePaymentToAccount(
   // They are recorded as a payment entry only; total_paid/remaining_balance
   // are updated below via the account totals section.
   if (!isDownpayment) {
-    // 1. Pay unpaid penalties first
-    if (unpaidPenalties) {
-      for (const pen of unpaidPenalties) {
+    // 1. Pay unpaid penalties grouped by schedule row (installment order)
+    //    This ensures ALL penalties for a month are allocated together
+    //    before moving to the next month, regardless of penalty_date ordering.
+    if (unpaidPenalties && schedule) {
+      const sortedScheduleIds = [...schedule]
+        .sort((a: any, b: any) => a.installment_number - b.installment_number)
+        .map((s: any) => s.id);
+
+      for (const scheduleId of sortedScheduleIds) {
         if (remaining <= 0) break;
-        const penAmount = Number(pen.penalty_amount);
-        const toPay = Math.min(remaining, penAmount);
-        remaining -= toPay;
-        allocations.push({
-          schedule_id: pen.schedule_id,
-          allocation_type: "penalty",
-          allocated_amount: toPay,
-        });
-        penaltyUpdates.push({
-          id: pen.id,
-          status: toPay >= penAmount ? "paid" : "unpaid",
-        });
+        const itemPenalties = unpaidPenalties.filter((pen: any) => pen.schedule_id === scheduleId);
+        for (const pen of itemPenalties) {
+          if (remaining <= 0) break;
+          const penAmount = Number(pen.penalty_amount);
+          const toPay = Math.min(remaining, penAmount);
+          remaining -= toPay;
+          allocations.push({
+            schedule_id: pen.schedule_id,
+            allocation_type: "penalty",
+            allocated_amount: toPay,
+          });
+          penaltyUpdates.push({
+            id: pen.id,
+            status: toPay >= penAmount ? "paid" : "unpaid",
+          });
+        }
       }
     }
 
