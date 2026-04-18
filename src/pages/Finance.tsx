@@ -23,6 +23,7 @@ import { useAccounts, useCustomers, usePayments, useDashboardSummary } from '@/h
 import { toJpy } from '@/lib/currency-converter';
 import { computeCollectionStats, todayStr } from '@/lib/business-rules';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { useQuery } from '@tanstack/react-query';
@@ -41,6 +42,11 @@ export default function Finance() {
   const { can } = usePermissions();
   const isAllMode = currencyFilter === 'ALL';
   const displayCurrency: Currency = getDisplayCurrencyForFilter(currencyFilter);
+
+  const [docsSearch, setDocsSearch] = useState('');
+  const debouncedDocsSearch = useDebouncedValue(docsSearch, 250);
+  const [vaultSearch, setVaultSearch] = useState('');
+  const debouncedVaultSearch = useDebouncedValue(vaultSearch, 250);
 
   const showAnalytics = can('view_analytics');
   const showCollections = can('view_collections');
@@ -904,12 +910,22 @@ export default function Finance() {
 
           {/* ═══════ Documentation Tab ═══════ */}
           {showDocs && <TabsContent value="docs" className="mt-5">
-            <PaymentsHub embedded />
+            <PaymentsHub
+              embedded
+              externalSearch={docsSearch}
+              onSearchChange={setDocsSearch}
+              debouncedSearch={debouncedDocsSearch}
+            />
           </TabsContent>}
 
           {/* ═══════ Vault Tab ═══════ */}
           {showVault && <TabsContent value="vault" className="mt-5">
-            <PaymentVault embedded />
+            <PaymentVault
+              embedded
+              externalSearch={vaultSearch}
+              onSearchChange={setVaultSearch}
+              debouncedSearch={debouncedVaultSearch}
+            />
           </TabsContent>}
         </Tabs>
       </div>

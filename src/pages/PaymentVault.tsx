@@ -392,9 +392,26 @@ function StatCard({
 
 // ── Main page ──────────────────────────────────────────────────────────────
 
-export default function PaymentVault({ embedded = false }: { embedded?: boolean } = {}) {
+interface PaymentVaultProps {
+  embedded?: boolean;
+  externalSearch?: string;
+  onSearchChange?: (value: string) => void;
+  debouncedSearch?: string;
+}
+
+export default function PaymentVault({
+  embedded = false,
+  externalSearch,
+  onSearchChange,
+  debouncedSearch: externalDebouncedSearch,
+}: PaymentVaultProps) {
   const { can } = usePermissions();
-  const [search, setSearch] = useState('');
+  const [internalSearch, setInternalSearch] = useState('');
+
+  const isExternalSearch = embedded && externalSearch !== undefined;
+  const searchValue = isExternalSearch ? externalSearch : internalSearch;
+  const searchHandler = isExternalSearch ? onSearchChange! : setInternalSearch;
+
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
   const [selectedInvoices, setSelectedInvoices] = useState<string[]>([]);
 
@@ -497,8 +514,8 @@ export default function PaymentVault({ embedded = false }: { embedded?: boolean 
           <div className="w-72 shrink-0 overflow-hidden bg-background">
             <CustomerList
               items={customerList}
-              search={search}
-              onSearch={setSearch}
+              search={searchValue}
+              onSearch={searchHandler}
               selected={selectedCustomer}
               onSelect={(name, invoices) => { setSelectedCustomer(name); setSelectedInvoices(invoices); }}
               loading={loadingAll}

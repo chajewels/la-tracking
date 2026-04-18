@@ -11,12 +11,28 @@ import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { FileText, Search, Eye, Download } from 'lucide-react';
 
-export default function PaymentProofs({ embedded = false }: { embedded?: boolean } = {}) {
+interface PaymentProofsProps {
+  embedded?: boolean;
+  externalSearch?: string;
+  onSearchChange?: (value: string) => void;
+  debouncedSearch?: string;
+}
+
+export default function PaymentProofs({
+  embedded = false,
+  externalSearch,
+  onSearchChange,
+  debouncedSearch: _externalDebouncedSearch,
+}: PaymentProofsProps) {
   const { roles } = useAuth();
   const isAdmin = (roles as any[]).includes('admin');
   const isFinance = (roles as any[]).includes('finance');
   const isStaff = (roles as any[]).includes('staff');
-  const [search, setSearch] = useState('');
+  const [internalSearch, setInternalSearch] = useState('');
+
+  const isExternalSearch = embedded && externalSearch !== undefined;
+  const search = isExternalSearch ? externalSearch : internalSearch;
+  const searchHandler = isExternalSearch ? onSearchChange! : setInternalSearch;
 
   const { data: proofs, isLoading } = useQuery({
     queryKey: ['submission-proofs-all'],
@@ -75,7 +91,7 @@ export default function PaymentProofs({ embedded = false }: { embedded?: boolean
             <Input
               placeholder="Search customer, invoice, sender, reference…"
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={e => searchHandler(e.target.value)}
               className="pl-8 h-9 text-sm"
             />
           </div>

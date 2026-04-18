@@ -309,7 +309,19 @@ const ActionDialogModal = memo(function ActionDialogModal({
   );
 });
 
-export default function PaymentSubmissions({ embedded = false }: { embedded?: boolean } = {}) {
+interface PaymentSubmissionsProps {
+  embedded?: boolean;
+  externalSearch?: string;
+  onSearchChange?: (value: string) => void;
+  debouncedSearch?: string;
+}
+
+export default function PaymentSubmissions({
+  embedded = false,
+  externalSearch,
+  onSearchChange,
+  debouncedSearch: _externalDebouncedSearch,
+}: PaymentSubmissionsProps) {
   const { session } = useAuth();
   const { can } = usePermissions();
   const canConfirm = can('confirm_payment');
@@ -323,7 +335,11 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
     ['pending-submission-count'],
   ]);
   const [statusFilter, setStatusFilter] = useState<string>('pending');
-  const [search, setSearch] = useState('');
+  const [internalSearch, setInternalSearch] = useState('');
+
+  const isExternalSearch = embedded && externalSearch !== undefined;
+  const search = isExternalSearch ? externalSearch : internalSearch;
+  const searchHandler = isExternalSearch ? onSearchChange! : setInternalSearch;
   const [actionDialog, setActionDialog] = useState<{ sub: SubmissionRow; action: string } | null>(null);
   const [proofDialog, setProofDialog] = useState<string | null>(null);
   const [expandedAllocs, setExpandedAllocs] = useState<string | null>(null);
@@ -588,7 +604,7 @@ export default function PaymentSubmissions({ embedded = false }: { embedded?: bo
             <Input
               placeholder="Search customer, invoice, or reference…"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => searchHandler(e.target.value)}
               className="pl-9"
             />
           </div>
