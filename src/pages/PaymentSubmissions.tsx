@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, memo, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useCallback, memo, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -309,6 +309,19 @@ const ActionDialogModal = memo(function ActionDialogModal({
   );
 });
 
+const SubmissionsSearchBar = memo(function SubmissionsSearchBar({ onSearch }: { onSearch: (v: string) => void }) {
+  return (
+    <div className="relative flex-1">
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+      <Input
+        placeholder="Search customer, invoice, or reference…"
+        onChange={(e) => onSearch(e.target.value)}
+        className="pl-9"
+      />
+    </div>
+  );
+});
+
 const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }: { embedded?: boolean } = {}) {
   const { session } = useAuth();
   const { can } = usePermissions();
@@ -324,6 +337,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
   ]);
   const [statusFilter, setStatusFilter] = useState<string>('pending');
   const [search, setSearch] = useState('');
+  const handleSearch = useCallback((v: string) => setSearch(v), []);
   const [actionDialog, setActionDialog] = useState<{ sub: SubmissionRow; action: string } | null>(null);
   const [proofDialog, setProofDialog] = useState<string | null>(null);
   const [expandedAllocs, setExpandedAllocs] = useState<string | null>(null);
@@ -583,22 +597,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search customer, invoice, or reference…"
-              key="submissions-search"
-              value={search}
-              onChange={(e) => {
-                console.log('[change] value:', e.target.value);
-                setSearch(e.target.value);
-              }}
-              onKeyDown={(e) => console.log('[keydown] key:', e.key, 'defaultPrevented:', e.defaultPrevented)}
-              onFocus={() => console.log('[focus] input gained focus')}
-              onBlur={(e) => console.log('[blur] input lost focus, relatedTarget:', e.relatedTarget)}
-              className="pl-9"
-            />
-          </div>
+          <SubmissionsSearchBar onSearch={handleSearch} />
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-full sm:w-[180px]">
               <Filter className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />

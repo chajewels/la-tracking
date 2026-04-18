@@ -1,5 +1,5 @@
 // Payment Proofs — system-wide index sourced from customer payment_submissions
-import { useState, useMemo, memo, type ReactNode } from 'react';
+import { useState, useMemo, useCallback, memo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import AppLayout from '@/components/layout/AppLayout';
@@ -11,12 +11,26 @@ import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { FileText, Search, Eye, Download } from 'lucide-react';
 
+const ProofsSearchBar = memo(function ProofsSearchBar({ onSearch }: { onSearch: (v: string) => void }) {
+  return (
+    <div className="relative w-full max-w-xs">
+      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+      <Input
+        placeholder="Search customer, invoice, sender, reference…"
+        onChange={e => onSearch(e.target.value)}
+        className="pl-8 h-9 text-sm"
+      />
+    </div>
+  );
+});
+
 const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedded?: boolean } = {}) {
   const { roles } = useAuth();
   const isAdmin = (roles as any[]).includes('admin');
   const isFinance = (roles as any[]).includes('finance');
   const isStaff = (roles as any[]).includes('staff');
   const [search, setSearch] = useState('');
+  const handleSearch = useCallback((v: string) => setSearch(v), []);
 
   const { data: proofs, isLoading } = useQuery({
     queryKey: ['submission-proofs-all'],
@@ -70,16 +84,7 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedd
             </h1>
             <p className="text-xs text-muted-foreground mt-1">All proof-of-payment files submitted by customers via the portal.</p>
           </div>
-          <div className="relative w-full max-w-xs">
-            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              placeholder="Search customer, invoice, sender, reference…"
-              key="proofs-search"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="pl-8 h-9 text-sm"
-            />
-          </div>
+          <ProofsSearchBar onSearch={handleSearch} />
         </div>
 
         <div className="rounded-xl border border-border bg-card">

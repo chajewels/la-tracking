@@ -1,5 +1,5 @@
 // Payment Vault
-import { useState, useMemo, memo, type ReactNode } from 'react';
+import { useState, useMemo, useCallback, memo, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import AppLayout from '@/components/layout/AppLayout';
@@ -81,6 +81,23 @@ function typePill(type: string | null, isVoided: boolean) {
   return <Badge variant="outline" className="text-xs">{type || 'Payment'}</Badge>;
 }
 
+// ── Search bar (stable — never remounts) ──────────────────────────────────
+
+const VaultSearchBar = memo(function VaultSearchBar({ onSearch }: { onSearch: (v: string) => void }) {
+  return (
+    <div className="p-3 border-b border-border">
+      <div className="relative">
+        <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+        <Input
+          placeholder="Search name or invoice…"
+          onChange={(e) => onSearch(e.target.value)}
+          className="pl-8 h-8 text-sm"
+        />
+      </div>
+    </div>
+  );
+});
+
 // ── Left panel: customer/invoice list ─────────────────────────────────────
 
 function CustomerList({
@@ -110,18 +127,7 @@ function CustomerList({
 
   return (
     <div className="flex h-full flex-col border-r border-border">
-      <div className="p-3 border-b border-border">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-          <Input
-            key="vault-search"
-            placeholder="Search name or invoice…"
-            value={search}
-            onChange={(e) => onSearch(e.target.value)}
-            className="pl-8 h-8 text-sm"
-          />
-        </div>
-      </div>
+      <VaultSearchBar onSearch={onSearch} />
       <ScrollArea className="flex-1">
         {loading ? (
           <div className="space-y-1 p-2">
@@ -396,6 +402,7 @@ function StatCard({
 const PaymentVault = memo(function PaymentVault({ embedded = false }: { embedded?: boolean } = {}) {
   const { can } = usePermissions();
   const [search, setSearch] = useState('');
+  const handleSearch = useCallback((v: string) => setSearch(v), []);
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
   const [selectedInvoices, setSelectedInvoices] = useState<string[]>([]);
 
@@ -499,7 +506,7 @@ const PaymentVault = memo(function PaymentVault({ embedded = false }: { embedded
             <CustomerList
               items={customerList}
               search={search}
-              onSearch={setSearch}
+              onSearch={handleSearch}
               selected={selectedCustomer}
               onSelect={(name, invoices) => { setSelectedCustomer(name); setSelectedInvoices(invoices); }}
               loading={loadingAll}
