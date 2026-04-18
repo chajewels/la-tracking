@@ -638,6 +638,51 @@ export type Database = {
         }
         Relationships: []
       }
+      keep_fix_audit: {
+        Row: {
+          base_installment_amount: number | null
+          carried_amount: number | null
+          currency: Database["public"]["Enums"]["account_currency"] | null
+          installment_number: number | null
+          invoice_number: string | null
+          paid_amount: number | null
+          penalty_amount: number | null
+          remaining_balance: number | null
+          schedule_id: string | null
+          snapshot_at: string | null
+          status: Database["public"]["Enums"]["schedule_status"] | null
+          total_due_amount: number | null
+        }
+        Insert: {
+          base_installment_amount?: number | null
+          carried_amount?: number | null
+          currency?: Database["public"]["Enums"]["account_currency"] | null
+          installment_number?: number | null
+          invoice_number?: string | null
+          paid_amount?: number | null
+          penalty_amount?: number | null
+          remaining_balance?: number | null
+          schedule_id?: string | null
+          snapshot_at?: string | null
+          status?: Database["public"]["Enums"]["schedule_status"] | null
+          total_due_amount?: number | null
+        }
+        Update: {
+          base_installment_amount?: number | null
+          carried_amount?: number | null
+          currency?: Database["public"]["Enums"]["account_currency"] | null
+          installment_number?: number | null
+          invoice_number?: string | null
+          paid_amount?: number | null
+          penalty_amount?: number | null
+          remaining_balance?: number | null
+          schedule_id?: string | null
+          snapshot_at?: string | null
+          status?: Database["public"]["Enums"]["schedule_status"] | null
+          total_due_amount?: number | null
+        }
+        Relationships: []
+      }
       layaway_accounts: {
         Row: {
           accepted_by_user_id: string | null
