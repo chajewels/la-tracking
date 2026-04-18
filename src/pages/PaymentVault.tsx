@@ -22,6 +22,7 @@ import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import VaultSearchBar from '@/components/search/VaultSearchBar';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -80,23 +81,6 @@ function typePill(type: string | null, isVoided: boolean) {
   if (t.includes('install') || t === 'installment') return <Badge className="text-xs bg-emerald-500/20 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20">Installment</Badge>;
   return <Badge variant="outline" className="text-xs">{type || 'Payment'}</Badge>;
 }
-
-// ── Search bar (stable — never remounts) ──────────────────────────────────
-
-const VaultSearchBar = memo(function VaultSearchBar({ onSearch }: { onSearch: (v: string) => void }) {
-  return (
-    <div className="p-3 border-b border-border">
-      <div className="relative">
-        <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-        <input
-          className="flex h-8 w-full rounded-md border border-input bg-card px-3 py-1 pl-8 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          placeholder="Search name or invoice…"
-          onChange={(e) => onSearch(e.target.value)}
-        />
-      </div>
-    </div>
-  );
-});
 
 // ── Left panel: customer/invoice list ─────────────────────────────────────
 
