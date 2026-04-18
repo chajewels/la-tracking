@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { memo, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
 import { Plus, Search, Eye, MessageCircle, FileText, ChevronRight, ChevronLeft } from 'lucide-react';
@@ -9,8 +9,20 @@ import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { useAccounts } from '@/hooks/use-supabase-data';
-import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { Skeleton } from '@/components/ui/skeleton';
+
+const AccountSearchBar = memo(function AccountSearchBar({ onSearch }: { onSearch: (v: string) => void }) {
+  return (
+    <div className="relative flex-1 min-w-[200px] max-w-sm">
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+      <Input
+        placeholder="Search invoice or customer..."
+        onChange={(e) => onSearch(e.target.value)}
+        className="pl-9 bg-card border-border"
+      />
+    </div>
+  );
+});
 
 const statusStyles: Record<string, string> = {
   active: 'bg-success/10 text-success border-success/20',
@@ -45,27 +57,16 @@ const TEST_INVOICES = new Set([
   'TEST-WAIVER-001', 'TEST-FORFEIT-002', 'TEST-FORFEIT-003'
 ]);
 
-interface AccountListProps {
-  embedded?: boolean;
-  externalSearch?: string;
-  onSearchChange?: (value: string) => void;
-  debouncedSearch?: string;
-}
-
-const AccountList = memo(function AccountList({
-  embedded = false,
-  externalSearch,
-  onSearchChange,
-  debouncedSearch: externalDebouncedSearch,
-}: AccountListProps) {
+const AccountList = memo(function AccountList({ embedded = false }: { embedded?: boolean } = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [internalSearch, setInternalSearch] = useState('');
-  const internalDebouncedSearch = useDebouncedValue(internalSearch, 250);
-
-  const isExternalSearch = embedded && externalSearch !== undefined;
-  const searchValue = isExternalSearch ? externalSearch : internalSearch;
-  const searchHandler = isExternalSearch ? onSearchChange! : setInternalSearch;
-  const effectiveSearch = isExternalSearch ? (externalDebouncedSearch ?? '') : internalDebouncedSearch;
+  const searchRef = useRef('');
+  const [filterTick, setFilterTick] = useState(0);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const handleSearch = useCallback((v: string) => {
+    searchRef.current = v;
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setFilterTick(t => t + 1), 300);
+  }, []);
 
   const [filterCurrency, setFilterCurrency] = useState<Currency | 'all'>('all');
   const [filterStatus, setFilterStatus] = useState<string>(searchParams.get('status') || 'all');
@@ -83,11 +84,12 @@ const AccountList = memo(function AccountList({
   }, [searchParams]);
 
   // Reset page on filter change
-  useEffect(() => { setPage(0); }, [effectiveSearch, filterCurrency, filterStatus, filterPeriod, hideTest]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setPage(0); }, [filterTick, filterCurrency, filterStatus, filterPeriod, hideTest]);
 
   const filtered = useMemo(() => (accounts || []).filter(a => {
-    const matchesSearch = !effectiveSearch || a.invoice_number.includes(effectiveSearch) ||
-      (a.customers?.full_name || '').toLowerCase().includes(effectiveSearch.toLowerCase());
+    const matchesSearch = !searchRef.current || a.invoice_number.includes(searchRef.current) ||
+      (a.customers?.full_name || '').toLowerCase().includes(searchRef.current.toLowerCase());
     const matchesCurrency = filterCurrency === 'all' || a.currency === filterCurrency;
     const todayStr = new Date().toISOString().split('T')[0];
     const matchesStatus = filterStatus === 'all'
@@ -98,7 +100,8 @@ const AccountList = memo(function AccountList({
         : a.status === filterStatus;
     const matchesTest = !hideTest || !TEST_INVOICES.has(a.invoice_number);
     return matchesSearch && matchesCurrency && matchesStatus && matchesTest;
-  }), [accounts, effectiveSearch, filterCurrency, filterStatus, filterPeriod, hideTest]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [accounts, filterTick, filterCurrency, filterStatus, filterPeriod, hideTest]);
 
   const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
@@ -128,15 +131,7 @@ const AccountList = memo(function AccountList({
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3">
-          <div className="relative flex-1 min-w-[200px] max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              value={searchValue}
-              onChange={(e) => searchHandler(e.target.value)}
-              placeholder="Search invoice or customer..."
-              className="pl-9 bg-card border-border"
-            />
-          </div>
+          <AccountSearchBar onSearch={handleSearch} />
           <div className="flex gap-1 rounded-lg border border-border p-1 bg-card overflow-x-auto">
             {statusOptions.map((s) => (
               <button

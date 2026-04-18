@@ -336,11 +336,13 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
     ['pending-submission-count'],
   ]);
   const [statusFilter, setStatusFilter] = useState<string>('pending');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const searchRef = useRef('');
+  const [filterTick, setFilterTick] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   const handleSearch = useCallback((v: string) => {
+    searchRef.current = v;
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setDebouncedSearch(v), 300);
+    debounceRef.current = setTimeout(() => setFilterTick(t => t + 1), 300);
   }, []);
   const [actionDialog, setActionDialog] = useState<{ sub: SubmissionRow; action: string } | null>(null);
   const [proofDialog, setProofDialog] = useState<string | null>(null);
@@ -561,16 +563,17 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
     },
   });
 
-  const filtered = (submissions || []).filter((s) => {
-    if (!debouncedSearch) return true;
-    const q = debouncedSearch.toLowerCase();
+  const filtered = useMemo(() => (submissions || []).filter((s) => {
+    if (!searchRef.current) return true;
+    const q = searchRef.current.toLowerCase();
     return (
       s.customers?.full_name?.toLowerCase().includes(q) ||
       s.layaway_accounts?.invoice_number?.toLowerCase().includes(q) ||
       s.reference_number?.toLowerCase().includes(q) ||
       s.payment_method.toLowerCase().includes(q)
     );
-  });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [submissions, filterTick]);
 
   const pendingCount = (submissions || []).filter(s => ['submitted', 'under_review'].includes(s.status)).length;
 

@@ -401,11 +401,13 @@ function StatCard({
 
 const PaymentVault = memo(function PaymentVault({ embedded = false }: { embedded?: boolean } = {}) {
   const { can } = usePermissions();
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const searchRef = useRef('');
+  const [filterTick, setFilterTick] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   const handleSearch = useCallback((v: string) => {
+    searchRef.current = v;
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setDebouncedSearch(v), 300);
+    debounceRef.current = setTimeout(() => setFilterTick(t => t + 1), 300);
   }, []);
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
   const [selectedInvoices, setSelectedInvoices] = useState<string[]>([]);
@@ -509,7 +511,7 @@ const PaymentVault = memo(function PaymentVault({ embedded = false }: { embedded
           <div className="w-72 shrink-0 overflow-hidden bg-background">
             <CustomerList
               items={customerList}
-              search={debouncedSearch}
+              search={searchRef.current}
               onSearch={handleSearch}
               selected={selectedCustomer}
               onSelect={(name, invoices) => { setSelectedCustomer(name); setSelectedInvoices(invoices); }}

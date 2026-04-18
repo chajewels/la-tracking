@@ -29,11 +29,13 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedd
   const isAdmin = (roles as any[]).includes('admin');
   const isFinance = (roles as any[]).includes('finance');
   const isStaff = (roles as any[]).includes('staff');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const searchRef = useRef('');
+  const [filterTick, setFilterTick] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   const handleSearch = useCallback((v: string) => {
+    searchRef.current = v;
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setDebouncedSearch(v), 300);
+    debounceRef.current = setTimeout(() => setFilterTick(t => t + 1), 300);
   }, []);
 
   const { data: proofs, isLoading } = useQuery({
@@ -51,7 +53,7 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedd
   });
 
   const filtered = useMemo(() => {
-    const q = debouncedSearch.trim().toLowerCase();
+    const q = searchRef.current.trim().toLowerCase();
     if (!q) return proofs || [];
     return (proofs || []).filter((p: any) => {
       const name = p.customers?.full_name || '';
@@ -64,7 +66,8 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedd
         (p.reference_number || '').toLowerCase().includes(q)
       );
     });
-  }, [proofs, debouncedSearch]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proofs, filterTick]);
 
   const Wrapper = embedded ? ({ children }: { children: ReactNode }) => <>{children}</> : AppLayout;
 
