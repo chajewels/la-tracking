@@ -93,6 +93,48 @@ export type Database = {
           },
         ]
       }
+      announcements: {
+        Row: {
+          content: string
+          created_at: string | null
+          created_by: string | null
+          id: string
+          image_url: string | null
+          is_active: boolean | null
+          link_label: string | null
+          link_url: string | null
+          show_once: boolean | null
+          title: string
+          updated_at: string | null
+        }
+        Insert: {
+          content: string
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          image_url?: string | null
+          is_active?: boolean | null
+          link_label?: string | null
+          link_url?: string | null
+          show_once?: boolean | null
+          title: string
+          updated_at?: string | null
+        }
+        Update: {
+          content?: string
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          image_url?: string | null
+          is_active?: boolean | null
+          link_label?: string | null
+          link_url?: string | null
+          show_once?: boolean | null
+          title?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       audit_logs: {
         Row: {
           action: string
@@ -1919,6 +1961,10 @@ export type Database = {
           status: string
         }[]
       }
+      check_duplicate_payment: {
+        Args: { p_account_id: string; p_amount: number; p_date?: string }
+        Returns: Json
+      }
       deactivate_expired_promotions: { Args: never; Returns: undefined }
       delete_email: {
         Args: { message_id: number; queue_name: string }
@@ -1927,6 +1973,10 @@ export type Database = {
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
+      }
+      get_collection_analytics: {
+        Args: { currency_mode?: string; months_back?: number }
+        Returns: Json
       }
       get_forecast_6m: {
         Args: never
@@ -1946,6 +1996,11 @@ export type Database = {
           penalties_jpy: number
         }[]
       }
+      get_monthly_sales: {
+        Args: { currency_mode?: string; months_back?: number }
+        Returns: Json
+      }
+      get_staff_performance: { Args: { months_back?: number }; Returns: Json }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1985,6 +2040,7 @@ export type Database = {
         Args: { p_invoice_number: string }
         Returns: Json
       }
+      validate_bulk_import: { Args: { p_rows: Json }; Returns: Json }
     }
     Enums: {
       account_currency: "PHP" | "JPY"
