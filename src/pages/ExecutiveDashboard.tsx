@@ -6,7 +6,6 @@ import {
 import AppLayout from '@/components/layout/AppLayout';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useAuth } from '@/contexts/AuthContext';
 import {
   useConversionRate,
   usePlanConfigurations,
@@ -17,6 +16,7 @@ import {
   useMonthlyInflowByPlan,
   useActiveByPlan,
   usePlanPerformance,
+  useIsExecAdmin,
 } from '@/hooks/useExecutiveDashboard';
 
 const PLAN_COLORS: Record<number, string> = {
@@ -67,8 +67,7 @@ const ChartTooltip = ({ active, payload, label }: any) => {
 };
 
 export default function ExecutiveDashboard() {
-  const { roles } = useAuth();
-  const isAdmin = (roles as string[]).includes('admin');
+  const { data: isAdmin, isLoading: adminLoading } = useIsExecAdmin();
 
   const { data: rate, isLoading: rateLoading } = useConversionRate();
   const { data: planConfigs } = usePlanConfigurations();
@@ -86,9 +85,9 @@ export default function ExecutiveDashboard() {
     return planConfigs.map(c => c.plan_months);
   }, [planConfigs]);
 
-  const isLoading = rateLoading || accountsLoading || paymentsLoading;
+  const isLoading = adminLoading || rateLoading || accountsLoading || paymentsLoading;
 
-  if (!isAdmin) {
+  if (!adminLoading && !isAdmin) {
     return (
       <AppLayout>
         <div className="flex items-center justify-center h-64 text-muted-foreground">

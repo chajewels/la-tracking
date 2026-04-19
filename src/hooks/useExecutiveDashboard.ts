@@ -4,6 +4,24 @@ import { supabase } from '@/integrations/supabase/client';
 
 const REFRESH_INTERVAL = 30_000;
 
+export function useIsExecAdmin() {
+  return useQuery({
+    queryKey: ['exec-admin-check'],
+    staleTime: 300_000,
+    queryFn: async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return false;
+      const { data: roleData } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', session.user.id)
+        .eq('role', 'admin')
+        .maybeSingle();
+      return !!roleData;
+    },
+  });
+}
+
 interface PlanConfig {
   plan_months: number;
   display_label: string;
