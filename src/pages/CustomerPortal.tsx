@@ -1106,7 +1106,10 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
           },
         }),
       }).catch(() => {});
-    } catch {
+    } catch (err) {
+      console.error('Extension request failed:', err);
+      alert('Failed to submit extension request. Please try again.');
+    } finally {
       setExtSubmitting(false);
     }
   };
