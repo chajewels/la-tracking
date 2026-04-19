@@ -873,6 +873,7 @@ SUPABASE EDGE FUNCTIONS — these auto-deploy when their files change:
 - manual-forfeit
 - auto-forfeit-settlement
 - recalculate-penalties (DISABLED — returns 410)
+- dashboard-summary
 
 All other edge functions still require manual deploy via Cloud Shell.
 Always check .github/workflows/supabase-functions-deploy.yml
