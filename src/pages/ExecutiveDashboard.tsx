@@ -67,8 +67,8 @@ const ChartTooltip = ({ active, payload, label }: any) => {
 };
 
 export default function ExecutiveDashboard() {
-  const { roles } = useAuth();
-  const isAdmin = (roles as string[]).includes('admin');
+  const { user } = useAuth();
+  const isAllowed = user?.email === 'sales@chajewelsjp.com';
   const { data: rate, isLoading: rateLoading } = useConversionRate();
   const { data: planConfigs } = usePlanConfigurations();
   const alerts = useFinancialAlerts();
@@ -87,7 +87,7 @@ export default function ExecutiveDashboard() {
 
   const isLoading = rateLoading || accountsLoading || paymentsLoading;
 
-  if (!isAdmin) {
+  if (!isAllowed) {
     return (
       <AppLayout>
         <div className="flex items-center justify-center h-64 text-muted-foreground">

@@ -39,8 +39,8 @@ const menuItems: { label: string; icon: any; path: string; adminOnly?: boolean }
 
 export default function AppSidebar() {
   const location = useLocation();
-  const { profile, signOut, roles } = useAuth();
-  const isAdmin = (roles as string[]).includes('admin');
+  const { profile, signOut, user } = useAuth();
+  const isExecAllowed = user?.email === 'sales@chajewelsjp.com';
 
   const initials = profile?.full_name
     ? profile.full_name
@@ -66,7 +66,7 @@ export default function AppSidebar() {
 
       <SidebarContent className="px-3 py-4">
         <SidebarMenu>
-          {menuItems.filter(item => !item.adminOnly || isAdmin).map((item) => {
+          {menuItems.filter(item => !item.adminOnly || isExecAllowed).map((item) => {
             const isActive = location.pathname === item.path;
             const Icon = item.icon;
 
