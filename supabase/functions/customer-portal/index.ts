@@ -330,6 +330,7 @@ Deno.serve(async (req) => {
         order_date: acc.order_date,
         payment_plan_months: acc.payment_plan_months,
         status: acc.status,
+        forfeited_at: acc.forfeited_at || null,
         status_label: statusLabel,
         progress_percent: progressPercent,
         paid_installments: paidInstallments,
