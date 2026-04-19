@@ -175,17 +175,22 @@ Deno.serve(async (req) => {
       if (penBatch) allExistingPenalties = allExistingPenalties.concat(penBatch);
     }
 
-    // Build lookup: schedule_id -> Set of "stage:cycle" keys
+    // Build lookup: schedule_id -> Set of "stage:cycle" keys (active penalties only)
+    // Track waived penalty IDs separately so we can UPDATE them to unpaid instead of INSERT
     const existingPenaltyMap = new Map<string, Set<string>>();
     const currentPenaltyTotals = new Map<string, number>();
+    const waivedPenaltyIds = new Map<string, Map<string, string>>();
     for (const p of allExistingPenalties) {
-      // Always register the key to prevent duplicate-key inserts (unique constraint
-      // covers all statuses including waived). Only exclude waived from cap totals.
       const key = `${p.penalty_stage}:${p.penalty_cycle}`;
-      if (!existingPenaltyMap.has(p.schedule_id)) existingPenaltyMap.set(p.schedule_id, new Set());
-      existingPenaltyMap.get(p.schedule_id)!.add(key);
-      if (p.status === "unpaid" || p.status === "paid") {
-        currentPenaltyTotals.set(p.schedule_id, (currentPenaltyTotals.get(p.schedule_id) || 0) + Number(p.penalty_amount));
+      if (p.status === "waived") {
+        if (!waivedPenaltyIds.has(p.schedule_id)) waivedPenaltyIds.set(p.schedule_id, new Map());
+        waivedPenaltyIds.get(p.schedule_id)!.set(key, p.id);
+      } else {
+        if (!existingPenaltyMap.has(p.schedule_id)) existingPenaltyMap.set(p.schedule_id, new Set());
+        existingPenaltyMap.get(p.schedule_id)!.add(key);
+        if (p.status === "unpaid" || p.status === "paid") {
+          currentPenaltyTotals.set(p.schedule_id, (currentPenaltyTotals.get(p.schedule_id) || 0) + Number(p.penalty_amount));
+        }
       }
     }
 
@@ -286,6 +291,7 @@ Deno.serve(async (req) => {
       }
 
       let newPenaltyForItem = 0;
+      const waivedUpdates: Array<{ id: string; penaltyAmount: number; penaltyDate: string }> = [];
 
       for (const trigger of triggerDates) {
         if (now < trigger.date) break;
@@ -304,17 +310,39 @@ Deno.serve(async (req) => {
 
         const penaltyDate = trigger.date.toISOString().split("T")[0];
 
-        penaltiesToInsert.push({
-          account_id: accountId,
-          schedule_id: item.id,
-          currency,
-          penalty_amount: penaltyAmount,
-          penalty_stage: trigger.stage,
-          penalty_cycle: trigger.cycle,
-          penalty_date: penaltyDate,
-        });
+        // Check if a waived penalty occupies this stage:cycle slot
+        const waivedId = waivedPenaltyIds.get(item.id)?.get(key);
+
+        if (waivedId) {
+          // UPDATE the waived row back to unpaid instead of INSERT
+          waivedUpdates.push({ id: waivedId, penaltyAmount, penaltyDate });
+        } else {
+          // Normal INSERT path — no waived row exists at this slot
+          penaltiesToInsert.push({
+            account_id: accountId,
+            schedule_id: item.id,
+            currency,
+            penalty_amount: penaltyAmount,
+            penalty_stage: trigger.stage,
+            penalty_cycle: trigger.cycle,
+            penalty_date: penaltyDate,
+          });
+        }
+
+        // Register key to prevent double-processing within same run
         existingKeys.add(key);
+        if (!existingPenaltyMap.has(item.id)) existingPenaltyMap.set(item.id, new Set());
+        existingPenaltyMap.get(item.id)!.add(key);
         newPenaltyForItem += penaltyAmount;
+      }
+
+      // Execute waived-to-unpaid updates for this item
+      for (const upd of waivedUpdates) {
+        const { error: wErr } = await supabase
+          .from("penalty_fees")
+          .update({ status: "unpaid", waived_at: null, penalty_date: upd.penaltyDate })
+          .eq("id", upd.id);
+        if (wErr) console.error(`[penalty-engine] failed to unwaive ${upd.id}:`, wErr);
       }
 
       if (newPenaltyForItem > 0) {
