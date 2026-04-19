@@ -446,7 +446,7 @@ export default function AccountDetail() {
   );
   const overdueRowIds = new Set(overdueRows.map((r: any) => r.id));
   const hasPenaltiesOnOverdueRows = (penalties || []).some(
-    (p: any) => p.status === 'unpaid' && overdueRowIds.has(p.schedule_id)
+    (p: any) => (p.status === 'unpaid' || p.status === 'waived') && overdueRowIds.has(p.schedule_id)
   );
   const hasOtherUnpaidRows = scheduleItems.some(
     (item: any) =>
