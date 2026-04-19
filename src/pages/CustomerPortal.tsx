@@ -1084,7 +1084,11 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
           status: 'pending',
         }),
       });
-      if (!res.ok) throw new Error('Failed to submit');
+      if (!res.ok) {
+        const errBody = await res.text();
+        console.error('[Extension Request] POST failed:', res.status, errBody);
+        throw new Error(errBody || 'Failed to submit');
+      }
       setExtSubmitted(true);
       setExtPending(true);
       setExtModalOpen(false);
