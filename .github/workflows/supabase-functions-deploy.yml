@@ -16,6 +16,7 @@ on:
       - 'supabase/functions/auto-forfeit-settlement/**'
       - 'supabase/functions/recalculate-penalties/**'
       - 'supabase/functions/submit-payment/**'
+      - 'supabase/functions/dashboard-summary/**'
   workflow_dispatch:
 
 jobs:
@@ -98,5 +99,11 @@ jobs:
       - name: Deploy submit-payment
         if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/submit-payment/')
         run: npx supabase functions deploy submit-payment --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy dashboard-summary
+        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/dashboard-summary/')
+        run: npx supabase functions deploy dashboard-summary --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
