@@ -1143,78 +1143,6 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
           </div>
         )}
 
-        {/* Forfeited Banner + Extension Request */}
-        {isForfeited && (
-          <div className="mt-3" style={{background:'rgba(243,156,18,0.07)',borderLeft:'3px solid #F39C12',padding:'12px'}}>
-            <div className="flex items-start gap-2.5">
-              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" style={{color:'#F39C12'}} />
-              <div style={{flex:1}}>
-                <p style={{fontSize:'12px',fontWeight:600,color:'#F39C12'}}>Account Forfeited</p>
-                <p style={{fontSize:'11px',color:'rgba(243,156,18,0.8)',marginTop:'2px'}}>
-                  Your account has been forfeited. You may request a 1-month extension to complete your payment.
-                </p>
-                {extSubmitted ? (
-                  <p style={{fontSize:'11px',color:'#5CB86A',marginTop:'8px',fontWeight:600}}>
-                    Your extension request has been submitted. We will notify you within 24 hours.
-                  </p>
-                ) : extPending ? (
-                  <button disabled style={{marginTop:'8px',padding:'6px 16px',fontSize:'11px',fontWeight:600,fontFamily:"Inter,sans-serif",
-                    background:'transparent',border:`1px solid rgba(243,156,18,0.3)`,borderRadius:'2px',color:'rgba(243,156,18,0.6)',cursor:'not-allowed',
-                    letterSpacing:'0.08em',textTransform:'uppercase' as const}}>
-                    Extension Request Pending
-                  </button>
-                ) : (
-                  <button onClick={() => setExtModalOpen(true)}
-                    style={{marginTop:'8px',padding:'6px 16px',fontSize:'11px',fontWeight:600,fontFamily:"Inter,sans-serif",
-                      background:'rgba(243,156,18,0.1)',border:`1px solid #F39C12`,borderRadius:'2px',color:'#F39C12',cursor:'pointer',
-                      letterSpacing:'0.08em',textTransform:'uppercase' as const}}>
-                    Request Extension
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Extension Request Modal */}
-        {extModalOpen && (
-          <div style={{position:'fixed',inset:0,zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.6)'}}>
-            <div style={{background:P.s,border:`1px solid ${P.br}`,borderTop:`3px solid ${P.gp}`,borderRadius:'2px',padding:'1.5rem',width:'90%',maxWidth:'380px'}}>
-              <h3 style={{fontFamily:CG,fontSize:'18px',fontWeight:700,color:P.tp,marginBottom:'8px'}}>Request Payment Extension</h3>
-              <p style={{fontSize:'12px',color:P.ts,lineHeight:1.6,marginBottom:'16px'}}>
-                You are requesting a 1-month extension for INV #{account.invoice_number}. Our team will review your request within 24 hours.
-              </p>
-              <label style={{display:'block',fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'6px'}}>
-                Reason for extension (optional)
-              </label>
-              <textarea
-                value={extReason}
-                onChange={e => setExtReason(e.target.value)}
-                rows={3}
-                maxLength={500}
-                placeholder="Tell us why you need an extension..."
-                style={{width:'100%',padding:'8px 12px',fontSize:'12px',fontFamily:"Inter,sans-serif",color:P.tp,background:P.bg,
-                  border:`1px solid ${P.br}`,borderRadius:'2px',resize:'vertical',outline:'none'}}
-              />
-              <div className="flex gap-2 mt-4">
-                <button onClick={() => { setExtModalOpen(false); setExtReason(''); }}
-                  style={{flex:1,padding:'8px',fontSize:'11px',fontWeight:600,fontFamily:"Inter,sans-serif",
-                    background:'transparent',border:`1px solid ${P.br}`,borderRadius:'2px',color:P.ts,cursor:'pointer',
-                    letterSpacing:'0.08em',textTransform:'uppercase' as const}}>
-                  Cancel
-                </button>
-                <button onClick={handleExtensionRequest} disabled={extSubmitting}
-                  style={{flex:1,padding:'8px',fontSize:'11px',fontWeight:600,fontFamily:"Inter,sans-serif",
-                    background:extSubmitting ? P.s2 : P.gr,border:'none',borderRadius:'2px',
-                    color:extSubmitting ? P.ts : P.bg,cursor:extSubmitting ? 'not-allowed' : 'pointer',
-                    letterSpacing:'0.08em',textTransform:'uppercase' as const,opacity:extSubmitting ? 0.5 : 1}}>
-                  {extSubmitting ? 'Submitting…' : 'Submit Request'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         <div className="mt-4 grid grid-cols-2 gap-3">
           <InfoBlock label="Total Amount" value={fmt(account.total_amount, currency)} />
           <InfoBlock label="Remaining Balance" value={fmt(account.remaining_balance, currency)} highlight={isOverdue} />
@@ -1258,6 +1186,38 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
+        {/* Forfeited Banner + Extension Request */}
+        {isForfeited && (
+          <div className="mt-3" style={{background:'rgba(243,156,18,0.07)',borderLeft:'3px solid #F39C12',padding:'12px'}}>
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" style={{color:'#F39C12'}} />
+              <div style={{flex:1}}>
+                <p style={{fontSize:'12px',fontWeight:600,color:'#F39C12'}}>Account Forfeited</p>
+                <p style={{fontSize:'11px',color:'rgba(243,156,18,0.8)',marginTop:'2px'}}>
+                  Your account has been forfeited. You may request a 1-month extension to complete your payment.
+                </p>
+                {extSubmitted ? (
+                  <p style={{fontSize:'11px',color:'#5CB86A',marginTop:'8px',fontWeight:600}}>
+                    Your extension request has been submitted. We will notify you within 24 hours.
+                  </p>
+                ) : extPending ? (
+                  <button disabled style={{marginTop:'8px',padding:'6px 16px',fontSize:'11px',fontWeight:600,fontFamily:"Inter,sans-serif",
+                    background:'transparent',border:`1px solid rgba(243,156,18,0.3)`,borderRadius:'2px',color:'rgba(243,156,18,0.6)',cursor:'not-allowed',
+                    letterSpacing:'0.08em',textTransform:'uppercase' as const}}>
+                    Extension Request Pending
+                  </button>
+                ) : (
+                  <button onClick={() => setExtModalOpen(true)}
+                    style={{marginTop:'8px',padding:'6px 16px',fontSize:'11px',fontWeight:600,fontFamily:"Inter,sans-serif",
+                      background:'rgba(243,156,18,0.1)',border:`1px solid #F39C12`,borderRadius:'2px',color:'#F39C12',cursor:'pointer',
+                      letterSpacing:'0.08em',textTransform:'uppercase' as const}}>
+                    Request Extension
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         {activeTab === 'overview' && (
           <OverviewTab account={account} statementUrl={statementUrl} today={today} />
         )}
@@ -1286,6 +1246,45 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
           <SubmissionsTab submissions={account.submissions || []} currency={currency} portalToken={portalToken} onRefresh={onRefresh} />
         )}
       </div>
+
+      {/* Extension Request Modal */}
+      {extModalOpen && (
+        <div style={{position:'fixed',inset:0,zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.6)'}}>
+          <div style={{background:P.s,border:`1px solid ${P.br}`,borderTop:`3px solid ${P.gp}`,borderRadius:'2px',padding:'1.5rem',width:'90%',maxWidth:'380px'}}>
+            <h3 style={{fontFamily:CG,fontSize:'18px',fontWeight:700,color:P.tp,marginBottom:'8px'}}>Request Payment Extension</h3>
+            <p style={{fontSize:'12px',color:P.ts,lineHeight:1.6,marginBottom:'16px'}}>
+              You are requesting a 1-month extension for INV #{account.invoice_number}. Our team will review your request within 24 hours.
+            </p>
+            <label style={{display:'block',fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'6px'}}>
+              Reason for extension (optional)
+            </label>
+            <textarea
+              value={extReason}
+              onChange={e => setExtReason(e.target.value)}
+              rows={3}
+              maxLength={500}
+              placeholder="Tell us why you need an extension..."
+              style={{width:'100%',padding:'8px 12px',fontSize:'12px',fontFamily:"Inter,sans-serif",color:P.tp,background:P.bg,
+                border:`1px solid ${P.br}`,borderRadius:'2px',resize:'vertical',outline:'none'}}
+            />
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => { setExtModalOpen(false); setExtReason(''); }}
+                style={{flex:1,padding:'8px',fontSize:'11px',fontWeight:600,fontFamily:"Inter,sans-serif",
+                  background:'transparent',border:`1px solid ${P.br}`,borderRadius:'2px',color:P.ts,cursor:'pointer',
+                  letterSpacing:'0.08em',textTransform:'uppercase' as const}}>
+                Cancel
+              </button>
+              <button onClick={handleExtensionRequest} disabled={extSubmitting}
+                style={{flex:1,padding:'8px',fontSize:'11px',fontWeight:600,fontFamily:"Inter,sans-serif",
+                  background:extSubmitting ? P.s2 : P.gr,border:'none',borderRadius:'2px',
+                  color:extSubmitting ? P.ts : P.bg,cursor:extSubmitting ? 'not-allowed' : 'pointer',
+                  letterSpacing:'0.08em',textTransform:'uppercase' as const,opacity:extSubmitting ? 0.5 : 1}}>
+                {extSubmitting ? 'Submitting…' : 'Submit Request'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
