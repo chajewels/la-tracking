@@ -97,7 +97,7 @@ Deno.serve(async (req) => {
     if (currencyWhere) forfeitedQ = forfeitedQ.eq("currency", currencyWhere);
 
     // Forfeited today — accounts forfeited on current date
-    let forfeitedTodayQ = supabase.from("layaway_accounts").select("id").in("status", ["forfeited", "final_forfeited"]).gte("updated_at", today + "T00:00:00").lt("updated_at", today + "T23:59:59.999999");
+    let forfeitedTodayQ = supabase.from("layaway_accounts").select("id").in("status", ["forfeited", "final_forfeited"]).gte("forfeited_at", today + "T00:00:00").lt("forfeited_at", today + "T23:59:59.999999");
     if (currencyWhere) forfeitedTodayQ = forfeitedTodayQ.eq("currency", currencyWhere);
 
     // All-time completed accounts
