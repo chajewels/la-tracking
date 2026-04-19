@@ -1,14 +1,21 @@
-import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
-const REFRESH_INTERVAL = 30_000;
+const INTERVAL = 30_000;
 
-interface PlanConfig {
-  plan_months: number;
-  display_label: string;
-  risk_tier: string;
-  min_amount_jpy: number;
+interface ExecData {
+  portfolioValue: number;
+  grossProfit: { active_gross_profit: number; lifetime_gross_profit: number } | null;
+  monthlyInflow: { installment_inflow: number; penalty_inflow: number; total_inflow: number } | null;
+  netExposure: { gross_exposure: number; dp_retained: number; penalties_collected: number; estimated_resale: number; net_exposure: number } | null;
+  coverageRatio: { cash_in: number; inventory_cost: number; coverage_ratio: number; status_label: string } | null;
+  atRisk: { total_at_risk: number; critical_count: number; active_total: number; at_risk_pct: number } | null;
+  atRiskDetail: any[];
+  penaltyRevenue: { current_month_jpy: number; cumulative_jpy: number } | null;
+  planPerformance: any[];
+  cohortTimeline: any[];
+  lastUpdated: Date;
+  loading: boolean;
 }
 
 interface FinancialAlert {
@@ -18,40 +25,154 @@ interface FinancialAlert {
   created_at: string;
 }
 
-function toJpyWithRate(amount: number, currency: string, rate: number): number {
-  if (currency === 'JPY') return Math.round(amount);
-  return Math.round(amount / rate);
+export function useExecutiveDashboard(): ExecData {
+  const [data, setData] = useState<ExecData>({
+    portfolioValue: 0,
+    grossProfit: null,
+    monthlyInflow: null,
+    netExposure: null,
+    coverageRatio: null,
+    atRisk: null,
+    atRiskDetail: [],
+    penaltyRevenue: null,
+    planPerformance: [],
+    cohortTimeline: [],
+    lastUpdated: new Date(),
+    loading: true,
+  });
+
+  const fetchAll = useCallback(async () => {
+    try {
+      const [
+        pv, gp, mi, ne, cr, ar, ard, pr, pp, ct,
+      ] = await Promise.all([
+        supabase.rpc('fc_portfolio_value' as any),
+        supabase.rpc('fc_gross_profit' as any),
+        supabase.rpc('fc_monthly_inflow' as any),
+        supabase.rpc('fc_net_exposure_risk' as any),
+        supabase.rpc('fc_coverage_ratio' as any),
+        supabase.rpc('fc_at_risk_accounts' as any),
+        supabase.rpc('fc_at_risk_detail' as any),
+        supabase.rpc('fc_penalty_revenue' as any),
+        supabase.rpc('fc_plan_performance' as any),
+        supabase.rpc('fc_cohort_timeline' as any),
+      ]);
+
+      setData({
+        portfolioValue: Number(pv.data) || 0,
+        grossProfit: gp.data as any,
+        monthlyInflow: mi.data as any,
+        netExposure: ne.data as any,
+        coverageRatio: cr.data as any,
+        atRisk: ar.data as any,
+        atRiskDetail: Array.isArray(ard.data) ? ard.data : [],
+        penaltyRevenue: pr.data as any,
+        planPerformance: Array.isArray(pp.data) ? pp.data : [],
+        cohortTimeline: Array.isArray(ct.data) ? ct.data : [],
+        lastUpdated: new Date(),
+        loading: false,
+      });
+    } catch (err) {
+      console.error('[ExecDashboard] fetch error:', err);
+      setData(prev => ({ ...prev, loading: false }));
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAll();
+    const id = setInterval(fetchAll, INTERVAL);
+    return () => clearInterval(id);
+  }, [fetchAll]);
+
+  return data;
 }
 
-export function useConversionRate() {
-  return useQuery({
-    queryKey: ['exec-php-jpy-rate'],
-    staleTime: 60_000,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('system_settings')
-        .select('value')
-        .eq('key', 'php_jpy_rate')
-        .single();
-      if (error) throw error;
-      return Number(JSON.parse(String(data.value)));
-    },
-  });
+export function useMonthlyInflowByPlan() {
+  const [data, setData] = useState<any[]>([]);
+
+  const fetch = useCallback(async () => {
+    const now = new Date();
+    const sixAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    const startDate = sixAgo.toISOString().split('T')[0];
+
+    const { data: rows } = await supabase
+      .from('payments')
+      .select('amount_paid, date_paid, currency, layaway_accounts!inner(payment_plan_months, invoice_number)')
+      .is('voided_at', null)
+      .gte('date_paid', startDate)
+      .not('layaway_accounts.invoice_number', 'like', 'TEST-%');
+
+    if (!rows) { setData([]); return; }
+
+    const { data: rateRow } = await supabase
+      .from('system_settings')
+      .select('value')
+      .eq('key', 'php_jpy_rate')
+      .single();
+    const rate = rateRow ? Number(JSON.parse(String(rateRow.value))) : 0.42;
+
+    const buckets = new Map<string, Map<number, number>>();
+    for (const p of rows as any[]) {
+      const month = p.date_paid.substring(0, 7);
+      const plan = p.layaway_accounts?.payment_plan_months ?? 0;
+      const jpy = p.currency === 'JPY' ? Number(p.amount_paid) : Math.round(Number(p.amount_paid) / rate);
+      if (!buckets.has(month)) buckets.set(month, new Map());
+      const m = buckets.get(month)!;
+      m.set(plan, (m.get(plan) || 0) + jpy);
+    }
+
+    setData(
+      [...buckets.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([month, planMap]) => {
+          const d = new Date(month + '-01');
+          const label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+          const row: Record<string, any> = { label };
+          for (const [plan, amount] of planMap) row[`plan_${plan}`] = amount;
+          return row;
+        })
+    );
+  }, []);
+
+  useEffect(() => {
+    fetch();
+    const id = setInterval(fetch, INTERVAL);
+    return () => clearInterval(id);
+  }, [fetch]);
+
+  return data;
 }
 
-export function usePlanConfigurations() {
-  return useQuery<PlanConfig[]>({
-    queryKey: ['exec-plan-configs'],
-    staleTime: 300_000,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('plan_configurations' as any)
-        .select('plan_months, display_label, risk_tier, min_amount_jpy')
-        .order('plan_months', { ascending: true });
-      if (error) throw error;
-      return (data || []) as PlanConfig[];
-    },
-  });
+export function useActiveByPlan() {
+  const [data, setData] = useState<{ plan: number; count: number; pct: number }[]>([]);
+
+  const fetch = useCallback(async () => {
+    const { data: rows } = await supabase
+      .from('layaway_accounts')
+      .select('payment_plan_months')
+      .in('status', ['active', 'overdue'])
+      .not('invoice_number', 'like', 'TEST-%');
+
+    if (!rows) { setData([]); return; }
+
+    const counts = new Map<number, number>();
+    for (const r of rows) counts.set(r.payment_plan_months, (counts.get(r.payment_plan_months) || 0) + 1);
+    const total = rows.length || 1;
+
+    setData(
+      [...counts.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([plan, count]) => ({ plan, count, pct: Math.round((count / total) * 100) }))
+    );
+  }, []);
+
+  useEffect(() => {
+    fetch();
+    const id = setInterval(fetch, INTERVAL);
+    return () => clearInterval(id);
+  }, [fetch]);
+
+  return data;
 }
 
 export function useFinancialAlerts() {
@@ -79,163 +200,4 @@ export function useFinancialAlerts() {
   }, []);
 
   return alerts;
-}
-
-export function useActiveAccounts(rate: number | undefined) {
-  return useQuery({
-    queryKey: ['exec-active-accounts'],
-    enabled: rate != null,
-    refetchInterval: REFRESH_INTERVAL,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('layaway_accounts')
-        .select('id, currency, total_amount, remaining_balance, payment_plan_months, status')
-        .in('status', ['active', 'overdue', 'extension_active', 'final_settlement', 'forfeited'])
-        .not('invoice_number', 'like', 'TEST-%');
-      if (error) throw error;
-      return data || [];
-    },
-  });
-}
-
-export function useMonthlyPayments(rate: number | undefined) {
-  return useQuery({
-    queryKey: ['exec-monthly-payments'],
-    enabled: rate != null,
-    refetchInterval: REFRESH_INTERVAL,
-    queryFn: async () => {
-      const now = new Date();
-      const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-      const startDate = sixMonthsAgo.toISOString().split('T')[0];
-
-      const { data, error } = await supabase
-        .from('payments')
-        .select('amount_paid, date_paid, currency, account_id, layaway_accounts!inner(payment_plan_months, invoice_number)')
-        .is('voided_at', null)
-        .gte('date_paid', startDate)
-        .not('layaway_accounts.invoice_number', 'like', 'TEST-%');
-      if (error) throw error;
-      return (data || []) as any[];
-    },
-  });
-}
-
-export function useKPIs(
-  accounts: any[] | undefined,
-  payments: any[] | undefined,
-  rate: number | undefined,
-) {
-  if (!accounts || !rate) {
-    return { portfolioValue: 0, grossProfit: 0, monthlyInflow: 0, netExposure: 0 };
-  }
-
-  const activeOnly = accounts.filter(a => a.status === 'active' || a.status === 'overdue');
-  const exposureStatuses = ['active', 'overdue', 'forfeited', 'extension_active', 'final_settlement'];
-  const exposureAccounts = accounts.filter(a => exposureStatuses.includes(a.status));
-
-  const portfolioValue = activeOnly.reduce(
-    (s, a) => s + toJpyWithRate(Number(a.remaining_balance), a.currency, rate), 0
-  );
-  const grossProfit = Math.round(
-    activeOnly.reduce((s, a) => s + toJpyWithRate(Number(a.total_amount), a.currency, rate), 0) * 0.15
-  );
-  const netExposure = exposureAccounts.reduce(
-    (s, a) => s + toJpyWithRate(Number(a.remaining_balance), a.currency, rate), 0
-  );
-
-  const now = new Date();
-  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-  const monthlyInflow = (payments || [])
-    .filter(p => p.date_paid >= monthStart)
-    .reduce((s, p) => s + toJpyWithRate(Number(p.amount_paid), p.currency, rate), 0);
-
-  return { portfolioValue, grossProfit, monthlyInflow, netExposure };
-}
-
-export function useMonthlyInflowByPlan(
-  payments: any[] | undefined,
-  rate: number | undefined,
-) {
-  if (!payments || !rate) return [];
-
-  const buckets = new Map<string, Map<number, number>>();
-
-  for (const p of payments) {
-    const month = p.date_paid.substring(0, 7);
-    const planMonths = (p.layaway_accounts as any)?.payment_plan_months ?? 0;
-    if (!buckets.has(month)) buckets.set(month, new Map());
-    const planMap = buckets.get(month)!;
-    planMap.set(planMonths, (planMap.get(planMonths) || 0) + toJpyWithRate(Number(p.amount_paid), p.currency, rate));
-  }
-
-  return [...buckets.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([month, planMap]) => {
-      const d = new Date(month + '-01');
-      const label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-      const row: Record<string, any> = { label };
-      for (const [plan, amount] of planMap) {
-        row[`plan_${plan}`] = amount;
-      }
-      return row;
-    });
-}
-
-export function useActiveByPlan(accounts: any[] | undefined) {
-  if (!accounts) return [];
-  const activeOnly = accounts.filter(a => a.status === 'active' || a.status === 'overdue');
-  const counts = new Map<number, number>();
-  for (const a of activeOnly) {
-    const pm = a.payment_plan_months || 0;
-    counts.set(pm, (counts.get(pm) || 0) + 1);
-  }
-  const total = activeOnly.length || 1;
-  return [...counts.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([plan, count]) => ({
-      plan,
-      count,
-      pct: Math.round((count / total) * 100),
-    }));
-}
-
-export function usePlanPerformance(
-  accounts: any[] | undefined,
-  payments: any[] | undefined,
-  planConfigs: PlanConfig[] | undefined,
-  rate: number | undefined,
-) {
-  if (!accounts || !planConfigs || !rate) return [];
-
-  const now = new Date();
-  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-  const activeOnly = accounts.filter(a => a.status === 'active' || a.status === 'overdue');
-
-  return planConfigs.map(cfg => {
-    const planAccounts = activeOnly.filter(a => a.payment_plan_months === cfg.plan_months);
-    const count = planAccounts.length;
-    const portfolio = planAccounts.reduce(
-      (s, a) => s + toJpyWithRate(Number(a.remaining_balance), a.currency, rate), 0
-    );
-    const totalAmount = planAccounts.reduce(
-      (s, a) => s + toJpyWithRate(Number(a.total_amount), a.currency, rate), 0
-    );
-    const avgTicket = count > 0 ? Math.round(totalAmount / count) : 0;
-    const grossProfit = Math.round(totalAmount * 0.15);
-    const monthlyInflow = (payments || [])
-      .filter(p => {
-        const pm = (p.layaway_accounts as any)?.payment_plan_months;
-        return pm === cfg.plan_months && p.date_paid >= monthStart;
-      })
-      .reduce((s, p) => s + toJpyWithRate(Number(p.amount_paid), p.currency, rate), 0);
-
-    return {
-      ...cfg,
-      count,
-      portfolio,
-      avgTicket,
-      monthlyInflow,
-      grossProfit,
-    };
-  });
 }

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell,
@@ -6,33 +6,15 @@ import {
 import AppLayout from '@/components/layout/AppLayout';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useAuth } from '@/contexts/AuthContext';
 import {
-  useConversionRate,
-  usePlanConfigurations,
-  useFinancialAlerts,
-  useActiveAccounts,
-  useMonthlyPayments,
-  useKPIs,
+  useExecutiveDashboard,
   useMonthlyInflowByPlan,
   useActiveByPlan,
-  usePlanPerformance,
+  useFinancialAlerts,
 } from '@/hooks/useExecutiveDashboard';
 
-const PLAN_COLORS: Record<number, string> = {
-  3: '#888780',
-  6: '#378ADD',
-  8: '#1D9E75',
-  10: '#EF9F27',
-  12: '#D85A30',
-};
-
-const RISK_STYLES: Record<string, string> = {
-  LOW: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
-  MODERATE: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
-  HIGH: 'bg-red-500/10 text-red-500 border-red-500/20',
-  CRITICAL: 'bg-red-900/20 text-red-400 border-red-700/40',
-};
+const PLAN_COLORS: Record<number, string> = { 3: '#888780', 6: '#378ADD', 8: '#1D9E75', 10: '#EF9F27', 12: '#D85A30' };
+const PLAN_KEYS = [3, 6, 8, 10, 12];
 
 const SEVERITY_STYLES: Record<string, { bg: string; dot: string }> = {
   critical: { bg: 'bg-red-500/10 border-red-500/30 text-red-400', dot: 'bg-red-500' },
@@ -40,14 +22,25 @@ const SEVERITY_STYLES: Record<string, { bg: string; dot: string }> = {
   info: { bg: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400', dot: 'bg-emerald-500' },
 };
 
-function fmtJpy(v: number): string {
+const RISK_BADGE: Record<string, string> = {
+  LOW: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
+  MODERATE: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
+  HIGH: 'bg-red-500/10 text-red-500 border-red-500/20',
+  CRITICAL: 'bg-red-900/20 text-red-400 border-red-700/40',
+};
+
+function fmtM(v: number): string {
   if (Math.abs(v) >= 1_000_000) return `¥${(v / 1_000_000).toFixed(1)}M`;
   if (Math.abs(v) >= 1_000) return `¥${Math.round(v / 1_000).toLocaleString()}K`;
   return `¥${Math.round(v).toLocaleString()}`;
 }
 
-function fmtJpyFull(v: number): string {
+function fmtFull(v: number): string {
   return '¥' + Math.round(v).toLocaleString();
+}
+
+function fmtTime(d: Date): string {
+  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 const ChartTooltip = ({ active, payload, label }: any) => {
@@ -59,7 +52,7 @@ const ChartTooltip = ({ active, payload, label }: any) => {
         <div key={p.dataKey} className="flex items-center gap-2 py-0.5">
           <span className="inline-block h-2 w-2 rounded-full" style={{ background: p.fill }} />
           <span className="text-zinc-400">{p.dataKey.replace('plan_', '')}M:</span>
-          <span className="text-zinc-100 tabular-nums font-medium">{fmtJpyFull(p.value)}</span>
+          <span className="text-zinc-100 tabular-nums font-medium">{fmtFull(p.value)}</span>
         </div>
       ))}
     </div>
@@ -67,39 +60,22 @@ const ChartTooltip = ({ active, payload, label }: any) => {
 };
 
 export default function ExecutiveDashboard() {
-  const { user } = useAuth();
-  const isAllowed = user?.email === 'sales@chajewelsjp.com';
-  const { data: rate, isLoading: rateLoading } = useConversionRate();
-  const { data: planConfigs } = usePlanConfigurations();
+  const d = useExecutiveDashboard();
+  const inflowData = useMonthlyInflowByPlan();
+  const donutData = useActiveByPlan();
   const alerts = useFinancialAlerts();
-  const { data: accounts, isLoading: accountsLoading } = useActiveAccounts(rate);
-  const { data: payments, isLoading: paymentsLoading } = useMonthlyPayments(rate);
+  const [riskOpen, setRiskOpen] = useState(false);
 
-  const kpis = useKPIs(accounts, payments, rate);
-  const inflowData = useMonthlyInflowByPlan(payments, rate);
-  const donutData = useActiveByPlan(accounts);
-  const planPerf = usePlanPerformance(accounts, payments, planConfigs, rate);
+  const coverageColor = d.coverageRatio?.status_label === 'HEALTHY' ? 'border-emerald-500' :
+    d.coverageRatio?.status_label === 'WATCH' ? 'border-amber-500' : 'border-red-500';
+  const coverageLabelColor = d.coverageRatio?.status_label === 'HEALTHY' ? 'text-emerald-500' :
+    d.coverageRatio?.status_label === 'WATCH' ? 'text-amber-500' : 'text-red-500';
 
-  const planKeys = useMemo(() => {
-    if (!planConfigs) return [3, 6, 8, 10, 12];
-    return planConfigs.map(c => c.plan_months);
-  }, [planConfigs]);
-
-  const isLoading = rateLoading || accountsLoading || paymentsLoading;
-
-  if (!isAllowed) {
-    return (
-      <AppLayout>
-        <div className="flex items-center justify-center h-64 text-muted-foreground">
-          Access denied — admin only
-        </div>
-      </AppLayout>
-    );
-  }
+  const recovered = (d.netExposure?.dp_retained ?? 0) + (d.netExposure?.penalties_collected ?? 0) + (d.netExposure?.estimated_resale ?? 0);
 
   return (
     <AppLayout>
-      <div className="animate-fade-in space-y-6">
+      <div className="animate-fade-in space-y-5">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
@@ -107,13 +83,12 @@ export default function ExecutiveDashboard() {
             <p className="text-sm text-muted-foreground mt-0.5">Live data · Read only</p>
           </div>
           <div className="flex items-center gap-3">
+            <span className="text-[10px] text-muted-foreground tabular-nums">Updated {fmtTime(d.lastUpdated)}</span>
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              Live · refreshes every 30s
+              Live · 30s
             </div>
-            <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-400 bg-amber-500/10">
-              CEO / CFO access only
-            </Badge>
+            <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-400 bg-amber-500/10">CEO / CFO</Badge>
           </div>
         </div>
 
@@ -132,79 +107,127 @@ export default function ExecutiveDashboard() {
           </div>
         )}
 
-        {/* KPI Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {isLoading ? (
-            [...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
-          ) : (
-            <>
-              <KPICard label="Portfolio Value" value={fmtJpy(kpis.portfolioValue)} />
-              <KPICard label="Gross Profit (15%)" value={fmtJpy(kpis.grossProfit)} />
-              <KPICard label="Monthly Inflow" value={fmtJpy(kpis.monthlyInflow)} />
-              <KPICard label="Net Exposure Risk" value={fmtJpy(kpis.netExposure)} danger />
-            </>
-          )}
-        </div>
+        {/* KPI Row 1 */}
+        {d.loading ? (
+          <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+            {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+            <KPI label="Portfolio Value" value={fmtM(d.portfolioValue)} sub="Active accounts only" />
+            <KPI label="Active Gross Profit" value={fmtM(d.grossProfit?.active_gross_profit ?? 0)} sub="15% on active portfolio" />
+            <KPI label="Lifetime Gross Profit" value={fmtM(d.grossProfit?.lifetime_gross_profit ?? 0)} sub="15% on all-time contracts" />
+            <KPI label="Monthly Inflow" value={fmtM(d.monthlyInflow?.total_inflow ?? 0)}
+              sub={`Installments ${fmtM(d.monthlyInflow?.installment_inflow ?? 0)} · Penalties ${fmtM(d.monthlyInflow?.penalty_inflow ?? 0)}`} />
+            <KPI label="Net Exposure Risk" value={fmtM(d.netExposure?.net_exposure ?? 0)} danger
+              sub={`${fmtM(d.netExposure?.gross_exposure ?? 0)} gross · ${fmtM(recovered)} recovered`} />
+            <div className={`relative overflow-hidden rounded-xl border bg-card p-4 sm:p-5 border-l-[3px] ${coverageColor}`}>
+              <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider pl-2">Cash Flow Coverage</p>
+              <p className="text-xl sm:text-2xl font-bold font-display tabular-nums pl-2 mt-1">{(d.coverageRatio?.coverage_ratio ?? 0).toFixed(2)}×</p>
+              <p className={`text-[10px] pl-2 font-semibold uppercase tracking-wider ${coverageLabelColor}`}>{d.coverageRatio?.status_label ?? '—'}</p>
+            </div>
+          </div>
+        )}
+
+        {/* KPI Row 2 */}
+        {!d.loading && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* At-Risk */}
+            <div className="rounded-xl border border-border bg-card p-5 cursor-pointer hover:border-primary/30 transition-colors" onClick={() => setRiskOpen(!riskOpen)}>
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">At-Risk Accounts</p>
+              <p className="text-2xl font-bold font-display tabular-nums mt-1">{d.atRisk?.total_at_risk ?? 0} <span className="text-sm font-normal text-muted-foreground">accounts</span></p>
+              <p className="text-xs text-muted-foreground">{(d.atRisk?.at_risk_pct ?? 0).toFixed(1)}% of active accounts</p>
+              {(d.atRisk?.critical_count ?? 0) > 0 && <p className="text-xs text-destructive font-medium mt-0.5">{d.atRisk!.critical_count} critical</p>}
+              <p className="text-[9px] text-muted-foreground mt-1">{riskOpen ? 'Click to collapse ▲' : 'Click to expand ▼'}</p>
+            </div>
+            {/* Penalty Revenue */}
+            <KPI label="Penalty Revenue (This Month)" value={fmtFull(d.penaltyRevenue?.current_month_jpy ?? 0)}
+              sub={`${fmtFull(d.penaltyRevenue?.cumulative_jpy ?? 0)} cumulative all-time`} />
+          </div>
+        )}
+
+        {/* At-Risk Drill-down */}
+        {riskOpen && d.atRiskDetail.length > 0 && (
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="px-5 py-2.5 bg-muted/30 border-b border-border">
+              <h3 className="text-xs font-semibold text-card-foreground">At-Risk Account Detail</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left px-4 py-2 font-semibold text-muted-foreground">Invoice</th>
+                    <th className="text-left px-4 py-2 font-semibold text-muted-foreground">Plan</th>
+                    <th className="text-right px-4 py-2 font-semibold text-muted-foreground">Overdue Days</th>
+                    <th className="text-right px-4 py-2 font-semibold text-muted-foreground">Penalties</th>
+                    <th className="text-right px-4 py-2 font-semibold text-muted-foreground">Outstanding ¥</th>
+                    <th className="text-center px-4 py-2 font-semibold text-muted-foreground">Risk Level</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...d.atRiskDetail].sort((a: any, b: any) => (b.overdue_days ?? 0) - (a.overdue_days ?? 0)).map((r: any, i: number) => (
+                    <tr key={i} className="border-b border-border/50 hover:bg-muted/20">
+                      <td className="px-4 py-2 font-mono text-foreground">#{r.invoice_number}</td>
+                      <td className="px-4 py-2 text-muted-foreground">{r.plan_months}M</td>
+                      <td className="px-4 py-2 text-right tabular-nums text-foreground">{r.overdue_days ?? 0}</td>
+                      <td className="px-4 py-2 text-right tabular-nums text-foreground">{fmtFull(r.penalty_total ?? 0)}</td>
+                      <td className="px-4 py-2 text-right tabular-nums text-foreground">{fmtFull(r.outstanding_jpy ?? 0)}</td>
+                      <td className="px-4 py-2 text-center">
+                        <Badge variant="outline" className={`text-[9px] ${r.risk_level === 'CRITICAL' ? RISK_BADGE.CRITICAL : RISK_BADGE.MODERATE}`}>
+                          {r.risk_level}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          {/* Stacked Bar */}
           <div className="lg:col-span-3 rounded-xl border border-border bg-card p-5">
             <h3 className="text-sm font-semibold text-card-foreground mb-1">Monthly Inflow by Plan — Last 6 Months</h3>
             <div className="flex flex-wrap gap-4 mb-4 mt-2">
-              {planKeys.map(pm => (
+              {PLAN_KEYS.map(pm => (
                 <div key={pm} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: PLAN_COLORS[pm] || '#888' }} />
+                  <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: PLAN_COLORS[pm] }} />
                   {pm}M
                 </div>
               ))}
             </div>
-            {isLoading ? (
-              <Skeleton className="h-[280px] w-full rounded-lg" />
+            {inflowData.length === 0 ? (
+              <div className="flex items-center justify-center h-[280px] text-muted-foreground text-sm">Loading...</div>
             ) : (
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={inflowData} margin={{ top: 8, right: 4, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                   <XAxis dataKey="label" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis tickFormatter={fmtJpy} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} axisLine={false} tickLine={false} width={56} />
+                  <YAxis tickFormatter={fmtM} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} axisLine={false} tickLine={false} width={56} />
                   <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-                  {planKeys.map(pm => (
-                    <Bar key={pm} dataKey={`plan_${pm}`} stackId="inflow" fill={PLAN_COLORS[pm] || '#888'} radius={pm === planKeys[planKeys.length - 1] ? [3, 3, 0, 0] : [0, 0, 0, 0]} />
+                  {PLAN_KEYS.map((pm, i) => (
+                    <Bar key={pm} dataKey={`plan_${pm}`} stackId="inflow" fill={PLAN_COLORS[pm]}
+                      radius={i === PLAN_KEYS.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]} />
                   ))}
                 </BarChart>
               </ResponsiveContainer>
             )}
           </div>
 
-          {/* Donut */}
           <div className="lg:col-span-2 rounded-xl border border-border bg-card p-5">
             <h3 className="text-sm font-semibold text-card-foreground mb-4">Active Accounts by Plan</h3>
-            {isLoading ? (
-              <Skeleton className="h-[200px] w-full rounded-lg" />
-            ) : donutData.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-12">No active accounts</p>
+            {donutData.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-12">No data</p>
             ) : (
               <>
                 <ResponsiveContainer width="100%" height={200}>
                   <PieChart>
-                    <Pie
-                      data={donutData}
-                      dataKey="count"
-                      nameKey="plan"
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={55}
-                      outerRadius={85}
-                      paddingAngle={2}
-                    >
-                      {donutData.map((d, i) => (
-                        <Cell key={i} fill={PLAN_COLORS[d.plan] || '#888'} />
-                      ))}
+                    <Pie data={donutData} dataKey="count" nameKey="plan" cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={2}>
+                      {donutData.map((entry, i) => <Cell key={i} fill={PLAN_COLORS[entry.plan] || '#888'} />)}
                     </Pie>
-                    <Tooltip
-                      formatter={(value: number, name: string) => [`${value} accounts`, `${name}M`]}
-                      contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }}
-                    />
+                    <Tooltip formatter={(v: number, name: string) => [`${v} accounts`, `${name}M`]}
+                      contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="flex flex-wrap justify-center gap-x-4 gap-y-1.5 mt-3">
@@ -225,67 +248,105 @@ export default function ExecutiveDashboard() {
           <div className="px-5 py-3 border-b border-border bg-muted/30">
             <h3 className="text-sm font-semibold text-card-foreground">Plan Performance</h3>
           </div>
-          {isLoading ? (
-            <div className="p-4 space-y-2">
-              {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
-            </div>
+          {d.planPerformance.length === 0 ? (
+            <div className="p-4 space-y-2">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border">
-                    <th className="text-left px-5 py-2.5 font-semibold text-muted-foreground uppercase">Plan</th>
-                    <th className="text-right px-5 py-2.5 font-semibold text-muted-foreground uppercase">Accounts</th>
-                    <th className="text-right px-5 py-2.5 font-semibold text-muted-foreground uppercase">Portfolio ¥</th>
-                    <th className="text-right px-5 py-2.5 font-semibold text-muted-foreground uppercase">Avg Ticket</th>
-                    <th className="text-right px-5 py-2.5 font-semibold text-muted-foreground uppercase">Monthly Inflow</th>
-                    <th className="text-right px-5 py-2.5 font-semibold text-muted-foreground uppercase">Gross Profit</th>
-                    <th className="text-center px-5 py-2.5 font-semibold text-muted-foreground uppercase">Risk Tier</th>
+                    {['Plan', 'Accounts', 'Portfolio ¥', 'Avg Ticket', 'Monthly Inflow', 'Gross Profit', 'Default Rate', 'Risk Tier'].map(h => (
+                      <th key={h} className={`px-5 py-2.5 font-semibold text-muted-foreground uppercase ${h === 'Plan' || h === 'Risk Tier' ? 'text-left' : 'text-right'} ${h === 'Risk Tier' ? 'text-center' : ''}`}>{h}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {(planPerf || []).map(row => (
-                    <tr key={row.plan_months} className="border-b border-border/50 hover:bg-muted/20">
-                      <td className="px-5 py-3 font-medium text-foreground">{row.display_label}</td>
-                      <td className="px-5 py-3 text-right tabular-nums text-foreground">{row.count > 0 ? row.count : '—'}</td>
-                      <td className="px-5 py-3 text-right tabular-nums text-foreground">{row.count > 0 ? fmtJpyFull(row.portfolio) : '—'}</td>
-                      <td className="px-5 py-3 text-right tabular-nums">
-                        {row.count > 0 ? (
-                          <span className="text-foreground">{fmtJpyFull(row.avgTicket)}</span>
-                        ) : (
-                          <span className="text-muted-foreground">Min {fmtJpyFull(row.min_amount_jpy)}</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-3 text-right tabular-nums text-foreground">{row.count > 0 ? fmtJpyFull(row.monthlyInflow) : '—'}</td>
-                      <td className="px-5 py-3 text-right tabular-nums text-foreground">{row.count > 0 ? fmtJpyFull(row.grossProfit) : '—'}</td>
-                      <td className="px-5 py-3 text-center">
-                        <Badge variant="outline" className={`text-[9px] ${RISK_STYLES[row.risk_tier] || RISK_STYLES.MODERATE}`}>
-                          {row.risk_tier}
-                        </Badge>
-                      </td>
-                    </tr>
-                  ))}
+                  {d.planPerformance.map((row: any) => {
+                    const hasAccounts = (row.account_count ?? 0) > 0;
+                    const muted = 'text-muted-foreground';
+                    return (
+                      <tr key={row.plan_months} className="border-b border-border/50 hover:bg-muted/20">
+                        <td className="px-5 py-3 font-medium text-foreground">{row.display_label}</td>
+                        <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? row.account_count : <span className={muted}>—</span>}</td>
+                        <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? fmtFull(row.portfolio_jpy ?? 0) : <span className={muted}>—</span>}</td>
+                        <td className="px-5 py-3 text-right tabular-nums">
+                          {hasAccounts ? <span className="text-foreground">{fmtFull(row.avg_ticket_jpy ?? 0)}</span> : <span className={muted}>Min {fmtFull(row.min_amount_jpy ?? 0)}</span>}
+                        </td>
+                        <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? fmtFull(row.monthly_inflow_jpy ?? 0) : <span className={muted}>—</span>}</td>
+                        <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? fmtFull(row.gross_profit_jpy ?? 0) : <span className={muted}>—</span>}</td>
+                        <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? `${(row.default_rate ?? 0).toFixed(1)}%` : <span className={muted}>—</span>}</td>
+                        <td className="px-5 py-3 text-center">
+                          <Badge variant="outline" className={`text-[9px] ${RISK_BADGE[row.risk_tier] || RISK_BADGE.MODERATE}`}>{row.risk_tier}</Badge>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
           <p className="px-5 py-2.5 text-[10px] text-muted-foreground border-t border-border">
-            8M, 10M, and 12M rows populate automatically when first accounts are enrolled. All figures in JPY.
+            8M, 10M and 12M rows populate automatically when first accounts are enrolled. All figures in JPY.
           </p>
         </div>
+
+        {/* Cohort Timeline */}
+        {d.cohortTimeline.length > 0 && (
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="px-5 py-3 border-b border-border bg-muted/30">
+              <h3 className="text-sm font-semibold text-card-foreground">Cohort Performance Timeline</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border">
+                    {['Cohort Month', 'Plan', 'Accounts', 'Contract ¥', 'Expected', 'Collected', 'Collection Rate', 'Delinquent'].map(h => (
+                      <th key={h} className={`px-4 py-2.5 font-semibold text-muted-foreground uppercase ${['Cohort Month', 'Plan'].includes(h) ? 'text-left' : 'text-right'} ${h === 'Collection Rate' ? 'text-center' : ''}`}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.cohortTimeline.map((row: any, i: number) => {
+                    const rate = row.collection_rate ?? 0;
+                    const barColor = rate >= 90 ? 'bg-emerald-500' : rate >= 70 ? 'bg-amber-500' : 'bg-red-500';
+                    const cellBg = rate >= 90 ? 'bg-emerald-500/5' : rate >= 70 ? 'bg-amber-500/5' : 'bg-red-500/5';
+                    const textColor = rate >= 90 ? 'text-emerald-500' : rate >= 70 ? 'text-amber-500' : 'text-red-500';
+                    return (
+                      <tr key={i} className="border-b border-border/50 hover:bg-muted/20">
+                        <td className="px-4 py-2.5 text-foreground">{row.cohort_month}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{row.plan_months}M</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{row.account_count}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{fmtFull(row.contract_jpy ?? 0)}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{fmtFull(row.expected_jpy ?? 0)}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{fmtFull(row.collected_jpy ?? 0)}</td>
+                        <td className={`px-4 py-2.5 ${cellBg}`}>
+                          <div className="flex items-center gap-2 justify-center">
+                            <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
+                              <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.min(100, rate)}%` }} />
+                            </div>
+                            <span className={`tabular-nums font-medium ${textColor}`}>{rate.toFixed(1)}%</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{row.delinquent_count ?? 0}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </AppLayout>
   );
 }
 
-function KPICard({ label, value, danger }: { label: string; value: string; danger?: boolean }) {
+function KPI({ label, value, sub, danger }: { label: string; value: string; sub?: string; danger?: boolean }) {
   return (
-    <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4 sm:p-5">
-      <div className="absolute left-0 top-4 bottom-4 w-[3px] rounded-r-full bg-gradient-to-b from-[#D4AF37] via-[#F7E7A1] to-[#D4AF37]" />
-      <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider pl-3">{label}</p>
-      <p className={`text-xl sm:text-2xl font-bold font-display tabular-nums pl-3 mt-1 ${danger ? 'text-destructive' : 'text-card-foreground'}`}>
-        {value}
-      </p>
+    <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4 sm:p-5 border-l-[3px] border-l-[#D4AF37]">
+      <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider pl-2">{label}</p>
+      <p className={`text-xl sm:text-2xl font-bold font-display tabular-nums pl-2 mt-1 ${danger ? 'text-destructive' : 'text-card-foreground'}`}>{value}</p>
+      {sub && <p className="text-[10px] text-muted-foreground pl-2 mt-0.5">{sub}</p>}
     </div>
   );
 }
