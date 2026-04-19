@@ -128,6 +128,11 @@ export default function ExecutiveDashboard() {
                       {d.netExposure.exposure_change > 0 ? '▲' : '▼'} {fmtM(Math.abs(d.netExposure.exposure_change))} vs last month
                     </p>
                   )}
+                  {d.netExposure.delta_pct !== 0 && (
+                    <p className={`text-[10px] tabular-nums ${d.netExposure.delta_pct > 0 ? 'text-destructive' : 'text-emerald-500'}`}>
+                      {d.netExposure.delta_pct > 0 ? '▲' : '▼'} {Math.abs(d.netExposure.delta_pct).toFixed(1)}% month-over-month
+                    </p>
+                  )}
                   <div className="mt-1.5 space-y-0.5 text-[10px] tabular-nums">
                     <div className="flex items-center justify-between"><span className="text-muted-foreground">Healthy</span><span className="flex items-center gap-2"><span className="text-emerald-500">{fmtM(d.netExposure.healthy_exposure)}</span>{d.netExposure.delta_healthy !== 0 && <span className={d.netExposure.delta_healthy < 0 ? 'text-emerald-500' : 'text-destructive'}>{d.netExposure.delta_healthy < 0 ? '▼' : '▲'} {fmtM(Math.abs(d.netExposure.delta_healthy))}</span>}</span></div>
                     <div className="flex items-center justify-between"><span className="text-muted-foreground">At-Risk</span><span className="flex items-center gap-2"><span className="text-amber-500">{fmtM(d.netExposure.at_risk_exposure)}</span>{d.netExposure.delta_at_risk !== 0 && <span className={d.netExposure.delta_at_risk < 0 ? 'text-emerald-500' : 'text-destructive'}>{d.netExposure.delta_at_risk < 0 ? '▼' : '▲'} {fmtM(Math.abs(d.netExposure.delta_at_risk))}</span>}</span></div>
@@ -301,7 +306,7 @@ export default function ExecutiveDashboard() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border">
-                    {['Plan', 'Accounts', 'Portfolio ¥', 'Avg Ticket', 'Monthly Inflow', 'Gross Profit', 'Contribution %', 'Target Max', 'Excess', 'Risk-Adj. Profit', 'Default Rate', 'Risk Tier'].map(h => (
+                    {['Plan', 'Accounts', 'Portfolio ¥', 'Avg Ticket', 'Monthly Inflow', 'Gross Profit', 'Contribution %', 'Target Max', 'Excess', 'Penalty Rate', 'At-Risk Rate', 'Quality', 'Risk-Adj. Profit', 'Default Rate', 'Risk Tier'].map(h => (
                       <th key={h} className={`px-5 py-2.5 font-semibold text-muted-foreground uppercase ${h === 'Plan' || h === 'Risk Tier' ? 'text-left' : 'text-right'} ${h === 'Risk Tier' ? 'text-center' : ''}`}>{h}</th>
                     ))}
                   </tr>
@@ -327,6 +332,9 @@ export default function ExecutiveDashboard() {
                             <span className={row.excess_pct > 0 ? 'text-destructive' : 'text-emerald-500'}>{row.excess_pct > 0 ? '▲' : '▼'} {Math.abs(row.excess_pct).toFixed(1)}%</span>
                           ) : <span className="text-muted-foreground">—</span>
                         ) : <span className={muted}>—</span>}</td>
+                        <td className={`px-5 py-3 text-right tabular-nums ${hasAccounts ? ((row.plan_penalty_rate ?? 0) >= 10 ? 'text-destructive' : (row.plan_penalty_rate ?? 0) > 0 ? 'text-amber-500' : 'text-muted-foreground') : ''}`}>{hasAccounts ? `${(row.plan_penalty_rate ?? 0).toFixed(1)}%` : <span className={muted}>—</span>}</td>
+                        <td className={`px-5 py-3 text-right tabular-nums ${hasAccounts ? ((row.plan_at_risk_rate ?? 0) >= 10 ? 'text-destructive' : (row.plan_at_risk_rate ?? 0) > 0 ? 'text-amber-500' : 'text-muted-foreground') : ''}`}>{hasAccounts ? `${(row.plan_at_risk_rate ?? 0).toFixed(1)}%` : <span className={muted}>—</span>}</td>
+                        <td className={`px-5 py-3 text-right tabular-nums font-medium ${hasAccounts ? ((row.plan_quality_score ?? 0) >= 90 ? 'text-emerald-500' : (row.plan_quality_score ?? 0) >= 75 ? 'text-amber-500' : 'text-destructive') : ''}`}>{hasAccounts ? (row.plan_quality_score ?? 0).toFixed(1) : <span className={muted}>—</span>}</td>
                         <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? fmtFull(row.risk_adjusted_profit ?? 0) : <span className={muted}>—</span>}</td>
                         <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? `${(row.default_rate ?? 0).toFixed(1)}%` : <span className={muted}>—</span>}</td>
                         <td className="px-5 py-3 text-center">
@@ -354,7 +362,7 @@ export default function ExecutiveDashboard() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border">
-                    {['Cohort Month', 'Age', 'Plan', 'Accounts', 'Avg Ticket', 'Contract ¥', 'Expected', 'Collected', 'Collection Rate', 'Expected %', 'Variance', 'Δ Rate', 'Penalty Rate', 'At-Risk Rate', 'Impact', 'Delinquent'].map(h => (
+                    {['Cohort Month', 'Age', 'Plan', 'Accounts', 'Avg Ticket', 'Contract ¥', 'Expected', 'Collected', 'Collection Rate', 'Quality-Adj.', 'Expected %', 'Variance', 'Δ Rate', 'Penalty Rate', 'At-Risk Rate', 'Impact', 'Direction', 'Delinquent'].map(h => (
                       <th key={h} className={`px-4 py-2.5 font-semibold text-muted-foreground uppercase ${['Cohort Month', 'Plan'].includes(h) ? 'text-left' : 'text-right'} ${['Collection Rate', 'Variance', 'Δ Rate'].includes(h) ? 'text-center' : ''}`}>{h}</th>
                     ))}
                   </tr>
@@ -383,6 +391,7 @@ export default function ExecutiveDashboard() {
                             <span className={`tabular-nums font-medium ${textColor}`}>{rate.toFixed(1)}%</span>
                           </div>
                         </td>
+                        <td className={`px-4 py-2.5 text-right tabular-nums ${(() => { const diff = (row.collection_rate ?? 0) - (row.quality_adjusted_collection ?? 0); return diff > 15 ? 'text-destructive' : diff > 5 ? 'text-amber-500' : 'text-muted-foreground'; })()}`}>{(row.quality_adjusted_collection ?? 0).toFixed(1)}%</td>
                         <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{(row.expected_progress_pct ?? 0).toFixed(1)}%</td>
                         <td className="px-4 py-2.5 text-center tabular-nums">
                           {row.variance_pct != null && row.variance_pct !== 0 ? (
@@ -401,6 +410,13 @@ export default function ExecutiveDashboard() {
                         <td className={`px-4 py-2.5 text-right tabular-nums ${(row.penalty_rate ?? 0) >= 10 ? 'text-destructive' : (row.penalty_rate ?? 0) > 0 ? 'text-amber-500' : 'text-muted-foreground'}`}>{(row.penalty_rate ?? 0).toFixed(1)}%</td>
                         <td className={`px-4 py-2.5 text-right tabular-nums ${(row.at_risk_rate ?? 0) >= 10 ? 'text-destructive' : (row.at_risk_rate ?? 0) > 0 ? 'text-amber-500' : 'text-muted-foreground'}`}>{(row.at_risk_rate ?? 0).toFixed(1)}%</td>
                         <td className={`px-4 py-2.5 text-right tabular-nums font-medium ${(row.impact_score ?? 0) > 500 ? 'text-destructive' : (row.impact_score ?? 0) > 100 ? 'text-amber-500' : 'text-muted-foreground'}`}>{row.impact_score ?? 0}</td>
+                        <td className="px-4 py-2.5 text-center tabular-nums">
+                          {row.directional_impact != null && row.directional_impact !== 0 ? (
+                            <span className={row.directional_impact > 0 ? 'text-emerald-500' : 'text-destructive'}>
+                              {row.directional_impact > 0 ? '▲' : '▼'} {Math.abs(row.directional_impact)}
+                            </span>
+                          ) : <span className="text-muted-foreground">—</span>}
+                        </td>
                         <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{row.delinquent_count ?? 0}</td>
                       </tr>
                     );
@@ -408,6 +424,41 @@ export default function ExecutiveDashboard() {
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {/* CFO Insights & Recommendations */}
+        {!d.loading && (
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="px-5 py-3 border-b border-border bg-muted/30">
+              <h3 className="text-sm font-semibold text-card-foreground">CFO Insights & Recommendations</h3>
+            </div>
+            {d.cfoInsights.length === 0 ? (
+              <p className="px-5 py-8 text-sm text-muted-foreground text-center">No active insights — portfolio within normal parameters.</p>
+            ) : (
+              <div className="p-4 space-y-3">
+                {d.cfoInsights.slice(0, 6).map((ins, i) => {
+                  const catColor = ins.category === 'Liquidity Risk' || ins.category === 'Underperformance' ? 'border-l-red-500'
+                    : ins.category === 'Strong Cohort' ? 'border-l-emerald-500'
+                    : 'border-l-amber-500';
+                  const badgeColor = ins.category === 'Liquidity Risk' || ins.category === 'Underperformance' ? 'bg-red-500/15 text-red-500 border-red-500/30'
+                    : ins.category === 'Strong Cohort' ? 'bg-emerald-500/15 text-emerald-500 border-emerald-500/30'
+                    : 'bg-amber-500/15 text-amber-500 border-amber-500/30';
+                  return (
+                    <div key={i} className={`rounded-lg border border-border p-4 border-l-[3px] ${catColor}`}>
+                      <div className="flex items-start gap-3">
+                        <Badge variant="outline" className={`text-[9px] shrink-0 ${badgeColor}`}>{ins.category}</Badge>
+                        <div className="min-w-0 space-y-1.5">
+                          <p className="text-xs text-foreground">{ins.observation}</p>
+                          <p className="text-[11px] text-muted-foreground"><span className="font-medium">Implication:</span> {ins.implication}</p>
+                          <p className="text-[11px] text-foreground/80"><span className="font-medium">Action:</span> {ins.action}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>
