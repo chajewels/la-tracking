@@ -1194,9 +1194,6 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
               <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" style={{color:'#F39C12'}} />
               <div style={{flex:1}}>
                 <p style={{fontSize:'12px',fontWeight:600,color:'#F39C12'}}>Account Forfeited</p>
-                <p style={{fontSize:'11px',color:'rgba(243,156,18,0.8)',marginTop:'2px'}}>
-                  Your account has been forfeited. You may request a 1-month extension to complete your payment.
-                </p>
                 {(() => {
                   const daysSinceForfeiture = account.forfeited_at
                     ? Math.floor((Date.now() - new Date(account.forfeited_at).getTime()) / (1000 * 60 * 60 * 24))
@@ -1205,37 +1202,38 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
 
                   if (!windowOpen) {
                     return (
-                      <p style={{fontSize:'11px',color:'rgba(243,156,18,0.6)',marginTop:'8px',fontStyle:'italic'}}>
+                      <p style={{fontSize:'11px',color:'rgba(243,156,18,0.6)',marginTop:'2px',fontStyle:'italic'}}>
                         The extension request window has closed. Please contact us directly for assistance.
                       </p>
                     );
                   }
 
-                  if (extSubmitted) {
-                    return (
-                      <p style={{fontSize:'11px',color:'#5CB86A',marginTop:'8px',fontWeight:600}}>
-                        Your extension request has been submitted. We will notify you within 24 hours.
-                      </p>
-                    );
-                  }
-
-                  if (extPending) {
-                    return (
-                      <button disabled style={{marginTop:'8px',padding:'6px 16px',fontSize:'11px',fontWeight:600,fontFamily:"Inter,sans-serif",
-                        background:'transparent',border:`1px solid rgba(243,156,18,0.3)`,borderRadius:'2px',color:'rgba(243,156,18,0.6)',cursor:'not-allowed',
-                        letterSpacing:'0.08em',textTransform:'uppercase' as const}}>
-                        Extension Request Pending
-                      </button>
-                    );
-                  }
-
                   return (
-                    <button onClick={() => setExtModalOpen(true)}
-                      style={{marginTop:'8px',padding:'6px 16px',fontSize:'11px',fontWeight:600,fontFamily:"Inter,sans-serif",
-                        background:'rgba(243,156,18,0.1)',border:`1px solid #F39C12`,borderRadius:'2px',color:'#F39C12',cursor:'pointer',
-                        letterSpacing:'0.08em',textTransform:'uppercase' as const}}>
-                      Request Extension
-                    </button>
+                    <>
+                      <p style={{fontSize:'11px',color:'rgba(243,156,18,0.8)',marginTop:'2px'}}>
+                        Your account has been forfeited. You may request a 1-month extension to complete your payment.
+                      </p>
+                      {extSubmitted ? (
+                        <p style={{fontSize:'11px',color:'#5CB86A',marginTop:'8px',fontWeight:600}}>
+                          Your extension request has been submitted. We will notify you within 24 hours.
+                        </p>
+                      ) : extPending ? (
+                        <button disabled style={{marginTop:'8px',padding:'6px 16px',fontSize:'11px',fontWeight:600,fontFamily:"Inter,sans-serif",
+                          background:'transparent',border:`1px solid rgba(243,156,18,0.3)`,borderRadius:'2px',color:'rgba(243,156,18,0.6)',cursor:'not-allowed',
+                          letterSpacing:'0.08em',textTransform:'uppercase' as const}}>
+                          Extension Request Pending
+                        </button>
+                      ) : (
+                        <button onClick={() => setExtModalOpen(true)}
+                          style={{marginTop:'8px',padding:'6px 16px',fontSize:'11px',fontWeight:600,fontFamily:"Inter,sans-serif",
+                            background:'rgba(243,156,18,0.1)',border:`1px solid #F39C12`,borderRadius:'2px',color:'#F39C12',cursor:'pointer',
+                            letterSpacing:'0.08em',textTransform:'uppercase' as const}}>
+                          Request Extension
+                        </button>
+                      )}
+                    </>
+                  );
+                })()}
                   );
                 })()}
               </div>
