@@ -25,12 +25,12 @@ import {
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
 
-const menuItems = [
+const menuItems: { label: string; icon: any; path: string; adminOnly?: boolean }[] = [
   { label: 'Dashboard', icon: LayoutDashboard, path: ROUTES.DASHBOARD },
   { label: 'Customers', icon: Users, path: ROUTES.CUSTOMERS },
   { label: 'CSR Monitoring', icon: Bell, path: ROUTES.MONITORING },
   { label: 'Finance', icon: Wallet, path: ROUTES.FINANCE },
-  { label: 'Executive Dashboard', icon: BarChart3, path: ROUTES.EXECUTIVE_DASHBOARD },
+  { label: 'Executive Dashboard', icon: BarChart3, path: ROUTES.EXECUTIVE_DASHBOARD, adminOnly: true },
   { label: 'Admin Audit', icon: ShieldCheck, path: ROUTES.ADMIN_AUDIT },
   { label: 'Bulk Import', icon: Upload, path: ROUTES.BULK_PAYMENT_IMPORT },
   { label: 'Promotions', icon: Megaphone, path: ROUTES.PROMOTIONS },
@@ -39,7 +39,8 @@ const menuItems = [
 
 export default function AppSidebar() {
   const location = useLocation();
-  const { profile, signOut } = useAuth();
+  const { profile, signOut, roles } = useAuth();
+  const isAdmin = (roles as string[]).includes('admin');
 
   const initials = profile?.full_name
     ? profile.full_name
@@ -65,7 +66,7 @@ export default function AppSidebar() {
 
       <SidebarContent className="px-3 py-4">
         <SidebarMenu>
-          {menuItems.map((item) => {
+          {menuItems.filter(item => !item.adminOnly || isAdmin).map((item) => {
             const isActive = location.pathname === item.path;
             const Icon = item.icon;
 

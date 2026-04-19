@@ -6,6 +6,7 @@ import {
 import AppLayout from '@/components/layout/AppLayout';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   useConversionRate,
   usePlanConfigurations,
@@ -66,6 +67,8 @@ const ChartTooltip = ({ active, payload, label }: any) => {
 };
 
 export default function ExecutiveDashboard() {
+  const { roles } = useAuth();
+  const isAdmin = (roles as string[]).includes('admin');
   const { data: rate, isLoading: rateLoading } = useConversionRate();
   const { data: planConfigs } = usePlanConfigurations();
   const alerts = useFinancialAlerts();
@@ -83,6 +86,16 @@ export default function ExecutiveDashboard() {
   }, [planConfigs]);
 
   const isLoading = rateLoading || accountsLoading || paymentsLoading;
+
+  if (!isAdmin) {
+    return (
+      <AppLayout>
+        <div className="flex items-center justify-center h-64 text-muted-foreground">
+          Access denied — admin only
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>
