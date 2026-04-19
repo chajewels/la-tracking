@@ -740,6 +740,7 @@ export type Database = {
           downpayment_amount: number
           end_date: string | null
           extension_end_date: string | null
+          forfeited_at: string | null
           id: string
           invoice_number: string
           is_reactivated: boolean
@@ -767,6 +768,7 @@ export type Database = {
           downpayment_amount?: number
           end_date?: string | null
           extension_end_date?: string | null
+          forfeited_at?: string | null
           id?: string
           invoice_number: string
           is_reactivated?: boolean
@@ -794,6 +796,7 @@ export type Database = {
           downpayment_amount?: number
           end_date?: string | null
           extension_end_date?: string | null
+          forfeited_at?: string | null
           id?: string
           invoice_number?: string
           is_reactivated?: boolean
