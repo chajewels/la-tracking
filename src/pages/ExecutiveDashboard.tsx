@@ -129,9 +129,9 @@ export default function ExecutiveDashboard() {
                     </p>
                   )}
                   <div className="mt-1.5 space-y-0.5 text-[10px] tabular-nums">
-                    <div className="flex justify-between"><span className="text-muted-foreground">Healthy</span><span className="text-emerald-500">{fmtM(d.netExposure.healthy_exposure)}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">At-Risk</span><span className="text-amber-500">{fmtM(d.netExposure.at_risk_exposure)}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Critical</span><span className="text-destructive">{fmtM(d.netExposure.critical_exposure)}</span></div>
+                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Healthy</span><span className="flex items-center gap-2"><span className="text-emerald-500">{fmtM(d.netExposure.healthy_exposure)}</span>{d.netExposure.delta_healthy !== 0 && <span className={d.netExposure.delta_healthy < 0 ? 'text-emerald-500' : 'text-destructive'}>{d.netExposure.delta_healthy < 0 ? '▼' : '▲'} {fmtM(Math.abs(d.netExposure.delta_healthy))}</span>}</span></div>
+                    <div className="flex items-center justify-between"><span className="text-muted-foreground">At-Risk</span><span className="flex items-center gap-2"><span className="text-amber-500">{fmtM(d.netExposure.at_risk_exposure)}</span>{d.netExposure.delta_at_risk !== 0 && <span className={d.netExposure.delta_at_risk < 0 ? 'text-emerald-500' : 'text-destructive'}>{d.netExposure.delta_at_risk < 0 ? '▼' : '▲'} {fmtM(Math.abs(d.netExposure.delta_at_risk))}</span>}</span></div>
+                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Critical</span><span className="flex items-center gap-2"><span className="text-destructive">{fmtM(d.netExposure.critical_exposure)}</span>{d.netExposure.delta_critical !== 0 && <span className={d.netExposure.delta_critical < 0 ? 'text-emerald-500' : 'text-destructive'}>{d.netExposure.delta_critical < 0 ? '▼' : '▲'} {fmtM(Math.abs(d.netExposure.delta_critical))}</span>}</span></div>
                   </div>
                 </div>
               ) : undefined} />
@@ -151,7 +151,7 @@ export default function ExecutiveDashboard() {
 
         {/* KPI Row 2 */}
         {!d.loading && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {/* At-Risk */}
             <div className="rounded-xl border border-border bg-card p-5 cursor-pointer hover:border-primary/30 transition-colors" onClick={() => setRiskOpen(!riskOpen)}>
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">At-Risk Accounts</p>
@@ -168,6 +168,14 @@ export default function ExecutiveDashboard() {
                   {d.penaltyRevenue.penalty_pct_of_inflow.toFixed(2)}% of monthly inflow
                 </p>
               ) : undefined} />
+            {/* Penalty-Driven Accounts */}
+            <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4 sm:p-5 border-l-[3px] border-l-[#D4AF37]">
+              <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider pl-2">Penalty-Driven Accounts</p>
+              <p className="text-xl sm:text-2xl font-bold font-display tabular-nums pl-2 mt-1">{d.penaltyDriven?.penalty_driven_count ?? 0} <span className="text-sm font-normal text-muted-foreground">accounts</span></p>
+              <p className="text-[10px] text-muted-foreground pl-2 mt-0.5">{(d.penaltyDriven?.pct_of_active ?? 0).toFixed(1)}% of active</p>
+              <p className="text-[10px] text-muted-foreground pl-2">{(d.penaltyDriven?.penalty_revenue_contribution ?? 0).toFixed(1)}% of penalty revenue</p>
+              <p className="text-[9px] text-muted-foreground/60 pl-2 mt-1.5">Accounts with ≥4 penalties and ≤14 days overdue</p>
+            </div>
           </div>
         )}
 
@@ -293,7 +301,7 @@ export default function ExecutiveDashboard() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border">
-                    {['Plan', 'Accounts', 'Portfolio ¥', 'Avg Ticket', 'Monthly Inflow', 'Gross Profit', 'Contribution %', 'Risk-Adj. Profit', 'Default Rate', 'Risk Tier'].map(h => (
+                    {['Plan', 'Accounts', 'Portfolio ¥', 'Avg Ticket', 'Monthly Inflow', 'Gross Profit', 'Contribution %', 'Target Max', 'Excess', 'Risk-Adj. Profit', 'Default Rate', 'Risk Tier'].map(h => (
                       <th key={h} className={`px-5 py-2.5 font-semibold text-muted-foreground uppercase ${h === 'Plan' || h === 'Risk Tier' ? 'text-left' : 'text-right'} ${h === 'Risk Tier' ? 'text-center' : ''}`}>{h}</th>
                     ))}
                   </tr>
@@ -313,6 +321,12 @@ export default function ExecutiveDashboard() {
                         <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? (Number(row.monthly_inflow ?? 0) > 0 ? fmtFull(row.monthly_inflow) : '—') : <span className={muted}>—</span>}</td>
                         <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? (Number(row.gross_profit ?? 0) > 0 ? fmtFull(row.gross_profit) : '—') : <span className={muted}>—</span>}</td>
                         <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? `${(row.contribution_pct ?? 0).toFixed(1)}%` : <span className={muted}>—</span>}</td>
+                        <td className="px-5 py-3 text-right tabular-nums text-muted-foreground">{(row.target_mix_pct ?? 0).toFixed(1)}%</td>
+                        <td className="px-5 py-3 text-right tabular-nums">{hasAccounts ? (
+                          row.excess_pct != null && row.excess_pct !== 0 ? (
+                            <span className={row.excess_pct > 0 ? 'text-destructive' : 'text-emerald-500'}>{row.excess_pct > 0 ? '▲' : '▼'} {Math.abs(row.excess_pct).toFixed(1)}%</span>
+                          ) : <span className="text-muted-foreground">—</span>
+                        ) : <span className={muted}>—</span>}</td>
                         <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? fmtFull(row.risk_adjusted_profit ?? 0) : <span className={muted}>—</span>}</td>
                         <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? `${(row.default_rate ?? 0).toFixed(1)}%` : <span className={muted}>—</span>}</td>
                         <td className="px-5 py-3 text-center">
@@ -340,13 +354,13 @@ export default function ExecutiveDashboard() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border">
-                    {['Cohort Month', 'Age', 'Plan', 'Accounts', 'Contract ¥', 'Expected', 'Collected', 'Collection Rate', 'Expected %', 'Variance', 'Δ Rate', 'Delinquent'].map(h => (
+                    {['Cohort Month', 'Age', 'Plan', 'Accounts', 'Avg Ticket', 'Contract ¥', 'Expected', 'Collected', 'Collection Rate', 'Expected %', 'Variance', 'Δ Rate', 'Penalty Rate', 'At-Risk Rate', 'Impact', 'Delinquent'].map(h => (
                       <th key={h} className={`px-4 py-2.5 font-semibold text-muted-foreground uppercase ${['Cohort Month', 'Plan'].includes(h) ? 'text-left' : 'text-right'} ${['Collection Rate', 'Variance', 'Δ Rate'].includes(h) ? 'text-center' : ''}`}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {d.cohortTimeline.map((row: any, i: number) => {
+                  {[...d.cohortTimeline].sort((a: any, b: any) => (b.impact_score ?? 0) - (a.impact_score ?? 0)).map((row: any, i: number) => {
                     const rate = row.collection_rate ?? 0;
                     const barColor = rate >= 90 ? 'bg-emerald-500' : rate >= 70 ? 'bg-amber-500' : 'bg-red-500';
                     const cellBg = rate >= 90 ? 'bg-emerald-500/5' : rate >= 70 ? 'bg-amber-500/5' : 'bg-red-500/5';
@@ -357,6 +371,7 @@ export default function ExecutiveDashboard() {
                         <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{row.cohort_age_days ?? 0} days</td>
                         <td className="px-4 py-2.5 text-muted-foreground">{row.plan_months}M</td>
                         <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{row.account_count}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{fmtFull(row.average_ticket ?? 0)}</td>
                         <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{fmtFull(row.total_value_jpy ?? 0)}</td>
                         <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{fmtFull(row.expected_collected ?? 0)}</td>
                         <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{fmtFull(row.actual_collected ?? 0)}</td>
@@ -383,6 +398,9 @@ export default function ExecutiveDashboard() {
                             </span>
                           ) : <span className="text-muted-foreground">—</span>}
                         </td>
+                        <td className={`px-4 py-2.5 text-right tabular-nums ${(row.penalty_rate ?? 0) >= 10 ? 'text-destructive' : (row.penalty_rate ?? 0) > 0 ? 'text-amber-500' : 'text-muted-foreground'}`}>{(row.penalty_rate ?? 0).toFixed(1)}%</td>
+                        <td className={`px-4 py-2.5 text-right tabular-nums ${(row.at_risk_rate ?? 0) >= 10 ? 'text-destructive' : (row.at_risk_rate ?? 0) > 0 ? 'text-amber-500' : 'text-muted-foreground'}`}>{(row.at_risk_rate ?? 0).toFixed(1)}%</td>
+                        <td className={`px-4 py-2.5 text-right tabular-nums font-medium ${(row.impact_score ?? 0) > 500 ? 'text-destructive' : (row.impact_score ?? 0) > 100 ? 'text-amber-500' : 'text-muted-foreground'}`}>{row.impact_score ?? 0}</td>
                         <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{row.delinquent_count ?? 0}</td>
                       </tr>
                     );

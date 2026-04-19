@@ -7,11 +7,12 @@ interface ExecData {
   portfolioValue: number;
   grossProfit: { active_gross_profit: number; lifetime_gross_profit: number } | null;
   monthlyInflow: { installment_inflow: number; penalty_inflow: number; total_inflow: number } | null;
-  netExposure: { gross_exposure: number; dp_retained: number; penalties_collected: number; estimated_resale: number; net_exposure: number; prior_month_exposure: number; exposure_change: number; healthy_exposure: number; at_risk_exposure: number; critical_exposure: number } | null;
+  netExposure: { gross_exposure: number; dp_retained: number; penalties_collected: number; estimated_resale: number; net_exposure: number; prior_month_exposure: number; exposure_change: number; healthy_exposure: number; at_risk_exposure: number; critical_exposure: number; delta_healthy: number; delta_at_risk: number; delta_critical: number } | null;
   coverageRatio: { cash_in: number; inventory_cost: number; coverage_ratio: number; status_label: string; funding_gap: number; days_covered: number } | null;
   atRisk: { total_at_risk: number; critical_count: number; active_total: number; at_risk_pct: number } | null;
   atRiskDetail: any[];
   penaltyRevenue: { current_month_jpy: number; cumulative_jpy: number; penalty_pct_of_inflow: number } | null;
+  penaltyDriven: { penalty_driven_count: number; pct_of_active: number; penalty_revenue_contribution: number } | null;
   planPerformance: any[];
   cohortTimeline: any[];
   lastUpdated: Date;
@@ -35,6 +36,7 @@ export function useExecutiveDashboard(): ExecData {
     atRisk: null,
     atRiskDetail: [],
     penaltyRevenue: null,
+    penaltyDriven: null,
     planPerformance: [],
     cohortTimeline: [],
     lastUpdated: new Date(),
@@ -43,7 +45,7 @@ export function useExecutiveDashboard(): ExecData {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [pv, gp, mi, ne, cr, ar, ard, pr, pp, ct] = await Promise.all([
+      const [pv, gp, mi, ne, cr, ar, ard, pr, pd, pp, ct] = await Promise.all([
         supabase.rpc('fc_portfolio_value' as any),
         supabase.rpc('fc_gross_profit' as any),
         supabase.rpc('fc_monthly_inflow' as any),
@@ -52,6 +54,7 @@ export function useExecutiveDashboard(): ExecData {
         supabase.rpc('fc_at_risk_accounts' as any),
         supabase.rpc('fc_at_risk_detail' as any),
         supabase.rpc('fc_penalty_revenue' as any),
+        supabase.rpc('fc_penalty_driven_accounts' as any),
         supabase.rpc('fc_plan_performance' as any),
         supabase.rpc('fc_cohort_timeline' as any),
       ]);
@@ -78,6 +81,9 @@ export function useExecutiveDashboard(): ExecData {
           healthy_exposure: Number(ne.data?.[0]?.healthy_exposure ?? 0),
           at_risk_exposure: Number(ne.data?.[0]?.at_risk_exposure ?? 0),
           critical_exposure: Number(ne.data?.[0]?.critical_exposure ?? 0),
+          delta_healthy: Number(ne.data?.[0]?.delta_healthy ?? 0),
+          delta_at_risk: Number(ne.data?.[0]?.delta_at_risk ?? 0),
+          delta_critical: Number(ne.data?.[0]?.delta_critical ?? 0),
         },
         coverageRatio: {
           cash_in: Number(cr.data?.[0]?.cash_in ?? 0),
@@ -98,6 +104,11 @@ export function useExecutiveDashboard(): ExecData {
           current_month_jpy: Number(pr.data?.[0]?.current_month_jpy ?? 0),
           cumulative_jpy: Number(pr.data?.[0]?.cumulative_jpy ?? 0),
           penalty_pct_of_inflow: Number(pr.data?.[0]?.penalty_pct_of_inflow ?? 0),
+        },
+        penaltyDriven: {
+          penalty_driven_count: Number(pd.data?.[0]?.penalty_driven_count ?? 0),
+          pct_of_active: Number(pd.data?.[0]?.pct_of_active ?? 0),
+          penalty_revenue_contribution: Number(pd.data?.[0]?.penalty_revenue_contribution ?? 0),
         },
         planPerformance: pp.data ?? [],
         cohortTimeline: ct.data ?? [],
