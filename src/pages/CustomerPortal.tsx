@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, memo, useCallback, lazy, Suspense } from 'react';
+import ReactDOM from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -1224,10 +1225,10 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
                           Extension Request Pending
                         </button>
                       ) : (
-                        <button onClick={() => setExtModalOpen(true)}
+                        <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setExtModalOpen(true); }}
                           style={{marginTop:'8px',padding:'6px 16px',fontSize:'11px',fontWeight:600,fontFamily:"Inter,sans-serif",
                             background:'rgba(243,156,18,0.1)',border:`1px solid #F39C12`,borderRadius:'2px',color:'#F39C12',cursor:'pointer',
-                            letterSpacing:'0.08em',textTransform:'uppercase' as const}}>
+                            letterSpacing:'0.08em',textTransform:'uppercase' as const,position:'relative',zIndex:10}}>
                           Request Extension
                         </button>
                       )}
@@ -1267,10 +1268,12 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
         )}
       </div>
 
-      {/* Extension Request Modal */}
-      {extModalOpen && (
-        <div style={{position:'fixed',inset:0,zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.6)'}}>
-          <div style={{background:P.s,border:`1px solid ${P.br}`,borderTop:`3px solid ${P.gp}`,borderRadius:'2px',padding:'1.5rem',width:'90%',maxWidth:'380px'}}>
+      {/* Extension Request Modal — rendered via portal to escape Sheet stacking context */}
+      {extModalOpen && ReactDOM.createPortal(
+        <div style={{position:'fixed',inset:0,zIndex:99999,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.7)'}}
+          onClick={() => setExtModalOpen(false)}>
+          <div style={{background:'#1a1a1a',border:'1px solid #333',borderTop:`3px solid ${P.gp}`,borderRadius:'8px',padding:'1.5rem',width:'90%',maxWidth:'400px'}}
+            onClick={e => e.stopPropagation()}>
             <h3 style={{fontFamily:CG,fontSize:'18px',fontWeight:700,color:P.tp,marginBottom:'8px'}}>Request Payment Extension</h3>
             <p style={{fontSize:'12px',color:P.ts,lineHeight:1.6,marginBottom:'16px'}}>
               You are requesting a 1-month extension for INV #{account.invoice_number}. Our team will review your request within 24 hours.
@@ -1303,7 +1306,8 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
