@@ -203,24 +203,29 @@ export function useFinancialAlerts() {
   const [alerts, setAlerts] = useState<FinancialAlert[]>([]);
 
   useEffect(() => {
+    let cancelled = false;
+
     const fetchAlerts = async () => {
       const { data } = await supabase
         .from('financial_alerts' as any)
         .select('id, severity, message, created_at')
         .is('resolved_at', null)
         .order('created_at', { ascending: false });
-      if (data) setAlerts(data as FinancialAlert[]);
+      if (!cancelled && data) setAlerts(data as FinancialAlert[]);
     };
     fetchAlerts();
 
     const channel = supabase
       .channel('exec-alerts-' + Date.now())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'financial_alerts' }, () => {
-        fetchAlerts();
+        if (!cancelled) fetchAlerts();
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   return alerts;

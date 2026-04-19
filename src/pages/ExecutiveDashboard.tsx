@@ -170,7 +170,7 @@ export default function ExecutiveDashboard() {
                       <td className="px-4 py-2 font-mono text-foreground">#{r.invoice_number}</td>
                       <td className="px-4 py-2 text-muted-foreground">{r.plan_months}M</td>
                       <td className="px-4 py-2 text-right tabular-nums text-foreground">{r.overdue_days ?? 0}</td>
-                      <td className="px-4 py-2 text-right tabular-nums text-foreground">{fmtFull(r.penalty_total ?? 0)}</td>
+                      <td className="px-4 py-2 text-right tabular-nums text-foreground">{r.penalty_count ?? 0}</td>
                       <td className="px-4 py-2 text-right tabular-nums text-foreground">{fmtFull(r.outstanding_jpy ?? 0)}</td>
                       <td className="px-4 py-2 text-center">
                         <Badge variant="outline" className={`text-[9px] ${r.risk_level === 'CRITICAL' ? RISK_BADGE.CRITICAL : RISK_BADGE.MODERATE}`}>
@@ -272,8 +272,8 @@ export default function ExecutiveDashboard() {
                         <td className="px-5 py-3 text-right tabular-nums">
                           {hasAccounts ? <span className="text-foreground">{fmtFull(row.avg_ticket_jpy ?? 0)}</span> : <span className={muted}>Min {fmtFull(row.min_amount_jpy ?? 0)}</span>}
                         </td>
-                        <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? fmtFull(row.monthly_inflow_jpy ?? 0) : <span className={muted}>—</span>}</td>
-                        <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? fmtFull(row.gross_profit_jpy ?? 0) : <span className={muted}>—</span>}</td>
+                        <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? (Number(row.monthly_inflow ?? 0) > 0 ? fmtFull(row.monthly_inflow) : '—') : <span className={muted}>—</span>}</td>
+                        <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? (Number(row.gross_profit ?? 0) > 0 ? fmtFull(row.gross_profit) : '—') : <span className={muted}>—</span>}</td>
                         <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? `${(row.default_rate ?? 0).toFixed(1)}%` : <span className={muted}>—</span>}</td>
                         <td className="px-5 py-3 text-center">
                           <Badge variant="outline" className={`text-[9px] ${RISK_BADGE[row.risk_tier] || RISK_BADGE.MODERATE}`}>{row.risk_tier}</Badge>
@@ -316,9 +316,9 @@ export default function ExecutiveDashboard() {
                         <td className="px-4 py-2.5 text-foreground">{row.cohort_month}</td>
                         <td className="px-4 py-2.5 text-muted-foreground">{row.plan_months}M</td>
                         <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{row.account_count}</td>
-                        <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{fmtFull(row.contract_jpy ?? 0)}</td>
-                        <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{fmtFull(row.expected_jpy ?? 0)}</td>
-                        <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{fmtFull(row.collected_jpy ?? 0)}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{fmtFull(row.total_value_jpy ?? 0)}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{fmtFull(row.expected_collected ?? 0)}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{fmtFull(row.actual_collected ?? 0)}</td>
                         <td className={`px-4 py-2.5 ${cellBg}`}>
                           <div className="flex items-center gap-2 justify-center">
                             <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
