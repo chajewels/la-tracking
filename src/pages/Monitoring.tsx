@@ -741,7 +741,7 @@ function ExtensionRequestsPanel() {
         .from('extension_requests' as any)
         .select('*, layaway_accounts!inner(id, invoice_number, currency, remaining_balance, status, customer_id)')
         .eq('status', filter === 'pending' ? 'pending' : 'approved')
-        .order('created_at', { ascending: false });
+        .order('requested_at', { ascending: false });
 
       if (error) throw error;
       return (data || []) as any[];
