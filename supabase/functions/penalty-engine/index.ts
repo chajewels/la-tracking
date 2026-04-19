@@ -179,7 +179,8 @@ Deno.serve(async (req) => {
     const existingPenaltyMap = new Map<string, Set<string>>();
     const currentPenaltyTotals = new Map<string, number>();
     for (const p of allExistingPenalties) {
-      if (p.status === "waived") continue;
+      // Always register the key to prevent duplicate-key inserts (unique constraint
+      // covers all statuses including waived). Only exclude waived from cap totals.
       const key = `${p.penalty_stage}:${p.penalty_cycle}`;
       if (!existingPenaltyMap.has(p.schedule_id)) existingPenaltyMap.set(p.schedule_id, new Set());
       existingPenaltyMap.get(p.schedule_id)!.add(key);
