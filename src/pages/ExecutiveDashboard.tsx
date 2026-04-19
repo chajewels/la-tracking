@@ -95,12 +95,24 @@ export default function ExecutiveDashboard() {
         {/* Alert Bar */}
         {alerts.length > 0 && (
           <div className="flex flex-wrap gap-2">
-            {alerts.map(a => {
+            {[...alerts].sort((a, b) => {
+              const aHidden = a.message.startsWith('[Hidden Risk]') ? 0 : 1;
+              const bHidden = b.message.startsWith('[Hidden Risk]') ? 0 : 1;
+              if (aHidden !== bHidden) return aHidden - bHidden;
+              const sevOrder: Record<string, number> = { critical: 0, warning: 1, info: 2 };
+              const aSev = sevOrder[a.severity] ?? 3;
+              const bSev = sevOrder[b.severity] ?? 3;
+              if (aSev !== bSev) return aSev - bSev;
+              return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+            }).map(a => {
               const s = SEVERITY_STYLES[a.severity] || SEVERITY_STYLES.info;
+              const isHidden = a.message.startsWith('[Hidden Risk]');
+              const displayMsg = isHidden ? a.message.replace('[Hidden Risk] ', '') : a.message;
               return (
                 <div key={a.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium ${s.bg}`}>
                   <span className={`inline-block h-2 w-2 rounded-full ${s.dot}`} />
-                  {a.message}
+                  {isHidden && <span className="font-bold text-red-900">Hidden Risk</span>}
+                  {displayMsg}
                 </div>
               );
             })}
@@ -134,9 +146,9 @@ export default function ExecutiveDashboard() {
                     </p>
                   )}
                   <div className="mt-1.5 space-y-0.5 text-[10px] tabular-nums">
-                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Healthy</span><span className="flex items-center gap-2"><span className="text-emerald-500">{fmtM(d.netExposure.healthy_exposure)}</span>{d.netExposure.delta_healthy !== 0 && <span className={d.netExposure.delta_healthy < 0 ? 'text-emerald-500' : 'text-destructive'}>{d.netExposure.delta_healthy < 0 ? '▼' : '▲'} {fmtM(Math.abs(d.netExposure.delta_healthy))}</span>}</span></div>
-                    <div className="flex items-center justify-between"><span className="text-muted-foreground">At-Risk</span><span className="flex items-center gap-2"><span className="text-amber-500">{fmtM(d.netExposure.at_risk_exposure)}</span>{d.netExposure.delta_at_risk !== 0 && <span className={d.netExposure.delta_at_risk < 0 ? 'text-emerald-500' : 'text-destructive'}>{d.netExposure.delta_at_risk < 0 ? '▼' : '▲'} {fmtM(Math.abs(d.netExposure.delta_at_risk))}</span>}</span></div>
-                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Critical</span><span className="flex items-center gap-2"><span className="text-destructive">{fmtM(d.netExposure.critical_exposure)}</span>{d.netExposure.delta_critical !== 0 && <span className={d.netExposure.delta_critical < 0 ? 'text-emerald-500' : 'text-destructive'}>{d.netExposure.delta_critical < 0 ? '▼' : '▲'} {fmtM(Math.abs(d.netExposure.delta_critical))}</span>}</span></div>
+                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Healthy</span><span className="flex items-center gap-2"><span className="text-emerald-500">{fmtM(d.netExposure.healthy_exposure)}</span>{d.netExposure.delta_healthy !== 0 && <><span className={d.netExposure.delta_healthy < 0 ? 'text-emerald-500' : 'text-destructive'}>{d.netExposure.delta_healthy < 0 ? '▼' : '▲'} {fmtM(Math.abs(d.netExposure.delta_healthy))}</span>{d.netExposure.delta_healthy < 0 && <span className="text-emerald-500/60 text-[9px]">converting to cash</span>}</>}</span></div>
+                    <div className="flex items-center justify-between"><span className="text-muted-foreground">At-Risk</span><span className="flex items-center gap-2"><span className="text-amber-500">{fmtM(d.netExposure.at_risk_exposure)}</span>{d.netExposure.delta_at_risk !== 0 && <><span className={d.netExposure.delta_at_risk < 0 ? 'text-emerald-500' : 'text-destructive'}>{d.netExposure.delta_at_risk < 0 ? '▼' : '▲'} {fmtM(Math.abs(d.netExposure.delta_at_risk))}</span><span className={`text-[9px] ${d.netExposure.delta_at_risk > 0 ? 'text-amber-500/60' : 'text-emerald-500/60'}`}>{d.netExposure.delta_at_risk > 0 ? 'risk building' : 'improving'}</span></>}</span></div>
+                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Critical</span><span className="flex items-center gap-2"><span className="text-destructive">{fmtM(d.netExposure.critical_exposure)}</span>{d.netExposure.delta_critical !== 0 && <><span className={d.netExposure.delta_critical < 0 ? 'text-emerald-500' : 'text-destructive'}>{d.netExposure.delta_critical < 0 ? '▼' : '▲'} {fmtM(Math.abs(d.netExposure.delta_critical))}</span><span className={`text-[9px] ${d.netExposure.delta_critical > 0 ? 'text-destructive/60' : 'text-emerald-500/60'}`}>{d.netExposure.delta_critical > 0 ? 'immediate attention required' : 'improving'}</span></>}</span></div>
                   </div>
                 </div>
               ) : undefined} />
@@ -368,7 +380,7 @@ export default function ExecutiveDashboard() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border">
-                    {['Cohort Month', 'Age', 'Plan', 'Accounts', 'Avg Ticket', 'Contract ¥', 'Expected', 'Collected', 'Collection Rate', 'Quality-Adj.', 'Expected %', 'Variance', 'Δ Rate', 'Penalty Rate', 'At-Risk Rate', 'Impact', 'Direction', 'Delinquent'].map(h => (
+                    {['Cohort Month', 'Age', 'Plan', 'Accounts', 'Avg Ticket', 'Contract ¥', 'Expected', 'Collected', 'Collection Rate', 'Quality-Adj.', 'Reliability', 'Expected %', 'Variance', 'Δ Rate', 'Penalty Rate', 'At-Risk Rate', 'Impact', 'Direction', 'Delinquent'].map(h => (
                       <th key={h} className={`px-4 py-2.5 font-semibold text-muted-foreground uppercase ${['Cohort Month', 'Plan'].includes(h) ? 'text-left' : 'text-right'} ${['Collection Rate', 'Variance', 'Δ Rate'].includes(h) ? 'text-center' : ''}`}>{h}</th>
                     ))}
                   </tr>
@@ -398,6 +410,7 @@ export default function ExecutiveDashboard() {
                           </div>
                         </td>
                         <td className={`px-4 py-2.5 text-right tabular-nums ${(() => { const diff = (row.collection_rate ?? 0) - (row.quality_adjusted_collection ?? 0); return diff > 15 ? 'text-destructive' : diff > 5 ? 'text-amber-500' : 'text-muted-foreground'; })()}`}>{(row.quality_adjusted_collection ?? 0).toFixed(1)}%</td>
+                        <td className={`px-4 py-2.5 text-right tabular-nums font-medium ${(row.reliability_score ?? 0) >= 85 ? 'text-emerald-500' : (row.reliability_score ?? 0) >= 70 ? 'text-amber-500' : 'text-destructive'}`}>{(row.reliability_score ?? 0).toFixed(1)}</td>
                         <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{(row.expected_progress_pct ?? 0).toFixed(1)}%</td>
                         <td className="px-4 py-2.5 text-center tabular-nums">
                           {row.variance_pct != null && row.variance_pct !== 0 ? (
