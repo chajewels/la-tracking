@@ -1234,8 +1234,6 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
                     </>
                   );
                 })()}
-                  );
-                })()}
               </div>
             </div>
           </div>
