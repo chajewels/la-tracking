@@ -737,18 +737,12 @@ function ExtensionRequestsPanel() {
   const { data: requests, isLoading } = useQuery({
     queryKey: ['extension-requests', filter],
     queryFn: async () => {
-      const query = supabase
+      const { data, error } = await supabase
         .from('extension_requests' as any)
         .select('*, layaway_accounts!inner(id, invoice_number, currency, remaining_balance, status, customer_id)')
+        .eq('status', filter === 'pending' ? 'pending' : 'approved')
         .order('created_at', { ascending: false });
 
-      if (filter === 'pending') {
-        query.eq('status', 'pending');
-      } else {
-        query.in('status', ['approved', 'denied']);
-      }
-
-      const { data, error } = await query;
       if (error) throw error;
       return (data || []) as any[];
     },
