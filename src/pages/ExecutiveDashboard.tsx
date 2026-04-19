@@ -16,7 +16,6 @@ import {
   useMonthlyInflowByPlan,
   useActiveByPlan,
   usePlanPerformance,
-  useIsExecAdmin,
 } from '@/hooks/useExecutiveDashboard';
 
 const PLAN_COLORS: Record<number, string> = {
@@ -67,8 +66,6 @@ const ChartTooltip = ({ active, payload, label }: any) => {
 };
 
 export default function ExecutiveDashboard() {
-  const { data: isAdmin, isLoading: adminLoading } = useIsExecAdmin();
-
   const { data: rate, isLoading: rateLoading } = useConversionRate();
   const { data: planConfigs } = usePlanConfigurations();
   const alerts = useFinancialAlerts();
@@ -85,17 +82,7 @@ export default function ExecutiveDashboard() {
     return planConfigs.map(c => c.plan_months);
   }, [planConfigs]);
 
-  const isLoading = adminLoading || rateLoading || accountsLoading || paymentsLoading;
-
-  if (!adminLoading && !isAdmin) {
-    return (
-      <AppLayout>
-        <div className="flex items-center justify-center h-64 text-muted-foreground">
-          Access denied — admin only
-        </div>
-      </AppLayout>
-    );
-  }
+  const isLoading = rateLoading || accountsLoading || paymentsLoading;
 
   return (
     <AppLayout>
