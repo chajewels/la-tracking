@@ -7,11 +7,11 @@ interface ExecData {
   portfolioValue: number;
   grossProfit: { active_gross_profit: number; lifetime_gross_profit: number } | null;
   monthlyInflow: { installment_inflow: number; penalty_inflow: number; total_inflow: number } | null;
-  netExposure: { gross_exposure: number; dp_retained: number; penalties_collected: number; estimated_resale: number; net_exposure: number } | null;
-  coverageRatio: { cash_in: number; inventory_cost: number; coverage_ratio: number; status_label: string } | null;
+  netExposure: { gross_exposure: number; dp_retained: number; penalties_collected: number; estimated_resale: number; net_exposure: number; prior_month_exposure: number; exposure_change: number } | null;
+  coverageRatio: { cash_in: number; inventory_cost: number; coverage_ratio: number; status_label: string; funding_gap: number; days_covered: number } | null;
   atRisk: { total_at_risk: number; critical_count: number; active_total: number; at_risk_pct: number } | null;
   atRiskDetail: any[];
-  penaltyRevenue: { current_month_jpy: number; cumulative_jpy: number } | null;
+  penaltyRevenue: { current_month_jpy: number; cumulative_jpy: number; penalty_pct_of_inflow: number } | null;
   planPerformance: any[];
   cohortTimeline: any[];
   lastUpdated: Date;
@@ -73,12 +73,16 @@ export function useExecutiveDashboard(): ExecData {
           penalties_collected: Number(ne.data?.[0]?.penalties_collected ?? 0),
           estimated_resale: Number(ne.data?.[0]?.estimated_resale ?? 0),
           net_exposure: Number(ne.data?.[0]?.net_exposure ?? 0),
+          prior_month_exposure: Number(ne.data?.[0]?.prior_month_exposure ?? 0),
+          exposure_change: Number(ne.data?.[0]?.exposure_change ?? 0),
         },
         coverageRatio: {
           cash_in: Number(cr.data?.[0]?.cash_in ?? 0),
           inventory_cost: Number(cr.data?.[0]?.inventory_cost ?? 0),
           coverage_ratio: Number(cr.data?.[0]?.coverage_ratio ?? 0),
           status_label: cr.data?.[0]?.status_label ?? 'CRITICAL',
+          funding_gap: Number(cr.data?.[0]?.funding_gap ?? 0),
+          days_covered: Number(cr.data?.[0]?.days_covered ?? 0),
         },
         atRisk: {
           total_at_risk: Number(ar.data?.[0]?.total_at_risk ?? 0),
@@ -90,6 +94,7 @@ export function useExecutiveDashboard(): ExecData {
         penaltyRevenue: {
           current_month_jpy: Number(pr.data?.[0]?.current_month_jpy ?? 0),
           cumulative_jpy: Number(pr.data?.[0]?.cumulative_jpy ?? 0),
+          penalty_pct_of_inflow: Number(pr.data?.[0]?.penalty_pct_of_inflow ?? 0),
         },
         planPerformance: pp.data ?? [],
         cohortTimeline: ct.data ?? [],
