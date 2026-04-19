@@ -179,6 +179,26 @@ When checking whether a user can perform an action:
 ### schedule_status
   Valid values: 'pending' | 'partially_paid' | 'paid' | 'overdue' | 'cancelled'
 
+## PLAN CONFIGURATIONS — NON-NEGOTIABLE
+
+  Stored in: plan_configurations table
+  Columns: plan_months, display_label, min_amount_jpy, min_amount_php,
+           dp_percentage, is_active, risk_tier
+
+  Current plans:
+    3M  → no minimum, LOW risk
+    6M  → no minimum, LOW risk
+    8M  → min ¥300,000 / ₱126,000, MODERATE risk
+    10M → min ¥600,000 / ₱252,000, HIGH risk
+    12M → min ¥1,000,000 / ₱420,000, CRITICAL risk
+
+  Enforcement:
+  - DB trigger: trg_enforce_plan_minimum fires BEFORE INSERT OR UPDATE
+    on layaway_accounts — blocks total_amount below minimum for plan
+  - Applies to JPY and PHP accounts separately using correct minimum
+  - 3M and 6M have min = 0 — trigger passes through immediately
+  - Never hardcode plan minimums in UI — always read from plan_configurations
+
 ## PAYMENT ALLOCATION RULES
 
   Exact payment:    status → paid. No carry. total_due_amount = base (unchanged).
@@ -455,6 +475,16 @@ When completing a partially_paid month:
     (2026-04-13)
   - 23. Proof of Payment tab showed unconfirmed submissions — fixed
     with status='confirmed' filter (2026-04-13)
+  - 24. Penalty engine skipped schedule rows with waived penalties —
+    fixed by separating waivedPenaltyIds map from existingPenaltyMap.
+    Waived penalties now UPDATE to unpaid instead of blocking new INSERT
+    (2026-04-19)
+  - 25. Extension request button not clickable in customer portal —
+    fixed by moving banner to scrollable div and using position:absolute
+    modal inside Sheet coordinate system (2026-04-19)
+  - 26. Extension requests not appearing in CSR Monitoring —
+    fixed by removing ambiguous customers!inner join and correcting
+    order column from created_at to requested_at (2026-04-19)
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
@@ -632,6 +662,19 @@ When completing a partially_paid month:
   - extension_active + extension month penalty cap reached → 'final_forfeited' (PERMANENT)
   - FINAL_FORFEITED blocks all further negotiation/reactivation
 
+  Extension request window (customer portal):
+  - Customer can request extension from portal within 7 days of forfeiture
+  - Reference date: layaway_accounts.forfeited_at (timestamptz column)
+  - forfeited_at is set by auto-forfeit-settlement (PATH 1 and PATH 2)
+    and manual-forfeit edge functions
+  - After 7 days: hide request button, show message:
+    "The extension request window has closed. Please contact us directly
+     for assistance."
+  - Within 7 days: show "Request Extension" button
+  - Once request submitted: button disabled, shows "Extension Request Pending"
+  - Extension requests stored in: extension_requests table
+  - Admin reviews in: CSR Monitoring → Extensions tab
+
 ### Independence rule:
   penalty-engine and auto-forfeit-settlement are INDEPENDENT
   — neither calls the other. Penalty engine creates penalties;
@@ -754,19 +797,24 @@ When completing a partially_paid month:
   System Audit button: ADDED to Dashboard ✅
   SystemAudit.tsx page: REMOVED ✅
   AccountDetail verify panel: REMOVED ✅
+  plan_configurations table: LIVE ✅ (3M/6M/8M/10M/12M)
+  trg_enforce_plan_minimum trigger: LIVE ✅
+  forfeited_at column on layaway_accounts: ADDED ✅
+  extension request 7-day window: LIVE ✅
+  Executive Dashboard (fc_ RPCs): LIVE ✅ (11 RPCs + alert engine)
+  fc_evaluate_alerts pg_cron: RUNNING every 30 minutes ✅
 
-## PENDING ITEMS (as of 2026-04-13)
+## PENDING ITEMS (as of 2026-04-19)
 
-  1. record-payment remaining_balance formula uses principal-only — needs canonical fix
-  2. void-payment remaining_balance formula uses principal-only — needs canonical fix
-  3. edit-payment-amount remaining_balance formula uses principal-only — needs canonical fix
-  4. record-multi-payment remaining_balance formula uses wrong sources — needs canonical fix
-  5. restore-payment uses schedule cache instead of canonical formula — needs fix
   6. daily-reconciliation has no cron job — needs pg_cron entry
   7. Firebase signing page connection (Steps 13-17)
   8. Update submit-payment edge function to auto-deploy list
   9. Extension lifecycle test stages 3 & 4
   10. TEST-FORFEIT-002 and TEST-FORFEIT-003
+  11. send-transactional-email edge function — does not exist, email
+      notifications for extension requests not working
+  12. Penalty engine waived-to-unpaid auto-fix — deployed, needs
+      monitoring on next cron run to confirm correct behavior
 
 ## AUTO-DEPLOY RULES (updated 2026-04-12)
 
