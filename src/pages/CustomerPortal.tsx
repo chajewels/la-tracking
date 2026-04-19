@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useMemo, memo, useCallback, lazy, Suspense } from 'react';
-import ReactDOM from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -1268,14 +1267,10 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
         )}
       </div>
 
-      {/* Extension Request Modal — rendered via portal to escape Sheet stacking context */}
-      {extModalOpen && ReactDOM.createPortal(
-        <div style={{position:'fixed',inset:0,zIndex:99999,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.7)'}}
-          onClick={() => setExtModalOpen(false)}>
-          <div style={{background:'#1a1a1a',border:'1px solid #333',borderTop:`3px solid ${P.gp}`,borderRadius:'8px',padding:'1.5rem',width:'90%',maxWidth:'400px'}}
-            onClick={e => e.stopPropagation()}
-            onMouseDown={e => e.stopPropagation()}
-            onPointerDown={e => e.stopPropagation()}>
+      {/* Extension Request Modal */}
+      {extModalOpen && (
+        <div style={{position:'absolute',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.85)',zIndex:50,display:'flex',alignItems:'center',justifyContent:'center',padding:'1.5rem'}}>
+          <div style={{background:'#1a1a1a',border:'1px solid #444',borderRadius:'8px',padding:'1.5rem',width:'100%',maxWidth:'380px'}}>
             <h3 style={{fontFamily:CG,fontSize:'18px',fontWeight:700,color:P.tp,marginBottom:'8px'}}>Request Payment Extension</h3>
             <p style={{fontSize:'12px',color:P.ts,lineHeight:1.6,marginBottom:'16px'}}>
               You are requesting a 1-month extension for INV #{account.invoice_number}. Our team will review your request within 24 hours.
@@ -1308,8 +1303,7 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
               </button>
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
     </div>
   );
