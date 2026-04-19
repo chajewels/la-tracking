@@ -739,7 +739,7 @@ function ExtensionRequestsPanel() {
     queryFn: async () => {
       const query = supabase
         .from('extension_requests' as any)
-        .select('*, layaway_accounts!inner(id, invoice_number, currency, remaining_balance, status, customers!inner(full_name))')
+        .select('*, layaway_accounts!inner(id, invoice_number, currency, remaining_balance, status, customer_id, customers(full_name))')
         .order('created_at', { ascending: false });
 
       if (filter === 'pending') {
