@@ -149,6 +149,12 @@ export default function ExecutiveDashboard() {
                 <div className="flex justify-between text-muted-foreground"><span>Inventory Cost</span><span>{fmtM(d.coverageRatio?.inventory_cost ?? 0)}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Funding Gap</span><span className={(d.coverageRatio?.funding_gap ?? 0) >= 0 ? 'text-emerald-500' : 'text-destructive'}>{fmtM(d.coverageRatio?.funding_gap ?? 0)}</span></div>
                 <div className="flex justify-between text-muted-foreground"><span>Days Covered</span><span>{(d.coverageRatio?.days_covered ?? 0).toFixed(1)} days</span></div>
+                <div className="border-t border-border/50 mt-1.5 pt-1.5">
+                  <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">30-Day Forecast</p>
+                  <div className="flex justify-between text-muted-foreground"><span>Projected Inflow</span><span>{fmtM(d.coverageRatio?.projected_inflow_30d ?? 0)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Projected Coverage</span><span className={`font-medium ${(d.coverageRatio?.projected_coverage_30d ?? 0) >= 1.2 ? 'text-emerald-500' : (d.coverageRatio?.projected_coverage_30d ?? 0) >= 1.0 ? 'text-amber-500' : 'text-destructive'}`}>{(d.coverageRatio?.projected_coverage_30d ?? 0).toFixed(2)}×</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Projected Gap</span><span className={(d.coverageRatio?.projected_funding_gap ?? 0) >= 0 ? 'text-emerald-500' : 'text-destructive'}>{fmtM(d.coverageRatio?.projected_funding_gap ?? 0)}</span></div>
+                </div>
               </div>
             </div>
           </div>
@@ -407,8 +413,8 @@ export default function ExecutiveDashboard() {
                             </span>
                           ) : <span className="text-muted-foreground">—</span>}
                         </td>
-                        <td className={`px-4 py-2.5 text-right tabular-nums ${(row.penalty_rate ?? 0) >= 10 ? 'text-destructive' : (row.penalty_rate ?? 0) > 0 ? 'text-amber-500' : 'text-muted-foreground'}`}>{(row.penalty_rate ?? 0).toFixed(1)}%</td>
-                        <td className={`px-4 py-2.5 text-right tabular-nums ${(row.at_risk_rate ?? 0) >= 10 ? 'text-destructive' : (row.at_risk_rate ?? 0) > 0 ? 'text-amber-500' : 'text-muted-foreground'}`}>{(row.at_risk_rate ?? 0).toFixed(1)}%</td>
+                        <td className={`px-4 py-2.5 text-right tabular-nums ${(row.penalty_rate ?? 0) >= 10 ? 'text-destructive' : (row.penalty_rate ?? 0) > 0 ? 'text-amber-500' : 'text-muted-foreground'}`}>{(row.penalty_rate ?? 0).toFixed(1)}%{row.penalty_rate_trend > 0 ? <span className="text-destructive ml-1">↑</span> : row.penalty_rate_trend < 0 ? <span className="text-emerald-500 ml-1">↓</span> : null}</td>
+                        <td className={`px-4 py-2.5 text-right tabular-nums ${(row.at_risk_rate ?? 0) >= 10 ? 'text-destructive' : (row.at_risk_rate ?? 0) > 0 ? 'text-amber-500' : 'text-muted-foreground'}`}>{(row.at_risk_rate ?? 0).toFixed(1)}%{row.at_risk_rate_trend > 0 ? <span className="text-destructive ml-1">↑</span> : row.at_risk_rate_trend < 0 ? <span className="text-emerald-500 ml-1">↓</span> : null}</td>
                         <td className={`px-4 py-2.5 text-right tabular-nums font-medium ${(row.impact_score ?? 0) > 500 ? 'text-destructive' : (row.impact_score ?? 0) > 100 ? 'text-amber-500' : 'text-muted-foreground'}`}>{row.impact_score ?? 0}</td>
                         <td className="px-4 py-2.5 text-center tabular-nums">
                           {row.directional_impact != null && row.directional_impact !== 0 ? (
@@ -437,6 +443,18 @@ export default function ExecutiveDashboard() {
               <p className="px-5 py-8 text-sm text-muted-foreground text-center">No active insights — portfolio within normal parameters.</p>
             ) : (
               <div className="p-4 space-y-3">
+                {(() => {
+                  const driver = d.cfoInsights[0]?.primary_driver;
+                  const driverColor = driver === 'Liquidity' ? 'bg-red-500/15 text-red-500 border-red-500/30'
+                    : driver === 'Growth' ? 'bg-emerald-500/15 text-emerald-500 border-emerald-500/30'
+                    : 'bg-amber-500/15 text-amber-500 border-amber-500/30';
+                  return driver ? (
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Primary Driver:</span>
+                      <Badge variant="outline" className={`text-[9px] ${driverColor}`}>{driver}</Badge>
+                    </div>
+                  ) : null;
+                })()}
                 {d.cfoInsights.slice(0, 6).map((ins, i) => {
                   const catColor = ins.category === 'Liquidity Risk' || ins.category === 'Underperformance' ? 'border-l-red-500'
                     : ins.category === 'Strong Cohort' ? 'border-l-emerald-500'
@@ -452,6 +470,9 @@ export default function ExecutiveDashboard() {
                           <p className="text-xs text-foreground">{ins.observation}</p>
                           <p className="text-[11px] text-muted-foreground"><span className="font-medium">Implication:</span> {ins.implication}</p>
                           <p className="text-[11px] text-foreground/80"><span className="font-medium">Action:</span> {ins.action}</p>
+                          {ins.category === 'Concentration Risk' && ins.req_accounts_8m != null && ins.req_accounts_10m != null && (
+                            <p className="text-[10px] text-muted-foreground">≈ {ins.req_accounts_8m} accounts (8M) or {ins.req_accounts_10m} accounts (10M) needed to rebalance</p>
+                          )}
                         </div>
                       </div>
                     </div>

@@ -8,7 +8,7 @@ interface ExecData {
   grossProfit: { active_gross_profit: number; lifetime_gross_profit: number } | null;
   monthlyInflow: { installment_inflow: number; penalty_inflow: number; total_inflow: number } | null;
   netExposure: { gross_exposure: number; dp_retained: number; penalties_collected: number; estimated_resale: number; net_exposure: number; prior_month_exposure: number; exposure_change: number; healthy_exposure: number; at_risk_exposure: number; critical_exposure: number; delta_healthy: number; delta_at_risk: number; delta_critical: number; delta_pct: number } | null;
-  coverageRatio: { cash_in: number; inventory_cost: number; coverage_ratio: number; status_label: string; funding_gap: number; days_covered: number } | null;
+  coverageRatio: { cash_in: number; inventory_cost: number; coverage_ratio: number; status_label: string; funding_gap: number; days_covered: number; projected_inflow_30d: number; projected_coverage_30d: number; projected_funding_gap: number } | null;
   atRisk: { total_at_risk: number; critical_count: number; active_total: number; at_risk_pct: number } | null;
   atRiskDetail: any[];
   penaltyRevenue: { current_month_jpy: number; cumulative_jpy: number; penalty_pct_of_inflow: number } | null;
@@ -27,6 +27,9 @@ interface CfoInsight {
   implication: string;
   action: string;
   impact_magnitude: number;
+  primary_driver: string;
+  req_accounts_8m: number | null;
+  req_accounts_10m: number | null;
 }
 
 
@@ -106,6 +109,9 @@ export function useExecutiveDashboard(): ExecData {
           status_label: cr.data?.[0]?.status_label ?? 'CRITICAL',
           funding_gap: Number(cr.data?.[0]?.funding_gap ?? 0),
           days_covered: Number(cr.data?.[0]?.days_covered ?? 0),
+          projected_inflow_30d: Number(cr.data?.[0]?.projected_inflow_30d ?? 0),
+          projected_coverage_30d: Number(cr.data?.[0]?.projected_coverage_30d ?? 0),
+          projected_funding_gap: Number(cr.data?.[0]?.projected_funding_gap ?? 0),
         },
         atRisk: {
           total_at_risk: Number(ar.data?.[0]?.total_at_risk ?? 0),
