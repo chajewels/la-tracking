@@ -605,6 +605,50 @@ export type Database = {
           },
         ]
       }
+      financial_alerts: {
+        Row: {
+          alert_type: string
+          created_at: string | null
+          current_value: number | null
+          id: string
+          message: string
+          plan_months: number | null
+          resolved_at: string | null
+          severity: string
+          threshold_value: number | null
+        }
+        Insert: {
+          alert_type: string
+          created_at?: string | null
+          current_value?: number | null
+          id?: string
+          message: string
+          plan_months?: number | null
+          resolved_at?: string | null
+          severity: string
+          threshold_value?: number | null
+        }
+        Update: {
+          alert_type?: string
+          created_at?: string | null
+          current_value?: number | null
+          id?: string
+          message?: string
+          plan_months?: number | null
+          resolved_at?: string | null
+          severity?: string
+          threshold_value?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_alerts_plan_months_fkey"
+            columns: ["plan_months"]
+            isOneToOne: false
+            referencedRelation: "plan_configurations"
+            referencedColumns: ["plan_months"]
+          },
+        ]
+      }
       forecast_snapshots: {
         Row: {
           created_at: string
@@ -1517,6 +1561,42 @@ export type Database = {
           },
         ]
       }
+      plan_configurations: {
+        Row: {
+          created_at: string | null
+          display_label: string
+          dp_percentage: number
+          is_active: boolean
+          min_amount_jpy: number
+          min_amount_php: number
+          plan_months: number
+          risk_tier: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          display_label: string
+          dp_percentage?: number
+          is_active?: boolean
+          min_amount_jpy?: number
+          min_amount_php?: number
+          plan_months: number
+          risk_tier: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          display_label?: string
+          dp_percentage?: number
+          is_active?: boolean
+          min_amount_jpy?: number
+          min_amount_php?: number
+          plan_months?: number
+          risk_tier?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -2076,6 +2156,157 @@ export type Database = {
         Args: { payload: Json; queue_name: string }
         Returns: number
       }
+      fc_at_risk_accounts: {
+        Args: never
+        Returns: {
+          active_total: number
+          at_risk_pct: number
+          critical_count: number
+          total_at_risk: number
+        }[]
+      }
+      fc_at_risk_detail: {
+        Args: never
+        Returns: {
+          invoice_number: string
+          outstanding_jpy: number
+          overdue_days: number
+          penalty_count: number
+          plan_months: number
+          risk_level: string
+          risk_score: number
+          risk_type: string
+        }[]
+      }
+      fc_cfo_insights: {
+        Args: never
+        Returns: {
+          action: string
+          category: string
+          impact_magnitude: number
+          implication: string
+          observation: string
+          primary_driver: string
+          priority: number
+          req_accounts_10m: number
+          req_accounts_8m: number
+        }[]
+      }
+      fc_cohort_timeline: {
+        Args: never
+        Returns: {
+          account_count: number
+          actual_collected: number
+          at_risk_rate: number
+          at_risk_rate_trend: number
+          average_ticket: number
+          cohort_age_days: number
+          cohort_month: string
+          collection_rate: number
+          collection_rate_delta: number
+          delinquent_count: number
+          directional_impact: number
+          expected_collected: number
+          expected_progress_pct: number
+          impact_score: number
+          penalty_rate: number
+          penalty_rate_trend: number
+          plan_months: number
+          quality_adjusted_collection: number
+          reliability_score: number
+          total_value_jpy: number
+          variance_pct: number
+        }[]
+      }
+      fc_coverage_ratio: {
+        Args: never
+        Returns: {
+          cash_in: number
+          coverage_ratio: number
+          days_covered: number
+          funding_gap: number
+          inventory_cost: number
+          projected_coverage_30d: number
+          projected_funding_gap: number
+          projected_inflow_30d: number
+          status_label: string
+        }[]
+      }
+      fc_evaluate_alerts: { Args: never; Returns: undefined }
+      fc_gross_profit: {
+        Args: never
+        Returns: {
+          active_gross_profit: number
+          lifetime_gross_profit: number
+        }[]
+      }
+      fc_monthly_inflow: {
+        Args: { target_month?: string }
+        Returns: {
+          installment_inflow: number
+          penalty_inflow: number
+          total_inflow: number
+        }[]
+      }
+      fc_net_exposure_risk: {
+        Args: { resale_pct?: number }
+        Returns: {
+          at_risk_exposure: number
+          critical_exposure: number
+          delta_at_risk: number
+          delta_critical: number
+          delta_healthy: number
+          delta_pct: number
+          dp_retained: number
+          estimated_resale: number
+          exposure_change: number
+          gross_exposure: number
+          healthy_exposure: number
+          net_exposure: number
+          penalties_collected: number
+          prior_month_exposure: number
+        }[]
+      }
+      fc_penalty_driven_accounts: {
+        Args: never
+        Returns: {
+          pct_of_active: number
+          penalty_driven_count: number
+          penalty_revenue_contribution: number
+        }[]
+      }
+      fc_penalty_revenue: {
+        Args: never
+        Returns: {
+          cumulative_jpy: number
+          current_month_jpy: number
+          penalty_pct_of_inflow: number
+        }[]
+      }
+      fc_plan_performance: {
+        Args: never
+        Returns: {
+          account_count: number
+          avg_ticket_jpy: number
+          contribution_pct: number
+          default_rate: number
+          display_label: string
+          excess_pct: number
+          gross_profit: number
+          min_amount_jpy: number
+          monthly_inflow: number
+          plan_at_risk_rate: number
+          plan_months: number
+          plan_penalty_rate: number
+          plan_quality_score: number
+          portfolio_jpy: number
+          required_shift: number
+          risk_adjusted_profit: number
+          risk_tier: string
+          target_mix_pct: number
+        }[]
+      }
+      fc_portfolio_value: { Args: never; Returns: number }
       get_collection_analytics: {
         Args: { currency_mode?: string; months_back?: number }
         Returns: Json
