@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Scale, CheckCircle, XCircle, Clock, Eye, ChevronDown, ChevronUp } from 'lucide-react';
+import { Scale, CheckCircle, XCircle, Clock, Eye, ChevronDown, ChevronUp, Undo2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -98,6 +98,100 @@ export default function Waivers({ embedded = false }: { embedded?: boolean } = {
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [unwaiveTarget, setUnwaiveTarget] = useState<{ waiver: WaiverRow; group: WaiverGroup } | null>(null);
+  const [unwaiving, setUnwaiving] = useState(false);
+
+  const handleUnwaive = async () => {
+    if (!unwaiveTarget) return;
+    const { waiver, group } = unwaiveTarget;
+    const penaltyId = waiver.penalty_fee_id;
+    const scheduleId = waiver.schedule_id;
+    const accountId = waiver.account_id;
+    setUnwaiving(true);
+
+    try {
+      // Check account status
+      const { data: acctStatus } = await supabase
+        .from('layaway_accounts')
+        .select('status')
+        .eq('id', accountId)
+        .single();
+      if (acctStatus && ['forfeited', 'final_forfeited', 'completed'].includes(acctStatus.status)) {
+        toast.error('Cannot unwaive penalty on a forfeited or completed account');
+        setUnwaiving(false);
+        return;
+      }
+
+      // Step 1: Restore penalty
+      const { error: e1 } = await supabase
+        .from('penalty_fees')
+        .update({ status: 'unpaid' as any, waived_at: null })
+        .eq('id', penaltyId);
+      if (e1) { toast.error('Step 1 failed: ' + e1.message); setUnwaiving(false); return; }
+
+      // Step 2: Sync schedule row
+      const { data: penaltyRows } = await supabase
+        .from('penalty_fees')
+        .select('penalty_amount')
+        .eq('schedule_id', scheduleId)
+        .not('status', 'eq', 'waived');
+      const totalPenalty = (penaltyRows ?? []).reduce((sum: number, p: any) => sum + Number(p.penalty_amount), 0);
+
+      const { data: scheduleRow } = await supabase
+        .from('layaway_schedule')
+        .select('base_installment_amount')
+        .eq('id', scheduleId)
+        .single();
+      const base = Number(scheduleRow?.base_installment_amount ?? 0);
+
+      const { error: e2 } = await supabase
+        .from('layaway_schedule')
+        .update({ penalty_amount: totalPenalty, total_due_amount: base + totalPenalty })
+        .eq('id', scheduleId);
+      if (e2) { toast.error('Step 2 failed: ' + e2.message); setUnwaiving(false); return; }
+
+      // Step 3: Recalculate remaining_balance
+      const { data: account } = await supabase
+        .from('layaway_accounts')
+        .select('total_amount')
+        .eq('id', accountId)
+        .single();
+      const { data: activePenalties } = await supabase
+        .from('penalty_fees')
+        .select('penalty_amount')
+        .eq('account_id', accountId)
+        .not('status', 'eq', 'waived');
+      const { data: services } = await supabase
+        .from('account_services' as any)
+        .select('amount')
+        .eq('account_id', accountId);
+      const { data: payments } = await supabase
+        .from('payments')
+        .select('amount_paid')
+        .eq('account_id', accountId)
+        .is('voided_at', null);
+
+      const penaltyTotal = (activePenalties ?? []).reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
+      const serviceTotal = (services ?? []).reduce((s: number, sv: any) => s + Number(sv.amount), 0);
+      const paidTotal = (payments ?? []).reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
+      const remainingBalance = Math.max(0, Number(account?.total_amount ?? 0) + penaltyTotal + serviceTotal - paidTotal);
+
+      const { error: e3 } = await supabase
+        .from('layaway_accounts')
+        .update({ remaining_balance: remainingBalance })
+        .eq('id', accountId);
+      if (e3) { toast.error('Step 3 failed: ' + e3.message); setUnwaiving(false); return; }
+
+      toast.success('Penalty unwaived — account balance updated');
+      for (const key of MUTATION_INVALIDATION_KEYS) qc.invalidateQueries({ queryKey: [key] });
+      qc.invalidateQueries({ queryKey: ['waivers-page'] });
+      setUnwaiveTarget(null);
+    } catch (err: any) {
+      toast.error(err.message || 'Unwaive failed');
+    } finally {
+      setUnwaiving(false);
+    }
+  };
 
   const { data: waivers, isLoading } = useQuery({
     queryKey: ['waivers-page', filter],
@@ -315,6 +409,7 @@ export default function Waivers({ embedded = false }: { embedded?: boolean } = {
                             <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Waiver Status</th>
                             <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Reason</th>
                             <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Requested</th>
+                            <th className="text-right px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
@@ -343,6 +438,14 @@ export default function Waivers({ embedded = false }: { embedded?: boolean } = {
                                 </td>
                                 <td className="px-4 py-2 text-xs text-muted-foreground whitespace-nowrap">
                                   {new Date(w.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                </td>
+                                <td className="px-4 py-2 text-right">
+                                  {pen?.status === 'waived' && (
+                                    <Button variant="outline" size="sm" className="h-6 text-[10px] gap-1 border-amber-500/30 text-amber-500 hover:bg-amber-500/10"
+                                      onClick={e => { e.stopPropagation(); setUnwaiveTarget({ waiver: w, group }); }}>
+                                      <Undo2 className="h-3 w-3" /> Unwaive
+                                    </Button>
+                                  )}
                                 </td>
                               </tr>
                             );
@@ -450,6 +553,31 @@ export default function Waivers({ embedded = false }: { embedded?: boolean } = {
                 : 'bg-destructive text-destructive-foreground hover:bg-destructive/90'}
             >
               {submitting ? 'Processing…' : `${actionDialog?.action === 'approve' ? 'Approve' : 'Reject'} ${selectedWaiverIds.size} Selected`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Unwaive Confirmation Dialog */}
+      <Dialog open={!!unwaiveTarget} onOpenChange={open => { if (!open) setUnwaiveTarget(null); }}>
+        <DialogContent className="bg-card border-border max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display text-card-foreground">Unwaive Penalty</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to unwaive this penalty? The account balance will be restored.
+            </DialogDescription>
+          </DialogHeader>
+          {unwaiveTarget && (
+            <div className="rounded-lg bg-muted/50 p-3 text-xs space-y-1">
+              <div className="flex justify-between"><span className="text-muted-foreground">Invoice</span><span className="font-mono font-medium text-card-foreground">#{unwaiveTarget.group.invoiceNumber}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Penalty</span><span className="text-card-foreground">{unwaiveTarget.waiver.penalty_fees?.penalty_stage} · Cycle {unwaiveTarget.waiver.penalty_fees?.penalty_cycle}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold text-destructive tabular-nums">{formatCurrency(Number(unwaiveTarget.waiver.penalty_amount), unwaiveTarget.group.currency)}</span></div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUnwaiveTarget(null)} disabled={unwaiving}>Cancel</Button>
+            <Button onClick={handleUnwaive} disabled={unwaiving} className="bg-amber-500 text-white hover:bg-amber-600">
+              {unwaiving ? 'Processing…' : 'Confirm Unwaive'}
             </Button>
           </DialogFooter>
         </DialogContent>
