@@ -7,7 +7,7 @@ interface ExecData {
   portfolioValue: number;
   grossProfit: { active_gross_profit: number; lifetime_gross_profit: number } | null;
   monthlyInflow: { installment_inflow: number; penalty_inflow: number; total_inflow: number } | null;
-  netExposure: { gross_exposure: number; dp_retained: number; penalties_collected: number; estimated_resale: number; net_exposure: number; prior_month_exposure: number; exposure_change: number } | null;
+  netExposure: { gross_exposure: number; dp_retained: number; penalties_collected: number; estimated_resale: number; net_exposure: number; prior_month_exposure: number; exposure_change: number; healthy_exposure: number; at_risk_exposure: number; critical_exposure: number } | null;
   coverageRatio: { cash_in: number; inventory_cost: number; coverage_ratio: number; status_label: string; funding_gap: number; days_covered: number } | null;
   atRisk: { total_at_risk: number; critical_count: number; active_total: number; at_risk_pct: number } | null;
   atRiskDetail: any[];
@@ -75,6 +75,9 @@ export function useExecutiveDashboard(): ExecData {
           net_exposure: Number(ne.data?.[0]?.net_exposure ?? 0),
           prior_month_exposure: Number(ne.data?.[0]?.prior_month_exposure ?? 0),
           exposure_change: Number(ne.data?.[0]?.exposure_change ?? 0),
+          healthy_exposure: Number(ne.data?.[0]?.healthy_exposure ?? 0),
+          at_risk_exposure: Number(ne.data?.[0]?.at_risk_exposure ?? 0),
+          critical_exposure: Number(ne.data?.[0]?.critical_exposure ?? 0),
         },
         coverageRatio: {
           cash_in: Number(cr.data?.[0]?.cash_in ?? 0),

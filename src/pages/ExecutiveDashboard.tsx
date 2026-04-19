@@ -121,10 +121,19 @@ export default function ExecutiveDashboard() {
               sub={`Installments ${fmtM(d.monthlyInflow?.installment_inflow ?? 0)} · Penalties ${fmtM(d.monthlyInflow?.penalty_inflow ?? 0)}`} />
             <KPI label="Net Exposure Risk" value={fmtM(d.netExposure?.net_exposure ?? 0)} danger
               sub={`${fmtM(d.netExposure?.gross_exposure ?? 0)} gross · ${fmtM(recovered)} recovered`}
-              extra={d.netExposure?.exposure_change ? (
-                <p className={`text-[10px] pl-2 font-medium tabular-nums ${d.netExposure.exposure_change > 0 ? 'text-destructive' : 'text-emerald-500'}`}>
-                  {d.netExposure.exposure_change > 0 ? '▲' : '▼'} {fmtM(Math.abs(d.netExposure.exposure_change))} vs last month
-                </p>
+              extra={d.netExposure ? (
+                <div className="pl-2">
+                  {d.netExposure.exposure_change !== 0 && (
+                    <p className={`text-[10px] font-medium tabular-nums ${d.netExposure.exposure_change > 0 ? 'text-destructive' : 'text-emerald-500'}`}>
+                      {d.netExposure.exposure_change > 0 ? '▲' : '▼'} {fmtM(Math.abs(d.netExposure.exposure_change))} vs last month
+                    </p>
+                  )}
+                  <div className="mt-1.5 space-y-0.5 text-[10px] tabular-nums">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Healthy</span><span className="text-emerald-500">{fmtM(d.netExposure.healthy_exposure)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">At-Risk</span><span className="text-amber-500">{fmtM(d.netExposure.at_risk_exposure)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Critical</span><span className="text-destructive">{fmtM(d.netExposure.critical_exposure)}</span></div>
+                  </div>
+                </div>
               ) : undefined} />
             <div className={`relative overflow-hidden rounded-xl border bg-card p-4 sm:p-5 border-l-[3px] ${coverageColor}`}>
               <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider pl-2">Cash Flow Coverage</p>
@@ -178,10 +187,18 @@ export default function ExecutiveDashboard() {
                     <th className="text-right px-4 py-2 font-semibold text-muted-foreground">Penalties</th>
                     <th className="text-right px-4 py-2 font-semibold text-muted-foreground">Outstanding ¥</th>
                     <th className="text-center px-4 py-2 font-semibold text-muted-foreground">Risk Level</th>
+                    <th className="text-center px-4 py-2 font-semibold text-muted-foreground">Risk Type</th>
+                    <th className="text-right px-4 py-2 font-semibold text-muted-foreground">Score</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {d.atRiskDetail.map((r: any, i: number) => (
+                  {d.atRiskDetail.map((r: any, i: number) => {
+                    const score = Number(r.risk_score ?? 0);
+                    const scoreColor = score >= 67 ? 'text-destructive' : score >= 34 ? 'text-amber-500' : 'text-muted-foreground';
+                    const typeBadge = r.risk_type === 'CREDIT' ? 'bg-blue-500/15 text-blue-500 border-blue-500/30'
+                      : r.risk_type === 'COMBINED' ? 'bg-red-500/15 text-red-500 border-red-500/30'
+                      : 'bg-amber-500/15 text-amber-500 border-amber-500/30';
+                    return (
                     <tr key={i} className="border-b border-border/50 hover:bg-muted/20">
                       <td className="px-4 py-2 font-mono text-foreground">#{r.invoice_number}</td>
                       <td className="px-4 py-2 text-muted-foreground">{r.plan_months}M</td>
@@ -193,8 +210,13 @@ export default function ExecutiveDashboard() {
                           {r.risk_level}
                         </Badge>
                       </td>
+                      <td className="px-4 py-2 text-center">
+                        <Badge variant="outline" className={`text-[9px] ${typeBadge}`}>{r.risk_type ?? '—'}</Badge>
+                      </td>
+                      <td className={`px-4 py-2 text-right tabular-nums font-medium ${scoreColor}`}>{score}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -318,8 +340,8 @@ export default function ExecutiveDashboard() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border">
-                    {['Cohort Month', 'Plan', 'Accounts', 'Contract ¥', 'Expected', 'Collected', 'Collection Rate', 'Δ Rate', 'Delinquent'].map(h => (
-                      <th key={h} className={`px-4 py-2.5 font-semibold text-muted-foreground uppercase ${['Cohort Month', 'Plan'].includes(h) ? 'text-left' : 'text-right'} ${h === 'Collection Rate' ? 'text-center' : ''}`}>{h}</th>
+                    {['Cohort Month', 'Age', 'Plan', 'Accounts', 'Contract ¥', 'Expected', 'Collected', 'Collection Rate', 'Expected %', 'Variance', 'Δ Rate', 'Delinquent'].map(h => (
+                      <th key={h} className={`px-4 py-2.5 font-semibold text-muted-foreground uppercase ${['Cohort Month', 'Plan'].includes(h) ? 'text-left' : 'text-right'} ${['Collection Rate', 'Variance', 'Δ Rate'].includes(h) ? 'text-center' : ''}`}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -332,6 +354,7 @@ export default function ExecutiveDashboard() {
                     return (
                       <tr key={i} className="border-b border-border/50 hover:bg-muted/20">
                         <td className="px-4 py-2.5 text-foreground">{row.cohort_month}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{row.cohort_age_days ?? 0} days</td>
                         <td className="px-4 py-2.5 text-muted-foreground">{row.plan_months}M</td>
                         <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{row.account_count}</td>
                         <td className="px-4 py-2.5 text-right tabular-nums text-foreground">{fmtFull(row.total_value_jpy ?? 0)}</td>
@@ -344,6 +367,14 @@ export default function ExecutiveDashboard() {
                             </div>
                             <span className={`tabular-nums font-medium ${textColor}`}>{rate.toFixed(1)}%</span>
                           </div>
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{(row.expected_progress_pct ?? 0).toFixed(1)}%</td>
+                        <td className="px-4 py-2.5 text-center tabular-nums">
+                          {row.variance_pct != null && row.variance_pct !== 0 ? (
+                            <span className={row.variance_pct > 0 ? 'text-emerald-500' : 'text-destructive'}>
+                              {row.variance_pct > 0 ? '▲' : '▼'} {Math.abs(row.variance_pct).toFixed(1)}%
+                            </span>
+                          ) : <span className="text-muted-foreground">—</span>}
                         </td>
                         <td className="px-4 py-2.5 text-center tabular-nums">
                           {row.collection_rate_delta != null && row.collection_rate_delta !== 0 ? (
