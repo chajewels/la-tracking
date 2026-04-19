@@ -46,7 +46,7 @@ export default function PendingSubmissionsAlert() {
             </div>
           </div>
         ))}
-        <Link to={ROUTES.PAYMENT_SUBMISSIONS}>
+        <Link to="/finance?tab=docs">
           <Button variant="outline" size="sm" className="w-full gap-1.5 mt-1 text-xs">
             Review All Submissions <ArrowRight className="h-3 w-3" />
           </Button>
