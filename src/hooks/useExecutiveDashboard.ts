@@ -43,9 +43,7 @@ export function useExecutiveDashboard(): ExecData {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [
-        pv, gp, mi, ne, cr, ar, ard, pr, pp, ct,
-      ] = await Promise.all([
+      const [pv, gp, mi, ne, cr, ar, ard, pr, pp, ct] = await Promise.all([
         supabase.rpc('fc_portfolio_value' as any),
         supabase.rpc('fc_gross_profit' as any),
         supabase.rpc('fc_monthly_inflow' as any),
@@ -59,16 +57,42 @@ export function useExecutiveDashboard(): ExecData {
       ]);
 
       setData({
-        portfolioValue: Number(pv.data) || 0,
-        grossProfit: gp.data as any,
-        monthlyInflow: mi.data as any,
-        netExposure: ne.data as any,
-        coverageRatio: cr.data as any,
-        atRisk: ar.data as any,
-        atRiskDetail: Array.isArray(ard.data) ? ard.data : [],
-        penaltyRevenue: pr.data as any,
-        planPerformance: Array.isArray(pp.data) ? pp.data : [],
-        cohortTimeline: Array.isArray(ct.data) ? ct.data : [],
+        portfolioValue: Number(pv.data ?? 0),
+        grossProfit: {
+          active_gross_profit: Number(gp.data?.[0]?.active_gross_profit ?? 0),
+          lifetime_gross_profit: Number(gp.data?.[0]?.lifetime_gross_profit ?? 0),
+        },
+        monthlyInflow: {
+          installment_inflow: Number(mi.data?.[0]?.installment_inflow ?? 0),
+          penalty_inflow: Number(mi.data?.[0]?.penalty_inflow ?? 0),
+          total_inflow: Number(mi.data?.[0]?.total_inflow ?? 0),
+        },
+        netExposure: {
+          gross_exposure: Number(ne.data?.[0]?.gross_exposure ?? 0),
+          dp_retained: Number(ne.data?.[0]?.dp_retained ?? 0),
+          penalties_collected: Number(ne.data?.[0]?.penalties_collected ?? 0),
+          estimated_resale: Number(ne.data?.[0]?.estimated_resale ?? 0),
+          net_exposure: Number(ne.data?.[0]?.net_exposure ?? 0),
+        },
+        coverageRatio: {
+          cash_in: Number(cr.data?.[0]?.cash_in ?? 0),
+          inventory_cost: Number(cr.data?.[0]?.inventory_cost ?? 0),
+          coverage_ratio: Number(cr.data?.[0]?.coverage_ratio ?? 0),
+          status_label: cr.data?.[0]?.status_label ?? 'CRITICAL',
+        },
+        atRisk: {
+          total_at_risk: Number(ar.data?.[0]?.total_at_risk ?? 0),
+          critical_count: Number(ar.data?.[0]?.critical_count ?? 0),
+          active_total: Number(ar.data?.[0]?.active_total ?? 0),
+          at_risk_pct: Number(ar.data?.[0]?.at_risk_pct ?? 0),
+        },
+        atRiskDetail: ard.data ?? [],
+        penaltyRevenue: {
+          current_month_jpy: Number(pr.data?.[0]?.current_month_jpy ?? 0),
+          cumulative_jpy: Number(pr.data?.[0]?.cumulative_jpy ?? 0),
+        },
+        planPerformance: pp.data ?? [],
+        cohortTimeline: ct.data ?? [],
         lastUpdated: new Date(),
         loading: false,
       });
@@ -90,7 +114,7 @@ export function useExecutiveDashboard(): ExecData {
 export function useMonthlyInflowByPlan() {
   const [data, setData] = useState<any[]>([]);
 
-  const fetch = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     const now = new Date();
     const sixAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
     const startDate = sixAgo.toISOString().split('T')[0];
@@ -135,10 +159,10 @@ export function useMonthlyInflowByPlan() {
   }, []);
 
   useEffect(() => {
-    fetch();
-    const id = setInterval(fetch, INTERVAL);
+    fetchData();
+    const id = setInterval(fetchData, INTERVAL);
     return () => clearInterval(id);
-  }, [fetch]);
+  }, [fetchData]);
 
   return data;
 }
@@ -146,7 +170,7 @@ export function useMonthlyInflowByPlan() {
 export function useActiveByPlan() {
   const [data, setData] = useState<{ plan: number; count: number; pct: number }[]>([]);
 
-  const fetch = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     const { data: rows } = await supabase
       .from('layaway_accounts')
       .select('payment_plan_months')
@@ -167,10 +191,10 @@ export function useActiveByPlan() {
   }, []);
 
   useEffect(() => {
-    fetch();
-    const id = setInterval(fetch, INTERVAL);
+    fetchData();
+    const id = setInterval(fetchData, INTERVAL);
     return () => clearInterval(id);
-  }, [fetch]);
+  }, [fetchData]);
 
   return data;
 }
@@ -190,7 +214,7 @@ export function useFinancialAlerts() {
     fetchAlerts();
 
     const channel = supabase
-      .channel('financial-alerts-realtime')
+      .channel('exec-alerts-' + Date.now())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'financial_alerts' }, () => {
         fetchAlerts();
       })
