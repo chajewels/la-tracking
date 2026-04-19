@@ -80,7 +80,7 @@ Deno.serve(async (req) => {
     // Update account to forfeited
     const { error: updateErr } = await supabase
       .from("layaway_accounts")
-      .update({ status: "forfeited", updated_at: now })
+      .update({ status: "forfeited", updated_at: now, forfeited_at: now })
       .eq("id", account_id);
 
     if (updateErr) {
