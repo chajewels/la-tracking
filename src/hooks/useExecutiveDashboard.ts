@@ -206,12 +206,21 @@ export function useFinancialAlerts() {
     let isMounted = true;
 
     const fetchAlerts = async () => {
-      const { data } = await supabase
-        .from('financial_alerts' as any)
+      const { data } = await (supabase as any)
+        .from('financial_alerts')
         .select('*')
         .is('resolved_at', null)
         .order('created_at', { ascending: false });
-      if (isMounted) setAlerts(data ?? []);
+      if (isMounted) {
+        const rows = (data ?? []) as FinancialAlert[];
+        const seen = new Set<string>();
+        const deduped = rows.filter(r => {
+          if (seen.has(r.id)) return false;
+          seen.add(r.id);
+          return true;
+        });
+        setAlerts(deduped);
+      }
     };
 
     fetchAlerts();
