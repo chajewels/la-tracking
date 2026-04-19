@@ -205,7 +205,7 @@ Deno.serve(async (req) => {
         ) {
           console.log(`[auto-forfeit] ${account.invoice_number} — final month penalty ${finalMonthPenaltyTotal} >= ${finalMonthCap} → forfeiting`);
           const { error: p1Err } = await supabase.from("layaway_accounts")
-            .update({ status: "forfeited", updated_at: now.toISOString() })
+            .update({ status: "forfeited", updated_at: now.toISOString(), forfeited_at: now.toISOString() })
             .eq("id", account.id);
 
           if (p1Err) {
@@ -295,6 +295,7 @@ Deno.serve(async (req) => {
         const { error: forfeitErr } = await supabase.from("layaway_accounts").update({
           status: "forfeited",
           updated_at: now.toISOString(),
+          forfeited_at: now.toISOString(),
         }).eq("id", account.id);
 
         if (forfeitErr) {
