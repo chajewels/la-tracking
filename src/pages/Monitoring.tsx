@@ -783,7 +783,7 @@ function ExtensionRequestsPanel() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30">
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Customer</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Account</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Invoice</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Reason</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">
@@ -807,7 +807,7 @@ function ExtensionRequestsPanel() {
                     <td className="px-4 py-3">
                       {filter === 'pending' ? (
                         <span className="text-xs text-muted-foreground">
-                          {new Date(req.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          {new Date(req.requested_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
                         </span>
                       ) : (
                         <Badge variant="outline" className={`text-[10px] ${
