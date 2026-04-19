@@ -98,7 +98,7 @@ const App = () => (
                 <Route path="/payments-hub" element={<Protected><PaymentsHub /></Protected>} />
                 <Route path="/bulk-payment-import" element={<Protected><BulkPaymentImport /></Protected>} />
                 <Route path="/promotions" element={<Protected><Promotions /></Protected>} />
-                <Route path="/executive-dashboard" element={<Protected><ExecutiveDashboard /></Protected>} />
+                <Route path="/executive-dashboard" element={<ExecutiveDashboard />} />
                 {/* Legacy routes — redirect to the combined hub */}
                 <Route path="/payment-submissions" element={<Navigate to="/payments-hub" replace />} />
                 <Route path="/payment-proofs" element={<Navigate to="/payments-hub?tab=proofs" replace />} />
