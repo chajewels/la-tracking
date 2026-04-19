@@ -1225,10 +1225,10 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
                           Extension Request Pending
                         </button>
                       ) : (
-                        <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setExtModalOpen(true); }}
+                        <button onClick={() => setExtModalOpen(true)}
                           style={{marginTop:'8px',padding:'6px 16px',fontSize:'11px',fontWeight:600,fontFamily:"Inter,sans-serif",
                             background:'rgba(243,156,18,0.1)',border:`1px solid #F39C12`,borderRadius:'2px',color:'#F39C12',cursor:'pointer',
-                            letterSpacing:'0.08em',textTransform:'uppercase' as const,position:'relative',zIndex:10}}>
+                            letterSpacing:'0.08em',textTransform:'uppercase' as const}}>
                           Request Extension
                         </button>
                       )}
@@ -1273,7 +1273,9 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
         <div style={{position:'fixed',inset:0,zIndex:99999,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.7)'}}
           onClick={() => setExtModalOpen(false)}>
           <div style={{background:'#1a1a1a',border:'1px solid #333',borderTop:`3px solid ${P.gp}`,borderRadius:'8px',padding:'1.5rem',width:'90%',maxWidth:'400px'}}
-            onClick={e => e.stopPropagation()}>
+            onClick={e => e.stopPropagation()}
+            onMouseDown={e => e.stopPropagation()}
+            onPointerDown={e => e.stopPropagation()}>
             <h3 style={{fontFamily:CG,fontSize:'18px',fontWeight:700,color:P.tp,marginBottom:'8px'}}>Request Payment Extension</h3>
             <p style={{fontSize:'12px',color:P.ts,lineHeight:1.6,marginBottom:'16px'}}>
               You are requesting a 1-month extension for INV #{account.invoice_number}. Our team will review your request within 24 hours.
