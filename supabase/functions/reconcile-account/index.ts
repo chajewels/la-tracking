@@ -187,6 +187,10 @@ Deno.serve(async (req) => {
       const rowPaid = Math.round((allocBySchedule[sched.id] || 0) * 100) / 100;
       if (rowPaid <= 0) continue; // No allocations — skip; never reset to pending
 
+      // Never downgrade a paid row — carry-over intentionally closes rows
+      // as paid even when allocations < ceiling (shortfall carried to next row)
+      if (sched.status === 'paid') continue;
+
       const base = Number(sched.base_installment_amount);
       const penalty = Number(sched.penalty_amount || 0);
       const carried = Number(sched.carried_amount || 0);
