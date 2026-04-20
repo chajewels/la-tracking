@@ -339,7 +339,24 @@ All values come from computeLayaway() in business-rules.ts
 ## Test Accounts (DO NOT DELETE OR MODIFY)
 
   TEST-001 — Locked benchmark (general baseline)
-             Never modify data. All 9 verify checks must always be green.
+             Never modify data. All checks must always be green.
+             Purpose: catches regressions in core calculation formula.
+
+             Setup:
+               Currency: PHP | Base LA: ₱26,000 | DP: ₱6,000 (paid)
+               3 months | All months PAID
+               No penalties
+
+             Expected verify values (all must be green):
+               activePenalties:    0
+               totalLAAmount:      26,000
+               amountPaid:         26,000
+               remainingBalance:   0
+               monthsRemaining:    0
+               sumOfPendingMonths: 0
+               DP + sumBases:      26,000   (6,000 + 20,000)
+               downPayment:        6,000
+               status:             active (completed on next reconcile)
 
   TEST-002 — Locked benchmark (waived penalty)
              Never modify data. All 9 verify checks must always be green.
