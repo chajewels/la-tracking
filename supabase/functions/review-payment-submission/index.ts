@@ -169,7 +169,7 @@ async function allocatePaymentToAccount(
         const toApply = Math.min(remaining, due);
         remaining -= toApply;
         const newPaid = alreadyAllocated + toApply;
-        const isNowFullyPaid = newPaid >= rowCeiling;
+        const isNowFullyPaid = newPaid + alreadyAllocatedPenalty >= rowCeiling - 0.005;
 
         if (isNowFullyPaid && item.status === "partially_paid") {
           // Topping up a partial month — cap paid_amount at ceiling.
