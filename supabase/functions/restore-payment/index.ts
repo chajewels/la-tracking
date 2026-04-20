@@ -217,29 +217,44 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Update account totals using canonical formula (CLAUDE.md):
-    // total_paid = SUM(payments.amount_paid WHERE voided_at IS NULL)
-    // remaining = total_amount + Σ(non-waived penalties) - total_paid
+    // Recalculate account totals using canonical formula
     const accountId = payment.account_id;
 
-    const { data: activePens } = await supabase
-      .from("penalty_fees")
-      .select("penalty_amount")
-      .eq("account_id", accountId)
-      .neq("status", "waived");
-    const activePenaltySum = (activePens || [])
-      .reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
-
-    const { data: allPays } = await supabase
+    const { data: allPayments } = await supabase
       .from("payments")
       .select("amount_paid")
       .eq("account_id", accountId)
       .is("voided_at", null);
-    const newTotalPaid = round2((allPays || [])
-      .reduce((s: number, p: any) => s + Number(p.amount_paid), 0));
 
-    const newRemaining = Math.max(0,
-      round2(Number(account.total_amount) + activePenaltySum - newTotalPaid));
+    const { data: activePenalties } = await supabase
+      .from("penalty_fees")
+      .select("penalty_amount")
+      .eq("account_id", accountId)
+      .neq("status", "waived");
+
+    const { data: services } = await supabase
+      .from("account_services" as any)
+      .select("amount")
+      .eq("account_id", accountId);
+
+    const { data: accountData } = await supabase
+      .from("layaway_accounts")
+      .select("total_amount")
+      .eq("id", accountId)
+      .single();
+
+    const newTotalPaid = round2((allPayments ?? [])
+      .reduce((sum: number, p: any) => sum + Number(p.amount_paid), 0));
+
+    const penaltyTotal = (activePenalties ?? [])
+      .reduce((sum: number, p: any) => sum + Number(p.penalty_amount), 0);
+
+    const serviceTotal = (services ?? [])
+      .reduce((sum: number, s: any) => sum + Number(s.amount), 0);
+
+    const newRemainingBalance = Math.max(0, round2(
+      Number(accountData?.total_amount ?? 0) + penaltyTotal + serviceTotal - newTotalPaid
+    ));
 
     const { data: updatedSchedule } = await supabase
       .from("layaway_schedule")
@@ -251,7 +266,7 @@ Deno.serve(async (req) => {
 
     await supabase.from("layaway_accounts").update({
       total_paid: newTotalPaid,
-      remaining_balance: newRemaining,
+      remaining_balance: newRemainingBalance,
       status: newStatus,
     }).eq("id", accountId);
 
