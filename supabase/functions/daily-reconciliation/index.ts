@@ -47,7 +47,8 @@ Deno.serve(async (req) => {
       invoice_number: string;
       before_total_paid: number;
       after_total_paid: number | null;
-      success: boolean;
+      drift_detected: boolean;
+      drift_count: number;
       guard_fired: boolean;
       error?: string;
     }> = [];
@@ -61,7 +62,8 @@ Deno.serve(async (req) => {
       console.log(`[daily-recon:${runId}] ${acct.invoice_number}: before total_paid=${beforeTotalPaid}`);
 
       let afterTotalPaid: number | null = null;
-      let success = false;
+      let driftDetected = false;
+      let driftCount = 0;
       let guardFired = false;
       let errorMsg: string | undefined;
 
@@ -79,13 +81,14 @@ Deno.serve(async (req) => {
         );
 
         const body = await res.json();
-        success = !!body.success;
+        driftDetected = body.drift_detected ?? false;
+        driftCount = body.drift_count ?? 0;
         guardFired = !!body.guardFired;
-        afterTotalPaid = typeof body.totalPaid === "number" ? body.totalPaid : null;
+        afterTotalPaid = body.computed?.total_paid ?? null;
 
         console.log(
           `[daily-recon:${runId}] ${acct.invoice_number}: ` +
-          `after total_paid=${afterTotalPaid}, success=${success}, guardFired=${guardFired}`
+          `drift=${driftDetected ? driftCount + " items" : "none"}, guardFired=${guardFired}`
         );
 
         // Guard 4: halt entire run if total_paid decreased
@@ -114,7 +117,8 @@ Deno.serve(async (req) => {
         invoice_number: acct.invoice_number,
         before_total_paid: beforeTotalPaid,
         after_total_paid: afterTotalPaid,
-        success,
+        drift_detected: driftDetected,
+        drift_count: driftCount,
         guard_fired: guardFired,
         ...(errorMsg ? { error: errorMsg } : {}),
       });
@@ -126,18 +130,22 @@ Deno.serve(async (req) => {
       { onConflict: "key" }
     );
 
+    const accountsWithDrift = results.filter(r => r.drift_detected).length;
+    const totalDriftItems = results.reduce((s, r) => s + r.drift_count, 0);
+
     const summary = {
       run_id: runId,
       run_start: runStart,
       run_end: new Date().toISOString(),
       accounts_processed: results.length,
-      accounts_success: results.filter(r => r.success).length,
+      accounts_with_drift: accountsWithDrift,
+      total_drift_items: totalDriftItems,
       accounts_guard_fired: results.filter(r => r.guard_fired).length,
       halted: haltRun,
       results,
     };
 
-    console.log(`[daily-recon:${runId}] Done — ${summary.accounts_success}/${summary.accounts_processed} succeeded, halted=${haltRun}`);
+    console.log(`[daily-recon:${runId}] Done — ${accountsWithDrift}/${results.length} with drift (${totalDriftItems} items), halted=${haltRun}`);
 
     return new Response(JSON.stringify({ ok: true, ...summary }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
