@@ -213,7 +213,19 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── Step 7: Return drift report ──────────────────────────────────────────
+    // ── Step 7: Write drift report to reconciliation_log ───────────────────
+    await supabase
+      .from('reconciliation_log' as any)
+      .insert({
+        account_id,
+        invoice_number: account.invoice_number,
+        checked_at: new Date().toISOString(),
+        drift_detected: driftItems.length > 0,
+        drift_count: driftItems.length,
+        drift: driftItems,
+      });
+
+    // ── Step 8: Return drift report ──────────────────────────────────────────
     const result = {
       account_id,
       invoice_number: account.invoice_number,
