@@ -113,7 +113,7 @@ Deno.serve(async (req) => {
     const originalInstallmentAllocations = (originalAllocations || []).filter((alloc) => alloc.allocation_type === "installment");
     const originalPenaltyAllocations = (originalAllocations || []).filter((alloc) => alloc.allocation_type === "penalty");
 
-    let remainingInstallmentAmount = round2(originalInstallmentAllocations.reduce((sum, alloc) => sum + Number(alloc.allocated_amount), 0));
+    let remainingInstallmentAmount = round2(Number(payment.amount_paid));
 
     // Primary targets: selected items first, then all unpaid items for overflow
     const selectedTargets = (selectedIds.length > 0
@@ -144,8 +144,14 @@ Deno.serve(async (req) => {
       if (dryRunRemaining <= 0) break;
 
       const base = Number(item.base_installment_amount);
+      const penalty = Number(item.penalty_amount ?? 0);
+      const carried = Number(item.carried_amount ?? 0);
       const paid = Number(item.paid_amount);
-      const due = Math.max(0, round2(base - paid));
+      const naturalCeiling = base + penalty + carried;
+      const rowCeiling = item.total_due_amount
+        ? Math.min(naturalCeiling, Number(item.total_due_amount))
+        : naturalCeiling;
+      const due = Math.max(0, round2(rowCeiling - paid));
       if (due <= 0) continue;
 
       const toApply = round2(Math.min(dryRunRemaining, due));
