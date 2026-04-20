@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, memo } from 'react';
 import { addMonths, endOfMonth, format, startOfMonth } from 'date-fns';
 import { DollarSign, TrendingUp, BarChart3, Sparkles, CalendarClock, Trophy, Clock, AlertTriangle, ShieldAlert, Crown, UserCheck, Target, Users, Activity, Banknote, X, ShoppingBag } from 'lucide-react';
 import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
 } from 'recharts';
 import MonthlyAnalyticsChart from '@/components/MonthlyAnalyticsChart';
@@ -566,54 +566,66 @@ export default function Finance() {
                     <StatCard title="Forfeited Collected" value={formatCurrency(totalForfeitedCollected, displayCurrency)} icon={ShieldAlert} />
                   </div>
                   {collectionAnalytics && collectionAnalytics.length > 0 && (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      <div className="rounded-xl border border-border bg-card p-5">
-                        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Collected vs Expected</h4>
-                        <ResponsiveContainer width="100%" height={240}>
-                          <BarChart data={collectionAnalytics} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                            <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
-                            <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
-                            <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} />
-                            <Legend wrapperStyle={{ fontSize: 10 }} />
-                            <Bar dataKey="collected" name="Collected" fill="#16a34a" radius={[4, 4, 0, 0]} />
-                            <Bar dataKey="expected" name="Expected" fill="#2563eb" radius={[4, 4, 0, 0]} opacity={0.5} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                      <div className="rounded-xl border border-border bg-card p-5">
-                        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Collection Rate %</h4>
-                        <ResponsiveContainer width="100%" height={240}>
-                          <LineChart data={collectionAnalytics} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                            <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
-                            <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
-                            <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} />
-                            <Line type="monotone" dataKey="collection_rate" name="Rate %" stroke="#D4AF37" strokeWidth={2} dot={{ r: 4, fill: '#D4AF37' }} />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
+                    <div className="rounded-xl border border-border bg-card p-5">
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Collected vs Expected</h4>
+                      <ResponsiveContainer width="100%" height={280}>
+                        <AreaChart data={collectionAnalytics} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="collectedGradient" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.5} />
+                              <stop offset="95%" stopColor="#D4AF37" stopOpacity={0.05} />
+                            </linearGradient>
+                            <linearGradient id="expectedGradient" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
+                              <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.02} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                          <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                          <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} />
+                          <Legend wrapperStyle={{ fontSize: 10 }} />
+                          <Area type="monotone" dataKey="collected" name="Collected" stroke="#D4AF37" strokeWidth={2} fill="url(#collectedGradient)" />
+                          <Area type="monotone" dataKey="expected" name="Expected" stroke="#f59e0b" strokeWidth={2} fill="url(#expectedGradient)" />
+                        </AreaChart>
+                      </ResponsiveContainer>
                     </div>
                   )}
                 </>
               )}
             </div>
 
-            {/* Section 2 — Forfeiture Trend */}
-            {collectionAnalytics && collectionAnalytics.some(m => m.forfeited > 0) && (
-              <div className="rounded-xl border border-border bg-card p-5">
-                <h3 className="text-sm font-semibold text-card-foreground mb-3 flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-destructive" /> Forfeitures per Month
-                </h3>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={collectionAnalytics} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
-                    <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} />
-                    <Bar dataKey="forfeited" name="Forfeitures" fill="#dc2626" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+            {/* Section 2 — Collection Rate % + Forfeiture Trend (side by side) */}
+            {collectionAnalytics && collectionAnalytics.length > 0 && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="rounded-xl border border-border bg-card p-5">
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Collection Rate %</h4>
+                  <ResponsiveContainer width="100%" height={240}>
+                    <LineChart data={collectionAnalytics} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                      <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                      <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                      <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} />
+                      <Line type="monotone" dataKey="collection_rate" name="Rate %" stroke="#D4AF37" strokeWidth={2} dot={{ r: 4, fill: '#D4AF37' }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+                {collectionAnalytics.some(m => m.forfeited > 0) && (
+                  <div className="rounded-xl border border-border bg-card p-5">
+                    <h3 className="text-sm font-semibold text-card-foreground mb-3 flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 text-destructive" /> Forfeitures per Month
+                    </h3>
+                    <ResponsiveContainer width="100%" height={240}>
+                      <BarChart data={collectionAnalytics} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                        <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} />
+                        <Bar dataKey="forfeited" name="Forfeitures" fill="#dc2626" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
               </div>
             )}
 
