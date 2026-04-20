@@ -264,11 +264,19 @@ Deno.serve(async (req) => {
       ? determineAccountStatus(updatedSchedule, account.status)
       : account.status;
 
-    await supabase.from("layaway_accounts").update({
+    const { error: accountUpdateError } = await supabase.from("layaway_accounts").update({
       total_paid: newTotalPaid,
       remaining_balance: newRemainingBalance,
       status: newStatus,
     }).eq("id", accountId);
+
+    if (accountUpdateError) {
+      console.error("Failed to update account totals:", accountUpdateError);
+      return new Response(
+        JSON.stringify({ error: "Failed to update account totals", details: accountUpdateError }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // Clear voided flags — LAST step so everything is consistent
     await supabase.from("payments").update({
