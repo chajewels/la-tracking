@@ -514,6 +514,19 @@ When completing a partially_paid month:
     fixed to group penalties by schedule_id (2026-04-19)
   - 32. Search input lost focus due to EmbeddedWrapper defined inside
     component — fixed to module level (2026-04-19)
+  - 33. record-payment and record-multi-payment waterfall used break
+    after first fully-paid month killing surplus flow to subsequent
+    months — fixed to match review-payment-submission waterfall
+    pattern (2026-04-20)
+  - 34. reconcile-account was making DB writes that conflicted with
+    carry-over decisions — rewritten to report-only with zero DB
+    writes, results logged to reconciliation_log table (2026-04-20)
+  - 35. Keep decision handler was reversing the waterfall and consolidating
+    full payment onto Month 1 — fixed to be a no-op that preserves
+    the waterfall result exactly as the edge function wrote it (2026-04-20)
+  - 36. Record Payment dialog input max attribute caused browser native
+    validation to reject exact remaining balance amounts due to
+    floating point — fixed with 0.005 tolerance (2026-04-20)
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
@@ -548,6 +561,15 @@ When completing a partially_paid month:
     Set at schedule creation only
     NEVER modified after creation under any circumstance
     Enforced by DB trigger: prevent_base_amount_change
+
+  INVARIANT 8 — paid schedule row freeze:
+    Once layaway_schedule.status = 'paid', these fields are frozen:
+    status, paid_amount, total_due_amount
+    Enforced by DB trigger: enforce_paid_row_freeze
+    ONLY exceptions:
+    - void-payment (sets app.allow_paid_row_edit = 'true')
+    - manual admin edit (sets app.allow_paid_row_edit = 'true')
+    NEVER modified by: waterfall, reconcile, Keep handler, carry-over
 
 ## DISPLAY RULES (permanent)
 
@@ -859,8 +881,16 @@ When completing a partially_paid month:
   Waterfall penalty grouping: FIXED to group by schedule_id ✅
   Customer codes CJ-YYYY-XXXXX: STANDARDIZED for all customers ✅
   Search input focus loss: FIXED (EmbeddedWrapper at module level) ✅
+  reconciliation_log table: LIVE ✅
+  record-payment waterfall: FIXED ✅ (2026-04-20)
+  record-multi-payment waterfall: FIXED ✅ (2026-04-20)
+  review-payment-submission waterfall: CONFIRMED CORRECT ✅
+  Keep handler: FIXED — no-op, preserves waterfall ✅ (2026-04-20)
+  enforce_paid_row_freeze trigger: LIVE ✅ (2026-04-20)
+  reconcile-account report-only: LIVE ✅ (2026-04-20)
+  TEST-001 to TEST-005: RECREATED ✅ (2026-04-20)
 
-## PENDING ITEMS (as of 2026-04-19)
+## PENDING ITEMS (as of 2026-04-20)
 
   1. daily-reconciliation has no cron job — needs pg_cron entry
   2. Firebase signing page connection (Steps 13-17)
@@ -871,6 +901,10 @@ When completing a partially_paid month:
       notifications for extension requests not working
   7. Penalty engine waived-to-unpaid auto-fix — deployed, needs
       monitoring on next cron run to confirm correct behavior
+  8. void-payment needs app.allow_paid_row_edit = 'true' bypass
+      before layaway_schedule UPDATE — freeze trigger will block
+      void operations on paid rows without this bypass
+  9. Manual schedule edit UI needs same bypass flag
 
 ## AUTO-DEPLOY RULES (updated 2026-04-12)
 
