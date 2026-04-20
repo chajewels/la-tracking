@@ -6,17 +6,10 @@ const corsHeaders = {
 };
 
 /**
- * Reconcile a single layaway account.
+ * Reconcile a single layaway account — REPORT ONLY (no DB writes).
  *
- * Step 1 — Compute totalPaid from payments table ONLY (never from allocations).
- * Step 2 — HARD GUARD: abort if new totalPaid < current accounts.total_paid.
- * Step 3 — Compute remaining_balance via canonical formula:
- *             total_amount + activePenalties + services - totalPaid
- * Step 4 — Compute account status (completed / overdue / active).
- * Step 5 — Update accounts table.
- * Step 6 — Update schedule rows WHERE allocations exist.
- *           NEVER reset a row to pending/overdue based on absence of allocations.
- * Step 7 — Return full reconciliation result.
+ * Reads all data, computes canonical values, and returns a drift report
+ * showing discrepancies between computed and stored values.
  *
  * Body: { account_id?: string, invoice_number?: string }
  */
@@ -72,7 +65,7 @@ Deno.serve(async (req) => {
         .eq("account_id", account_id),
       supabase
         .from("layaway_schedule")
-        .select("id, installment_number, base_installment_amount, penalty_amount, total_due_amount, paid_amount, status, due_date")
+        .select("id, installment_number, base_installment_amount, penalty_amount, carried_amount, total_due_amount, paid_amount, status, due_date")
         .eq("account_id", account_id)
         .neq("status", "cancelled")
         .order("installment_number"),
@@ -86,7 +79,6 @@ Deno.serve(async (req) => {
     const scheduleRows: any[] = schedule || [];
 
     // totalPaid = SUM(payments.amount_paid) WHERE voided_at IS NULL
-    // NEVER derived from payment_allocations
     const totalPaid = Math.round(
       paymentRows.reduce((s, p) => s + Number(p.amount_paid), 0) * 100
     ) / 100;
@@ -94,10 +86,6 @@ Deno.serve(async (req) => {
     // ── Step 2: HARD GUARD ────────────────────────────────────────────────────
     const currentTotalPaid = Number(account.total_paid);
     if (totalPaid < currentTotalPaid - 0.01) {
-      const msg =
-        `GUARD: reconcile would decrease total_paid for ${account_id} ` +
-        `(${account.invoice_number}) from ${currentTotalPaid} to ${totalPaid}. Aborting.`;
-      console.error(`[reconcile-account] ${msg}`);
       return new Response(
         JSON.stringify({
           success: false,
@@ -106,7 +94,6 @@ Deno.serve(async (req) => {
           invoice_number: account.invoice_number,
           current_total_paid: currentTotalPaid,
           computed_total_paid: totalPaid,
-          message: msg,
           guardFired: true,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -114,7 +101,6 @@ Deno.serve(async (req) => {
     }
 
     // ── Step 3: Canonical remaining_balance ───────────────────────────────────
-    // activePenalties = SUM(penalty_fees.penalty_amount WHERE status != 'waived')
     const activePenalties = penaltyRows
       .filter((p) => p.status !== "waived")
       .reduce((s, p) => s + Number(p.penalty_amount), 0);
@@ -127,7 +113,6 @@ Deno.serve(async (req) => {
     );
 
     // ── Step 4: Compute account status ────────────────────────────────────────
-    // Preserve special statuses that reconcile must never override
     const PRESERVED_STATUSES = new Set([
       "forfeited", "final_forfeited", "cancelled",
       "extension_active", "reactivated", "final_settlement",
@@ -144,20 +129,33 @@ Deno.serve(async (req) => {
       newStatus = "active";
     }
 
-    // ── Step 5: Update accounts table ────────────────────────────────────────
-    await supabase
-      .from("layaway_accounts")
-      .update({
-        total_paid: totalPaid,
-        remaining_balance,
-        status: newStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", account_id);
+    // ── Step 5: Detect drift (no writes) ─────────────────────────────────────
+    const driftItems: object[] = [];
 
-    // ── Step 6: Update schedule rows — only where allocations exist ───────────
-    // Build allocBySchedule from payment_allocations scoped to this account's
-    // payments (to prevent cross-account contamination).
+    // Account level drift
+    if (Math.abs(totalPaid - currentTotalPaid) > 0.005) {
+      driftItems.push({
+        type: "account_total_paid",
+        expected: totalPaid,
+        stored: currentTotalPaid,
+      });
+    }
+    if (Math.abs(remaining_balance - Number(account.remaining_balance)) > 0.005) {
+      driftItems.push({
+        type: "account_remaining_balance",
+        expected: remaining_balance,
+        stored: Math.round(Number(account.remaining_balance) * 100) / 100,
+      });
+    }
+    if (newStatus !== account.status) {
+      driftItems.push({
+        type: "account_status",
+        expected: newStatus,
+        stored: account.status,
+      });
+    }
+
+    // ── Step 6: Schedule row drift ───────────────────────────────────────────
     const validPaymentIds = new Set(paymentRows.map((p) => p.id));
     const allocBySchedule: Record<string, number> = {};
 
@@ -182,14 +180,10 @@ Deno.serve(async (req) => {
       }
     }
 
-    let rowsUpdated = 0;
     for (const sched of scheduleRows) {
       const rowPaid = Math.round((allocBySchedule[sched.id] || 0) * 100) / 100;
-      if (rowPaid <= 0) continue; // No allocations — skip; never reset to pending
-
-      // Never downgrade a paid row — carry-over intentionally closes rows
-      // as paid even when allocations < ceiling (shortfall carried to next row)
-      if (sched.status === 'paid') continue;
+      if (rowPaid <= 0) continue;
+      if (sched.status === "paid") continue;
 
       const base = Number(sched.base_installment_amount);
       const penalty = Number(sched.penalty_amount || 0);
@@ -197,63 +191,51 @@ Deno.serve(async (req) => {
       const ceiling = base + penalty + carried;
 
       const newRowStatus = rowPaid >= ceiling - 0.005 ? "paid" : "partially_paid";
-      // Cap paid_amount at the full obligation (base + penalty + carried) so an
-      // over-allocation doesn't inflate the cached paid_amount.
       const newPaidAmount = Math.min(Math.round(rowPaid * 100) / 100, ceiling);
 
-      const statusChanged = sched.status !== newRowStatus;
-      const paidChanged = Math.abs(Number(sched.paid_amount) - newPaidAmount) > 0.005;
-
-      if (statusChanged || paidChanged) {
-        // Only clear carry when the FULL obligation (base + penalty + carried)
-        // has been met. Reaching base alone is NOT enough — that leaves the
-        // carry debt unpaid and must remain recorded.
-        const clearCarry =
-          newRowStatus === "paid" && carried > 0.005;
-
-        await supabase
-          .from("layaway_schedule")
-          .update({
-            paid_amount: newPaidAmount,
-            status: newRowStatus,
-            updated_at: new Date().toISOString(),
-            ...(clearCarry
-              ? {
-                  carried_amount: 0,
-                  carried_from_schedule_id: null,
-                  carried_by_payment_id: null,
-                }
-              : {}),
-          })
-          .eq("id", sched.id);
-        rowsUpdated++;
+      if (newRowStatus !== sched.status) {
+        driftItems.push({
+          type: "schedule_status",
+          schedule_id: sched.id,
+          installment_number: sched.installment_number,
+          expected: newRowStatus,
+          stored: sched.status,
+        });
+      }
+      if (Math.abs(newPaidAmount - Number(sched.paid_amount)) > 0.005) {
+        driftItems.push({
+          type: "schedule_paid_amount",
+          schedule_id: sched.id,
+          installment_number: sched.installment_number,
+          expected: newPaidAmount,
+          stored: Math.round(Number(sched.paid_amount) * 100) / 100,
+        });
       }
     }
 
-    // ── Step 7: Return result ─────────────────────────────────────────────────
+    // ── Step 7: Return drift report ──────────────────────────────────────────
     const result = {
-      success: true,
       account_id,
       invoice_number: account.invoice_number,
-      totalPaid,
-      remaining_balance,
-      status: newStatus,
-      rowsUpdated,
-      guardFired: false,
-      changes: {
-        total_paid: { from: currentTotalPaid, to: totalPaid },
-        remaining_balance: {
-          from: Math.round(Number(account.remaining_balance) * 100) / 100,
-          to: remaining_balance,
-        },
-        status: { from: account.status, to: newStatus },
+      drift_detected: driftItems.length > 0,
+      drift_count: driftItems.length,
+      computed: {
+        total_paid: totalPaid,
+        remaining_balance,
+        status: newStatus,
       },
+      stored: {
+        total_paid: currentTotalPaid,
+        remaining_balance: Math.round(Number(account.remaining_balance) * 100) / 100,
+        status: account.status,
+      },
+      drift: driftItems,
+      guardFired: false,
     };
 
     console.log(
       `[reconcile-account] ${account.invoice_number}: ` +
-      `totalPaid=${totalPaid}, remaining=${remaining_balance}, ` +
-      `status=${newStatus}, rowsUpdated=${rowsUpdated}`
+      `drift=${driftItems.length > 0 ? driftItems.length + " items" : "none"}`
     );
 
     return new Response(JSON.stringify(result, null, 2), {
