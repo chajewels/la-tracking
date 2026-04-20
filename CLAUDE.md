@@ -527,6 +527,15 @@ When completing a partially_paid month:
   - 36. Record Payment dialog input max attribute caused browser native
     validation to reject exact remaining balance amounts due to
     floating point — fixed with 0.005 tolerance (2026-04-20)
+  - 37. restore-payment used SUM(deleted allocation rows) for
+    remainingInstallmentAmount — always 0 after void — fixed to
+    use payment.amount_paid directly (2026-04-20)
+  - 38. restore-payment cleared voided flags AFTER totals recalculation
+    causing restored payment to be excluded from SUM — fixed by
+    unvoiding payment before recalculating totals (2026-04-20)
+  - 39. void-payment bypass flag set_config did not persist across
+    separate HTTP calls — removed, freeze trigger now allows
+    void naturally via paid_amount decreasing rule (2026-04-20)
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
@@ -566,9 +575,11 @@ When completing a partially_paid month:
     Once layaway_schedule.status = 'paid', these fields are frozen:
     status, paid_amount, total_due_amount
     Enforced by DB trigger: enforce_paid_row_freeze
-    ONLY exceptions:
-    - void-payment (sets app.allow_paid_row_edit = 'true')
-    - manual admin edit (sets app.allow_paid_row_edit = 'true')
+    Rules:
+    - Rule 1: bypass flag app.allow_paid_row_edit = 'true' allows all changes
+    - Rule 2: paid_amount decreasing → allowed (void-payment)
+    - Rule 3: paid_amount increasing within ceiling → allowed (restore-payment)
+    - Rule 4: paid_amount increasing beyond ceiling → BLOCKED (waterfall over-allocation)
     NEVER modified by: waterfall, reconcile, Keep handler, carry-over
 
 ## DISPLAY RULES (permanent)
@@ -888,7 +899,10 @@ When completing a partially_paid month:
   Keep handler: FIXED — no-op, preserves waterfall ✅ (2026-04-20)
   enforce_paid_row_freeze trigger: LIVE ✅ (2026-04-20)
   reconcile-account report-only: LIVE ✅ (2026-04-20)
+  restore-payment canonical formula: FIXED ✅ (2026-04-20)
+  void-payment freeze bypass: FIXED ✅ (2026-04-20)
   TEST-001 to TEST-005: RECREATED ✅ (2026-04-20)
+  Finance role void/restore: ENABLED ✅ (2026-04-20)
 
 ## PENDING ITEMS (as of 2026-04-20)
 
@@ -901,10 +915,6 @@ When completing a partially_paid month:
       notifications for extension requests not working
   7. Penalty engine waived-to-unpaid auto-fix — deployed, needs
       monitoring on next cron run to confirm correct behavior
-  8. void-payment needs app.allow_paid_row_edit = 'true' bypass
-      before layaway_schedule UPDATE — freeze trigger will block
-      void operations on paid rows without this bypass
-  9. Manual schedule edit UI needs same bypass flag
 
 ## AUTO-DEPLOY RULES (updated 2026-04-12)
 
