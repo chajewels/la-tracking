@@ -164,7 +164,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     }
   }
 
-  const isValid = parsedAmount > 0 && parsedAmount <= remainingBalance && paymentDate && !!proofFile;
+  const isValid = parsedAmount > 0 && parsedAmount <= remainingBalance + 0.005 && paymentDate && !!proofFile;
 
   // Upload proof and insert/update a payment_submissions row linked to this payment.
   // When existingSubmissionId is supplied (the staff path, where record-payment
@@ -586,7 +586,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
                   max={remainingBalance}
                   step="any"
                 />
-                {parsedAmount > remainingBalance && (
+                {parsedAmount > remainingBalance + 0.005 && (
                   <p className="text-xs text-destructive">Amount exceeds remaining balance</p>
                 )}
                 {monthOptions.length > 0 && (
