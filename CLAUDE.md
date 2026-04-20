@@ -536,6 +536,10 @@ When completing a partially_paid month:
   - 39. void-payment bypass flag set_config did not persist across
     separate HTTP calls — removed, freeze trigger now allows
     void naturally via paid_amount decreasing rule (2026-04-20)
+  - 40. review-payment-submission isNowFullyPaid check excluded
+    in-memory penalty allocation — status stayed partially_paid
+    when row was fully covered by installment + penalty —
+    fixed to include alreadyAllocatedPenalty in check (2026-04-21)
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
@@ -903,6 +907,13 @@ When completing a partially_paid month:
   void-payment freeze bypass: FIXED ✅ (2026-04-20)
   TEST-001 to TEST-005: RECREATED ✅ (2026-04-20)
   Finance role void/restore: ENABLED ✅ (2026-04-20)
+  review-payment-submission isNowFullyPaid: FIXED ✅ (2026-04-21)
+  Finance Analytics — Forfeited Collected card: LIVE ✅ (2026-04-21)
+  Finance Analytics — Top 10 Outstanding Customers: LIVE ✅ (2026-04-21)
+  Finance Analytics — Collected vs Expected area chart: LIVE ✅ (2026-04-21)
+  get_top_outstanding_customers RPC: LIVE ✅ (2026-04-21)
+  forfeited_at backfill limitation: historical forfeitures show
+    as April 2026 — acceptable, future forfeitures will be accurate
 
 ## PENDING ITEMS (as of 2026-04-20)
 
@@ -915,6 +926,8 @@ When completing a partially_paid month:
       notifications for extension requests not working
   7. Penalty engine waived-to-unpaid auto-fix — deployed, needs
       monitoring on next cron run to confirm correct behavior
+  8. Forfeitures per Month chart — historical data shows all in
+      April 2026 due to backfill limitation — self-corrects over time
 
 ## AUTO-DEPLOY RULES (updated 2026-04-12)
 
