@@ -291,6 +291,15 @@ export default function Finance() {
     if (!collectionAnalytics?.length) return 0;
     return collectionAnalytics.reduce((s, m) => s + m.penalties_collected, 0);
   }, [collectionAnalytics]);
+  const totalForfeitedCollected = useMemo(() => {
+    if (!accounts?.length) return 0;
+    return accounts
+      .filter((a: any) => a.status === 'forfeited' || a.status === 'final_forfeited')
+      .reduce((sum: number, a: any) => {
+        const collected = Number(a.total_paid ?? 0);
+        return sum + (isAllMode ? toJpy(collected, a.currency as Currency) : collected);
+      }, 0);
+  }, [accounts, isAllMode]);
 
   // ── Intelligence section data (from former Analytics.tsx) ──
   const currency = currencyFilter === 'ALL' ? undefined : currencyFilter;
@@ -550,10 +559,11 @@ export default function Finance() {
                 <div className="grid grid-cols-3 gap-4">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}</div>
               ) : (
                 <>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                     <StatCard title="Best Month" value={bestMonth ? `${bestMonth.collection_rate}%` : '—'} subtitle={bestMonth?.month} icon={Trophy} variant="gold" />
                     <StatCard title="Average Rate" value={`${avgRate}%`} icon={TrendingUp} variant="success" />
                     <StatCard title="Penalties Collected" value={formatCurrency(totalPenalties, displayCurrency)} icon={DollarSign} />
+                    <StatCard title="Forfeited Collected" value={formatCurrency(totalForfeitedCollected, displayCurrency)} icon={ShieldAlert} />
                   </div>
                   {collectionAnalytics && collectionAnalytics.length > 0 && (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
