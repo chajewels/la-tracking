@@ -1784,6 +1784,44 @@ export type Database = {
         }
         Relationships: []
       }
+      reconciliation_log: {
+        Row: {
+          account_id: string | null
+          checked_at: string | null
+          drift: Json | null
+          drift_count: number | null
+          drift_detected: boolean | null
+          id: string
+          invoice_number: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          checked_at?: string | null
+          drift?: Json | null
+          drift_count?: number | null
+          drift_detected?: boolean | null
+          id?: string
+          invoice_number?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          checked_at?: string | null
+          drift?: Json | null
+          drift_count?: number | null
+          drift_detected?: boolean | null
+          id?: string
+          invoice_number?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reconciliation_log_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reminder_logs: {
         Row: {
           account_id: string
