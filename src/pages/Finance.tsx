@@ -276,10 +276,9 @@ export default function Finance() {
       const { data, error } = await (supabase as any).rpc('get_top_outstanding_customers');
       if (error) throw error;
       return (data?.[0]?.get_top_outstanding_customers ?? data ?? []) as Array<{
-        rank?: number;
-        customer_name: string;
+        full_name: string;
         account_count: number;
-        total_paid: number;
+        total_paid_jpy: number;
         early_payment_rate: number;
         penalty_count: number;
         score: number;
@@ -679,7 +678,7 @@ export default function Finance() {
             {/* Section 4 — Top 10 Outstanding Customers */}
             <div className="rounded-xl border border-border bg-card p-5">
               <h3 className="text-sm font-semibold text-card-foreground">Top 10 Outstanding Customers</h3>
-              <p className="text-xs text-muted-foreground mt-0.5 mb-3">Ranked by account count, early payment rate, and penalty-free history</p>
+              <p className="text-xs text-muted-foreground mt-0.5 mb-3">Penalty-free · Multi-account · Early payers</p>
               {topCustomersLoading ? (
                 <Skeleton className="h-32 w-full rounded-lg" />
               ) : !topOutstandingCustomers || topOutstandingCustomers.length === 0 ? (
@@ -689,11 +688,11 @@ export default function Finance() {
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="text-left text-[10px] text-muted-foreground uppercase border-b border-border">
-                        <th className="py-2 pr-3">Rank</th>
-                        <th className="py-2 pr-3">Customer Name</th>
+                        <th className="py-2 pr-3">#</th>
+                        <th className="py-2 pr-3">Customer</th>
                         <th className="py-2 pr-3 text-right">Accounts</th>
-                        <th className="py-2 pr-3 text-right">Total Paid (¥)</th>
-                        <th className="py-2 pr-3 text-right">Early Payment Rate</th>
+                        <th className="py-2 pr-3 text-right">Total Paid</th>
+                        <th className="py-2 pr-3 text-right">Early Payment %</th>
                         <th className="py-2 pr-3 text-right">Penalties</th>
                         <th className="py-2 text-right">Score</th>
                       </tr>
@@ -701,16 +700,16 @@ export default function Finance() {
                     <tbody>
                       {topOutstandingCustomers.slice(0, 10).map((c, i) => (
                         <tr key={i} className="border-b border-border/50">
-                          <td className="py-2 pr-3 font-semibold text-foreground">#{c.rank ?? i + 1}</td>
-                          <td className="py-2 pr-3 text-foreground">{c.customer_name}</td>
+                          <td className="py-2 pr-3 font-semibold text-foreground">{i + 1}</td>
+                          <td className="py-2 pr-3 text-foreground">{c.full_name}</td>
                           <td className="py-2 pr-3 text-right tabular-nums">{c.account_count}</td>
-                          <td className="py-2 pr-3 text-right tabular-nums">¥ {Math.round(Number(c.total_paid)).toLocaleString()}</td>
-                          <td className="py-2 pr-3 text-right tabular-nums">{Math.round(Number(c.early_payment_rate))}%</td>
+                          <td className="py-2 pr-3 text-right tabular-nums">¥{Math.round(Number(c.total_paid_jpy)).toLocaleString()}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums">{Number(c.early_payment_rate).toFixed(1)}%</td>
                           <td className="py-2 pr-3 text-right tabular-nums">
                             {Number(c.penalty_count) === 0 ? (
                               <span className="text-green-600 font-medium">None</span>
                             ) : (
-                              <span className="text-destructive font-medium">{c.penalty_count}</span>
+                              <span className="text-destructive font-bold">{c.penalty_count}</span>
                             )}
                           </td>
                           <td className="py-2 text-right font-semibold tabular-nums">{Number(c.score).toFixed(1)} ⭐</td>
