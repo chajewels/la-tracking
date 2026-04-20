@@ -192,83 +192,67 @@ Deno.serve(async (req) => {
     //    DP payments NEVER touch schedule rows; they are recorded purely
     //    as a payment entry and reflected in total_paid/remaining_balance.
     if (!is_downpayment && remaining > 0 && schedule) {
+      // Fetch existing allocations from payment_allocations — never use stale paid_amount cache
+      const { data: existingAllocsRaw } = await supabase
+        .from("payment_allocations")
+        .select("schedule_id, allocated_amount, allocation_type, payment_id")
+        .in("schedule_id", schedule.map((s: any) => s.id));
+
+      const { data: voidedPmts } = await supabase
+        .from("payments")
+        .select("id")
+        .eq("account_id", account_id)
+        .not("voided_at", "is", null);
+      const voidedIds = new Set((voidedPmts || []).map((p: any) => p.id));
+
+      const allocatedBySchedule = new Map<string, number>();
+      const penaltyAllocBySchedule = new Map<string, number>();
+      for (const alloc of (existingAllocsRaw || [])) {
+        if (voidedIds.has(alloc.payment_id)) continue;
+        if (alloc.allocation_type === "installment") {
+          allocatedBySchedule.set(alloc.schedule_id,
+            (allocatedBySchedule.get(alloc.schedule_id) || 0) + Number(alloc.allocated_amount));
+        } else if (alloc.allocation_type === "penalty") {
+          penaltyAllocBySchedule.set(alloc.schedule_id,
+            (penaltyAllocBySchedule.get(alloc.schedule_id) || 0) + Number(alloc.allocated_amount));
+        }
+      }
+
       const unpaidItems = schedule.filter(
-        item => item.status !== "paid" && item.status !== "cancelled"
-      ).sort((a, b) => a.installment_number - b.installment_number);
+        (item: any) => item.status !== "paid" && item.status !== "cancelled"
+      ).sort((a: any, b: any) => a.installment_number - b.installment_number);
 
       for (const item of unpaidItems) {
         if (remaining <= 0) break;
 
-        const currentPaid = Number(item.paid_amount);
-        // Subtract penalties already allocated for this row in this payment to avoid double-counting
-        const alreadyAllocatedPenalty = allocations
-          .filter(a => a.schedule_id === item.id && a.allocation_type === "penalty")
-          .reduce((sum, a) => sum + a.allocated_amount, 0);
-        const targetAmount = Math.max(0, Number(item.total_due_amount) - alreadyAllocatedPenalty);
-        // For partially_paid rows where total_due_amount was set to the remaining (new semantics),
-        // paid_amount exceeds total_due_amount — use total_due_amount directly as the remaining.
-        const isNewPartialSemantics = item.status === "partially_paid" && currentPaid > targetAmount;
-        const due = isNewPartialSemantics
-          ? Math.max(0, targetAmount)
-          : Math.max(0, targetAmount - currentPaid);
+        const base = Number(item.base_installment_amount);
+        const penalty = Number(item.penalty_amount || 0);
+        const carried = Number(item.carried_amount || 0);
+        const alreadyAllocated = allocatedBySchedule.get(item.id) || 0;
+        // Include in-memory penalty allocations from Phase 1 of this payment
+        const alreadyAllocatedPenalty = (penaltyAllocBySchedule.get(item.id) || 0) +
+          allocations.filter(a => a.schedule_id === item.id && a.allocation_type === "penalty")
+            .reduce((sum, a) => sum + a.allocated_amount, 0);
+
+        const naturalCeiling = base + penalty + carried;
+        const rowCeiling = item.total_due_amount
+          ? Math.min(naturalCeiling, Number(item.total_due_amount))
+          : naturalCeiling;
+        const due = Math.max(0, rowCeiling - alreadyAllocated - alreadyAllocatedPenalty);
         if (due <= 0) continue;
 
-        const availableForThisMonth = remaining;
         const toApply = Math.round(Math.min(remaining, due) * 100) / 100;
         remaining = Math.round((remaining - toApply) * 100) / 100;
-        const newPaid = Math.round((currentPaid + toApply) * 100) / 100;
-        const isNowFullyPaid = newPaid >= targetAmount;
+        const newPaid = Math.round((alreadyAllocated + toApply) * 100) / 100;
+        const isNowFullyPaid = newPaid + alreadyAllocatedPenalty >= rowCeiling - 0.005;
 
-        if (isNowFullyPaid && item.status === "partially_paid") {
-          // GHOST PREVENTION: topping up a partial month — mark paid with actual total paid
-          allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
-          scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "paid" });
-          remaining = 0;
-          break;
-
-        } else if (isNowFullyPaid) {
-          // PENDING MONTH FULLY PAID — store actual cash; cascade excess to reduce subsequent months
-          const storedPaid = Math.round((currentPaid + toApply) * 100) / 100;
-          allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
-          scheduleUpdates.push({ id: item.id, paid_amount: storedPaid, status: "paid" });
-          if (remaining > 0) {
-            for (const nextItem of unpaidItems) {
-              if (remaining <= 0) break;
-              if (nextItem.installment_number <= item.installment_number) continue;
-              const nextDue = Number(nextItem.total_due_amount);
-              const creditAmt = Math.round(Math.min(remaining, nextDue) * 100) / 100;
-              remaining = Math.round((remaining - creditAmt) * 100) / 100;
-              scheduleUpdates.push({ id: nextItem.id, paid_amount: creditAmt, total_due_amount: Math.max(0, Math.round((nextDue - creditAmt) * 100) / 100), status: creditAmt >= nextDue ? "paid" : "partially_paid" });
-              if (creditAmt > 0.005) {
-                allocations.push({
-                  schedule_id: nextItem.id,
-                  allocation_type: "installment",
-                  allocated_amount: creditAmt,
-                });
-              }
-            }
-            remaining = 0;
-          }
-          break;
-
-        } else if (item.status !== "partially_paid") {
-          // PENDING MONTH UNDERPAID — set partial row; carry shortfall only if carry_over=true
-          const shortfall = Math.round((due - toApply) * 100) / 100;
-          allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
-          // Set total_due_amount = shortfall (remaining) on the partial row.
-          // Do NOT inflate the next row's total_due_amount — canonical remaining_balance
-          // already captures the full debt correctly and inflating future rows causes
-          // double-counting in display and audit checks.
-          scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid", total_due_amount: shortfall });
-          // remaining=0 after toApply; outer loop stops naturally
-
-        } else {
-          // PARTIALLY_PAID MONTH — additional payment, not completing
-          const newRemaining = Math.max(0, Math.round((due - toApply) * 100) / 100);
-          allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
-          scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid", total_due_amount: newRemaining });
-          // remaining=0; outer loop stops naturally
-        }
+        allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
+        scheduleUpdates.push({
+          id: item.id,
+          paid_amount: newPaid,
+          status: isNowFullyPaid ? "paid" : "partially_paid",
+        });
+        // Surplus flows naturally to next unpaidItems iteration — no break
       }
     }
 
