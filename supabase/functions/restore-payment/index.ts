@@ -217,6 +217,14 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Clear voided flags BEFORE recalculating totals — the totals query
+    // filters is("voided_at", null), so the payment must be unvoided first
+    await supabase.from("payments").update({
+      voided_at: null,
+      voided_by_user_id: null,
+      void_reason: null,
+    }).eq("id", payment_id);
+
     // Recalculate account totals using canonical formula
     const accountId = payment.account_id;
 
@@ -277,13 +285,6 @@ Deno.serve(async (req) => {
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-
-    // Clear voided flags — LAST step so everything is consistent
-    await supabase.from("payments").update({
-      voided_at: null,
-      voided_by_user_id: null,
-      void_reason: null,
-    }).eq("id", payment_id);
 
     await supabase.from("audit_logs").insert({
       entity_type: "payment",
