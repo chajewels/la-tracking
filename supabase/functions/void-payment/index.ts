@@ -92,13 +92,6 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Bypass enforce_paid_row_freeze trigger — void-payment is an authorized exception
-    await supabase.rpc('set_config' as any, {
-      setting: 'app.allow_paid_row_edit',
-      value: 'true',
-      is_local: true,
-    });
-
     // Step 1b: Clear carried_amount on any schedule row where this payment triggered a carry
     // (carried_by_payment_id = payment_id). Guard with try/catch in case column doesn't exist yet.
     try {
