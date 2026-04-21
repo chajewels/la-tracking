@@ -2375,6 +2375,18 @@ export type Database = {
         Returns: Json
       }
       get_staff_performance: { Args: { months_back?: number }; Returns: Json }
+      get_top_outstanding_customers: {
+        Args: never
+        Returns: {
+          account_count: number
+          customer_id: string
+          early_payment_rate: number
+          full_name: string
+          penalty_count: number
+          score: number
+          total_paid_jpy: number
+        }[]
+      }
       get_unpaid_schedule: { Args: { p_account_id: string }; Returns: Json }
       has_role: {
         Args: {
