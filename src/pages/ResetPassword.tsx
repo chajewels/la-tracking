@@ -1,303 +1,58 @@
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
-import luxuryHero from '@/assets/luxury-jewelry-hero.jpg';
-import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 export default function ResetPassword() {
-  const navigate = useNavigate();
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const [hasSession, setHasSession] = useState<boolean | null>(null);
+  const [ready, setReady] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    setMounted(true);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') setReady(true);
+    });
+    return () => subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setHasSession(!!data.session);
-    });
-
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      setHasSession(!!session);
-    });
-
-    return () => {
-      sub.subscription.unsubscribe();
-    };
-  }, []);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!newPassword || !confirmPassword) {
-      toast.error('Please fill in both password fields');
-      return;
-    }
-    if (newPassword.length < 8) {
-      toast.error('Password must be at least 8 characters');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      toast.error('Passwords do not match');
-      return;
-    }
-
+  const handleReset = async () => {
+    if (password.length < 8) return toast.error('Password must be at least 8 characters');
+    if (password !== confirm) return toast.error('Passwords do not match');
     setLoading(true);
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    const { error } = await supabase.auth.updateUser({ password });
     setLoading(false);
-
-    if (error) {
-      toast.error(error.message || 'Failed to update password. Please try again.');
-      return;
-    }
-
+    if (error) return toast.error(error.message);
     toast.success('Password updated successfully');
-    setTimeout(() => navigate('/login', { replace: true }), 1200);
+    navigate('/login');
   };
 
+  if (!ready) return (
+    <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <p style={{ color: '#C9A84C' }}>Verifying reset link...</p>
+    </div>
+  );
+
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row">
-      {/* LEFT — Hero image */}
-      <div className="hidden lg:block lg:w-1/2 relative overflow-hidden">
-        <img
-          src={luxuryHero}
-          alt="Cha Jewels luxury collection"
-          className="absolute inset-0 w-full h-full object-cover scale-105"
-          style={{ animation: 'slowZoom 30s ease-in-out infinite alternate' }}
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/20" />
-        <div
-          className={`absolute bottom-12 left-10 right-10 transition-all duration-1000 delay-500 ${
-            mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
-          }`}
-        >
-          <p className="text-xs tracking-[0.35em] uppercase font-medium mb-3" style={{ color: '#D4AF37' }}>
-            Cha Jewels
-          </p>
-          <h2
-            className="text-2xl lg:text-3xl font-light leading-snug"
-            style={{ fontFamily: "'Montserrat', sans-serif", color: 'rgba(255,255,255,0.9)' }}
-          >
-            Everyday Layaway.
-            <br />
-            <span style={{ color: '#D4AF37' }}>Cha Jewels</span> All the Way.
-          </h2>
-          <div className="mt-4 w-16 h-px" style={{ background: 'rgba(212,175,55,0.5)' }} />
-        </div>
+    <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: '#111', border: '1px solid #C9A84C', borderRadius: 12, padding: 40, width: 380 }}>
+        <h2 style={{ color: '#C9A84C', fontFamily: 'Georgia, serif', marginBottom: 8 }}>Set New Password</h2>
+        <p style={{ color: '#888', fontSize: 13, marginBottom: 24 }}>Enter your new password below.</p>
+        <input type="password" placeholder="New password (min 8 chars)" value={password}
+          onChange={e => setPassword(e.target.value)}
+          style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 12, boxSizing: 'border-box' }} />
+        <input type="password" placeholder="Confirm new password" value={confirm}
+          onChange={e => setConfirm(e.target.value)}
+          style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 20, boxSizing: 'border-box' }} />
+        <button onClick={handleReset} disabled={loading}
+          style={{ width: '100%', padding: '12px', background: '#C9A84C', border: 'none', borderRadius: 8, color: '#0a0a0a', fontWeight: 700, cursor: 'pointer' }}>
+          {loading ? 'Updating...' : 'Update Password'}
+        </button>
+        <p style={{ textAlign: 'center', marginTop: 16 }}>
+          <a href="/login" style={{ color: '#C9A84C', fontSize: 13 }}>Back to Login</a>
+        </p>
       </div>
-
-      {/* RIGHT — Reset panel */}
-      <div className="flex-1 lg:w-1/2 relative flex flex-col justify-between" style={{ background: '#0B0B0B' }}>
-        {/* Mobile hero background */}
-        <div
-          className="lg:hidden absolute inset-0 z-0"
-          style={{
-            backgroundImage: `url(${luxuryHero})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-          }}
-        >
-          <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.78)' }} />
-        </div>
-
-        {/* Form */}
-        <div className="relative z-10 flex-1 flex items-center justify-center px-6 sm:px-12 lg:px-16 xl:px-24">
-          <div
-            className={`w-full max-w-sm transition-all duration-700 ${
-              mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
-            }`}
-          >
-            {/* Logo */}
-            <div className="text-center mb-10">
-              <div
-                className="inline-block rounded-2xl overflow-hidden mb-5"
-                style={{ boxShadow: '0 0 40px rgba(212,175,55,0.15)' }}
-              >
-                <img src={chaJewelsLogo} alt="Cha Jewels" className="h-20 w-20 object-cover" />
-              </div>
-              <h1
-                className="text-lg tracking-[0.25em] font-semibold"
-                style={{ fontFamily: "'Montserrat', sans-serif", color: '#D4AF37' }}
-              >
-                CHA JEWELS
-              </h1>
-            </div>
-
-            {hasSession === false ? (
-              <>
-                <div className="text-center mb-8">
-                  <h2
-                    className="text-2xl font-light tracking-wide"
-                    style={{ fontFamily: "'Montserrat', sans-serif", color: '#fff' }}
-                  >
-                    Invalid or Expired Link
-                  </h2>
-                  <p className="text-xs mt-3 tracking-wider leading-relaxed" style={{ color: 'rgba(255,255,255,0.6)' }}>
-                    This password reset link is invalid or has expired.
-                  </p>
-                  <p className="text-[11px] mt-4 tracking-wide" style={{ color: 'rgba(255,255,255,0.35)' }}>
-                    Please request a new password reset email to continue.
-                  </p>
-                </div>
-                <div className="flex items-center justify-center gap-5 mt-5">
-                  <Link
-                    to="/forgot-password"
-                    className="text-[11px] tracking-wide transition-colors duration-300"
-                    style={{ color: 'rgba(212,175,55,0.7)' }}
-                  >
-                    Request New Link
-                  </Link>
-                  <Link
-                    to="/login"
-                    className="text-[11px] tracking-wide transition-colors duration-300"
-                    style={{ color: 'rgba(255,255,255,0.3)' }}
-                  >
-                    Back to Login
-                  </Link>
-                </div>
-              </>
-            ) : (
-              <>
-                {/* Heading */}
-                <div className="text-center mb-8">
-                  <h2
-                    className="text-2xl font-light tracking-wide"
-                    style={{ fontFamily: "'Montserrat', sans-serif", color: '#fff' }}
-                  >
-                    Set New Password
-                  </h2>
-                  <p className="text-xs mt-2 tracking-wider" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                    Enter a new password for your account
-                  </p>
-                </div>
-
-                {/* Form */}
-                <form onSubmit={handleSubmit} className="space-y-5">
-                  <div className="space-y-1.5">
-                    <label
-                      className="text-[11px] tracking-widest uppercase font-medium block"
-                      style={{ color: 'rgba(255,255,255,0.5)' }}
-                    >
-                      New Password
-                    </label>
-                    <input
-                      type="password"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="••••••••"
-                      autoComplete="new-password"
-                      className="w-full h-11 px-4 rounded-lg text-sm outline-none transition-all duration-300"
-                      style={{
-                        background: 'rgba(255,255,255,0.04)',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        color: '#fff',
-                      }}
-                      onFocus={(e) => {
-                        e.target.style.borderColor = 'rgba(212,175,55,0.6)';
-                        e.target.style.boxShadow = '0 0 12px rgba(212,175,55,0.12)';
-                      }}
-                      onBlur={(e) => {
-                        e.target.style.borderColor = 'rgba(255,255,255,0.1)';
-                        e.target.style.boxShadow = 'none';
-                      }}
-                    />
-                    <p className="text-[10px] tracking-wide pt-1" style={{ color: 'rgba(255,255,255,0.3)' }}>
-                      Minimum 8 characters
-                    </p>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label
-                      className="text-[11px] tracking-widest uppercase font-medium block"
-                      style={{ color: 'rgba(255,255,255,0.5)' }}
-                    >
-                      Confirm Password
-                    </label>
-                    <input
-                      type="password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="••••••••"
-                      autoComplete="new-password"
-                      className="w-full h-11 px-4 rounded-lg text-sm outline-none transition-all duration-300"
-                      style={{
-                        background: 'rgba(255,255,255,0.04)',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        color: '#fff',
-                      }}
-                      onFocus={(e) => {
-                        e.target.style.borderColor = 'rgba(212,175,55,0.6)';
-                        e.target.style.boxShadow = '0 0 12px rgba(212,175,55,0.12)';
-                      }}
-                      onBlur={(e) => {
-                        e.target.style.borderColor = 'rgba(255,255,255,0.1)';
-                        e.target.style.boxShadow = 'none';
-                      }}
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={loading || hasSession === null}
-                    className="w-full h-11 rounded-lg font-semibold text-sm tracking-wider uppercase transition-all duration-300 disabled:opacity-50"
-                    style={{
-                      background: 'linear-gradient(135deg, #C9A227 0%, #D4AF37 50%, #E8C84A 100%)',
-                      color: '#0B0B0B',
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget).style.boxShadow = '0 0 24px rgba(212,175,55,0.35)';
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget).style.boxShadow = 'none';
-                    }}
-                  >
-                    {loading ? 'Updating…' : 'Update Password'}
-                  </button>
-                </form>
-
-                {/* Back link */}
-                <div className="flex items-center justify-center mt-5">
-                  <Link
-                    to="/login"
-                    className="text-[11px] tracking-wide transition-colors duration-300"
-                    style={{ color: 'rgba(255,255,255,0.3)' }}
-                    onMouseEnter={(e) => (e.currentTarget.style.color = 'rgba(212,175,55,0.7)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255,255,255,0.3)')}
-                  >
-                    ← Back to Login
-                  </Link>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div
-          className={`relative z-10 text-center pb-6 px-6 transition-all duration-700 delay-300 ${
-            mounted ? 'opacity-100' : 'opacity-0'
-          }`}
-        >
-          <p className="text-[10px] tracking-[0.2em] uppercase" style={{ color: 'rgba(255,255,255,0.15)' }}>
-            © {new Date().getFullYear()} Cha Jewels Co., Ltd.
-          </p>
-          <p className="text-[9px] tracking-[0.3em] uppercase mt-1" style={{ color: 'rgba(212,175,55,0.2)' }}>
-            Luxury · Discipline · Investment
-          </p>
-        </div>
-      </div>
-
-      <style>{`
-        @keyframes slowZoom {
-          from { transform: scale(1.05); }
-          to   { transform: scale(1.15); }
-        }
-      `}</style>
     </div>
   );
 }
