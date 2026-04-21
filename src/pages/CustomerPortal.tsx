@@ -384,6 +384,7 @@ export default function CustomerPortal() {
             {pinLoading ? 'Verifying...' : 'Access My Account'}
           </button>
           <p style={{ color: '#666', fontSize: 11, marginTop: 16 }}>Forgot your PIN? Contact your staff.</p>
+          <p style={{ color: '#555', fontSize: 10, marginTop: 4 }}>Default PIN: last 4 digits of your registered mobile number</p>
         </div>
       </div>
     );
