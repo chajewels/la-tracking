@@ -606,6 +606,17 @@ When completing a partially_paid month:
     - Rule 4: paid_amount increasing beyond ceiling → BLOCKED (waterfall over-allocation)
     NEVER modified by: waterfall, reconcile, Keep handler, carry-over
 
+  INVARIANT 9 — total_amount admin-only writes:
+    total_amount on layaway_accounts can only be changed by admin.
+    Enforced by DB trigger: prevent_total_amount_change
+    Bypass: app.allow_total_amount_edit = 'true' (edge functions only)
+    NEVER modified by: non-admin users, direct PostgREST calls
+    Edge functions with bypass:
+    - add-installment (admin only, bypass flag set)
+    - delete-installment (admin only, bypass flag set)
+    - add-service (admin only, bypass flag set)
+    Client-side writes: NONE — all routes through edge functions
+
 ## DISPLAY RULES (permanent)
 
   ALL schedule display reads from schedule_with_actuals view
@@ -943,19 +954,23 @@ When completing a partially_paid month:
   Link Signature modal: FIXED — single dialog no double overlay ✅ (2026-04-21)
   PWA: LIVE ✅ (2026-04-21)
   Supabase Site URL: https://app.chajewelsjp.com ✅ (2026-04-21)
+  prevent_total_amount_change trigger: LIVE ✅ (2026-04-21)
+  add-service edge function: LIVE ✅ (2026-04-21)
+  add-installment role: narrowed to admin only ✅ (2026-04-21)
+  create-layaway-account role check: ADDED ✅ (2026-04-21)
+  daily-reconciliation pg_cron: ACTIVE ✅ job ID 7, 5 0 * * * (2026-04-21)
 
 ## PENDING ITEMS (as of 2026-04-20)
 
-  1. daily-reconciliation has no cron job — needs pg_cron entry
-  2. Firebase signing page connection (Steps 13-17)
-  3. Update submit-payment edge function to auto-deploy list
-  4. Extension lifecycle test stages 3 & 4
-  5. TEST-FORFEIT-002 and TEST-FORFEIT-003
-  6. send-transactional-email edge function — does not exist, email
+  1. Firebase signing page connection (Steps 13-17)
+  2. Update submit-payment edge function to auto-deploy list
+  3. Extension lifecycle test stages 3 & 4
+  4. TEST-FORFEIT-002 and TEST-FORFEIT-003
+  5. send-transactional-email edge function — does not exist, email
       notifications for extension requests not working
-  7. Penalty engine waived-to-unpaid auto-fix — deployed, needs
+  6. Penalty engine waived-to-unpaid auto-fix — deployed, needs
       monitoring on next cron run to confirm correct behavior
-  8. Forfeitures per Month chart — historical data shows all in
+  7. Forfeitures per Month chart — historical data shows all in
       April 2026 due to backfill limitation — self-corrects over time
 
 ## PERIODIC HEALTH QUERIES
@@ -1001,6 +1016,7 @@ SUPABASE EDGE FUNCTIONS — these auto-deploy when their files change:
 - auto-forfeit-settlement
 - recalculate-penalties (DISABLED — returns 410)
 - dashboard-summary
+- add-service
 
 All other edge functions still require manual deploy via Cloud Shell.
 Always check .github/workflows/supabase-functions-deploy.yml
