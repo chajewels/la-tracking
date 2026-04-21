@@ -24,7 +24,7 @@ export default function ForgotPassword() {
     }
     setLoading(true);
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: 'https://portal.chajewelsjp.com/reset-password',
+      redirectTo: 'https://app.chajewelsjp.com/reset-password',
     });
     setLoading(false);
     if (error) {
