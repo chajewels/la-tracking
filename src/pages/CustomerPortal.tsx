@@ -763,7 +763,7 @@ export default function CustomerPortal() {
             )}
             <div style={{ marginBottom: 16 }}>
               <a
-                href="https://portal.chajewelsjp.com/"
+                href="https://agreement.chajewelsjp.com/"
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ fontFamily: 'Inter, sans-serif', fontSize: '11px', color: P.ts, textDecoration: 'underline' }}
@@ -792,7 +792,7 @@ export default function CustomerPortal() {
       {/* ── Portal footer with agreement link ── */}
       <div style={{ textAlign: 'center', padding: '24px 16px 32px', background: P.bg }}>
         <a
-          href="https://portal.chajewelsjp.com/"
+          href="https://agreement.chajewelsjp.com/"
           target="_blank"
           rel="noopener noreferrer"
           style={{ fontFamily: 'Inter, sans-serif', fontSize: '11px', color: P.ts, textDecoration: 'none' }}
