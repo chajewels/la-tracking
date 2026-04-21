@@ -17,6 +17,7 @@ on:
       - 'supabase/functions/recalculate-penalties/**'
       - 'supabase/functions/submit-payment/**'
       - 'supabase/functions/dashboard-summary/**'
+      - 'supabase/functions/add-service/**'
   workflow_dispatch:
 
 jobs:
@@ -105,5 +106,11 @@ jobs:
       - name: Deploy dashboard-summary
         if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/dashboard-summary/')
         run: npx supabase functions deploy dashboard-summary --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy add-service
+        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/add-service/')
+        run: npx supabase functions deploy add-service --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
