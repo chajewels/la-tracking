@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
     // 2. Fetch customer PIN fields
     const { data: customer } = await supabase
       .from("customers")
-      .select("id, portal_pin_hash, portal_pin_attempts, portal_pin_locked_until")
+      .select("id, portal_pin_hash, portal_pin_attempts, portal_pin_locked_until, mobile_number")
       .eq("id", tokenRow.customer_id)
       .maybeSingle();
 
@@ -59,12 +59,21 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 3. PIN not configured
+    // 3. Auto-set default PIN from last 4 digits of mobile_number
     if (!customer.portal_pin_hash) {
-      return new Response(
-        JSON.stringify({ error: "PIN not set. Please contact your staff." }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      const digits = (customer.mobile_number || '').replace(/\D/g, '');
+      const defaultPin = digits.length >= 4 ? digits.slice(-4) : '0000';
+      const defaultHash = await bcrypt.hash(defaultPin);
+      await supabase
+        .from('customers')
+        .update({
+          portal_pin_hash: defaultHash,
+          portal_pin_attempts: 0,
+          portal_pin_locked_until: null
+        })
+        .eq('id', customer.id);
+      customer.portal_pin_hash = defaultHash;
+      // Fall through to PIN verification below
     }
 
     // 4. Lockout check
