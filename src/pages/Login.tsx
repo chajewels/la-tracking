@@ -16,7 +16,9 @@ export default function Login() {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (session) navigate(ROUTES.DASHBOARD, { replace: true });
+    if (session && !window.location.hash.includes('type=recovery')) {
+      navigate(ROUTES.DASHBOARD, { replace: true });
+    }
   }, [session, navigate]);
 
   useEffect(() => {
