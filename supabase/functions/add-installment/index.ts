@@ -59,12 +59,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Admin, finance, or staff
+    // Admin only
     const { data: isAdmin } = await supabase.rpc("has_role", { _user_id: user.id, _role: "admin" });
-    const { data: isFinance } = await supabase.rpc("has_role", { _user_id: user.id, _role: "finance" });
-    const { data: isStaff } = await supabase.rpc("has_role", { _user_id: user.id, _role: "staff" });
-    if (!isAdmin && !isFinance && !isStaff) {
-      return new Response(JSON.stringify({ error: "Access required" }), {
+    if (!isAdmin) {
+      return new Response(JSON.stringify({ error: "Admin access required" }), {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -128,6 +126,11 @@ Deno.serve(async (req) => {
 
     const newTotal = Math.round((Number(account.total_amount) + roundedAmount) * 100) / 100;
     const newRemaining = Math.round((Number(account.remaining_balance) + roundedAmount) * 100) / 100;
+    await supabase.rpc('set_config', {
+      setting: 'app.allow_total_amount_edit',
+      value: 'true',
+      is_local: true,
+    });
     await supabase
       .from("layaway_accounts")
       .update({ total_amount: newTotal, remaining_balance: Math.max(0, newRemaining) })

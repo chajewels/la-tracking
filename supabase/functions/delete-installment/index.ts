@@ -128,6 +128,11 @@ Deno.serve(async (req) => {
 
     const newTotal = Math.max(0, Math.round((Number(account.total_amount) - baseAmt) * 100) / 100);
     const newRemaining = Math.max(0, Math.round((Number(account.remaining_balance) - baseAmt) * 100) / 100);
+    await supabase.rpc('set_config', {
+      setting: 'app.allow_total_amount_edit',
+      value: 'true',
+      is_local: true,
+    });
     await supabase
       .from("layaway_accounts")
       .update({ total_amount: newTotal, remaining_balance: newRemaining })
