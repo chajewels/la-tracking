@@ -102,7 +102,7 @@ export default function NewAccount() {
         currency,
         totalAmount,
         orderDate,
-        paymentPlan: paymentPlan as 3 | 6 | 8,
+        paymentPlan,
         downpaymentInput,
         installmentMode,
         customAmounts,
