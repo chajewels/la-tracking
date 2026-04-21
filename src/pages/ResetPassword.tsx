@@ -1,38 +1,63 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
 import luxuryHero from '@/assets/luxury-jewelry-hero.jpg';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 
-export default function ForgotPassword() {
-  const [email, setEmail] = useState('');
+export default function ResetPassword() {
+  const navigate = useNavigate();
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [sent, setSent] = useState(false);
-  const [sentEmail, setSentEmail] = useState('');
   const [mounted, setMounted] = useState(false);
+  const [hasSession, setHasSession] = useState<boolean | null>(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setHasSession(!!data.session);
+    });
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setHasSession(!!session);
+    });
+
+    return () => {
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) {
-      toast.error('Please enter your email address');
+
+    if (!newPassword || !confirmPassword) {
+      toast.error('Please fill in both password fields');
       return;
     }
+    if (newPassword.length < 8) {
+      toast.error('Password must be at least 8 characters');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+
     setLoading(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: 'https://portal.chajewelsjp.com/reset-password',
-    });
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
     setLoading(false);
+
     if (error) {
-      toast.error('Failed to send reset email. Please try again.');
+      toast.error(error.message || 'Failed to update password. Please try again.');
       return;
     }
-    setSentEmail(email);
-    setSent(true);
+
+    toast.success('Password updated successfully');
+    setTimeout(() => navigate('/login', { replace: true }), 1200);
   };
 
   return (
@@ -103,32 +128,36 @@ export default function ForgotPassword() {
               </h1>
             </div>
 
-            {sent ? (
+            {hasSession === false ? (
               <>
                 <div className="text-center mb-8">
                   <h2
                     className="text-2xl font-light tracking-wide"
                     style={{ fontFamily: "'Montserrat', sans-serif", color: '#fff' }}
                   >
-                    Check Your Inbox
+                    Invalid or Expired Link
                   </h2>
                   <p className="text-xs mt-3 tracking-wider leading-relaxed" style={{ color: 'rgba(255,255,255,0.6)' }}>
-                    A password reset link has been sent to
-                  </p>
-                  <p className="text-sm mt-2 font-medium" style={{ color: '#D4AF37' }}>
-                    {sentEmail}
+                    This password reset link is invalid or has expired.
                   </p>
                   <p className="text-[11px] mt-4 tracking-wide" style={{ color: 'rgba(255,255,255,0.35)' }}>
-                    Didn't receive it? Check your spam folder, or try again in a few minutes.
+                    Please request a new password reset email to continue.
                   </p>
                 </div>
-                <div className="flex items-center justify-center mt-5">
+                <div className="flex items-center justify-center gap-5 mt-5">
                   <Link
-                    to="/login"
+                    to="/forgot-password"
                     className="text-[11px] tracking-wide transition-colors duration-300"
                     style={{ color: 'rgba(212,175,55,0.7)' }}
                   >
-                    ← Back to Login
+                    Request New Link
+                  </Link>
+                  <Link
+                    to="/login"
+                    className="text-[11px] tracking-wide transition-colors duration-300"
+                    style={{ color: 'rgba(255,255,255,0.3)' }}
+                  >
+                    Back to Login
                   </Link>
                 </div>
               </>
@@ -140,10 +169,10 @@ export default function ForgotPassword() {
                     className="text-2xl font-light tracking-wide"
                     style={{ fontFamily: "'Montserrat', sans-serif", color: '#fff' }}
                   >
-                    Reset Password
+                    Set New Password
                   </h2>
                   <p className="text-xs mt-2 tracking-wider" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                    Enter your email to receive a reset link
+                    Enter a new password for your account
                   </p>
                 </div>
 
@@ -154,13 +183,47 @@ export default function ForgotPassword() {
                       className="text-[11px] tracking-widest uppercase font-medium block"
                       style={{ color: 'rgba(255,255,255,0.5)' }}
                     >
-                      Email
+                      New Password
                     </label>
                     <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="you@chajewels.com"
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="••••••••"
+                      autoComplete="new-password"
+                      className="w-full h-11 px-4 rounded-lg text-sm outline-none transition-all duration-300"
+                      style={{
+                        background: 'rgba(255,255,255,0.04)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        color: '#fff',
+                      }}
+                      onFocus={(e) => {
+                        e.target.style.borderColor = 'rgba(212,175,55,0.6)';
+                        e.target.style.boxShadow = '0 0 12px rgba(212,175,55,0.12)';
+                      }}
+                      onBlur={(e) => {
+                        e.target.style.borderColor = 'rgba(255,255,255,0.1)';
+                        e.target.style.boxShadow = 'none';
+                      }}
+                    />
+                    <p className="text-[10px] tracking-wide pt-1" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                      Minimum 8 characters
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label
+                      className="text-[11px] tracking-widest uppercase font-medium block"
+                      style={{ color: 'rgba(255,255,255,0.5)' }}
+                    >
+                      Confirm Password
+                    </label>
+                    <input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="••••••••"
+                      autoComplete="new-password"
                       className="w-full h-11 px-4 rounded-lg text-sm outline-none transition-all duration-300"
                       style={{
                         background: 'rgba(255,255,255,0.04)',
@@ -180,7 +243,7 @@ export default function ForgotPassword() {
 
                   <button
                     type="submit"
-                    disabled={loading}
+                    disabled={loading || hasSession === null}
                     className="w-full h-11 rounded-lg font-semibold text-sm tracking-wider uppercase transition-all duration-300 disabled:opacity-50"
                     style={{
                       background: 'linear-gradient(135deg, #C9A227 0%, #D4AF37 50%, #E8C84A 100%)',
@@ -193,7 +256,7 @@ export default function ForgotPassword() {
                       (e.currentTarget).style.boxShadow = 'none';
                     }}
                   >
-                    {loading ? 'Sending…' : 'Send Reset Email'}
+                    {loading ? 'Updating…' : 'Update Password'}
                   </button>
                 </form>
 
