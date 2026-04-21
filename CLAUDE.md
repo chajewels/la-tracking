@@ -959,6 +959,11 @@ When completing a partially_paid month:
   add-installment role: narrowed to admin only ✅ (2026-04-21)
   create-layaway-account role check: ADDED ✅ (2026-04-21)
   daily-reconciliation pg_cron: ACTIVE ✅ job ID 7, 5 0 * * * (2026-04-21)
+  Rate limiting — payment submissions: LIVE ✅ (2026-04-21)
+    Max 3 submissions per account per 24 hours
+    Enforced in: record-payment, submit-payment
+    HTTP 429 returned when limit exceeded
+    Frontend: toast error shown in RecordPaymentDialog
 
 ## PENDING ITEMS (as of 2026-04-20)
 
@@ -972,6 +977,9 @@ When completing a partially_paid month:
       monitoring on next cron run to confirm correct behavior
   7. Forfeitures per Month chart — historical data shows all in
       April 2026 due to backfill limitation — self-corrects over time
+  8. Session timeout — auto-logout after 2 hours inactivity (Priority 5)
+  9. Customer portal PIN protection (Priority 4)
+  10. Admin audit log for manual DB changes (Priority 6)
 
 ## PERIODIC HEALTH QUERIES
 
