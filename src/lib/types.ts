@@ -1,5 +1,5 @@
 export type Currency = 'PHP' | 'JPY';
-export type PaymentPlan = 3 | 6 | 8;
+export type PaymentPlan = 3 | 6 | 8 | 10 | 12;
 export type AccountStatus = 'active' | 'completed' | 'defaulted' | 'cancelled' | 'forfeited' | 'final_settlement' | 'reactivated' | 'extension_active' | 'final_forfeited';
 export type PenaltyStatus = 'pending' | 'paid' | 'waived';
 export type WaiverStatus = 'pending' | 'approved' | 'rejected';
