@@ -10,10 +10,6 @@ import { Input } from '@/components/ui/input';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { FileText, Link as LinkIcon, Eye } from 'lucide-react';
@@ -204,65 +200,62 @@ export default function ContractAgreementSection({ accountId }: Props) {
             <LinkIcon className="h-3.5 w-3.5 mr-1.5" /> Link Signature
           </Button>
 
-          {/* Link Signature Dialog */}
+          {/* Link Signature Dialog — single-modal with inline confirm view */}
           <Dialog open={linkOpen} onOpenChange={(open) => {
             setLinkOpen(open);
-            if (!open) { setSearchQuery(''); setDebouncedQuery(''); }
+            if (!open) { setSearchQuery(''); setDebouncedQuery(''); setConfirmSig(null); }
           }}>
             <DialogContent className="max-w-md">
               <DialogHeader>
-                <DialogTitle>Link Signature to Account</DialogTitle>
+                <DialogTitle>{confirmSig ? 'Link Signature' : 'Link Signature to Account'}</DialogTitle>
               </DialogHeader>
-              <Input
-                placeholder="Type at least 2 characters to search..."
-                value={searchQuery}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                autoFocus
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Search by name or email (minimum 2 characters)
-              </p>
-              <div className="max-h-60 overflow-y-auto space-y-1 mt-2">
-                {debouncedQuery.length < 2 ? (
-                  <p className="text-xs text-muted-foreground text-center py-4">Type at least 2 characters to search</p>
-                ) : !searchResults || searchResults.length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-4">No unlinked signatures found</p>
-                ) : (
-                  searchResults.map((sig) => (
-                    <button
-                      key={sig.id}
-                      onClick={() => {
-                        setLinkOpen(false);
-                        setTimeout(() => setConfirmSig(sig), 200);
-                      }}
-                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-muted/60 transition text-sm border border-transparent hover:border-border"
-                    >
-                      <span className="font-medium">{sig.full_name}</span>
-                      <span className="text-muted-foreground"> — {sig.email} — {sig.country} — {format(new Date(sig.signed_at), 'MMM dd, yyyy')}</span>
-                    </button>
-                  ))
-                )}
-              </div>
+              {confirmSig ? (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Link signature from <strong>{confirmSig.full_name}</strong> ({confirmSig.email}) to this account?
+                  </p>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setConfirmSig(null)} disabled={linking}>
+                      Cancel
+                    </Button>
+                    <Button onClick={handleLink} disabled={linking}>
+                      {linking ? 'Linking...' : 'Confirm'}
+                    </Button>
+                  </DialogFooter>
+                </>
+              ) : (
+                <>
+                  <Input
+                    placeholder="Type at least 2 characters to search..."
+                    value={searchQuery}
+                    onChange={(e) => handleSearchChange(e.target.value)}
+                    autoFocus
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Search by name or email (minimum 2 characters)
+                  </p>
+                  <div className="max-h-60 overflow-y-auto space-y-1 mt-2">
+                    {debouncedQuery.length < 2 ? (
+                      <p className="text-xs text-muted-foreground text-center py-4">Type at least 2 characters to search</p>
+                    ) : !searchResults || searchResults.length === 0 ? (
+                      <p className="text-xs text-muted-foreground text-center py-4">No unlinked signatures found</p>
+                    ) : (
+                      searchResults.map((sig) => (
+                        <button
+                          key={sig.id}
+                          onClick={() => setConfirmSig(sig)}
+                          className="w-full text-left px-3 py-2 rounded-lg hover:bg-muted/60 transition text-sm border border-transparent hover:border-border"
+                        >
+                          <span className="font-medium">{sig.full_name}</span>
+                          <span className="text-muted-foreground"> — {sig.email} — {sig.country} — {format(new Date(sig.signed_at), 'MMM dd, yyyy')}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
             </DialogContent>
           </Dialog>
-
-          {/* Confirm Link Dialog */}
-          <AlertDialog open={!!confirmSig} onOpenChange={(open) => { if (!open) setConfirmSig(null); }}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Link Signature</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Link signature from <strong>{confirmSig?.full_name}</strong> ({confirmSig?.email}) to this account?
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel disabled={linking}>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleLink} disabled={linking}>
-                  {linking ? 'Linking...' : 'Confirm'}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
         </>
       )}
     </div>
