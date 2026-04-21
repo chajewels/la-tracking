@@ -356,6 +356,10 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
       }
       resetAndClose();
     } catch (err: any) {
+      if (err?.message?.includes('Too many submissions') || err?.context?.status === 429) {
+        toast.error('Too many submissions. Please wait 24 hours before submitting again.');
+        return;
+      }
       toast.error(err.message || 'Failed to submit payment');
     } finally {
       setLoadingPreview(false);
@@ -390,6 +394,10 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
       }
       resetAndClose();
     } catch (err: any) {
+      if (err?.message?.includes('Too many submissions') || err?.context?.status === 429) {
+        toast.error('Too many submissions. Please wait 24 hours before submitting again.');
+        return;
+      }
       toast.error(err.message || 'Failed to record payment');
     } finally {
       submittingRef.current = false;

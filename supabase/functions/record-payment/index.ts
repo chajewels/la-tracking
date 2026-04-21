@@ -44,6 +44,23 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ── Rate limit: max 3 submissions per account per 24 hours ──
+    const { count: recentCount } = await supabase
+      .from("payment_submissions")
+      .select("*", { count: "exact", head: true })
+      .eq("account_id", account_id)
+      .neq("status", "rejected")
+      .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+
+    if ((recentCount ?? 0) >= 3) {
+      return new Response(
+        JSON.stringify({
+          error: "Too many submissions. Maximum 3 payment submissions per account per 24 hours. Please wait before submitting again.",
+        }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     // ── Role check: only admin/finance can directly record payments ──
     const [{ data: isAdmin }, { data: isFinance }] = await Promise.all([
       supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),

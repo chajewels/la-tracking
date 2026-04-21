@@ -134,6 +134,26 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Rate limit: max 3 submissions per account per 24 hours
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    for (const aid of accountIds) {
+      const { count: recentCount } = await supabase
+        .from("payment_submissions")
+        .select("*", { count: "exact", head: true })
+        .eq("account_id", aid)
+        .neq("status", "rejected")
+        .gte("created_at", twentyFourHoursAgo);
+
+      if ((recentCount ?? 0) >= 3) {
+        return new Response(
+          JSON.stringify({
+            error: "Too many submissions. Maximum 3 payment submissions per account per 24 hours. Please wait before submitting again.",
+          }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    }
+
     // Check for duplicate submissions within last 5 minutes
     const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
     const { data: recentDupes } = await supabase
