@@ -206,20 +206,7 @@ export default function Login() {
                 style={{ color: 'rgba(255,255,255,0.3)' }}
                 onMouseEnter={(e) => (e.currentTarget.style.color = 'rgba(212,175,55,0.7)')}
                 onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255,255,255,0.3)')}
-                onClick={async () => {
-                  if (!email) {
-                    toast.error('Please enter your email address first');
-                    return;
-                  }
-                  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-                    redirectTo: window.location.origin + '/login',
-                  });
-                  if (error) {
-                    toast.error('Failed to send reset email. Please try again.');
-                    return;
-                  }
-                  toast.success('Password reset email sent. Check your inbox.');
-                }}
+                onClick={() => navigate('/forgot-password')}
               >
                 Forgot Password?
               </button>

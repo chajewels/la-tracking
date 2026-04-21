@@ -89,6 +89,7 @@ function lazyWithRetry(factory: () => Promise<{ default: ComponentType<any> }>) 
 
 // All pages are lazy-loaded to keep initial bundle small
 const Login = lazyWithRetry(() => import("./pages/Login"));
+const ForgotPassword = lazyWithRetry(() => import("./pages/ForgotPassword"));
 const Dashboard = lazyWithRetry(() => import("./pages/Dashboard"));
 const AccountList = lazyWithRetry(() => import("./pages/AccountList"));
 const AccountDetail = lazyWithRetry(() => import("./pages/AccountDetail"));
@@ -142,6 +143,7 @@ const App = () => (
             <Suspense fallback={<PageLoader />}>
               <Routes>
                 <Route path="/login" element={<Login />} />
+                <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/statement" element={<CustomerStatement />} />
                 <Route path="/portal" element={<CustomerPortal />} />
                 <Route path="/unsubscribe" element={<Unsubscribe />} />
