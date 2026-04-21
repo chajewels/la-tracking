@@ -233,7 +233,7 @@ export default function ContractAgreementSection({ accountId }: Props) {
                       key={sig.id}
                       onClick={() => {
                         setLinkOpen(false);
-                        setConfirmSig(sig);
+                        setTimeout(() => setConfirmSig(sig), 200);
                       }}
                       className="w-full text-left px-3 py-2 rounded-lg hover:bg-muted/60 transition text-sm border border-transparent hover:border-border"
                     >
