@@ -540,6 +540,15 @@ When completing a partially_paid month:
     in-memory penalty allocation — status stayed partially_paid
     when row was fully covered by installment + penalty —
     fixed to include alreadyAllocatedPenalty in check (2026-04-21)
+  - 41. review-payment-submission isNowFullyPaid excluded in-memory
+    penalty allocation causing db_status to stay partially_paid
+    when row was fully covered — affected INV #17676 Month 4 and
+    INV #17561 Month 5 — manually corrected, permanent fix deployed
+    (2026-04-21)
+  - 42. INV #17561 Month 6 missing allocation row — surplus payment
+    from April 18 did not create allocation for Month 6 due to
+    pre-fix waterfall bug — manually inserted missing allocation
+    row (2026-04-21)
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
@@ -914,6 +923,8 @@ When completing a partially_paid month:
   get_top_outstanding_customers RPC: LIVE ✅ (2026-04-21)
   forfeited_at backfill limitation: historical forfeitures show
     as April 2026 — acceptable, future forfeitures will be accurate
+  Stale partially_paid status scan: CLEAN ✅ (2026-04-21)
+    — 0 accounts with allocated >= ceiling but status = partially_paid
 
 ## PENDING ITEMS (as of 2026-04-20)
 
@@ -928,6 +939,30 @@ When completing a partially_paid month:
       monitoring on next cron run to confirm correct behavior
   8. Forfeitures per Month chart — historical data shows all in
       April 2026 due to backfill limitation — self-corrects over time
+
+## PERIODIC HEALTH QUERIES
+
+```sql
+-- Detect stale partially_paid rows (run periodically)
+SELECT la.invoice_number, ls.installment_number
+FROM layaway_schedule ls
+JOIN layaway_accounts la ON la.id = ls.account_id
+LEFT JOIN (
+  SELECT schedule_id, SUM(allocated_amount) AS allocated
+  FROM payment_allocations pa2
+  JOIN payments p ON p.id = pa2.payment_id
+  WHERE p.voided_at IS NULL
+  GROUP BY schedule_id
+) pa ON pa.schedule_id = ls.id
+WHERE ls.status = 'partially_paid'
+  AND COALESCE(pa.allocated, 0) >= (
+    ls.base_installment_amount
+    + COALESCE(ls.penalty_amount, 0)
+    + COALESCE(ls.carried_amount, 0)
+  ) - 0.005
+  AND la.invoice_number NOT LIKE 'TEST%';
+-- Expected result: 0 rows. If rows appear, update db_status to paid.
+```
 
 ## AUTO-DEPLOY RULES (updated 2026-04-12)
 
