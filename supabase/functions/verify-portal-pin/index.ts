@@ -1,5 +1,4 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import * as bcrypt from "https://deno.land/x/bcrypt@v0.4.1/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -63,7 +62,14 @@ Deno.serve(async (req) => {
     if (!customer.portal_pin_hash) {
       const digits = (customer.mobile_number || '').replace(/\D/g, '');
       const defaultPin = digits.length >= 4 ? digits.slice(-4) : '0000';
-      const defaultHash = await bcrypt.hash(defaultPin);
+
+      // Use Web Crypto API (available in Deno) to hash the PIN
+      const encoder = new TextEncoder();
+      const data = encoder.encode(defaultPin);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const defaultHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
       await supabase
         .from('customers')
         .update({
@@ -73,7 +79,6 @@ Deno.serve(async (req) => {
         })
         .eq('id', customer.id);
       customer.portal_pin_hash = defaultHash;
-      // Fall through to PIN verification below
     }
 
     // 4. Lockout check
@@ -88,8 +93,13 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 5. Verify PIN
-    const isMatch = await bcrypt.compare(String(pin), customer.portal_pin_hash);
+    // 5. Verify PIN (SHA-256 compare)
+    const encoder = new TextEncoder();
+    const pinData = encoder.encode(String(pin));
+    const pinHashBuffer = await crypto.subtle.digest('SHA-256', pinData);
+    const pinHashArray = Array.from(new Uint8Array(pinHashBuffer));
+    const pinHash = pinHashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    const isMatch = pinHash === customer.portal_pin_hash;
 
     if (!isMatch) {
       const nextAttempts = (customer.portal_pin_attempts ?? 0) + 1;

@@ -1,5 +1,4 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import * as bcrypt from "https://deno.land/x/bcrypt@v0.4.1/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -60,8 +59,12 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 4. Hash PIN
-    const hash = await bcrypt.hash(String(pin));
+    // 4. Hash PIN (SHA-256 via Web Crypto API)
+    const encoder = new TextEncoder();
+    const data = encoder.encode(pin);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 
     // 5. Update customer
     const { error: updateError } = await supabase
