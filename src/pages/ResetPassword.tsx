@@ -11,10 +11,24 @@ export default function ResetPassword() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') setReady(true);
-    });
-    return () => subscription.unsubscribe();
+    let subscription: { unsubscribe: () => void } | null = null;
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        setReady(true);
+      } else {
+        const { data } = supabase.auth.onAuthStateChange((event, session) => {
+          if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session)) {
+            setReady(true);
+          }
+        });
+        subscription = data.subscription;
+      }
+    };
+    checkSession();
+    return () => {
+      subscription?.unsubscribe();
+    };
   }, []);
 
   const handleReset = async () => {
