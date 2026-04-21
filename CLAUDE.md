@@ -964,6 +964,13 @@ When completing a partially_paid month:
     Enforced in: record-payment, submit-payment
     HTTP 429 returned when limit exceeded
     Frontend: toast error shown in RecordPaymentDialog
+  Payment plan months supported: 3 | 6 | 8 | 10 | 12 ✅ (2026-04-21)
+    DB CHECK constraint: updated to allow all 5 values
+    create-layaway-account: whitelist updated ✅
+    bulk-import: whitelist updated ✅
+    parse-import-docs: prompt updated ✅
+    UI (NewAccount.tsx): all 5 options shown ✅
+    TypeScript types: PaymentPlan widened ✅
 
 ## PENDING ITEMS (as of 2026-04-20)
 
@@ -980,6 +987,8 @@ When completing a partially_paid month:
   8. Session timeout — auto-logout after 2 hours inactivity (Priority 5)
   9. Customer portal PIN protection (Priority 4)
   10. Admin audit log for manual DB changes (Priority 6)
+  11. use-account-draft.ts plan type was widened — monitor for any
+      draft-related issues with 10/12 month plans
 
 ## PERIODIC HEALTH QUERIES
 
