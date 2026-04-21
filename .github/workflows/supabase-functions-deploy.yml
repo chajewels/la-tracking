@@ -18,6 +18,8 @@ on:
       - 'supabase/functions/submit-payment/**'
       - 'supabase/functions/dashboard-summary/**'
       - 'supabase/functions/add-service/**'
+      - 'supabase/functions/verify-portal-pin/**'
+      - 'supabase/functions/set-portal-pin/**'
   workflow_dispatch:
 
 jobs:
@@ -112,5 +114,17 @@ jobs:
       - name: Deploy add-service
         if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/add-service/')
         run: npx supabase functions deploy add-service --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy verify-portal-pin
+        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/verify-portal-pin/')
+        run: npx supabase functions deploy verify-portal-pin --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy set-portal-pin
+        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/set-portal-pin/')
+        run: npx supabase functions deploy set-portal-pin --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

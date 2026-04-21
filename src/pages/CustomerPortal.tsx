@@ -214,6 +214,39 @@ export default function CustomerPortal() {
   const [selectedAccount, setSelectedAccount] = useState<PortalAccount | null>(null);
   const [initialDetailTab, setInitialDetailTab] = useState<'overview' | 'pay' | 'submissions'>('overview');
 
+  // ── PIN gate state ──
+  const [pinVerified, setPinVerified] = useState(false);
+  const [pin, setPin] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [pinLoading, setPinLoading] = useState(false);
+
+  const handlePinSubmit = async () => {
+    if (pin.length !== 4 || !token) return;
+    setPinLoading(true);
+    setPinError('');
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/verify-portal-pin`, {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ token, pin }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || !payload?.success) {
+        setPinError(payload?.error || 'Invalid PIN. Please try again.');
+      } else {
+        setPinVerified(true);
+        setPin('');
+      }
+    } catch {
+      setPinError('Something went wrong. Please try again.');
+    }
+    setPinLoading(false);
+  };
+
   // ── Announcement pop-up state ──
   const [announcement, setAnnouncement] = useState<any>(null);
   const [showAnnouncement, setShowAnnouncement] = useState(false);
@@ -318,6 +351,39 @@ export default function CustomerPortal() {
               ? 'This portal link has expired. Please request a new link from Cha Jewels.'
               : 'This link is invalid or no longer active. Please contact Cha Jewels for a new portal link.'}
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── PIN gate ──
+  if (!pinVerified) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+        <div style={{ background: '#111', border: '1px solid #C9A84C', borderRadius: 12, padding: 40, width: 340, textAlign: 'center' }}>
+          <p style={{ color: '#C9A84C', fontFamily: 'Georgia, serif', fontSize: 20, marginBottom: 8 }}>Cha Jewels</p>
+          <p style={{ color: '#fff', fontSize: 14, marginBottom: 24 }}>Enter your 4-digit portal PIN</p>
+          <input
+            type="password"
+            maxLength={4}
+            inputMode="numeric"
+            pattern="[0-9]*"
+            autoFocus
+            value={pin}
+            onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            onKeyDown={e => { if (e.key === 'Enter' && pin.length === 4 && !pinLoading) handlePinSubmit(); }}
+            style={{ width: '100%', padding: '14px', fontSize: 28, textAlign: 'center', letterSpacing: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', boxSizing: 'border-box', marginBottom: 16 }}
+            placeholder="••••"
+          />
+          {pinError && <p style={{ color: '#EF4444', fontSize: 12, marginBottom: 12 }}>{pinError}</p>}
+          <button
+            onClick={handlePinSubmit}
+            disabled={pin.length !== 4 || pinLoading}
+            style={{ width: '100%', padding: 12, background: '#C9A84C', border: 'none', borderRadius: 8, color: '#0a0a0a', fontWeight: 700, fontSize: 14, cursor: pin.length !== 4 || pinLoading ? 'not-allowed' : 'pointer', opacity: pin.length !== 4 || pinLoading ? 0.6 : 1 }}
+          >
+            {pinLoading ? 'Verifying...' : 'Access My Account'}
+          </button>
+          <p style={{ color: '#666', fontSize: 11, marginTop: 16 }}>Forgot your PIN? Contact your staff.</p>
         </div>
       </div>
     );

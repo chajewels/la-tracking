@@ -19,6 +19,9 @@ import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
 import { useCustomerAccounts, useForfeitAccount } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { KeyRound } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   isEffectivelyPaid, isPartiallyPaid, remainingDue, getUnpaidScheduleItems, getMessageSchedulePaymentCoverage,
@@ -60,6 +63,33 @@ export default function CustomerDetail() {
     full_name: '', facebook_name: '', messenger_link: '', mobile_number: '', email: '',
   });
   const [editSaving, setEditSaving] = useState(false);
+
+  // --- Set Portal PIN dialog state ---
+  const { roles } = useAuth();
+  const canManagePin = (roles as any[]).includes('admin') || (roles as any[]).includes('staff');
+  const [pinDialogOpen, setPinDialogOpen] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinSaving, setPinSaving] = useState(false);
+  const handleSetPin = async () => {
+    if (!customerId || !/^\d{4}$/.test(pinInput)) {
+      toast.error('PIN must be exactly 4 digits');
+      return;
+    }
+    setPinSaving(true);
+    try {
+      const { data: res, error } = await supabase.functions.invoke('set-portal-pin', {
+        body: { customer_id: customerId, pin: pinInput },
+      });
+      if (error || (res as any)?.error) throw new Error((res as any)?.error || error?.message || 'Failed to set PIN');
+      toast.success('Portal PIN set successfully');
+      setPinDialogOpen(false);
+      setPinInput('');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to set PIN');
+    } finally {
+      setPinSaving(false);
+    }
+  };
 
   const customer = data?.customer;
 
@@ -453,6 +483,54 @@ export default function CustomerDetail() {
 
         {/* Customer Portal Link */}
         <CustomerPortalShareMenu customerId={customer.id} customerName={customer.full_name} messengerLink={customer.messenger_link} />
+
+        {canManagePin && (
+          <>
+            <div className="flex justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setPinInput(''); setPinDialogOpen(true); }}
+                className="h-8 text-xs border-primary/30 text-primary hover:bg-primary/10"
+              >
+                <KeyRound className="h-3.5 w-3.5 mr-1.5" /> Set Portal PIN
+              </Button>
+            </div>
+            <Dialog open={pinDialogOpen} onOpenChange={setPinDialogOpen}>
+              <DialogContent className="bg-card border-border sm:max-w-sm">
+                <DialogHeader>
+                  <DialogTitle className="text-card-foreground">Set Portal PIN</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    Choose a 4-digit PIN for {customer.full_name}'s portal access. The customer will need this PIN every time they open the portal.
+                  </p>
+                  <Input
+                    type="password"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={4}
+                    autoFocus
+                    value={pinInput}
+                    onChange={e => setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    placeholder="••••"
+                    className="text-center text-2xl tracking-[0.75em] bg-background border-border"
+                  />
+                </div>
+                <DialogFooter>
+                  <Button variant="ghost" onClick={() => setPinDialogOpen(false)} disabled={pinSaving}>Cancel</Button>
+                  <Button
+                    onClick={handleSetPin}
+                    disabled={pinInput.length !== 4 || pinSaving}
+                    className="gold-gradient text-primary-foreground"
+                  >
+                    {pinSaving ? 'Saving…' : 'Set PIN'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </>
+        )}
 
         {/* All Accounts */}
         {accounts.map(({ account, schedule, penalties, schedulePaymentDates, services: acctServices }) => {
