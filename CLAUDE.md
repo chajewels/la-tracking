@@ -549,6 +549,17 @@ When completing a partially_paid month:
     from April 18 did not create allocation for Month 6 due to
     pre-fix waterfall bug — manually inserted missing allocation
     row (2026-04-21)
+  - 43. Forgot Password and Contact Support buttons were cosmetic
+    shells with no click handlers — wired up (2026-04-21)
+  - 44. Password reset redirected to wrong domain — fixed redirectTo
+    to app.chajewelsjp.com/reset-password and added to Supabase
+    URI allowlist (2026-04-21)
+  - 45. Recovery session intercepted by AuthContext before
+    ResetPassword page mounted — fixed with RecoveryRedirect
+    component and Login guard (2026-04-21)
+  - 46. Link Signature modal unclickable due to double Radix overlay
+    from Dialog + AlertDialog stacking — merged into single Dialog
+    with two-view pattern (2026-04-21)
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
@@ -925,6 +936,13 @@ When completing a partially_paid month:
     as April 2026 — acceptable, future forfeitures will be accurate
   Stale partially_paid status scan: CLEAN ✅ (2026-04-21)
     — 0 accounts with allocated >= ceiling but status = partially_paid
+  Forgot Password page (/forgot-password): LIVE ✅ (2026-04-21)
+  Reset Password page (/reset-password): LIVE ✅ (2026-04-21)
+  Email sender name: "Cha Jewels" ✅ (2026-04-21)
+  Contact Support button: m.me/chajewelsjapan ✅ (2026-04-21)
+  Link Signature modal: FIXED — single dialog no double overlay ✅ (2026-04-21)
+  PWA: LIVE ✅ (2026-04-21)
+  Supabase Site URL: https://app.chajewelsjp.com ✅ (2026-04-21)
 
 ## PENDING ITEMS (as of 2026-04-20)
 
