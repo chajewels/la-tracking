@@ -971,6 +971,15 @@ When completing a partially_paid month:
     parse-import-docs: prompt updated ✅
     UI (NewAccount.tsx): all 5 options shown ✅
     TypeScript types: PaymentPlan widened ✅
+  Customer Portal PIN Protection: LIVE ✅ (2026-04-21)
+    - verify-portal-pin edge function: DEPLOYED
+    - set-portal-pin edge function: DEPLOYED
+    - Auto-set default PIN: last 4 digits of mobile_number
+    - Hash: SHA-256 via Web Crypto API
+    - Lockout: 3 wrong attempts → 30 minute lock
+    - RLS: service_role policies added to customers table
+    - UI: PIN entry screen in CustomerPortal.tsx
+    - Admin/Staff: Set Portal PIN button in CustomerDetail.tsx
 
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
