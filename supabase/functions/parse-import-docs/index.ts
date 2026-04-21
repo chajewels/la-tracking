@@ -53,7 +53,7 @@ const systemPrompt = `You are a data extraction specialist. You extract layaway 
 RULES:
 - Each customer has a name that appears as a heading (bold or ## heading) before their account details
 - Each customer can have multiple invoices/accounts
-- For each account, extract: invoice_number, currency (PHP or JPY based on ₱/PHP or ¥/JPY), total_amount, payment_plan_months (usually 3 or 6), downpayment, order_date, schedule details
+- For each account, extract: invoice_number, currency (PHP or JPY based on ₱/PHP or ¥/JPY), total_amount, payment_plan_months (must be 3, 6, 8, 10, or 12), downpayment, order_date, schedule details
 - The "LA XXX" label tells you the end month (e.g. "LA JUL" = July, "LA SEPT" = September, etc.)
 - Determine order_date: it is 1 month before the first installment due date. Use year 2025 for months Oct-Dec and 2025 for Jan-Sep unless context shows otherwise.
 - For schedule items: extract installment_number, due_date (use year 2025 for most dates), amount (base installment without penalty), is_paid (true if marked PAID), date_paid (same as due_date if paid)
@@ -61,7 +61,7 @@ RULES:
 - If schedule months have year context like "LA APR" with 1st month Nov, those Nov/Dec dates are 2024, Jan+ are 2025
 - If an invoice is marked "(PAID OFF)" or "(Forfeited)", still include it but note in remarks
 - For amounts with penalties included, use the BASE installment amount (without penalty) as the schedule amount
-- payment_plan_months: count the number of installment rows (usually 3 or 6)
+- payment_plan_months: count the number of installment rows (must be 3, 6, 8, 10, or 12)
 - Generate a customer_code from the first 4 letters of the name + sequential number
 
 Return ONLY valid JSON matching this exact structure (no markdown, no explanation):

@@ -68,8 +68,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (![3, 6].includes(payment_plan_months)) {
-      return new Response(JSON.stringify({ error: "Payment plan must be 3 or 6 months" }), {
+    if (![3, 6, 8, 10, 12].includes(payment_plan_months)) {
+      return new Response(JSON.stringify({ error: "Payment plan must be 3, 6, 8, 10, or 12 months" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

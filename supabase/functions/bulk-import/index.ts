@@ -154,7 +154,7 @@ Deno.serve(async (req) => {
         if (!a.invoice_number) errors.push(`Customer[${ci}] Acct[${ai}]: missing invoice_number`);
         if (!["PHP", "JPY"].includes(a.currency)) errors.push(`Customer[${ci}] Acct[${ai}]: invalid currency "${a.currency}"`);
         if (!a.total_amount || a.total_amount <= 0) errors.push(`Customer[${ci}] Acct[${ai}]: invalid total_amount`);
-        if (![3, 6].includes(a.payment_plan_months)) errors.push(`Customer[${ci}] Acct[${ai}]: payment_plan_months must be 3 or 6`);
+        if (![3, 6, 8, 10, 12].includes(a.payment_plan_months)) errors.push(`Customer[${ci}] Acct[${ai}]: payment_plan_months must be 3, 6, 8, 10, or 12`);
         if (!a.order_date) errors.push(`Customer[${ci}] Acct[${ai}]: missing order_date`);
         if (!a.schedule || a.schedule.length === 0) errors.push(`Customer[${ci}] Acct[${ai}]: missing schedule`);
 
