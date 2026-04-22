@@ -258,7 +258,6 @@ export function usePayments(accountId?: string) {
         .select('*')
         .order('date_paid', { ascending: false });
       if (accountId) query = query.eq('account_id', accountId);
-      else query = query.limit(500); // Limit global payment fetch
       const { data, error } = await query;
       if (error) throw error;
       return data as DbPayment[];

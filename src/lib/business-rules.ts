@@ -44,9 +44,23 @@ export function isPenaltyOverCap(currency: 'PHP' | 'JPY', installmentNumber: num
 // 1. DATE UTILITIES (timezone-safe, string-based)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-/** Get today as YYYY-MM-DD string (local timezone). */
+// All date strings are computed in PHT (UTC+8), the business timezone.
+// Using toISOString() directly would produce UTC strings and skew
+// boundaries by up to 8 hours for PHT/JST users.
+const PHT_OFFSET_MS = 8 * 60 * 60 * 1000;
+const _pad = (n: number) => String(n).padStart(2, '0');
+function _phtNow(): Date {
+  return new Date(Date.now() + PHT_OFFSET_MS);
+}
+function _phtDateStr(d: Date): string {
+  const p = new Date(d.getTime() + PHT_OFFSET_MS);
+  return `${p.getUTCFullYear()}-${_pad(p.getUTCMonth() + 1)}-${_pad(p.getUTCDate())}`;
+}
+
+/** Get today as YYYY-MM-DD string in PHT (UTC+8). */
 export function todayStr(): string {
-  return new Date().toISOString().split('T')[0];
+  const p = _phtNow();
+  return `${p.getUTCFullYear()}-${_pad(p.getUTCMonth() + 1)}-${_pad(p.getUTCDate())}`;
 }
 
 /** Days between two YYYY-MM-DD strings. Positive = overdue. */
@@ -61,31 +75,31 @@ export function daysOverdueFromToday(dueDate: string): number {
   return daysBetween(dueDate, todayStr());
 }
 
-/** N days from today as YYYY-MM-DD. */
+/** N days from today as YYYY-MM-DD in PHT (UTC+8). */
 export function daysFromNow(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + n);
-  return d.toISOString().split('T')[0];
+  return _phtDateStr(new Date(Date.now() + n * 86_400_000));
 }
 
-/** Check if date falls in the current month. */
+/** Check if a YYYY-MM-DD date string falls in the current PHT month. */
 export function isCurrentMonth(dateStr: string): boolean {
-  const now = new Date();
-  const d = new Date(dateStr);
-  return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  const p = _phtNow();
+  // dateStr is already a PHT calendar date (YYYY-MM-DD); compare prefix.
+  const ymPrefix = `${p.getUTCFullYear()}-${_pad(p.getUTCMonth() + 1)}-`;
+  return dateStr.startsWith(ymPrefix);
 }
 
-/** Check if date falls in the current year. */
+/** Check if a YYYY-MM-DD date string falls in the current PHT year. */
 export function isCurrentYear(dateStr: string): boolean {
-  return new Date(dateStr).getFullYear() === new Date().getFullYear();
+  const p = _phtNow();
+  return dateStr.startsWith(`${p.getUTCFullYear()}-`);
 }
 
-/** Start of current week (Sunday) as YYYY-MM-DD. */
+/** Start of current week (Sunday) as YYYY-MM-DD in PHT (UTC+8). */
 export function startOfWeek(): string {
-  const d = new Date();
-  d.setDate(d.getDate() - d.getDay());
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString().split('T')[0];
+  const p = _phtNow();
+  const sundayUtcMs = Date.UTC(p.getUTCFullYear(), p.getUTCMonth(), p.getUTCDate() - p.getUTCDay());
+  const sunday = new Date(sundayUtcMs);
+  return `${sunday.getUTCFullYear()}-${_pad(sunday.getUTCMonth() + 1)}-${_pad(sunday.getUTCDate())}`;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
