@@ -990,6 +990,24 @@ When completing a partially_paid month:
     - RLS: service_role policies added to customers table
     - UI: PIN entry screen in CustomerPortal.tsx
     - Admin/Staff: Set Portal PIN button in CustomerDetail.tsx
+  Waterfall bug (penalty split): FIXED ✅
+    (commits 9069ffd + 7993a94 + b7bc1c8)
+  Session timeout (2hr idle): ADDED ✅
+    (commit bfe4634)
+  Admin audit log DB trigger: ADDED ✅
+    (layaway_accounts + payments tables)
+  delete-account audit wipe: FIXED ✅
+    (commit bf368a6)
+  record-payment canonical formula: FIXED ✅
+    (commit 6dd13e4)
+  Platform rebrand → Cha Jewels Hub: DONE ✅
+    (commit f0c3751)
+  Customer portal splash screen: ADDED ✅
+  Admin login redesign (Kihei photo): DONE ✅
+  Sidebar retheme (warm charcoal + gold): DONE ✅
+  daily-reconciliation pg_cron: ADDED ✅
+    (job 7, schedule 5 0 * * *)
+  System Audit: 683/683 passed ✅
 
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
@@ -1043,16 +1061,30 @@ When completing a partially_paid month:
        Blocks any account creation or edit below the minimum.
     3. Both PHP and JPY enforced — hard block, no override
 
-## PENDING ITEMS (as of 2026-04-20)
+## PENDING ITEMS (as of 2026-04-23)
 
-  1. Session timeout — auto-logout after 2 hours
-  2. Admin audit log for manual DB changes
-  3. send-transactional-email edge function
-  4. record-payment remaining_balance formula uses
-     principal-only — needs canonical fix (lines 287-300
-     and 382-389, missing unpaid penalties term)
-  5. Firebase signing page connection (Steps 13-17) —
-     separate Firebase repo, not in main repo
+  1. Email templates — create 8 new React Email
+     templates and register in registry.ts:
+     payment-receipt, payment-voided, penalty-applied,
+     penalty-escalation, penalty-waived, account-forfeited,
+     extension-granted, extension-requested
+     Also add grace_period variant to payment-reminder
+
+  2. Email wiring — wire send-transactional-email calls
+     into these edge functions:
+     - penalty-engine → penalty-applied template
+     - auto-forfeit-settlement → account-forfeited template
+     - manual-forfeit → account-forfeited template
+     - record-payment → payment-receipt template
+     - approve-waiver → penalty-waived template
+     - reactivate-account → extension-granted template
+     - void-payment → payment-voided template
+
+  3. Firebase signing page Steps 13-17
+     (separate Firebase repo, not in main repo)
+
+  4. Login page — logo not fully vertically centered
+     on left panel (minor UI tweak)
 
 ## PERIODIC HEALTH QUERIES
 
@@ -1105,11 +1137,8 @@ before adding new functions.
 
 ### review-payment-submission deploy verification
 
-After any change to review-payment-submission, always manually verify
-the version number in Supabase logs has changed. GitHub Actions has
-been observed to complete successfully without the new code actually
-reaching the edge runtime. If the version stays the same after the
-Actions run finishes, manually deploy from Cloud Shell:
-
+review-payment-submission auto-deploy is unreliable.
+Always verify version number in Supabase logs.
+Manual deploy command if version unchanged:
   npx supabase functions deploy review-payment-submission \
     --no-verify-jwt --project-ref pfoicalpzdcmyxzvwyhz
