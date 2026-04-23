@@ -65,7 +65,7 @@ export default function Login() {
           src={UNSPLASH_HERO}
           alt=""
           className="absolute inset-0 w-full h-full object-cover opacity-45"
-          style={{ mixBlendMode: 'normal' }}
+          style={{ mixBlendMode: 'normal', objectPosition: 'center 30%' }}
         />
 
         {/* Centered brand block */}
@@ -77,12 +77,10 @@ export default function Login() {
           <img
             src={chaJewelsLogo}
             alt="Cha Jewels"
+            className="w-36 h-36 object-contain"
             style={{
-              width: '140px',
-              height: '140px',
-              objectFit: 'cover',
-              borderRadius: '16px',
-              filter: 'drop-shadow(0 0 20px rgba(212,175,55,0.4))',
+              filter: 'drop-shadow(0 0 24px rgba(212,175,55,0.5))',
+              mixBlendMode: 'multiply',
             }}
           />
           <p
