@@ -13,8 +13,9 @@ interface PaymentReminderProps {
   dueDate?: string
   amountDue?: string
   currency?: string
-  type?: 'overdue' | 'due_today' | 'upcoming'
+  type?: 'overdue' | 'due_today' | 'upcoming' | 'grace_period'
   daysOverdue?: number
+  graceEndDate?: string
   portalUrl?: string
 }
 
@@ -26,24 +27,36 @@ const PaymentReminderEmail = ({
   currency = 'PHP',
   type = 'upcoming',
   daysOverdue = 0,
+  graceEndDate = 'N/A',
   portalUrl,
 }: PaymentReminderProps) => {
   const isOverdue = type === 'overdue'
   const isDueToday = type === 'due_today'
+  const isGrace = type === 'grace_period'
 
   const previewText = isOverdue
     ? `Payment overdue for INV #${invoiceNumber} — ${daysOverdue} days past due`
     : isDueToday
     ? `Payment due today for INV #${invoiceNumber}`
+    : isGrace
+    ? `Grace period active for INV #${invoiceNumber} — settle by ${graceEndDate}`
     : `Upcoming payment reminder for INV #${invoiceNumber}`
 
   const headerText = isOverdue
     ? 'Payment Overdue'
     : isDueToday
     ? 'Payment Due Today'
+    : isGrace
+    ? 'Grace Period Active'
     : 'Upcoming Payment Reminder'
 
-  const accentColor = isOverdue ? '#dc2626' : isDueToday ? '#d97706' : '#2563eb'
+  const accentColor = isOverdue
+    ? '#dc2626'
+    : isDueToday
+    ? '#d97706'
+    : isGrace
+    ? '#d97706'
+    : '#2563eb'
 
   return (
     <Html lang="en" dir="ltr">
@@ -77,7 +90,15 @@ const PaymentReminderEmail = ({
             </Text>
           )}
 
-          {!isOverdue && !isDueToday && (
+          {isGrace && (
+            <Text style={text}>
+              Your payment for <strong>INV #{invoiceNumber}</strong> was due on{' '}
+              <strong>{dueDate}</strong>. You are currently within your 7-day
+              grace period. Please settle before it expires to avoid penalties.
+            </Text>
+          )}
+
+          {!isOverdue && !isDueToday && !isGrace && (
             <Text style={text}>
               This is a heads-up that your next layaway payment for{' '}
               <strong>INV #{invoiceNumber}</strong> is coming up on{' '}
@@ -87,11 +108,13 @@ const PaymentReminderEmail = ({
 
           {/* Amount Box */}
           <Section style={amountBox}>
-            <Text style={amountLabel}>Amount Due</Text>
+            <Text style={amountLabel}>{isGrace ? 'Amount Due' : 'Amount Due'}</Text>
             <Text style={amountValue}>
               {currency === 'PHP' ? '₱' : '¥'} {amountDue}
             </Text>
-            <Text style={amountSub}>Invoice #{invoiceNumber}</Text>
+            <Text style={amountSub}>
+              {isGrace ? `Grace Period Ends: ${graceEndDate}` : `Invoice #${invoiceNumber}`}
+            </Text>
           </Section>
 
           {portalUrl && (
@@ -125,6 +148,7 @@ export const template = {
     const inv = data.invoiceNumber || ''
     if (type === 'overdue') return `⚠️ Payment Overdue — INV #${inv}`
     if (type === 'due_today') return `⏰ Payment Due Today — INV #${inv}`
+    if (type === 'grace_period') return `⏳ Grace Period Reminder — INV #${inv}`
     return `📅 Upcoming Payment — INV #${inv}`
   },
   displayName: 'Payment reminder',
