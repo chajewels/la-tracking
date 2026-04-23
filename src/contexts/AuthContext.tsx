@@ -1,8 +1,14 @@
-import { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useRef, useCallback, ReactNode } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 
 type AppRole = 'admin' | 'staff' | 'finance' | 'csr';
+
+// Idle-timeout constants (admin/staff only — customer portal is exempt)
+const IDLE_TIMEOUT_MS = 2 * 60 * 60 * 1000;   // 2 hours
+const WARNING_BEFORE_MS = 5 * 60 * 1000;      // 5 minutes
+const ACTIVITY_EVENTS = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'] as const;
 
 interface AuthContextType {
   session: Session | null;
@@ -141,9 +147,106 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
   };
 
+  // ── Idle-timeout (2h inactivity → auto sign-out, 5min warning modal) ──
+  const location = useLocation();
+  const isPortalRoute = location.pathname.startsWith('/portal');
+  const [showIdleWarning, setShowIdleWarning] = useState(false);
+  const logoutTimerRef = useRef<number | null>(null);
+  const warningTimerRef = useRef<number | null>(null);
+
+  const handleIdleLogout = useCallback(async () => {
+    setShowIdleWarning(false);
+    await supabase.auth.signOut();
+  }, []);
+
+  const resetIdleTimer = useCallback(() => {
+    if (warningTimerRef.current !== null) {
+      clearTimeout(warningTimerRef.current);
+      warningTimerRef.current = null;
+    }
+    if (logoutTimerRef.current !== null) {
+      clearTimeout(logoutTimerRef.current);
+      logoutTimerRef.current = null;
+    }
+    setShowIdleWarning(false);
+    warningTimerRef.current = globalThis.setTimeout(() => {
+      setShowIdleWarning(true);
+    }, IDLE_TIMEOUT_MS - WARNING_BEFORE_MS) as unknown as number;
+    logoutTimerRef.current = globalThis.setTimeout(() => {
+      void handleIdleLogout();
+    }, IDLE_TIMEOUT_MS) as unknown as number;
+  }, [handleIdleLogout]);
+
+  useEffect(() => {
+    // Skip on customer portal routes — only apply to admin/staff
+    if (isPortalRoute) return;
+    // Only arm timers while a session exists
+    if (!session) return;
+
+    resetIdleTimer();
+
+    const handleActivity = () => resetIdleTimer();
+    for (const evt of ACTIVITY_EVENTS) {
+      window.addEventListener(evt, handleActivity, { passive: true });
+    }
+
+    return () => {
+      for (const evt of ACTIVITY_EVENTS) {
+        window.removeEventListener(evt, handleActivity);
+      }
+      if (warningTimerRef.current !== null) {
+        clearTimeout(warningTimerRef.current);
+        warningTimerRef.current = null;
+      }
+      if (logoutTimerRef.current !== null) {
+        clearTimeout(logoutTimerRef.current);
+        logoutTimerRef.current = null;
+      }
+      setShowIdleWarning(false);
+    };
+  }, [session, isPortalRoute, resetIdleTimer]);
+
   return (
     <AuthContext.Provider value={{ session, user, roles, profile, loading, signOut }}>
       {children}
+      {showIdleWarning && !isPortalRoute && session && (
+        <div
+          onClick={resetIdleTimer}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 100000,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+            cursor: 'pointer',
+          }}
+        >
+          <div
+            style={{
+              background: '#111',
+              border: '1px solid #D4AF37',
+              borderRadius: 12,
+              padding: '32px 28px',
+              maxWidth: 420,
+              textAlign: 'center',
+              boxShadow: '0 0 32px rgba(212,175,55,0.18)',
+            }}
+          >
+            <p style={{ color: '#D4AF37', fontFamily: 'Georgia, serif', fontSize: 18, letterSpacing: '0.1em', marginBottom: 16 }}>
+              Session Timeout Warning
+            </p>
+            <p style={{ color: '#fff', fontSize: 14, lineHeight: 1.6, marginBottom: 12 }}>
+              You will be logged out in 5 minutes due to inactivity.
+            </p>
+            <p style={{ color: '#bbb', fontSize: 12 }}>
+              Click anywhere to stay logged in.
+            </p>
+          </div>
+        </div>
+      )}
     </AuthContext.Provider>
   );
 }
