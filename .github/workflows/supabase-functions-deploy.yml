@@ -22,6 +22,7 @@ on:
       - 'supabase/functions/set-portal-pin/**'
       - 'supabase/functions/send-reminders/**'
       - 'supabase/functions/send-transactional-email/**'
+      - 'supabase/functions/_shared/**'
   workflow_dispatch:
 
 jobs:
