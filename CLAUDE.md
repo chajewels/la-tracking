@@ -1054,6 +1054,12 @@ SUPABASE EDGE FUNCTIONS — these auto-deploy when their files change:
 - add-service
 - send-reminders
 - send-transactional-email
+- preview-transactional-email
+
+Note: _shared/** changes trigger redeploy of
+send-transactional-email and preview-transactional-email,
+so registry/template edits fan out to the dispatcher and
+the Lovable preview UI without a follow-up touch.
 
 All other edge functions still require manual deploy via Cloud Shell.
 Always check .github/workflows/supabase-functions-deploy.yml
