@@ -1,8 +1,10 @@
 import { useMemo, useState, useCallback } from 'react';
-import { Bell, Send, Copy, Check, Loader2, Filter, MessageCircle, AlertTriangle, Clock, Calendar, CheckCircle, RefreshCw } from 'lucide-react';
+import { Bell, Send, Copy, Check, Loader2, Filter, MessageCircle, AlertTriangle, Clock, Calendar, CheckCircle, RefreshCw, Shield, ShieldCheck, Gavel } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import PenaltyFollowUpSection from '@/components/monitoring/PenaltyFollowUpSection';
+import PenaltyCapAuditPanel from '@/components/dashboard/PenaltyCapAuditPanel';
+import { PenaltyAuditTab, OverdueDebugTab, WaiverAuditTab } from '@/pages/AdminAudit';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
@@ -60,7 +62,7 @@ export default function Monitoring() {
   const [messengerDialog, setMessengerDialog] = useState<{ alert: AlertItem; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const [monitoringTab, setMonitoringTab] = useState<'alerts' | 'reminders' | 'extensions'>('alerts');
+  const [monitoringTab, setMonitoringTab] = useState<'alerts' | 'reminders' | 'extensions' | 'audit'>('alerts');
   const queryClient = useQueryClient();
 
   const { lastRefreshedAt, refreshing, refresh } = useAutoRefresh([
@@ -456,8 +458,8 @@ export default function Monitoring() {
           <div className="flex items-center gap-3">
             <Bell className="h-5 w-5 text-primary" />
             <div>
-              <h1 className="text-2xl font-bold text-foreground font-display">CSR Monitoring & Reminders</h1>
-              <p className="text-sm text-muted-foreground mt-0.5">Alerts, reminders, and payment tracking</p>
+              <h1 className="text-2xl font-bold text-foreground font-display">Monitoring & Audit</h1>
+              <p className="text-sm text-muted-foreground mt-0.5">Customer alerts, reminders, extensions, and data integrity audit</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -473,11 +475,12 @@ export default function Monitoring() {
           </div>
         </div>
 
-        <Tabs value={monitoringTab} onValueChange={v => setMonitoringTab(v as 'alerts' | 'reminders' | 'extensions')} className="w-full">
-          <TabsList className="grid grid-cols-3 w-full max-w-md">
+        <Tabs value={monitoringTab} onValueChange={v => setMonitoringTab(v as 'alerts' | 'reminders' | 'extensions' | 'audit')} className="w-full">
+          <TabsList className="grid grid-cols-4 w-full max-w-xl">
             <TabsTrigger value="alerts">CSR Alerts</TabsTrigger>
             <TabsTrigger value="reminders">Smart Reminders</TabsTrigger>
             <TabsTrigger value="extensions">Extensions</TabsTrigger>
+            <TabsTrigger value="audit">Audit</TabsTrigger>
           </TabsList>
 
           <TabsContent value="alerts" className="mt-5 space-y-6">
@@ -694,6 +697,22 @@ export default function Monitoring() {
 
           <TabsContent value="extensions" className="mt-5 space-y-6" tabIndex={-1}>
             <ExtensionRequestsPanel />
+          </TabsContent>
+
+          <TabsContent value="audit" className="mt-5 space-y-4" tabIndex={-1}>
+            <Tabs defaultValue="penalty-cap" className="space-y-4">
+              <TabsList className="bg-zinc-800 flex-wrap border border-zinc-700">
+                <TabsTrigger value="penalty-cap" className="gap-1.5"><ShieldCheck className="h-3.5 w-3.5" /> Penalty Cap</TabsTrigger>
+                <TabsTrigger value="penalties" className="gap-1.5"><Gavel className="h-3.5 w-3.5" /> Penalty Audit</TabsTrigger>
+                <TabsTrigger value="overdue" className="gap-1.5"><AlertTriangle className="h-3.5 w-3.5" /> Overdue Debug</TabsTrigger>
+                <TabsTrigger value="waivers" className="gap-1.5"><Shield className="h-3.5 w-3.5" /> Waiver History</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="penalty-cap"><PenaltyCapAuditPanel /></TabsContent>
+              <TabsContent value="penalties"><PenaltyAuditTab /></TabsContent>
+              <TabsContent value="overdue"><OverdueDebugTab /></TabsContent>
+              <TabsContent value="waivers"><WaiverAuditTab /></TabsContent>
+            </Tabs>
           </TabsContent>
         </Tabs>
       </div>
