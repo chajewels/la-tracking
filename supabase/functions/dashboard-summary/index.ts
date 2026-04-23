@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
 
     // ── Build all queries in parallel ──
     // Active statuses must match ACTIVE_STATUSES in business-rules.ts
-    let accountsQ = supabase.from("layaway_accounts").select("*").in("status", ["active", "overdue", "final_settlement", "extension_active"]);
+    let accountsQ = supabase.from("layaway_accounts").select("*").in("status", ["active", "overdue", "final_settlement", "extension_active"]).not("invoice_number", "like", "TEST-%");
     if (currencyWhere) accountsQ = accountsQ.eq("currency", currencyWhere);
 
     let todayPayQ = supabase.from("payments").select("*").eq("date_paid", today).is("voided_at", null);
@@ -97,21 +97,23 @@ Deno.serve(async (req) => {
       .select("id", { count: "exact", head: true })
       .eq("status", "completed")
       .gte("completed_at", monthStartStr)
-      .lt("completed_at", nextMonthStartStr);
+      .lt("completed_at", nextMonthStartStr)
+      .not("invoice_number", "like", "TEST-%");
 
     // Include both forfeited and final_forfeited — both represent forfeited accounts
-    let forfeitedQ = supabase.from("layaway_accounts").select("id").in("status", ["forfeited", "final_forfeited"]);
+    let forfeitedQ = supabase.from("layaway_accounts").select("id").in("status", ["forfeited", "final_forfeited"]).not("invoice_number", "like", "TEST-%");
     if (currencyWhere) forfeitedQ = forfeitedQ.eq("currency", currencyWhere);
 
     // Forfeited today — accounts forfeited on current date
-    let forfeitedTodayQ = supabase.from("layaway_accounts").select("id").in("status", ["forfeited", "final_forfeited"]).gte("forfeited_at", today + "T00:00:00").lt("forfeited_at", today + "T23:59:59.999999");
+    let forfeitedTodayQ = supabase.from("layaway_accounts").select("id").in("status", ["forfeited", "final_forfeited"]).gte("forfeited_at", today + "T00:00:00").lt("forfeited_at", today + "T23:59:59.999999").not("invoice_number", "like", "TEST-%");
     if (currencyWhere) forfeitedTodayQ = forfeitedTodayQ.eq("currency", currencyWhere);
 
     // All-time completed accounts
     const completedAllTimeQ = supabase
       .from("layaway_accounts")
       .select("id", { count: "exact", head: true })
-      .eq("status", "completed");
+      .eq("status", "completed")
+      .not("invoice_number", "like", "TEST-%");
 
     const penaltiesTodayQ = supabase
       .from("penalty_fees")
