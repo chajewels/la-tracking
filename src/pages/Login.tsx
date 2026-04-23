@@ -119,7 +119,7 @@ export default function Login() {
                 Welcome Back
               </h2>
               <p className="text-xs mt-2 tracking-wider" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                Access your Cha Jewels Layaway Portal
+                Access your Cha Jewels Hub Portal
               </p>
             </div>
 

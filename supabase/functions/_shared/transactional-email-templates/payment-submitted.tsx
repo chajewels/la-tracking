@@ -5,7 +5,7 @@ import {
 } from 'npm:@react-email/components@0.0.22'
 import type { TemplateEntry } from './registry.ts'
 
-const SITE_NAME = 'Cha Jewels'
+const SITE_NAME = 'Cha Jewels Hub'
 
 interface Props {
   customerName?: string
@@ -63,7 +63,7 @@ const PaymentSubmittedEmail = ({
           <Text style={footer}>
             For questions, contact us via Messenger or reply to this email.
           </Text>
-          <Text style={footerBrand}>{SITE_NAME} · Layaway Payment Management</Text>
+          <Text style={footerBrand}>{SITE_NAME} · Payment & Loyalty Management</Text>
         </Container>
       </Body>
     </Html>

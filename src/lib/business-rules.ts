@@ -1,5 +1,5 @@
 /**
- * Centralized Business Rules for Cha Jewels Layaway System
+ * Centralized Business Rules for Cha Jewels Hub
  * ─────────────────────────────────────────────────────────
  * SINGLE SOURCE OF TRUTH for all status checks, date logic,
  * schedule calculations, and financial computations.

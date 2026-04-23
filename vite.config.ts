@@ -20,9 +20,9 @@ export default defineConfig(({ mode }) => ({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
       manifest: {
-        name: 'Cha Jewels Layaway',
+        name: 'Cha Jewels Hub',
         short_name: 'ChaJewels',
-        description: 'Cha Jewels Layaway Tracking System',
+        description: 'Cha Jewels Hub',
         theme_color: '#D4AF37',
         background_color: '#000000',
         display: 'standalone',

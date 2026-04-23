@@ -5,7 +5,7 @@ import {
 } from 'npm:@react-email/components@0.0.22'
 import type { TemplateEntry } from './registry.ts'
 
-const SITE_NAME = 'Cha Jewels'
+const SITE_NAME = 'Cha Jewels Hub'
 
 interface PaymentReminderProps {
   customerName?: string
@@ -110,7 +110,7 @@ const PaymentReminderEmail = ({
           </Text>
 
           <Text style={footerBrand}>
-            {SITE_NAME} · Layaway Payment Management
+            {SITE_NAME} · Payment & Loyalty Management
           </Text>
         </Container>
       </Body>

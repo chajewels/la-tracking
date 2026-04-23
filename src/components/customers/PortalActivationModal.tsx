@@ -20,7 +20,7 @@ function generateActivationMessage(customerName: string, portalUrl: string): str
 
 Hi ${customerName} 💛
 
-Your Cha Jewels Layaway Portal has been successfully created.
+Your Cha Jewels Hub Portal has been successfully created.
 
 You can now view your account details anytime, including:
 

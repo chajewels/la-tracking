@@ -59,7 +59,7 @@ export default function AppSidebar() {
             CHA JEWELS
           </h1>
           <p className="text-[10px] tracking-[0.24em] text-[#E7D7A2]">
-            LAYAWAY SYSTEM
+            HUB
           </p>
         </div>
       </SidebarHeader>

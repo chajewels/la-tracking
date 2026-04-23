@@ -100,7 +100,7 @@ export default function Dashboard() {
                   {greeting}, {profile?.full_name?.split(' ')[0] || 'there'}
                 </h1>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  Cha Jewels · Layaway Payment Management
+                  Cha Jewels Hub
                 </p>
               </div>
             </div>
