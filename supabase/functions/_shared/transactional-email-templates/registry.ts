@@ -37,4 +37,20 @@ export const TEMPLATES: Record<string, TemplateEntry> = {
   'account-forfeited': accountForfeited,
   'extension-granted': extensionGranted,
   'extension-requested': extensionRequested,
+  'payment-grace-period': {
+    ...paymentReminder,
+    subject: (data: Record<string, any>) =>
+      `⏳ Grace Period Reminder — INV #${data.invoiceNumber || ''}`,
+    displayName: 'Payment Grace Period',
+    previewData: {
+      customerName: 'Maria Santos',
+      invoiceNumber: '18456',
+      dueDate: 'Apr 15, 2026',
+      amountDue: '¥6,500',
+      currency: 'JPY',
+      type: 'grace_period',
+      graceEndDate: 'Apr 22, 2026',
+      portalUrl: 'https://portal.chajewelsjp.com/portal?invoice=18456',
+    },
+  },
 }
