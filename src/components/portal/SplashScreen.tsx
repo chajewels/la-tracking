@@ -51,17 +51,23 @@ export default function SplashScreen({ onComplete }: Props) {
           pointerEvents: fadingOut ? 'none' : 'auto',
         }}
       >
-        <img
-          src={chaJewelsLogo}
-          alt="Cha Jewels"
-          className="mix-blend-multiply"
+        <div
+          className="rounded-2xl overflow-hidden bg-black p-3"
           style={{
-            width: '160px',
-            height: 'auto',
             opacity: 0,
             animation: 'splash-fade-in-up 0.5s ease-out forwards',
           }}
-        />
+        >
+          <img
+            src={chaJewelsLogo}
+            alt="Cha Jewels"
+            style={{
+              width: '160px',
+              height: 'auto',
+              display: 'block',
+            }}
+          />
+        </div>
 
         <h2
           className="font-display text-3xl font-semibold tracking-tight text-primary mt-6"
@@ -82,10 +88,10 @@ export default function SplashScreen({ onComplete }: Props) {
             animation: 'splash-fade-in-up 0.5s ease-out 0.3s forwards',
           }}
         >
-          <p className="font-body italic text-sm text-muted-foreground">
+          <p className="font-display text-base font-light tracking-widest text-muted-foreground">
             Everyday, Layaway.
           </p>
-          <p className="font-body italic text-sm text-primary mt-1">
+          <p className="font-display text-base font-medium tracking-widest text-primary mt-1">
             Cha Jewels All the Way.
           </p>
         </div>
