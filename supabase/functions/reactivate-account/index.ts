@@ -194,6 +194,42 @@ Deno.serve(async (req) => {
       },
     });
 
+    // Send extension-granted email (fire-and-forget)
+    try {
+      const { data: acctForEmail } = await supabase
+        .from("layaway_accounts")
+        .select("invoice_number, currency, remaining_balance, customers(full_name, email)")
+        .eq("id", account_id)
+        .single();
+      const customerEmail = (acctForEmail as any)?.customers?.email;
+      const customerName = (acctForEmail as any)?.customers?.full_name;
+      if (customerEmail) {
+        const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            templateName: "extension-granted",
+            recipientEmail: customerEmail,
+            idempotencyKey: `extension-granted-${account_id}`,
+            templateData: {
+              customerName,
+              invoiceNumber: (acctForEmail as any)?.invoice_number,
+              extensionEndDate,
+              remainingBalance: Number((acctForEmail as any)?.remaining_balance ?? 0).toLocaleString("en-US"),
+              currency: (acctForEmail as any)?.currency,
+              portalUrl,
+            },
+          }),
+        });
+      }
+    } catch (emailErr) {
+      console.warn("[reactivate-account] email send failed (non-blocking):", emailErr);
+    }
+
     return new Response(JSON.stringify({
       success: true,
       invoice_number: account.invoice_number,

@@ -246,6 +246,43 @@ Deno.serve(async (req) => {
       console.warn(`[void-payment] reconcile-account call failed for ${payment.account_id}:`, reconcileErr);
     }
 
+    // Send payment-voided email (fire-and-forget)
+    try {
+      const { data: acctForEmail } = await supabase
+        .from("layaway_accounts")
+        .select("invoice_number, currency, customers(full_name, email)")
+        .eq("id", payment.account_id)
+        .single();
+      const customerEmail = (acctForEmail as any)?.customers?.email;
+      const customerName = (acctForEmail as any)?.customers?.full_name;
+      if (customerEmail) {
+        const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            templateName: "payment-voided",
+            recipientEmail: customerEmail,
+            idempotencyKey: `payment-voided-${payment_id}`,
+            templateData: {
+              customerName,
+              invoiceNumber: (acctForEmail as any)?.invoice_number,
+              amountVoided: Number(payment.amount_paid).toLocaleString("en-US"),
+              currency: (acctForEmail as any)?.currency,
+              voidReason: reason || "Payment voided by administrator",
+              remainingBalance: Number(newRemainingBalance).toLocaleString("en-US"),
+              portalUrl,
+            },
+          }),
+        });
+      }
+    } catch (emailErr) {
+      console.warn("[void-payment] email send failed (non-blocking):", emailErr);
+    }
+
     return new Response(JSON.stringify({ success: true, payment_id }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

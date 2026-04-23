@@ -200,6 +200,42 @@ Deno.serve(async (req) => {
       },
     });
 
+    // Send penalty-waived email (fire-and-forget)
+    try {
+      const { data: acctForEmail } = await supabase
+        .from("layaway_accounts")
+        .select("invoice_number, currency, customers(full_name, email)")
+        .eq("id", accountId)
+        .single();
+      const customerEmail = (acctForEmail as any)?.customers?.email;
+      const customerName = (acctForEmail as any)?.customers?.full_name;
+      if (customerEmail) {
+        const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            templateName: "penalty-waived",
+            recipientEmail: customerEmail,
+            idempotencyKey: `penalty-waived-${accountId}-${Date.now()}`,
+            templateData: {
+              customerName,
+              invoiceNumber: (acctForEmail as any)?.invoice_number,
+              waivedAmount: Number(totalWaived).toLocaleString("en-US"),
+              currency: (acctForEmail as any)?.currency,
+              remainingBalance: Number(newRemaining).toLocaleString("en-US"),
+              portalUrl,
+            },
+          }),
+        });
+      }
+    } catch (emailErr) {
+      console.warn("[approve-waiver] email send failed (non-blocking):", emailErr);
+    }
+
     return new Response(
       JSON.stringify({
         success: true,

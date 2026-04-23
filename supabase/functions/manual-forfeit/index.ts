@@ -114,6 +114,43 @@ Deno.serve(async (req) => {
       },
     });
 
+    // Send account-forfeited email (fire-and-forget)
+    try {
+      const { data: acctForEmail } = await supabase
+        .from("layaway_accounts")
+        .select("invoice_number, currency, remaining_balance, customers(full_name, email)")
+        .eq("id", account_id)
+        .single();
+      const customerEmail = (acctForEmail as any)?.customers?.email;
+      const customerName = (acctForEmail as any)?.customers?.full_name;
+      if (customerEmail) {
+        const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            templateName: "account-forfeited",
+            recipientEmail: customerEmail,
+            idempotencyKey: `account-forfeited-${account_id}-${Date.now()}`,
+            templateData: {
+              customerName,
+              invoiceNumber: (acctForEmail as any)?.invoice_number,
+              currency: (acctForEmail as any)?.currency,
+              remainingBalance: Number((acctForEmail as any)?.remaining_balance ?? 0).toLocaleString("en-US"),
+              forfeitureReason: "Account forfeited due to non-payment",
+              extensionAvailable: true,
+              portalUrl,
+            },
+          }),
+        });
+      }
+    } catch (emailErr) {
+      console.warn("[manual-forfeit] email send failed (non-blocking):", emailErr);
+    }
+
     return new Response(
       JSON.stringify({ ok: true, invoice_number: account.invoice_number, account_id }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

@@ -474,6 +474,44 @@ Deno.serve(async (req) => {
       console.warn(`[record-payment] reconcile-account call failed for ${account_id}:`, reconcileErr);
     }
 
+    // Send payment receipt email (fire-and-forget)
+    try {
+      const { data: acctForEmail } = await supabase
+        .from("layaway_accounts")
+        .select("invoice_number, currency, customers(full_name, email)")
+        .eq("id", account_id)
+        .single();
+      const customerEmail = (acctForEmail as any)?.customers?.email;
+      const customerName = (acctForEmail as any)?.customers?.full_name;
+      if (customerEmail) {
+        const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            templateName: "payment-receipt",
+            recipientEmail: customerEmail,
+            idempotencyKey: `payment-receipt-${payment.id}`,
+            templateData: {
+              customerName,
+              invoiceNumber: (acctForEmail as any)?.invoice_number,
+              amountPaid: Number(amount_paid).toLocaleString("en-US"),
+              paymentDate: date_paid || new Date().toISOString().split("T")[0],
+              paymentMethod: payment_method || "cash",
+              currency: (acctForEmail as any)?.currency,
+              remainingBalance: Number(verifiedRemaining).toLocaleString("en-US"),
+              portalUrl,
+            },
+          }),
+        });
+      }
+    } catch (emailErr) {
+      console.warn("[record-payment] email send failed (non-blocking):", emailErr);
+    }
+
     return new Response(JSON.stringify({
       payment,
       allocations,

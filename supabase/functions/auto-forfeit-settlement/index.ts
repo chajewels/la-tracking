@@ -38,6 +38,48 @@ Deno.serve(async (req) => {
 
     const now = new Date();
 
+    // Helper: send account-forfeited email (fire-and-forget)
+    const sendForfeitEmail = async (
+      accountId: string,
+      forfeitureReason: string,
+      extensionAvailable: boolean,
+    ) => {
+      try {
+        const { data: acctForEmail } = await supabase
+          .from("layaway_accounts")
+          .select("invoice_number, currency, remaining_balance, customers(full_name, email)")
+          .eq("id", accountId)
+          .single();
+        const customerEmail = (acctForEmail as any)?.customers?.email;
+        const customerName = (acctForEmail as any)?.customers?.full_name;
+        if (!customerEmail) return;
+        const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            templateName: "account-forfeited",
+            recipientEmail: customerEmail,
+            idempotencyKey: `account-forfeited-${accountId}-${Date.now()}`,
+            templateData: {
+              customerName,
+              invoiceNumber: (acctForEmail as any)?.invoice_number,
+              currency: (acctForEmail as any)?.currency,
+              remainingBalance: Number((acctForEmail as any)?.remaining_balance ?? 0).toLocaleString("en-US"),
+              forfeitureReason,
+              extensionAvailable,
+              portalUrl,
+            },
+          }),
+        });
+      } catch (emailErr) {
+        console.warn("[auto-forfeit] email send failed (non-blocking):", emailErr);
+      }
+    };
+
     // Fetch all active/overdue/extension_active accounts
     const { data: accounts, error: accErr } = await supabase
       .from("layaway_accounts")
@@ -118,6 +160,11 @@ Deno.serve(async (req) => {
               timestamp: now.toISOString(),
             },
           });
+          await sendForfeitEmail(
+            account.id,
+            "Extension period has expired without payment — account permanently forfeited",
+            false,
+          );
           continue;
         }
         // ── Check extension month penalty cap → final_forfeit ──
@@ -172,6 +219,11 @@ Deno.serve(async (req) => {
                 forfeited_at: now.toISOString(),
               },
             });
+            await sendForfeitEmail(
+              account.id,
+              "Extension period has expired without payment — account permanently forfeited",
+              false,
+            );
             continue;
           }
         }
@@ -241,6 +293,11 @@ Deno.serve(async (req) => {
             invoice_number: account.invoice_number,
             reason: "final_month_penalty_cap"
           });
+          await sendForfeitEmail(
+            account.id,
+            "Account forfeited due to non-payment after extended overdue period",
+            true,
+          );
           continue;
         }
       }
@@ -338,6 +395,12 @@ Deno.serve(async (req) => {
           },
         });
 
+        await sendForfeitEmail(
+          account.id,
+          "Account forfeited due to non-payment after extended overdue period",
+          true,
+        );
+
         continue;
       }
 
@@ -398,6 +461,12 @@ Deno.serve(async (req) => {
           final_settlement_amount: finalSettlementAmount,
           status: "FINAL_SETTLEMENT",
         });
+
+        await sendForfeitEmail(
+          account.id,
+          "Account has reached final settlement stage after maximum penalty events",
+          false,
+        );
 
         await supabase.from("audit_logs").insert({
           entity_type: "layaway_account",

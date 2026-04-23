@@ -358,12 +358,17 @@ Deno.serve(async (req) => {
 
     // ── Step 4: Batch insert penalties ──
     let penaltiesCreated = 0;
+    const successfulPenalties: typeof penaltiesToInsert = [];
     if (penaltiesToInsert.length > 0) {
       for (let i = 0; i < penaltiesToInsert.length; i += 100) {
         const chunk = penaltiesToInsert.slice(i, i + 100);
         const { error } = await supabase.from("penalty_fees").insert(chunk);
-        if (!error) penaltiesCreated += chunk.length;
-        else console.error("Penalty insert error:", error);
+        if (!error) {
+          penaltiesCreated += chunk.length;
+          successfulPenalties.push(...chunk);
+        } else {
+          console.error("Penalty insert error:", error);
+        }
       }
     }
 
@@ -444,6 +449,102 @@ Deno.serve(async (req) => {
           .update({ remaining_balance: newRemaining })
           .eq("id", accountId);
       }
+    }
+
+    // ── Step 9: Send penalty emails (fire-and-forget, one per account) ──
+    try {
+      const emailedAccounts = new Set<string>();
+      for (const p of successfulPenalties) {
+        if (emailedAccounts.has(p.account_id)) continue;
+        emailedAccounts.add(p.account_id);
+
+        const schedItem: any = allOverdueItems.find((it: any) => it.id === p.schedule_id);
+        if (!schedItem) continue;
+        const dueDate = schedItem.due_date as string;
+        const msPerDay = 86_400_000;
+        const daysOverdue = Math.max(
+          0,
+          Math.floor((now.getTime() - new Date(dueDate + "T00:00:00Z").getTime()) / msPerDay),
+        );
+
+        let templateName: "penalty-applied" | "penalty-escalation";
+        let stage: string | undefined;
+        if (daysOverdue <= 30) {
+          templateName = "penalty-applied";
+        } else {
+          templateName = "penalty-escalation";
+          if (daysOverdue <= 44) stage = "P4";
+          else if (daysOverdue <= 60) stage = "P5";
+          else if (daysOverdue <= 75) stage = "P6";
+          else if (daysOverdue <= 89) stage = "P7";
+          else stage = "P8";
+        }
+        // daysOverdue 15-30 → P3 is covered by penalty-applied above per spec;
+        // if you prefer escalation for 15-30, switch the ≤30 branch to P3.
+
+        const { data: acctForEmail } = await supabase
+          .from("layaway_accounts")
+          .select("invoice_number, currency, remaining_balance, customers(full_name, email)")
+          .eq("id", p.account_id)
+          .single();
+        const customerEmail = (acctForEmail as any)?.customers?.email;
+        const customerName = (acctForEmail as any)?.customers?.full_name;
+        if (!customerEmail) continue;
+
+        const { data: activePens } = await supabase
+          .from("penalty_fees")
+          .select("penalty_amount")
+          .eq("account_id", p.account_id)
+          .neq("status", "waived");
+        const totalPenalty = (activePens || []).reduce(
+          (s: number, x: any) => s + Number(x.penalty_amount),
+          0,
+        );
+
+        const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
+
+        const templateData: Record<string, unknown> =
+          templateName === "penalty-applied"
+            ? {
+                customerName,
+                invoiceNumber: (acctForEmail as any)?.invoice_number,
+                penaltyAmount: Number(p.penalty_amount).toLocaleString("en-US"),
+                currency: (acctForEmail as any)?.currency,
+                dueDate,
+                totalPenalty: totalPenalty.toLocaleString("en-US"),
+                remainingBalance: Number((acctForEmail as any)?.remaining_balance ?? 0).toLocaleString("en-US"),
+                daysOverdue,
+                portalUrl,
+              }
+            : {
+                customerName,
+                invoiceNumber: (acctForEmail as any)?.invoice_number,
+                stage,
+                dueDate,
+                amountDue: Number(schedItem.total_due_amount ?? 0).toLocaleString("en-US"),
+                penaltyAmount: totalPenalty.toLocaleString("en-US"),
+                remainingBalance: Number((acctForEmail as any)?.remaining_balance ?? 0).toLocaleString("en-US"),
+                currency: (acctForEmail as any)?.currency,
+                daysOverdue,
+                portalUrl,
+              };
+
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            templateName,
+            recipientEmail: customerEmail,
+            idempotencyKey: `${templateName}-${p.account_id}-${p.schedule_id}-${p.penalty_stage}-${p.penalty_cycle}`,
+            templateData,
+          }),
+        });
+      }
+    } catch (emailErr) {
+      console.warn("[penalty-engine] email dispatch failed (non-blocking):", emailErr);
     }
 
     return new Response(JSON.stringify({
