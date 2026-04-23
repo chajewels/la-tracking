@@ -20,6 +20,7 @@ import {
 import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
 import CountrySelect from '@/components/customers/CountrySelect';
 import PromoBanner from '@/components/customers/PromoBanner';
+import SplashScreen from '@/components/portal/SplashScreen';
 import { LocationType, parseLocation, toLocationString } from '@/lib/countries';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -213,6 +214,7 @@ export default function CustomerPortal() {
   const [loading, setLoading] = useState(true);
   const [selectedAccount, setSelectedAccount] = useState<PortalAccount | null>(null);
   const [initialDetailTab, setInitialDetailTab] = useState<'overview' | 'pay' | 'submissions'>('overview');
+  const [showSplash, setShowSplash] = useState(true);
 
   // ── PIN gate state ──
   const [pinVerified, setPinVerified] = useState(false);
@@ -326,6 +328,10 @@ export default function CustomerPortal() {
 
   useEffect(() => { fetchPortal(); }, [token]);
 
+  if (showSplash) {
+    return <SplashScreen onComplete={() => setShowSplash(false)} />;
+  }
+
   if (loading) {
     return (
       <div style={{background:P.bg,minHeight:'100vh'}} className="flex flex-col items-center justify-center">
@@ -341,7 +347,7 @@ export default function CustomerPortal() {
       <div style={{background:P.bg,minHeight:'100vh'}} className="flex items-center justify-center p-4">
         <div style={{background:P.s,border:`1px solid ${P.br}`,borderTop:`2px solid ${P.gp}`,borderRadius:'2px',maxWidth:'400px',width:'100%',padding:'2.5rem 2rem',textAlign:'center'}}>
           <div style={{color:P.gp,fontFamily:CG,fontSize:'26px',fontWeight:600,letterSpacing:'0.15em',textTransform:'uppercase' as const,marginBottom:'4px'}}>Cha Jewels</div>
-          <div style={{color:P.ts,fontSize:'11px',letterSpacing:'0.2em',textTransform:'uppercase' as const,marginBottom:'2rem',fontFamily:"Inter,sans-serif"}}>Layaway Portal</div>
+          <div style={{color:P.ts,fontSize:'11px',letterSpacing:'0.2em',textTransform:'uppercase' as const,marginBottom:'2rem',fontFamily:"Inter,sans-serif"}}>Customer Portal</div>
           <AlertTriangle style={{color:'#E74C3C'}} className="h-10 w-10 mx-auto mb-4" />
           <h2 style={{color:P.tp,fontFamily:CG,fontSize:'20px',marginBottom:'8px'}}>
             {isExpired ? 'Portal Link Expired' : 'Invalid Portal Link'}
@@ -643,7 +649,7 @@ export default function CustomerPortal() {
         <div className="text-center py-6 pb-20 sm:pb-6">
           <div style={{height:'1px',background:P.gd,marginBottom:'1.5rem'}} />
           <p style={{color:P.ts,fontSize:'11px',letterSpacing:'0.15em',fontFamily:"Inter,sans-serif"}}>
-            © {new Date().getFullYear()} CHA JEWELS · LAYAWAY PORTAL
+            © {new Date().getFullYear()} CHA JEWELS HUB · CUSTOMER PORTAL
           </p>
         </div>
       </div>
@@ -835,7 +841,7 @@ export default function CustomerPortal() {
                 rel="noopener noreferrer"
                 style={{ fontFamily: 'Inter, sans-serif', fontSize: '11px', color: P.ts, textDecoration: 'underline' }}
               >
-                📄 View Layaway Agreement
+                📄 View Payment Agreement
               </a>
             </div>
             <button
@@ -864,7 +870,7 @@ export default function CustomerPortal() {
           rel="noopener noreferrer"
           style={{ fontFamily: 'Inter, sans-serif', fontSize: '11px', color: P.ts, textDecoration: 'none' }}
         >
-          📄 Layaway Agreement
+          📄 Payment Agreement
         </a>
       </div>
     </div>
