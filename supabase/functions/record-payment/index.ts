@@ -174,41 +174,14 @@ Deno.serve(async (req) => {
       total_due_amount?: number;
     }> = [];
 
-    // 1. Pay unpaid penalties grouped by schedule row (installment order)
-    //    Ensures ALL penalties for a month are allocated together before
-    //    moving to the next month, regardless of penalty_date ordering.
-    if (!is_downpayment && unpaidPenalties && schedule) {
-      const sortedScheduleIds = [...schedule]
-        .sort((a: any, b: any) => a.installment_number - b.installment_number)
-        .map((s: any) => s.id);
-
-      for (const scheduleId of sortedScheduleIds) {
-        if (remaining <= 0) break;
-        const itemPenalties = unpaidPenalties.filter((pen: any) => pen.schedule_id === scheduleId);
-        for (const pen of itemPenalties) {
-          if (remaining <= 0) break;
-          const penAmount = Number(pen.penalty_amount);
-          const toPay = Math.round(Math.min(remaining, penAmount) * 100) / 100;
-          remaining = Math.round((remaining - toPay) * 100) / 100;
-          allocations.push({
-            schedule_id: pen.schedule_id,
-            allocation_type: "penalty",
-            allocated_amount: toPay,
-            penalty_fee_id: pen.id,
-          });
-          penaltyUpdates.push({
-            id: pen.id,
-            status: toPay >= penAmount ? "paid" : "unpaid",
-            paid_amount: toPay,
-          });
-        }
-      }
-    }
-
-    // 2. Allocate to installments — only for non-DP payments.
-    //    DP payments NEVER touch schedule rows; they are recorded purely
-    //    as a payment entry and reflected in total_paid/remaining_balance.
-    if (!is_downpayment && remaining > 0 && schedule) {
+    // Unified row-by-row waterfall — allocate penalty + installment for
+    // EACH schedule row before advancing. Prevents cross-row penalty
+    // leakage where a later month's penalty events could drain the
+    // payment budget before the target month's base is covered.
+    //
+    // DP payments NEVER touch schedule rows; they are recorded purely
+    // as a payment entry and reflected in total_paid/remaining_balance.
+    if (!is_downpayment && schedule) {
       // Fetch existing allocations from payment_allocations — never use stale paid_amount cache
       const { data: existingAllocsRaw } = await supabase
         .from("payment_allocations")
@@ -242,11 +215,36 @@ Deno.serve(async (req) => {
       for (const item of unpaidItems) {
         if (remaining <= 0) break;
 
+        // STEP A — Pay THIS row's penalties only (scoped to this schedule_id)
+        if (unpaidPenalties) {
+          const itemPenalties = unpaidPenalties.filter((pen: any) => pen.schedule_id === item.id);
+          for (const pen of itemPenalties) {
+            if (remaining <= 0) break;
+            const penAmount = Number(pen.penalty_amount);
+            const toPay = Math.round(Math.min(remaining, penAmount) * 100) / 100;
+            remaining = Math.round((remaining - toPay) * 100) / 100;
+            allocations.push({
+              schedule_id: pen.schedule_id,
+              allocation_type: "penalty",
+              allocated_amount: toPay,
+              penalty_fee_id: pen.id,
+            });
+            penaltyUpdates.push({
+              id: pen.id,
+              status: toPay >= penAmount ? "paid" : "unpaid",
+              paid_amount: toPay,
+            });
+          }
+        }
+
+        if (remaining <= 0) break;
+
+        // STEP B — Pay THIS row's base installment
         const base = Number(item.base_installment_amount);
         const penalty = Number(item.penalty_amount || 0);
         const carried = Number(item.carried_amount || 0);
         const alreadyAllocated = allocatedBySchedule.get(item.id) || 0;
-        // Include in-memory penalty allocations from Phase 1 of this payment
+        // Include in-memory penalty allocations made in Step A for this row
         const alreadyAllocatedPenalty = (penaltyAllocBySchedule.get(item.id) || 0) +
           allocations.filter(a => a.schedule_id === item.id && a.allocation_type === "penalty")
             .reduce((sum, a) => sum + a.allocated_amount, 0);
@@ -263,13 +261,16 @@ Deno.serve(async (req) => {
         const newPaid = Math.round((alreadyAllocated + toApply) * 100) / 100;
         const isNowFullyPaid = newPaid + alreadyAllocatedPenalty >= rowCeiling - 0.005;
 
+        // STEP C — Push allocation + schedule update
         allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
         scheduleUpdates.push({
           id: item.id,
           paid_amount: newPaid,
           status: isNowFullyPaid ? "paid" : "partially_paid",
         });
-        // Surplus flows naturally to next unpaidItems iteration — no break
+
+        // STEP D — exhausted? stop
+        if (remaining <= 0) break;
       }
     }
 

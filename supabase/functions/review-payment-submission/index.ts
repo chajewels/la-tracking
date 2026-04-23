@@ -67,37 +67,11 @@ async function allocatePaymentToAccount(
   // They are recorded as a payment entry only; total_paid/remaining_balance
   // are updated below via the account totals section.
   if (!isDownpayment) {
-    // 1. Pay unpaid penalties grouped by schedule row (installment order)
-    //    This ensures ALL penalties for a month are allocated together
-    //    before moving to the next month, regardless of penalty_date ordering.
-    if (unpaidPenalties && schedule) {
-      const sortedScheduleIds = [...schedule]
-        .sort((a: any, b: any) => a.installment_number - b.installment_number)
-        .map((s: any) => s.id);
-
-      for (const scheduleId of sortedScheduleIds) {
-        if (remaining <= 0) break;
-        const itemPenalties = unpaidPenalties.filter((pen: any) => pen.schedule_id === scheduleId);
-        for (const pen of itemPenalties) {
-          if (remaining <= 0) break;
-          const penAmount = Number(pen.penalty_amount);
-          const toPay = Math.min(remaining, penAmount);
-          remaining -= toPay;
-          allocations.push({
-            schedule_id: pen.schedule_id,
-            allocation_type: "penalty",
-            allocated_amount: toPay,
-          });
-          penaltyUpdates.push({
-            id: pen.id,
-            status: toPay >= penAmount ? "paid" : "unpaid",
-          });
-        }
-      }
-    }
-
-    // 2. Allocate remaining to installments
-    if (remaining > 0 && schedule) {
+    // Unified row-by-row waterfall — allocate penalty + installment for
+    // EACH schedule row before advancing. Prevents cross-row penalty
+    // leakage where a later month's penalty events could drain the
+    // payment budget before the target month's base is covered.
+    if (schedule) {
       // CHANGE 1: fetch existing allocations for true per-row remaining
       // (CLAUDE.md INVARIANT 2 — paid_amount/total_due_amount are write-only caches)
       const { data: existingAllocs } = await supabase
@@ -129,10 +103,43 @@ async function allocatePaymentToAccount(
 
       for (const item of unpaidItems) {
         if (remaining <= 0) break;
-        // CHANGE 2: due from payment_allocations, not stale cache columns
+
+        // Carry-over guard: respect admin carry-over decisions. If the NEXT
+        // installment row already holds a non-zero carried_amount, this row
+        // was administratively closed via carry-over. Do NOT re-allocate
+        // (penalty or installment) to it — skip so remaining funds flow on.
+        const nextItem = (schedule || []).find(
+          (i: any) => Number(i.installment_number) === Number(item.installment_number) + 1
+        );
+        if (nextItem && Number(nextItem.carried_amount || 0) > 0.005) {
+          continue;
+        }
+
+        // STEP A — Pay THIS row's penalties only (scoped to this schedule_id)
+        if (unpaidPenalties) {
+          const itemPenalties = unpaidPenalties.filter((pen: any) => pen.schedule_id === item.id);
+          for (const pen of itemPenalties) {
+            if (remaining <= 0) break;
+            const penAmount = Number(pen.penalty_amount);
+            const toPay = Math.min(remaining, penAmount);
+            remaining -= toPay;
+            allocations.push({
+              schedule_id: pen.schedule_id,
+              allocation_type: "penalty",
+              allocated_amount: toPay,
+            });
+            penaltyUpdates.push({
+              id: pen.id,
+              status: toPay >= penAmount ? "paid" : "unpaid",
+            });
+          }
+        }
+
+        if (remaining <= 0) break;
+
+        // STEP B — Pay THIS row's base installment
         const alreadyAllocated = allocatedBySchedule.get(item.id) || 0;
-        // Subtract any penalty already allocated in Phase 1 (in-memory) for this row
-        // to avoid double-counting when rowCeiling also includes penalty_amount.
+        // In-memory penalty allocations made in Step A for this row
         const alreadyAllocatedPenalty = allocations
           .filter(a => a.schedule_id === item.id && a.allocation_type === 'penalty')
           .reduce((sum, a) => sum + a.allocated_amount, 0);
@@ -149,55 +156,33 @@ async function allocatePaymentToAccount(
         const due = Math.max(0, rowCeiling - alreadyAllocated - alreadyAllocatedPenalty);
         if (due <= 0) continue;
 
-        // Guard: respect admin carry-over decisions. If the NEXT installment
-        // row already holds a non-zero carried_amount, this row was
-        // administratively closed via carry-over. Do NOT re-allocate to it —
-        // skip and let the waterfall continue to the next iteration so any
-        // remaining funds flow onward.
-        //
-        // Uses the full `schedule` array (which includes `paid`/`cancelled`
-        // rows excluded from `unpaidItems`), because the next row may
-        // already be in a non-unpaid state.
-        const nextItem = (schedule || []).find(
-          (i: any) => Number(i.installment_number) === Number(item.installment_number) + 1
-        );
-        if (nextItem && Number(nextItem.carried_amount || 0) > 0.005) {
-          // Admin carry-over already closed this row — skip it
-          continue;
-        }
-
         const toApply = Math.min(remaining, due);
         remaining -= toApply;
         const newPaid = alreadyAllocated + toApply;
         const isNowFullyPaid = newPaid + alreadyAllocatedPenalty >= rowCeiling - 0.005;
 
+        // STEP C — Push allocation + schedule update
         if (isNowFullyPaid && item.status === "partially_paid") {
           // Topping up a partial month — cap paid_amount at ceiling.
-          // Surplus flows naturally to the next unpaidItems iteration.
           allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
           scheduleUpdates.push({ id: item.id, paid_amount: rowCeiling, status: "paid" });
-
         } else if (isNowFullyPaid) {
-          // CHANGE 3: remove cascade that wrote paid_amount/total_due_amount on next
-          // rows — outer loop now handles surplus naturally via continued iteration
           allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
           scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "paid" });
-          // surplus in remaining flows to next unpaidItems iteration automatically
-
         } else if (item.status !== "partially_paid") {
           // PENDING MONTH UNDERPAID — record partial only.
           // Do NOT inflate next row's total_due_amount here; carry-over is
           // handled by accept-underpayment after payment_allocations are written.
           allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
           scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid" });
-          // remaining=0 after toApply; outer loop stops naturally
-
         } else {
           // PARTIALLY_PAID MONTH — additional payment, not completing
           allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
           scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid" });
-          // remaining=0; outer loop stops naturally
         }
+
+        // STEP D — exhausted? stop
+        if (remaining <= 0) break;
       }
     }
   }
