@@ -61,6 +61,13 @@ export default function Login() {
           background: `radial-gradient(ellipse at 60% 50%, rgba(212,175,55,0.07) 0%, ${BG_LEFT} 65%)`,
         }}
       >
+        <div
+          className="absolute inset-0 z-10"
+          style={{
+            background:
+              'linear-gradient(to bottom, #1A1410 8%, transparent 35%, transparent 75%, #1A1410 100%)',
+          }}
+        />
         <img
           src={UNSPLASH_HERO}
           alt=""
@@ -70,16 +77,16 @@ export default function Login() {
 
         {/* Centered brand block */}
         <div
-          className={`relative z-10 flex-1 flex flex-col items-center justify-center px-12 transition-all duration-700 ${
+          className={`relative z-20 flex-1 flex flex-col items-center justify-center px-12 transition-all duration-700 ${
             mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
           }`}
         >
           <img
             src={chaJewelsLogo}
             alt="Cha Jewels"
-            className="w-36 h-36 object-contain"
+            className="w-32 h-32 object-contain"
             style={{
-              filter: 'drop-shadow(0 0 24px rgba(212,175,55,0.5))',
+              filter: 'drop-shadow(0 0 20px rgba(212,175,55,0.6))',
               mixBlendMode: 'multiply',
             }}
           />
@@ -99,7 +106,7 @@ export default function Login() {
         </div>
 
         {/* Bottom left branding */}
-        <div className="relative z-10 p-8 opacity-30">
+        <div className="relative z-20 p-8 opacity-30">
           <p className="text-[10px] text-white" style={{ letterSpacing: '0.2em' }}>
             © {new Date().getFullYear()} CHA JEWELS CO., LTD.
           </p>
