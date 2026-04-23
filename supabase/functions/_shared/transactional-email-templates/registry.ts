@@ -46,7 +46,7 @@ export const TEMPLATES: Record<string, TemplateEntry> = {
       customerName: 'Maria Santos',
       invoiceNumber: '18456',
       dueDate: 'Apr 15, 2026',
-      amountDue: '¥6,500',
+      amountDue: '6,500',
       currency: 'JPY',
       type: 'grace_period',
       graceEndDate: 'Apr 22, 2026',
