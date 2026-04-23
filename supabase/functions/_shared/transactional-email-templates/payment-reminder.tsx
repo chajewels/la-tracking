@@ -129,7 +129,7 @@ const PaymentReminderEmail = ({
 
           <Text style={footer}>
             If you've already made this payment, please disregard this email.
-            For questions, contact us via Messenger or reply to this email.
+            For questions, contact us via Messenger or email us at sales@chajewelsjp.com
           </Text>
 
           <Text style={footerBrand}>

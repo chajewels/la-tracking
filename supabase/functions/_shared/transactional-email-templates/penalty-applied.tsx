@@ -70,7 +70,7 @@ const PenaltyAppliedEmail = ({
           </Section>
           <Hr style={hr} />
           <Text style={footer}>
-            For questions, contact us via Messenger or reply to this email.
+            For questions, contact us via Messenger or email us at sales@chajewelsjp.com
           </Text>
           <Text style={footerBrand}>{SITE_NAME} · Payment & Loyalty Management</Text>
         </Container>

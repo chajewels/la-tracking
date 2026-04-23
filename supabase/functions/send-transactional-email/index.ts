@@ -315,6 +315,7 @@ Deno.serve(async (req) => {
       message_id: messageId,
       to: effectiveRecipient,
       from: `${SITE_NAME} <noreply@${FROM_DOMAIN}>`,
+      reply_to: 'sales@chajewelsjp.com',
       sender_domain: SENDER_DOMAIN,
       subject: resolvedSubject,
       html,
