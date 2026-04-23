@@ -31,10 +31,11 @@ const PenaltyAppliedEmail = ({
   portalUrl,
 }: Props) => {
   const symbol = currency === 'PHP' ? '₱' : '¥'
+  const previewText = `Penalty applied to INV #${invoiceNumber} — ${String(daysOverdue)} days overdue`
   return (
     <Html lang="en" dir="ltr">
       <Head />
-      <Preview>Penalty applied to INV #{invoiceNumber} — {daysOverdue} days overdue</Preview>
+      <Preview>{previewText}</Preview>
       <Body style={main}>
         <Container style={container}>
           <Section style={headerBar}>
