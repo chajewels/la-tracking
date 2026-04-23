@@ -81,15 +81,17 @@ export default function Login() {
             mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
           }`}
         >
-          <img
-            src={chaJewelsLogo}
-            alt="Cha Jewels"
-            className="w-32 h-32 object-contain"
-            style={{
-              filter: 'drop-shadow(0 0 20px rgba(212,175,55,0.6))',
-              mixBlendMode: 'multiply',
-            }}
-          />
+          <div className="relative mb-2">
+            <img
+              src={chaJewelsLogo}
+              alt="Cha Jewels"
+              className="w-32 h-32 object-contain"
+              style={{
+                mixBlendMode: 'multiply',
+                filter: 'drop-shadow(0 0 20px rgba(212,175,55,0.5))',
+              }}
+            />
+          </div>
           <p
             className="font-display text-sm font-light mt-6"
             style={{ color: GOLD, letterSpacing: '0.4em' }}
