@@ -112,8 +112,9 @@ Deno.serve(async (req) => {
     // 13. Layaway schedule (references layaway_accounts)
     await supabase.from("layaway_schedule").delete().eq("account_id", account_id);
 
-    // 14. Audit logs for this entity
-    await supabase.from("audit_logs").delete().eq("entity_id", account_id);
+    // 14. Audit logs are PRESERVED — no delete here. Prior audit trail
+    //     (payments, penalties, schedule changes, etc.) must survive
+    //     account deletion so the account history is never lost.
 
     // 15. Finally, the account itself
     const { error: delErr } = await supabase.from("layaway_accounts").delete().eq("id", account_id);
