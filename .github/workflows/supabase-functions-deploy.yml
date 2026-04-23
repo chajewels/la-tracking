@@ -21,6 +21,7 @@ on:
       - 'supabase/functions/verify-portal-pin/**'
       - 'supabase/functions/set-portal-pin/**'
       - 'supabase/functions/send-reminders/**'
+      - 'supabase/functions/send-transactional-email/**'
   workflow_dispatch:
 
 jobs:
@@ -133,5 +134,11 @@ jobs:
       - name: Deploy send-reminders
         if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/send-reminders/')
         run: npx supabase functions deploy send-reminders --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy send-transactional-email
+        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/send-transactional-email/')
+        run: npx supabase functions deploy send-transactional-email --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
