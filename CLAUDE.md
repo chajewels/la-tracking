@@ -947,6 +947,17 @@ When completing a partially_paid month:
   Email notifications wired to 7 edge functions: DONE ✅
     (commit 85f5666)
   System Audit: 683/683 passed ✅
+  Admin Audit restructured: DONE ✅
+    - Reconciliation tab: REMOVED
+    - System Health tab: REMOVED
+    - Moved into Monitoring & Audit page as 4th tab
+    - Admin Audit removed from sidebar
+    - TEST-% filter added to all audit tabs
+    - Canonical formula alignment: VERIFIED
+    - 3 minor display fixes applied (commit 355b0b0)
+  Monitoring page renamed: "Monitoring & Audit" ✅
+    - CSR Alerts, Smart Reminders, Extensions: unchanged
+    - New Audit tab with 4 sub-tabs added
 
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
