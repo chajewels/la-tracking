@@ -15,7 +15,7 @@ const INPUT_BG = 'rgba(255,255,255,0.04)';
 const INPUT_BORDER = 'rgba(255,255,255,0.08)';
 
 const UNSPLASH_HERO =
-  'https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?w=900&auto=format&fit=crop&q=80';
+  'https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets/IMG_3197.jpeg';
 
 export default function Login() {
   const navigate = useNavigate();
