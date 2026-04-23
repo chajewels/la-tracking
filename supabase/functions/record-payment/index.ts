@@ -341,8 +341,32 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Create allocations (duplicate guard: skip if row already exists)
+    // Merge multiple penalty allocations for the same schedule_id into a
+    // single row to avoid violating the unique constraint on
+    // (schedule_id, payment_id, allocation_type). Installment rows are
+    // naturally unique per schedule_id (one per loop iteration).
+    const mergedAllocations: typeof allocations = [];
+    const penaltyBySchedule = new Map<string, number>();
     for (const alloc of allocations) {
+      if (alloc.allocation_type === 'penalty') {
+        penaltyBySchedule.set(
+          alloc.schedule_id,
+          (penaltyBySchedule.get(alloc.schedule_id) || 0) + alloc.allocated_amount
+        );
+      } else {
+        mergedAllocations.push(alloc);
+      }
+    }
+    for (const [scheduleId, totalPenalty] of penaltyBySchedule) {
+      mergedAllocations.push({
+        schedule_id: scheduleId,
+        allocation_type: 'penalty',
+        allocated_amount: totalPenalty,
+      });
+    }
+
+    // Create allocations (duplicate guard: skip if row already exists)
+    for (const alloc of mergedAllocations) {
       const { data: existing } = await supabase
         .from("payment_allocations")
         .select("id")
