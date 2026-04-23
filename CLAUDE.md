@@ -1052,6 +1052,7 @@ SUPABASE EDGE FUNCTIONS — these auto-deploy when their files change:
 - recalculate-penalties (DISABLED — returns 410)
 - dashboard-summary
 - add-service
+- send-reminders
 
 All other edge functions still require manual deploy via Cloud Shell.
 Always check .github/workflows/supabase-functions-deploy.yml
