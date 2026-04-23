@@ -83,11 +83,10 @@ export default function Login() {
         >
           <div className="relative mb-2">
             <img
-              src={chaJewelsLogo}
+              src="https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets/cha-jewels-logo.png"
               alt="Cha Jewels"
               className="w-32 h-32 object-contain"
               style={{
-                mixBlendMode: 'multiply',
                 filter: 'drop-shadow(0 0 20px rgba(212,175,55,0.5))',
               }}
             />
@@ -136,7 +135,7 @@ export default function Login() {
         </div>
 
         {/* Form */}
-        <div className="relative z-10 flex-1 flex items-center justify-center px-6 sm:px-12 lg:px-16 xl:px-20">
+        <div className="relative z-10 flex-1 flex flex-col items-center justify-center h-full px-6 sm:px-12 lg:px-16 xl:px-20">
           <div
             className={`w-full max-w-sm transition-all duration-700 ${
               mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
