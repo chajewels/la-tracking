@@ -288,20 +288,22 @@ Deno.serve(async (req) => {
     // Add current payment amount (not yet inserted)
     const newTotalPaid = existingPaidSum + Number(amount_paid);
 
-    // PRINCIPAL-ONLY remaining: exclude penalty payments from principal calculation
-    // Get already-paid penalties from DB + penalties being paid in this transaction
-    const { data: existingPaidPenalties } = await supabase
+    // Canonical remaining_balance (CLAUDE.md):
+    // remaining = total_amount + Σ(non-waived penalty_fees) - total_paid
+    // Services are already in total_amount — do NOT add them separately.
+    const { data: activePenaltiesData } = await supabase
       .from("penalty_fees")
       .select("penalty_amount")
       .eq("account_id", account_id)
-      .eq("status", "paid");
-    const existingPenaltyPaid = (existingPaidPenalties || []).reduce((s: number, f: any) => s + Number(f.penalty_amount), 0);
-    const newPenaltyBeingPaid = allocations
-      .filter(a => a.allocation_type === "penalty")
-      .reduce((s, a) => s + a.allocated_amount, 0);
-    const totalPenaltyPaid = existingPenaltyPaid + newPenaltyBeingPaid;
-    const principalPaid = newTotalPaid - totalPenaltyPaid;
-    const newRemainingBalance = Math.max(0, Number(account.total_amount) - principalPaid);
+      .neq("status", "waived");
+    const activePenaltySum = (activePenaltiesData || [])
+      .reduce((s: number, f: any) => s + Number(f.penalty_amount), 0);
+    const newRemainingBalance = Math.max(0,
+      Math.round((
+        Number(account.total_amount)
+        + activePenaltySum
+        - newTotalPaid
+      ) * 100) / 100);
     const newStatus = newRemainingBalance <= 0 ? "completed" : account.status;
 
     // Preview mode - return allocation plan without saving
@@ -407,14 +409,22 @@ Deno.serve(async (req) => {
       .is("voided_at", null);
     const verifiedTotalPaid = (postInsertPayments || []).reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
 
-    // PRINCIPAL-ONLY remaining: exclude penalty payments
-    const { data: verifiedPaidPenalties } = await supabase
+    // Canonical remaining_balance (CLAUDE.md):
+    // remaining = total_amount + Σ(non-waived penalty_fees) - total_paid
+    // Services are already in total_amount — do NOT add them separately.
+    const { data: verifiedPenaltiesData } = await supabase
       .from("penalty_fees")
       .select("penalty_amount")
       .eq("account_id", account_id)
-      .eq("status", "paid");
-    const verifiedPenaltyPaid = (verifiedPaidPenalties || []).reduce((s: number, f: any) => s + Number(f.penalty_amount), 0);
-    const verifiedRemaining = Math.max(0, Number(account.total_amount) - (verifiedTotalPaid - verifiedPenaltyPaid));
+      .neq("status", "waived");
+    const verifiedPenaltySum = (verifiedPenaltiesData || [])
+      .reduce((s: number, f: any) => s + Number(f.penalty_amount), 0);
+    const verifiedRemaining = Math.max(0,
+      Math.round((
+        Number(account.total_amount)
+        + verifiedPenaltySum
+        - verifiedTotalPaid
+      ) * 100) / 100);
 
     // Recalculate correct status based on updated schedule state
     let verifiedStatus = account.status;
