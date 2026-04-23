@@ -64,8 +64,8 @@ export default function Login() {
         <img
           src={UNSPLASH_HERO}
           alt=""
-          className="absolute inset-0 w-full h-full object-cover opacity-35"
-          style={{ mixBlendMode: 'luminosity' }}
+          className="absolute inset-0 w-full h-full object-cover opacity-45"
+          style={{ mixBlendMode: 'normal' }}
         />
 
         {/* Centered brand block */}
