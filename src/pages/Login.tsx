@@ -2,10 +2,20 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
 import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
-import luxuryHero from '@/assets/luxury-jewelry-hero.jpg';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+
+const BG_LEFT = '#1A1410';
+const BG_RIGHT = '#110E0A';
+const GOLD = '#D4AF37';
+const GOLD_HOVER = '#E8C547';
+const GOLD_BORDER = 'rgba(212,175,55,0.12)';
+const INPUT_BG = 'rgba(255,255,255,0.04)';
+const INPUT_BORDER = 'rgba(255,255,255,0.08)';
+
+const UNSPLASH_HERO =
+  'https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?w=900&auto=format&fit=crop&q=80';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -43,92 +53,108 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row">
-      {/* LEFT — Hero image */}
-      <div className="hidden lg:block lg:w-1/2 relative overflow-hidden">
+    <div className="min-h-screen flex flex-col lg:flex-row" style={{ background: BG_RIGHT }}>
+      {/* LEFT PANEL — 55% */}
+      <div
+        className="hidden lg:flex lg:w-[55%] relative overflow-hidden flex-col"
+        style={{
+          background: `radial-gradient(ellipse at 60% 50%, rgba(212,175,55,0.07) 0%, ${BG_LEFT} 65%)`,
+        }}
+      >
         <img
-          src={luxuryHero}
-          alt="Cha Jewels luxury collection"
-          className="absolute inset-0 w-full h-full object-cover scale-105"
-          style={{ animation: 'slowZoom 30s ease-in-out infinite alternate' }}
+          src={UNSPLASH_HERO}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover opacity-35"
+          style={{ mixBlendMode: 'luminosity' }}
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/20" />
+
+        {/* Centered brand block */}
         <div
-          className={`absolute bottom-12 left-10 right-10 transition-all duration-1000 delay-500 ${
+          className={`relative z-10 flex-1 flex flex-col items-center justify-center px-12 transition-all duration-700 ${
             mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
           }`}
         >
-          <p className="text-xs tracking-[0.35em] uppercase font-medium mb-3" style={{ color: '#D4AF37' }}>
-            Cha Jewels
-          </p>
-          <h2
-            className="text-2xl lg:text-3xl font-light leading-snug"
-            style={{ fontFamily: "'Montserrat', sans-serif", color: 'rgba(255,255,255,0.9)' }}
+          <img
+            src={chaJewelsLogo}
+            alt="Cha Jewels"
+            style={{
+              width: '140px',
+              height: '140px',
+              objectFit: 'cover',
+              borderRadius: '16px',
+              filter: 'drop-shadow(0 0 20px rgba(212,175,55,0.4))',
+            }}
+          />
+          <p
+            className="font-display text-sm font-light mt-6"
+            style={{ color: GOLD, letterSpacing: '0.4em' }}
           >
-            Everyday Layaway.
-            <br />
-            <span style={{ color: '#D4AF37' }}>Cha Jewels</span> All the Way.
-          </h2>
-          <div className="mt-4 w-16 h-px" style={{ background: 'rgba(212,175,55,0.5)' }} />
+            CHA JEWELS
+          </p>
+          <div className="w-10 h-px my-5" style={{ background: 'rgba(212,175,55,0.5)' }} />
+          <p
+            className="text-xs font-light opacity-60"
+            style={{ color: '#fff', letterSpacing: '0.3em' }}
+          >
+            Management Portal
+          </p>
+        </div>
+
+        {/* Bottom left branding */}
+        <div className="relative z-10 p-8 opacity-30">
+          <p className="text-[10px] text-white" style={{ letterSpacing: '0.2em' }}>
+            © {new Date().getFullYear()} CHA JEWELS CO., LTD.
+          </p>
+          <p className="text-[10px] text-white mt-1" style={{ letterSpacing: '0.3em' }}>
+            LUXURY · DISCIPLINE · INVESTMENT
+          </p>
         </div>
       </div>
 
-      {/* RIGHT — Login panel */}
-      <div className="flex-1 lg:w-1/2 relative flex flex-col justify-between" style={{ background: '#0B0B0B' }}>
-        {/* Mobile hero background */}
+      {/* RIGHT PANEL — 45% */}
+      <div
+        className="flex-1 lg:w-[45%] relative flex flex-col justify-between"
+        style={{ background: BG_RIGHT, borderLeft: `1px solid ${GOLD_BORDER}` }}
+      >
+        {/* Mobile hero */}
         <div
           className="lg:hidden absolute inset-0 z-0"
           style={{
-            backgroundImage: `url(${luxuryHero})`,
+            backgroundImage: `url(${UNSPLASH_HERO})`,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
           }}
         >
-          <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.78)' }} />
+          <div className="absolute inset-0" style={{ background: 'rgba(10,8,6,0.85)' }} />
         </div>
 
         {/* Form */}
-        <div className="relative z-10 flex-1 flex items-center justify-center px-6 sm:px-12 lg:px-16 xl:px-24">
+        <div className="relative z-10 flex-1 flex items-center justify-center px-6 sm:px-12 lg:px-16 xl:px-20">
           <div
             className={`w-full max-w-sm transition-all duration-700 ${
               mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
             }`}
           >
-            {/* Logo */}
-            <div className="text-center mb-10">
-              <div
-                className="inline-block rounded-2xl overflow-hidden mb-5"
-                style={{ boxShadow: '0 0 40px rgba(212,175,55,0.15)' }}
-              >
-                <img src={chaJewelsLogo} alt="Cha Jewels" className="h-20 w-20 object-cover" />
-              </div>
-              <h1
-                className="text-lg tracking-[0.25em] font-semibold"
-                style={{ fontFamily: "'Montserrat', sans-serif", color: '#D4AF37' }}
-              >
-                CHA JEWELS
-              </h1>
-            </div>
-
-            {/* Welcome */}
-            <div className="text-center mb-8">
-              <h2
-                className="text-2xl font-light tracking-wide"
-                style={{ fontFamily: "'Montserrat', sans-serif", color: '#fff' }}
-              >
-                Welcome Back
-              </h2>
-              <p className="text-xs mt-2 tracking-wider" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                Access your Cha Jewels Hub Portal
-              </p>
-            </div>
+            {/* Heading */}
+            <h2
+              className="font-display text-2xl font-light tracking-wide"
+              style={{ color: '#fff' }}
+            >
+              Welcome Back
+            </h2>
+            <p
+              className="text-xs font-light mb-10 mt-2"
+              style={{ color: GOLD, letterSpacing: '0.2em' }}
+            >
+              Access your Cha Jewels Hub
+            </p>
 
             {/* Form */}
             <form onSubmit={handleLogin} className="space-y-5">
               <div className="space-y-1.5">
                 <label
-                  className="text-[11px] tracking-widest uppercase font-medium block"
-                  style={{ color: 'rgba(255,255,255,0.5)' }}
+                  className="text-[10px] font-medium uppercase block"
+                  style={{ color: GOLD, letterSpacing: '0.2em' }}
                 >
                   Email
                 </label>
@@ -137,26 +163,25 @@ export default function Login() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@chajewels.com"
-                  className="w-full h-11 px-4 rounded-lg text-sm outline-none transition-all duration-300"
+                  className="w-full h-11 px-4 rounded-lg text-sm outline-none transition-all duration-300 text-white"
                   style={{
-                    background: 'rgba(255,255,255,0.04)',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    color: '#fff',
+                    background: INPUT_BG,
+                    border: `1px solid ${INPUT_BORDER}`,
                   }}
                   onFocus={(e) => {
-                    e.target.style.borderColor = 'rgba(212,175,55,0.6)';
-                    e.target.style.boxShadow = '0 0 12px rgba(212,175,55,0.12)';
+                    e.target.style.borderColor = GOLD;
+                    e.target.style.boxShadow = '0 0 0 1px rgba(212,175,55,0.2)';
                   }}
                   onBlur={(e) => {
-                    e.target.style.borderColor = 'rgba(255,255,255,0.1)';
+                    e.target.style.borderColor = INPUT_BORDER;
                     e.target.style.boxShadow = 'none';
                   }}
                 />
               </div>
               <div className="space-y-1.5">
                 <label
-                  className="text-[11px] tracking-widest uppercase font-medium block"
-                  style={{ color: 'rgba(255,255,255,0.5)' }}
+                  className="text-[10px] font-medium uppercase block"
+                  style={{ color: GOLD, letterSpacing: '0.2em' }}
                 >
                   Password
                 </label>
@@ -165,18 +190,17 @@ export default function Login() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full h-11 px-4 rounded-lg text-sm outline-none transition-all duration-300"
+                  className="w-full h-11 px-4 rounded-lg text-sm outline-none transition-all duration-300 text-white"
                   style={{
-                    background: 'rgba(255,255,255,0.04)',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    color: '#fff',
+                    background: INPUT_BG,
+                    border: `1px solid ${INPUT_BORDER}`,
                   }}
                   onFocus={(e) => {
-                    e.target.style.borderColor = 'rgba(212,175,55,0.6)';
-                    e.target.style.boxShadow = '0 0 12px rgba(212,175,55,0.12)';
+                    e.target.style.borderColor = GOLD;
+                    e.target.style.boxShadow = '0 0 0 1px rgba(212,175,55,0.2)';
                   }}
                   onBlur={(e) => {
-                    e.target.style.borderColor = 'rgba(255,255,255,0.1)';
+                    e.target.style.borderColor = INPUT_BORDER;
                     e.target.style.boxShadow = 'none';
                   }}
                 />
@@ -185,19 +209,22 @@ export default function Login() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full h-11 rounded-lg font-semibold text-sm tracking-wider uppercase transition-all duration-300 disabled:opacity-50"
+                className="w-full h-11 rounded-lg font-semibold text-sm uppercase transition-all duration-300 disabled:opacity-50"
                 style={{
-                  background: 'linear-gradient(135deg, #C9A227 0%, #D4AF37 50%, #E8C84A 100%)',
-                  color: '#0B0B0B',
+                  background: GOLD,
+                  color: '#0A0A0A',
+                  letterSpacing: '0.15em',
                 }}
                 onMouseEnter={(e) => {
-                  (e.currentTarget).style.boxShadow = '0 0 24px rgba(212,175,55,0.35)';
+                  e.currentTarget.style.background = GOLD_HOVER;
+                  e.currentTarget.style.boxShadow = '0 4px 20px rgba(212,175,55,0.25)';
                 }}
                 onMouseLeave={(e) => {
-                  (e.currentTarget).style.boxShadow = 'none';
+                  e.currentTarget.style.background = GOLD;
+                  e.currentTarget.style.boxShadow = 'none';
                 }}
               >
-                {loading ? 'Signing in…' : 'Sign In'}
+                {loading ? 'Signing in…' : 'SIGN IN'}
               </button>
             </form>
 
@@ -206,7 +233,7 @@ export default function Login() {
               <button
                 className="text-[11px] tracking-wide transition-colors duration-300"
                 style={{ color: 'rgba(255,255,255,0.3)' }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = 'rgba(212,175,55,0.7)')}
+                onMouseEnter={(e) => (e.currentTarget.style.color = GOLD)}
                 onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255,255,255,0.3)')}
                 onClick={() => navigate('/forgot-password')}
               >
@@ -215,7 +242,7 @@ export default function Login() {
               <button
                 className="text-[11px] tracking-wide transition-colors duration-300"
                 style={{ color: 'rgba(255,255,255,0.3)' }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = 'rgba(212,175,55,0.7)')}
+                onMouseEnter={(e) => (e.currentTarget.style.color = GOLD)}
                 onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255,255,255,0.3)')}
                 onClick={() => window.open('https://m.me/chajewelsjapan', '_blank')}
               >
@@ -224,28 +251,7 @@ export default function Login() {
             </div>
           </div>
         </div>
-
-        {/* Footer */}
-        <div
-          className={`relative z-10 text-center pb-6 px-6 transition-all duration-700 delay-300 ${
-            mounted ? 'opacity-100' : 'opacity-0'
-          }`}
-        >
-          <p className="text-[10px] tracking-[0.2em] uppercase" style={{ color: 'rgba(255,255,255,0.15)' }}>
-            © {new Date().getFullYear()} Cha Jewels Co., Ltd.
-          </p>
-          <p className="text-[9px] tracking-[0.3em] uppercase mt-1" style={{ color: 'rgba(212,175,55,0.2)' }}>
-            Luxury · Discipline · Investment
-          </p>
-        </div>
       </div>
-
-      <style>{`
-        @keyframes slowZoom {
-          from { transform: scale(1.05); }
-          to   { transform: scale(1.15); }
-        }
-      `}</style>
     </div>
   );
 }
