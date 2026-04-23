@@ -157,11 +157,11 @@ async function allocatePaymentToAccount(
         if (due <= 0) continue;
 
         const toApply = Math.min(remaining, due);
-        remaining -= toApply;
         const newPaid = alreadyAllocated + toApply;
         const isNowFullyPaid = newPaid + alreadyAllocatedPenalty >= rowCeiling - 0.005;
 
-        // STEP C — Push allocation + schedule update
+        // STEP C — Push allocation + schedule update (before decrementing remaining
+        // so the explicit break right after remaining -= toApply does not skip it)
         if (isNowFullyPaid && item.status === "partially_paid") {
           // Topping up a partial month — cap paid_amount at ceiling.
           allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
@@ -181,7 +181,10 @@ async function allocatePaymentToAccount(
           scheduleUpdates.push({ id: item.id, paid_amount: newPaid, status: "partially_paid" });
         }
 
-        // STEP D — exhausted? stop
+        remaining -= toApply;
+
+        // STEP D — exhausted? stop immediately after Step B's remaining decrement,
+        // before any chance of visiting the next row.
         if (remaining <= 0) break;
       }
     }

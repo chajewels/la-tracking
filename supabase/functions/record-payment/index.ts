@@ -257,11 +257,11 @@ Deno.serve(async (req) => {
         if (due <= 0) continue;
 
         const toApply = Math.round(Math.min(remaining, due) * 100) / 100;
-        remaining = Math.round((remaining - toApply) * 100) / 100;
         const newPaid = Math.round((alreadyAllocated + toApply) * 100) / 100;
         const isNowFullyPaid = newPaid + alreadyAllocatedPenalty >= rowCeiling - 0.005;
 
-        // STEP C — Push allocation + schedule update
+        // STEP C — Push allocation + schedule update (before decrementing remaining
+        // so the explicit break right after remaining -= toApply does not skip it)
         allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
         scheduleUpdates.push({
           id: item.id,
@@ -269,7 +269,10 @@ Deno.serve(async (req) => {
           status: isNowFullyPaid ? "paid" : "partially_paid",
         });
 
-        // STEP D — exhausted? stop
+        remaining = Math.round((remaining - toApply) * 100) / 100;
+
+        // STEP D — exhausted? stop immediately after Step B's remaining decrement,
+        // before any chance of visiting the next row.
         if (remaining <= 0) break;
       }
     }
