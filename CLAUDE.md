@@ -560,6 +560,16 @@ When completing a partially_paid month:
   - 46. Link Signature modal unclickable due to double Radix overlay
     from Dialog + AlertDialog stacking — merged into single Dialog
     with two-view pattern (2026-04-21)
+  - 47. Waterfall penalty split across months — both
+    review-payment-submission and record-payment used a
+    two-phase global waterfall (Phase 1: pay ALL unpaid
+    penalties across ALL months; Phase 2: pay bases).
+    This caused penalty budget to drain across future months
+    before the target month's base was covered. Fixed to
+    row-by-row atomic waterfall: for each unpaid row in
+    installment order, pay that row's own penalties first
+    (scoped by schedule_id), then pay its base — commit
+    9069ffd (2026-04-23)
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
@@ -1011,23 +1021,38 @@ When completing a partially_paid month:
     verify-portal-pin — deployed 2026-04-21
     set-portal-pin    — deployed 2026-04-21
 
+## PLAN MINIMUM ENFORCEMENT (added 2026-04-23)
+
+  Minimum amounts stored in: plan_configurations table
+  Columns: plan_months, min_amount_jpy, min_amount_php
+
+  Current minimums:
+    3M: no minimum
+    6M: ¥25,000 / ₱10,500
+    8M: ¥300,000 / ₱126,000
+    10M: ¥600,000 / ₱252,000
+    12M: ¥1,000,000 / ₱420,000
+
+  Enforcement layers:
+    1. UI — NewAccount.tsx reads plan_configurations on load,
+       shows minimum subtitle on each plan pill button,
+       shows red warning under Total Amount if below minimum,
+       disables Create button when below minimum — commit 639c3f6
+    2. DB trigger — trg_enforce_plan_minimum fires on INSERT
+       and UPDATE via enforce_plan_minimum_amount() function.
+       Blocks any account creation or edit below the minimum.
+    3. Both PHP and JPY enforced — hard block, no override
+
 ## PENDING ITEMS (as of 2026-04-20)
 
-  1. Firebase signing page connection (Steps 13-17)
-  2. Update submit-payment edge function to auto-deploy list
-  3. Extension lifecycle test stages 3 & 4
-  4. TEST-FORFEIT-002 and TEST-FORFEIT-003
-  5. send-transactional-email edge function — does not exist, email
-      notifications for extension requests not working
-  6. Penalty engine waived-to-unpaid auto-fix — deployed, needs
-      monitoring on next cron run to confirm correct behavior
-  7. Forfeitures per Month chart — historical data shows all in
-      April 2026 due to backfill limitation — self-corrects over time
-  8. Session timeout — auto-logout after 2 hours inactivity (Priority 5)
-  9. Customer portal PIN protection (Priority 4)
-  10. Admin audit log for manual DB changes (Priority 6)
-  11. use-account-draft.ts plan type was widened — monitor for any
-      draft-related issues with 10/12 month plans
+  1. Session timeout — auto-logout after 2 hours
+  2. Admin audit log for manual DB changes
+  3. send-transactional-email edge function
+  4. record-payment remaining_balance formula uses
+     principal-only — needs canonical fix (lines 287-300
+     and 382-389, missing unpaid penalties term)
+  5. Firebase signing page connection (Steps 13-17) —
+     separate Firebase repo, not in main repo
 
 ## PERIODIC HEALTH QUERIES
 
