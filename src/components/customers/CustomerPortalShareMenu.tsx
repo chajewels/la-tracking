@@ -103,7 +103,7 @@ export default function CustomerPortalShareMenu({ customerId, customerName, mess
 
   const shareMessenger = () => {
     if (portalUrl) {
-      window.open(`https://m.me/?text=${encodeURIComponent(`Hi ${customerName}! Here's your Cha Jewels layaway portal: ${portalUrl}`)}`, '_blank');
+      window.open(`https://m.me/?text=${encodeURIComponent(`Hi ${customerName}! Here's your Cha Jewels Hub portal: ${portalUrl}`)}`, '_blank');
     }
   };
 
