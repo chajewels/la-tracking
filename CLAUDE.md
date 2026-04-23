@@ -906,93 +906,27 @@ When completing a partially_paid month:
   Check 20: carried amount on paid row — no unconsumed carry on paid rows
   Check 21: double carry — no account has carry on multiple rows
 
-## SYSTEM STATUS (as of 2026-04-12)
+## SYSTEM STATUS (as of 2026-04-23)
 
   accept-underpayment auto-carry: REMOVED ✅
   carry-over edge function: DEPLOYED ✅
   review-payment-submission auto-carry: REMOVED ✅
-  recalculate-penalties: DISABLED (returns 410) — was silently waiving penalties ✅
-  Underpayment decision modal: BUILT ✅ (in PaymentSubmissions.tsx)
-  Overpayment/Keep decision modal: BUILT ✅ (in PaymentSubmissions.tsx)
-  penalty-engine due_date filter: FIXED to <= (includes due date) ✅
-  penalty-engine grace period: FIXED to once-per-account ✅
+  recalculate-penalties: DISABLED (returns 410) ✅
+  Underpayment decision modal: BUILT ✅
+  Overpayment/Keep decision modal: BUILT ✅
+  penalty-engine due_date filter: FIXED ✅
+  penalty-engine grace period: FIXED ✅
   penalty-engine self-healing Step 5b: ADDED ✅
   auto-forfeit-settlement error checking: ADDED ✅
   auto-forfeit-settlement immediate audit logs: ADDED ✅
-  fix-account-totals: REWRITTEN with canonical formula + guards ✅
-  Account Health button: ADDED to AccountDetail ✅
-  System Audit button: ADDED to Dashboard ✅
+  fix-account-totals: REWRITTEN ✅
+  Account Health button: ADDED ✅
+  System Audit button: ADDED ✅
   SystemAudit.tsx page: REMOVED ✅
   AccountDetail verify panel: REMOVED ✅
-  plan_configurations table: LIVE ✅ (3M/6M/8M/10M/12M)
-  trg_enforce_plan_minimum trigger: LIVE ✅
-  forfeited_at column on layaway_accounts: ADDED ✅
-  extension request 7-day window: LIVE ✅
-  Executive Dashboard (fc_ RPCs): LIVE ✅ (11 RPCs + alert engine)
-  fc_evaluate_alerts pg_cron: RUNNING every 30 minutes ✅
-  accept-underpayment carry-over logic: REMOVED ✅ (audit-log only)
-  audit_all_accounts() RPC: REWRITTEN to call audit_account() per account ✅
-  Keep handler overpayment formula: FIXED to use existing total_due_amount ✅
-  carry-over total_due_amount formula: FIXED to use existing total_due_amount ✅
-  Waterfall penalty grouping: FIXED to group by schedule_id ✅
-  Customer codes CJ-YYYY-XXXXX: STANDARDIZED for all customers ✅
-  Search input focus loss: FIXED (EmbeddedWrapper at module level) ✅
-  reconciliation_log table: LIVE ✅
-  record-payment waterfall: FIXED ✅ (2026-04-20)
-  record-multi-payment waterfall: FIXED ✅ (2026-04-20)
-  review-payment-submission waterfall: CONFIRMED CORRECT ✅
-  Keep handler: FIXED — no-op, preserves waterfall ✅ (2026-04-20)
-  enforce_paid_row_freeze trigger: LIVE ✅ (2026-04-20)
-  reconcile-account report-only: LIVE ✅ (2026-04-20)
-  restore-payment canonical formula: FIXED ✅ (2026-04-20)
-  void-payment freeze bypass: FIXED ✅ (2026-04-20)
-  TEST-001 to TEST-005: RECREATED ✅ (2026-04-20)
-  Finance role void/restore: ENABLED ✅ (2026-04-20)
-  review-payment-submission isNowFullyPaid: FIXED ✅ (2026-04-21)
-  Finance Analytics — Forfeited Collected card: LIVE ✅ (2026-04-21)
-  Finance Analytics — Top 10 Outstanding Customers: LIVE ✅ (2026-04-21)
-  Finance Analytics — Collected vs Expected area chart: LIVE ✅ (2026-04-21)
-  get_top_outstanding_customers RPC: LIVE ✅ (2026-04-21)
-  forfeited_at backfill limitation: historical forfeitures show
-    as April 2026 — acceptable, future forfeitures will be accurate
-  Stale partially_paid status scan: CLEAN ✅ (2026-04-21)
-    — 0 accounts with allocated >= ceiling but status = partially_paid
-  Forgot Password page (/forgot-password): LIVE ✅ (2026-04-21)
-  Reset Password page (/reset-password): LIVE ✅ (2026-04-21)
-  Email sender name: "Cha Jewels" ✅ (2026-04-21)
-  Contact Support button: m.me/chajewelsjapan ✅ (2026-04-21)
-  Link Signature modal: FIXED — single dialog no double overlay ✅ (2026-04-21)
-  PWA: LIVE ✅ (2026-04-21)
-  Supabase Site URL: https://app.chajewelsjp.com ✅ (2026-04-21)
-  prevent_total_amount_change trigger: LIVE ✅ (2026-04-21)
-  add-service edge function: LIVE ✅ (2026-04-21)
-  add-installment role: narrowed to admin only ✅ (2026-04-21)
-  create-layaway-account role check: ADDED ✅ (2026-04-21)
-  daily-reconciliation pg_cron: ACTIVE ✅ job ID 7, 5 0 * * * (2026-04-21)
-  Rate limiting — payment submissions: LIVE ✅ (2026-04-21)
-    Max 3 submissions per account per 24 hours
-    Enforced in: record-payment, submit-payment
-    HTTP 429 returned when limit exceeded
-    Frontend: toast error shown in RecordPaymentDialog
-  Payment plan months supported: 3 | 6 | 8 | 10 | 12 ✅ (2026-04-21)
-    DB CHECK constraint: updated to allow all 5 values
-    create-layaway-account: whitelist updated ✅
-    bulk-import: whitelist updated ✅
-    parse-import-docs: prompt updated ✅
-    UI (NewAccount.tsx): all 5 options shown ✅
-    TypeScript types: PaymentPlan widened ✅
-  Customer Portal PIN Protection: LIVE ✅ (2026-04-21)
-    - verify-portal-pin edge function: DEPLOYED
-    - set-portal-pin edge function: DEPLOYED
-    - Auto-set default PIN: last 4 digits of mobile_number
-    - Hash: SHA-256 via Web Crypto API
-    - Lockout: 3 wrong attempts → 30 minute lock
-    - RLS: service_role policies added to customers table
-    - UI: PIN entry screen in CustomerPortal.tsx
-    - Admin/Staff: Set Portal PIN button in CustomerDetail.tsx
   Waterfall bug (penalty split): FIXED ✅
     (commits 9069ffd + 7993a94 + b7bc1c8)
-  Session timeout (2hr idle): ADDED ✅
+  Session timeout (2hr idle + 5min warning): ADDED ✅
     (commit bfe4634)
   Admin audit log DB trigger: ADDED ✅
     (layaway_accounts + payments tables)
@@ -1003,10 +937,15 @@ When completing a partially_paid month:
   Platform rebrand → Cha Jewels Hub: DONE ✅
     (commit f0c3751)
   Customer portal splash screen: ADDED ✅
+    (commit 1df6ee1)
   Admin login redesign (Kihei photo): DONE ✅
   Sidebar retheme (warm charcoal + gold): DONE ✅
   daily-reconciliation pg_cron: ADDED ✅
     (job 7, schedule 5 0 * * *)
+  Email templates (13 total): ADDED ✅
+    (commit 366b3bc)
+  Email notifications wired to 7 edge functions: DONE ✅
+    (commit 85f5666)
   System Audit: 683/683 passed ✅
 
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
@@ -1063,28 +1002,11 @@ When completing a partially_paid month:
 
 ## PENDING ITEMS (as of 2026-04-23)
 
-  1. Email templates — create 8 new React Email
-     templates and register in registry.ts:
-     payment-receipt, payment-voided, penalty-applied,
-     penalty-escalation, penalty-waived, account-forfeited,
-     extension-granted, extension-requested
-     Also add grace_period variant to payment-reminder
-
-  2. Email wiring — wire send-transactional-email calls
-     into these edge functions:
-     - penalty-engine → penalty-applied template
-     - auto-forfeit-settlement → account-forfeited template
-     - manual-forfeit → account-forfeited template
-     - record-payment → payment-receipt template
-     - approve-waiver → penalty-waived template
-     - reactivate-account → extension-granted template
-     - void-payment → payment-voided template
-
-  3. Firebase signing page Steps 13-17
+  1. Firebase signing page Steps 13-17
      (separate Firebase repo, not in main repo)
 
-  4. Login page — logo not fully vertically centered
-     on left panel (minor UI tweak)
+  2. Email wiring — wire send-transactional-email
+     into send-reminders for grace_period variant
 
 ## PERIODIC HEALTH QUERIES
 
@@ -1137,8 +1059,8 @@ before adding new functions.
 
 ### review-payment-submission deploy verification
 
-review-payment-submission auto-deploy is unreliable.
-Always verify version number in Supabase logs.
-Manual deploy command if version unchanged:
+review-payment-submission: verify version in Supabase logs
+after every deploy. If unchanged, manually deploy:
+
   npx supabase functions deploy review-payment-submission \
     --no-verify-jwt --project-ref pfoicalpzdcmyxzvwyhz
