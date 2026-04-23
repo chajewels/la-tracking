@@ -180,7 +180,62 @@ Deno.serve(async (req) => {
         year: "numeric",
       });
 
+      // Grace period takes priority: due 1-7 days ago AND no unpaid penalties
+      // for this schedule row. Sends payment-reminder with type=grace_period.
+      const isGracePeriod =
+        alert.daysOverdue >= 1 && alert.daysOverdue <= 7 && !alert.hasPenalties;
+
       try {
+        if (isGracePeriod) {
+          const dueDateObj = new Date(alert.dueDate + "T00:00:00Z");
+          const graceEndObj = new Date(dueDateObj.getTime() + 7 * 86_400_000);
+          const graceEndStr = graceEndObj.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          });
+          const graceRes = await fetch(`${supabaseUrl}/functions/v1/send-transactional-email`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${serviceRoleKey}`,
+            },
+            body: JSON.stringify({
+              templateName: "payment-reminder",
+              recipientEmail: alert.customerEmail,
+              idempotencyKey: `grace-period-${alert.scheduleId}-${today}`,
+              templateData: {
+                customerName: alert.customer,
+                invoiceNumber: alert.invoice,
+                dueDate: dueStr,
+                amountDue: Math.round(alert.amount).toLocaleString("en-US"),
+                currency: alert.currency,
+                type: "grace_period",
+                graceEndDate: graceEndStr,
+                portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${alert.invoice}`,
+              },
+            }),
+          });
+          const graceBody = await graceRes.text();
+          if (!graceRes.ok) {
+            console.error(`Grace-period email failed for ${alert.customer}: ${graceRes.status} ${graceBody}`);
+            emailsFailed++;
+          } else {
+            emailsSent++;
+            await supabase
+              .from("reminder_logs")
+              .update({ channel: "email", delivery_status: "sent", recipient: alert.customerEmail })
+              .eq("schedule_id", alert.scheduleId)
+              .eq("customer_id", alert.customerId)
+              .order("created_at", { ascending: false })
+              .limit(1);
+          }
+          if (emailAlerts.length > 1) {
+            await new Promise((r) => setTimeout(r, 500));
+          }
+          continue;
+        }
+
         const emailRes = await fetch(`${supabaseUrl}/functions/v1/send-transactional-email`, {
           method: "POST",
           headers: {
