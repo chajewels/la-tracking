@@ -1102,3 +1102,14 @@ SUPABASE EDGE FUNCTIONS — these auto-deploy when their files change:
 All other edge functions still require manual deploy via Cloud Shell.
 Always check .github/workflows/supabase-functions-deploy.yml
 before adding new functions.
+
+### review-payment-submission deploy verification
+
+After any change to review-payment-submission, always manually verify
+the version number in Supabase logs has changed. GitHub Actions has
+been observed to complete successfully without the new code actually
+reaching the edge runtime. If the version stays the same after the
+Actions run finishes, manually deploy from Cloud Shell:
+
+  npx supabase functions deploy review-payment-submission \
+    --no-verify-jwt --project-ref pfoicalpzdcmyxzvwyhz
