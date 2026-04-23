@@ -1,29 +1,20 @@
 import { useEffect, useState } from 'react';
 import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
 
-const GOLD = '#D4AF37';
-const BG = '#0A0A0A';
-
 const KEYFRAMES = `
-@keyframes splash-logo-in {
-  from { opacity: 0; transform: scale(0.85); }
-  to { opacity: 1; transform: scale(1); }
+@keyframes splash-fade-in-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-@keyframes splash-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-@keyframes splash-tagline-in {
-  from { opacity: 0; }
-  to { opacity: 0.7; }
-}
-@keyframes splash-line-grow {
-  from { width: 0; }
-  to { width: 50px; }
-}
-@keyframes splash-dot-pulse {
-  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
-  40% { opacity: 1; transform: scale(1); }
+@keyframes splash-dot-cycle {
+  0%, 80%, 100% {
+    width: 0.375rem;
+    background-color: hsl(var(--accent));
+  }
+  40% {
+    width: 1.5rem;
+    background-color: hsl(var(--primary));
+  }
 }
 `;
 
@@ -53,15 +44,8 @@ export default function SplashScreen({ onComplete }: Props) {
     <>
       <style>{KEYFRAMES}</style>
       <div
+        className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-background"
         style={{
-          position: 'fixed',
-          inset: 0,
-          zIndex: 9999,
-          backgroundColor: BG,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
           opacity: fadingOut ? 0 : 1,
           transition: 'opacity 0.5s ease-out',
           pointerEvents: fadingOut ? 'none' : 'auto',
@@ -70,89 +54,51 @@ export default function SplashScreen({ onComplete }: Props) {
         <img
           src={chaJewelsLogo}
           alt="Cha Jewels"
+          className="mix-blend-multiply"
           style={{
             width: '160px',
             height: 'auto',
             opacity: 0,
-            animation: 'splash-logo-in 0.8s ease-out 0.2s forwards',
+            animation: 'splash-fade-in-up 0.5s ease-out forwards',
           }}
         />
 
-        <div
+        <h2
+          className="font-display text-3xl font-semibold tracking-tight text-primary mt-6"
           style={{
-            color: GOLD,
-            fontSize: '13px',
-            fontWeight: 300,
-            letterSpacing: '0.4em',
-            marginTop: '24px',
             opacity: 0,
-            animation: 'splash-fade-in 0.6s ease-out 0.6s forwards',
+            animation: 'splash-fade-in-up 0.5s ease-out 0.3s forwards',
           }}
         >
-          CHA JEWELS
-        </div>
+          Cha Jewels
+        </h2>
+
+        <div className="w-12 h-px bg-primary/40 my-4" />
 
         <div
+          className="text-center"
           style={{
-            width: 0,
-            height: '1px',
-            backgroundColor: GOLD,
-            marginTop: '16px',
-            animation: 'splash-line-grow 0.8s ease-out 1s forwards',
-          }}
-        />
-
-        <div
-          style={{
-            textAlign: 'center',
-            marginTop: '8px',
             opacity: 0,
-            animation: 'splash-fade-in 0.8s ease-out 1.2s forwards',
+            animation: 'splash-fade-in-up 0.5s ease-out 0.3s forwards',
           }}
         >
-          <div
-            style={{
-              color: '#ffffff',
-              fontSize: '13px',
-              fontStyle: 'italic',
-              fontWeight: 300,
-              opacity: 0.7,
-              letterSpacing: '0.08em',
-            }}
-          >
+          <p className="font-body italic text-sm text-muted-foreground">
             Everyday, Layaway.
-          </div>
-          <div
-            style={{
-              color: GOLD,
-              fontSize: '13px',
-              fontStyle: 'italic',
-              fontWeight: 400,
-              letterSpacing: '0.08em',
-              marginTop: '4px',
-            }}
-          >
+          </p>
+          <p className="font-body italic text-sm text-primary mt-1">
             Cha Jewels All the Way.
-          </div>
+          </p>
         </div>
 
-        <div
-          style={{
-            position: 'absolute',
-            bottom: '48px',
-            display: 'flex',
-            gap: '8px',
-          }}
-        >
+        <div className="absolute bottom-12 flex items-center gap-2">
           {[0, 1, 2].map((i) => (
             <div
               key={i}
+              className="h-1.5 rounded-full"
               style={{
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                backgroundColor: GOLD,
-                animation: `splash-dot-pulse 1.4s ease-in-out ${i * 0.2}s infinite`,
+                width: '0.375rem',
+                backgroundColor: 'hsl(var(--accent))',
+                animation: `splash-dot-cycle 1.4s ease-in-out ${i * 0.2}s infinite`,
               }}
             />
           ))}
