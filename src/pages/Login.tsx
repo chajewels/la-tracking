@@ -72,12 +72,12 @@ export default function Login() {
           src={UNSPLASH_HERO}
           alt=""
           className="absolute inset-0 w-full h-full object-cover opacity-45"
-          style={{ mixBlendMode: 'normal', objectPosition: 'center 30%' }}
+          style={{ mixBlendMode: 'normal' }}
         />
 
         {/* Centered brand block */}
         <div
-          className={`relative z-20 flex-1 flex flex-col items-center justify-center px-12 transition-all duration-700 ${
+          className={`relative z-20 flex-1 flex flex-col items-center justify-start pt-16 px-12 transition-all duration-700 ${
             mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
           }`}
         >
