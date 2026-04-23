@@ -15,6 +15,7 @@ import { Currency, PaymentPlan } from '@/lib/types';
 import { toast } from 'sonner';
 import { useCustomers, useAccounts, useCreateAccount, DbCustomer } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
+import { useQuery } from '@tanstack/react-query';
 import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
 import { Badge } from '@/components/ui/badge';
 import { useAccountDraft, clearAccountDraft } from '@/hooks/use-account-draft';
@@ -187,6 +188,32 @@ export default function NewAccount() {
   const downpaymentAmount = parseInt(downpaymentInput) || 0;
   const lumpSum = parseInt(lumpSumInput) || 0;
 
+  // Plan minimums — fetched from plan_configurations, enforced before submit
+  const { data: planConfigs } = useQuery({
+    queryKey: ['plan-configurations'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('plan_configurations')
+        .select('plan_months, min_amount_jpy, min_amount_php')
+        .eq('is_active', true);
+      if (error) throw error;
+      return (data ?? []) as Array<{ plan_months: number; min_amount_jpy: number | null; min_amount_php: number | null }>;
+    },
+  });
+
+  const planMinimum = useMemo(() => {
+    if (!planConfigs || !paymentPlan) return null;
+    const config = planConfigs.find(p => p.plan_months === paymentPlan);
+    if (!config) return null;
+    const min = currency === 'JPY' ? config.min_amount_jpy : config.min_amount_php;
+    return min != null ? Number(min) : null;
+  }, [planConfigs, paymentPlan, currency]);
+
+  const isBelowMinimum = planMinimum !== null && planMinimum > 0 && amount > 0 && amount < planMinimum;
+
+  const formatPlanMin = (min: number) =>
+    currency === 'JPY' ? `¥${min.toLocaleString()}` : `₱${min.toLocaleString()}`;
+
   // Existing active/overdue accounts for selected customer
   const customerAccounts = useMemo(() => {
     if (!customerId || !allAccounts) return [];
@@ -292,6 +319,13 @@ export default function NewAccount() {
     e.preventDefault();
     if (!invoiceNumber || !customerId || !totalAmount || !orderDate) {
       toast.error('Please fill in all required fields');
+      return;
+    }
+
+    if (isBelowMinimum && planMinimum !== null) {
+      toast.error(
+        `Cannot create account. Minimum amount for ${paymentPlan}-month plan is ${formatPlanMin(planMinimum)}`
+      );
       return;
     }
 
@@ -664,6 +698,12 @@ export default function NewAccount() {
                   placeholder="e.g. 83311"
                   className="bg-background border-border"
                 />
+                {isBelowMinimum && planMinimum !== null && (
+                  <p className="text-red-500 text-sm mt-1">
+                    Minimum amount for {paymentPlan}-month plan is {formatPlanMin(planMinimum)}.
+                    This account cannot be created below the minimum.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -704,26 +744,37 @@ export default function NewAccount() {
               <div className="space-y-2">
                 <Label className="text-card-foreground">Payment Plan *</Label>
                 <div className="flex gap-2">
-                  {([3, 6, 8, 10, 12] as const).map(plan => (
-                    <button
-                      key={plan}
-                      type="button"
-                      onClick={() => {
-                        setPaymentPlan(plan);
-                        if (installmentMode === 'custom') {
-                          setCustomAmounts(Array(plan).fill('0'));
-                        }
-                        markDirty();
-                      }}
-                      className={`flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors ${
-                        paymentPlan === plan
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-border bg-background text-muted-foreground hover:border-primary/50'
-                      }`}
-                    >
-                      {plan} Months
-                    </button>
-                  ))}
+                  {([3, 6, 8, 10, 12] as const).map(plan => {
+                    const config = planConfigs?.find(p => p.plan_months === plan);
+                    const pillMin = config
+                      ? Number((currency === 'JPY' ? config.min_amount_jpy : config.min_amount_php) ?? 0)
+                      : 0;
+                    return (
+                      <button
+                        key={plan}
+                        type="button"
+                        onClick={() => {
+                          setPaymentPlan(plan);
+                          if (installmentMode === 'custom') {
+                            setCustomAmounts(Array(plan).fill('0'));
+                          }
+                          markDirty();
+                        }}
+                        className={`flex-1 rounded-lg border py-2 text-sm font-medium transition-colors ${
+                          paymentPlan === plan
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border bg-background text-muted-foreground hover:border-primary/50'
+                        }`}
+                      >
+                        <div>{plan} Months</div>
+                        {pillMin > 0 && (
+                          <div className="text-[10px] font-normal opacity-70 mt-0.5">
+                            Min {formatPlanMin(pillMin)}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -1040,8 +1091,8 @@ export default function NewAccount() {
             </Button>
             <Button
               type="submit"
-              disabled={createAccount.isPending}
-              className="gold-gradient text-primary-foreground font-medium"
+              disabled={createAccount.isPending || isBelowMinimum}
+              className={`gold-gradient text-primary-foreground font-medium ${isBelowMinimum ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               {createAccount.isPending ? 'Creating…' : 'Create Account'}
             </Button>
