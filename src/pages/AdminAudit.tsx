@@ -131,6 +131,10 @@ export function OverdueDebugTab() {
 
   const accounts = data || [];
 
+  const phtToday = new Date(
+    new Date().toLocaleString('en-US', { timeZone: 'Asia/Tokyo' })
+  ).toISOString().split('T')[0];
+
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">{accounts.length} overdue account(s)</p>
@@ -139,6 +143,7 @@ export function OverdueDebugTab() {
         const penalties = acc.penalty_fees || [];
         const nextDue = getNextUnpaidDueDate(schedules);
         const overdueDays = nextDue ? daysOverdueFromToday(nextDue) : 0;
+        const activePenalties = penalties.filter((p: any) => p.status !== 'waived');
         const unpaidPenalties = penalties.filter((p: any) => p.status === 'unpaid');
         const waivedPenalties = penalties.filter((p: any) => p.status === 'waived');
         const currency = acc.currency as Currency;
@@ -167,7 +172,7 @@ export function OverdueDebugTab() {
                 <p className="font-semibold text-card-foreground">{formatCurrency(Number(acc.remaining_balance), currency)}</p>
               </div>
               <div className="rounded-lg bg-zinc-800 p-2">
-                <p className="text-muted-foreground">Active Penalties</p>
+                <p className="text-muted-foreground">Unpaid Penalties</p>
                 <p className="font-semibold text-destructive">{unpaidPenalties.length} ({formatCurrency(unpaidPenalties.reduce((s: number, p: any) => s + Number(p.penalty_amount), 0), currency)})</p>
               </div>
               <div className="rounded-lg bg-zinc-800 p-2">
@@ -181,7 +186,7 @@ export function OverdueDebugTab() {
                 const paid = isEffectivelyPaid(s);
                 return (
                   <div key={s.id} className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${paid ? 'bg-success' : s.due_date < new Date().toISOString().split('T')[0] ? 'bg-destructive' : 'bg-muted-foreground'}`} />
+                    <span className={`w-2 h-2 rounded-full ${paid ? 'bg-success' : s.due_date < phtToday ? 'bg-destructive' : 'bg-muted-foreground'}`} />
                     <span>Inst #{s.installment_number}</span>
                     <span>{new Date(s.due_date + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                     <span>{formatCurrency(Number(s.total_due_amount), currency)}</span>
@@ -237,7 +242,7 @@ export function WaiverAuditTab() {
     queryFn: async () => {
       const { data } = await supabase
         .from('layaway_accounts')
-        .select('id, invoice_number, customers(full_name)')
+        .select('id, invoice_number, currency, customers(full_name)')
         .in('id', accountIds)
         .not('invoice_number', 'ilike', 'TEST-%');
       return (data || []) as any[];
@@ -290,6 +295,7 @@ export function WaiverAuditTab() {
           const account        = accountMap.get(log.entity_id);
           const approver       = profileMap.get(log.performed_by_user_id);
           const customerName   = (account as any)?.customers?.full_name;
+          const symbol         = (account as any)?.currency === 'JPY' ? '¥' : '₱';
 
           return (
             <div key={log.id} className={`rounded-lg border p-4 space-y-3 ${isApproval ? 'border-success/40 bg-zinc-900' : 'border-destructive/40 bg-zinc-900'}`}>
@@ -353,7 +359,7 @@ export function WaiverAuditTab() {
                           </span>
                         )}
                         <span className="font-semibold text-destructive tabular-nums ml-auto">
-                          ₱{Number(p.amount).toLocaleString()}
+                          {symbol}{Number(p.amount).toLocaleString()}
                         </span>
                       </div>
                     );
@@ -365,7 +371,7 @@ export function WaiverAuditTab() {
               <div className="flex items-center gap-4 flex-wrap">
                 {details.total_waived != null && (
                   <p className="text-xs text-card-foreground">
-                    Total waived: <span className="font-semibold text-success">₱{Number(details.total_waived).toLocaleString()}</span>
+                    Total waived: <span className="font-semibold text-success">{symbol}{Number(details.total_waived).toLocaleString()}</span>
                   </p>
                 )}
                 {details.notes && (
