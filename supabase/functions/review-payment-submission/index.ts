@@ -54,15 +54,6 @@ async function allocatePaymentToAccount(
     .eq("status", "unpaid")
     .order("penalty_date", { ascending: true });
 
-  console.log('[DEBUG] unpaidPenalties:', JSON.stringify(
-    (unpaidPenalties || []).map(p => ({
-      id: p.id.substring(0,8),
-      schedule_id: p.schedule_id.substring(0,8),
-      amount: p.penalty_amount,
-      status: p.status
-    }))
-  ));
-
   let remaining = amountPaid;
   const allocations: Array<{
     schedule_id: string;
@@ -106,22 +97,11 @@ async function allocatePaymentToAccount(
         }
       }
 
-      console.log('[DEBUG] allocatedBySchedule:',
-        JSON.stringify([...allocatedBySchedule.entries()].map(
-          ([k,v]) => [k.substring(0,8), v]
-        ))
-      );
-
       const unpaidItems = schedule
         .filter((item: any) => item.status !== "paid" && item.status !== "cancelled")
         .sort((a: any, b: any) => a.installment_number - b.installment_number);
 
       for (const item of unpaidItems) {
-        console.log('[DEBUG] --- row', item.installment_number,
-          'remaining:', remaining,
-          'item.id:', item.id.substring(0,8),
-          'total_due_amount:', item.total_due_amount
-        );
         if (remaining <= 0) break;
 
         // Carry-over guard: respect admin carry-over decisions. If the NEXT
@@ -155,11 +135,6 @@ async function allocatePaymentToAccount(
           }
         }
 
-        console.log('[DEBUG] after StepA row', item.installment_number,
-          'remaining:', remaining,
-          'allocations so far:', allocations.length
-        );
-
         if (remaining <= 0) break;
 
         // STEP B — Pay THIS row's base installment
@@ -184,13 +159,6 @@ async function allocatePaymentToAccount(
         const toApply = Math.min(remaining, due);
         const newPaid = alreadyAllocated + toApply;
         const isNowFullyPaid = newPaid + alreadyAllocatedPenalty >= rowCeiling - 0.005;
-
-        console.log('[DEBUG] StepB row', item.installment_number,
-          'alreadyAllocated:', alreadyAllocated,
-          'alreadyAllocatedPenalty:', alreadyAllocatedPenalty,
-          'due:', due,
-          'toApply:', toApply
-        );
 
         // STEP C — Push allocation + schedule update (before decrementing remaining
         // so the explicit break right after remaining -= toApply does not skip it)
@@ -286,14 +254,6 @@ async function allocatePaymentToAccount(
         allocated_amount: totalPenalty,
       });
     }
-
-    console.log('[DEBUG] mergedAllocations:',
-      JSON.stringify(mergedAllocations.map(a => ({
-        month_id: a.schedule_id.substring(0,8),
-        type: a.allocation_type,
-        amount: a.allocated_amount
-      })))
-    );
 
     // Create allocations (duplicate guard: skip if allocation already exists for this payment+schedule)
     for (const alloc of mergedAllocations) {
