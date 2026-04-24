@@ -923,6 +923,26 @@ When completing a partially_paid month:
     - All flows (submissions, proof, void, loyalty) use same infrastructure
     - Invoice numbers entered manually same as layaway
 
+  Cash Basis Plan: COMPLETE ✅ (2026-04-25)
+    - Database: cash_orders + cash_payments tables live
+    - 6 edge functions deployed (create/submit/void/
+      review/dashboard/customer-portal)
+    - Full UI: Cash tab, NewCashOrder, CashOrderDetail,
+      customer portal integration, submissions handling
+    - 2 email templates (cash-payment-submitted,
+      cash-payment-confirmed)
+    - KPIs: Dashboard + Finance + Executive all show
+      cash metrics
+    - Cancellation tracking (cancelled_at, reason, user)
+    - Payment submissions go through review flow
+
+  Cash Basis Plan — Known Gaps:
+    - Cash payment rejection/clarification emails
+      silently fail (no cash-specific templates built yet)
+    - Executive dashboard 6-month history chart for
+      cash vs layaway deferred (needs
+      cash_revenue_by_month_6m RPC)
+
   accept-underpayment auto-carry: REMOVED ✅
   carry-over edge function: DEPLOYED ✅
   review-payment-submission auto-carry: REMOVED ✅
