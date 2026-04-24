@@ -4,6 +4,9 @@ import { ROUTES } from '@/constants/routes';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import AdminSplashScreen from '@/components/auth/AdminSplashScreen';
+
+const SPLASH_KEY = 'admin_splash_shown';
 
 const BG_LEFT = '#1A1410';
 const BG_RIGHT = '#110E0A';
@@ -23,6 +26,11 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [showSplash, setShowSplash] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return sessionStorage.getItem(SPLASH_KEY) !== 'true';
+  });
+  const [splashFading, setSplashFading] = useState(false);
 
   useEffect(() => {
     if (session && !window.location.hash.includes('type=recovery')) {
@@ -33,6 +41,27 @@ export default function Login() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!showSplash) return;
+    const fadeTimer = setTimeout(() => setSplashFading(true), 2500);
+    const removeTimer = setTimeout(() => {
+      setShowSplash(false);
+      try {
+        sessionStorage.setItem(SPLASH_KEY, 'true');
+      } catch {
+        // ignore storage errors
+      }
+    }, 3000);
+    return () => {
+      clearTimeout(fadeTimer);
+      clearTimeout(removeTimer);
+    };
+  }, [showSplash]);
+
+  if (showSplash) {
+    return <AdminSplashScreen fadingOut={splashFading} />;
+  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
