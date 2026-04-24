@@ -448,6 +448,200 @@ Deno.serve(async (req) => {
     const allocs = subAllocations || [];
     let confirmedPaymentIds: string[] = [];
 
+    // ── CASH ORDER CONFIRMATION PATH ──
+    // Cash order submissions are identified by cash_order_id IS NOT NULL
+    // (account_id IS NULL). Handled entirely separately from layaway with
+    // an early return — does not touch payment_allocations, schedule, or
+    // penalty engine.
+    if (action === "confirmed" && submission.cash_order_id) {
+      // Idempotency guard — a re-confirmed submission would create a duplicate cash_payment
+      if (submission.status === "confirmed" && submission.confirmed_payment_id) {
+        return new Response(JSON.stringify({
+          error: "Submission already confirmed",
+          confirmed_payment_id: submission.confirmed_payment_id,
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // 1. Fetch cash order — must exist and be pending
+      const { data: cashOrder, error: cashOrderErr } = await supabase
+        .from("cash_orders")
+        .select("id, customer_id, currency, invoice_number, status, total_paid, remaining_balance")
+        .eq("id", submission.cash_order_id)
+        .maybeSingle();
+      if (cashOrderErr || !cashOrder) {
+        return new Response(JSON.stringify({ error: "cash_order not found" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (cashOrder.status !== "pending") {
+        return new Response(JSON.stringify({ error: `cash_order is ${cashOrder.status}, cannot confirm payment` }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // 2. Re-validate ceiling at review time (other payments may have arrived between submission and review)
+      const submittedAmount = Number(submission.submitted_amount);
+      const liveRemaining = Number(cashOrder.remaining_balance);
+      if (submittedAmount > liveRemaining + 0.005) {
+        return new Response(JSON.stringify({
+          error: `submitted_amount (${submittedAmount}) exceeds current remaining_balance (${liveRemaining})`,
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // 3. Insert cash_payments row
+      const submittedByType = submission.portal_token ? "customer" : "staff";
+      const { data: cashPayment, error: cpErr } = await supabase
+        .from("cash_payments")
+        .insert({
+          cash_order_id: cashOrder.id,
+          amount_paid: submittedAmount,
+          currency: cashOrder.currency,
+          date_paid: submission.payment_date,
+          payment_method: submission.payment_method,
+          reference_number: submission.reference_number,
+          remarks: submission.notes,
+          entered_by_user_id: user.id,
+          submitted_by_type: submittedByType,
+          submitted_by_name: submission.sender_name,
+        })
+        .select()
+        .single();
+      if (cpErr || !cashPayment) {
+        console.error("cash_payments insert error:", cpErr);
+        return new Response(JSON.stringify({ error: cpErr?.message || "Failed to create cash_payment" }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // 4. Update cash_orders totals + status if fully paid
+      const newTotalPaid = Math.round((Number(cashOrder.total_paid) + submittedAmount) * 100) / 100;
+      const newRemaining = Math.max(0, Math.round((liveRemaining - submittedAmount) * 100) / 100);
+      const isFullyPaid = newRemaining <= 0.005;
+      const statusAfter = isFullyPaid ? "completed" : "pending";
+      const orderUpdate: Record<string, unknown> = {
+        total_paid: newTotalPaid,
+        remaining_balance: newRemaining,
+      };
+      if (isFullyPaid) {
+        orderUpdate.status = "completed";
+        orderUpdate.completed_at = new Date().toISOString();
+      }
+      const { data: updatedOrder, error: orderUpdErr } = await supabase
+        .from("cash_orders")
+        .update(orderUpdate)
+        .eq("id", cashOrder.id)
+        .select()
+        .single();
+      if (orderUpdErr) {
+        // Rollback the cash_payment we just inserted to avoid drift
+        await supabase.from("cash_payments").delete().eq("id", cashPayment.id);
+        return new Response(JSON.stringify({ error: "Failed to update cash_order: " + orderUpdErr.message }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // 5. Update submission status
+      const subUpdate: Record<string, unknown> = {
+        status: "confirmed",
+        reviewer_user_id: user.id,
+        reviewer_notes: reviewer_notes || null,
+        confirmed_payment_id: cashPayment.id,
+        updated_at: new Date().toISOString(),
+      };
+      const { error: subUpdErr } = await supabase
+        .from("payment_submissions")
+        .update(subUpdate)
+        .eq("id", submission_id);
+      if (subUpdErr) {
+        console.error("submission update error after cash confirm:", subUpdErr);
+        // Don't roll back at this point — the payment is real and the order totals are correct.
+        // Surface the error so the reviewer sees the inconsistent submission state.
+        return new Response(JSON.stringify({ error: "Cash payment recorded but submission update failed: " + subUpdErr.message }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // 6. Audit log
+      await supabase.from("audit_logs").insert({
+        entity_type: "cash_payment_submission",
+        entity_id: submission_id,
+        action: "confirm",
+        performed_by_user_id: user.id,
+        new_value_json: {
+          cash_payment_id: cashPayment.id,
+          amount_confirmed: submittedAmount,
+          remaining_after: newRemaining,
+          status_after: statusAfter,
+        },
+        old_value_json: { status: submission.status },
+      });
+
+      // 7. Fire-and-forget: cash-payment-confirmed email
+      try {
+        const { data: customer } = await supabase
+          .from("customers")
+          .select("full_name, email")
+          .eq("id", cashOrder.customer_id)
+          .single();
+        const customerEmail = customer?.email;
+        if (customerEmail) {
+          await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            },
+            body: JSON.stringify({
+              templateName: "cash-payment-confirmed",
+              recipientEmail: customerEmail,
+              idempotencyKey: `cash-payment-confirmed-${cashPayment.id}`,
+              templateData: {
+                customerName: customer?.full_name || "Valued Customer",
+                invoiceNumber: cashOrder.invoice_number,
+                amountPaid: Number(submittedAmount).toLocaleString("en-US"),
+                currency: cashOrder.currency,
+                remainingBalance: Number(newRemaining).toLocaleString("en-US"),
+                totalPaid: Number(newTotalPaid).toLocaleString("en-US"),
+                isFullyPaid,
+                portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${cashOrder.invoice_number}`,
+              },
+            }),
+          });
+        }
+      } catch (emailErr) {
+        console.warn("[review-payment-submission] cash-payment-confirmed email failed (non-blocking):", emailErr);
+      }
+
+      // 8. Fire-and-forget: award-loyalty-points if order is now completed
+      if (isFullyPaid) {
+        try {
+          await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            },
+            body: JSON.stringify({
+              cash_order_id: cashOrder.id,
+              customer_id: cashOrder.customer_id,
+            }),
+          });
+        } catch (loyaltyErr) {
+          console.warn("[review-payment-submission] award-loyalty-points failed (non-blocking):", loyaltyErr);
+        }
+      }
+
+      // 9. Early return — do NOT fall through to layaway logic below
+      return new Response(JSON.stringify({
+        success: true,
+        status: "confirmed",
+        submission: { id: submission_id, status: "confirmed", confirmed_payment_id: cashPayment.id },
+        cash_order: updatedOrder,
+        cash_payment: cashPayment,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    // ── END CASH ORDER PATH ──
+
     // If confirming, create actual payment records
     if (action === "confirmed") {
       // Detect DP submissions using the same heuristics as the payments table

@@ -110,6 +110,8 @@ const BulkPaymentImport = lazyWithRetry(() => import("./pages/BulkPaymentImport"
 const Unsubscribe = lazyWithRetry(() => import("./pages/Unsubscribe"));
 const Promotions = lazyWithRetry(() => import("./pages/Promotions"));
 const ExecutiveDashboard = lazyWithRetry(() => import("./pages/ExecutiveDashboard"));
+const NewCashOrder = lazyWithRetry(() => import("./pages/NewCashOrder"));
+const CashOrderDetail = lazyWithRetry(() => import("./pages/CashOrderDetail"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -176,6 +178,10 @@ const App = () => (
                 <Route path="/bulk-payment-import" element={<Protected><BulkPaymentImport /></Protected>} />
                 <Route path="/promotions" element={<Protected><Promotions /></Protected>} />
                 <Route path="/executive-dashboard" element={<ExecutiveDashboard />} />
+                {/* Cash orders */}
+                <Route path="/cash-orders" element={<Navigate to="/customers?tab=cash" replace />} />
+                <Route path="/cash-orders/new" element={<Protected><NewCashOrder /></Protected>} />
+                <Route path="/cash-orders/:id" element={<Protected><CashOrderDetail /></Protected>} />
                 {/* Legacy routes — redirect to the combined hub */}
                 <Route path="/payment-submissions" element={<Navigate to="/payments-hub" replace />} />
                 <Route path="/payment-proofs" element={<Navigate to="/payments-hub?tab=proofs" replace />} />

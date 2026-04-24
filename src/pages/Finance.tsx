@@ -502,6 +502,34 @@ export default function Finance() {
               )}
             </div>
 
+            {/* Cash Orders row — always JPY regardless of displayCurrency */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {summaryLoading ? (
+                [...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+              ) : (
+                <>
+                  <StatCard
+                    title="Total Cash Sales (JPY)"
+                    value={formatCurrency(summary?.cash_revenue_total_jpy ?? 0, 'JPY')}
+                    subtitle={`${formatCurrency(summary?.cash_revenue_month_jpy ?? 0, 'JPY')} this month`}
+                    icon={Banknote}
+                    variant="gold"
+                  />
+                  <StatCard
+                    title="Cash Conversion Rate"
+                    value={`${(summary?.cash_conversion_rate?.this_month ?? 0).toFixed(1)}%`}
+                    subtitle={`${(summary?.cash_conversion_rate?.all_time ?? 0).toFixed(1)}% all-time`}
+                    icon={Activity}
+                  />
+                  <CashVsLayawaySplitCard
+                    cashJpy={summary?.cash_vs_layaway_split?.this_month?.cash_revenue_jpy ?? 0}
+                    layawayJpy={summary?.cash_vs_layaway_split?.this_month?.layaway_revenue_jpy ?? 0}
+                    cashPct={summary?.cash_vs_layaway_split?.this_month?.cash_percentage ?? 0}
+                  />
+                </>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <AgingBuckets currency={displayCurrency} />
               {/* 6-Month Forecast */}
@@ -1039,5 +1067,59 @@ export default function Finance() {
         </div>
       )}
     </AppLayout>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// CashVsLayawaySplitCard — this-month revenue split, compact horizontal bar
+// Always reports JPY (values come from dashboard-summary.cash_vs_layaway_split
+// which is already currency-normalised server-side).
+// TODO: add cash_revenue_by_month_6m RPC for historical chart in future phase.
+// ────────────────────────────────────────────────────────────────────────
+function CashVsLayawaySplitCard({
+  cashJpy, layawayJpy, cashPct,
+}: { cashJpy: number; layawayJpy: number; cashPct: number }) {
+  const layawayPct = Math.max(0, Math.round((100 - cashPct) * 10) / 10);
+  return (
+    <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4 sm:p-5 border-l-[3px] border-l-primary/60">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            Cash vs Layaway (This Month · JPY)
+          </p>
+          <p className="text-xl sm:text-2xl font-bold font-display tabular-nums mt-1">
+            {cashPct.toFixed(1)}% <span className="text-sm font-normal text-muted-foreground">cash</span>
+          </p>
+        </div>
+      </div>
+      {/* Horizontal split bar */}
+      <div className="mt-3">
+        <div className="h-2 rounded-full bg-muted overflow-hidden flex">
+          <div
+            className="h-full gold-gradient transition-all duration-500"
+            style={{ width: `${Math.min(Math.max(cashPct, 0), 100)}%` }}
+            title={`Cash ${cashPct.toFixed(1)}%`}
+          />
+          <div
+            className="h-full bg-success/70 transition-all duration-500"
+            style={{ width: `${Math.min(Math.max(layawayPct, 0), 100)}%` }}
+            title={`Layaway ${layawayPct.toFixed(1)}%`}
+          />
+        </div>
+      </div>
+      {/* Legend */}
+      <div className="mt-2 flex items-center justify-between text-[10px] tabular-nums">
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block h-2 w-2 rounded-sm bg-primary" />
+          <span className="text-muted-foreground">Cash</span>
+          <span className="text-card-foreground font-medium">¥ {Math.round(cashJpy).toLocaleString()}</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block h-2 w-2 rounded-sm bg-success/70" />
+          <span className="text-muted-foreground">Layaway</span>
+          <span className="text-card-foreground font-medium">¥ {Math.round(layawayJpy).toLocaleString()}</span>
+        </div>
+      </div>
+    </div>
   );
 }

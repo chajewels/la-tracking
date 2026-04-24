@@ -378,6 +378,19 @@ export function useDashboardSummary(currencyMode: 'PHP' | 'JPY' | 'ALL', enabled
         next_month_expected: number;
         next_month_adjusted: number;
         forecast_6_months: { month: string; expected: number; adjusted: number }[];
+        // Cash orders (always JPY, independent of currencyMode)
+        cash_orders_active: number;
+        cash_orders_completed_this_month: number;
+        cash_orders_completed_all_time: number;
+        cash_orders_cancelled: number;
+        cash_revenue_today_jpy: number;
+        cash_revenue_month_jpy: number;
+        cash_revenue_total_jpy: number;
+        cash_vs_layaway_split: {
+          this_month: { cash_revenue_jpy: number; layaway_revenue_jpy: number; cash_percentage: number };
+          all_time:   { cash_revenue_jpy: number; layaway_revenue_jpy: number; cash_percentage: number };
+        };
+        cash_conversion_rate: { this_month: number; all_time: number };
       };
     },
   });

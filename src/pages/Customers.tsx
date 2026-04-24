@@ -1,9 +1,11 @@
 import { useState, useMemo, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { parseLocation, LocationType } from '@/lib/countries';
 import { Users, Search, LayoutGrid, ListFilter, Layers } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AccountList from './AccountList';
+import CashOrdersList from '@/components/customers/CashOrdersList';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useCustomers, useAccounts } from '@/hooks/use-supabase-data';
@@ -18,9 +20,22 @@ import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 
 type ViewMode = 'all' | 'filter' | 'grouped';
+type TabKey = 'customers' | 'accounts' | 'cash';
 
 export default function Customers() {
-  const [activeTab, setActiveTab] = useState<'customers' | 'accounts'>('customers');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab: TabKey = (() => {
+    const t = searchParams.get('tab');
+    return t === 'cash' || t === 'accounts' ? t : 'customers';
+  })();
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
+  const handleTabChange = useCallback((v: string) => {
+    const tab = v as TabKey;
+    setActiveTab(tab);
+    if (tab === 'customers') searchParams.delete('tab');
+    else searchParams.set('tab', tab);
+    setSearchParams(searchParams, { replace: true });
+  }, [searchParams, setSearchParams]);
   const { data: customers, isLoading } = useCustomers();
   const { data: accounts } = useAccounts();
   const { roles } = useAuth();
@@ -163,10 +178,11 @@ export default function Customers() {
           {can('edit_customer') && <NewCustomerDialog />}
         </div>
 
-        <Tabs value={activeTab} onValueChange={v => setActiveTab(v as 'customers' | 'accounts')} className="w-full">
-          <TabsList className="grid grid-cols-2 w-full max-w-xs">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+          <TabsList className="grid grid-cols-3 w-full max-w-md">
             <TabsTrigger value="customers">Customers ({sorted.length})</TabsTrigger>
-            <TabsTrigger value="accounts">Layaway Accounts</TabsTrigger>
+            <TabsTrigger value="accounts">Layaway</TabsTrigger>
+            <TabsTrigger value="cash">Cash</TabsTrigger>
           </TabsList>
 
           <TabsContent value="customers" className="mt-5 space-y-5">
@@ -270,6 +286,10 @@ export default function Customers() {
 
           <TabsContent value="accounts" className="mt-5">
             <AccountList embedded />
+          </TabsContent>
+
+          <TabsContent value="cash" className="mt-5">
+            <CashOrdersList embedded />
           </TabsContent>
         </Tabs>
       </div>
