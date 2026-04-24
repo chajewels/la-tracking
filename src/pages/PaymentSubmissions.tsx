@@ -39,7 +39,8 @@ type SubmissionStatus = 'submitted' | 'under_review' | 'confirmed' | 'rejected' 
 interface SubmissionRow {
   id: string;
   customer_id: string;
-  account_id: string;
+  account_id: string | null;
+  cash_order_id: string | null;
   submitted_amount: number;
   payment_date: string;
   payment_method: string;
@@ -58,6 +59,7 @@ interface SubmissionRow {
   customer_edited_at: string | null;
   customers: { full_name: string; customer_code: string } | null;
   layaway_accounts: { invoice_number: string; currency: string; remaining_balance: number; total_amount: number } | null;
+  cash_orders: { invoice_number: string; currency: string; customer_id: string; customers: { full_name: string; customer_code: string } | null } | null;
 }
 
 interface SubmissionAllocation {
@@ -136,7 +138,10 @@ const ActionDialogModal = memo(function ActionDialogModal({
   onSubmit,
 }: ActionDialogModalProps) {
   const [reviewerNotes, setReviewerNotes] = useState('');
-  const cur = (actionDialog.sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY';
+  const isCashSub = !!actionDialog.sub.cash_order_id;
+  const cur = (
+    (isCashSub ? actionDialog.sub.cash_orders?.currency : actionDialog.sub.layaway_accounts?.currency) || 'PHP'
+  ) as 'PHP' | 'JPY';
 
   return (
     <>
@@ -326,6 +331,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
     ['pending-submission-count'],
   ]);
   const [statusFilter, setStatusFilter] = useState<string>('pending');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'layaway' | 'cash'>('all');
   const searchRef = useRef('');
   const [filterTick, setFilterTick] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -375,6 +381,13 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
     // Skip waterfall preview for split submissions — the total amount is split
     // across multiple accounts and cannot be validated against a single account's schedule
     if (actionDialog.sub.submission_type === 'split') {
+      setConfirmWaterfall(null);
+      setConfirmResults(null);
+      return;
+    }
+    // Skip waterfall preview for cash-order submissions — no schedule, no installments
+    if (actionDialog.sub.cash_order_id) {
+      setConfirmScheduleRows([]);
       setConfirmWaterfall(null);
       setConfirmResults(null);
       return;
@@ -441,7 +454,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
     queryFn: async () => {
       let query = (supabase as any)
         .from('payment_submissions')
-        .select('*, customers(full_name, customer_code), layaway_accounts(invoice_number, currency, remaining_balance, total_amount)')
+        .select('*, customers(full_name, customer_code), layaway_accounts(invoice_number, currency, remaining_balance, total_amount), cash_orders(invoice_number, currency, customer_id, customers(full_name, customer_code))')
         .order('created_at', { ascending: false });
 
       if (statusFilter === 'pending') {
@@ -491,8 +504,15 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
       const approvedAccountId = actionDialog?.sub.account_id;
 
       if (vars.action === 'confirmed') {
+        // Skip underpayment/overpayment decision flow for cash-order submissions —
+        // cash orders have no schedule, no carry-over, no per-row partial concept.
+        if (actionDialog?.sub.cash_order_id) {
+          setActionDialog(null);
+          setConfirmResults(null);
+          return;
+        }
         // Check if underpayment occurred — show decision modal
-        if (getConfirmPartialRow && actionDialog) {
+        if (getConfirmPartialRow && actionDialog && actionDialog.sub.account_id) {
           const cur = (actionDialog.sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY';
           setUnderpaymentModal({
             scheduleId: getConfirmPartialRow.scheduleId,
@@ -554,16 +574,22 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
   });
 
   const filtered = useMemo(() => (submissions || []).filter((s) => {
+    // Type filter: layaway = has account_id (no cash_order_id), cash = has cash_order_id
+    if (typeFilter === 'layaway' && s.cash_order_id) return false;
+    if (typeFilter === 'cash' && !s.cash_order_id) return false;
+
     if (!searchRef.current) return true;
     const q = searchRef.current.toLowerCase();
     return (
       s.customers?.full_name?.toLowerCase().includes(q) ||
+      s.cash_orders?.customers?.full_name?.toLowerCase().includes(q) ||
       s.layaway_accounts?.invoice_number?.toLowerCase().includes(q) ||
+      s.cash_orders?.invoice_number?.toLowerCase().includes(q) ||
       s.reference_number?.toLowerCase().includes(q) ||
       s.payment_method.toLowerCase().includes(q)
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [submissions, filterTick]);
+  }), [submissions, filterTick, typeFilter]);
 
   const pendingCount = (submissions || []).filter(s => ['submitted', 'under_review'].includes(s.status)).length;
 
@@ -608,6 +634,16 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
               <SelectItem value="needs_clarification">Needs Clarification</SelectItem>
             </SelectContent>
           </Select>
+          <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as 'all' | 'layaway' | 'cash')}>
+            <SelectTrigger className="w-full sm:w-[160px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Types</SelectItem>
+              <SelectItem value="layaway">Layaway</SelectItem>
+              <SelectItem value="cash">Cash Orders</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Submissions List */}
@@ -629,7 +665,16 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
           <div className="space-y-3">
             {filtered.map((sub) => {
               const cfg = statusConfig[sub.status] || statusConfig.submitted;
-              const currency = (sub.layaway_accounts?.currency || 'PHP') as 'PHP' | 'JPY';
+              const isCash = !!sub.cash_order_id;
+              const currency = (
+                (isCash ? sub.cash_orders?.currency : sub.layaway_accounts?.currency) || 'PHP'
+              ) as 'PHP' | 'JPY';
+              const invoiceNumber = isCash
+                ? sub.cash_orders?.invoice_number
+                : sub.layaway_accounts?.invoice_number;
+              const customerName = isCash
+                ? (sub.cash_orders?.customers?.full_name || sub.customers?.full_name)
+                : sub.customers?.full_name;
               const isPending = ['submitted', 'under_review'].includes(sub.status);
               const isSplit = sub.submission_type === 'split';
               const allocs = getAllocsForSubmission(sub.id);
@@ -649,6 +694,11 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                               {isSplit && (
                                 <Badge variant="outline" className="text-[9px] bg-primary/10 text-primary border-primary/20">
                                   Split
+                                </Badge>
+                              )}
+                              {isCash && (
+                                <Badge variant="outline" className="text-[9px] bg-amber-500/10 text-amber-500 border-amber-500/30">
+                                  💵 CASH ORDER
                                 </Badge>
                               )}
                               {(sub.proof_url && sub.proof_url.trim().length > 0) ? (
@@ -678,14 +728,14 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                           <div>
                             <p className="text-muted-foreground">Customer</p>
-                            <p className="text-foreground font-medium truncate">{sub.customers?.full_name || '—'}</p>
+                            <p className="text-foreground font-medium truncate">{customerName || '—'}</p>
                           </div>
                           <div>
                             <p className="text-muted-foreground">Invoice</p>
                             <p className="text-foreground font-medium">
                               {isSplit && allocs.length > 1
                                 ? `${allocs.length} invoices`
-                                : `#${sub.layaway_accounts?.invoice_number || '—'}`}
+                                : `#${invoiceNumber || '—'}`}
                             </p>
                           </div>
                           <div>
@@ -829,9 +879,9 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                             <Clock className="h-3 w-3 mr-1" /> Pending Confirmation
                           </Badge>
                         )}
-                        <Link to={`/accounts/${sub.account_id}`}>
+                        <Link to={isCash ? `/cash-orders/${sub.cash_order_id}` : `/accounts/${sub.account_id}`}>
                           <Button size="sm" variant="ghost" className="gap-1.5 text-xs w-full">
-                            <ExternalLink className="h-3.5 w-3.5" /> Account
+                            <ExternalLink className="h-3.5 w-3.5" /> {isCash ? 'Cash Order' : 'Account'}
                           </Button>
                         </Link>
                       </div>

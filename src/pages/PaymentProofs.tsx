@@ -33,7 +33,7 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedd
     queryFn: async () => {
       const { data, error } = await supabase
         .from('payment_submissions')
-        .select('id, account_id, proof_url, payment_date, submitted_amount, sender_name, status, installment_number, reference_number, created_at, layaway_accounts(invoice_number, currency), customers(full_name)')
+        .select('id, account_id, cash_order_id, proof_url, payment_date, submitted_amount, sender_name, status, installment_number, reference_number, created_at, layaway_accounts(invoice_number, currency), cash_orders(invoice_number, currency, customers(full_name)), customers(full_name)')
         .eq('status', 'confirmed')
         .not('proof_url', 'is', null)
         .order('created_at', { ascending: false });
@@ -46,8 +46,8 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedd
     const q = searchRef.current.trim().toLowerCase();
     if (!q) return proofs || [];
     return (proofs || []).filter((p: any) => {
-      const name = p.customers?.full_name || '';
-      const inv = p.layaway_accounts?.invoice_number || '';
+      const name = p.customers?.full_name || p.cash_orders?.customers?.full_name || '';
+      const inv = p.layaway_accounts?.invoice_number || p.cash_orders?.invoice_number || '';
       const sender = p.sender_name || '';
       return (
         name.toLowerCase().includes(q) ||
@@ -112,10 +112,14 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedd
                 </thead>
                 <tbody>
                   {filtered.map((sub: any) => {
+                    const isCash = !!sub.cash_order_id;
                     const account = sub.layaway_accounts;
-                    const customerName = sub.customers?.full_name || '—';
-                    const invoice = account?.invoice_number || '—';
-                    const currency = (account?.currency || 'PHP') as Currency;
+                    const cashOrder = sub.cash_orders;
+                    const customerName = (isCash
+                      ? (cashOrder?.customers?.full_name || sub.customers?.full_name)
+                      : sub.customers?.full_name) || '—';
+                    const invoice = (isCash ? cashOrder?.invoice_number : account?.invoice_number) || '—';
+                    const currency = ((isCash ? cashOrder?.currency : account?.currency) || 'PHP') as Currency;
                     const statusColor = sub.status === 'confirmed' ? 'text-emerald-400'
                       : sub.status === 'rejected' ? 'text-red-400'
                       : sub.status === 'needs_clarification' ? 'text-amber-400'
@@ -123,15 +127,27 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedd
                     const ext = (sub.proof_url || '').split('.').pop()?.split('?')[0] || 'file';
                     const safeCustomer = (customerName || 'Customer').replace(/[^a-zA-Z0-9]/g, '');
                     const safeInvoice = (invoice || '').replace(/[^a-zA-Z0-9]/g, '');
-                    const monthSeg = sub.installment_number ? `Month${sub.installment_number}` : 'Month';
+                    const monthSeg = isCash
+                      ? 'Cash'
+                      : (sub.installment_number ? `Month${sub.installment_number}` : 'Month');
                     const downloadName = `${safeCustomer}_${safeInvoice}_${monthSeg}_${sub.payment_date}.${ext}`;
                     const senderLabel = sub.sender_name || sub.submitted_by_name || customerName;
+                    const detailHref = isCash
+                      ? (sub.cash_order_id ? `/cash-orders/${sub.cash_order_id}` : null)
+                      : (sub.account_id ? `/accounts/${sub.account_id}` : null);
                     return (
                       <tr key={sub.id} className="border-b border-border/50 hover:bg-muted/20">
-                        <td className="py-2 px-3 text-foreground">{customerName}</td>
+                        <td className="py-2 px-3 text-foreground">
+                          {customerName}
+                          {isCash && (
+                            <span className="ml-1.5 inline-flex items-center rounded-md border border-amber-500/30 bg-amber-500/10 px-1 py-0.5 text-[9px] font-semibold text-amber-500">
+                              💵 CASH
+                            </span>
+                          )}
+                        </td>
                         <td className="py-2 px-3">
-                          {sub.account_id ? (
-                            <Link to={`/accounts/${sub.account_id}`} className="text-primary hover:underline">
+                          {detailHref ? (
+                            <Link to={detailHref} className="text-primary hover:underline">
                               #{invoice}
                             </Link>
                           ) : (
@@ -139,7 +155,9 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedd
                           )}
                         </td>
                         <td className="py-2 px-3">
-                          {sub.installment_number ? `Month ${sub.installment_number}` : <span className="text-muted-foreground">—</span>}
+                          {isCash
+                            ? <span className="text-muted-foreground">—</span>
+                            : (sub.installment_number ? `Month ${sub.installment_number}` : <span className="text-muted-foreground">—</span>)}
                         </td>
                         <td className="py-2 px-3">{sub.payment_date}</td>
                         <td className="py-2 px-3 font-medium">{formatCurrency(Number(sub.submitted_amount), currency)}</td>
