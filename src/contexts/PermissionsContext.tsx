@@ -98,6 +98,11 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // Mark loading while we (re)fetch permissions for a new user. Prevents
+    // ProtectedRoute from flashing AccessDenied in the window after login
+    // but before the new user's role permissions finish loading.
+    setLoading(true);
+
     try {
       const [permRes, toggleRes, overrideRes] = await Promise.all([
         supabase.from('role_permissions').select('role, permission_key, is_allowed'),
