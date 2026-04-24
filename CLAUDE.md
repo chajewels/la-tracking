@@ -1066,6 +1066,7 @@ SUPABASE EDGE FUNCTIONS — these auto-deploy when their files change:
 - send-reminders
 - send-transactional-email
 - preview-transactional-email
+- customer-portal
 
 Note: _shared/** changes trigger redeploy of
 send-transactional-email and preview-transactional-email,
