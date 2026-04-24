@@ -841,7 +841,7 @@ export default function CustomerPortal() {
                 rel="noopener noreferrer"
                 style={{ fontFamily: 'Inter, sans-serif', fontSize: '11px', color: P.ts, textDecoration: 'underline' }}
               >
-                📄 View Payment Agreement
+                📄 View Layaway Agreement
               </a>
             </div>
             <button
@@ -870,7 +870,7 @@ export default function CustomerPortal() {
           rel="noopener noreferrer"
           style={{ fontFamily: 'Inter, sans-serif', fontSize: '11px', color: P.ts, textDecoration: 'none' }}
         >
-          📄 Payment Agreement
+          📄 Layaway Agreement
         </a>
       </div>
     </div>
