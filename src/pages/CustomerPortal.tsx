@@ -21,6 +21,7 @@ import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
 import CountrySelect from '@/components/customers/CountrySelect';
 import PromoBanner from '@/components/customers/PromoBanner';
 import SplashScreen from '@/components/portal/SplashScreen';
+import CashOrdersSection from '@/components/portal/CashOrdersSection';
 import { LocationType, parseLocation, toLocationString } from '@/lib/countries';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -642,6 +643,13 @@ export default function CustomerPortal() {
                 ))}
               </div>
             )}
+
+            {/* Cash Orders — renders only when the customer has cash orders */}
+            <CashOrdersSection
+              customerId={data.customer_id}
+              customerName={data.customer_name}
+              portalToken={token!}
+            />
           </>
         )}
 
