@@ -22,6 +22,8 @@ import { template as penaltyWaived } from './penalty-waived.tsx'
 import { template as accountForfeited } from './account-forfeited.tsx'
 import { template as extensionGranted } from './extension-granted.tsx'
 import { template as extensionRequested } from './extension-requested.tsx'
+import { template as cashPaymentSubmitted } from './cash-payment-submitted.tsx'
+import { template as cashPaymentConfirmed } from './cash-payment-confirmed.tsx'
 
 export const TEMPLATES: Record<string, TemplateEntry> = {
   'payment-reminder': paymentReminder,
@@ -37,6 +39,8 @@ export const TEMPLATES: Record<string, TemplateEntry> = {
   'account-forfeited': accountForfeited,
   'extension-granted': extensionGranted,
   'extension-requested': extensionRequested,
+  'cash-payment-submitted': cashPaymentSubmitted,
+  'cash-payment-confirmed': cashPaymentConfirmed,
   'payment-grace-period': {
     ...paymentReminder,
     subject: (data: Record<string, any>) =>

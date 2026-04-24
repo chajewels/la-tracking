@@ -212,7 +212,9 @@ Deno.serve(async (req) => {
               amountPaid: Number(submittedNum).toLocaleString("en-US"),
               paymentDate: payment_date,
               paymentMethod: payment_method,
+              referenceNumber: reference_number || undefined,
               currency: cashOrder.currency,
+              portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${cashOrder.invoice_number}`,
             },
           }),
         });

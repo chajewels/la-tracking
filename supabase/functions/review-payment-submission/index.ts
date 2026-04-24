@@ -600,10 +600,10 @@ Deno.serve(async (req) => {
                 invoiceNumber: cashOrder.invoice_number,
                 amountPaid: Number(submittedAmount).toLocaleString("en-US"),
                 currency: cashOrder.currency,
-                paymentDate: submission.payment_date,
-                paymentMethod: submission.payment_method,
                 remainingBalance: Number(newRemaining).toLocaleString("en-US"),
-                fullyPaid: isFullyPaid,
+                totalPaid: Number(newTotalPaid).toLocaleString("en-US"),
+                isFullyPaid,
+                portalUrl: `https://portal.chajewelsjp.com/portal?invoice=${cashOrder.invoice_number}`,
               },
             }),
           });
