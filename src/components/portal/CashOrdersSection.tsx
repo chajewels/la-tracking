@@ -1,9 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import { ChevronDown, ChevronUp, Banknote, CheckCircle } from 'lucide-react';
 import CashPortalPaymentDialog from './CashPortalPaymentDialog';
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 // Portal palette — must match src/pages/CustomerPortal.tsx
 const P = {
@@ -16,23 +13,25 @@ const CG = "'Cormorant Garamond',Georgia,serif";
 
 type Currency = 'PHP' | 'JPY';
 
-interface CashOrderRow {
+export interface PortalCashOrder {
   id: string;
-  customer_id: string;
   invoice_number: string;
+  customer_id: string;
   currency: Currency;
   total_amount: number;
   total_paid: number;
   remaining_balance: number;
-  status: 'pending' | 'completed' | 'cancelled' | string;
+  status: string;
   item_description: string | null;
   order_date: string | null;
-  cancellation_reason?: string | null;
-  completed_at?: string | null;
+  notes: string | null;
+  cancellation_reason: string | null;
+  cancelled_at: string | null;
+  completed_at: string | null;
   created_at: string;
 }
 
-interface CashPaymentRow {
+export interface PortalCashPayment {
   id: string;
   cash_order_id: string;
   amount_paid: number;
@@ -40,7 +39,11 @@ interface CashPaymentRow {
   date_paid: string;
   payment_method: string | null;
   reference_number: string | null;
+  remarks: string | null;
+  submitted_by_type: string | null;
+  submitted_by_name: string | null;
   voided_at: string | null;
+  created_at: string;
 }
 
 const statusPillStyle = (status: string): React.CSSProperties => {
@@ -78,39 +81,32 @@ function prettyMethod(m: string | null | undefined): string {
 }
 
 interface CashOrdersSectionProps {
-  customerId: string;
+  cashOrders: PortalCashOrder[];
+  cashPayments: PortalCashPayment[];
   customerName: string;
   portalToken: string;
+  onRefresh: () => void;
 }
 
-export default function CashOrdersSection({ customerId, customerName, portalToken }: CashOrdersSectionProps) {
-  const [orders, setOrders] = useState<CashOrderRow[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [payTarget, setPayTarget] = useState<CashOrderRow | null>(null);
+export default function CashOrdersSection({
+  cashOrders, cashPayments, customerName, portalToken, onRefresh,
+}: CashOrdersSectionProps) {
+  const [payTarget, setPayTarget] = useState<PortalCashOrder | null>(null);
 
-  const fetchOrders = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/cash_orders?customer_id=eq.${customerId}&order=created_at.desc`,
-        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } },
-      );
-      if (!res.ok) { setOrders([]); return; }
-      const data = await res.json();
-      setOrders(Array.isArray(data) ? (data as CashOrderRow[]) : []);
-    } catch {
-      setOrders([]);
-    } finally {
-      setLoading(false);
+  // Group non-voided payments by cash_order_id once, client-side
+  const paymentsByOrder = useMemo(() => {
+    const map = new Map<string, PortalCashPayment[]>();
+    for (const p of cashPayments) {
+      if (p.voided_at) continue;
+      const list = map.get(p.cash_order_id) || [];
+      list.push(p);
+      map.set(p.cash_order_id, list);
     }
-  }, [customerId]);
+    return map;
+  }, [cashPayments]);
 
-  useEffect(() => { fetchOrders(); }, [fetchOrders]);
-
-  if (loading || !orders || orders.length === 0) {
-    // Per spec: don't render empty state — section just stays hidden when no cash orders
-    return null;
-  }
+  // Per spec: don't render empty state — section is hidden when there are no orders
+  if (!cashOrders || cashOrders.length === 0) return null;
 
   return (
     <>
@@ -124,10 +120,11 @@ export default function CashOrdersSection({ customerId, customerName, portalToke
         </div>
 
         <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0">
-          {orders.map(order => (
+          {cashOrders.map(order => (
             <CashOrderCard
               key={order.id}
               order={order}
+              payments={paymentsByOrder.get(order.id) || []}
               onPay={() => setPayTarget(order)}
             />
           ))}
@@ -148,32 +145,22 @@ export default function CashOrdersSection({ customerId, customerName, portalToke
           }}
           customerName={customerName}
           portalToken={portalToken}
-          onSuccess={() => { fetchOrders(); }}
+          onSuccess={() => { onRefresh(); }}
         />
       )}
     </>
   );
 }
 
-function CashOrderCard({ order, onPay }: { order: CashOrderRow; onPay: () => void }) {
+function CashOrderCard({
+  order, payments, onPay,
+}: {
+  order: PortalCashOrder;
+  payments: PortalCashPayment[];
+  onPay: () => void;
+}) {
   const currency = order.currency;
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [payments, setPayments] = useState<CashPaymentRow[] | null>(null);
-  const [paymentsLoading, setPaymentsLoading] = useState(false);
-
-  // Lazy-load payment history on first expand
-  useEffect(() => {
-    if (!historyOpen || payments !== null) return;
-    setPaymentsLoading(true);
-    fetch(
-      `${SUPABASE_URL}/rest/v1/cash_payments?cash_order_id=eq.${order.id}&voided_at=is.null&order=date_paid.desc`,
-      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } },
-    )
-      .then(r => r.ok ? r.json() : [])
-      .then((data) => setPayments(Array.isArray(data) ? (data as CashPaymentRow[]) : []))
-      .catch(() => setPayments([]))
-      .finally(() => setPaymentsLoading(false));
-  }, [historyOpen, payments, order.id]);
 
   const isPending = order.status === 'pending';
   const isCompleted = order.status === 'completed';
@@ -260,7 +247,7 @@ function CashOrderCard({ order, onPay }: { order: CashOrderRow; onPay: () => voi
         </button>
       )}
 
-      {/* Payment history (collapsible) */}
+      {/* Payment history (collapsible, client-side filtered from props) */}
       <div className="mt-3" style={{ borderTop: `1px solid ${P.br}`, paddingTop: '10px' }}>
         <button
           type="button"
@@ -269,7 +256,7 @@ function CashOrderCard({ order, onPay }: { order: CashOrderRow; onPay: () => voi
           style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
         >
           <span style={{ color: P.ts, fontSize: '10px', letterSpacing: '0.15em', textTransform: 'uppercase', fontWeight: 600 }}>
-            Payment History
+            Payment History ({payments.length})
           </span>
           {historyOpen
             ? <ChevronUp className="h-4 w-4" style={{ color: P.ts }} />
@@ -278,9 +265,7 @@ function CashOrderCard({ order, onPay }: { order: CashOrderRow; onPay: () => voi
 
         {historyOpen && (
           <div className="mt-2 space-y-1.5">
-            {paymentsLoading ? (
-              <p style={{ color: P.ts, fontSize: '11px', fontStyle: 'italic' }}>Loading…</p>
-            ) : !payments || payments.length === 0 ? (
+            {payments.length === 0 ? (
               <p style={{ color: P.ts, fontSize: '11px', fontStyle: 'italic' }}>No payments recorded yet.</p>
             ) : (
               payments.map(p => (

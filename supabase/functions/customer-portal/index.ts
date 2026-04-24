@@ -215,7 +215,7 @@ Deno.serve(async (req) => {
 
     const accountIds = (accounts || []).map((a: any) => a.id);
 
-    const [schedulesRes, paymentsRes, stTokensRes, servicesRes, methodsRes, submissionsRes, penaltiesRes] = await Promise.all([
+    const [schedulesRes, paymentsRes, stTokensRes, servicesRes, methodsRes, submissionsRes, penaltiesRes, cashOrdersRes] = await Promise.all([
       accountIds.length > 0
         ? supabase.from("layaway_schedule").select("*").in("account_id", accountIds).order("installment_number")
         : Promise.resolve({ data: [], error: null }),
@@ -235,6 +235,8 @@ Deno.serve(async (req) => {
       accountIds.length > 0
         ? supabase.from("penalty_fees").select("id, account_id, schedule_id, penalty_amount, status").in("account_id", accountIds)
         : Promise.resolve({ data: [], error: null }),
+      // Cash orders — queried by customer_id independently of layaway accounts
+      supabase.from("cash_orders").select("*").eq("customer_id", customerId).order("created_at", { ascending: false }),
     ]);
 
     const schedules = schedulesRes.data || [];
@@ -244,6 +246,18 @@ Deno.serve(async (req) => {
     const paymentMethods = methodsRes.data || [];
     const submissions = submissionsRes.data || [];
     const penalties = penaltiesRes.data || [];
+    const cashOrdersRaw = cashOrdersRes.data || [];
+    const cashOrderIds = (cashOrdersRaw as any[]).map((o: any) => o.id);
+
+    // Second round-trip: cash_payments filtered by the cash_order_ids we just loaded
+    const { data: cashPaymentsRaw } = cashOrderIds.length > 0
+      ? await supabase
+          .from("cash_payments")
+          .select("*")
+          .in("cash_order_id", cashOrderIds)
+          .is("voided_at", null)
+          .order("date_paid", { ascending: false })
+      : { data: [] };
 
     const schedulesByAccount: Record<string, any[]> = {};
     const paymentsByAccount: Record<string, any[]> = {};
@@ -393,6 +407,39 @@ Deno.serve(async (req) => {
       .filter((a: any) => a.next_due_date)
       .sort((a: any, b: any) => a.next_due_date.localeCompare(b.next_due_date));
 
+    const cashOrdersPayload = (cashOrdersRaw as any[]).map((o: any) => ({
+      id: o.id,
+      invoice_number: o.invoice_number,
+      customer_id: o.customer_id,
+      currency: o.currency,
+      total_amount: Number(o.total_amount),
+      total_paid: Number(o.total_paid),
+      remaining_balance: Number(o.remaining_balance),
+      status: o.status,
+      item_description: o.item_description ?? null,
+      order_date: o.order_date ?? null,
+      notes: o.notes ?? null,
+      cancellation_reason: o.cancellation_reason ?? null,
+      cancelled_at: o.cancelled_at ?? null,
+      completed_at: o.completed_at ?? null,
+      created_at: o.created_at,
+    }));
+
+    const cashPaymentsPayload = ((cashPaymentsRaw as any[]) || []).map((p: any) => ({
+      id: p.id,
+      cash_order_id: p.cash_order_id,
+      amount_paid: Number(p.amount_paid),
+      currency: p.currency,
+      date_paid: p.date_paid,
+      payment_method: p.payment_method ?? null,
+      reference_number: p.reference_number ?? null,
+      remarks: p.remarks ?? null,
+      submitted_by_type: p.submitted_by_type ?? null,
+      submitted_by_name: p.submitted_by_name ?? null,
+      voided_at: p.voided_at ?? null,
+      created_at: p.created_at,
+    }));
+
     return new Response(JSON.stringify({
       customer_name: customer.full_name,
       customer_code: customer.customer_code,
@@ -426,6 +473,8 @@ Deno.serve(async (req) => {
         instructions: m.instructions,
         qr_image_url: m.qr_image_url,
       })),
+      cash_orders: cashOrdersPayload,
+      cash_payments: cashPaymentsPayload,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

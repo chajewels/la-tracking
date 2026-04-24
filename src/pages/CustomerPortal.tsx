@@ -108,6 +108,39 @@ interface CustomerProfile {
   notes: string | null;
 }
 
+interface PortalCashOrder {
+  id: string;
+  invoice_number: string;
+  customer_id: string;
+  currency: 'PHP' | 'JPY';
+  total_amount: number;
+  total_paid: number;
+  remaining_balance: number;
+  status: string;
+  item_description: string | null;
+  order_date: string | null;
+  notes: string | null;
+  cancellation_reason: string | null;
+  cancelled_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+interface PortalCashPayment {
+  id: string;
+  cash_order_id: string;
+  amount_paid: number;
+  currency: 'PHP' | 'JPY';
+  date_paid: string;
+  payment_method: string | null;
+  reference_number: string | null;
+  remarks: string | null;
+  submitted_by_type: string | null;
+  submitted_by_name: string | null;
+  voided_at: string | null;
+  created_at: string;
+}
+
 interface PortalData {
   customer_name: string;
   customer_code: string;
@@ -125,6 +158,8 @@ interface PortalData {
   };
   accounts: PortalAccount[];
   payment_methods: PaymentMethod[];
+  cash_orders?: PortalCashOrder[];
+  cash_payments?: PortalCashPayment[];
 }
 
 function fmt(amount: number, currency: string): string {
@@ -646,9 +681,11 @@ export default function CustomerPortal() {
 
             {/* Cash Orders — renders only when the customer has cash orders */}
             <CashOrdersSection
-              customerId={data.customer_id}
+              cashOrders={data.cash_orders || []}
+              cashPayments={data.cash_payments || []}
               customerName={data.customer_name}
               portalToken={token!}
+              onRefresh={fetchPortal}
             />
           </>
         )}
