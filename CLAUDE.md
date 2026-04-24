@@ -908,6 +908,21 @@ When completing a partially_paid month:
 
 ## SYSTEM STATUS (as of 2026-04-23)
 
+  Cash Basis Plan Phase 1 (DB): COMPLETE ✅
+    - cash_orders table created with 3 indexes
+    - cash_payments table created with 2 indexes
+    - payment_submissions extended with cash_order_id
+    - cash_order_status enum created (pending/completed/cancelled)
+    - RLS policies on both tables (admin full, staff/finance read+insert)
+    - updated_at trigger on cash_orders
+
+  Cash Basis Plan — Non-Negotiable Rules:
+    - Cash orders: one-time full payment, no schedule, no DP
+    - Penalty engine: skips WHERE cash_order_id IS NOT NULL
+    - Auto-forfeit: does NOT apply to cash orders
+    - All flows (submissions, proof, void, loyalty) use same infrastructure
+    - Invoice numbers entered manually same as layaway
+
   accept-underpayment auto-carry: REMOVED ✅
   carry-over edge function: DEPLOYED ✅
   review-payment-submission auto-carry: REMOVED ✅

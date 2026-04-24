@@ -168,6 +168,142 @@ export type Database = {
         }
         Relationships: []
       }
+      cash_orders: {
+        Row: {
+          accepted_by_user_id: string | null
+          agreement_acceptance_datetime: string | null
+          agreement_version: string | null
+          completed_at: string | null
+          created_at: string
+          created_by_user_id: string | null
+          currency: Database["public"]["Enums"]["account_currency"]
+          customer_id: string
+          id: string
+          invoice_number: string
+          item_description: string | null
+          loyalty_jpy_amount: number | null
+          notes: string | null
+          order_date: string
+          remaining_balance: number
+          status: Database["public"]["Enums"]["cash_order_status"]
+          total_amount: number
+          total_paid: number
+          updated_at: string
+        }
+        Insert: {
+          accepted_by_user_id?: string | null
+          agreement_acceptance_datetime?: string | null
+          agreement_version?: string | null
+          completed_at?: string | null
+          created_at?: string
+          created_by_user_id?: string | null
+          currency?: Database["public"]["Enums"]["account_currency"]
+          customer_id: string
+          id?: string
+          invoice_number: string
+          item_description?: string | null
+          loyalty_jpy_amount?: number | null
+          notes?: string | null
+          order_date?: string
+          remaining_balance: number
+          status?: Database["public"]["Enums"]["cash_order_status"]
+          total_amount: number
+          total_paid?: number
+          updated_at?: string
+        }
+        Update: {
+          accepted_by_user_id?: string | null
+          agreement_acceptance_datetime?: string | null
+          agreement_version?: string | null
+          completed_at?: string | null
+          created_at?: string
+          created_by_user_id?: string | null
+          currency?: Database["public"]["Enums"]["account_currency"]
+          customer_id?: string
+          id?: string
+          invoice_number?: string
+          item_description?: string | null
+          loyalty_jpy_amount?: number | null
+          notes?: string | null
+          order_date?: string
+          remaining_balance?: number
+          status?: Database["public"]["Enums"]["cash_order_status"]
+          total_amount?: number
+          total_paid?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cash_orders_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cash_payments: {
+        Row: {
+          amount_paid: number
+          cash_order_id: string
+          created_at: string
+          currency: Database["public"]["Enums"]["account_currency"]
+          date_paid: string
+          entered_by_user_id: string | null
+          id: string
+          payment_method: string | null
+          reference_number: string | null
+          remarks: string | null
+          submitted_by_name: string | null
+          submitted_by_type: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by_user_id: string | null
+        }
+        Insert: {
+          amount_paid: number
+          cash_order_id: string
+          created_at?: string
+          currency: Database["public"]["Enums"]["account_currency"]
+          date_paid: string
+          entered_by_user_id?: string | null
+          id?: string
+          payment_method?: string | null
+          reference_number?: string | null
+          remarks?: string | null
+          submitted_by_name?: string | null
+          submitted_by_type?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by_user_id?: string | null
+        }
+        Update: {
+          amount_paid?: number
+          cash_order_id?: string
+          created_at?: string
+          currency?: Database["public"]["Enums"]["account_currency"]
+          date_paid?: string
+          entered_by_user_id?: string | null
+          id?: string
+          payment_method?: string | null
+          reference_number?: string | null
+          remarks?: string | null
+          submitted_by_name?: string | null
+          submitted_by_type?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by_user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cash_payments_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       csr_notifications: {
         Row: {
           account_id: string
@@ -1229,6 +1365,7 @@ export type Database = {
       payment_submissions: {
         Row: {
           account_id: string
+          cash_order_id: string | null
           confirmed_payment_id: string | null
           created_at: string
           customer_edited_at: string | null
@@ -1251,6 +1388,7 @@ export type Database = {
         }
         Insert: {
           account_id: string
+          cash_order_id?: string | null
           confirmed_payment_id?: string | null
           created_at?: string
           customer_edited_at?: string | null
@@ -1273,6 +1411,7 @@ export type Database = {
         }
         Update: {
           account_id?: string
+          cash_order_id?: string | null
           confirmed_payment_id?: string | null
           created_at?: string
           customer_edited_at?: string | null
@@ -1299,6 +1438,13 @@ export type Database = {
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_submissions_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
             referencedColumns: ["id"]
           },
           {
@@ -2452,6 +2598,7 @@ export type Database = {
         | "final_forfeited"
       allocation_type: "penalty" | "installment"
       app_role: "admin" | "staff" | "finance" | "csr"
+      cash_order_status: "pending" | "completed" | "cancelled"
       clv_tier: "bronze" | "silver" | "gold" | "vip"
       penalty_fee_status: "unpaid" | "paid" | "waived"
       penalty_stage: "week1" | "week2"
@@ -2612,6 +2759,7 @@ export const Constants = {
       ],
       allocation_type: ["penalty", "installment"],
       app_role: ["admin", "staff", "finance", "csr"],
+      cash_order_status: ["pending", "completed", "cancelled"],
       clv_tier: ["bronze", "silver", "gold", "vip"],
       penalty_fee_status: ["unpaid", "paid", "waived"],
       penalty_stage: ["week1", "week2"],
