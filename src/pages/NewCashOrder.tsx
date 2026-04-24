@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, UserPlus, Banknote, Loader2, AlertTriangle, X } from 'lucide-react';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { ArrowLeft, UserPlus, Banknote, Loader2, AlertTriangle, X, Lock } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,6 +20,9 @@ type InvoiceCheck = 'idle' | 'checking' | 'available' | 'taken';
 
 export default function NewCashOrder() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const presetCustomerId = searchParams.get('customer_id');
+  const customerLocked = !!presetCustomerId;
   const { roles, loading: authLoading } = useAuth();
   const { data: customers } = useCustomers();
 
@@ -32,7 +35,7 @@ export default function NewCashOrder() {
 
   // Form state
   const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [customerId, setCustomerId] = useState('');
+  const [customerId, setCustomerId] = useState(presetCustomerId || '');
   const [currency, setCurrency] = useState<Currency>('JPY');
   const [totalAmount, setTotalAmount] = useState('');
   const [itemDescription, setItemDescription] = useState('');
@@ -232,12 +235,19 @@ export default function NewCashOrder() {
                     ✓ Existing customer selected
                   </Badge>
                 )}
+                {customerLocked && (
+                  <Badge variant="outline" className="text-[10px] bg-muted text-muted-foreground border-border gap-1">
+                    <Lock className="h-2.5 w-2.5" /> Locked
+                  </Badge>
+                )}
               </Label>
               <div className="flex gap-2">
                 <div className="relative flex-1">
                   <Input
                     value={customerSearch}
+                    disabled={customerLocked}
                     onChange={(e) => {
+                      if (customerLocked) return;
                       const v = e.target.value;
                       setCustomerSearch(v);
                       if (selectedCustomer) {
@@ -247,13 +257,13 @@ export default function NewCashOrder() {
                       setCustomerDropdownOpen(true);
                       markDirty();
                     }}
-                    onFocus={() => { if (customerSearch) setCustomerDropdownOpen(true); }}
+                    onFocus={() => { if (!customerLocked && customerSearch) setCustomerDropdownOpen(true); }}
                     onBlur={() => { setTimeout(() => setCustomerDropdownOpen(false), 150); }}
                     placeholder="Search customer by name or mobile…"
-                    className="bg-background border-border pr-8"
+                    className="bg-background border-border pr-8 disabled:opacity-80 disabled:cursor-not-allowed"
                     autoComplete="off"
                   />
-                  {customerSearch && (
+                  {customerSearch && !customerLocked && (
                     <button
                       type="button"
                       onMouseDown={(e) => e.preventDefault()}
@@ -270,7 +280,7 @@ export default function NewCashOrder() {
                       <X className="h-3.5 w-3.5" />
                     </button>
                   )}
-                  {customerDropdownOpen && customerSearch.trim() && (
+                  {!customerLocked && customerDropdownOpen && customerSearch.trim() && (
                     <div
                       className="absolute left-0 right-0 top-full mt-1 max-h-60 overflow-y-auto rounded-md border border-border bg-background shadow-xl"
                       style={{ zIndex: 60 }}
@@ -308,19 +318,21 @@ export default function NewCashOrder() {
                     </div>
                   )}
                 </div>
-                <NewCustomerDialog
-                  onCreated={(c) => {
-                    setCustomerId(c.id);
-                    setSelectedCustomer(c as DbCustomer);
-                    setCustomerSearch(c.full_name || '');
-                    markDirty();
-                  }}
-                  trigger={
-                    <Button type="button" variant="outline" size="icon" className="shrink-0" title="Create new customer">
-                      <UserPlus className="h-4 w-4" />
-                    </Button>
-                  }
-                />
+                {!customerLocked && (
+                  <NewCustomerDialog
+                    onCreated={(c) => {
+                      setCustomerId(c.id);
+                      setSelectedCustomer(c as DbCustomer);
+                      setCustomerSearch(c.full_name || '');
+                      markDirty();
+                    }}
+                    trigger={
+                      <Button type="button" variant="outline" size="icon" className="shrink-0" title="Create new customer">
+                        <UserPlus className="h-4 w-4" />
+                      </Button>
+                    }
+                  />
+                )}
               </div>
               {selectedCustomer && (
                 <div className="rounded-md border border-green-500/30 bg-green-500/5 p-3 text-xs space-y-1">

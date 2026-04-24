@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
 import { ArrowLeft, Copy, Check, CheckCircle2, MessageCircle, Calendar, AlertTriangle, MapPin, Pencil, X, Ban, Wrench, Save } from 'lucide-react';
 import CustomerPortalShareMenu from '@/components/customers/CustomerPortalShareMenu';
@@ -11,9 +11,11 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import RecordPaymentDialog from '@/components/payments/RecordPaymentDialog';
 import MultiInvoicePaymentDialog from '@/components/payments/MultiInvoicePaymentDialog';
+import CustomerCashOrdersTab from '@/components/customers/CustomerCashOrdersTab';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
@@ -30,6 +32,16 @@ import {
 
 export default function CustomerDetail() {
   const { customerId } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab: 'layaway' | 'cash' = searchParams.get('tab') === 'cash' ? 'cash' : 'layaway';
+  const [activeTab, setActiveTab] = useState<'layaway' | 'cash'>(initialTab);
+  const handleTabChange = useCallback((v: string) => {
+    const tab = (v === 'cash' ? 'cash' : 'layaway') as 'layaway' | 'cash';
+    setActiveTab(tab);
+    if (tab === 'layaway') searchParams.delete('tab');
+    else searchParams.set('tab', tab);
+    setSearchParams(searchParams, { replace: true });
+  }, [searchParams, setSearchParams]);
   const { data, isLoading } = useCustomerAccounts(customerId);
   const [copied, setCopied] = useState(false);
   const [editingLocation, setEditingLocation] = useState(false);
@@ -532,6 +544,14 @@ export default function CustomerDetail() {
           </>
         )}
 
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+          <TabsList className="grid grid-cols-2 w-full max-w-xs">
+            <TabsTrigger value="layaway">Layaway Accounts ({accounts.length})</TabsTrigger>
+            <TabsTrigger value="cash">Cash Orders</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="layaway" className="mt-5 space-y-6">
+
         {/* All Accounts */}
         {accounts.map(({ account, schedule, penalties, schedulePaymentDates, services: acctServices }) => {
           const currency = account.currency as Currency;
@@ -815,6 +835,13 @@ export default function CustomerDetail() {
             )}
           </div>
         </div>
+
+          </TabsContent>
+
+          <TabsContent value="cash" className="mt-5">
+            {customerId && <CustomerCashOrdersTab customerId={customerId} />}
+          </TabsContent>
+        </Tabs>
       </div>
     </AppLayout>
   );
