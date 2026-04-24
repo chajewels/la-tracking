@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ArrowLeft, Banknote, RefreshCcw, Receipt, XCircle, ChevronDown, ChevronUp,
-  AlertTriangle, User as UserIcon, FileText,
+  AlertTriangle, User as UserIcon, MessageCircle, Plus,
 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -39,6 +39,8 @@ interface CashOrderRow {
   agreement_acceptance_datetime: string | null;
   completed_at: string | null;
   cancellation_reason?: string | null;
+  cancelled_at?: string | null;
+  cancelled_by_user_id?: string | null;
   created_at: string;
   customers: { id: string; full_name: string } | null;
 }
@@ -69,6 +71,13 @@ interface SubmissionRow {
   payment_date: string | null;
   sender_name: string | null;
   status: string;
+  created_at: string;
+}
+
+interface CashOrderNoteRow {
+  id: string;
+  note_text: string;
+  created_by_name: string | null;
   created_at: string;
 }
 
@@ -135,6 +144,39 @@ function useCashSubmissions(orderId: string | undefined) {
   });
 }
 
+function useCashOrderNotes(orderId: string | undefined) {
+  return useQuery({
+    queryKey: ['cash-order-notes', orderId],
+    enabled: !!orderId,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('account_notes' as any)
+        .select('id, note_text, created_by_name, created_at')
+        .eq('cash_order_id' as any, orderId!)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return ((data || []) as unknown as CashOrderNoteRow[]);
+    },
+  });
+}
+
+function useProfileName(userId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['profile-name', userId],
+    enabled: !!userId,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('user_id, full_name')
+        .eq('user_id', userId!)
+        .maybeSingle();
+      return (data as { user_id: string; full_name: string | null } | null) ?? null;
+    },
+  });
+}
+
 function useCashAuditLogs(orderId: string | undefined, enabled: boolean) {
   return useQuery({
     queryKey: ['cash-audit-logs', orderId],
@@ -173,8 +215,17 @@ export default function CashOrderDetail() {
   const { data: order, isLoading: orderLoading } = useCashOrderDetail(id);
   const { data: payments, isLoading: paymentsLoading } = useCashPayments(id);
   const { data: submissions } = useCashSubmissions(id);
+  const { data: notes } = useCashOrderNotes(id);
+  const { data: cancelledByProfile } = useProfileName(
+    order?.status === 'cancelled' ? order?.cancelled_by_user_id : undefined,
+  );
   const [auditOpen, setAuditOpen] = useState(false);
   const { data: auditLogs } = useCashAuditLogs(id, isAdmin && auditOpen);
+
+  // Note form state
+  const [noteFormOpen, setNoteFormOpen] = useState(false);
+  const [noteText, setNoteText] = useState('');
+  const [noteSaving, setNoteSaving] = useState(false);
 
   // 30-second auto-refresh + manual button
   const { refreshing, refresh } = useAutoRefresh(
@@ -182,6 +233,7 @@ export default function CashOrderDetail() {
       ['cash-order', id],
       ['cash-payments', id],
       ['cash-submissions', id],
+      ['cash-order-notes', id],
     ],
     30_000,
   );
@@ -198,11 +250,14 @@ export default function CashOrderDetail() {
     }
     setCancelling(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
       const { error } = await (supabase as any)
         .from('cash_orders')
         .update({
           status: 'cancelled',
           cancellation_reason: cancelReason.trim(),
+          cancelled_at: new Date().toISOString(),
+          cancelled_by_user_id: user?.id ?? null,
         })
         .eq('id', order.id);
       if (error) throw error;
@@ -338,6 +393,13 @@ export default function CashOrderDetail() {
                   )}
                   <span className="font-semibold text-foreground/70">{currency}</span>
                 </div>
+                {order.status === 'cancelled' && order.cancelled_at && (
+                  <p className="mt-2 text-xs text-destructive">
+                    Cancelled on {new Date(order.cancelled_at).toLocaleString()}
+                    {' '}by {cancelledByProfile?.full_name || 'Unknown user'}
+                    {order.cancellation_reason ? ` — ${order.cancellation_reason}` : ''}
+                  </p>
+                )}
               </div>
             </div>
             <Button
@@ -414,12 +476,6 @@ export default function CashOrderDetail() {
             <div>
               <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Notes</p>
               <p className="text-sm text-card-foreground mt-0.5 whitespace-pre-wrap">{order.notes}</p>
-            </div>
-          )}
-          {order.status === 'cancelled' && order.cancellation_reason && (
-            <div>
-              <p className="text-[11px] uppercase tracking-wide text-destructive">Cancellation reason</p>
-              <p className="text-sm text-card-foreground mt-0.5">{order.cancellation_reason}</p>
             </div>
           )}
           {isAdmin && order.loyalty_jpy_amount != null && (
@@ -555,21 +611,103 @@ export default function CashOrderDetail() {
           </div>
         )}
 
-        {/* Account Notes — BLOCKED until SQL migration runs */}
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5">
-          <div className="flex items-start gap-3">
-            <FileText className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-            <div>
-              <h3 className="text-sm font-semibold text-card-foreground">Notes coming soon</h3>
-              <p className="text-xs text-muted-foreground mt-1">
-                Account Notes for cash orders are blocked pending a schema
-                migration. This section will be enabled after the
-                <code className="mx-1 px-1 rounded bg-muted text-[11px]">account_notes.cash_order_id</code>
-                column is added.
-              </p>
+        {/* Account Notes */}
+        {(isAdmin || isFinance || isStaff) && (
+          <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
+                <MessageCircle className="h-4 w-4 text-primary" /> Account Notes
+              </h3>
+              {!noteFormOpen && (isAdmin || isStaff) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs border-primary/30 text-primary hover:bg-primary/10"
+                  onClick={() => setNoteFormOpen(true)}
+                >
+                  <Plus className="h-3 w-3 mr-1" /> Add Note
+                </Button>
+              )}
             </div>
+
+            {noteFormOpen && (isAdmin || isStaff) && (
+              <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
+                <textarea
+                  className="w-full rounded-md border border-border bg-background p-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+                  rows={4}
+                  maxLength={1000}
+                  placeholder="Type a note..."
+                  value={noteText}
+                  onChange={e => setNoteText(e.target.value)}
+                />
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">{noteText.length}/1000</span>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => { setNoteFormOpen(false); setNoteText(''); }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="h-7 text-xs gold-gradient text-primary-foreground"
+                      disabled={noteSaving || !noteText.trim()}
+                      onClick={async () => {
+                        if (!order) return;
+                        setNoteSaving(true);
+                        try {
+                          const { data: { user } } = await supabase.auth.getUser();
+                          const userName = (user?.user_metadata as any)?.full_name || user?.email || 'Unknown';
+                          const { error } = await supabase.from('account_notes' as any).insert({
+                            account_id: null,
+                            cash_order_id: order.id,
+                            note_text: noteText.trim(),
+                            created_by_user_id: user?.id,
+                            created_by_name: userName,
+                          } as any);
+                          if (error) throw error;
+                          toast.success('Note added');
+                          setNoteText('');
+                          setNoteFormOpen(false);
+                          qc.invalidateQueries({ queryKey: ['cash-order-notes', id] });
+                        } catch (err: unknown) {
+                          toast.error((err as Error).message || 'Failed to add note');
+                        } finally {
+                          setNoteSaving(false);
+                        }
+                      }}
+                    >
+                      {noteSaving ? 'Saving…' : 'Save Note'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {(!notes || notes.length === 0) && !noteFormOpen && (
+              <p className="text-xs text-muted-foreground text-center py-4">No notes yet</p>
+            )}
+
+            {notes && notes.length > 0 && (
+              <div className="space-y-2">
+                {notes.map(note => (
+                  <div key={note.id} className="rounded-lg border border-border bg-muted/30 p-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-medium text-card-foreground">{note.created_by_name || 'Unknown'}</span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {new Date(note.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground whitespace-pre-wrap">{note.note_text}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        </div>
+        )}
 
         {/* Activity Log (admin only, collapsible) */}
         {isAdmin && (
