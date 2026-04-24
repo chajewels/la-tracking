@@ -1,34 +1,534 @@
-import { Link } from 'react-router-dom';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import { ArrowLeft, UserPlus, Banknote, Loader2, AlertTriangle, X } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Banknote } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { toast } from 'sonner';
+import { Currency } from '@/lib/types';
+import { formatCurrency } from '@/lib/calculations';
+import { useCustomers, DbCustomer } from '@/hooks/use-supabase-data';
+import { supabase } from '@/integrations/supabase/client';
+import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
+import { Badge } from '@/components/ui/badge';
+import { useAuth } from '@/contexts/AuthContext';
+
+type InvoiceCheck = 'idle' | 'checking' | 'available' | 'taken';
 
 export default function NewCashOrder() {
+  const navigate = useNavigate();
+  const { roles, loading: authLoading } = useAuth();
+  const { data: customers } = useCustomers();
+
+  // Permission gate — admin or staff only (matches spec)
+  const isAuthorized = roles.includes('admin' as never) || roles.includes('staff' as never);
+  useEffect(() => {
+    if (authLoading) return;
+    if (!isAuthorized) navigate('/', { replace: true });
+  }, [authLoading, isAuthorized, navigate]);
+
+  // Form state
+  const [invoiceNumber, setInvoiceNumber] = useState('');
+  const [customerId, setCustomerId] = useState('');
+  const [currency, setCurrency] = useState<Currency>('JPY');
+  const [totalAmount, setTotalAmount] = useState('');
+  const [itemDescription, setItemDescription] = useState('');
+  const [orderDate, setOrderDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [notes, setNotes] = useState('');
+  const [acceptAgreement, setAcceptAgreement] = useState(false);
+
+  // Customer search combobox (matches NewAccount pattern)
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerResults, setCustomerResults] = useState<DbCustomer[]>([]);
+  const [customerSearching, setCustomerSearching] = useState(false);
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<DbCustomer | null>(null);
+  const customerSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Invoice uniqueness check
+  const [invoiceCheck, setInvoiceCheck] = useState<InvoiceCheck>('idle');
+
+  // Submission + dirty state
+  const [submitting, setSubmitting] = useState(false);
+  const [formDirty, setFormDirty] = useState(false);
+  const [showLeaveDialog, setShowLeaveDialog] = useState(false);
+  const submittedRef = useRef(false);
+  const pendingNavRef = useRef<string | null>(null);
+
+  const markDirty = useCallback(() => {
+    if (!formDirty) setFormDirty(true);
+  }, [formDirty]);
+
+  // Customer search — same debounced pattern as NewAccount
+  useEffect(() => {
+    if (customerSearchTimer.current) clearTimeout(customerSearchTimer.current);
+    const term = customerSearch.trim();
+    if (!term) {
+      setCustomerResults([]);
+      setCustomerSearching(false);
+      return;
+    }
+    setCustomerSearching(true);
+    customerSearchTimer.current = setTimeout(async () => {
+      const { data } = await supabase
+        .from('customers')
+        .select('id, full_name, mobile_number, email, facebook_name, messenger_link, location')
+        .or(`full_name.ilike.%${term}%,mobile_number.ilike.%${term}%`)
+        .order('full_name', { ascending: true })
+        .limit(10);
+      setCustomerResults(((data as any) || []) as DbCustomer[]);
+      setCustomerSearching(false);
+    }, 300);
+    return () => {
+      if (customerSearchTimer.current) clearTimeout(customerSearchTimer.current);
+    };
+  }, [customerSearch]);
+
+  // Sync selected customer from customerId when set via dialog or initial load
+  useEffect(() => {
+    if (customerId && !selectedCustomer && customers) {
+      const match = customers.find(c => c.id === customerId);
+      if (match) {
+        setSelectedCustomer(match as DbCustomer);
+        setCustomerSearch(match.full_name);
+      }
+    }
+  }, [customerId, customers, selectedCustomer]);
+
+  // beforeunload guard
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (formDirty && !submittedRef.current) e.preventDefault();
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [formDirty]);
+
+  const guardedNavigate = useCallback((path: string) => {
+    if (formDirty && !submittedRef.current) {
+      pendingNavRef.current = path;
+      setShowLeaveDialog(true);
+    } else {
+      navigate(path);
+    }
+  }, [formDirty, navigate]);
+
+  // Check invoice uniqueness (blur handler — hits both tables)
+  const checkInvoiceUnique = useCallback(async () => {
+    const trimmed = invoiceNumber.trim();
+    if (!trimmed) {
+      setInvoiceCheck('idle');
+      return;
+    }
+    setInvoiceCheck('checking');
+    const [cashRes, layawayRes] = await Promise.all([
+      (supabase as any).from('cash_orders').select('id').eq('invoice_number', trimmed).maybeSingle(),
+      supabase.from('layaway_accounts').select('id').eq('invoice_number', trimmed).maybeSingle(),
+    ]);
+    if (cashRes.data || layawayRes.data) setInvoiceCheck('taken');
+    else setInvoiceCheck('available');
+  }, [invoiceNumber]);
+
+  const amount = Number(totalAmount) || 0;
+
+  // Full form validity (for enabling submit)
+  const isFormValid =
+    !!customerId &&
+    !!invoiceNumber.trim() &&
+    invoiceCheck !== 'taken' &&
+    !!currency &&
+    amount > 0 &&
+    !!itemDescription.trim() &&
+    !!orderDate;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isFormValid) {
+      toast.error('Please complete all required fields');
+      return;
+    }
+    if (invoiceCheck === 'taken') {
+      toast.error(`Invoice number "${invoiceNumber}" already exists`);
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const payload: Record<string, unknown> = {
+        customer_id: customerId,
+        invoice_number: invoiceNumber.trim(),
+        currency,
+        total_amount: amount,
+        item_description: itemDescription.trim(),
+        order_date: orderDate,
+      };
+      if (notes.trim()) payload.notes = notes.trim();
+      if (acceptAgreement) payload.agreement_version = 'v1';
+
+      const { data, error } = await supabase.functions.invoke('create-cash-order', { body: payload });
+
+      if (error) {
+        // Try to extract detailed error message from the FunctionsHttpError body
+        let msg = error.message || 'Failed to create cash order';
+        try {
+          if ('context' in error && (error as any).context?.body) {
+            const body = await new Response((error as any).context.body).json();
+            if (body?.error) msg = body.error;
+          }
+        } catch { /* ignore parse errors */ }
+        throw new Error(msg);
+      }
+
+      const newId = data?.cash_order?.id;
+      submittedRef.current = true;
+      setFormDirty(false);
+      toast.success(`Cash order #${invoiceNumber.trim()} created successfully`);
+      if (newId) navigate(`/cash-orders/${newId}`);
+      else navigate('/customers?tab=cash');
+    } catch (err: unknown) {
+      const msg = (err as Error).message || 'Failed to create cash order';
+      toast.error(msg);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Avoid rendering the form for unauthorized users while the redirect runs
+  if (!authLoading && !isAuthorized) return null;
+
   return (
     <AppLayout>
-      <div className="animate-fade-in space-y-6">
-        <div className="flex items-center gap-3">
-          <Link to="/customers?tab=cash">
-            <Button variant="ghost" size="icon" className="h-9 w-9">
+      <div className="animate-fade-in max-w-2xl space-y-6">
+        <div className="flex items-center gap-4">
+          <Link to="/customers?tab=cash" onClick={(e) => {
+            e.preventDefault();
+            guardedNavigate('/customers?tab=cash');
+          }}>
+            <Button variant="ghost" size="icon" className="text-muted-foreground">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-1">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl gold-gradient">
               <Banknote className="h-5 w-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">New Cash Order</h1>
-              <p className="text-sm text-muted-foreground">Placeholder — form coming soon</p>
+              <h1 className="text-2xl font-bold text-foreground font-display">Create Cash Order</h1>
+              <p className="text-sm text-muted-foreground mt-0.5">One-time full payment — no schedule or downpayment</p>
             </div>
           </div>
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-12 text-center">
-          <Banknote className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-40" />
-          <p className="text-sm text-muted-foreground">Cash order creation form will be added in the next step.</p>
-        </div>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="rounded-xl border border-primary/20 bg-card p-6 space-y-4">
+            {/* Customer */}
+            <div className="space-y-2">
+              <Label className="text-card-foreground flex items-center gap-2">
+                Customer *
+                {selectedCustomer && (
+                  <Badge variant="outline" className="text-[10px] bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/30">
+                    ✓ Existing customer selected
+                  </Badge>
+                )}
+              </Label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Input
+                    value={customerSearch}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setCustomerSearch(v);
+                      if (selectedCustomer) {
+                        setSelectedCustomer(null);
+                        setCustomerId('');
+                      }
+                      setCustomerDropdownOpen(true);
+                      markDirty();
+                    }}
+                    onFocus={() => { if (customerSearch) setCustomerDropdownOpen(true); }}
+                    onBlur={() => { setTimeout(() => setCustomerDropdownOpen(false), 150); }}
+                    placeholder="Search customer by name or mobile…"
+                    className="bg-background border-border pr-8"
+                    autoComplete="off"
+                  />
+                  {customerSearch && (
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setCustomerSearch('');
+                        setSelectedCustomer(null);
+                        setCustomerId('');
+                        setCustomerResults([]);
+                        setCustomerDropdownOpen(false);
+                        markDirty();
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-destructive"
+                      aria-label="Clear customer">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  {customerDropdownOpen && customerSearch.trim() && (
+                    <div
+                      className="absolute left-0 right-0 top-full mt-1 max-h-60 overflow-y-auto rounded-md border border-border bg-background shadow-xl"
+                      style={{ zIndex: 60 }}
+                    >
+                      {customerSearching ? (
+                        <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Searching…
+                        </div>
+                      ) : customerResults.length === 0 ? (
+                        <div className="px-3 py-2 text-xs text-muted-foreground italic">
+                          No customer found — use Create New Customer →
+                        </div>
+                      ) : (
+                        customerResults.map(c => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setSelectedCustomer(c);
+                              setCustomerId(c.id);
+                              setCustomerSearch(c.full_name || '');
+                              setCustomerDropdownOpen(false);
+                              markDirty();
+                            }}
+                            className="block w-full text-left px-3 py-2 text-sm hover:bg-muted/60 border-b border-border/40 last:border-0"
+                          >
+                            <span className="font-medium text-foreground">{c.full_name}</span>
+                            {c.mobile_number && (
+                              <span className="text-muted-foreground ml-2">{c.mobile_number}</span>
+                            )}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+                <NewCustomerDialog
+                  onCreated={(c) => {
+                    setCustomerId(c.id);
+                    setSelectedCustomer(c as DbCustomer);
+                    setCustomerSearch(c.full_name || '');
+                    markDirty();
+                  }}
+                  trigger={
+                    <Button type="button" variant="outline" size="icon" className="shrink-0" title="Create new customer">
+                      <UserPlus className="h-4 w-4" />
+                    </Button>
+                  }
+                />
+              </div>
+              {selectedCustomer && (
+                <div className="rounded-md border border-green-500/30 bg-green-500/5 p-3 text-xs space-y-1">
+                  {selectedCustomer.mobile_number && (
+                    <div>
+                      <span className="text-muted-foreground">Mobile:</span>{' '}
+                      <span className="text-foreground">{selectedCustomer.mobile_number}</span>
+                    </div>
+                  )}
+                  {selectedCustomer.email && (
+                    <div>
+                      <span className="text-muted-foreground">Email:</span>{' '}
+                      <span className="text-foreground">{selectedCustomer.email}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              {/* Invoice Number */}
+              <div className="space-y-2">
+                <Label className="text-card-foreground">Invoice Number *</Label>
+                <Input
+                  value={invoiceNumber}
+                  onChange={(e) => { setInvoiceNumber(e.target.value); setInvoiceCheck('idle'); markDirty(); }}
+                  onBlur={checkInvoiceUnique}
+                  placeholder="Manually entered"
+                  className={`bg-background border-border ${invoiceCheck === 'taken' ? 'border-destructive' : ''}`}
+                />
+                {invoiceCheck === 'checking' && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Checking…
+                  </p>
+                )}
+                {invoiceCheck === 'taken' && (
+                  <p className="text-xs text-destructive">Invoice number already exists</p>
+                )}
+                {invoiceCheck === 'available' && (
+                  <p className="text-xs text-green-600 dark:text-green-400">✓ Available</p>
+                )}
+              </div>
+
+              {/* Currency */}
+              <div className="space-y-2">
+                <Label className="text-card-foreground">Currency *</Label>
+                <div className="flex gap-2">
+                  {(['JPY', 'PHP'] as const).map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => { setCurrency(c); markDirty(); }}
+                      className={`flex-1 rounded-lg border py-2 text-sm font-medium transition-colors ${
+                        currency === c
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border bg-background text-muted-foreground hover:border-primary/50'
+                      }`}
+                    >
+                      {c === 'JPY' ? 'JPY ¥' : 'PHP ₱'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              {/* Total Amount */}
+              <div className="space-y-2">
+                <Label className="text-card-foreground">Total Amount *</Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground pointer-events-none">
+                    {currency === 'JPY' ? '¥' : '₱'}
+                  </span>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={totalAmount}
+                    onChange={(e) => { setTotalAmount(e.target.value); markDirty(); }}
+                    placeholder="0"
+                    className="bg-background border-border pl-8 tabular-nums"
+                  />
+                </div>
+                {totalAmount !== '' && amount <= 0 && (
+                  <p className="text-xs text-destructive">Amount must be greater than zero</p>
+                )}
+              </div>
+
+              {/* Order Date */}
+              <div className="space-y-2">
+                <Label className="text-card-foreground">Order Date *</Label>
+                <Input
+                  type="date"
+                  value={orderDate}
+                  onChange={(e) => { setOrderDate(e.target.value); markDirty(); }}
+                  className="bg-background border-border"
+                />
+              </div>
+            </div>
+
+            {/* Item Description */}
+            <div className="space-y-2">
+              <Label className="text-card-foreground">Item Description *</Label>
+              <Input
+                value={itemDescription}
+                onChange={(e) => { setItemDescription(e.target.value); markDirty(); }}
+                placeholder="e.g. Gold necklace — 18k, 40cm"
+                className="bg-background border-border"
+                maxLength={200}
+              />
+            </div>
+
+            {/* Notes */}
+            <div className="space-y-2">
+              <Label className="text-card-foreground">Notes (optional)</Label>
+              <textarea
+                className="w-full rounded-md border border-border bg-background p-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+                rows={3}
+                maxLength={1000}
+                placeholder="Internal notes about this cash order…"
+                value={notes}
+                onChange={e => { setNotes(e.target.value); markDirty(); }}
+              />
+              <p className="text-[10px] text-muted-foreground">{notes.length}/1000</p>
+            </div>
+
+            {/* Agreement */}
+            <div className="flex items-start gap-3 rounded-lg border border-border bg-background/50 p-3">
+              <Checkbox
+                id="accept-agreement"
+                checked={acceptAgreement}
+                onCheckedChange={(checked) => { setAcceptAgreement(!!checked); markDirty(); }}
+                className="mt-0.5"
+              />
+              <Label htmlFor="accept-agreement" className="text-sm cursor-pointer text-card-foreground leading-snug">
+                Customer accepts payment agreement
+                <span className="block text-[11px] text-muted-foreground mt-0.5">
+                  Records agreement_version='v1' and the acceptance timestamp on the cash order
+                </span>
+              </Label>
+            </div>
+          </div>
+
+          {/* Summary preview */}
+          {amount > 0 && (
+            <div className="rounded-xl border border-border bg-card p-4 flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Total due on creation</span>
+              <span className="text-lg font-bold text-card-foreground tabular-nums">
+                {formatCurrency(amount, currency)}
+              </span>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex justify-end gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => guardedNavigate('/customers?tab=cash')}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={submitting || !isFormValid || invoiceCheck === 'checking'}
+              className="gold-gradient text-primary-foreground font-medium"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                  Creating…
+                </>
+              ) : 'Create Cash Order'}
+            </Button>
+          </div>
+        </form>
       </div>
+
+      {/* Leave Confirmation */}
+      <Dialog open={showLeaveDialog} onOpenChange={setShowLeaveDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Unsaved Changes
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            You have unsaved changes. Are you sure you want to leave this page?
+          </p>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowLeaveDialog(false)}>
+              Stay
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setShowLeaveDialog(false);
+                setFormDirty(false);
+                submittedRef.current = true;
+                navigate(pendingNavRef.current || '/customers?tab=cash');
+                pendingNavRef.current = null;
+              }}
+            >
+              Leave Page
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }
