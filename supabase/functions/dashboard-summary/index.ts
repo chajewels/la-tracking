@@ -128,6 +128,74 @@ Deno.serve(async (req) => {
     const totalPenaltiesQ = supabase.from("penalty_fees").select("id, status, penalty_amount, currency");
     const reminderLogsQ = supabase.from("reminder_logs").select("id, delivery_status").order("created_at", { ascending: false }).limit(200);
 
+    // ── Cash order queries (independent of currencyFilter — cash KPIs always reported in JPY) ──
+    const cashActiveQ = supabase
+      .from("cash_orders")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending")
+      .not("invoice_number", "like", "TEST-%");
+
+    const cashCompletedMonthQ = supabase
+      .from("cash_orders")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "completed")
+      .gte("completed_at", monthStartStr)
+      .lt("completed_at", nextMonthStartStr)
+      .not("invoice_number", "like", "TEST-%");
+
+    const cashCompletedAllQ = supabase
+      .from("cash_orders")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "completed")
+      .not("invoice_number", "like", "TEST-%");
+
+    const cashCancelledQ = supabase
+      .from("cash_orders")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "cancelled")
+      .not("invoice_number", "like", "TEST-%");
+
+    // Conversion rate denominators — orders CREATED this month / all time, by source
+    const cashCreatedMonthQ = supabase
+      .from("cash_orders")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", monthStartStr)
+      .lt("created_at", nextMonthStartStr)
+      .not("invoice_number", "like", "TEST-%");
+
+    const cashCreatedAllQ = supabase
+      .from("cash_orders")
+      .select("id", { count: "exact", head: true })
+      .not("invoice_number", "like", "TEST-%");
+
+    const layawayCreatedMonthQ = supabase
+      .from("layaway_accounts")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", monthStartStr)
+      .lt("created_at", nextMonthStartStr)
+      .not("invoice_number", "like", "TEST-%");
+
+    const layawayCreatedAllQ = supabase
+      .from("layaway_accounts")
+      .select("id", { count: "exact", head: true })
+      .not("invoice_number", "like", "TEST-%");
+
+    // Non-voided cash_payments joined to cash_orders for currency + TEST filter — single fetch covers
+    // today / this month / all time aggregations (bucketed in JS to save round trips).
+    const cashPaymentsAllTimeQ = supabase
+      .from("cash_payments")
+      .select("amount_paid, date_paid, cash_orders!inner(currency, invoice_number)")
+      .is("voided_at", null)
+      .not("cash_orders.invoice_number", "like", "TEST-%");
+
+    // Non-voided layaway payments joined to layaway_accounts (TEST excluded) — basis for the split.
+    // This fetch is needed for all-time figures; existing monthPayments lacks the TEST filter.
+    const layawayPaymentsAllTimeQ = supabase
+      .from("payments")
+      .select("amount_paid, currency, date_paid, layaway_accounts!inner(invoice_number)")
+      .is("voided_at", null)
+      .not("layaway_accounts.invoice_number", "like", "TEST-%");
+
     // ── Fetch ALL unpaid schedule items (paginated to bypass 1000-row limit) ──
     const fetchAllScheduleItems = async () => {
       const allItems: any[] = [];
@@ -161,11 +229,24 @@ Deno.serve(async (req) => {
       allUnpaidScheduleItems,
       { data: forfeitedTodayAccounts },
       { count: completedAllTime },
+      { count: cashOrdersActive },
+      { count: cashOrdersCompletedMonth },
+      { count: cashOrdersCompletedAll },
+      { count: cashOrdersCancelled },
+      { count: cashCreatedMonth },
+      { count: cashCreatedAll },
+      { count: layawayCreatedMonth },
+      { count: layawayCreatedAll },
+      { data: cashPaymentsAllTime },
+      { data: layawayPaymentsAllTime },
     ] = await Promise.all([
       accountsQ, todayPayQ, monthPayQ, completedThisMonthQ, forfeitedQ,
       penaltiesTodayQ, pendingWaiversQ,
       totalPenaltiesQ, reminderLogsQ, fetchAllScheduleItems(),
       forfeitedTodayQ, completedAllTimeQ,
+      cashActiveQ, cashCompletedMonthQ, cashCompletedAllQ, cashCancelledQ,
+      cashCreatedMonthQ, cashCreatedAllQ, layawayCreatedMonthQ, layawayCreatedAllQ,
+      cashPaymentsAllTimeQ, layawayPaymentsAllTimeQ,
     ]);
 
     // ── Build account currency map ──
@@ -343,6 +424,62 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ── Cash order KPIs (always reported in JPY regardless of currencyFilter) ──
+    let cashRevenueTodayJpy = 0;
+    let cashRevenueMonthJpy = 0;
+    let cashRevenueTotalJpy = 0;
+    for (const cp of (cashPaymentsAllTime || []) as any[]) {
+      const amt = Number(cp.amount_paid);
+      const cur = cp.cash_orders?.currency || "PHP";
+      const jpy = toJpy(amt, cur);
+      cashRevenueTotalJpy += jpy;
+      const dp = String(cp.date_paid || "");
+      if (dp >= monthStartStr && dp < nextMonthStartStr) cashRevenueMonthJpy += jpy;
+      if (dp === today) cashRevenueTodayJpy += jpy;
+    }
+
+    // Layaway revenue (TEST excluded) — month + all time, for the split
+    let layawayRevenueMonthJpy = 0;
+    let layawayRevenueTotalJpy = 0;
+    for (const p of (layawayPaymentsAllTime || []) as any[]) {
+      const amt = Number(p.amount_paid);
+      const cur = p.currency || "PHP";
+      const jpy = toJpy(amt, cur);
+      layawayRevenueTotalJpy += jpy;
+      const dp = String(p.date_paid || "");
+      if (dp >= monthStartStr && dp < nextMonthStartStr) layawayRevenueMonthJpy += jpy;
+    }
+
+    const pctOrZero = (numerator: number, denominator: number) =>
+      denominator > 0 ? Math.round((numerator / denominator) * 1000) / 10 : 0;
+
+    const cashRevenueMonthRound = Math.round(cashRevenueMonthJpy);
+    const layawayRevenueMonthRound = Math.round(layawayRevenueMonthJpy);
+    const cashRevenueTotalRound = Math.round(cashRevenueTotalJpy);
+    const layawayRevenueTotalRound = Math.round(layawayRevenueTotalJpy);
+
+    const cashVsLayawaySplit = {
+      this_month: {
+        cash_revenue_jpy: cashRevenueMonthRound,
+        layaway_revenue_jpy: layawayRevenueMonthRound,
+        cash_percentage: pctOrZero(cashRevenueMonthRound, cashRevenueMonthRound + layawayRevenueMonthRound),
+      },
+      all_time: {
+        cash_revenue_jpy: cashRevenueTotalRound,
+        layaway_revenue_jpy: layawayRevenueTotalRound,
+        cash_percentage: pctOrZero(cashRevenueTotalRound, cashRevenueTotalRound + layawayRevenueTotalRound),
+      },
+    };
+
+    const cashCreatedMonthVal = cashCreatedMonth ?? 0;
+    const cashCreatedAllVal = cashCreatedAll ?? 0;
+    const layawayCreatedMonthVal = layawayCreatedMonth ?? 0;
+    const layawayCreatedAllVal = layawayCreatedAll ?? 0;
+    const cashConversionRate = {
+      this_month: pctOrZero(cashCreatedMonthVal, cashCreatedMonthVal + layawayCreatedMonthVal),
+      all_time: pctOrZero(cashCreatedAllVal, cashCreatedAllVal + layawayCreatedAllVal),
+    };
+
     const displayCurrency = currencyFilter === "ALL" ? "JPY" : currencyFilter;
 
     return new Response(JSON.stringify({
@@ -376,6 +513,16 @@ Deno.serve(async (req) => {
       reminder_total: totalReminders,
       reminder_success: successReminders,
       reminder_failed: failedReminders,
+      // Cash orders
+      cash_orders_active: cashOrdersActive ?? 0,
+      cash_orders_completed_this_month: cashOrdersCompletedMonth ?? 0,
+      cash_orders_completed_all_time: cashOrdersCompletedAll ?? 0,
+      cash_orders_cancelled: cashOrdersCancelled ?? 0,
+      cash_revenue_today_jpy: Math.round(cashRevenueTodayJpy),
+      cash_revenue_month_jpy: cashRevenueMonthRound,
+      cash_revenue_total_jpy: cashRevenueTotalRound,
+      cash_vs_layaway_split: cashVsLayawaySplit,
+      cash_conversion_rate: cashConversionRate,
       // Predictions
       predicted_30d: Math.round(predicted30Raw * riskFactor),
       predicted_30d_raw: Math.round(predicted30Raw),
