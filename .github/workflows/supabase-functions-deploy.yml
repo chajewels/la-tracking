@@ -25,6 +25,7 @@ on:
       - 'supabase/functions/send-reminders/**'
       - 'supabase/functions/send-transactional-email/**'
       - 'supabase/functions/preview-transactional-email/**'
+      - 'supabase/functions/void-cash-payment/**'
       - 'supabase/functions/_shared/**'
   workflow_dispatch:
 
@@ -162,5 +163,11 @@ jobs:
       - name: Deploy preview-transactional-email
         if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/preview-transactional-email/') || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/_shared/')
         run: npx supabase functions deploy preview-transactional-email --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy void-cash-payment
+        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/void-cash-payment/')
+        run: npx supabase functions deploy void-cash-payment --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
