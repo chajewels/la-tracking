@@ -12,6 +12,7 @@ import {
   useActiveByPlan,
   useFinancialAlerts,
 } from '@/hooks/useExecutiveDashboard';
+import { useDashboardSummary } from '@/hooks/use-supabase-data';
 
 const PLAN_COLORS: Record<number, string> = { 3: '#888780', 6: '#378ADD', 8: '#1D9E75', 10: '#EF9F27', 12: '#D85A30' };
 const PLAN_KEYS = [3, 6, 8, 10, 12];
@@ -64,6 +65,10 @@ export default function ExecutiveDashboard() {
   const inflowData = useMonthlyInflowByPlan();
   const donutData = useActiveByPlan();
   const alerts = useFinancialAlerts();
+  // Cash KPIs come from dashboard-summary (JPY only). Fetched with 'ALL' so the
+  // values don't get currency-filtered at the edge-function boundary — cash
+  // fields are already JPY-normalised server-side regardless of currency_mode.
+  const { data: cashSummary } = useDashboardSummary('ALL');
   const [riskOpen, setRiskOpen] = useState(false);
 
   const coverageColor = d.coverageRatio?.status_label === 'HEALTHY' ? 'border-emerald-500' :
@@ -174,7 +179,13 @@ export default function ExecutiveDashboard() {
 
         {/* KPI Row 2 */}
         {!d.loading && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            {/* Cash Sales — always JPY, from dashboard-summary */}
+            <KPI
+              label="Cash Sales (This Month · JPY)"
+              value={fmtFull(cashSummary?.cash_revenue_month_jpy ?? 0)}
+              sub={`${fmtFull(cashSummary?.cash_revenue_total_jpy ?? 0)} all-time · ${cashSummary?.cash_orders_active ?? 0} pending`}
+            />
             {/* At-Risk */}
             <div className="rounded-xl border border-border bg-card p-5 cursor-pointer hover:border-primary/30 transition-colors" onClick={() => setRiskOpen(!riskOpen)}>
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">At-Risk Accounts</p>
@@ -310,6 +321,55 @@ export default function ExecutiveDashboard() {
               </>
             )}
           </div>
+        </div>
+
+        {/* Cash vs Layaway — This Month stacked bar (JPY).
+            TODO: add cash_revenue_by_month_6m RPC for historical chart in future phase. */}
+        <div className="rounded-xl border border-border bg-card p-5">
+          <h3 className="text-sm font-semibold text-card-foreground mb-1">This Month: Cash vs Layaway (JPY)</h3>
+          <p className="text-[11px] text-muted-foreground mb-4">
+            Current-month revenue mix. Historical trend coming in a later phase.
+          </p>
+          {(() => {
+            const split = cashSummary?.cash_vs_layaway_split?.this_month;
+            const cash = split?.cash_revenue_jpy ?? 0;
+            const lay = split?.layaway_revenue_jpy ?? 0;
+            const pct = split?.cash_percentage ?? 0;
+            if (!split || (cash === 0 && lay === 0)) {
+              return <p className="text-sm text-muted-foreground text-center py-12">No revenue yet this month.</p>;
+            }
+            const data = [{ label: 'This Month', cash, layaway: lay }];
+            return (
+              <>
+                <ResponsiveContainer width="100%" height={140}>
+                  <BarChart data={data} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                    <XAxis type="number" tickFormatter={fmtM} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="label" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} axisLine={false} tickLine={false} width={80} />
+                    <Tooltip
+                      formatter={(v: number, name: string) => [fmtFull(v), name === 'cash' ? 'Cash' : 'Layaway']}
+                      contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }}
+                      cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+                    />
+                    <Bar dataKey="cash" stackId="rev" fill="#C9A84C" radius={[3, 0, 0, 3]} />
+                    <Bar dataKey="layaway" stackId="rev" fill="#378ADD" radius={[0, 3, 3, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 text-xs">
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
+                    <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: '#C9A84C' }} />
+                    Cash: <span className="text-card-foreground font-medium tabular-nums">{fmtFull(cash)}</span>
+                    <span className="text-muted-foreground/70">({pct.toFixed(1)}%)</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
+                    <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: '#378ADD' }} />
+                    Layaway: <span className="text-card-foreground font-medium tabular-nums">{fmtFull(lay)}</span>
+                    <span className="text-muted-foreground/70">({(100 - pct).toFixed(1)}%)</span>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
         </div>
 
         {/* Plan Performance Table */}

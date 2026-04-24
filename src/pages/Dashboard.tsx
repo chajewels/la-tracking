@@ -145,6 +145,44 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Cash Orders — always JPY regardless of currencyFilter */}
+        <div>
+          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Cash Orders (JPY)</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+            {summaryLoading ? (
+              [...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+            ) : (
+              <>
+                <StatCard
+                  title="Active Orders"
+                  value={(summary?.cash_orders_active ?? 0).toString()}
+                  subtitle="Pending"
+                  icon={FileText}
+                />
+                <StatCard
+                  title="Completed"
+                  value={(summary?.cash_orders_completed_this_month ?? 0).toString()}
+                  subtitle="This month"
+                  icon={CheckCircle2}
+                  variant="success"
+                />
+                <StatCard
+                  title="Revenue Today"
+                  value={formatCurrency(summary?.cash_revenue_today_jpy ?? 0, 'JPY')}
+                  icon={TrendingUp}
+                  variant="success"
+                />
+                <StatCard
+                  title="Revenue This Month"
+                  value={formatCurrency(summary?.cash_revenue_month_jpy ?? 0, 'JPY')}
+                  icon={Banknote}
+                  variant="gold"
+                />
+              </>
+            )}
+          </div>
+        </div>
+
         {canSeePendingSubmissions && <PendingSubmissionsAlert />}
 
         {/* Secondary KPIs */}
