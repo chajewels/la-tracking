@@ -16,6 +16,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import StatusBadge from '@/components/customers/StatusBadge';
+import RecordCashPaymentDialog from '@/components/customers/RecordCashPaymentDialog';
 import { Currency } from '@/lib/types';
 import { formatCurrency } from '@/lib/calculations';
 import { supabase } from '@/integrations/supabase/client';
@@ -221,6 +222,9 @@ export default function CashOrderDetail() {
   );
   const [auditOpen, setAuditOpen] = useState(false);
   const { data: auditLogs } = useCashAuditLogs(id, isAdmin && auditOpen);
+
+  // Record payment dialog state
+  const [recordOpen, setRecordOpen] = useState(false);
 
   // Note form state
   const [noteFormOpen, setNoteFormOpen] = useState(false);
@@ -445,7 +449,7 @@ export default function CashOrderDetail() {
           {canRecordPayment && (
             <Button
               className="gold-gradient text-primary-foreground font-medium shadow"
-              onClick={() => toast.info('Record Payment dialog coming next — submit-cash-payment endpoint is live')}
+              onClick={() => setRecordOpen(true)}
             >
               <Receipt className="h-4 w-4 mr-1.5" />
               Record Payment
@@ -748,6 +752,29 @@ export default function CashOrderDetail() {
           </div>
         )}
       </div>
+
+      {/* Record Cash Payment */}
+      {canRecordPayment && (
+        <RecordCashPaymentDialog
+          isOpen={recordOpen}
+          onClose={() => setRecordOpen(false)}
+          cashOrder={{
+            id: order.id,
+            invoice_number: order.invoice_number,
+            customer_id: order.customer_id,
+            currency,
+            total_amount: Number(order.total_amount),
+            total_paid: Number(order.total_paid),
+            remaining_balance: Number(order.remaining_balance),
+            customer: order.customers ? { full_name: order.customers.full_name } : null,
+          }}
+          onSuccess={() => {
+            qc.invalidateQueries({ queryKey: ['cash-order', id] });
+            qc.invalidateQueries({ queryKey: ['cash-payments', id] });
+            qc.invalidateQueries({ queryKey: ['cash-submissions', id] });
+          }}
+        />
+      )}
 
       {/* Cancel confirmation */}
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
