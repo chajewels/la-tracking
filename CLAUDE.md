@@ -971,6 +971,25 @@ When completing a partially_paid month:
     - Google Sheet: backup mirror, sync on every points update
     - GAS emails: must be disabled — Supabase is sole sender
 
+  Loyalty Program Phase 2 (Edge Functions): COMPLETE ✅ (2026-04-25)
+    - 5 new functions: award-loyalty-points,
+      sync-loyalty-to-sheet (stub), join-loyalty-program,
+      process-loyalty-redemption, loyalty-inactivity-check
+    - 3 updated: create-layaway-account, create-cash-order,
+      review-payment-submission (DP + cash completion
+      triggers wired)
+    - pg_cron job 'loyalty-inactivity-check' scheduled
+      daily at 08:05 PHT (job_id 13)
+    - Sheet sync deferred — stub function in place,
+      Google Cloud service account setup pending
+
+  Loyalty Program — Pending:
+    Phase 3: UI Build (port cha-jewels-circle UI)
+    Phase 4: Email Templates (8 templates)
+    Phase 5: Customer Portal loyalty section
+    Phase 6: Admin Dashboard
+    Phase 7: Beta testing & launch
+
   accept-underpayment auto-carry: REMOVED ✅
   carry-over edge function: DEPLOYED ✅
   review-payment-submission auto-carry: REMOVED ✅
