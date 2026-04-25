@@ -943,6 +943,34 @@ When completing a partially_paid month:
       cash vs layaway deferred (needs
       cash_revenue_by_month_6m RPC)
 
+  Loyalty Program Phase 1 (DB): COMPLETE ✅ (2026-04-25)
+    - 5 tables created: loyalty_tiers, loyalty_members,
+      loyalty_transactions, loyalty_redemptions,
+      loyalty_promos, loyalty_beta_members
+    - 3 enums: loyalty_transaction_type,
+      loyalty_redemption_type, loyalty_redemption_status
+    - 4 tiers seeded: Glimmer/Radiant/Elite/Crown VIP
+    - loyalty_jpy_amount column on BOTH layaway_accounts
+      and cash_orders (for both earning paths)
+    - 18 RLS policies (admin/staff/finance scoped)
+    - Feature flag system_settings.loyalty_enabled = false
+    - Beta gate ready for testing
+
+  Loyalty Program — Non-Negotiable Rules (locked v2):
+    - Points: floor(jpy_equiv / 10,000) × 100 × tier_mult
+    - Tiers: Glimmer(0)/Radiant(1M)/Elite(4M)/Crown VIP(8M)
+    - Inactivity: 6 months → tier downgrade + points zeroed
+    - Pre-expiry email: 14 days before 6-month mark
+    - Redemption: 3 types only — new_order_discount/
+      shipping_fee/service_fee
+    - NO cash payout, NO partial payment to existing balance
+    - Invoice number required on every redemption
+    - Enrollment: opt-in via portal Join button
+    - Cash order trigger: points awarded on completion
+    - Layaway trigger: points awarded on DP confirmation
+    - Google Sheet: backup mirror, sync on every points update
+    - GAS emails: must be disabled — Supabase is sole sender
+
   accept-underpayment auto-carry: REMOVED ✅
   carry-over edge function: DEPLOYED ✅
   review-payment-submission auto-carry: REMOVED ✅
