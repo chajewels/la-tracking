@@ -11,6 +11,33 @@ const json = (body: unknown, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
+const fmtFriendlyDate = (iso: string | null | undefined) =>
+  iso
+    ? new Date(iso).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    })
+    : "soon";
+
+async function buildLoyaltyPortalUrl(supabase: any, customerId: string): Promise<string> {
+  const { data: tokenRow } = await supabase
+    .from("customer_portal_tokens")
+    .select("token, expires_at")
+    .eq("customer_id", customerId)
+    .eq("is_active", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (tokenRow?.token) {
+    const expired = tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date();
+    if (!expired) {
+      return `https://portal.chajewelsjp.com/loyalty?token=${encodeURIComponent(tokenRow.token)}`;
+    }
+  }
+  return "https://portal.chajewelsjp.com/portal";
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -176,7 +203,7 @@ Deno.serve(async (req) => {
 
     const { data: newTierRow } = await supabase
       .from("loyalty_tiers")
-      .select("id, name, min_spend_jpy")
+      .select("id, name, min_spend_jpy, points_multiplier")
       .lte("min_spend_jpy", newCumulative)
       .order("min_spend_jpy", { ascending: false })
       .limit(1)
@@ -230,6 +257,7 @@ Deno.serve(async (req) => {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
         };
+        const portalUrl = await buildLoyaltyPortalUrl(supabase, customerId!);
 
         await fetch(baseUrl, {
           method: "POST",
@@ -240,15 +268,43 @@ Deno.serve(async (req) => {
             idempotencyKey: `loyalty-earned-${sourceKind}-${account_id ?? cash_order_id}`,
             templateData: {
               customerName,
-              points: totalAdded,
+              pointsEarned: points,
+              spendAmountJpy: loyaltyJpy,
               invoiceNumber,
-              tierName: newTierName,
+              tierName: currentTier.name,
+              tierMultiplier: multiplier,
               remainingPoints: newRemaining,
+              cumulativeSpendJpy: newCumulative,
+              portalUrl,
             },
           }),
         }).catch((e) =>
           console.warn("[award-loyalty-points] loyalty-earned email failed:", e)
         );
+
+        if (activePromo) {
+          await fetch(baseUrl, {
+            method: "POST",
+            headers: authHeader,
+            body: JSON.stringify({
+              templateName: "loyalty-bonus",
+              recipientEmail,
+              idempotencyKey:
+                `loyalty-bonus-${activePromo.id}-${sourceKind}-${account_id ?? cash_order_id}`,
+              templateData: {
+                customerName,
+                bonusPoints,
+                promoName: activePromo.name,
+                promoEndDate: fmtFriendlyDate(activePromo.end_date),
+                invoiceNumber,
+                remainingPoints: newRemaining,
+                portalUrl,
+              },
+            }),
+          }).catch((e) =>
+            console.warn("[award-loyalty-points] loyalty-bonus email failed:", e)
+          );
+        }
 
         if (tierUpgraded) {
           await fetch(baseUrl, {
@@ -262,7 +318,10 @@ Deno.serve(async (req) => {
                 customerName,
                 oldTier: oldTierName,
                 newTier: newTierName,
+                newMultiplier: Number(newTierRow!.points_multiplier ?? 1),
+                cumulativeSpendJpy: newCumulative,
                 remainingPoints: newRemaining,
+                portalUrl,
               },
             }),
           }).catch((e) =>

@@ -23,6 +23,31 @@ const daysBetween = (a: Date, b: Date) =>
 const addDays = (d: Date, days: number) =>
   new Date(d.getTime() + days * DAY_MS);
 
+const fmtFriendlyDate = (d: Date) =>
+  d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
+async function buildLoyaltyPortalUrl(supabase: any, customerId: string): Promise<string> {
+  const { data: tokenRow } = await supabase
+    .from("customer_portal_tokens")
+    .select("token, expires_at")
+    .eq("customer_id", customerId)
+    .eq("is_active", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (tokenRow?.token) {
+    const expired = tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date();
+    if (!expired) {
+      return `https://portal.chajewelsjp.com/loyalty?token=${encodeURIComponent(tokenRow.token)}`;
+    }
+  }
+  return "https://portal.chajewelsjp.com/portal";
+}
+
 async function sendEmail(
   templateName: string,
   recipientEmail: string,
@@ -193,6 +218,7 @@ Deno.serve(async (req) => {
         summary.expiries_processed += 1;
 
         if (customer?.email) {
+          const portalUrl = await buildLoyaltyPortalUrl(supabase, member.customer_id);
           await sendEmail(
             "loyalty-expire-deduct",
             customer.email,
@@ -200,10 +226,10 @@ Deno.serve(async (req) => {
             {
               customerName,
               pointsExpired: wasRemaining,
+              oldTier: currentTier.name,
               newTier: nextLower!.name,
-              wasTier: currentTier.name,
-              message:
-                "Your loyalty points have expired after 6 months of inactivity. You can start earning fresh points on your next purchase.",
+              daysSinceLastPurchase: daysSinceLast,
+              portalUrl,
             },
           );
         }
@@ -230,6 +256,7 @@ Deno.serve(async (req) => {
           const expirationDate = addDays(lastPurchase, INACTIVITY_DAYS);
 
           if (customer?.email) {
+            const portalUrl = await buildLoyaltyPortalUrl(supabase, member.customer_id);
             await sendEmail(
               "loyalty-pre-expire",
               customer.email,
@@ -238,9 +265,11 @@ Deno.serve(async (req) => {
               }`,
               {
                 customerName,
-                expirationDate: expirationDate.toISOString(),
                 remainingPoints: Number(member.remaining_points),
+                expirationDate: fmtFriendlyDate(expirationDate),
+                daysRemaining: INACTIVITY_DAYS - daysSinceLast,
                 currentTier: currentTier.name,
+                portalUrl,
               },
             );
           }
@@ -280,6 +309,7 @@ Deno.serve(async (req) => {
           summary.downgrades_processed += 1;
 
           if (customer?.email) {
+            const portalUrl = await buildLoyaltyPortalUrl(supabase, member.customer_id);
             await sendEmail(
               "loyalty-tier-downgrade",
               customer.email,
@@ -290,9 +320,9 @@ Deno.serve(async (req) => {
                 customerName,
                 oldTier: currentTier.name,
                 newTier: nextLower.name,
-                lastPurchaseAt: member.last_purchase_at,
-                prevPurchaseAt: member.prev_purchase_at,
-                gapDays: gapBetweenLastTwo,
+                daysSinceLastPurchase: gapBetweenLastTwo,
+                remainingPoints: Number(member.remaining_points),
+                portalUrl,
               },
             );
           }

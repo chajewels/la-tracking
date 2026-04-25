@@ -25,6 +25,24 @@ async function getUserRoles(supabase: any, userId: string): Promise<string[]> {
   return (data ?? []).map((r: any) => r.role);
 }
 
+async function buildLoyaltyPortalUrl(supabase: any, customerId: string): Promise<string> {
+  const { data: tokenRow } = await supabase
+    .from("customer_portal_tokens")
+    .select("token, expires_at")
+    .eq("customer_id", customerId)
+    .eq("is_active", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (tokenRow?.token) {
+    const expired = tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date();
+    if (!expired) {
+      return `https://portal.chajewelsjp.com/loyalty?token=${encodeURIComponent(tokenRow.token)}`;
+    }
+  }
+  return "https://portal.chajewelsjp.com/portal";
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -295,6 +313,7 @@ Deno.serve(async (req) => {
         const customerName = customer?.full_name || "Valued Customer";
 
         if (recipientEmail) {
+          const portalUrl = await buildLoyaltyPortalUrl(supabase, member.customer_id);
           await fetch(
             `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
             {
@@ -317,6 +336,7 @@ Deno.serve(async (req) => {
                   redemptionType: redemption.redemption_type,
                   invoiceNumber: redemption.invoice_number,
                   remainingPoints: newRemaining,
+                  portalUrl,
                 },
               }),
             },

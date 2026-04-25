@@ -119,6 +119,7 @@ Deno.serve(async (req) => {
               templateData: {
                 customerName: customer.full_name || "Valued Customer",
                 enrolledDate: enrolledAt,
+                portalUrl: `https://portal.chajewelsjp.com/loyalty?token=${encodeURIComponent(portal_token)}`,
               },
             }),
           },
