@@ -98,6 +98,7 @@ const Customers = lazyWithRetry(() => import("./pages/Customers"));
 const CustomerDetail = lazyWithRetry(() => import("./pages/CustomerDetail"));
 const Monitoring = lazyWithRetry(() => import("./pages/Monitoring"));
 const CustomerPortal = lazyWithRetry(() => import("./pages/CustomerPortal"));
+const LoyaltyPortal = lazyWithRetry(() => import("./pages/LoyaltyPortal"));
 const Finance = lazyWithRetry(() => import("./pages/Finance"));
 const SettingsPage = lazyWithRetry(() => import("./pages/SettingsPage"));
 const AdminAudit = lazyWithRetry(() => import("./pages/AdminAudit"));
@@ -162,6 +163,7 @@ const App = () => (
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/statement" element={<CustomerStatement />} />
                 <Route path="/portal" element={<CustomerPortal />} />
+                <Route path="/loyalty" element={<LoyaltyPortal />} />
                 <Route path="/unsubscribe" element={<Unsubscribe />} />
                 
                 <Route path="/" element={<Protected><Dashboard /></Protected>} />
