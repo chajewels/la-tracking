@@ -470,12 +470,13 @@ export default function NewCashOrder() {
                   inputMode="numeric"
                   value={loyaltyJpyInput}
                   onChange={(e) => { setLoyaltyJpyInput(e.target.value); markDirty(); }}
-                  placeholder="Enter product value in JPY only"
+                  placeholder="e.g. 107143"
                   className="bg-background border-border"
                 />
                 <p className="text-[10px] text-muted-foreground">
-                  Exclude shipping, service fees, and insurance. Used for
-                  loyalty points only. Not shown to customer.
+                  Product value in JPY only. Exclude shipping, service fees,
+                  and insurance. Used for loyalty points — not shown to
+                  customer.
                 </p>
               </div>
             )}
