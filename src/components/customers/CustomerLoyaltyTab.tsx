@@ -23,6 +23,7 @@ import {
   type LoyaltyTxRow,
   type LoyaltyTransactionType,
 } from '@/components/loyalty/RecentActivity';
+import { RedemptionApprovalModal } from '@/components/loyalty/RedemptionApprovalModal';
 
 interface TierLite {
   name: string;
@@ -187,6 +188,7 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
   const { data, isLoading } = useCustomerLoyalty(customerId);
   const [filter, setFilter] = useState<ActivityFilter>('all');
   const [betaPending, setBetaPending] = useState(false);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
 
   const filteredTransactions = useMemo(() => {
     if (!data?.transactions) return [];
@@ -458,30 +460,14 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
                       {(isAdmin || isFinance) && (
                         <TableCell className="text-right">
                           {isPending ? (
-                            <div className="flex justify-end gap-1.5">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 px-2 text-[11px]"
-                                onClick={() =>
-                                  toast.info('Redemption approval modal lands in the next step')
-                                }
-                              >
-                                Approve
-                              </Button>
-                              {isAdmin && (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-7 px-2 text-[11px] text-muted-foreground"
-                                  onClick={() =>
-                                    toast.info('Cancel modal lands in the next step')
-                                  }
-                                >
-                                  Cancel
-                                </Button>
-                              )}
-                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-[11px]"
+                              onClick={() => setReviewingId(r.id)}
+                            >
+                              Review
+                            </Button>
                           ) : (
                             <span className="text-[11px] text-muted-foreground">—</span>
                           )}
@@ -544,6 +530,13 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
           </div>
         </div>
       )}
+
+      <RedemptionApprovalModal
+        isOpen={reviewingId !== null}
+        onClose={() => setReviewingId(null)}
+        redemptionId={reviewingId}
+        invalidateKeys={[['customer-loyalty', customerId]]}
+      />
     </div>
   );
 });

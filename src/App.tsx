@@ -110,6 +110,7 @@ const PaymentsHub = lazyWithRetry(() => import("./pages/PaymentsHub"));
 const BulkPaymentImport = lazyWithRetry(() => import("./pages/BulkPaymentImport"));
 const Unsubscribe = lazyWithRetry(() => import("./pages/Unsubscribe"));
 const Promotions = lazyWithRetry(() => import("./pages/Promotions"));
+const LoyaltyRedemptions = lazyWithRetry(() => import("./pages/LoyaltyRedemptions"));
 const ExecutiveDashboard = lazyWithRetry(() => import("./pages/ExecutiveDashboard"));
 const NewCashOrder = lazyWithRetry(() => import("./pages/NewCashOrder"));
 const CashOrderDetail = lazyWithRetry(() => import("./pages/CashOrderDetail"));
@@ -179,6 +180,7 @@ const App = () => (
                 <Route path="/payments-hub" element={<Protected><PaymentsHub /></Protected>} />
                 <Route path="/bulk-payment-import" element={<Protected><BulkPaymentImport /></Protected>} />
                 <Route path="/promotions" element={<Protected><Promotions /></Protected>} />
+                <Route path="/loyalty/redemptions" element={<Protected><LoyaltyRedemptions /></Protected>} />
                 <Route path="/executive-dashboard" element={<ExecutiveDashboard />} />
                 {/* Cash orders */}
                 <Route path="/cash-orders" element={<Navigate to="/customers?tab=cash" replace />} />

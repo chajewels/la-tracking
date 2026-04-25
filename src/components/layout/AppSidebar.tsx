@@ -11,8 +11,10 @@ import {
   Megaphone,
   Upload,
   BarChart3,
+  Sparkles,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLoyaltyPendingCount } from '@/hooks/useLoyaltyPendingCount';
 import { cn } from '@/lib/utils';
 import {
   Sidebar,
@@ -32,6 +34,7 @@ const menuItems: { label: string; icon: any; path: string; adminOnly?: boolean }
   { label: 'Executive Dashboard', icon: BarChart3, path: ROUTES.EXECUTIVE_DASHBOARD, adminOnly: true },
   { label: 'Bulk Import', icon: Upload, path: ROUTES.BULK_PAYMENT_IMPORT },
   { label: 'Promotions', icon: Megaphone, path: ROUTES.PROMOTIONS },
+  { label: 'Loyalty Redemptions', icon: Sparkles, path: ROUTES.LOYALTY_REDEMPTIONS },
   { label: 'Settings', icon: Settings, path: ROUTES.SETTINGS },
 ];
 
@@ -39,6 +42,7 @@ export default function AppSidebar() {
   const location = useLocation();
   const { profile, signOut, user } = useAuth();
   const isExecAllowed = user?.email === 'sales@chajewelsjp.com';
+  const { count: pendingRedemptions } = useLoyaltyPendingCount();
 
   const initials = profile?.full_name
     ? profile.full_name
@@ -89,14 +93,26 @@ export default function AppSidebar() {
                       : 'text-white/55 hover:bg-[#D4AF37]/[0.06] hover:text-white/90'
                   )}
                 >
-                  <Link to={item.path}>
+                  <Link to={item.path} className="flex w-full items-center gap-2">
                     <Icon
                       className={cn(
                         'h-4 w-4',
                         isActive ? 'opacity-100 text-[#D4AF37]' : 'opacity-60'
                       )}
                     />
-                    <span>{item.label}</span>
+                    <span className="flex-1">{item.label}</span>
+                    {item.path === ROUTES.LOYALTY_REDEMPTIONS && pendingRedemptions > 0 && (
+                      <span
+                        className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                        style={{
+                          background: 'rgba(245, 158, 11, 0.18)',
+                          color: '#F59E0B',
+                          border: '1px solid rgba(245, 158, 11, 0.35)',
+                        }}
+                      >
+                        {pendingRedemptions}
+                      </span>
+                    )}
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
