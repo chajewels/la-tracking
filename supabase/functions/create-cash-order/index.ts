@@ -102,27 +102,15 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 6. Compute loyalty_jpy_amount
-    let loyaltyJpyAmount: number | null;
-    if (currency === "JPY") {
-      loyaltyJpyAmount = totalAmountNum;
-    } else {
-      const { data: rateSetting } = await supabase
-        .from("system_settings")
-        .select("value")
-        .eq("key", "php_jpy_rate")
-        .single();
-      const rate = Number(JSON.parse(String(rateSetting?.value ?? "null")));
-      if (!Number.isFinite(rate) || rate <= 0) {
-        console.warn(
-          "[create-cash-order] php_jpy_rate not set, loyalty_jpy_amount will be null",
-        );
-        loyaltyJpyAmount = null;
-      } else {
-        // PHP → JPY: divide (per CLAUDE.md currency conversion standard)
-        loyaltyJpyAmount = Math.round(totalAmountNum / rate);
-      }
-    }
+    // 6. Loyalty-only product amount in JPY — manually entered by
+    // admin/finance because total_amount can include shipping, service
+    // fees, and insurance that don't count toward loyalty points. NULL
+    // means the customer is not a loyalty member or the value was
+    // intentionally left blank.
+    const loyaltyJpyAmount =
+      typeof body.loyalty_jpy_amount === "number" && body.loyalty_jpy_amount > 0
+        ? Math.round(body.loyalty_jpy_amount)
+        : null;
 
     // 7. Resolve order_date (defaults to today UTC date)
     const resolvedOrderDate = order_date || new Date().toISOString().split("T")[0];

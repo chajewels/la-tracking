@@ -15,6 +15,7 @@ import { Currency, PaymentPlan } from '@/lib/types';
 import { toast } from 'sonner';
 import { useCustomers, useAccounts, useCreateAccount, DbCustomer } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
 import { Badge } from '@/components/ui/badge';
@@ -51,7 +52,13 @@ export default function NewAccount() {
   const [orderDate, setOrderDate] = useState('');
   const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>(3);
   const [downpaymentInput, setDownpaymentInput] = useState('');
+  const [loyaltyJpyInput, setLoyaltyJpyInput] = useState('');
   const [initialNote, setInitialNote] = useState('');
+
+  // Loyalty-only product amount field is admin/finance only.
+  const { roles } = useAuth();
+  const rolesArr = roles as any[];
+  const canSeeLoyaltyField = rolesArr.includes('admin') || rolesArr.includes('finance');
 
   // Custom installment mode
   const [installmentMode, setInstallmentMode] = useState<InstallmentMode>('equal');
@@ -381,6 +388,12 @@ export default function NewAccount() {
             );
           })();
 
+      const loyaltyJpyParsed = Number(loyaltyJpyInput);
+      const loyaltyJpyAmount =
+        loyaltyJpyInput.trim() !== '' && Number.isFinite(loyaltyJpyParsed) && loyaltyJpyParsed > 0
+          ? Math.round(loyaltyJpyParsed)
+          : null;
+
       const result = await createAccount.mutateAsync({
         customer_id: customerId,
         invoice_number: invoiceNumber,
@@ -393,6 +406,7 @@ export default function NewAccount() {
         split_allocations: validAllocations,
         lump_sum_total: enableSplitPayment ? lumpSum : undefined,
         custom_installments: installmentsToSend,
+        loyalty_jpy_amount: loyaltyJpyAmount,
       });
 
       // Mark as submitted to allow navigation
@@ -1064,6 +1078,29 @@ export default function NewAccount() {
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Loyalty product amount (admin/finance only) */}
+          {canSeeLoyaltyField && (
+            <div className="rounded-xl border border-border bg-card p-6 space-y-2">
+              <Label className="text-card-foreground">
+                Product Amount (JPY) — Loyalty Only
+              </Label>
+              <Input
+                type="number"
+                min={0}
+                step={1}
+                inputMode="numeric"
+                value={loyaltyJpyInput}
+                onChange={(e) => { setLoyaltyJpyInput(e.target.value); markDirty(); }}
+                placeholder="Enter product value in JPY only"
+                className="bg-background border-border"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Exclude shipping, service fees, and insurance. Used for loyalty
+                points only. Not shown to customer.
+              </p>
             </div>
           )}
 

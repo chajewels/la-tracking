@@ -484,7 +484,7 @@ export default function CashOrderDetail() {
           )}
           {isAdmin && order.loyalty_jpy_amount != null && (
             <p className="text-[11px] text-muted-foreground pt-1 border-t border-border/50">
-              Loyalty JPY amount: ¥{Number(order.loyalty_jpy_amount).toLocaleString()}
+              Product Value (Loyalty): ¥{Number(order.loyalty_jpy_amount).toLocaleString()}
             </p>
           )}
         </div>

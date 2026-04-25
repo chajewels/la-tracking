@@ -416,6 +416,7 @@ export function useCreateAccount() {
       split_allocations?: { account_id: string; amount: number }[];
       lump_sum_total?: number;
       custom_installments?: number[];
+      loyalty_jpy_amount?: number | null;
     }) => {
       const { data, error } = await supabase.functions.invoke('create-layaway-account', {
         body: payload,

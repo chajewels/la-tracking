@@ -24,9 +24,11 @@ export default function NewCashOrder() {
   const [searchParams] = useSearchParams();
   const presetCustomerId = searchParams.get('customer_id');
   const customerLocked = !!presetCustomerId;
-  const { loading: authLoading } = useAuth();
+  const { roles, loading: authLoading } = useAuth();
   const { can, loading: permLoading } = usePermissions();
   const { data: customers } = useCustomers();
+  const rolesArr = roles as any[];
+  const canSeeLoyaltyField = rolesArr.includes('admin') || rolesArr.includes('finance');
 
   // Permission gate — driven by role_permissions via usePermissions().can()
   const isAuthorized = can('create_cash_order');
@@ -40,6 +42,7 @@ export default function NewCashOrder() {
   const [customerId, setCustomerId] = useState(presetCustomerId || '');
   const [currency, setCurrency] = useState<Currency>('JPY');
   const [totalAmount, setTotalAmount] = useState('');
+  const [loyaltyJpyInput, setLoyaltyJpyInput] = useState('');
   const [itemDescription, setItemDescription] = useState('');
   const [orderDate, setOrderDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
@@ -169,6 +172,14 @@ export default function NewCashOrder() {
         item_description: itemDescription.trim(),
         order_date: orderDate,
       };
+      const loyaltyJpyParsed = Number(loyaltyJpyInput);
+      if (
+        loyaltyJpyInput.trim() !== '' &&
+        Number.isFinite(loyaltyJpyParsed) &&
+        loyaltyJpyParsed > 0
+      ) {
+        payload.loyalty_jpy_amount = Math.round(loyaltyJpyParsed);
+      }
       if (notes.trim()) payload.notes = notes.trim();
       if (acceptAgreement) payload.agreement_version = 'v1';
 
@@ -445,6 +456,29 @@ export default function NewCashOrder() {
                 maxLength={200}
               />
             </div>
+
+            {/* Loyalty product amount (admin/finance only) */}
+            {canSeeLoyaltyField && (
+              <div className="space-y-2">
+                <Label className="text-card-foreground">
+                  Product Amount (JPY) — Loyalty Only
+                </Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={1}
+                  inputMode="numeric"
+                  value={loyaltyJpyInput}
+                  onChange={(e) => { setLoyaltyJpyInput(e.target.value); markDirty(); }}
+                  placeholder="Enter product value in JPY only"
+                  className="bg-background border-border"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Exclude shipping, service fees, and insurance. Used for
+                  loyalty points only. Not shown to customer.
+                </p>
+              </div>
+            )}
 
             {/* Notes */}
             <div className="space-y-2">

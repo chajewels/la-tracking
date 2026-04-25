@@ -102,27 +102,15 @@ Deno.serve(async (req) => {
     // End date = last installment due date (order month + plan months)
     const endDate = new Date(startDate.getFullYear(), startDate.getMonth() + payment_plan_months, startDate.getDate());
 
-    // Snapshot JPY-equivalent for loyalty points awarding on DP confirmation.
-    // PHP → JPY uses divide-by-rate per CLAUDE.md currency rule.
-    let loyaltyJpyAmount: number | null;
-    if (currency === "JPY") {
-      loyaltyJpyAmount = totalAmountNum;
-    } else {
-      const { data: rateRow } = await supabase
-        .from("system_settings")
-        .select("value")
-        .eq("key", "php_jpy_rate")
-        .single();
-      const rate = Number(JSON.parse(String(rateRow?.value ?? "null")));
-      if (!rate || rate <= 0) {
-        console.warn(
-          "[create-layaway-account] php_jpy_rate not set, loyalty_jpy_amount will be null",
-        );
-        loyaltyJpyAmount = null;
-      } else {
-        loyaltyJpyAmount = Math.round(totalAmountNum / rate);
-      }
-    }
+    // Loyalty-only product amount in JPY. Manually entered by admin/finance
+    // because the product value differs from total_amount when the order
+    // includes shipping, service fees, or insurance — none of which earn
+    // loyalty points. NULL means the customer is not a loyalty member or
+    // the value was intentionally left blank.
+    const loyaltyJpyAmount =
+      typeof body.loyalty_jpy_amount === "number" && body.loyalty_jpy_amount > 0
+        ? Math.round(body.loyalty_jpy_amount)
+        : null;
 
     // Create account — confirmed DP is treated as real paid principal, without changing fixed schedule rows
     const { data: account, error: accountError } = await supabase
