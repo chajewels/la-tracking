@@ -16,6 +16,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import RecordPaymentDialog from '@/components/payments/RecordPaymentDialog';
 import MultiInvoicePaymentDialog from '@/components/payments/MultiInvoicePaymentDialog';
 import CustomerCashOrdersTab from '@/components/customers/CustomerCashOrdersTab';
+import CustomerLoyaltyTab from '@/components/customers/CustomerLoyaltyTab';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
@@ -33,10 +34,15 @@ import {
 export default function CustomerDetail() {
   const { customerId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialTab: 'layaway' | 'cash' = searchParams.get('tab') === 'cash' ? 'cash' : 'layaway';
-  const [activeTab, setActiveTab] = useState<'layaway' | 'cash'>(initialTab);
+  const tabParam = searchParams.get('tab');
+  const initialTab: 'layaway' | 'cash' | 'loyalty' =
+    tabParam === 'cash' ? 'cash' : tabParam === 'loyalty' ? 'loyalty' : 'layaway';
+  const [activeTab, setActiveTab] = useState<'layaway' | 'cash' | 'loyalty'>(initialTab);
   const handleTabChange = useCallback((v: string) => {
-    const tab = (v === 'cash' ? 'cash' : 'layaway') as 'layaway' | 'cash';
+    const tab = (v === 'cash' ? 'cash' : v === 'loyalty' ? 'loyalty' : 'layaway') as
+      | 'layaway'
+      | 'cash'
+      | 'loyalty';
     setActiveTab(tab);
     if (tab === 'layaway') searchParams.delete('tab');
     else searchParams.set('tab', tab);
@@ -545,9 +551,10 @@ export default function CustomerDetail() {
         )}
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <TabsList className="grid grid-cols-2 w-full max-w-xs">
+          <TabsList className="grid grid-cols-3 w-full max-w-md">
             <TabsTrigger value="layaway">Layaway Accounts ({accounts.length})</TabsTrigger>
             <TabsTrigger value="cash">Cash Orders</TabsTrigger>
+            <TabsTrigger value="loyalty">Loyalty</TabsTrigger>
           </TabsList>
 
           <TabsContent value="layaway" className="mt-5 space-y-6">
@@ -840,6 +847,10 @@ export default function CustomerDetail() {
 
           <TabsContent value="cash" className="mt-5">
             {customerId && <CustomerCashOrdersTab customerId={customerId} />}
+          </TabsContent>
+
+          <TabsContent value="loyalty" className="mt-5">
+            {customerId && <CustomerLoyaltyTab customerId={customerId} />}
           </TabsContent>
         </Tabs>
       </div>

@@ -1,0 +1,558 @@
+import { memo, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Diamond, Sparkles, Plus, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table';
+import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from 'sonner';
+
+import { MemberCard } from '@/components/loyalty/MemberCard';
+import { PointsSnapshot } from '@/components/loyalty/PointsSnapshot';
+import {
+  VipProgressSection, type TierRow,
+} from '@/components/loyalty/VipProgressSection';
+import {
+  RecentActivity,
+  type LoyaltyTxRow,
+  type LoyaltyTransactionType,
+} from '@/components/loyalty/RecentActivity';
+
+interface TierLite {
+  name: string;
+  points_multiplier: number;
+  color_hex: string | null;
+}
+
+interface LoyaltyMemberRow {
+  id: string;
+  customer_id: string;
+  cumulative_spend_jpy: number;
+  earned_tier_id: string;
+  current_tier_id: string;
+  is_downgraded: boolean;
+  last_purchase_at: string | null;
+  prev_purchase_at: string | null;
+  pre_expiry_warned_at: string | null;
+  total_points_earned: number;
+  total_points_redeemed: number;
+  total_points_expired: number;
+  remaining_points: number;
+  enrolled_at: string;
+  earned_tier: TierLite | null;
+  current_tier: TierLite | null;
+}
+
+interface RedemptionRow {
+  id: string;
+  redemption_type: string;
+  points_redeemed: number;
+  value_applied_jpy: number;
+  value_applied_php: number | null;
+  invoice_number: string;
+  status: 'pending' | 'confirmed' | 'cancelled' | string;
+  created_at: string;
+  processed_at: string | null;
+}
+
+interface CustomerLite {
+  id: string;
+  full_name: string;
+  customer_code: string;
+  email: string | null;
+}
+
+interface LoyaltyData {
+  customer: CustomerLite | null;
+  member: LoyaltyMemberRow | null;
+  transactions: LoyaltyTxRow[];
+  redemptions: RedemptionRow[];
+  tiers: TierRow[];
+  isBeta: boolean;
+}
+
+type ActivityFilter = 'all' | LoyaltyTransactionType;
+
+const FILTERS: Array<{ value: ActivityFilter; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'earned', label: 'Earned' },
+  { value: 'redeemed', label: 'Redeemed' },
+  { value: 'bonus', label: 'Bonus' },
+  { value: 'expired', label: 'Expired' },
+  { value: 'adjusted', label: 'Adjusted' },
+];
+
+function fmtDate(iso: string | null | undefined) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+  });
+}
+
+function fmtRedemptionType(t: string) {
+  switch (t) {
+    case 'new_order_discount': return 'New Order Discount';
+    case 'shipping_fee': return 'Shipping Fee';
+    case 'service_fee': return 'Service Fee';
+    default: return t;
+  }
+}
+
+function useCustomerLoyalty(customerId: string | undefined) {
+  return useQuery<LoyaltyData>({
+    queryKey: ['customer-loyalty', customerId],
+    enabled: !!customerId,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: false,
+    queryFn: async () => {
+      const [memberRes, tiersRes, customerRes, betaRes] = await Promise.all([
+        supabase
+          .from('loyalty_members')
+          .select(
+            'id, customer_id, cumulative_spend_jpy, earned_tier_id, current_tier_id, is_downgraded, last_purchase_at, prev_purchase_at, pre_expiry_warned_at, total_points_earned, total_points_redeemed, total_points_expired, remaining_points, enrolled_at, earned_tier:earned_tier_id(name, points_multiplier, color_hex), current_tier:current_tier_id(name, points_multiplier, color_hex)',
+          )
+          .eq('customer_id', customerId!)
+          .maybeSingle(),
+        supabase
+          .from('loyalty_tiers')
+          .select('id, name, min_spend_jpy, points_multiplier, color_hex')
+          .order('min_spend_jpy', { ascending: true }),
+        supabase
+          .from('customers')
+          .select('id, full_name, customer_code, email')
+          .eq('id', customerId!)
+          .maybeSingle(),
+        supabase
+          .from('loyalty_beta_members')
+          .select('id')
+          .eq('customer_id', customerId!)
+          .maybeSingle(),
+      ]);
+
+      const member = (memberRes.data as unknown) as LoyaltyMemberRow | null;
+      let transactions: LoyaltyTxRow[] = [];
+      let redemptions: RedemptionRow[] = [];
+      if (member) {
+        const [txnsRes, redRes] = await Promise.all([
+          supabase
+            .from('loyalty_transactions')
+            .select(
+              'id, transaction_type, points_amount, spend_amount_jpy, invoice_number, tier_at_time, notes, created_at',
+            )
+            .eq('member_id', member.id)
+            .order('created_at', { ascending: false }),
+          supabase
+            .from('loyalty_redemptions')
+            .select(
+              'id, redemption_type, points_redeemed, value_applied_jpy, value_applied_php, invoice_number, status, created_at, processed_at',
+            )
+            .eq('member_id', member.id)
+            .order('created_at', { ascending: false }),
+        ]);
+        transactions = (txnsRes.data || []) as unknown as LoyaltyTxRow[];
+        redemptions = (redRes.data || []) as unknown as RedemptionRow[];
+      }
+
+      return {
+        customer: (customerRes.data as unknown) as CustomerLite | null,
+        member,
+        transactions,
+        redemptions,
+        tiers: ((tiersRes.data || []) as unknown) as TierRow[],
+        isBeta: !!betaRes.data,
+      };
+    },
+  });
+}
+
+const REDEMPTION_STATUS_STYLES: Record<string, string> = {
+  pending: 'bg-amber-500/15 text-amber-700 border-amber-500/30',
+  confirmed: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30',
+  cancelled: 'bg-muted text-muted-foreground border-border',
+};
+
+export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: string }) {
+  const { roles } = useAuth();
+  const rolesArr = roles as any[];
+  const isAdmin = rolesArr.includes('admin');
+  const isFinance = rolesArr.includes('finance');
+  const queryClient = useQueryClient();
+
+  const { data, isLoading } = useCustomerLoyalty(customerId);
+  const [filter, setFilter] = useState<ActivityFilter>('all');
+  const [betaPending, setBetaPending] = useState(false);
+
+  const filteredTransactions = useMemo(() => {
+    if (!data?.transactions) return [];
+    if (filter === 'all') return data.transactions;
+    return data.transactions.filter((tx) => tx.transaction_type === filter);
+  }, [data?.transactions, filter]);
+
+  async function handleAddBeta() {
+    if (!customerId) return;
+    setBetaPending(true);
+    try {
+      const { error } = await supabase
+        .from('loyalty_beta_members')
+        .insert({ customer_id: customerId });
+      if (error && !String(error.message).toLowerCase().includes('duplicate')) {
+        throw error;
+      }
+      toast.success('Added to beta whitelist');
+      await queryClient.invalidateQueries({ queryKey: ['customer-loyalty', customerId] });
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not add to beta whitelist');
+    } finally {
+      setBetaPending(false);
+    }
+  }
+
+  async function handleRemoveBeta() {
+    if (!customerId) return;
+    setBetaPending(true);
+    try {
+      const { error } = await supabase
+        .from('loyalty_beta_members')
+        .delete()
+        .eq('customer_id', customerId);
+      if (error) throw error;
+      toast.success('Removed from beta whitelist');
+      await queryClient.invalidateQueries({ queryKey: ['customer-loyalty', customerId] });
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not remove from beta whitelist');
+    } finally {
+      setBetaPending(false);
+    }
+  }
+
+  if (isLoading || !data) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-24 rounded-xl" />
+        <Skeleton className="h-48 rounded-xl" />
+        <Skeleton className="h-32 rounded-xl" />
+      </div>
+    );
+  }
+
+  const { customer, member, transactions, redemptions, tiers, isBeta } = data;
+
+  // ── Not enrolled ──────────────────────────────────────────────
+  if (!member) {
+    return (
+      <div className="space-y-5">
+        <div className="rounded-xl border border-border bg-card p-6 text-center">
+          <Diamond className="h-9 w-9 text-muted-foreground mx-auto mb-3 opacity-40" />
+          <p className="text-sm font-medium text-foreground">Not enrolled</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            This customer hasn't joined the loyalty program yet.
+          </p>
+        </div>
+        {isAdmin && (
+          <div className="rounded-xl border border-border bg-card p-5">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Beta Whitelist</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {isBeta
+                    ? 'In beta — they can see the loyalty section even with the global flag off.'
+                    : 'Add to beta to give early access while the program is gated.'}
+                </p>
+              </div>
+              {isBeta ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={betaPending}
+                  onClick={handleRemoveBeta}
+                >
+                  <X className="h-4 w-4 mr-1.5" /> Remove from Beta
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  className="gold-gradient text-primary-foreground"
+                  disabled={betaPending}
+                  onClick={handleAddBeta}
+                >
+                  <Plus className="h-4 w-4 mr-1.5" /> Add to Beta Whitelist
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Enrolled ──────────────────────────────────────────────────
+  const tierName = member.current_tier?.name ?? 'Glimmer';
+  const earnedTierName = member.earned_tier?.name ?? tierName;
+  const customerName = customer?.full_name || 'Valued Customer';
+  const customerCode = customer?.customer_code || '—';
+
+  return (
+    <div className="space-y-6">
+      {/* 1. Status header */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg gold-gradient">
+              <Sparkles className="h-4 w-4 text-primary-foreground" />
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-foreground font-display">Loyalty Status</h3>
+              <p className="text-xs text-muted-foreground">
+                ✓ Enrolled since {fmtDate(member.enrolled_at)}
+              </p>
+            </div>
+          </div>
+          <span
+            className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold ${
+              isBeta
+                ? 'border-amber-500/40 bg-amber-500/10 text-amber-700'
+                : 'border-border bg-muted text-muted-foreground'
+            }`}
+          >
+            {isBeta ? 'BETA' : 'NOT IN BETA'}
+          </span>
+        </div>
+      </div>
+
+      {/* 2. Membership Card */}
+      <div className="flex justify-center">
+        <MemberCard
+          customerName={customerName}
+          customerCode={customerCode}
+          tierName={tierName}
+          isDowngraded={member.is_downgraded}
+        />
+      </div>
+
+      {/* 3. Points Summary + admin extras */}
+      <div className="space-y-3">
+        <PointsSnapshot
+          remainingPoints={member.remaining_points}
+          totalEarned={member.total_points_earned}
+          totalRedeemed={member.total_points_redeemed}
+        />
+        <div className="rounded-xl border border-border bg-card p-4">
+          <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2 font-semibold">
+            Admin Details
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+            <Stat label="Total expired" value={member.total_points_expired.toLocaleString()} />
+            <Stat label="Last purchase" value={fmtDate(member.last_purchase_at)} />
+            <Stat label="Previous purchase" value={fmtDate(member.prev_purchase_at)} />
+            <Stat label="Pre-expiry warned" value={fmtDate(member.pre_expiry_warned_at)} />
+          </div>
+        </div>
+      </div>
+
+      {/* 4. Tier Progress */}
+      <div className="space-y-2">
+        <VipProgressSection
+          currentTierName={tierName}
+          cumulativeSpendJpy={member.cumulative_spend_jpy}
+          tiers={tiers}
+        />
+        {member.is_downgraded && earnedTierName !== tierName && (
+          <p className="text-center text-xs text-muted-foreground italic">
+            Earned tier: {earnedTierName} (reduced due to inactivity)
+          </p>
+        )}
+      </div>
+
+      {/* 5. Activity Timeline */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <p className="text-sm font-semibold text-foreground">Activity Timeline</p>
+          <div className="flex flex-wrap gap-1.5">
+            {FILTERS.map((f) => {
+              const active = filter === f.value;
+              return (
+                <button
+                  key={f.value}
+                  onClick={() => setFilter(f.value)}
+                  className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                    active
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border bg-card text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        {filteredTransactions.length === 0 ? (
+          <div className="rounded-xl border border-border bg-card p-6 text-center text-xs text-muted-foreground">
+            {transactions.length === 0
+              ? 'No loyalty activity yet'
+              : 'No events match this filter'}
+          </div>
+        ) : (
+          <RecentActivity
+            transactions={filteredTransactions}
+            maxItems={filteredTransactions.length}
+          />
+        )}
+      </div>
+
+      {/* 6. Redemptions */}
+      <div className="space-y-3">
+        <p className="text-sm font-semibold text-foreground">Redemptions</p>
+        {redemptions.length === 0 ? (
+          <div className="rounded-xl border border-border bg-card p-6 text-center text-xs text-muted-foreground">
+            No redemption requests
+          </div>
+        ) : (
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead className="text-right">Points</TableHead>
+                  <TableHead className="text-right">Value</TableHead>
+                  <TableHead>Invoice</TableHead>
+                  <TableHead>Status</TableHead>
+                  {(isAdmin || isFinance) && <TableHead className="text-right">Actions</TableHead>}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {redemptions.map((r) => {
+                  const isPending = r.status === 'pending';
+                  return (
+                    <TableRow key={r.id}>
+                      <TableCell className="text-xs">{fmtDate(r.created_at)}</TableCell>
+                      <TableCell className="text-xs">{fmtRedemptionType(r.redemption_type)}</TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {Number(r.points_redeemed).toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        ¥{Number(r.value_applied_jpy).toLocaleString()}
+                        {r.value_applied_php != null && (
+                          <span className="text-muted-foreground">
+                            {' '}/ ₱{Number(r.value_applied_php).toLocaleString()}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs">#{r.invoice_number}</TableCell>
+                      <TableCell>
+                        <span
+                          className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                            REDEMPTION_STATUS_STYLES[r.status] ?? REDEMPTION_STATUS_STYLES.cancelled
+                          }`}
+                        >
+                          {r.status}
+                        </span>
+                      </TableCell>
+                      {(isAdmin || isFinance) && (
+                        <TableCell className="text-right">
+                          {isPending ? (
+                            <div className="flex justify-end gap-1.5">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-[11px]"
+                                onClick={() =>
+                                  toast.info('Redemption approval modal lands in the next step')
+                                }
+                              >
+                                Approve
+                              </Button>
+                              {isAdmin && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 px-2 text-[11px] text-muted-foreground"
+                                  onClick={() =>
+                                    toast.info('Cancel modal lands in the next step')
+                                  }
+                                >
+                                  Cancel
+                                </Button>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
+
+      {/* 7. Admin Actions */}
+      {isAdmin && (
+        <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+          <div>
+            <p className="text-sm font-semibold text-foreground">Admin Actions</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Restricted to admin role.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0}>
+                    <Button size="sm" variant="outline" disabled>
+                      Adjust Points
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Coming soon — adjust-loyalty-points edge function lands in a follow-up step
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            {isBeta ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={betaPending}
+                onClick={handleRemoveBeta}
+              >
+                <X className="h-4 w-4 mr-1.5" /> Remove from Beta Whitelist
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                className="gold-gradient text-primary-foreground"
+                disabled={betaPending}
+                onClick={handleAddBeta}
+              >
+                <Plus className="h-4 w-4 mr-1.5" /> Add to Beta Whitelist
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="text-xs font-semibold text-foreground tabular-nums">{value}</p>
+    </div>
+  );
+}
