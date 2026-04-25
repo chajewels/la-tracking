@@ -983,12 +983,48 @@ When completing a partially_paid month:
     - Sheet sync deferred — stub function in place,
       Google Cloud service account setup pending
 
-  Loyalty Program — Pending:
-    Phase 3: UI Build (port cha-jewels-circle UI)
-    Phase 4: Email Templates (8 templates)
-    Phase 5: Customer Portal loyalty section
-    Phase 6: Admin Dashboard
-    Phase 7: Beta testing & launch
+  Loyalty Program Phase 3 (UI): COMPLETE ✅ (2026-04-25)
+    - LoyaltyPortal page at /loyalty route
+    - MemberCard, PointsSnapshot, VipProgressSection,
+      RecentActivity, RedemptionForm, TierCelebrationModal
+    - Beta gate: useLoyaltyAccess hook + LoyaltyComingSoon
+      + LoyaltyJoinPrompt
+    - 💎 My Loyalty card in CustomerPortal.tsx
+    - customer-portal edge function returns loyalty data
+
+  Loyalty Program Phase 4 (Emails): COMPLETE ✅
+    - 8 email templates: welcome, earned, bonus,
+      tier-upgrade, tier-downgrade, pre-expire,
+      expire-deduct, redeem
+    - All wired into edge functions with correct
+      template names + props
+    - buildLoyaltyPortalUrl helper for server-side
+      portal URL generation
+
+  Loyalty Program Phase 5 (Admin): COMPLETE ✅
+    - Loyalty tab in Customer Detail (full history)
+    - Pending Redemptions queue at /loyalty/redemptions
+    - Sidebar badge with pending count
+    - Loyalty Promos tab in Promotions menu
+    - Settings tab: feature flag toggle + beta whitelist
+      + system stats
+    - Beta whitelist functional (add/remove)
+
+  Loyalty Program — Deployed to Production:
+    - All edge functions deployed via auto-deploy
+    - Frontend live on Firebase
+    - Feature flag OFF — beta mode active
+    - notify_loyalty_launch table created for
+      "notify me" email collection
+    - account_notes.cash_order_id column added
+      (already part of cash plan)
+
+  Loyalty Program — Known Backlog:
+    - Sheet sync (sync-loyalty-to-sheet) is a STUB —
+      needs Google service account + sheet IDs configured
+    - Adjust Points feature deferred (placeholder UI)
+    - Cash payment rejection/clarification emails
+      silently fail (deferred from cash plan)
 
   accept-underpayment auto-carry: REMOVED ✅
   carry-over edge function: DEPLOYED ✅
