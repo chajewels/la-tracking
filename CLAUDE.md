@@ -627,6 +627,35 @@ When completing a partially_paid month:
     - add-service (admin only, bypass flag set)
     Client-side writes: NONE — all routes through edge functions
 
+## TIMEZONE STANDARD — NON-NEGOTIABLE (updated 2026-04-25)
+
+  Canonical timezone: PHT (Asia/Manila, UTC+8)
+  All date comparisons use PHT midnight as the day boundary.
+
+  Frontend: import getPHTToday() from src/lib/date-utils.ts
+    NEVER use: new Date().toISOString().split('T')[0]
+    NEVER use: Asia/Tokyo — that is JST (UTC+9), not PHT
+    ALWAYS use: getPHTToday() for any "today" date string
+
+  Edge functions (Deno):
+    NEVER use: new Date().toISOString().split('T')[0]
+    ALWAYS use: Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Manila'
+    }).format(new Date())
+
+  Display timestamps:
+    ALWAYS use: formatPHTDisplay() from date-utils.ts
+    Show 'PHT' suffix on all displayed timestamps
+    RefreshControl "Last updated" must show PHT time
+
+  Cron jobs (all times are UTC, PHT = UTC+8):
+    daily-penalty-engine:     00:05 UTC = 08:05 PHT ✅
+    daily-auto-forfeit:       00:10 UTC = 08:10 PHT ✅
+    daily-payment-reminders:  00:02 UTC = 08:02 PHT ✅ (offset from send-reminders)
+    daily-send-reminders:     00:00 UTC = 08:00 PHT ✅
+    daily-reconciliation:     18:00 UTC = 02:00 PHT ✅
+    process-email-queue:      every 5 seconds       ✅
+
 ## DISPLAY RULES (permanent)
 
   ALL schedule display reads from schedule_with_actuals view

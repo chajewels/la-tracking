@@ -66,20 +66,19 @@ Deno.serve(async (req) => {
 
     const currencyWhere = currencyFilter !== "ALL" ? currencyFilter : null;
     const isAllMode = currencyFilter === "ALL";
-    // PHT (UTC+8) boundaries — users run in Asia, so compute date strings in
-    // Philippine time, not UTC. toISOString() silently converts to UTC and
-    // skews month/day boundaries by several hours for PHT/JST users.
-    const PHT_OFFSET_MS = 8 * 60 * 60 * 1000;
+    // PHT (Asia/Manila, UTC+8) boundaries — canonical timezone for all date
+    // comparisons. See CLAUDE.md TIMEZONE STANDARD.
     const pad = (n: number) => String(n).padStart(2, "0");
-    const toPhtDateStr = (d: Date) => {
-      const p = new Date(d.getTime() + PHT_OFFSET_MS);
-      return `${p.getUTCFullYear()}-${pad(p.getUTCMonth() + 1)}-${pad(p.getUTCDate())}`;
-    };
-    const today = toPhtDateStr(new Date());
-    const phtNow = new Date(Date.now() + PHT_OFFSET_MS);
-    const monthStartStr = `${phtNow.getUTCFullYear()}-${pad(phtNow.getUTCMonth() + 1)}-01`;
-    const nextMonthDate = new Date(Date.UTC(phtNow.getUTCFullYear(), phtNow.getUTCMonth() + 1, 1));
-    const nextMonthStartStr = `${nextMonthDate.getUTCFullYear()}-${pad(nextMonthDate.getUTCMonth() + 1)}-01`;
+    const phtDateStr = (d: Date) =>
+      Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(d);
+    const today = phtDateStr(new Date());
+    const phtNow = new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Manila" }),
+    );
+    const monthStartStr = `${phtNow.getFullYear()}-${pad(phtNow.getMonth() + 1)}-01`;
+    const nextMonthYear = phtNow.getMonth() === 11 ? phtNow.getFullYear() + 1 : phtNow.getFullYear();
+    const nextMonthMonth = phtNow.getMonth() === 11 ? 0 : phtNow.getMonth() + 1;
+    const nextMonthStartStr = `${nextMonthYear}-${pad(nextMonthMonth + 1)}-01`;
 
     // ── Build all queries in parallel ──
     // Active statuses must match ACTIVE_STATUSES in business-rules.ts
@@ -269,8 +268,8 @@ Deno.serve(async (req) => {
       accountScheduleMap.set(item.account_id, list);
     }
 
-    const in3Str = toPhtDateStr(new Date(Date.now() + 3 * 86400000));
-    const in7Str = toPhtDateStr(new Date(Date.now() + 7 * 86400000));
+    const in3Str = phtDateStr(new Date(Date.now() + 3 * 86400000));
+    const in7Str = phtDateStr(new Date(Date.now() + 7 * 86400000));
 
     const overdueAccountIds = new Set<string>();
     const dueTodayAccountIds = new Set<string>();

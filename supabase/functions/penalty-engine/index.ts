@@ -33,7 +33,12 @@ Deno.serve(async (req) => {
     );
 
     const now = new Date();
-    const today = now.toISOString().split("T")[0];
+    // Cron fires at 00:05 UTC = 08:05 AM PHT. UTC date is still "yesterday"
+    // for the first 8 hours of every PHT day, so we anchor "today" to PHT
+    // (Asia/Manila, UTC+8) — see CLAUDE.md TIMEZONE STANDARD.
+    const today = Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Manila",
+    }).format(now);
 
     // ── Penalty amount configuration ──
     const { data: settings } = await supabase

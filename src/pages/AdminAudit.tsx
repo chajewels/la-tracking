@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { supabase } from '@/integrations/supabase/client';
+import { getPHTToday } from '@/lib/date-utils';
 import { useQuery } from '@tanstack/react-query';
 import { daysOverdueFromToday, isEffectivelyPaid, getNextUnpaidDueDate } from '@/lib/business-rules';
 import { Link } from 'react-router-dom';
@@ -131,9 +132,8 @@ export function OverdueDebugTab() {
 
   const accounts = data || [];
 
-  const phtToday = new Date(
-    new Date().toLocaleString('en-US', { timeZone: 'Asia/Tokyo' })
-  ).toISOString().split('T')[0];
+  // Asia/Tokyo (JST, UTC+9) was wrong — canonical timezone is PHT (UTC+8).
+  const phtToday = getPHTToday();
 
   return (
     <div className="space-y-3">

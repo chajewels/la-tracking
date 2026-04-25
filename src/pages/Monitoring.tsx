@@ -14,6 +14,7 @@ import { Link } from 'react-router-dom';
 import { categorizeScheduleItems, alertTypeConfig } from '@/lib/business-rules';
 import { formatCurrency } from '@/lib/calculations';
 import RefreshControl from '@/components/common/RefreshControl';
+import { getPHTToday } from '@/lib/date-utils';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { supabase } from '@/integrations/supabase/client';
 import { Currency } from '@/lib/types';
@@ -90,7 +91,8 @@ export default function Monitoring() {
   const { data: actionableItems } = useQuery({
     queryKey: ['reminder-actionable'],
     queryFn: async () => {
-      const today = new Date().toISOString().split('T')[0];
+      // Day boundaries are PHT-anchored — see src/lib/date-utils.ts.
+      const today = getPHTToday();
       const in7days = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
       const past730 = new Date(Date.now() - 730 * 86400000).toISOString().split('T')[0];
       const { data, error } = await supabase.from('layaway_schedule')
@@ -180,6 +182,8 @@ export default function Monitoring() {
       const next7 = new Date();
       next7.setDate(next7.getDate() + 7);
       const next7Str = next7.toISOString().split('T')[0];
+      // Day boundaries are PHT-anchored — see src/lib/date-utils.ts.
+      const today = getPHTToday();
 
       const ACTIVE_STATUSES = ['active', 'overdue', 'final_settlement', 'extension_active'] as const;
       const [overdueRes, upcomingRes] = await Promise.all([
@@ -188,7 +192,7 @@ export default function Monitoring() {
           .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, remaining_balance, customers(full_name, messenger_link))')
           .in('status', ['pending', 'overdue', 'partially_paid'])
           .in('layaway_accounts.status', ACTIVE_STATUSES)
-          .lt('due_date', new Date().toISOString().split('T')[0])
+          .lt('due_date', today)
           .order('due_date', { ascending: true })
           .limit(500),
         supabase
@@ -196,7 +200,7 @@ export default function Monitoring() {
           .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, remaining_balance, customers(full_name, messenger_link))')
           .in('status', ['pending', 'overdue', 'partially_paid'])
           .in('layaway_accounts.status', ACTIVE_STATUSES)
-          .gte('due_date', new Date().toISOString().split('T')[0])
+          .gte('due_date', today)
           .lte('due_date', next7Str)
           .order('due_date', { ascending: true })
           .limit(500),

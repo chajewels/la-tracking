@@ -1,6 +1,7 @@
 import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { formatPHTDisplay } from '@/lib/date-utils';
 
 interface RefreshControlProps {
   lastRefreshedAt: Date;
@@ -10,7 +11,9 @@ interface RefreshControlProps {
 }
 
 /**
- * Small "Last updated: HH:MM AM/PM" timestamp + a RefreshCw icon button.
+ * Small "Last updated: Mon DD, YYYY · h:mm AM/PM PHT" timestamp + a RefreshCw
+ * icon button. Always renders the timestamp in PHT (Asia/Manila) so all staff
+ * — whether in Philippines or Japan — see the same canonical time.
  * Button spins while `refreshing` is true. Tooltip via title="Refresh data".
  */
 export default function RefreshControl({
@@ -19,11 +22,7 @@ export default function RefreshControl({
   onRefresh,
   className,
 }: RefreshControlProps) {
-  const timeLabel = lastRefreshedAt.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  const timeLabel = formatPHTDisplay(lastRefreshedAt);
 
   return (
     <div className={cn('flex items-center gap-2', className)}>
