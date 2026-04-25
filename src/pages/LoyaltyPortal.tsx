@@ -1,11 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Diamond } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { useLoyaltyAccess } from '@/hooks/useLoyaltyAccess';
 import { LoyaltyComingSoon } from '@/components/loyalty/LoyaltyComingSoon';
 import { LoyaltyJoinPrompt } from '@/components/loyalty/LoyaltyJoinPrompt';
+import { MemberCard } from '@/components/loyalty/MemberCard';
+import { PointsSnapshot } from '@/components/loyalty/PointsSnapshot';
+import { VipProgressSection, type TierRow } from '@/components/loyalty/VipProgressSection';
+import { RecentActivity, type LoyaltyTxRow } from '@/components/loyalty/RecentActivity';
+import { RedemptionForm } from '@/components/loyalty/RedemptionForm';
+import { TierCelebrationModal } from '@/components/loyalty/TierCelebrationModal';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -23,11 +30,41 @@ const P = {
 } as const;
 const CG = "'Cormorant Garamond',Georgia,serif";
 
-interface PortalCustomer {
+interface TierLite {
+  name: string;
+  points_multiplier: number;
+  color_hex: string | null;
+}
+
+interface LoyaltyMember {
+  id: string;
+  customer_id: string;
+  cumulative_spend_jpy: number;
+  earned_tier_id: string;
+  current_tier_id: string;
+  is_downgraded: boolean;
+  last_purchase_at: string | null;
+  prev_purchase_at: string | null;
+  total_points_earned: number;
+  total_points_redeemed: number;
+  total_points_expired: number;
+  remaining_points: number;
+  enrolled_at: string;
+  earned_tier: TierLite | null;
+  current_tier: TierLite | null;
+}
+
+interface PortalData {
   customer_id: string;
   customer_name: string;
-  email: string | null;
+  customer_code: string;
+  profile: { email: string | null; full_name: string | null } & Record<string, unknown>;
+  loyalty_member: LoyaltyMember | null;
+  loyalty_tiers: TierRow[];
+  loyalty_transactions: LoyaltyTxRow[];
 }
+
+const tierStorageKey = (customerId: string) => `cha-jewels-last-seen-tier-${customerId}`;
 
 function FullScreenWrap({ children }: { children: React.ReactNode }) {
   return (
@@ -89,33 +126,139 @@ function LoadingState({ message }: { message: string }) {
   );
 }
 
-function MemberPlaceholder({ customerName }: { customerName: string }) {
-  return (
-    <div
-      className="mx-auto w-full max-w-md rounded-2xl p-6 sm:p-8"
-      style={{
-        background: P.s,
-        border: `1px solid ${P.br}`,
-        boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
-      }}
-    >
-      <div
-        className="mb-2 text-center text-2xl sm:text-3xl"
-        style={{ fontFamily: CG, color: P.tp, letterSpacing: '0.02em' }}
-      >
-        Welcome back, {customerName.split(' ')[0]}
-      </div>
-      <p className="mb-6 text-center text-sm" style={{ color: P.ts }}>
-        Your loyalty hub is just around the corner.
-      </p>
-      <div
-        className="rounded-md px-4 py-3 text-center text-xs"
-        style={{ background: P.s2, color: P.ts, border: `1px dashed ${P.br}` }}
-      >
-        &lt;MemberCard /&gt; placeholder — Phase 3.3 will port this from cha-jewels-circle
-      </div>
-    </div>
+interface MemberViewProps {
+  data: PortalData;
+  member: LoyaltyMember;
+  portalToken: string;
+}
+
+function MemberView({ data, member, portalToken }: MemberViewProps) {
+  const queryClient = useQueryClient();
+  const [isRedemptionOpen, setIsRedemptionOpen] = useState(false);
+
+  const currentTier = member.current_tier;
+  const currentTierName = currentTier?.name ?? '';
+  const multiplier = currentTier?.points_multiplier ?? 1;
+
+  // Tier celebration trigger — compares the current tier to the value
+  // stored in localStorage under a customer-scoped key. Only fires when
+  // there's a previously stored tier and it differs from the current one.
+  const [celebration, setCelebration] = useState<{ oldTier: string; newTier: string } | null>(
+    null,
   );
+
+  useEffect(() => {
+    if (!currentTierName) return;
+    const key = tierStorageKey(data.customer_id);
+    const lastSeen = (() => {
+      try {
+        return window.localStorage.getItem(key);
+      } catch {
+        return null;
+      }
+    })();
+
+    if (!lastSeen) {
+      try {
+        window.localStorage.setItem(key, currentTierName);
+      } catch {
+        /* ignore quota / private-mode */
+      }
+      return;
+    }
+
+    if (lastSeen !== currentTierName) {
+      setCelebration({ oldTier: lastSeen, newTier: currentTierName });
+    }
+  }, [currentTierName, data.customer_id]);
+
+  function handleCelebrationClose() {
+    if (celebration) {
+      try {
+        window.localStorage.setItem(
+          tierStorageKey(data.customer_id),
+          celebration.newTier,
+        );
+      } catch {
+        /* ignore */
+      }
+    }
+    setCelebration(null);
+    queryClient.invalidateQueries({ queryKey: ['portal', portalToken] });
+  }
+
+  const canRedeem = member.remaining_points > 0;
+
+  return (
+    <>
+      <div className="flex flex-col items-center gap-6 px-4 py-6 sm:py-10">
+        <MemberCard
+          customerName={data.customer_name}
+          customerCode={data.customer_code}
+          tierName={currentTierName || 'Glimmer'}
+          isDowngraded={member.is_downgraded}
+        />
+
+        <PointsSnapshot
+          remainingPoints={member.remaining_points}
+          totalEarned={member.total_points_earned}
+          totalRedeemed={member.total_points_redeemed}
+        />
+
+        <VipProgressSection
+          currentTierName={currentTierName || 'Glimmer'}
+          cumulativeSpendJpy={member.cumulative_spend_jpy}
+          tiers={data.loyalty_tiers}
+        />
+
+        <Button
+          onClick={() => setIsRedemptionOpen(true)}
+          disabled={!canRedeem}
+          className="w-full max-w-md"
+          style={{
+            background: canRedeem ? P.gr : P.s2,
+            color: canRedeem ? '#1A1500' : P.ts,
+            fontWeight: 600,
+            border: 'none',
+          }}
+        >
+          {canRedeem ? '💎 Redeem Points' : 'No points to redeem yet'}
+        </Button>
+
+        <RecentActivity transactions={data.loyalty_transactions} maxItems={10} />
+      </div>
+
+      <RedemptionForm
+        isOpen={isRedemptionOpen}
+        onClose={() => setIsRedemptionOpen(false)}
+        remainingPoints={member.remaining_points}
+        customerId={data.customer_id}
+        memberId={member.id}
+        portalToken={portalToken}
+        onSuccess={() =>
+          queryClient.invalidateQueries({ queryKey: ['portal', portalToken] })
+        }
+      />
+
+      <TierCelebrationModal
+        isOpen={celebration !== null}
+        onClose={handleCelebrationClose}
+        oldTier={celebration?.oldTier ?? ''}
+        newTier={celebration?.newTier ?? ''}
+        multiplier={multiplier}
+      />
+    </>
+  );
+}
+
+async function fetchPortal(token: string): Promise<PortalData> {
+  const res = await fetch(
+    `${SUPABASE_URL}/functions/v1/customer-portal?token=${encodeURIComponent(token)}`,
+    { headers: { apikey: SUPABASE_KEY } },
+  );
+  const json = await res.json();
+  if (!res.ok) throw new Error(json?.error || 'Access denied');
+  return json as PortalData;
 }
 
 export default function LoyaltyPortal() {
@@ -123,87 +266,88 @@ export default function LoyaltyPortal() {
   const [params] = useSearchParams();
   const token = params.get('token') || '';
 
-  const [customer, setCustomer] = useState<PortalCustomer | null>(null);
-  const [validating, setValidating] = useState(true);
+  const portalQuery = useQuery({
+    queryKey: ['portal', token],
+    queryFn: () => fetchPortal(token),
+    enabled: !!token,
+    staleTime: 30_000,
+    refetchOnMount: true,
+  });
 
+  // Bail out + redirect if token missing or fetch failed.
   useEffect(() => {
-    let cancelled = false;
-    async function validate() {
-      if (!token) {
-        toast.error('No access token provided');
-        navigate('/');
-        return;
-      }
-      try {
-        const res = await fetch(
-          `${SUPABASE_URL}/functions/v1/customer-portal?token=${encodeURIComponent(token)}`,
-          { headers: { apikey: SUPABASE_KEY } },
-        );
-        const json = await res.json();
-        if (!res.ok) {
-          toast.error(json.error || 'Access denied');
-          navigate('/');
-          return;
-        }
-        if (cancelled) return;
-        setCustomer({
-          customer_id: json.customer_id,
-          customer_name: json.customer_name || json.profile?.full_name || 'Valued Customer',
-          email: json.profile?.email ?? null,
-        });
-      } catch {
-        if (cancelled) return;
-        toast.error('Unable to load your loyalty status. Please try again.');
-        navigate('/');
-      } finally {
-        if (!cancelled) setValidating(false);
-      }
+    if (!token) {
+      toast.error('No access token provided');
+      navigate('/');
+      return;
     }
-    validate();
-    return () => {
-      cancelled = true;
+    if (portalQuery.isError) {
+      const msg = (portalQuery.error as Error)?.message || 'Unable to load your loyalty status';
+      toast.error(msg);
+      navigate('/');
+    }
+  }, [token, portalQuery.isError, portalQuery.error, navigate]);
+
+  const access = useLoyaltyAccess(portalQuery.data?.customer_id ?? null);
+
+  const customerForChild = useMemo(() => {
+    if (!portalQuery.data) return null;
+    return {
+      customer_id: portalQuery.data.customer_id,
+      email: portalQuery.data.profile?.email ?? null,
     };
-  }, [token, navigate]);
+  }, [portalQuery.data]);
 
-  const access = useLoyaltyAccess(customer?.customer_id ?? null);
-
-  if (validating) {
+  if (portalQuery.isLoading) {
     return <LoadingState message="Validating your access…" />;
   }
-  if (!customer) {
-    // Validation already toasted + redirected; render nothing while it unwinds.
+  if (!portalQuery.data) {
+    // Error already toasted + redirected; render placeholder while route unwinds.
     return <FullScreenWrap><div /></FullScreenWrap>;
   }
   if (access.isLoading) {
     return <LoadingState message="Loading your loyalty status…" />;
   }
 
-  const body = !access.hasAccess ? (
-    <LoyaltyComingSoon customerEmail={customer.email} customerId={customer.customer_id} />
-  ) : access.isMember ? (
-    <MemberPlaceholder customerName={customer.customer_name} />
-  ) : (
-    <LoyaltyJoinPrompt
-      portalToken={token}
-      customerId={customer.customer_id}
-    />
-  );
+  const data = portalQuery.data;
+  const member = data.loyalty_member;
+
+  // Routing decision:
+  //   - !hasAccess              → ComingSoon
+  //   - hasAccess && !member    → JoinPrompt
+  //   - hasAccess && member     → MemberView (full stack)
+  if (!access.hasAccess) {
+    return (
+      <FullScreenWrap>
+        <TopBar token={token} />
+        <div className="flex flex-col items-center px-4 py-8 sm:py-12">
+          <LoyaltyComingSoon
+            customerEmail={customerForChild?.email ?? null}
+            customerId={customerForChild?.customer_id ?? null}
+          />
+        </div>
+      </FullScreenWrap>
+    );
+  }
+
+  if (!member) {
+    return (
+      <FullScreenWrap>
+        <TopBar token={token} />
+        <div className="flex flex-col items-center px-4 py-8 sm:py-12">
+          <LoyaltyJoinPrompt
+            portalToken={token}
+            customerId={data.customer_id}
+          />
+        </div>
+      </FullScreenWrap>
+    );
+  }
 
   return (
     <FullScreenWrap>
       <TopBar token={token} />
-      <div className="flex flex-col items-center px-4 py-8 sm:py-12">
-        {body}
-        <div className="mt-6">
-          <Button
-            variant="ghost"
-            onClick={() => navigate(`/portal?token=${encodeURIComponent(token)}`)}
-            style={{ color: P.ts }}
-          >
-            ← Back to Portal
-          </Button>
-        </div>
-      </div>
+      <MemberView data={data} member={member} portalToken={token} />
     </FullScreenWrap>
   );
 }
