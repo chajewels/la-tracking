@@ -102,6 +102,28 @@ Deno.serve(async (req) => {
     // End date = last installment due date (order month + plan months)
     const endDate = new Date(startDate.getFullYear(), startDate.getMonth() + payment_plan_months, startDate.getDate());
 
+    // Snapshot JPY-equivalent for loyalty points awarding on DP confirmation.
+    // PHP → JPY uses divide-by-rate per CLAUDE.md currency rule.
+    let loyaltyJpyAmount: number | null;
+    if (currency === "JPY") {
+      loyaltyJpyAmount = totalAmountNum;
+    } else {
+      const { data: rateRow } = await supabase
+        .from("system_settings")
+        .select("value")
+        .eq("key", "php_jpy_rate")
+        .single();
+      const rate = Number(JSON.parse(String(rateRow?.value ?? "null")));
+      if (!rate || rate <= 0) {
+        console.warn(
+          "[create-layaway-account] php_jpy_rate not set, loyalty_jpy_amount will be null",
+        );
+        loyaltyJpyAmount = null;
+      } else {
+        loyaltyJpyAmount = Math.round(totalAmountNum / rate);
+      }
+    }
+
     // Create account — confirmed DP is treated as real paid principal, without changing fixed schedule rows
     const { data: account, error: accountError } = await supabase
       .from("layaway_accounts")
@@ -110,6 +132,7 @@ Deno.serve(async (req) => {
         invoice_number,
         currency,
         total_amount: totalAmountNum,
+        loyalty_jpy_amount: loyaltyJpyAmount,
         downpayment_amount: downpaymentTarget,
         payment_plan_months,
         order_date,
