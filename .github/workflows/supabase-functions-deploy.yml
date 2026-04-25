@@ -30,6 +30,7 @@ on:
       - 'supabase/functions/award-loyalty-points/**'
       - 'supabase/functions/sync-loyalty-to-sheet/**'
       - 'supabase/functions/join-loyalty-program/**'
+      - 'supabase/functions/process-loyalty-redemption/**'
       - 'supabase/functions/_shared/**'
   workflow_dispatch:
 
@@ -197,5 +198,11 @@ jobs:
       - name: Deploy join-loyalty-program
         if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/join-loyalty-program/')
         run: npx supabase functions deploy join-loyalty-program --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy process-loyalty-redemption
+        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/process-loyalty-redemption/')
+        run: npx supabase functions deploy process-loyalty-redemption --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
