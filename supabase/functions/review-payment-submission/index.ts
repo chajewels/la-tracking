@@ -698,6 +698,19 @@ Deno.serve(async (req) => {
           });
         }
         confirmedPaymentIds.push(result.paymentId);
+
+        if (submissionIsDP) {
+          fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            },
+            body: JSON.stringify({ account_id: submission.account_id }),
+          }).catch((err) => {
+            console.warn("[review-payment-submission] award-loyalty-points failed (non-blocking):", err);
+          });
+        }
       } else {
         // Multi-account split: process each allocation separately.
         // For these, alloc.allocated_amount is the per-account split amount.
@@ -728,6 +741,19 @@ Deno.serve(async (req) => {
             continue;
           }
           confirmedPaymentIds.push(result.paymentId);
+
+          if (submissionIsDP) {
+            fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+              },
+              body: JSON.stringify({ account_id: alloc.account_id }),
+            }).catch((err) => {
+              console.warn("[review-payment-submission] award-loyalty-points failed (non-blocking):", err);
+            });
+          }
         }
 
         if (confirmedPaymentIds.length === 0) {
