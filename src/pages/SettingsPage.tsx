@@ -3,10 +3,11 @@ import { useQueryClient, useQuery } from '@tanstack/react-query';
 import {
   Settings, UserPlus, Users, Shield, Eye, EyeOff, RotateCcw,
   DollarSign, Bell, Info, ChevronDown, ChevronUp, AlertTriangle,
-  MessageSquare, Mail, Clock, Percent, Zap, Grid3X3
+  MessageSquare, Mail, Clock, Percent, Zap, Grid3X3, Sparkles
 } from 'lucide-react';
 import PermissionMatrixTab from '@/components/settings/PermissionMatrixTab';
 import FeatureTogglesTab from '@/components/settings/FeatureTogglesTab';
+import LoyaltySettingsTab from '@/components/settings/LoyaltySettingsTab';
 import AppLayout from '@/components/layout/AppLayout';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -97,6 +98,7 @@ const ROLE_PERMISSIONS: Record<string, { label: string; description: string; per
 export default function SettingsPage() {
   const { roles } = useAuth();
   const isAdmin = roles.includes('admin');
+  const isFinance = roles.includes('finance');
   const queryClient = useQueryClient();
   const [rate, setRate] = useState(getConversionRate().toString());
 
@@ -307,6 +309,12 @@ export default function SettingsPage() {
               <TabsTrigger value="features" className="gap-1.5 text-xs">
                 <Zap className="h-3.5 w-3.5" />
                 Feature Toggles
+              </TabsTrigger>
+            )}
+            {(isAdmin || isFinance) && (
+              <TabsTrigger value="loyalty" className="gap-1.5 text-xs">
+                <Sparkles className="h-3.5 w-3.5" />
+                Loyalty
               </TabsTrigger>
             )}
           </TabsList>
@@ -736,6 +744,13 @@ export default function SettingsPage() {
           {isAdmin && (
             <TabsContent value="features" className="mt-4">
               <FeatureTogglesTab />
+            </TabsContent>
+          )}
+
+          {/* ── LOYALTY TAB ── */}
+          {(isAdmin || isFinance) && (
+            <TabsContent value="loyalty" className="mt-4">
+              <LoyaltySettingsTab />
             </TabsContent>
           )}
         </Tabs>

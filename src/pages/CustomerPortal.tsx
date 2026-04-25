@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, memo, useCallback, lazy, Suspense } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLoyaltyAccess } from '@/hooks/useLoyaltyAccess';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -160,6 +161,11 @@ interface PortalData {
   payment_methods: PaymentMethod[];
   cash_orders?: PortalCashOrder[];
   cash_payments?: PortalCashPayment[];
+  loyalty_member?: {
+    id: string;
+    remaining_points: number;
+    current_tier: { name: string; points_multiplier: number; color_hex: string | null } | null;
+  } | null;
 }
 
 function fmt(amount: number, currency: string): string {
@@ -617,6 +623,13 @@ export default function CustomerPortal() {
               </div>
             )}
 
+            {/* Loyalty entry card — gates on useLoyaltyAccess for visibility */}
+            <LoyaltyEntryCard
+              customerId={data.customer_id}
+              member={data.loyalty_member ?? null}
+              token={token!}
+            />
+
             {/* Filters */}
             <div className="flex flex-col sm:flex-row gap-2">
               <div className="relative flex-1">
@@ -937,6 +950,94 @@ function SummaryTile({ label, value, financial, danger, success, sub }: {
       </p>
       {sub && <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,marginTop:'3px'}}>{sub}</p>}
     </div>
+  );
+}
+
+/* ─── Loyalty Entry Card ─── */
+function LoyaltyEntryCard({
+  customerId,
+  member,
+  token,
+}: {
+  customerId: string;
+  member: PortalData['loyalty_member'];
+  token: string;
+}) {
+  const navigate = useNavigate();
+  const access = useLoyaltyAccess(customerId);
+  if (access.isLoading) return null;
+
+  const goToLoyalty = () =>
+    navigate(`/loyalty?token=${encodeURIComponent(token)}`);
+
+  // State 3 — no access (feature off + not in beta)
+  if (!access.hasAccess) {
+    return (
+      <div
+        className="flex items-center gap-3 rounded-md px-4 py-3"
+        style={{ background: P.s, border: `1px solid ${P.br}`, opacity: 0.7 }}
+      >
+        <span style={{ fontSize: '22px' }} aria-hidden>💎</span>
+        <div className="flex-1">
+          <div style={{ color: P.ts, fontFamily: CG, fontSize: '15px' }}>Loyalty Program</div>
+          <div className="text-xs" style={{ color: P.ts }}>
+            Coming soon — exclusive rewards launching soon
+          </div>
+        </div>
+        <span
+          className="rounded-md px-2 py-0.5 text-[10px]"
+          style={{ background: P.s2, color: P.ts, border: `1px solid ${P.br}` }}
+        >
+          Soon
+        </span>
+      </div>
+    );
+  }
+
+  // State 1 — has access AND enrolled
+  if (member) {
+    return (
+      <button
+        onClick={goToLoyalty}
+        className="flex w-full items-center gap-3 rounded-md px-4 py-3 text-left transition-colors"
+        style={{
+          background: 'linear-gradient(135deg, #1A1500 0%, #2A2200 100%)',
+          border: `1px solid ${P.gp}`,
+          boxShadow: `0 2px 12px ${P.gp}33`,
+        }}
+      >
+        <span style={{ fontSize: '22px' }} aria-hidden>💎</span>
+        <div className="flex-1">
+          <div style={{ color: P.tp, fontFamily: CG, fontSize: '16px' }}>My Loyalty</div>
+          <div className="text-xs" style={{ color: P.gl }}>
+            {member.current_tier?.name ?? 'Glimmer'} ·{' '}
+            {member.remaining_points.toLocaleString()} points
+          </div>
+        </div>
+        <span style={{ color: P.gp }}>View →</span>
+      </button>
+    );
+  }
+
+  // State 2 — has access but not enrolled
+  return (
+    <button
+      onClick={goToLoyalty}
+      className="flex w-full items-center gap-3 rounded-md px-4 py-3 text-left"
+      style={{
+        background: P.s,
+        border: `1px solid ${P.gp}88`,
+      }}
+    >
+      <span style={{ fontSize: '22px' }} aria-hidden>💎</span>
+      <div className="flex-1">
+        <div style={{ color: P.tp, fontFamily: CG, fontSize: '16px' }}>Cha Jewels Loyalty</div>
+        <div className="text-xs" style={{ color: P.ts }}>
+          Join now and earn rewards on every purchase
+        </div>
+      </div>
+      <span style={{ color: P.gp }}>Join →</span>
+    </button>
   );
 }
 

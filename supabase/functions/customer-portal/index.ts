@@ -249,15 +249,61 @@ Deno.serve(async (req) => {
     const cashOrdersRaw = cashOrdersRes.data || [];
     const cashOrderIds = (cashOrdersRaw as any[]).map((o: any) => o.id);
 
-    // Second round-trip: cash_payments filtered by the cash_order_ids we just loaded
-    const { data: cashPaymentsRaw } = cashOrderIds.length > 0
-      ? await supabase
+    // Second round-trip: cash_payments filtered by the cash_order_ids we just loaded.
+    // Run loyalty fetches in parallel with cash_payments — both are independent of each
+    // other and of the per-account post-processing below.
+    const cashPaymentsPromise = cashOrderIds.length > 0
+      ? supabase
           .from("cash_payments")
           .select("*")
           .in("cash_order_id", cashOrderIds)
           .is("voided_at", null)
           .order("date_paid", { ascending: false })
-      : { data: [] };
+      : Promise.resolve({ data: [] as any[] });
+
+    const [
+      { data: cashPaymentsRaw },
+      { data: loyaltyMemberRow },
+      { data: loyaltyTiersRows },
+    ] = await Promise.all([
+      cashPaymentsPromise,
+      supabase
+        .from("loyalty_members")
+        .select(
+          "id, customer_id, cumulative_spend_jpy, earned_tier_id, current_tier_id, is_downgraded, last_purchase_at, prev_purchase_at, total_points_earned, total_points_redeemed, total_points_expired, remaining_points, enrolled_at, earned_tier:earned_tier_id(name, points_multiplier, color_hex), current_tier:current_tier_id(name, points_multiplier, color_hex)",
+        )
+        .eq("customer_id", customerId)
+        .maybeSingle(),
+      supabase
+        .from("loyalty_tiers")
+        .select("id, name, min_spend_jpy, points_multiplier, color_hex, free_shipping_min_items, mystery_gift")
+        .order("min_spend_jpy", { ascending: true }),
+    ]);
+
+    let loyaltyTransactions: any[] = [];
+    let loyaltyRedemptions: any[] = [];
+    if (loyaltyMemberRow) {
+      const memberId = (loyaltyMemberRow as any).id;
+      const [txnsRes, redRes] = await Promise.all([
+        supabase
+          .from("loyalty_transactions")
+          .select(
+            "id, transaction_type, points_amount, spend_amount_jpy, invoice_number, tier_at_time, notes, created_at",
+          )
+          .eq("member_id", memberId)
+          .order("created_at", { ascending: false })
+          .limit(20),
+        supabase
+          .from("loyalty_redemptions")
+          .select(
+            "id, redemption_type, points_redeemed, value_applied_jpy, invoice_number, status, created_at, processed_at",
+          )
+          .eq("member_id", memberId)
+          .order("created_at", { ascending: false }),
+      ]);
+      loyaltyTransactions = txnsRes.data || [];
+      loyaltyRedemptions = redRes.data || [];
+    }
 
     const schedulesByAccount: Record<string, any[]> = {};
     const paymentsByAccount: Record<string, any[]> = {};
@@ -475,6 +521,10 @@ Deno.serve(async (req) => {
       })),
       cash_orders: cashOrdersPayload,
       cash_payments: cashPaymentsPayload,
+      loyalty_member: loyaltyMemberRow ?? null,
+      loyalty_tiers: loyaltyTiersRows ?? [],
+      loyalty_transactions: loyaltyTransactions,
+      loyalty_redemptions: loyaltyRedemptions,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

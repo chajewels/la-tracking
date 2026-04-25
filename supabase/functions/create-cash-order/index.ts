@@ -103,30 +103,25 @@ Deno.serve(async (req) => {
     }
 
     // 6. Compute loyalty_jpy_amount
-    let loyaltyJpyAmount: number;
+    let loyaltyJpyAmount: number | null;
     if (currency === "JPY") {
-      loyaltyJpyAmount = Math.floor(totalAmountNum);
+      loyaltyJpyAmount = totalAmountNum;
     } else {
-      const { data: rateSetting, error: rateErr } = await supabase
+      const { data: rateSetting } = await supabase
         .from("system_settings")
         .select("value")
         .eq("key", "php_jpy_rate")
         .single();
-      if (rateErr || !rateSetting) {
-        return new Response(JSON.stringify({ error: "Could not read php_jpy_rate from system_settings" }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const rate = Number(JSON.parse(String(rateSetting.value)));
+      const rate = Number(JSON.parse(String(rateSetting?.value ?? "null")));
       if (!Number.isFinite(rate) || rate <= 0) {
-        return new Response(JSON.stringify({ error: "php_jpy_rate is invalid" }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        console.warn(
+          "[create-cash-order] php_jpy_rate not set, loyalty_jpy_amount will be null",
+        );
+        loyaltyJpyAmount = null;
+      } else {
+        // PHP → JPY: divide (per CLAUDE.md currency conversion standard)
+        loyaltyJpyAmount = Math.round(totalAmountNum / rate);
       }
-      // PHP → JPY: divide (per CLAUDE.md currency conversion standard)
-      loyaltyJpyAmount = Math.floor(totalAmountNum / rate);
     }
 
     // 7. Resolve order_date (defaults to today UTC date)

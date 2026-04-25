@@ -24,6 +24,14 @@ import { template as extensionGranted } from './extension-granted.tsx'
 import { template as extensionRequested } from './extension-requested.tsx'
 import { template as cashPaymentSubmitted } from './cash-payment-submitted.tsx'
 import { template as cashPaymentConfirmed } from './cash-payment-confirmed.tsx'
+import { template as loyaltyWelcome } from './loyalty-welcome.tsx'
+import { template as loyaltyEarned } from './loyalty-earned.tsx'
+import { template as loyaltyBonus } from './loyalty-bonus.tsx'
+import { template as loyaltyTierUpgrade } from './loyalty-tier-upgrade.tsx'
+import { template as loyaltyTierDowngrade } from './loyalty-tier-downgrade.tsx'
+import { template as loyaltyPreExpire } from './loyalty-pre-expire.tsx'
+import { template as loyaltyExpireDeduct } from './loyalty-expire-deduct.tsx'
+import { template as loyaltyRedeem } from './loyalty-redeem.tsx'
 
 export const TEMPLATES: Record<string, TemplateEntry> = {
   'payment-reminder': paymentReminder,
@@ -41,6 +49,14 @@ export const TEMPLATES: Record<string, TemplateEntry> = {
   'extension-requested': extensionRequested,
   'cash-payment-submitted': cashPaymentSubmitted,
   'cash-payment-confirmed': cashPaymentConfirmed,
+  'loyalty-welcome': loyaltyWelcome,
+  'loyalty-earned': loyaltyEarned,
+  'loyalty-bonus': loyaltyBonus,
+  'loyalty-tier-upgrade': loyaltyTierUpgrade,
+  'loyalty-tier-downgrade': loyaltyTierDowngrade,
+  'loyalty-pre-expire': loyaltyPreExpire,
+  'loyalty-expire-deduct': loyaltyExpireDeduct,
+  'loyalty-redeem': loyaltyRedeem,
   'payment-grace-period': {
     ...paymentReminder,
     subject: (data: Record<string, any>) =>
