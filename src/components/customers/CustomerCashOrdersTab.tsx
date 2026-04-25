@@ -7,7 +7,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import StatusBadge from './StatusBadge';
 
@@ -45,12 +44,8 @@ function useCustomerCashOrders(customerId: string | undefined) {
 
 export default memo(function CustomerCashOrdersTab({ customerId }: { customerId: string }) {
   const navigate = useNavigate();
-  const { roles } = useAuth();
   const { can } = usePermissions();
-  const rolesArr = roles as any[];
-  const isAdmin = rolesArr.includes('admin');
-  const isStaff = rolesArr.includes('staff');
-  const canCreate = isAdmin || isStaff || can('create_account');
+  const canCreate = can('create_cash_order');
 
   const { data: orders, isLoading } = useCustomerCashOrders(customerId);
   const [page, setPage] = useState(0);

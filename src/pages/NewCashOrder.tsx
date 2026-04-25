@@ -15,6 +15,7 @@ import { supabase } from '@/integrations/supabase/client';
 import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePermissions } from '@/contexts/PermissionsContext';
 
 type InvoiceCheck = 'idle' | 'checking' | 'available' | 'taken';
 
@@ -23,15 +24,16 @@ export default function NewCashOrder() {
   const [searchParams] = useSearchParams();
   const presetCustomerId = searchParams.get('customer_id');
   const customerLocked = !!presetCustomerId;
-  const { roles, loading: authLoading } = useAuth();
+  const { loading: authLoading } = useAuth();
+  const { can, loading: permLoading } = usePermissions();
   const { data: customers } = useCustomers();
 
-  // Permission gate — admin or staff only (matches spec)
-  const isAuthorized = roles.includes('admin' as never) || roles.includes('staff' as never);
+  // Permission gate — driven by role_permissions via usePermissions().can()
+  const isAuthorized = can('create_cash_order');
   useEffect(() => {
-    if (authLoading) return;
+    if (authLoading || permLoading) return;
     if (!isAuthorized) navigate('/', { replace: true });
-  }, [authLoading, isAuthorized, navigate]);
+  }, [authLoading, permLoading, isAuthorized, navigate]);
 
   // Form state
   const [invoiceNumber, setInvoiceNumber] = useState('');

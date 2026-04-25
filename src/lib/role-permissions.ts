@@ -10,6 +10,9 @@ const PAGE_ACCESS: Record<string, AppRole[]> = {
   '/accounts/:id':        ['admin', 'staff', 'finance'],
   '/customers':           ['admin', 'staff', 'finance', 'csr'],
   '/customers/:customerId': ['admin', 'staff', 'finance', 'csr'],
+  '/cash-orders':         ['admin', 'staff', 'finance', 'csr'],
+  '/cash-orders/new':     ['admin', 'staff', 'finance'],
+  '/cash-orders/:id':     ['admin', 'staff', 'finance', 'csr'],
   '/monitoring':          ['admin', 'staff', 'csr'],
   '/finance':             ['admin', 'finance'],
   '/payment-submissions': ['admin', 'finance', 'staff', 'csr'],
@@ -24,6 +27,7 @@ const PAGE_ACCESS: Record<string, AppRole[]> = {
 export const SIDEBAR_ACCESS: Record<string, AppRole[]> = {
   '/':                    ['admin', 'staff', 'finance', 'csr'],
   '/customers':           ['admin', 'staff', 'finance', 'csr'],
+  '/cash-orders':         ['admin', 'staff', 'finance', 'csr'],
   '/monitoring':          ['admin', 'staff', 'csr'],
   '/finance':             ['admin', 'finance'],
   '/bulk-payment-import': ['admin', 'finance'],
@@ -60,7 +64,11 @@ export type ActionKey =
   | 'send_reminder'
   | 'review_submission'
   | 'view_audit_logs'
-  | 'system_health';
+  | 'system_health'
+  | 'view_cash_orders'
+  | 'create_cash_order'
+  | 'edit_cash_order'
+  | 'approve_cash_order';
 
 const ACTION_ROLES: Record<ActionKey, AppRole[]> = {
   run_reconciliation:    ['admin'],
@@ -91,6 +99,10 @@ const ACTION_ROLES: Record<ActionKey, AppRole[]> = {
   review_submission:     ['admin', 'finance'],
   view_audit_logs:       ['admin'],
   system_health:         ['admin'],
+  view_cash_orders:      ['admin', 'finance', 'staff', 'csr'],
+  create_cash_order:     ['admin', 'finance', 'staff'],
+  edit_cash_order:       ['admin', 'finance'],
+  approve_cash_order:    ['admin', 'finance'],
 };
 
 // ── Dashboard section visibility ──

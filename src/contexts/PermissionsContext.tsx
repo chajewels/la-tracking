@@ -62,6 +62,8 @@ const PAGE_PERMISSION_MAP: Record<string, PermissionKey> = {
   '/accounts': 'view_accounts',
   '/accounts/new': 'create_account',
   '/customers': 'view_customers',
+  '/cash-orders': 'view_cash_orders',
+  '/cash-orders/new': 'create_cash_order',
   '/monitoring': 'view_monitoring',
   '/finance': 'view_finance',
   '/payment-submissions': 'view_submissions',
@@ -79,7 +81,7 @@ const PAGE_FEATURE_MAP: Record<string, string> = {
 };
 
 // Sidebar nav paths (same as PAGE_PERMISSION_MAP minus dynamic routes)
-const NAV_PATHS = ['/', '/customers', '/monitoring', '/finance', '/bulk-payment-import', '/admin-audit', '/settings', '/promotions'];
+const NAV_PATHS = ['/', '/customers', '/cash-orders', '/monitoring', '/finance', '/bulk-payment-import', '/admin-audit', '/settings', '/promotions'];
 
 export function PermissionsProvider({ children }: { children: ReactNode }) {
   const { user, roles, loading: authLoading } = useAuth();
@@ -163,9 +165,11 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
     // Check permission
     let permKey = PAGE_PERMISSION_MAP[path];
     if (!permKey) {
-      // Dynamic routes: /accounts/:id -> view_accounts, /customers/:id -> view_customers
+      // Dynamic routes: /accounts/:id -> view_accounts, /customers/:id -> view_customers,
+      // /cash-orders/:id -> view_cash_orders.
       if (path.startsWith('/accounts/')) permKey = 'view_accounts';
       else if (path.startsWith('/customers/')) permKey = 'view_customers';
+      else if (path.startsWith('/cash-orders/')) permKey = 'view_cash_orders';
       else return false;
     }
     return can(permKey);

@@ -12,8 +12,10 @@ import {
   Upload,
   BarChart3,
   Sparkles,
+  Banknote,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePermissions } from '@/contexts/PermissionsContext';
 import { useLoyaltyPendingCount } from '@/hooks/useLoyaltyPendingCount';
 import { cn } from '@/lib/utils';
 import {
@@ -26,9 +28,23 @@ import {
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
 
-const menuItems: { label: string; icon: any; path: string; adminOnly?: boolean }[] = [
+type MenuItem = {
+  label: string;
+  icon: any;
+  path: string;
+  adminOnly?: boolean;
+  /**
+   * Optional path used by canSeeNav() for permission-based filtering.
+   * When set, the item is hidden if the current user's roles don't grant
+   * view access to that path in role_permissions / SIDEBAR_ACCESS.
+   */
+  permPath?: string;
+};
+
+const menuItems: MenuItem[] = [
   { label: 'Dashboard', icon: LayoutDashboard, path: ROUTES.DASHBOARD },
   { label: 'Customers', icon: Users, path: ROUTES.CUSTOMERS },
+  { label: 'Cash Orders', icon: Banknote, path: '/cash-orders', permPath: '/cash-orders' },
   { label: 'CSR Monitoring', icon: Bell, path: ROUTES.MONITORING },
   { label: 'Finance', icon: Wallet, path: ROUTES.FINANCE },
   { label: 'Executive Dashboard', icon: BarChart3, path: ROUTES.EXECUTIVE_DASHBOARD, adminOnly: true },
@@ -42,6 +58,7 @@ export default function AppSidebar() {
   const location = useLocation();
   const { profile, signOut, user } = useAuth();
   const isExecAllowed = user?.email === 'sales@chajewelsjp.com';
+  const { canSeeNav } = usePermissions();
   const { count: pendingRedemptions } = useLoyaltyPendingCount();
 
   const initials = profile?.full_name
@@ -78,7 +95,10 @@ export default function AppSidebar() {
 
       <SidebarContent className="px-3 py-4" style={{ background: '#1A1410' }}>
         <SidebarMenu>
-          {menuItems.filter(item => !item.adminOnly || isExecAllowed).map((item) => {
+          {menuItems
+            .filter(item => !item.adminOnly || isExecAllowed)
+            .filter(item => !item.permPath || canSeeNav(item.permPath))
+            .map((item) => {
             const isActive = location.pathname === item.path;
             const Icon = item.icon;
 
