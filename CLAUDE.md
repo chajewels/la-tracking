@@ -649,12 +649,33 @@ When completing a partially_paid month:
     RefreshControl "Last updated" must show PHT time
 
   Cron jobs (all times are UTC, PHT = UTC+8):
-    daily-penalty-engine:     00:05 UTC = 08:05 PHT ✅
-    daily-auto-forfeit:       00:10 UTC = 08:10 PHT ✅
-    daily-payment-reminders:  00:02 UTC = 08:02 PHT ✅ (offset from send-reminders)
-    daily-send-reminders:     00:00 UTC = 08:00 PHT ✅
-    daily-reconciliation:     18:00 UTC = 02:00 PHT ✅
-    process-email-queue:      every 5 seconds       ✅
+  Jobs run in strict dependency order every morning:
+
+    daily-send-reminders:          00:00 UTC = 08:00 PHT ✅
+    daily-payment-reminders:       00:02 UTC = 08:02 PHT ✅
+    daily-penalty-engine:          00:05 UTC = 08:05 PHT ✅
+    daily-auto-forfeit:            00:10 UTC = 08:10 PHT ✅
+    daily-reconciliation:          00:20 UTC = 08:20 PHT ✅
+    loyalty-inactivity-check:      00:25 UTC = 08:25 PHT ✅
+    deactivate-expired-promotions: every hour            ✅
+    fc-alert-evaluation:           every 30 minutes      ✅
+    process-email-queue:           every 5 seconds       ✅
+
+  ORDERING RULE — never violate this sequence:
+    1. Reminders fire first (before penalties)
+    2. Penalty engine runs after reminders
+    3. Auto-forfeit runs after penalty engine
+    4. Reconciliation runs after forfeitures
+    5. Loyalty inactivity check runs last
+       (needs fully reconciled account data)
+    6. daily-reconciliation must never be scheduled
+       before 00:15 UTC
+
+  RACE CONDITION RULE:
+    daily-send-reminders and daily-payment-reminders
+    both call the send-reminders edge function.
+    They are offset by 2 minutes to prevent simultaneous
+    hits. Never schedule both at the same UTC minute.
 
 ## DISPLAY RULES (permanent)
 
