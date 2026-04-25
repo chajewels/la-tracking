@@ -21,6 +21,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { parseImageUrls, fetchPhpJpyRate, formatPromoPrice } from '@/lib/promo-media';
+import LoyaltyPromosTab from '@/components/loyalty/LoyaltyPromosTab';
 
 interface Promotion {
   id: string;
@@ -134,7 +135,7 @@ export default function Promotions() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  const [tab, setTab] = useState<'promos' | 'categories' | 'announcements'>('promos');
+  const [tab, setTab] = useState<'promos' | 'categories' | 'announcements' | 'loyalty'>('promos');
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Promotion | null>(null);
@@ -656,11 +657,12 @@ export default function Promotions() {
           )}
         </div>
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v as 'promos' | 'categories' | 'announcements')} className="w-full">
-          <TabsList className="grid grid-cols-3 w-full max-w-md">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as 'promos' | 'categories' | 'announcements' | 'loyalty')} className="w-full">
+          <TabsList className="grid grid-cols-4 w-full max-w-2xl">
             <TabsTrigger value="promos">Promos</TabsTrigger>
             <TabsTrigger value="categories">Categories</TabsTrigger>
             <TabsTrigger value="announcements">Announcements</TabsTrigger>
+            <TabsTrigger value="loyalty">Loyalty Promos</TabsTrigger>
           </TabsList>
 
           <TabsContent value="promos" className="mt-4">
@@ -881,6 +883,10 @@ export default function Promotions() {
                 </Table>
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="loyalty" className="mt-4">
+            <LoyaltyPromosTab />
           </TabsContent>
         </Tabs>
       </div>
