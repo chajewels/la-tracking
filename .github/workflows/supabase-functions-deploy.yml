@@ -28,6 +28,7 @@ on:
       - 'supabase/functions/preview-transactional-email/**'
       - 'supabase/functions/void-cash-payment/**'
       - 'supabase/functions/award-loyalty-points/**'
+      - 'supabase/functions/sync-loyalty-to-sheet/**'
       - 'supabase/functions/_shared/**'
   workflow_dispatch:
 
@@ -183,5 +184,11 @@ jobs:
       - name: Deploy award-loyalty-points
         if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/award-loyalty-points/')
         run: npx supabase functions deploy award-loyalty-points --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy sync-loyalty-to-sheet
+        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/sync-loyalty-to-sheet/')
+        run: npx supabase functions deploy sync-loyalty-to-sheet --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
