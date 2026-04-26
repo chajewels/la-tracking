@@ -1,184 +1,122 @@
-import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { Bell, BellOff } from 'lucide-react';
-import { NOTIFICATIONS, type FallbackNotification } from '@/components/loyalty/staticFallback';
+import { useState } from "react";
+import { motion } from "framer-motion";
+import { Crown, Coins, Gift, Cake, Tag, ShoppingBag, Star, Shield, Activity, Award, Users } from "lucide-react";
+// TODO: wire to Supabase
+import { NOTIFICATIONS } from "@/components/loyalty/staticFallback";
+
+const categoryIcons: Record<string, typeof Crown> = {
+  tier: Crown,
+  points: Coins,
+  redemption: Gift,
+  birthday: Cake,
+  promo: Tag,
+  order: ShoppingBag,
+  vip: Star,
+  security: Shield,
+  activity: Activity,
+  milestone: Award,
+  referral: Users,
+};
 
 type FilterType = 'all' | 'unread';
 
-const CATEGORY_META: Record<FallbackNotification['category'], { icon: string; color: string }> = {
-  tier:      { icon: '👑', color: 'hsl(43,74%,52%)' },
-  points:    { icon: '✨', color: 'hsl(43,74%,52%)' },
-  redemption:{ icon: '🎁', color: 'hsl(280,60%,55%)' },
-  birthday:  { icon: '🎂', color: 'hsl(340,70%,55%)' },
-  promo:     { icon: '🏷️', color: 'hsl(200,70%,50%)' },
-  order:     { icon: '💎', color: 'hsl(43,74%,52%)' },
-  vip:       { icon: '💫', color: 'hsl(43,74%,52%)' },
-  expiry:    { icon: '⏳', color: 'hsl(30,80%,50%)' },
-  security:  { icon: '🔐', color: 'hsl(0,60%,50%)' },
-  activity:  { icon: '✅', color: 'hsl(140,50%,45%)' },
-  milestone: { icon: '🎉', color: 'hsl(43,74%,52%)' },
-  referral:  { icon: '🤝', color: 'hsl(180,55%,45%)' },
-};
-
 export default function NotificationsScreen() {
   const [filter, setFilter] = useState<FilterType>('all');
-  const [readIds, setReadIds] = useState<Set<string>>(
-    () => new Set(NOTIFICATIONS.filter((n) => n.isRead).map((n) => n.id)),
-  );
+  const [notifications, setNotifications] = useState(NOTIFICATIONS);
 
-  const markAllRead = () => setReadIds(new Set(NOTIFICATIONS.map((n) => n.id)));
+  const filtered = filter === 'unread' ? notifications.filter((n) => !n.isRead) : notifications;
 
-  const filtered = filter === 'unread'
-    ? NOTIFICATIONS.filter((n) => !readIds.has(n.id))
-    : NOTIFICATIONS;
+  const today = filtered.filter((n) => n.date === 'Today');
+  const yesterday = filtered.filter((n) => n.date === 'Yesterday');
+  const earlier = filtered.filter((n) => n.date !== 'Today' && n.date !== 'Yesterday');
 
-  const unreadCount = NOTIFICATIONS.filter((n) => !readIds.has(n.id)).length;
+  const markAllRead = () => {
+    setNotifications(notifications.map((n) => ({ ...n, isRead: true })));
+  };
 
-  // Group by date label
-  const groups: { label: string; items: FallbackNotification[] }[] = [];
-  const seen = new Set<string>();
-  for (const n of filtered) {
-    if (!seen.has(n.date)) { seen.add(n.date); groups.push({ label: n.date, items: [] }); }
-    groups[groups.length - 1]!.items.push(n);
-  }
-  // Re-sort so Today/Yesterday always come first
-  const ORDER = ['Today', 'Yesterday'];
-  groups.sort((a, b) => {
-    const ai = ORDER.indexOf(a.label);
-    const bi = ORDER.indexOf(b.label);
-    if (ai !== -1 && bi !== -1) return ai - bi;
-    if (ai !== -1) return -1;
-    if (bi !== -1) return 1;
-    return 0;
-  });
+  const renderGroup = (title: string, items: typeof filtered) => {
+    if (items.length === 0) return null;
+    return (
+      <div className="space-y-2">
+        <p className="text-[10px] text-muted-foreground font-body tracking-[0.2em] uppercase">{title}</p>
+        {items.map((notif) => {
+          const Icon = categoryIcons[notif.category] || Star;
+          const isMilestone = notif.category === 'milestone';
+          return (
+            <motion.div
+              key={notif.id}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className={`rounded-xl p-4 shadow-card border-gold-accent ${!notif.isRead ? 'border-l-2 border-l-primary' : ''} ${
+                isMilestone ? 'bg-gradient-to-r from-primary/8 via-card to-card' : 'bg-card'
+              }`}
+            >
+              <div className="flex gap-3">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                  isMilestone ? 'gradient-gold shadow-gold' : !notif.isRead ? 'bg-primary/10' : 'bg-muted'
+                }`}>
+                  <Icon size={14} className={isMilestone ? 'text-primary-foreground' : !notif.isRead ? 'text-primary' : 'text-muted-foreground'} />
+                </div>
+                <div className="flex-1">
+                  <p className={`text-[11px] font-body font-medium ${!notif.isRead ? 'text-foreground' : 'text-muted-foreground'}`}>
+                    {notif.title}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground font-body mt-1 leading-relaxed">
+                    {notif.message}
+                  </p>
+                  <p className="text-[9px] text-muted-foreground/60 font-body mt-2">{notif.date}</p>
+                </div>
+                {!notif.isRead && <div className="w-2 h-2 rounded-full bg-primary mt-1 flex-shrink-0" />}
+              </div>
+            </motion.div>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
-    <div className="px-5 pt-6 pb-24 space-y-5">
-      {/* Header */}
-      <div className="flex items-start justify-between">
+    <div className="px-5 pt-6 pb-4 space-y-5">
+      <div className="flex items-center justify-between">
         <div>
-          <p className="text-[11px] text-muted-foreground font-body tracking-[0.2em] uppercase">
-            Stay Updated
-          </p>
-          <h1 className="font-display text-2xl font-semibold text-foreground mt-1">
-            Notifications
-          </h1>
+          <p className="text-[10px] text-muted-foreground font-body tracking-[0.2em] uppercase">Stay Updated</p>
+          <h1 className="font-display text-2xl font-semibold text-foreground mt-1">Notifications</h1>
         </div>
-        {unreadCount > 0 && (
-          <button
-            type="button"
-            onClick={markAllRead}
-            className="text-[11px] font-body font-semibold text-primary mt-1 flex-shrink-0"
-          >
-            Mark all read
-          </button>
-        )}
+        <button
+          onClick={markAllRead}
+          className="text-[10px] text-primary font-body font-semibold"
+        >
+          Mark all read
+        </button>
       </div>
 
-      {/* Filter pills */}
       <div className="flex gap-2">
-        {(['all', 'unread'] as FilterType[]).map((key) => (
+        {(['all', 'unread'] as FilterType[]).map((f) => (
           <button
-            key={key}
-            type="button"
-            onClick={() => setFilter(key)}
-            className={`px-3 py-1.5 rounded-full text-[12px] font-body font-medium transition-colors ${
-              filter === key
-                ? 'gradient-gold text-primary-foreground shadow-sm'
-                : 'bg-card text-muted-foreground shadow-card border-gold-accent'
+            key={f}
+            onClick={() => setFilter(f)}
+            className={`px-3 py-1.5 rounded-full text-[11px] font-body font-medium capitalize transition-colors ${
+              filter === f ? 'gradient-gold text-primary-foreground shadow-sm' : 'bg-card text-muted-foreground shadow-card border-gold-accent'
             }`}
           >
-            {key === 'all' ? 'All' : `Unread${unreadCount > 0 ? ` (${unreadCount})` : ''}`}
+            {f === 'all' ? 'All' : `Unread (${notifications.filter((n) => !n.isRead).length})`}
           </button>
         ))}
       </div>
 
-      {/* Empty state */}
+      <div className="space-y-5">
+        {renderGroup("Today", today)}
+        {renderGroup("Yesterday", yesterday)}
+        {renderGroup("Earlier", earlier)}
+      </div>
+
       {filtered.length === 0 && (
-        <div className="mt-8 rounded-2xl bg-card border-gold-accent shadow-card p-8 text-center space-y-3">
-          <BellOff className="h-9 w-9 text-primary mx-auto opacity-40" />
-          <p className="font-display text-base font-semibold text-foreground">All caught up!</p>
-          <p className="text-[12px] text-muted-foreground font-body">No unread notifications.</p>
+        <div className="text-center py-16">
+          <span className="text-4xl mb-4 block">✨</span>
+          <p className="font-display text-lg text-foreground">All caught up!</p>
+          <p className="text-[11px] text-muted-foreground font-body mt-1">No unread notifications from Cha Jewels</p>
         </div>
       )}
-
-      {/* Grouped notifications */}
-      {groups.map((group, gi) => (
-        <div key={group.label} className="space-y-2">
-          {/* Date label */}
-          <div className="flex items-center gap-3">
-            <p className="text-[11px] font-body font-semibold text-muted-foreground tracking-wider uppercase flex-shrink-0">
-              {group.label}
-            </p>
-            <div className="flex-1 h-px" style={{ background: 'hsla(36,30%,60%,0.15)' }} />
-          </div>
-
-          {group.items.map((notif, i) => {
-            const isRead = readIds.has(notif.id);
-            const meta = CATEGORY_META[notif.category];
-            return (
-              <motion.button
-                key={notif.id}
-                type="button"
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.06 * i + 0.05 * gi }}
-                onClick={() => setReadIds((prev) => new Set([...prev, notif.id]))}
-                className={`w-full text-left rounded-2xl p-4 shadow-card transition-colors ${
-                  isRead ? 'bg-card' : 'bg-card'
-                }`}
-                style={{ border: isRead ? '1px solid hsla(36,30%,60%,0.12)' : `1px solid ${meta.color}33` }}
-              >
-                <div className="flex items-start gap-3">
-                  {/* Icon */}
-                  <div
-                    className="w-10 h-10 rounded-full flex items-center justify-center text-lg flex-shrink-0 mt-0.5"
-                    style={{ background: `${meta.color}1A` }}
-                  >
-                    {meta.icon}
-                  </div>
-
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <p
-                        className={`text-[13px] font-body leading-tight ${
-                          isRead ? 'font-medium text-foreground' : 'font-semibold text-foreground'
-                        }`}
-                      >
-                        {notif.title}
-                      </p>
-                      {!isRead && (
-                        <div
-                          className="w-2 h-2 rounded-full flex-shrink-0 mt-1"
-                          style={{ background: meta.color }}
-                        />
-                      )}
-                    </div>
-                    <p className="text-[12px] text-muted-foreground font-body mt-1 leading-relaxed">
-                      {notif.message}
-                    </p>
-                  </div>
-                </div>
-              </motion.button>
-            );
-          })}
-        </div>
-      ))}
-
-      {/* Empty all-read footer */}
-      {filtered.length > 0 && unreadCount === 0 && (
-        <div className="text-center py-4 space-y-2">
-          <Bell className="h-6 w-6 text-primary/40 mx-auto" />
-          <p className="text-[11px] text-muted-foreground/50 font-body italic">
-            You're all caught up
-          </p>
-        </div>
-      )}
-
-      <p className="text-center text-[11px] text-muted-foreground/50 font-body italic pb-2">
-        Stay informed · Never miss a reward
-      </p>
     </div>
   );
 }
