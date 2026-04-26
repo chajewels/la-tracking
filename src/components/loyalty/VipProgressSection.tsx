@@ -2,7 +2,11 @@ import { motion } from "framer-motion";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { useLoyaltyData } from "@/components/loyalty/loyaltyData";
 
-const VipProgressSection = () => {
+interface VipProgressSectionProps {
+  onExploreTiers?: () => void;
+}
+
+const VipProgressSection = ({ onExploreTiers }: VipProgressSectionProps = {}) => {
   const { member, tiers } = useLoyaltyData();
   if (!member || !tiers || tiers.length === 0) return null;
 
@@ -91,7 +95,7 @@ const VipProgressSection = () => {
         </p>
       </div>
       <button
-        onClick={() => {}}
+        onClick={onExploreTiers}
         className="flex items-center gap-1 text-primary text-[10px] font-body font-semibold group"
       >
         Explore Tier Benefits

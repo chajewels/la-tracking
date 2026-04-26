@@ -3,21 +3,22 @@ import VipProgressSection from '@/components/loyalty/VipProgressSection';
 import PointsSnapshot from '@/components/loyalty/PointsSnapshot';
 import RecentActivity from '@/components/loyalty/RecentActivity';
 import { Button } from '@/components/ui/button';
+import type { LoyaltyTab } from '@/components/loyalty/LoyaltyBottomNav';
 
 interface HomeScreenProps {
   canRedeem: boolean;
   onRedeemClick: () => void;
-  onShowTiers: () => void;
+  setTab: (tab: LoyaltyTab) => void;
 }
 
-export default function HomeScreen({ canRedeem, onRedeemClick, onShowTiers }: HomeScreenProps) {
+export default function HomeScreen({ canRedeem, onRedeemClick, setTab }: HomeScreenProps) {
   return (
     <div className="px-5 pt-6 pb-4 space-y-5">
       {/* Phase 3 will replace this with HomeHeader, MilestoneBanner,
           QuickActions, BirthdayRewardCard, FeaturedBanner, PromoBanners,
           ReferralSection, ExclusiveOffers, MilestoneCard. */}
       <MemberCard />
-      <VipProgressSection />
+      <VipProgressSection onExploreTiers={() => setTab('tiers')} />
       <PointsSnapshot />
 
       <Button
@@ -40,8 +41,8 @@ export default function HomeScreen({ canRedeem, onRedeemClick, onShowTiers }: Ho
 
       <button
         type="button"
-        onClick={onShowTiers}
-        className="block w-full text-center text-[11px] font-body text-primary underline-offset-4 hover:underline"
+        onClick={() => setTab('tiers')}
+        className="block w-full text-center text-[11px] font-body font-semibold text-primary py-2"
       >
         View all tiers →
       </button>

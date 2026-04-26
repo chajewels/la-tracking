@@ -331,7 +331,7 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
           <HomeScreen
             canRedeem={canRedeem}
             onRedeemClick={() => setIsRedemptionOpen(true)}
-            onShowTiers={() => setTab('tiers')}
+            setTab={setTab}
           />
         )}
         {tab === 'rewards' && <RewardsScreen />}
