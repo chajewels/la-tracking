@@ -44,21 +44,61 @@ const ProfileMemberCard = () => {
         boxShadow: "0 8px 32px rgba(201,168,76,0.35)",
       }}
     >
-      {/* Continuous slow shine sweep */}
+      {/* Damask pattern overlay */}
+      <div
+        className="absolute inset-0 pointer-events-none opacity-[0.08]"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg width='48' height='48' viewBox='0 0 48 48' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23000' fill-rule='evenodd'%3E%3Cpath d='M24 12L12 24l12 12 12-12z' fill-opacity='0.4'/%3E%3Ccircle cx='24' cy='24' r='2' fill-opacity='0.3'/%3E%3C/g%3E%3C/svg%3E")`,
+          backgroundSize: "48px 48px",
+        }}
+      />
+
+      {/* Top-right radial glow */}
+      <div
+        className="absolute top-0 right-0 w-48 h-48 pointer-events-none"
+        style={{
+          background: "radial-gradient(circle at top right, rgba(255,255,255,0.4) 0%, transparent 70%)",
+        }}
+      />
+
+      {/* Bottom-left dark vignette */}
+      <div
+        className="absolute bottom-0 left-0 w-48 h-48 pointer-events-none opacity-30"
+        style={{
+          background: "radial-gradient(circle at bottom left, rgba(0,0,0,0.3) 0%, transparent 70%)",
+        }}
+      />
+
+      {/* Inner border for depth */}
+      <div
+        className="absolute inset-2 rounded-xl pointer-events-none"
+        style={{
+          border: "1px solid rgba(0,0,0,0.15)",
+        }}
+      />
+
+      {/* Decorative corner accents */}
+      <div className="absolute top-3 left-3 pointer-events-none" style={{ color: "rgba(0,0,0,0.25)" }}>✦</div>
+      <div className="absolute top-3 right-3 pointer-events-none" style={{ color: "rgba(0,0,0,0.25)" }}>✦</div>
+      <div className="absolute bottom-3 left-3 pointer-events-none" style={{ color: "rgba(0,0,0,0.25)" }}>✦</div>
+      <div className="absolute bottom-3 right-3 pointer-events-none" style={{ color: "rgba(0,0,0,0.25)" }}>✦</div>
+
+      {/* Continuous diagonal shine sweep */}
       <motion.div
-        className="absolute inset-0 pointer-events-none"
-        animate={{ x: ["-100%", "200%"] }}
+        className="absolute top-0 bottom-0 pointer-events-none"
+        initial={{ left: "-50%" }}
+        animate={{ left: "150%" }}
         transition={{
-          duration: 5,
+          duration: 3.5,
           repeat: Infinity,
           ease: "linear",
           repeatDelay: 2,
         }}
         style={{
-          background:
-            "linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.3) 50%, transparent 60%)",
-          width: "30%",
-          mixBlendMode: "overlay",
+          width: "40%",
+          background: "linear-gradient(105deg, transparent 0%, rgba(255,255,255,0.55) 50%, transparent 100%)",
+          transform: "skewX(-20deg)",
+          filter: "blur(4px)",
         }}
       />
 
