@@ -7,12 +7,20 @@ import { toast } from 'sonner';
 import { useLoyaltyAccess } from '@/hooks/useLoyaltyAccess';
 import { LoyaltyComingSoon } from '@/components/loyalty/LoyaltyComingSoon';
 import { LoyaltyJoinPrompt } from '@/components/loyalty/LoyaltyJoinPrompt';
-import { MemberCard } from '@/components/loyalty/MemberCard';
-import { PointsSnapshot } from '@/components/loyalty/PointsSnapshot';
-import { VipProgressSection, type TierRow } from '@/components/loyalty/VipProgressSection';
-import { RecentActivity, type LoyaltyTxRow } from '@/components/loyalty/RecentActivity';
+import MemberCard from '@/components/loyalty/MemberCard';
+import VipProgressSection from '@/components/loyalty/VipProgressSection';
+import PointsSnapshot from '@/components/loyalty/PointsSnapshot';
+import RecentActivity from '@/components/loyalty/RecentActivity';
+import TierCelebrationModal from '@/components/loyalty/TierCelebrationModal';
 import { RedemptionForm } from '@/components/loyalty/RedemptionForm';
-import { TierCelebrationModal } from '@/components/loyalty/TierCelebrationModal';
+import {
+  setLoyaltyData,
+  TIER_STATIC,
+  type TierName,
+  type LoyaltyMemberData,
+  type LoyaltyTierData,
+  type LoyaltyTransactionData,
+} from '@/components/loyalty/loyaltyData';
 import SplashScreen from '@/components/portal/SplashScreen';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -55,14 +63,32 @@ interface LoyaltyMember {
   current_tier: TierLite | null;
 }
 
+interface PortalLoyaltyTier {
+  name: string;
+  min_spend_jpy: number;
+  points_multiplier: number;
+  color_hex: string | null;
+}
+
+interface PortalLoyaltyTx {
+  id: string;
+  transaction_type: string;
+  points_amount: number;
+  spend_amount_jpy: number | null;
+  invoice_number: string | null;
+  tier_at_time: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
 interface PortalData {
   customer_id: string;
   customer_name: string;
   customer_code: string;
   profile: { email: string | null; full_name: string | null } & Record<string, unknown>;
   loyalty_member: LoyaltyMember | null;
-  loyalty_tiers: TierRow[];
-  loyalty_transactions: LoyaltyTxRow[];
+  loyalty_tiers: PortalLoyaltyTier[];
+  loyalty_transactions: PortalLoyaltyTx[];
   /**
    * Server-resolved beta whitelist flag. customer-portal reads
    * loyalty_beta_members with the service role because the table's RLS
@@ -144,16 +170,93 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
   const queryClient = useQueryClient();
   const [isRedemptionOpen, setIsRedemptionOpen] = useState(false);
 
-  const currentTier = member.current_tier;
-  const currentTierName = currentTier?.name ?? '';
-  const multiplier = currentTier?.points_multiplier ?? 1;
+  // ── Build the loyalty data store snapshot ──────────────────────
+  const loyaltyMember = data.loyalty_member;
+  const loyaltyTiers = data.loyalty_tiers ?? [];
+  const loyaltyTxs = data.loyalty_transactions ?? [];
 
-  // Tier celebration trigger — compares the current tier to the value
-  // stored in localStorage under a customer-scoped key. Only fires when
-  // there's a previously stored tier and it differs from the current one.
-  const [celebration, setCelebration] = useState<{ oldTier: string; newTier: string } | null>(
-    null,
+  const sixMonthsAgo = useMemo(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 6);
+    return d;
+  }, []);
+  const isActive = loyaltyMember?.last_purchase_at
+    ? new Date(loyaltyMember.last_purchase_at) > sixMonthsAgo
+    : false;
+
+  const tiers = useMemo<LoyaltyTierData[]>(
+    () =>
+      loyaltyTiers.map((t) => ({
+        name: t.name as TierName,
+        spendRequired: t.min_spend_jpy,
+        multiplier: t.points_multiplier,
+        ...TIER_STATIC[t.name as TierName],
+      })),
+    [loyaltyTiers],
   );
+
+  const currentTierName = (loyaltyMember?.current_tier?.name ?? 'Glimmer') as TierName;
+  const currentTierIndex = tiers.findIndex((t) => t.name === currentTierName);
+  const nextTier = currentTierIndex >= 0 ? tiers[currentTierIndex + 1] : undefined;
+  const cumulative = loyaltyMember?.cumulative_spend_jpy ?? 0;
+
+  const memberData = useMemo<LoyaltyMemberData>(
+    () => ({
+      customer_name: data.customer_name || 'Valued Customer',
+      member_id: data.customer_code ?? '',
+      current_tier: currentTierName,
+      is_downgraded: !!loyaltyMember?.is_downgraded,
+      available_points: loyaltyMember?.remaining_points ?? 0,
+      lifetime_points_earned: loyaltyMember?.total_points_earned ?? 0,
+      redeemed_points: loyaltyMember?.total_points_redeemed ?? 0,
+      lifetime_spend_yen: cumulative,
+      current_multiplier: loyaltyMember?.current_tier?.points_multiplier ?? 1,
+      amount_needed_for_next_tier: nextTier
+        ? Math.max(0, nextTier.spendRequired - cumulative)
+        : 0,
+      activity_status: isActive ? 'Active' : 'Inactive',
+    }),
+    [
+      data.customer_name,
+      data.customer_code,
+      currentTierName,
+      loyaltyMember?.is_downgraded,
+      loyaltyMember?.remaining_points,
+      loyaltyMember?.total_points_earned,
+      loyaltyMember?.total_points_redeemed,
+      loyaltyMember?.current_tier?.points_multiplier,
+      cumulative,
+      nextTier,
+      isActive,
+    ],
+  );
+
+  const transactions = useMemo<LoyaltyTransactionData[]>(
+    () =>
+      loyaltyTxs.map((tx) => ({
+        id: tx.id,
+        date: new Date(tx.created_at).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        }),
+        type: (tx.points_amount ?? 0) > 0 ? ('earned' as const) : ('redeemed' as const),
+        points: tx.points_amount ?? 0,
+        description: tx.invoice_number
+          ? `Invoice #${tx.invoice_number}`
+          : tx.notes ?? tx.transaction_type,
+        source: tx.transaction_type,
+      })),
+    [loyaltyTxs],
+  );
+
+  setLoyaltyData(memberData, tiers, transactions);
+
+  // ── Tier celebration trigger ────────────────────────────────────
+  // Compares the current tier to the value stored in localStorage
+  // under a customer-scoped key. Only fires when there's a previously
+  // stored tier and it differs from the current one.
+  const [celebration, setCelebration] = useState<{ tier: TierName } | null>(null);
 
   useEffect(() => {
     if (!currentTierName) return;
@@ -176,7 +279,7 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
     }
 
     if (lastSeen !== currentTierName) {
-      setCelebration({ oldTier: lastSeen, newTier: currentTierName });
+      setCelebration({ tier: currentTierName });
     }
   }, [currentTierName, data.customer_id]);
 
@@ -185,7 +288,7 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
       try {
         window.localStorage.setItem(
           tierStorageKey(data.customer_id),
-          celebration.newTier,
+          celebration.tier,
         );
       } catch {
         /* ignore */
@@ -195,34 +298,19 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
     queryClient.invalidateQueries({ queryKey: ['portal', portalToken] });
   }
 
-  const canRedeem = member.remaining_points > 0;
+  const canRedeem = (loyaltyMember?.remaining_points ?? 0) > 0;
 
   return (
     <>
-      <div className="flex flex-col items-center gap-6 px-4 py-6 sm:py-10">
-        <MemberCard
-          customerName={data.customer_name}
-          customerCode={data.customer_code}
-          tierName={currentTierName || 'Glimmer'}
-          isDowngraded={member.is_downgraded}
-        />
-
-        <PointsSnapshot
-          remainingPoints={member.remaining_points}
-          totalEarned={member.total_points_earned}
-          totalRedeemed={member.total_points_redeemed}
-        />
-
-        <VipProgressSection
-          currentTierName={currentTierName || 'Glimmer'}
-          cumulativeSpendJpy={member.cumulative_spend_jpy}
-          tiers={data.loyalty_tiers}
-        />
+      <div className="px-5 pt-6 pb-4 space-y-5">
+        <MemberCard />
+        <VipProgressSection />
+        <PointsSnapshot />
 
         <Button
           onClick={() => setIsRedemptionOpen(true)}
           disabled={!canRedeem}
-          className="w-full max-w-md"
+          className="w-full max-w-md mx-auto block"
           style={{
             background: canRedeem ? P.gr : P.s2,
             color: canRedeem ? '#1A1500' : P.ts,
@@ -233,13 +321,13 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
           {canRedeem ? '💎 Redeem Points' : 'No points to redeem yet'}
         </Button>
 
-        <RecentActivity transactions={data.loyalty_transactions} maxItems={10} />
+        <RecentActivity />
       </div>
 
       <RedemptionForm
         isOpen={isRedemptionOpen}
         onClose={() => setIsRedemptionOpen(false)}
-        remainingPoints={member.remaining_points}
+        remainingPoints={loyaltyMember?.remaining_points ?? 0}
         customerId={data.customer_id}
         memberId={member.id}
         portalToken={portalToken}
@@ -249,11 +337,9 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
       />
 
       <TierCelebrationModal
+        tierName={celebration?.tier ?? currentTierName}
         isOpen={celebration !== null}
         onClose={handleCelebrationClose}
-        oldTier={celebration?.oldTier ?? ''}
-        newTier={celebration?.newTier ?? ''}
-        multiplier={multiplier}
       />
     </>
   );

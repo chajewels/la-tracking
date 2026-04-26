@@ -1,4 +1,5 @@
 import { motion, useReducedMotion } from 'framer-motion';
+import { useLoyaltyData, type LoyaltyTierData, type TierName } from './loyaltyData';
 
 const CG = "'Cormorant Garamond',Georgia,serif";
 
@@ -15,35 +16,28 @@ const P = {
 
 const fmtJpy = (n: number) => `¥${Math.round(n).toLocaleString()}`;
 
-export interface TierRow {
-  name: string;
-  min_spend_jpy: number;
-  color_hex: string | null;
+function findTier(tiers: LoyaltyTierData[], name: TierName | undefined): {
+  current: LoyaltyTierData | null;
+  next: LoyaltyTierData | null;
+  isMax: boolean;
+} {
+  const sorted = [...tiers].sort((a, b) => a.spendRequired - b.spendRequired);
+  const idx = name
+    ? sorted.findIndex((t) => t.name.toLowerCase() === name.toLowerCase())
+    : -1;
+  const current = idx >= 0 ? sorted[idx] : null;
+  const next =
+    idx >= 0 && idx < sorted.length - 1 ? sorted[idx + 1] : null;
+  const isMax = idx >= 0 && idx === sorted.length - 1;
+  return { current, next, isMax };
 }
 
-export interface VipProgressSectionProps {
-  currentTierName: string;
-  cumulativeSpendJpy: number;
-  tiers: TierRow[]; // sorted by min_spend_jpy ASC
-}
-
-export function VipProgressSection({
-  currentTierName,
-  cumulativeSpendJpy,
-  tiers,
-}: VipProgressSectionProps) {
+export function VipProgressSection() {
+  const { member, tiers } = useLoyaltyData();
   const reduce = useReducedMotion();
 
-  const sorted = [...tiers].sort((a, b) => a.min_spend_jpy - b.min_spend_jpy);
-  const currentIdx = sorted.findIndex(
-    (t) => t.name.toLowerCase() === currentTierName.toLowerCase(),
-  );
-  const currentTier = currentIdx >= 0 ? sorted[currentIdx] : null;
-  const nextTier = currentIdx >= 0 && currentIdx < sorted.length - 1
-    ? sorted[currentIdx + 1]
-    : null;
-
-  const isMaxTier = currentIdx === sorted.length - 1 && currentIdx >= 0;
+  const cumulative = member?.lifetime_spend_yen ?? 0;
+  const { current, next, isMax } = findTier(tiers, member?.current_tier);
 
   return (
     <div
@@ -61,7 +55,7 @@ export function VipProgressSection({
         Tier Progress
       </div>
 
-      {isMaxTier ? (
+      {isMax ? (
         <div className="mt-5 text-center">
           <div className="text-4xl">👑</div>
           <div
@@ -81,14 +75,14 @@ export function VipProgressSection({
             className="mt-2 text-xs italic"
             style={{ color: P.ts, fontFamily: CG }}
           >
-            Cumulative spend: {fmtJpy(cumulativeSpendJpy)}
+            Cumulative spend: {fmtJpy(cumulative)}
           </div>
         </div>
-      ) : currentTier && nextTier ? (
+      ) : current && next ? (
         <Progress
-          currentTier={currentTier}
-          nextTier={nextTier}
-          cumulativeSpendJpy={cumulativeSpendJpy}
+          current={current}
+          next={next}
+          cumulative={cumulative}
           reduce={!!reduce}
         />
       ) : (
@@ -104,20 +98,20 @@ export function VipProgressSection({
 }
 
 function Progress({
-  currentTier,
-  nextTier,
-  cumulativeSpendJpy,
+  current,
+  next,
+  cumulative,
   reduce,
 }: {
-  currentTier: TierRow;
-  nextTier: TierRow;
-  cumulativeSpendJpy: number;
+  current: LoyaltyTierData;
+  next: LoyaltyTierData;
+  cumulative: number;
   reduce: boolean;
 }) {
-  const span = Math.max(1, nextTier.min_spend_jpy - currentTier.min_spend_jpy);
-  const within = Math.max(0, cumulativeSpendJpy - currentTier.min_spend_jpy);
+  const span = Math.max(1, next.spendRequired - current.spendRequired);
+  const within = Math.max(0, cumulative - current.spendRequired);
   const pct = Math.min(100, Math.max(0, (within / span) * 100));
-  const toNext = Math.max(0, nextTier.min_spend_jpy - cumulativeSpendJpy);
+  const toNext = Math.max(0, next.spendRequired - cumulative);
 
   return (
     <>
@@ -129,7 +123,9 @@ function Progress({
           >
             Current
           </div>
-          <div style={{ fontFamily: CG, fontSize: '18px' }}>{currentTier.name}</div>
+          <div style={{ fontFamily: CG, fontSize: '18px' }}>
+            <span aria-hidden="true">{current.icon}</span> {current.name}
+          </div>
         </div>
         <div className="text-right">
           <div
@@ -139,7 +135,7 @@ function Progress({
             Next
           </div>
           <div style={{ fontFamily: CG, fontSize: '18px', color: P.gl }}>
-            {nextTier.name}
+            <span aria-hidden="true">{next.icon}</span> {next.name}
           </div>
         </div>
       </div>
@@ -148,7 +144,7 @@ function Progress({
         className="mt-4 flex items-baseline justify-between text-xs"
         style={{ color: P.tp, fontVariantNumeric: 'tabular-nums' }}
       >
-        <span>{fmtJpy(cumulativeSpendJpy)} / {fmtJpy(nextTier.min_spend_jpy)}</span>
+        <span>{fmtJpy(cumulative)} / {fmtJpy(next.spendRequired)}</span>
         <span style={{ color: P.gl }}>{Math.round(pct)}%</span>
       </div>
 
@@ -169,7 +165,7 @@ function Progress({
         className="mt-3 text-center text-xs italic"
         style={{ color: P.ts, fontFamily: CG }}
       >
-        {fmtJpy(toNext)} to {nextTier.name}
+        {fmtJpy(toNext)} to {next.name}
       </div>
     </>
   );

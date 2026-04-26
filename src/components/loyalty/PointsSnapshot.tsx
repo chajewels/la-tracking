@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
+import { useLoyaltyData } from './loyaltyData';
 
 const CG = "'Cormorant Garamond',Georgia,serif";
 
@@ -14,12 +15,6 @@ const P = {
   gr: 'linear-gradient(135deg,#C9A84C 0%,#E8C96D 50%,#C9A84C 100%)',
 } as const;
 
-export interface PointsSnapshotProps {
-  remainingPoints: number;
-  totalEarned: number;
-  totalRedeemed: number;
-}
-
 function useCountUp(target: number, durationMs = 1200, enabled = true) {
   const [value, setValue] = useState(enabled ? 0 : target);
   useEffect(() => {
@@ -31,7 +26,6 @@ function useCountUp(target: number, durationMs = 1200, enabled = true) {
     let raf = 0;
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / durationMs);
-      // easeOutCubic
       const eased = 1 - Math.pow(1 - t, 3);
       setValue(Math.round(target * eased));
       if (t < 1) raf = requestAnimationFrame(tick);
@@ -42,13 +36,16 @@ function useCountUp(target: number, durationMs = 1200, enabled = true) {
   return value;
 }
 
-export function PointsSnapshot({
-  remainingPoints,
-  totalEarned,
-  totalRedeemed,
-}: PointsSnapshotProps) {
+export function PointsSnapshot() {
+  const { member } = useLoyaltyData();
   const reduce = useReducedMotion();
-  const animated = useCountUp(remainingPoints, 1200, !reduce);
+
+  const remaining = member?.available_points ?? 0;
+  const earned = member?.lifetime_points_earned ?? 0;
+  const redeemed = member?.redeemed_points ?? 0;
+  const multiplier = member?.current_multiplier ?? 1;
+
+  const animated = useCountUp(remaining, 1200, !reduce);
 
   return (
     <motion.div
@@ -90,6 +87,14 @@ export function PointsSnapshot({
         >
           points available
         </div>
+        {multiplier > 1 && (
+          <div
+            className="mt-2 text-[11px]"
+            style={{ color: P.gl, letterSpacing: '0.18em', textTransform: 'uppercase' }}
+          >
+            {multiplier}× earn rate active
+          </div>
+        )}
       </div>
 
       <div
@@ -100,8 +105,8 @@ export function PointsSnapshot({
       />
 
       <div className="space-y-1.5 text-sm" style={{ color: P.tp }}>
-        <Row label="Total Earned" value={totalEarned.toLocaleString()} />
-        <Row label="Total Redeemed" value={totalRedeemed.toLocaleString()} />
+        <Row label="Total Earned" value={earned.toLocaleString()} />
+        <Row label="Total Redeemed" value={redeemed.toLocaleString()} />
       </div>
     </motion.div>
   );

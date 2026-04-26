@@ -13,17 +13,39 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
-import { MemberCard } from '@/components/loyalty/MemberCard';
-import { PointsSnapshot } from '@/components/loyalty/PointsSnapshot';
-import {
-  VipProgressSection, type TierRow,
-} from '@/components/loyalty/VipProgressSection';
-import {
-  RecentActivity,
-  type LoyaltyTxRow,
-  type LoyaltyTransactionType,
-} from '@/components/loyalty/RecentActivity';
+import MemberCard from '@/components/loyalty/MemberCard';
+import PointsSnapshot from '@/components/loyalty/PointsSnapshot';
+import VipProgressSection from '@/components/loyalty/VipProgressSection';
+import RecentActivity from '@/components/loyalty/RecentActivity';
 import { RedemptionApprovalModal } from '@/components/loyalty/RedemptionApprovalModal';
+import {
+  setLoyaltyData,
+  TIER_STATIC,
+  type TierName,
+  type LoyaltyMemberData,
+  type LoyaltyTierData,
+  type LoyaltyTransactionData,
+} from '@/components/loyalty/loyaltyData';
+
+type LoyaltyTransactionType = 'earned' | 'bonus' | 'redeemed' | 'expired' | 'adjusted';
+
+interface LoyaltyTxRow {
+  id: string;
+  transaction_type: LoyaltyTransactionType;
+  points_amount: number;
+  spend_amount_jpy: number | null;
+  invoice_number: string | null;
+  tier_at_time: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+interface TierRow {
+  name: string;
+  min_spend_jpy: number;
+  points_multiplier: number;
+  color_hex: string | null;
+}
 
 interface TierLite {
   name: string;
@@ -196,6 +218,65 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
     return data.transactions.filter((tx) => tx.transaction_type === filter);
   }, [data?.transactions, filter]);
 
+  const tiersData = useMemo<LoyaltyTierData[]>(() => {
+    if (!data?.tiers) return [];
+    return data.tiers.map((t) => ({
+      name: t.name as TierName,
+      spendRequired: t.min_spend_jpy,
+      multiplier: t.points_multiplier,
+      ...TIER_STATIC[t.name as TierName],
+    }));
+  }, [data?.tiers]);
+
+  const memberData = useMemo<LoyaltyMemberData | null>(() => {
+    const m = data?.member;
+    if (!m) return null;
+    const tierName = (m.current_tier?.name ?? 'Glimmer') as TierName;
+    const idx = tiersData.findIndex((t) => t.name === tierName);
+    const next = idx >= 0 ? tiersData[idx + 1] : undefined;
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    const isActive = m.last_purchase_at
+      ? new Date(m.last_purchase_at) > sixMonthsAgo
+      : false;
+    return {
+      customer_name: data?.customer?.full_name || 'Valued Customer',
+      member_id: data?.customer?.customer_code ?? '—',
+      current_tier: tierName,
+      is_downgraded: m.is_downgraded,
+      available_points: m.remaining_points,
+      lifetime_points_earned: m.total_points_earned,
+      redeemed_points: m.total_points_redeemed,
+      lifetime_spend_yen: m.cumulative_spend_jpy,
+      current_multiplier: m.current_tier?.points_multiplier ?? 1,
+      amount_needed_for_next_tier: next
+        ? Math.max(0, next.spendRequired - m.cumulative_spend_jpy)
+        : 0,
+      activity_status: isActive ? 'Active' : 'Inactive',
+    };
+  }, [data?.member, data?.customer, tiersData]);
+
+  const transactionsData = useMemo<LoyaltyTransactionData[]>(
+    () =>
+      filteredTransactions.map((tx) => ({
+        id: tx.id,
+        date: new Date(tx.created_at).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        }),
+        type: (tx.points_amount ?? 0) > 0 ? ('earned' as const) : ('redeemed' as const),
+        points: tx.points_amount ?? 0,
+        description: tx.invoice_number
+          ? `Invoice #${tx.invoice_number}`
+          : tx.notes ?? tx.transaction_type,
+        source: tx.transaction_type,
+      })),
+    [filteredTransactions],
+  );
+
+  setLoyaltyData(memberData, tiersData, transactionsData);
+
   async function handleAddBeta() {
     if (!customerId) return;
     setBetaPending(true);
@@ -243,7 +324,7 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
     );
   }
 
-  const { customer, member, transactions, redemptions, tiers, isBeta } = data;
+  const { member, transactions, redemptions, isBeta } = data;
 
   // ── Not enrolled ──────────────────────────────────────────────
   if (!member) {
@@ -296,8 +377,6 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
   // ── Enrolled ──────────────────────────────────────────────────
   const tierName = member.current_tier?.name ?? 'Glimmer';
   const earnedTierName = member.earned_tier?.name ?? tierName;
-  const customerName = customer?.full_name || 'Valued Customer';
-  const customerCode = customer?.customer_code || '—';
 
   return (
     <div className="space-y-6">
@@ -329,21 +408,12 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
 
       {/* 2. Membership Card */}
       <div className="flex justify-center">
-        <MemberCard
-          customerName={customerName}
-          customerCode={customerCode}
-          tierName={tierName}
-          isDowngraded={member.is_downgraded}
-        />
+        <MemberCard />
       </div>
 
       {/* 3. Points Summary + admin extras */}
       <div className="space-y-3">
-        <PointsSnapshot
-          remainingPoints={member.remaining_points}
-          totalEarned={member.total_points_earned}
-          totalRedeemed={member.total_points_redeemed}
-        />
+        <PointsSnapshot />
         <div className="rounded-xl border border-border bg-card p-4">
           <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2 font-semibold">
             Admin Details
@@ -359,11 +429,7 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
 
       {/* 4. Tier Progress */}
       <div className="space-y-2">
-        <VipProgressSection
-          currentTierName={tierName}
-          cumulativeSpendJpy={member.cumulative_spend_jpy}
-          tiers={tiers}
-        />
+        <VipProgressSection />
         {member.is_downgraded && earnedTierName !== tierName && (
           <p className="text-center text-xs text-muted-foreground italic">
             Earned tier: {earnedTierName} (reduced due to inactivity)
@@ -401,10 +467,7 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
               : 'No events match this filter'}
           </div>
         ) : (
-          <RecentActivity
-            transactions={filteredTransactions}
-            maxItems={filteredTransactions.length}
-          />
+          <RecentActivity />
         )}
       </div>
 

@@ -1,4 +1,5 @@
 import { CSSProperties } from 'react';
+import { useLoyaltyData } from './loyaltyData';
 
 const CG = "'Cormorant Garamond',Georgia,serif";
 
@@ -9,10 +10,9 @@ const COLORS = {
   inkDeep: '#3D2F0E',
   inkSoft: '#5C4A1F',
   warning: '#C46B1F',
+  inactive: '#7A6B4A',
 } as const;
 
-// Keyframes + scoped styles for the shimmer + damask layers. Rendered once per
-// instance; duplicate <style> blocks are harmless (browser collapses them).
 const STYLE_BLOCK = `
 @keyframes member-card-shimmer {
   0%   { transform: translateX(-120%) skewX(-12deg); }
@@ -55,19 +55,15 @@ const STYLE_BLOCK = `
 }
 `;
 
-export interface MemberCardProps {
-  customerName: string;
-  customerCode: string;
-  tierName: string;
-  isDowngraded?: boolean;
-}
+export function MemberCard() {
+  const { member } = useLoyaltyData();
 
-export function MemberCard({
-  customerName,
-  customerCode,
-  tierName,
-  isDowngraded = false,
-}: MemberCardProps) {
+  const customerName = member?.customer_name || 'Valued Customer';
+  const memberId = member?.member_id || '—';
+  const tierName = member?.current_tier || 'Glimmer';
+  const isDowngraded = !!member?.is_downgraded;
+  const isInactive = member?.activity_status === 'Inactive';
+
   const cardStyle: CSSProperties = {
     background: `linear-gradient(135deg, ${COLORS.goldMid} 0%, ${COLORS.goldHi} 50%, ${COLORS.goldLo} 100%)`,
     border: '1px solid rgba(255,255,255,0.4)',
@@ -88,7 +84,7 @@ export function MemberCard({
 
   return (
     <div
-      className="relative w-full max-w-md aspect-[1.586/1] rounded-2xl overflow-hidden"
+      className="relative w-full max-w-md aspect-[1.586/1] rounded-2xl overflow-hidden mx-auto"
       style={cardStyle}
       role="img"
       aria-label={`Cha Jewels Loyalty member card for ${customerName}, ${tierName} tier`}
@@ -98,7 +94,6 @@ export function MemberCard({
       <div className="member-card-damask" />
       <div className="member-card-shimmer-layer" />
 
-      {/* Sparkle accents */}
       <div
         className="absolute left-3 top-2 text-[14px]"
         style={{ color: COLORS.inkSoft, opacity: 0.6 }}
@@ -115,7 +110,6 @@ export function MemberCard({
       </div>
 
       <div className="relative flex h-full flex-col px-5 py-4 sm:px-7 sm:py-5">
-        {/* Header */}
         <div
           className="text-center"
           style={{
@@ -129,7 +123,6 @@ export function MemberCard({
           ✨&nbsp;Cha Jewels Loyalty Member&nbsp;✨
         </div>
 
-        {/* Ornamental divider */}
         <div
           className="mx-auto mt-2 h-px w-1/2"
           style={{
@@ -138,12 +131,11 @@ export function MemberCard({
           }}
         />
 
-        {/* Body — Name / Member ID / Tier */}
         <div className="mt-3 flex flex-1 flex-col justify-center gap-1.5 text-[13px] sm:text-sm">
           <Row label="Name" value={customerName} labelStyle={labelStyle} valueStyle={valueStyle} />
           <Row
             label="Member ID"
-            value={customerCode}
+            value={memberId}
             labelStyle={labelStyle}
             valueStyle={{ ...valueStyle, fontFamily: 'monospace', letterSpacing: '0.04em' }}
           />
@@ -156,9 +148,16 @@ export function MemberCard({
               ⚠ Reduced from earned tier due to inactivity
             </div>
           )}
+          {!isDowngraded && isInactive && (
+            <div
+              className="pl-[88px] text-[10px] italic"
+              style={{ color: COLORS.inactive, letterSpacing: '0.02em' }}
+            >
+              ⏳ Inactive — make a purchase to keep your tier
+            </div>
+          )}
         </div>
 
-        {/* Ornamental divider */}
         <div
           className="mx-auto mb-2 h-px w-1/3"
           style={{
@@ -167,7 +166,6 @@ export function MemberCard({
           }}
         />
 
-        {/* Footer tagline */}
         <div
           className="text-center italic"
           style={{

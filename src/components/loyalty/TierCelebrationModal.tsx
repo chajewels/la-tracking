@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
+import { TIER_STATIC, type TierName } from './loyaltyData';
 
 const CG = "'Cormorant Garamond',Georgia,serif";
 
@@ -15,46 +16,24 @@ const P = {
   gr: 'linear-gradient(135deg,#C9A84C 0%,#E8C96D 50%,#C9A84C 100%)',
 } as const;
 
-const TIER_BENEFITS: Record<string, string[]> = {
-  Radiant: ['2x points', 'Free intl. shipping on 4+ items', 'Priority support'],
-  Elite: [
-    '2x points',
-    'Free intl. shipping on 4+ items',
-    'Priority support',
-    'Early collection access',
-  ],
-  'Crown VIP': [
-    '3x points',
-    'Free intl. shipping on 3+ items',
-    'Mystery gifts',
-    'VIP concierge',
-    'Annual VIP event',
-    'Limited edition access',
-  ],
-};
-
 const CONFETTI_COUNT = 14;
 const CONFETTI_COLORS = ['#D4AF37', '#F4D78F', '#E8C96D', '#FFFFFF'];
 
 export interface TierCelebrationModalProps {
+  tierName: TierName;
   isOpen: boolean;
   onClose: () => void;
-  oldTier: string;
-  newTier: string;
-  multiplier: number;
 }
 
 export function TierCelebrationModal({
+  tierName,
   isOpen,
   onClose,
-  oldTier,
-  newTier,
-  multiplier,
 }: TierCelebrationModalProps) {
   const reduce = useReducedMotion();
-  const benefits = TIER_BENEFITS[newTier] ?? [];
+  const tierStatic = TIER_STATIC[tierName];
+  const benefits = tierStatic?.benefits ?? [];
 
-  // Stable confetti config — recompute only when modal flips open.
   const confetti = useMemo(
     () =>
       Array.from({ length: CONFETTI_COUNT }, (_, i) => ({
@@ -69,7 +48,6 @@ export function TierCelebrationModal({
     [isOpen],
   );
 
-  // ESC to close.
   useEffect(() => {
     if (!isOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -79,7 +57,7 @@ export function TierCelebrationModal({
     return () => window.removeEventListener('keydown', onKey);
   }, [isOpen, onClose]);
 
-  const newTierLetters = useMemo(() => Array.from(newTier), [newTier]);
+  const tierLetters = useMemo(() => Array.from(tierName), [tierName]);
 
   return (
     <AnimatePresence>
@@ -100,7 +78,6 @@ export function TierCelebrationModal({
           aria-modal="true"
           aria-labelledby="tier-celebration-title"
         >
-          {/* Confetti pieces */}
           {!reduce &&
             confetti.map((c) => (
               <motion.span
@@ -167,14 +144,14 @@ export function TierCelebrationModal({
                 letterSpacing: '0.04em',
               }}
             >
-              {newTierLetters.map((ch, i) => (
+              {tierLetters.map((ch, i) => (
                 <motion.span
                   key={i}
                   initial={reduce ? false : { opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.4, delay: 0.15 + i * 0.06 }}
                   style={{
-                    background: P.gr,
+                    background: tierStatic?.textGradient ?? P.gr,
                     WebkitBackgroundClip: 'text',
                     WebkitTextFillColor: 'transparent',
                     display: 'inline-block',
@@ -186,31 +163,11 @@ export function TierCelebrationModal({
               ))}
             </h2>
 
-            <motion.div
-              initial={reduce ? false : { opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.6, duration: 0.35 }}
-              className="mt-3 text-center text-sm"
-              style={{ color: P.gl, fontFamily: CG, letterSpacing: '0.06em' }}
-            >
-              {multiplier}× points multiplier unlocked
-            </motion.div>
-
-            <motion.div
-              initial={reduce ? false : { opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.75, duration: 0.35 }}
-              className="mt-1 text-center text-[11px] italic"
-              style={{ color: P.ts, fontFamily: CG }}
-            >
-              {oldTier} → {newTier}
-            </motion.div>
-
             {benefits.length > 0 && (
               <motion.ul
                 initial={reduce ? false : { opacity: 0 }}
                 animate={{ opacity: 1 }}
-                transition={{ delay: 0.9, duration: 0.4 }}
+                transition={{ delay: 0.7, duration: 0.4 }}
                 className="mx-auto mt-5 max-w-xs space-y-1.5 text-sm"
                 style={{ color: P.tp }}
               >

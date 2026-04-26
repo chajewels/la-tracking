@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { useLoyaltyData, type LoyaltyTransactionData } from './loyaltyData';
 
 const CG = "'Cormorant Garamond',Georgia,serif";
 
@@ -15,124 +16,39 @@ const P = {
 const POSITIVE = '#D4AF37';
 const NEGATIVE = '#B85450';
 
-const TIER_MULTIPLIER: Record<string, number> = {
-  glimmer: 1,
-  radiant: 1.5,
-  elite: 2,
-  'crown vip': 3,
-};
-
-export type LoyaltyTransactionType =
-  | 'earned'
-  | 'bonus'
-  | 'redeemed'
-  | 'expired'
-  | 'adjusted';
-
-export interface LoyaltyTxRow {
-  id: string;
-  transaction_type: LoyaltyTransactionType;
-  points_amount: number;
-  spend_amount_jpy: number | null;
-  invoice_number: string | null;
-  tier_at_time: string | null;
-  notes: string | null;
-  created_at: string;
-}
-
-export interface RecentActivityProps {
-  transactions: LoyaltyTxRow[];
-  maxItems?: number;
-  onViewAll?: () => void;
-}
-
-const fmtDayHeader = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-const ymd = (iso: string) => new Date(iso).toISOString().split('T')[0];
-
-const extractAfterPrefix = (notes: string | null, prefix: string) => {
-  if (!notes) return null;
-  return notes.startsWith(prefix) ? notes.slice(prefix.length).trim() : null;
-};
-
 interface EventMeta {
   icon: string;
   title: string;
-  /** Parts rendered after the points pill, joined with " · ". */
-  suffix: string[];
 }
 
-function eventMeta(tx: LoyaltyTxRow): EventMeta {
-  switch (tx.transaction_type) {
-    case 'earned': {
-      const tierName = tx.tier_at_time?.trim() || '';
-      const mult = TIER_MULTIPLIER[tierName.toLowerCase()];
-      const tierTag = tierName
-        ? mult != null
-          ? `${tierName} ${mult}x`
-          : tierName
-        : '';
-      const inv = tx.invoice_number ? `INV #${tx.invoice_number}` : '';
-      return {
-        icon: '✨',
-        title: 'Points Earned',
-        suffix: [inv, tierTag].filter(Boolean),
-      };
-    }
-    case 'bonus': {
-      const promoName = extractAfterPrefix(tx.notes, 'Promo:') ?? tx.notes ?? '';
-      return {
-        icon: '🎁',
-        title: 'Promo Bonus',
-        suffix: promoName ? [`"${promoName}"`] : [],
-      };
-    }
-    case 'redeemed': {
-      const redemptionType = extractAfterPrefix(tx.notes, 'Redemption:');
-      const inv = tx.invoice_number ? `INV #${tx.invoice_number}` : '';
-      return {
-        icon: '💎',
-        title: 'Points Redeemed',
-        suffix: [inv, redemptionType ?? ''].filter(Boolean),
-      };
-    }
+function eventMeta(tx: LoyaltyTransactionData): EventMeta {
+  switch (tx.source) {
+    case 'bonus':
+      return { icon: '🎁', title: 'Promo Bonus' };
     case 'expired':
-      return {
-        icon: '⏰',
-        title: 'Points Expired',
-        suffix: ['6 months inactivity'],
-      };
+      return { icon: '⏰', title: 'Points Expired' };
     case 'adjusted':
-      return {
-        icon: '⚙️',
-        title: 'Points Adjusted',
-        suffix: tx.notes ? [tx.notes] : [],
-      };
+      return { icon: '⚙️', title: 'Points Adjusted' };
+    case 'redeemed':
+      return { icon: '💎', title: 'Points Redeemed' };
+    case 'earned':
+    default:
+      return tx.type === 'redeemed'
+        ? { icon: '💎', title: 'Points Redeemed' }
+        : { icon: '✨', title: 'Points Earned' };
   }
 }
 
 const fmtSignedPts = (n: number) =>
   `${n > 0 ? '+' : ''}${n.toLocaleString()} pts`;
 
-export function RecentActivity({
-  transactions,
-  maxItems = 10,
-  onViewAll,
-}: RecentActivityProps) {
-  const sorted = [...transactions].sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-  );
-  const visible = sorted.slice(0, maxItems);
-  const overflow = Math.max(0, sorted.length - visible.length);
+export function RecentActivity() {
+  const { transactions } = useLoyaltyData();
 
   // Group consecutive same-day rows under one date header.
-  const groups: Array<{ day: string; rows: LoyaltyTxRow[] }> = [];
-  for (const tx of visible) {
-    const day = ymd(tx.created_at);
+  const groups: Array<{ day: string; rows: LoyaltyTransactionData[] }> = [];
+  for (const tx of transactions) {
+    const day = tx.date;
     const tail = groups[groups.length - 1];
     if (tail && tail.day === day) tail.rows.push(tx);
     else groups.push({ day, rows: [tx] });
@@ -154,7 +70,7 @@ export function RecentActivity({
         Recent Activity
       </div>
 
-      {visible.length === 0 ? (
+      {transactions.length === 0 ? (
         <p
           className="mt-6 text-center text-sm italic"
           style={{ color: P.ts, fontFamily: CG }}
@@ -164,18 +80,17 @@ export function RecentActivity({
         </p>
       ) : (
         <div className="relative mt-5 pl-4">
-          {/* Left-side accent rail */}
           <div
             className="pointer-events-none absolute left-0 top-1 bottom-1 w-px"
             style={{ background: P.br }}
           />
           {groups.map((g, gi) => (
-            <div key={g.day} className={gi > 0 ? 'mt-4' : ''}>
+            <div key={`${g.day}-${gi}`} className={gi > 0 ? 'mt-4' : ''}>
               <div
                 className="mb-2 text-[11px]"
                 style={{ color: P.ts, letterSpacing: '0.12em' }}
               >
-                📅 {fmtDayHeader(g.rows[0].created_at)}
+                📅 {g.day}
               </div>
               <ul className="space-y-2">
                 {g.rows.map((tx, idx) => (
@@ -184,31 +99,15 @@ export function RecentActivity({
               </ul>
             </div>
           ))}
-
-          {overflow > 0 && (
-            <div className="mt-5 text-center text-xs" style={{ color: P.ts }}>
-              {onViewAll ? (
-                <button
-                  onClick={onViewAll}
-                  className="underline-offset-2 hover:underline"
-                  style={{ color: P.gl }}
-                >
-                  + {overflow} more event{overflow === 1 ? '' : 's'}
-                </button>
-              ) : (
-                <span>+ {overflow} more event{overflow === 1 ? '' : 's'}</span>
-              )}
-            </div>
-          )}
         </div>
       )}
     </div>
   );
 }
 
-function Row({ tx, index }: { tx: LoyaltyTxRow; index: number }) {
+function Row({ tx, index }: { tx: LoyaltyTransactionData; index: number }) {
   const meta = eventMeta(tx);
-  const isPositive = tx.points_amount > 0;
+  const isPositive = tx.points > 0;
   const amountColor = isPositive ? POSITIVE : NEGATIVE;
 
   return (
@@ -235,10 +134,10 @@ function Row({ tx, index }: { tx: LoyaltyTxRow; index: number }) {
         style={{ color: P.ts, fontVariantNumeric: 'tabular-nums' }}
       >
         <span style={{ color: amountColor, fontWeight: 600 }}>
-          {fmtSignedPts(tx.points_amount)}
+          {fmtSignedPts(tx.points)}
         </span>
-        {meta.suffix.length > 0 && (
-          <span style={{ color: P.ts }}> · {meta.suffix.join(' · ')}</span>
+        {tx.description && (
+          <span style={{ color: P.ts }}> · {tx.description}</span>
         )}
       </div>
     </motion.li>
