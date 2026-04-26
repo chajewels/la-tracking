@@ -13,6 +13,7 @@ import { VipProgressSection, type TierRow } from '@/components/loyalty/VipProgre
 import { RecentActivity, type LoyaltyTxRow } from '@/components/loyalty/RecentActivity';
 import { RedemptionForm } from '@/components/loyalty/RedemptionForm';
 import { TierCelebrationModal } from '@/components/loyalty/TierCelebrationModal';
+import SplashScreen from '@/components/portal/SplashScreen';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -273,6 +274,12 @@ export default function LoyaltyPortal() {
   const [params] = useSearchParams();
   const token = params.get('token') || '';
 
+  // Branded 3-second splash, matching CustomerPortal.tsx. The state hook
+  // sits with the other top-level hooks; the conditional early-return
+  // happens after every hook below has been registered, to avoid
+  // violating the Rules of Hooks when showSplash flips.
+  const [showSplash, setShowSplash] = useState(true);
+
   const portalQuery = useQuery({
     queryKey: ['portal', token],
     queryFn: () => fetchPortal(token),
@@ -304,6 +311,13 @@ export default function LoyaltyPortal() {
       email: portalQuery.data.profile?.email ?? null,
     };
   }, [portalQuery.data]);
+
+  // Splash early-return — placed after every hook above so React's Rules
+  // of Hooks aren't violated when showSplash flips. Mirrors the placement
+  // in CustomerPortal.tsx (line ~397, after fetchPortal's useEffect).
+  if (showSplash) {
+    return <SplashScreen onComplete={() => setShowSplash(false)} />;
+  }
 
   if (portalQuery.isLoading) {
     return <LoadingState message="Validating your access…" />;
