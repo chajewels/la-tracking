@@ -2,7 +2,11 @@ import { motion } from "framer-motion";
 import { Star, Gem } from "lucide-react";
 import { useLoyaltyData } from "@/components/loyalty/loyaltyData";
 
-const RecentActivity = () => {
+interface RecentActivityProps {
+  onViewAll?: () => void;
+}
+
+const RecentActivity = ({ onViewAll }: RecentActivityProps) => {
   const { transactions } = useLoyaltyData();
   if (!transactions) return null;
 
@@ -13,7 +17,7 @@ const RecentActivity = () => {
           Recent Activity
         </h3>
         <button
-          onClick={() => {}}
+          onClick={onViewAll}
           className="text-[11px] text-primary font-body font-semibold tracking-wide"
         >
           View All

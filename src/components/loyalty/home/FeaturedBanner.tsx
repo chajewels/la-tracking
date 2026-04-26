@@ -22,7 +22,10 @@ export default function FeaturedBanner() {
         <p className="text-[11px] text-muted-foreground font-body mt-2 leading-relaxed max-w-[85%]">
           Discover our newest 18K Japan Gold pieces — available first to Radiant members and above.
         </p>
-        <button className="flex items-center gap-1.5 text-primary text-[11px] font-body font-semibold mt-4 group">
+        <button
+          onClick={() => {}} // TODO: wire to product catalog when available
+          className="flex items-center gap-1.5 text-primary text-[11px] font-body font-semibold mt-4 group"
+        >
           Explore Collection
           <ArrowRight size={12} className="group-hover:translate-x-0.5 transition-transform" />
         </button>

@@ -31,7 +31,7 @@ export default function HomeScreen({ canRedeem, onRedeemClick, setTab }: HomeScr
       <QuickActions setTab={setTab} />
       <BirthdayRewardCard setTab={setTab} />
       <FeaturedBanner />
-      <PromoBanners />
+      <PromoBanners setTab={setTab} />
 
       <Button
         onClick={onRedeemClick}
@@ -49,7 +49,7 @@ export default function HomeScreen({ canRedeem, onRedeemClick, setTab }: HomeScr
         {canRedeem ? '💎 Redeem Points' : 'No points to redeem yet'}
       </Button>
 
-      <RecentActivity />
+      <RecentActivity onViewAll={() => setTab('points')} />
       <ReferralSection />
       <ExclusiveOffers />
       <MilestoneCard setTab={setTab} />

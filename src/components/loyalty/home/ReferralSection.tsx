@@ -1,23 +1,52 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Copy, Check, Users, Coins } from 'lucide-react';
+import { toast } from 'sonner';
 import { REFERRAL } from '@/components/loyalty/staticFallback';
-
-const SHARE_CHANNELS = [
-  { name: 'WhatsApp', emoji: '💬', color: 'bg-[hsl(142,70%,45%)]/10' },
-  { name: 'Messenger', emoji: '💙', color: 'bg-[hsl(214,89%,52%)]/10' },
-  { name: 'Copy Link', emoji: '🔗', color: 'bg-primary/8' },
-  { name: 'Share', emoji: '📲', color: 'bg-primary/8' },
-];
 
 export default function ReferralSection() {
   const [copied, setCopied] = useState(false);
+
+  const shareMessage = `Join Cha Jewels Loyalty with my code ${REFERRAL.code} and we both earn rewards! ${REFERRAL.link}`;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(REFERRAL.code);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  const handleWhatsApp = () => {
+    window.open('https://wa.me/?text=' + encodeURIComponent(shareMessage), '_blank');
+  };
+
+  const handleMessenger = () => {
+    window.open('fb-messenger://share/?link=' + encodeURIComponent(REFERRAL.link), '_blank');
+  };
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(REFERRAL.link);
+    toast('Link copied!');
+  };
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Join Cha Jewels Loyalty', text: shareMessage, url: REFERRAL.link });
+      } catch {
+        // user cancelled — no toast
+      }
+    } else {
+      navigator.clipboard.writeText(REFERRAL.link);
+      toast('Link copied!');
+    }
+  };
+
+  const SHARE_CHANNELS = [
+    { name: 'WhatsApp', emoji: '💬', color: 'bg-[hsl(142,70%,45%)]/10', onClick: handleWhatsApp },
+    { name: 'Messenger', emoji: '💙', color: 'bg-[hsl(214,89%,52%)]/10', onClick: handleMessenger },
+    { name: 'Copy Link', emoji: '🔗', color: 'bg-primary/8', onClick: handleCopyLink },
+    { name: 'Share', emoji: '📲', color: 'bg-primary/8', onClick: handleShare },
+  ];
 
   return (
     <motion.div
@@ -73,6 +102,7 @@ export default function ReferralSection() {
             {SHARE_CHANNELS.map((ch) => (
               <button
                 key={ch.name}
+                onClick={ch.onClick}
                 className={`flex flex-col items-center gap-1.5 py-2.5 rounded-xl ${ch.color} hover:shadow-card transition-shadow`}
               >
                 <span className="text-base">{ch.emoji}</span>
