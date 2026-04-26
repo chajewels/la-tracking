@@ -12,7 +12,6 @@ import {
   Upload,
   BarChart3,
   Sparkles,
-  Banknote,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
@@ -44,7 +43,6 @@ type MenuItem = {
 const menuItems: MenuItem[] = [
   { label: 'Dashboard', icon: LayoutDashboard, path: ROUTES.DASHBOARD },
   { label: 'Customers', icon: Users, path: ROUTES.CUSTOMERS },
-  { label: 'Cash Orders', icon: Banknote, path: '/cash-orders', permPath: '/cash-orders' },
   { label: 'CSR Monitoring', icon: Bell, path: ROUTES.MONITORING },
   { label: 'Finance', icon: Wallet, path: ROUTES.FINANCE },
   { label: 'Executive Dashboard', icon: BarChart3, path: ROUTES.EXECUTIVE_DASHBOARD, adminOnly: true },
