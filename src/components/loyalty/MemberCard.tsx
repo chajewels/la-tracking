@@ -174,7 +174,7 @@ const MemberCard = () => {
           <div className="px-6 pb-5 pt-0 relative z-10">
             <div
               className="rounded-xl p-4"
-              style={{ background: 'hsla(36, 30%, 18%, 0.55)' }}
+              style={{ background: 'hsla(36, 40%, 30%, 0.18)' }}
             >
               <div className="flex items-center justify-between mb-3">
                 {tiers.map((tier, i) => (
@@ -194,8 +194,8 @@ const MemberCard = () => {
                       }`}
                       style={{
                         ...(i > currentTierIndex && {
-                          borderColor: 'hsla(42, 40%, 50%, 0.3)',
-                          color: 'hsl(38, 15%, 45%)',
+                          borderColor: 'hsla(36, 50%, 25%, 0.5)',
+                          color: 'hsl(36, 50%, 28%)',
                         }),
                         ...(i <= currentTierIndex && {
                           color: 'hsl(40, 30%, 98%)',
@@ -209,10 +209,10 @@ const MemberCard = () => {
                       style={{
                         color:
                           i === currentTierIndex
-                            ? 'hsl(42, 60%, 72%)'
+                            ? 'hsl(36, 70%, 18%)'
                             : i < currentTierIndex
-                            ? 'hsl(42, 55%, 62%)'
-                            : 'hsl(38, 12%, 42%)',
+                            ? 'hsl(36, 60%, 22%)'
+                            : 'hsl(36, 40%, 30%)',
                       }}
                     >
                       {tier.name.replace(' VIP', '')}
@@ -222,14 +222,14 @@ const MemberCard = () => {
               </div>
               <p
                 className="text-[11px] mt-1 text-center font-body"
-                style={{ color: 'hsl(38, 18%, 60%)' }}
+                style={{ color: 'hsl(36, 40%, 22%)' }}
               >
                 Spend{' '}
-                <span className="font-bold" style={{ color: 'hsl(42, 60%, 72%)' }}>
+                <span className="font-bold" style={{ color: 'hsl(36, 80%, 15%)' }}>
                   ¥{member.amount_needed_for_next_tier.toLocaleString()}
                 </span>{' '}
                 more to unlock{' '}
-                <span className="font-semibold" style={{ color: 'hsl(42, 55%, 68%)' }}>
+                <span className="font-semibold" style={{ color: 'hsl(36, 70%, 18%)' }}>
                   {nextTier.name}
                 </span>
               </p>
