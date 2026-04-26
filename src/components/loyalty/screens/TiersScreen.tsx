@@ -212,6 +212,76 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
         })}
       </div>
 
+      {/* What Changes When You Level Up? */}
+      <div className="bg-card rounded-2xl p-5 shadow-card border-gold-accent">
+        <h3 className="font-display text-lg font-semibold text-foreground mb-4">
+          What Changes When You Level Up?
+        </h3>
+        <div className="space-y-3">
+          {[
+            { from: 'Glimmer', desc: 'Standard earning — 1x points on all purchases', icon: '✦' },
+            { from: 'Radiant', desc: 'Double points on all purchases + exclusive promos', icon: '❖' },
+            { from: 'Elite', desc: 'Double points + free shipping + 2% invoice discount', icon: '◆' },
+            { from: 'Crown VIP', desc: 'Triple points + premium perks + mystery gift', icon: '♛' },
+          ].map((item, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <span className="text-lg w-6 text-center">{item.icon}</span>
+              <div className="flex-1">
+                <p className="text-[11px] font-body font-semibold text-foreground">{item.from}</p>
+                <p className="text-[10px] text-muted-foreground font-body">{item.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Points Earning Examples */}
+      <div className="bg-card rounded-2xl p-5 shadow-card border-gold-accent">
+        <h3 className="font-display text-lg font-semibold text-foreground mb-3">
+          Points Earning Examples
+        </h3>
+        <p className="text-[10px] text-muted-foreground font-body mb-3">
+          Based on a ¥50,000 purchase:
+        </p>
+        <div className="space-y-2">
+          {tiers.map((tier) => (
+            <div key={tier.name} className="flex items-center justify-between py-1.5 border-b border-border/30 last:border-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">{tier.icon}</span>
+                <span className="text-[11px] font-body font-medium text-foreground">{tier.name}</span>
+              </div>
+              <div className="text-right">
+                <span className="text-[11px] font-body font-bold text-primary">
+                  {50 * tier.multiplier} points
+                </span>
+                <span className="text-[9px] text-muted-foreground font-body ml-1">
+                  ({tier.multiplier}x)
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* How to Level Up */}
+      <div className="bg-card rounded-2xl p-5 shadow-card border-gold-accent">
+        <h3 className="font-display text-lg font-semibold text-foreground mb-3">
+          How to Level Up
+        </h3>
+        <div className="space-y-3">
+          {[
+            { text: 'Purchase Japan Gold jewelry — every ¥1,000 counts', icon: '💎' },
+            { text: 'Make layaway purchases or orders to grow your lifetime spend', icon: '💰' },
+            { text: 'Stay active with at least 1 purchase every 6 months', icon: '✅' },
+          ].map((tip, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <span className="text-lg">{tip.icon}</span>
+              <p className="text-[11px] font-body text-foreground">{tip.text}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Footer */}
       <div className="text-center pb-2">
         <div className="divider-gold mb-3" />
