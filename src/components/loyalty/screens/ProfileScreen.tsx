@@ -27,34 +27,12 @@ export default function ProfileScreen({ setTab }: ProfileScreenProps) {
   // TODO: wire phone to Supabase (no store field yet)
   const phone: string | null = null;
 
-  const initials = member.customer_name
-    .split(' ')
-    .map((n) => n[0])
-    .join('');
-
   return (
     <div className="px-5 pt-6 pb-4 space-y-6">
       <h1 className="font-display text-2xl font-semibold text-foreground">Profile</h1>
 
       {/* Gold loyalty Profile Member Card */}
       <ProfileMemberCard />
-
-      {/* Member Card */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-card rounded-2xl p-5 shadow-soft border-gold-accent text-center"
-      >
-        <div className="w-16 h-16 rounded-full gradient-gold flex items-center justify-center mx-auto mb-3 shadow-gold">
-          <span className="font-display text-2xl text-primary-foreground">{initials}</span>
-        </div>
-        <h2 className="font-display text-xl font-semibold text-foreground">{member.customer_name}</h2>
-        <p className="text-[13px] text-muted-foreground font-body mt-0.5">{member.member_id}</p>
-        <div className="flex items-center justify-center gap-2 mt-2">
-          <span className="font-display text-sm">{currentTier.icon}</span>
-          <span className="text-[13px] font-body font-semibold text-primary">{currentTier.name} Member</span>
-        </div>
-      </motion.div>
 
       {/* Loyalty Status Card */}
       <div className="bg-card rounded-2xl shadow-card border-gold-accent overflow-hidden">

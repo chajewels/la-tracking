@@ -116,6 +116,12 @@ const ProfileMemberCard = () => {
           >
             {member.available_points.toLocaleString()}
           </motion.p>
+          <p
+            className="font-display text-[18px] font-semibold mt-3"
+            style={{ color: "rgba(0,0,0,0.85)" }}
+          >
+            {member.customer_name}
+          </p>
         </div>
 
         {/* Bottom row — Member Since / Lifetime Spend / Latest */}
