@@ -253,6 +253,17 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
         ? Math.max(0, next.spendRequired - m.cumulative_spend_jpy)
         : 0,
       activity_status: isActive ? 'Active' : 'Inactive',
+      email: data?.customer?.email ?? null,
+      join_date: m.enrolled_at
+        ? new Date(m.enrolled_at).toLocaleDateString('en-US', {
+            month: 'short', day: 'numeric', year: 'numeric',
+          })
+        : '—',
+      last_purchase_date: m.last_purchase_at
+        ? new Date(m.last_purchase_at).toLocaleDateString('en-US', {
+            month: 'short', day: 'numeric', year: 'numeric',
+          })
+        : null,
     };
   }, [data?.member, data?.customer, tiersData]);
 
@@ -271,6 +282,9 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
           ? `Invoice #${tx.invoice_number}`
           : tx.notes ?? tx.transaction_type,
         source: tx.transaction_type,
+        invoice_number: tx.invoice_number ?? null,
+        spend_amount_jpy: tx.spend_amount_jpy ?? null,
+        tier_multiplier: null,
       })),
     [filteredTransactions],
   );

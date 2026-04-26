@@ -4,6 +4,7 @@ export type TierName = 'Glimmer' | 'Radiant' | 'Elite' | 'Crown VIP';
 
 export interface TierStatic {
   icon: string;
+  tagline: string;
   benefits: string[];
   accent: string;
   textGradient: string;
@@ -12,12 +13,14 @@ export interface TierStatic {
 export const TIER_STATIC: Record<TierName, TierStatic> = {
   Glimmer: {
     icon: '✦',
+    tagline: 'Begin your golden journey',
     benefits: ['1× points base earn rate'],
     accent: '#9A8F7E',
     textGradient: 'linear-gradient(135deg,#B5A992 0%,#D9CFB8 50%,#B5A992 100%)',
   },
   Radiant: {
     icon: '◆',
+    tagline: 'Shine brighter with every purchase',
     benefits: [
       '1.5× points',
       'Free intl. shipping on 4+ items',
@@ -28,6 +31,7 @@ export const TIER_STATIC: Record<TierName, TierStatic> = {
   },
   Elite: {
     icon: '★',
+    tagline: 'Experience true gold exclusivity',
     benefits: [
       '2× points',
       'Free intl. shipping on 4+ items',
@@ -39,6 +43,7 @@ export const TIER_STATIC: Record<TierName, TierStatic> = {
   },
   'Crown VIP': {
     icon: '👑',
+    tagline: 'The pinnacle of golden luxury',
     benefits: [
       '3× points',
       'Free intl. shipping on 3+ items',
@@ -66,6 +71,9 @@ export interface LoyaltyMemberData {
   current_multiplier: number;
   amount_needed_for_next_tier: number;
   activity_status: ActivityStatus;
+  email: string | null;
+  join_date: string;
+  last_purchase_date: string | null;
 }
 
 export interface LoyaltyTierData extends TierStatic {
@@ -81,6 +89,9 @@ export interface LoyaltyTransactionData {
   points: number;
   description: string;
   source: string;
+  invoice_number?: string | null;
+  spend_amount_jpy?: number | null;
+  tier_multiplier?: number | null;
 }
 
 interface LoyaltySnapshot {

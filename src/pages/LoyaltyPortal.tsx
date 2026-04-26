@@ -215,16 +215,30 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
         ? Math.max(0, nextTier.spendRequired - cumulative)
         : 0,
       activity_status: isActive ? 'Active' : 'Inactive',
+      email: data.profile?.email ?? null,
+      join_date: loyaltyMember?.enrolled_at
+        ? new Date(loyaltyMember.enrolled_at).toLocaleDateString('en-US', {
+            month: 'short', day: 'numeric', year: 'numeric',
+          })
+        : '—',
+      last_purchase_date: loyaltyMember?.last_purchase_at
+        ? new Date(loyaltyMember.last_purchase_at).toLocaleDateString('en-US', {
+            month: 'short', day: 'numeric', year: 'numeric',
+          })
+        : null,
     }),
     [
       data.customer_name,
       data.customer_code,
+      data.profile?.email,
       currentTierName,
       loyaltyMember?.is_downgraded,
       loyaltyMember?.remaining_points,
       loyaltyMember?.total_points_earned,
       loyaltyMember?.total_points_redeemed,
       loyaltyMember?.current_tier?.points_multiplier,
+      loyaltyMember?.enrolled_at,
+      loyaltyMember?.last_purchase_at,
       cumulative,
       nextTier,
       isActive,
@@ -246,6 +260,9 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
           ? `Invoice #${tx.invoice_number}`
           : tx.notes ?? tx.transaction_type,
         source: tx.transaction_type,
+        invoice_number: tx.invoice_number ?? null,
+        spend_amount_jpy: tx.spend_amount_jpy ?? null,
+        tier_multiplier: null,
       })),
     [loyaltyTxs],
   );

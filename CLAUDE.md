@@ -1179,13 +1179,96 @@ When completing a partially_paid month:
        Blocks any account creation or edit below the minimum.
     3. Both PHP and JPY enforced — hard block, no override
 
-## PENDING ITEMS (as of 2026-04-23)
+## PENDING ITEMS (as of 2026-04-26)
 
-  1. Firebase signing page Steps 13-17
-     (separate Firebase repo, not in main repo)
+### LOYALTY PORTAL — Cha Jewels Circle Port
+Multi-phase port of Circle UI into
+loyalty portal. In progress.
 
-  2. Email wiring — wire send-transactional-email
-     into send-reminders for grace_period variant
+  ✅ Phase 1 partially done — propless
+     components (MemberCard, VipProgress,
+     PointsSnapshot, RecentActivity,
+     TierCelebrationModal) ported with
+     setLoyaltyData store
+  ✅ LoyaltySplashScreen with onboarding
+     carousel (4 slides) deployed
+  ✅ MemberCard gold gradient + original
+     7-second shine effect restored
+  ✅ Tier badges row darkened for gold
+     background readability
+  ⏳ Phase 1 remaining — store extensions:
+     - LoyaltyMemberData: email, join_date,
+       last_purchase_date
+     - LoyaltyTransactionData: invoice_number,
+       spend_amount_jpy, tier_multiplier
+     - TIER_STATIC: tagline per tier
+     - staticFallback.ts (REWARDS, NOTIFICATIONS,
+       MILESTONES, REFERRAL, FAQS)
+  ⏳ Phase 2 — BottomNav + screen scaffolding
+     (Home, Rewards, Points, Alerts, Profile +
+     hidden Tiers screen via QuickActions)
+  ⏳ Phase 3 — Home screen full composition
+     (HomeHeader, MilestoneBanner, QuickActions,
+     BirthdayRewardCard, FeaturedBanner,
+     PromoBanners, ReferralSection,
+     ExclusiveOffers, MilestoneCard)
+  ⏳ Phase 4 — Tiers screen
+  ⏳ Phase 5 — Points screen (with extended
+     transaction fields)
+  ⏳ Phase 6 — Rewards screen + VipRewardsVault
+     (wired to existing RedemptionForm flow)
+  ⏳ Phase 7 — Notifications screen
+  ⏳ Phase 8 — Profile screen
+
+### LOYALTY DATA & MIGRATION
+  1. 464 member migration — Google Sheets
+     loyalty members → Supabase loyalty_members
+     (match by email then name, create
+     customer records for unmatched)
+  2. sync-loyalty-to-sheet — deployed as stub,
+     needs Google service account + Sheet IDs
+  3. Google Sheets GAS email notifications
+     must be turned off — Sheets becomes
+     backup only (Supabase send-transactional-email
+     is sole sender)
+  4. Adjust Points feature — placeholder UI
+     only, no functionality yet
+  5. loyalty_jpy_amount staff guidance —
+     manual entry (product only, no fees)
+
+### BUG INVESTIGATIONS — DEFERRED
+  6. Schedule rows disappearing bug — 3
+     accounts affected today (17636, 18454,
+     18088). Months deleted without audit
+     log entries. Possible causes:
+     - delete-installment edge function
+       called incorrectly
+     - reconcile-account auto-deleting rows
+     - UI bug allowing deletion bypass
+     - schedule_audit_log trigger not
+       firing on DELETE
+     - Direct SQL bypass
+  7. reconcile-account incorrectly marks
+     penalties as 'paid' on installments
+     with paid_amount = 0 (caused 17636 bug).
+     Auto-pay penalty logic should require
+     paid_amount >= base_installment_amount.
+
+### TODAY'S DATA FIXES (completed)
+  - 17636: Month 4 penalties reset from
+    'paid' to 'unpaid' (data corruption
+    from reconcile-account)
+  - 18454: Month 5 restored (₱4,086
+    PHP, due 2026-07-11)
+  - 18088: Month 6 restored manually +
+    total_amount corrected from ₱52,118
+    to ₱67,980
+
+### OTHER
+  - Firebase signing page Steps 13-17
+    (separate Firebase repo, not in main repo)
+  - Email wiring — wire send-transactional-email
+    into send-reminders for grace_period variant
 
 ## PERIODIC HEALTH QUERIES
 
