@@ -337,7 +337,7 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
         {tab === 'rewards' && <RewardsScreen />}
         {tab === 'points' && <PointsScreen />}
         {tab === 'notifications' && <NotificationsScreen />}
-        {tab === 'profile' && <ProfileScreen />}
+        {tab === 'profile' && <ProfileScreen setTab={setTab} />}
         {tab === 'tiers' && <TiersScreen onBack={() => setTab('home')} />}
       </div>
 
