@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { ChevronRight, LogOut, HelpCircle, Shield, Bell, FileText, MessageCircle, Crown, Calendar, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { useLoyaltyData } from "@/components/loyalty/loyaltyData";
-import MemberCard from "@/components/loyalty/MemberCard";
+import ProfileMemberCard from "@/components/loyalty/ProfileMemberCard";
 // TODO: wire to Supabase
 import { FAQS, REFERRAL } from "@/components/loyalty/staticFallback";
 import chaJewelsLogo from "@/assets/cha-jewels-logo.jpeg";
@@ -36,8 +36,8 @@ export default function ProfileScreen({ setTab }: ProfileScreenProps) {
     <div className="px-5 pt-6 pb-4 space-y-6">
       <h1 className="font-display text-2xl font-semibold text-foreground">Profile</h1>
 
-      {/* Gold loyalty Member Card */}
-      <MemberCard />
+      {/* Gold loyalty Profile Member Card */}
+      <ProfileMemberCard />
 
       {/* Member Card */}
       <motion.div
