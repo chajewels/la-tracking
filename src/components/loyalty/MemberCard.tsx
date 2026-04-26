@@ -97,13 +97,13 @@ const MemberCard = () => {
               </div>
               <div>
                 <p
-                  className="text-[10px] tracking-[0.18em] uppercase font-semibold"
+                  className="text-[12px] tracking-[0.18em] uppercase font-semibold"
                   style={{ color: 'hsl(36, 60%, 18%)' }}
                 >
                   {currentTier.name} Member
                 </p>
                 <p
-                  className="text-[11px] font-medium mt-0.5"
+                  className="text-[13px] font-medium mt-0.5"
                   style={{ color: 'hsl(36, 50%, 18%)' }}
                 >
                   {member.member_id}
@@ -116,7 +116,7 @@ const MemberCard = () => {
             >
               <TrendingUp size={10} style={{ color: 'hsl(42, 80%, 70%)' }} />
               <span
-                className="text-[9px] font-semibold tracking-wider"
+                className="text-[11px] font-semibold tracking-wider"
                 style={{ color: 'hsl(42, 80%, 70%)' }}
               >
                 {currentTier.multiplier}x POINTS
@@ -125,7 +125,7 @@ const MemberCard = () => {
           </div>
           <div className="text-center mt-6 mb-2">
             <p
-              className="text-[9px] tracking-[0.3em] uppercase font-medium"
+              className="text-[11px] tracking-[0.3em] uppercase font-medium"
               style={{ color: 'hsl(36, 50%, 22%)' }}
             >
               Available Points
@@ -140,25 +140,25 @@ const MemberCard = () => {
               {member.available_points.toLocaleString()}
             </motion.p>
             <p
-              className="text-[11px] mt-2.5 font-body leading-relaxed"
+              className="text-[13px] mt-2.5 font-body leading-relaxed"
               style={{ color: 'hsl(36, 40%, 22%)' }}
             >
               Earn rewards every time you place a Cha Jewels order.
             </p>
-            <p className="text-[11px] mt-3" style={{ color: 'hsl(36, 40%, 22%)' }}>
+            <p className="text-[13px] mt-3" style={{ color: 'hsl(36, 40%, 22%)' }}>
               Lifetime Spend:{' '}
               <span className="font-semibold" style={{ color: 'hsl(36, 70%, 18%)' }}>
                 ¥{member.lifetime_spend_yen.toLocaleString()}
               </span>
             </p>
-            <p className="text-[10px] mt-1" style={{ color: 'hsl(36, 35%, 28%)' }}>
+            <p className="text-[12px] mt-1" style={{ color: 'hsl(36, 35%, 28%)' }}>
               Base: ¥10,000 = 100 points
             </p>
           </div>
           <div className="flex items-center justify-center gap-1.5 mt-2">
             <Activity size={10} style={{ color: statusColor }} />
             <p
-              className="text-[10px] font-body"
+              className="text-[12px] font-body"
               style={{ color: 'hsl(36, 40%, 22%)' }}
             >
               Status:{' '}
@@ -205,7 +205,7 @@ const MemberCard = () => {
                       {tier.icon}
                     </div>
                     <span
-                      className="text-[8px] tracking-wider font-medium"
+                      className="text-[10px] tracking-wider font-medium"
                       style={{
                         color:
                           i === currentTierIndex
@@ -221,7 +221,7 @@ const MemberCard = () => {
                 ))}
               </div>
               <p
-                className="text-[11px] mt-1 text-center font-body"
+                className="text-[13px] mt-1 text-center font-body"
                 style={{ color: 'hsl(36, 40%, 22%)' }}
               >
                 Spend{' '}

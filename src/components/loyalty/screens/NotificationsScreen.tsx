@@ -38,7 +38,7 @@ export default function NotificationsScreen() {
     if (items.length === 0) return null;
     return (
       <div className="space-y-2">
-        <p className="text-[10px] text-muted-foreground font-body tracking-[0.2em] uppercase">{title}</p>
+        <p className="text-[12px] text-muted-foreground font-body tracking-[0.2em] uppercase">{title}</p>
         {items.map((notif) => {
           const Icon = categoryIcons[notif.category] || Star;
           const isMilestone = notif.category === 'milestone';
@@ -58,13 +58,13 @@ export default function NotificationsScreen() {
                   <Icon size={14} className={isMilestone ? 'text-primary-foreground' : !notif.isRead ? 'text-primary' : 'text-muted-foreground'} />
                 </div>
                 <div className="flex-1">
-                  <p className={`text-[11px] font-body font-medium ${!notif.isRead ? 'text-foreground' : 'text-muted-foreground'}`}>
+                  <p className={`text-[13px] font-body font-medium ${!notif.isRead ? 'text-foreground' : 'text-muted-foreground'}`}>
                     {notif.title}
                   </p>
-                  <p className="text-[10px] text-muted-foreground font-body mt-1 leading-relaxed">
+                  <p className="text-[12px] text-muted-foreground font-body mt-1 leading-relaxed">
                     {notif.message}
                   </p>
-                  <p className="text-[9px] text-muted-foreground/60 font-body mt-2">{notif.date}</p>
+                  <p className="text-[11px] text-muted-foreground/60 font-body mt-2">{notif.date}</p>
                 </div>
                 {!notif.isRead && <div className="w-2 h-2 rounded-full bg-primary mt-1 flex-shrink-0" />}
               </div>
@@ -79,12 +79,12 @@ export default function NotificationsScreen() {
     <div className="px-5 pt-6 pb-4 space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-[10px] text-muted-foreground font-body tracking-[0.2em] uppercase">Stay Updated</p>
+          <p className="text-[12px] text-muted-foreground font-body tracking-[0.2em] uppercase">Stay Updated</p>
           <h1 className="font-display text-2xl font-semibold text-foreground mt-1">Notifications</h1>
         </div>
         <button
           onClick={markAllRead}
-          className="text-[10px] text-primary font-body font-semibold"
+          className="text-[12px] text-primary font-body font-semibold"
         >
           Mark all read
         </button>
@@ -95,7 +95,7 @@ export default function NotificationsScreen() {
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`px-3 py-1.5 rounded-full text-[11px] font-body font-medium capitalize transition-colors ${
+            className={`px-3 py-1.5 rounded-full text-[13px] font-body font-medium capitalize transition-colors ${
               filter === f ? 'gradient-gold text-primary-foreground shadow-sm' : 'bg-card text-muted-foreground shadow-card border-gold-accent'
             }`}
           >
@@ -114,7 +114,7 @@ export default function NotificationsScreen() {
         <div className="text-center py-16">
           <span className="text-4xl mb-4 block">✨</span>
           <p className="font-display text-lg text-foreground">All caught up!</p>
-          <p className="text-[11px] text-muted-foreground font-body mt-1">No unread notifications from Cha Jewels</p>
+          <p className="text-[13px] text-muted-foreground font-body mt-1">No unread notifications from Cha Jewels</p>
         </div>
       )}
     </div>

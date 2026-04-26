@@ -51,7 +51,7 @@ export default function LoyaltyBottomNav({
                 strokeWidth={isActive ? 2 : 1.4}
               />
               <span
-                className={`text-[9px] font-medium tracking-wide transition-colors ${
+                className={`text-[11px] font-medium tracking-wide transition-colors ${
                   isActive ? 'text-primary' : 'text-muted-foreground'
                 }`}
               >

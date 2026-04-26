@@ -30,7 +30,7 @@ export default function QuickActions({ setTab }: QuickActionsProps) {
             <div className="w-9 h-9 rounded-full bg-primary/8 flex items-center justify-center">
               <Icon size={16} className="text-primary" strokeWidth={1.8} />
             </div>
-            <span className="text-[10px] font-body text-foreground font-medium tracking-wide">
+            <span className="text-[12px] font-body text-foreground font-medium tracking-wide">
               {action.label}
             </span>
           </motion.button>

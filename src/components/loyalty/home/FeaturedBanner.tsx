@@ -13,18 +13,18 @@ export default function FeaturedBanner() {
         <div className="absolute top-3 right-4 text-primary/20 animate-soft-glow">✦</div>
         <div className="absolute bottom-4 right-8 text-primary/10 animate-soft-glow" style={{ animationDelay: '1.5s' }}>✦</div>
 
-        <p className="text-[9px] tracking-[0.3em] uppercase text-primary font-body font-semibold">
+        <p className="text-[11px] tracking-[0.3em] uppercase text-primary font-body font-semibold">
           New Japan Gold Collection
         </p>
         <h3 className="font-display text-xl font-semibold text-foreground mt-2 tracking-tight">
           Spring 2026 Gold Collection
         </h3>
-        <p className="text-[11px] text-muted-foreground font-body mt-2 leading-relaxed max-w-[85%]">
+        <p className="text-[13px] text-muted-foreground font-body mt-2 leading-relaxed max-w-[85%]">
           Discover our newest 18K Japan Gold pieces — available first to Radiant members and above.
         </p>
         <button
           onClick={() => {}} // TODO: wire to product catalog when available
-          className="flex items-center gap-1.5 text-primary text-[11px] font-body font-semibold mt-4 group"
+          className="flex items-center gap-1.5 text-primary text-[13px] font-body font-semibold mt-4 group"
         >
           Explore Collection
           <ArrowRight size={12} className="group-hover:translate-x-0.5 transition-transform" />

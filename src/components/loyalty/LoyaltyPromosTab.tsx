@@ -371,12 +371,12 @@ function PromoCard({
               {promo.name}
             </h4>
             {isPaused && (
-              <span className="inline-flex items-center rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <span className="inline-flex items-center rounded-md border border-border bg-muted px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Paused
               </span>
             )}
             {readOnly && (
-              <span className="inline-flex items-center rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <span className="inline-flex items-center rounded-md border border-border bg-muted px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Past
               </span>
             )}
@@ -387,7 +387,7 @@ function PromoCard({
         </div>
         {!readOnly && canToggle && (
           <div className="flex items-center gap-2 shrink-0">
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-[13px] text-muted-foreground">
               {promo.is_active ? 'Active' : 'Inactive'}
             </span>
             <Switch
@@ -415,7 +415,7 @@ function PromoCard({
             size="sm"
             variant="outline"
             onClick={() => onEdit?.(promo)}
-            className="h-7 px-2 text-[11px]"
+            className="h-7 px-2 text-[13px]"
           >
             <Pencil className="h-3 w-3 mr-1" /> Edit
           </Button>
@@ -423,7 +423,7 @@ function PromoCard({
             size="sm"
             variant="ghost"
             onClick={() => onDelete?.(promo)}
-            className="h-7 px-2 text-[11px] text-destructive hover:bg-destructive/10"
+            className="h-7 px-2 text-[13px] text-destructive hover:bg-destructive/10"
           >
             <Trash2 className="h-3 w-3 mr-1" /> Delete
           </Button>
@@ -436,7 +436,7 @@ function PromoCard({
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="text-[12px] uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className="text-xs font-medium text-foreground">{value}</p>
     </div>
   );

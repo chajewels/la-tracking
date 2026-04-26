@@ -18,7 +18,7 @@ export default function PointsScreen() {
   return (
     <div className="px-5 pt-6 pb-4 space-y-6">
       <div>
-        <p className="text-[10px] text-muted-foreground font-body tracking-[0.2em] uppercase">
+        <p className="text-[12px] text-muted-foreground font-body tracking-[0.2em] uppercase">
           Your Points, Your Perks
         </p>
         <h1 className="font-display text-2xl font-semibold text-foreground mt-1">My Points</h1>
@@ -31,7 +31,7 @@ export default function PointsScreen() {
         className="bg-card rounded-2xl p-5 shadow-soft border-gold-accent"
       >
         <div className="text-center mb-5">
-          <p className="text-[9px] text-muted-foreground font-body tracking-[0.25em] uppercase">
+          <p className="text-[11px] text-muted-foreground font-body tracking-[0.25em] uppercase">
             Available Points
           </p>
           <p className="font-display text-5xl font-bold text-foreground mt-2">
@@ -69,7 +69,7 @@ export default function PointsScreen() {
             <div key={stat.label} className="bg-background/60 rounded-xl p-3">
               <div className="flex items-center gap-1.5 mb-1">
                 <stat.icon size={12} className={stat.color} />
-                <span className="text-[10px] text-muted-foreground font-body">{stat.label}</span>
+                <span className="text-[12px] text-muted-foreground font-body">{stat.label}</span>
               </div>
               <p className="font-display text-lg font-semibold text-foreground">{stat.value}</p>
             </div>
@@ -99,8 +99,8 @@ export default function PointsScreen() {
             <div key={item.source} className="flex items-center gap-3 py-1.5">
               <span className="text-lg">{item.icon}</span>
               <div className="flex-1">
-                <p className="text-[11px] font-body font-medium text-foreground">{item.source}</p>
-                <p className="text-[10px] text-muted-foreground font-body">{item.rule}</p>
+                <p className="text-[13px] font-body font-medium text-foreground">{item.source}</p>
+                <p className="text-[12px] text-muted-foreground font-body">{item.rule}</p>
               </div>
             </div>
           ))}
@@ -113,14 +113,14 @@ export default function PointsScreen() {
           Redemption Rules
         </h3>
         <div className="space-y-2">
-          <p className="text-[11px] font-body text-foreground font-medium">
+          <p className="text-[13px] font-body text-foreground font-medium">
             Points can be redeemed on:
           </p>
           <ul className="space-y-1.5 ml-1">
             {['Regular items', 'Layaway purchases', 'Discounted items'].map((item) => (
               <li
                 key={item}
-                className="flex items-center gap-2 text-[10px] text-muted-foreground font-body"
+                className="flex items-center gap-2 text-[12px] text-muted-foreground font-body"
               >
                 <span className="w-1 h-1 rounded-full bg-primary flex-shrink-0" />
                 {item}
@@ -128,7 +128,7 @@ export default function PointsScreen() {
             ))}
           </ul>
           <div className="mt-3 pt-3 border-t border-border/50">
-            <p className="text-[10px] text-muted-foreground/70 font-body italic">
+            <p className="text-[12px] text-muted-foreground/70 font-body italic">
               Points are non-transferable and cannot be exchanged for cash.
             </p>
           </div>
@@ -140,8 +140,8 @@ export default function PointsScreen() {
         <div className="flex items-start gap-3">
           <Info size={14} className="text-primary mt-0.5 flex-shrink-0" />
           <div>
-            <p className="text-[11px] font-body font-semibold text-foreground">Activity Rule</p>
-            <p className="text-[10px] text-muted-foreground font-body mt-1 leading-relaxed">
+            <p className="text-[13px] font-body font-semibold text-foreground">Activity Rule</p>
+            <p className="text-[12px] text-muted-foreground font-body mt-1 leading-relaxed">
               Points do not expire as long as you remain active. Stay active by making at least 1
               purchase every 6 months. Inactive accounts may experience tier downgrade and reduced
               benefits.
@@ -165,7 +165,7 @@ export default function PointsScreen() {
             <button
               key={key}
               onClick={() => setFilter(key)}
-              className={`px-3 py-1.5 rounded-full text-[11px] font-body font-medium whitespace-nowrap transition-colors ${
+              className={`px-3 py-1.5 rounded-full text-[13px] font-body font-medium whitespace-nowrap transition-colors ${
                 filter === key
                   ? 'gradient-gold text-primary-foreground shadow-sm'
                   : 'bg-card text-muted-foreground shadow-card border-gold-accent'
@@ -193,17 +193,17 @@ export default function PointsScreen() {
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
-                    <p className="text-[11px] font-body font-medium text-foreground">
+                    <p className="text-[13px] font-body font-medium text-foreground">
                       {tx.description}
                     </p>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[10px] text-muted-foreground font-body">{tx.date}</span>
-                      <span className="text-[9px] bg-primary/8 text-primary px-1.5 py-0.5 rounded font-body font-medium">
+                      <span className="text-[12px] text-muted-foreground font-body">{tx.date}</span>
+                      <span className="text-[11px] bg-primary/8 text-primary px-1.5 py-0.5 rounded font-body font-medium">
                         {tx.source}
                       </span>
                     </div>
                     {tx.spend_amount_jpy && tx.tier_multiplier && (
-                      <div className="mt-1.5 text-[9px] text-muted-foreground/70 font-body space-x-2">
+                      <div className="mt-1.5 text-[11px] text-muted-foreground/70 font-body space-x-2">
                         <span>¥{tx.spend_amount_jpy.toLocaleString()}</span>
                         <span>·</span>
                         <span>Base: {basePoints} pts</span>
@@ -214,7 +214,7 @@ export default function PointsScreen() {
                       </div>
                     )}
                     {tx.invoice_number && (
-                      <p className="text-[9px] text-muted-foreground/60 font-body mt-1">
+                      <p className="text-[11px] text-muted-foreground/60 font-body mt-1">
                         Ref: {tx.invoice_number}
                       </p>
                     )}
@@ -234,7 +234,7 @@ export default function PointsScreen() {
         </div>
       </div>
 
-      <p className="text-center text-[9px] text-muted-foreground/50 font-body italic pb-2">
+      <p className="text-center text-[11px] text-muted-foreground/50 font-body italic pb-2">
         Level Up · Earn More · Sparkle Harder
       </p>
     </div>

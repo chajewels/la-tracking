@@ -34,15 +34,15 @@ export default function BirthdayRewardCard({ setTab, birthday }: BirthdayRewardC
         <p className="font-display text-[15px] font-semibold text-foreground">
           Happy Birthday Month! 🎉
         </p>
-        <p className="text-[11px] text-muted-foreground font-body mt-0.5 leading-relaxed">
+        <p className="text-[13px] text-muted-foreground font-body mt-0.5 leading-relaxed">
           A special birthday reward has been unlocked for you. Celebrate with exclusive Cha Jewels rewards!
         </p>
         <div className="flex items-center gap-2 mt-2">
-          <span className="text-[9px] gradient-gold text-primary-foreground px-2 py-0.5 rounded-full font-body font-semibold">
+          <span className="text-[11px] gradient-gold text-primary-foreground px-2 py-0.5 rounded-full font-body font-semibold">
             500 Bonus Points
           </span>
           {isVip && (
-            <span className="text-[9px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-body font-semibold">
+            <span className="text-[11px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-body font-semibold">
               VIP Birthday Gift
             </span>
           )}

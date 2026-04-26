@@ -56,10 +56,10 @@ export default function MilestoneBanner() {
             <div className="flex items-center gap-3">
               <span className="text-2xl">{latestReached.emoji}</span>
               <div className="flex-1">
-                <p className="text-[11px] font-body font-semibold text-foreground">
+                <p className="text-[13px] font-body font-semibold text-foreground">
                   {latestReached.title}
                 </p>
-                <p className="text-[10px] text-muted-foreground font-body mt-0.5 leading-relaxed">
+                <p className="text-[12px] text-muted-foreground font-body mt-0.5 leading-relaxed">
                   {latestReached.message}
                 </p>
               </div>
@@ -78,13 +78,13 @@ export default function MilestoneBanner() {
           <div className="flex items-center gap-3">
             <span className="text-lg opacity-50">{nextMilestone.emoji}</span>
             <div className="flex-1">
-              <p className="text-[10px] text-muted-foreground font-body">
+              <p className="text-[12px] text-muted-foreground font-body">
                 Next milestone:{' '}
                 <span className="font-semibold text-foreground">
                   ¥{nextMilestone.amount.toLocaleString()}
                 </span>
               </p>
-              <p className="text-[9px] text-muted-foreground/70 font-body mt-0.5">
+              <p className="text-[11px] text-muted-foreground/70 font-body mt-0.5">
                 ¥{Math.max(0, nextMilestone.amount - lifetimeSpend).toLocaleString()} more to go
               </p>
             </div>

@@ -49,7 +49,7 @@ const VipRewardsVault = ({ onSelectReward }: VipRewardsVaultProps) => {
           <div className="absolute inset-0 backdrop-blur-sm bg-card/80 z-10 flex flex-col items-center justify-center">
             <Lock size={28} className="text-primary/40 mb-3" />
             <p className="font-display text-base font-semibold text-foreground">VIP Rewards Vault</p>
-            <p className="text-[10px] text-muted-foreground font-body mt-1.5 text-center px-6">
+            <p className="text-[12px] text-muted-foreground font-body mt-1.5 text-center px-6">
               Unlock exclusive rewards when you reach{' '}
               <span className="text-primary font-semibold">Elite Member</span>.
             </p>
@@ -71,7 +71,7 @@ const VipRewardsVault = ({ onSelectReward }: VipRewardsVaultProps) => {
           <Sparkles size={14} className="text-primary" />
           <h3 className="font-display text-lg font-semibold text-foreground">VIP Rewards Vault</h3>
         </div>
-        <span className="text-[8px] tracking-[0.2em] uppercase gradient-gold text-primary-foreground px-2 py-0.5 rounded-full font-body font-semibold">
+        <span className="text-[10px] tracking-[0.2em] uppercase gradient-gold text-primary-foreground px-2 py-0.5 rounded-full font-body font-semibold">
           {accessLabel}
         </span>
       </div>
@@ -94,23 +94,23 @@ const VipRewardsVault = ({ onSelectReward }: VipRewardsVaultProps) => {
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     {reward.isLimited && (
-                      <span className="text-[8px] tracking-[0.2em] uppercase text-primary font-body font-semibold bg-primary/10 px-1.5 py-0.5 rounded-full">
+                      <span className="text-[10px] tracking-[0.2em] uppercase text-primary font-body font-semibold bg-primary/10 px-1.5 py-0.5 rounded-full">
                         Limited
                       </span>
                     )}
                     {reward.isVipOnly && (
-                      <span className="text-[8px] tracking-[0.2em] uppercase font-body font-semibold gradient-gold text-primary-foreground px-1.5 py-0.5 rounded-full">
+                      <span className="text-[10px] tracking-[0.2em] uppercase font-body font-semibold gradient-gold text-primary-foreground px-1.5 py-0.5 rounded-full">
                         Crown VIP
                       </span>
                     )}
-                    <span className="text-[8px] tracking-[0.15em] uppercase text-muted-foreground font-body bg-muted px-1.5 py-0.5 rounded-full">
+                    <span className="text-[10px] tracking-[0.15em] uppercase text-muted-foreground font-body bg-muted px-1.5 py-0.5 rounded-full">
                       Vault
                     </span>
                   </div>
                   <h4 className="font-display text-base font-semibold text-foreground">
                     {reward.name}
                   </h4>
-                  <p className="text-[10px] text-muted-foreground font-body mt-1 line-clamp-2">
+                  <p className="text-[12px] text-muted-foreground font-body mt-1 line-clamp-2">
                     {reward.description}
                   </p>
                 </div>
@@ -122,14 +122,14 @@ const VipRewardsVault = ({ onSelectReward }: VipRewardsVaultProps) => {
                       <p className="font-display text-lg font-bold text-foreground">
                         {reward.pointsCost.toLocaleString()}
                       </p>
-                      <p className="text-[9px] text-muted-foreground font-body">points</p>
+                      <p className="text-[11px] text-muted-foreground font-body">points</p>
                     </div>
                   )}
                 </div>
               </div>
               {accessible && affordable && (
                 <div className="flex items-center gap-1 mt-3 text-primary">
-                  <span className="text-[10px] font-body font-semibold">Redeem Now</span>
+                  <span className="text-[12px] font-body font-semibold">Redeem Now</span>
                   <ArrowRight size={10} />
                 </div>
               )}

@@ -203,7 +203,7 @@ export function RedemptionApprovalModal({
           <div className="space-y-4">
             {/* Customer info */}
             <div className="rounded-md border border-border bg-muted/40 p-3">
-              <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5 font-semibold">
+              <p className="text-[13px] uppercase tracking-wider text-muted-foreground mb-1.5 font-semibold">
                 Customer
               </p>
               <div className="grid grid-cols-2 gap-2 text-xs">
@@ -223,7 +223,7 @@ export function RedemptionApprovalModal({
 
             {/* Redemption details */}
             <div className="rounded-md border border-border bg-card p-3">
-              <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5 font-semibold">
+              <p className="text-[13px] uppercase tracking-wider text-muted-foreground mb-1.5 font-semibold">
                 Redemption
               </p>
               <div className="grid grid-cols-2 gap-2 text-xs">
@@ -244,7 +244,7 @@ export function RedemptionApprovalModal({
               </div>
               {redemption.notes && (
                 <div className="mt-2 rounded-md border border-border bg-muted/40 px-2 py-1.5 text-xs">
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
+                  <p className="text-[12px] uppercase tracking-wider text-muted-foreground mb-0.5">
                     Customer notes
                   </p>
                   <p className="text-foreground">{redemption.notes}</p>
@@ -264,7 +264,7 @@ export function RedemptionApprovalModal({
             {/* Verification checklist (only for pending) */}
             {isPending && (
               <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
-                <p className="text-[11px] uppercase tracking-wider text-amber-700 font-semibold">
+                <p className="text-[13px] uppercase tracking-wider text-amber-700 font-semibold">
                   Verify before approving
                 </p>
                 <Verify
@@ -376,7 +376,7 @@ export function RedemptionApprovalModal({
 function Stat({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
     <div>
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="text-[12px] uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className={`text-xs font-semibold text-foreground ${mono ? 'font-mono' : 'tabular-nums'}`}>
         {value}
       </p>

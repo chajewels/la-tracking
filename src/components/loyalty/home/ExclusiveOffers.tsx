@@ -20,20 +20,20 @@ export default function ExclusiveOffers() {
             transition={{ delay: 0.1 * i + 1 }}
             className="bg-card rounded-xl p-4 shadow-card border-gold-accent min-w-[180px] flex-shrink-0 hover:shadow-soft transition-shadow cursor-pointer"
           >
-            <span className="text-[8px] tracking-[0.3em] uppercase text-primary font-body font-semibold">
+            <span className="text-[10px] tracking-[0.3em] uppercase text-primary font-body font-semibold">
               {offer.tag}
             </span>
             <p className="font-display text-[14px] font-semibold text-foreground mt-2 leading-tight">
               {offer.title}
             </p>
-            <p className="text-[10px] text-muted-foreground font-body mt-1.5">{offer.desc}</p>
+            <p className="text-[12px] text-muted-foreground font-body mt-1.5">{offer.desc}</p>
           </motion.div>
         ))}
       </div>
 
       <div className="text-center mt-4 pb-2">
         <div className="divider-gold mb-3" />
-        <p className="text-[9px] text-muted-foreground/60 font-body italic tracking-wide">
+        <p className="text-[11px] text-muted-foreground/60 font-body italic tracking-wide">
           Level Up · Earn More · Sparkle Harder
         </p>
       </div>

@@ -24,7 +24,7 @@ export default function HomeHeader({ setTab }: HomeHeaderProps) {
         className="flex items-center justify-between"
       >
         <div>
-          <p className="text-muted-foreground text-[10px] font-body tracking-[0.2em] uppercase">
+          <p className="text-muted-foreground text-[12px] font-body tracking-[0.2em] uppercase">
             Welcome back
           </p>
           <h1 className="font-display text-2xl font-semibold text-foreground mt-0.5 tracking-tight">
@@ -37,7 +37,7 @@ export default function HomeHeader({ setTab }: HomeHeaderProps) {
         >
           <Bell size={18} className="text-foreground" strokeWidth={1.5} />
           {unreadCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 bg-primary text-primary-foreground text-[8px] font-bold rounded-full flex items-center justify-center shadow-gold min-w-[18px] min-h-[18px]">
+            <span className="absolute -top-0.5 -right-0.5 bg-primary text-primary-foreground text-[10px] font-bold rounded-full flex items-center justify-center shadow-gold min-w-[18px] min-h-[18px]">
               {unreadCount}
             </span>
           )}
@@ -56,8 +56,8 @@ export default function HomeHeader({ setTab }: HomeHeaderProps) {
             <Bell size={14} className="text-primary" strokeWidth={2} />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-body font-semibold text-foreground truncate">{latestUnread.title}</p>
-            <p className="text-[10px] text-muted-foreground font-body mt-0.5 truncate">{latestUnread.message}</p>
+            <p className="text-[13px] font-body font-semibold text-foreground truncate">{latestUnread.title}</p>
+            <p className="text-[12px] text-muted-foreground font-body mt-0.5 truncate">{latestUnread.message}</p>
           </div>
           <ChevronRight size={14} className="text-primary/50 flex-shrink-0" />
         </motion.button>

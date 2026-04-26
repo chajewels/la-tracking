@@ -30,10 +30,10 @@ export default function MilestoneCard({ setTab }: MilestoneCardProps) {
           <Zap size={16} className="text-primary" strokeWidth={2} />
         </div>
         <div className="flex-1">
-          <p className="text-[11px] font-body font-semibold text-foreground">
+          <p className="text-[13px] font-body font-semibold text-foreground">
             Next Tier: {nextTier.name}
           </p>
-          <p className="text-[10px] text-muted-foreground font-body mt-1 leading-relaxed">
+          <p className="text-[12px] text-muted-foreground font-body mt-1 leading-relaxed">
             Spend{' '}
             <span className="font-semibold text-foreground">
               ¥{member.amount_needed_for_next_tier.toLocaleString()}
@@ -41,12 +41,12 @@ export default function MilestoneCard({ setTab }: MilestoneCardProps) {
             more to unlock <span className="font-semibold text-primary">{nextTier.name}</span> and enjoy{' '}
             <span className="font-semibold text-foreground">{nextTier.multiplier}x points</span> on every purchase.
           </p>
-          <p className="text-[9px] text-muted-foreground/70 font-body mt-1.5 italic">
+          <p className="text-[11px] text-muted-foreground/70 font-body mt-1.5 italic">
             Unlock: {previewBenefits}
           </p>
           <button
             onClick={() => setTab('tiers')}
-            className="flex items-center gap-1 text-primary text-[10px] font-body font-semibold mt-2 group"
+            className="flex items-center gap-1 text-primary text-[12px] font-body font-semibold mt-2 group"
           >
             View Tier Benefits
             <ArrowRight size={10} className="group-hover:translate-x-0.5 transition-transform" />

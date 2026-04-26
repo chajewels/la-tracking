@@ -33,11 +33,11 @@ const VipProgressSection = ({ onExploreTiers }: VipProgressSectionProps = {}) =>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Sparkles size={14} className="text-primary" />
-          <p className="text-[11px] font-body font-semibold text-foreground">
+          <p className="text-[13px] font-body font-semibold text-foreground">
             Progress to {nextTier.name}
           </p>
         </div>
-        <span className="text-[10px] font-body font-bold text-primary">
+        <span className="text-[12px] font-body font-bold text-primary">
           {Math.round(progress)}%
         </span>
       </div>
@@ -57,7 +57,7 @@ const VipProgressSection = ({ onExploreTiers }: VipProgressSectionProps = {}) =>
           />
         </motion.div>
       </div>
-      <p className="text-[11px] text-muted-foreground font-body leading-relaxed">
+      <p className="text-[13px] text-muted-foreground font-body leading-relaxed">
         Spend{' '}
         <span className="font-bold text-primary">
           ¥{remaining.toLocaleString()}
@@ -65,29 +65,29 @@ const VipProgressSection = ({ onExploreTiers }: VipProgressSectionProps = {}) =>
         more to unlock{' '}
         <span className="font-semibold text-foreground">{nextTier.name}</span>.
       </p>
-      <p className="text-[10px] text-muted-foreground/70 font-body italic">
+      <p className="text-[12px] text-muted-foreground/70 font-body italic">
         {isClose
           ? `You're almost there! Just ¥${remaining.toLocaleString()} away from unlocking ${nextTier.name} benefits.`
           : `You are getting closer to ${nextTier.name} rewards.`}
       </p>
       <div className="bg-background/60 rounded-xl p-3.5 border-gold-accent">
-        <p className="text-[9px] tracking-[0.2em] uppercase text-primary font-body font-semibold mb-2.5">
+        <p className="text-[11px] tracking-[0.2em] uppercase text-primary font-body font-semibold mb-2.5">
           Next Tier Benefits
         </p>
         <ul className="space-y-1.5">
           {nextTier.benefits.map((b, i) => (
             <li
               key={i}
-              className="flex items-start gap-2 text-[10px] text-muted-foreground font-body"
+              className="flex items-start gap-2 text-[12px] text-muted-foreground font-body"
             >
-              <span className="text-primary mt-0.5 text-[8px]">✦</span>
+              <span className="text-primary mt-0.5 text-[10px]">✦</span>
               <span>{b}</span>
             </li>
           ))}
         </ul>
       </div>
       <div className="flex items-center justify-between py-2 border-t border-border/50">
-        <p className="text-[10px] text-muted-foreground font-body">
+        <p className="text-[12px] text-muted-foreground font-body">
           Points Rule:{' '}
           <span className="font-semibold text-foreground">
             ¥10,000 = 100 loyalty points
@@ -96,7 +96,7 @@ const VipProgressSection = ({ onExploreTiers }: VipProgressSectionProps = {}) =>
       </div>
       <button
         onClick={onExploreTiers}
-        className="flex items-center gap-1 text-primary text-[10px] font-body font-semibold group"
+        className="flex items-center gap-1 text-primary text-[12px] font-body font-semibold group"
       >
         Explore Tier Benefits
         <ArrowRight

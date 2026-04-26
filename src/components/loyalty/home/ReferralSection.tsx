@@ -56,7 +56,7 @@ export default function ReferralSection() {
     >
       <h3 className="font-display text-lg font-semibold text-foreground mb-3">Invite & Earn Rewards</h3>
       <div className="bg-card rounded-2xl p-5 shadow-card border-gold-accent space-y-4">
-        <p className="text-[11px] text-muted-foreground font-body leading-relaxed">
+        <p className="text-[13px] text-muted-foreground font-body leading-relaxed">
           Invite your friends to Cha Jewels and both of you earn rewards. You get{' '}
           <span className="font-semibold text-primary">{REFERRAL.bonusPerReferral} points</span> per referral,
           and your friend receives{' '}
@@ -64,14 +64,14 @@ export default function ReferralSection() {
         </p>
 
         <div className="bg-background/60 rounded-xl p-4 border-gold-accent">
-          <p className="text-[9px] text-muted-foreground font-body tracking-[0.2em] uppercase mb-2">
+          <p className="text-[11px] text-muted-foreground font-body tracking-[0.2em] uppercase mb-2">
             Your Referral Code
           </p>
           <div className="flex items-center justify-between">
             <p className="font-display text-xl font-bold text-foreground tracking-wide">{REFERRAL.code}</p>
             <button
               onClick={handleCopy}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-[10px] font-body font-semibold"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-[12px] font-body font-semibold"
             >
               {copied ? <Check size={12} /> : <Copy size={12} />}
               {copied ? 'Copied!' : 'Copy'}
@@ -83,21 +83,21 @@ export default function ReferralSection() {
           <div className="bg-background/60 rounded-xl p-3 text-center border-gold-accent">
             <Users size={14} className="text-primary mx-auto mb-1" />
             <p className="font-display text-xl font-bold text-foreground">{REFERRAL.friendsReferred}</p>
-            <p className="text-[8px] text-muted-foreground font-body tracking-wider uppercase mt-0.5">
+            <p className="text-[10px] text-muted-foreground font-body tracking-wider uppercase mt-0.5">
               Friends Referred
             </p>
           </div>
           <div className="bg-background/60 rounded-xl p-3 text-center border-gold-accent">
             <Coins size={14} className="text-primary mx-auto mb-1" />
             <p className="font-display text-xl font-bold text-foreground">{REFERRAL.pointsEarned}</p>
-            <p className="text-[8px] text-muted-foreground font-body tracking-wider uppercase mt-0.5">
+            <p className="text-[10px] text-muted-foreground font-body tracking-wider uppercase mt-0.5">
               Points Earned
             </p>
           </div>
         </div>
 
         <div>
-          <p className="text-[9px] text-muted-foreground font-body tracking-[0.15em] uppercase mb-2">Share Via</p>
+          <p className="text-[11px] text-muted-foreground font-body tracking-[0.15em] uppercase mb-2">Share Via</p>
           <div className="grid grid-cols-4 gap-2">
             {SHARE_CHANNELS.map((ch) => (
               <button
@@ -106,7 +106,7 @@ export default function ReferralSection() {
                 className={`flex flex-col items-center gap-1.5 py-2.5 rounded-xl ${ch.color} hover:shadow-card transition-shadow`}
               >
                 <span className="text-base">{ch.emoji}</span>
-                <span className="text-[8px] font-body font-medium text-muted-foreground">{ch.name}</span>
+                <span className="text-[10px] font-body font-medium text-muted-foreground">{ch.name}</span>
               </button>
             ))}
           </div>

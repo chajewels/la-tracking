@@ -39,7 +39,7 @@ const PointsSnapshot = () => {
         </h3>
         <button
           onClick={() => {}}
-          className="text-[11px] text-primary font-body font-semibold tracking-wide"
+          className="text-[13px] text-primary font-body font-semibold tracking-wide"
         >
           Details
         </button>
@@ -58,7 +58,7 @@ const PointsSnapshot = () => {
             <p className="font-display text-lg font-bold text-foreground leading-none">
               {stat.value}
             </p>
-            <p className="text-[8px] text-muted-foreground font-body mt-1 tracking-wider uppercase">
+            <p className="text-[10px] text-muted-foreground font-body mt-1 tracking-wider uppercase">
               {stat.label}
             </p>
           </div>
@@ -66,7 +66,7 @@ const PointsSnapshot = () => {
       </div>
       <div className="flex items-center justify-center gap-1.5 mt-2">
         <Activity size={10} className="text-primary" />
-        <p className="text-[10px] text-muted-foreground font-body">
+        <p className="text-[12px] text-muted-foreground font-body">
           Status:{' '}
           <span className="font-semibold text-primary">
             {member.activity_status}

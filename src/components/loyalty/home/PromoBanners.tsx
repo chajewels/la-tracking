@@ -47,7 +47,7 @@ export default function PromoBanners({ setTab }: PromoBannersProps) {
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-display text-[15px] font-semibold text-foreground">{p.title}</p>
-            <p className="text-[11px] text-muted-foreground font-body mt-0.5">{p.body}</p>
+            <p className="text-[13px] text-muted-foreground font-body mt-0.5">{p.body}</p>
           </div>
           <ChevronRight size={16} className="text-primary/40 flex-shrink-0" />
         </motion.div>

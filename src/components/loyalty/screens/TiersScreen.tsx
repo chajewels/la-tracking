@@ -36,7 +36,7 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
       <button
         type="button"
         onClick={onBack}
-        className="flex items-center gap-1 text-[11px] text-primary font-body font-semibold"
+        className="flex items-center gap-1 text-[13px] text-primary font-body font-semibold"
       >
         <ArrowLeft size={14} />
         Back
@@ -44,7 +44,7 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
 
       <div>
         <h1 className="font-display text-2xl font-semibold text-foreground">Tier Benefits</h1>
-        <p className="text-[11px] text-muted-foreground font-body mt-1">
+        <p className="text-[13px] text-muted-foreground font-body mt-1">
           Your current tier:{' '}
           <span className="font-semibold text-primary">{member.current_tier}</span>
         </p>
@@ -59,10 +59,10 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
           className="bg-card rounded-2xl p-4 shadow-card border-gold-accent space-y-3"
         >
           <div className="flex items-center justify-between">
-            <p className="text-[11px] font-body font-semibold text-foreground">
+            <p className="text-[13px] font-body font-semibold text-foreground">
               Progress to {nextTier.name}
             </p>
-            <span className="text-[10px] font-body font-bold text-primary">
+            <span className="text-[12px] font-body font-bold text-primary">
               {Math.round(progress)}%
             </span>
           </div>
@@ -77,7 +77,7 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
               className="h-full rounded-full gradient-gold"
             />
           </div>
-          <p className="text-[10px] text-muted-foreground font-body">
+          <p className="text-[12px] text-muted-foreground font-body">
             Spend{' '}
             <span className="font-bold text-primary">
               ¥{member.amount_needed_for_next_tier.toLocaleString()}
@@ -131,7 +131,7 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
                     >
                       {tier.name}
                     </p>
-                    <p className="text-[10px] text-muted-foreground font-body mt-0.5">
+                    <p className="text-[12px] text-muted-foreground font-body mt-0.5">
                       {tier.tagline}
                     </p>
                   </div>
@@ -139,20 +139,20 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
 
                 {isCurrent && (
                   <span
-                    className="text-[8px] tracking-[0.2em] uppercase font-body font-bold px-2 py-1 rounded-full flex-shrink-0"
+                    className="text-[10px] tracking-[0.2em] uppercase font-body font-bold px-2 py-1 rounded-full flex-shrink-0"
                     style={{ background: `${tier.accent}28`, color: tier.accent }}
                   >
                     Current
                   </span>
                 )}
                 {isUnlocked && (
-                  <span className="flex items-center gap-1 text-[8px] tracking-[0.15em] uppercase font-body font-semibold text-muted-foreground px-2 py-1 rounded-full bg-muted/30 flex-shrink-0">
+                  <span className="flex items-center gap-1 text-[10px] tracking-[0.15em] uppercase font-body font-semibold text-muted-foreground px-2 py-1 rounded-full bg-muted/30 flex-shrink-0">
                     <Check size={9} />
                     Unlocked
                   </span>
                 )}
                 {isLocked && (
-                  <span className="flex items-center gap-1 text-[8px] tracking-[0.15em] uppercase font-body font-semibold text-muted-foreground/50 px-2 py-1 rounded-full bg-muted/20 flex-shrink-0">
+                  <span className="flex items-center gap-1 text-[10px] tracking-[0.15em] uppercase font-body font-semibold text-muted-foreground/50 px-2 py-1 rounded-full bg-muted/20 flex-shrink-0">
                     <Lock size={9} />
                     Locked
                   </span>
@@ -162,7 +162,7 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
               {/* Stat pills */}
               <div className="flex gap-2 mb-3">
                 <div className="flex-1 bg-background/60 rounded-xl p-2.5 text-center" style={{ border: '1px solid hsla(36,30%,60%,0.12)' }}>
-                  <p className="text-[8px] text-muted-foreground/70 font-body tracking-wider uppercase mb-1">
+                  <p className="text-[10px] text-muted-foreground/70 font-body tracking-wider uppercase mb-1">
                     Spend Required
                   </p>
                   <p className="font-display text-[13px] font-bold text-foreground">
@@ -170,7 +170,7 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
                   </p>
                 </div>
                 <div className="flex-1 bg-background/60 rounded-xl p-2.5 text-center" style={{ border: '1px solid hsla(36,30%,60%,0.12)' }}>
-                  <p className="text-[8px] text-muted-foreground/70 font-body tracking-wider uppercase mb-1">
+                  <p className="text-[10px] text-muted-foreground/70 font-body tracking-wider uppercase mb-1">
                     Points Rate
                   </p>
                   <p
@@ -187,17 +187,17 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
                 className="rounded-xl p-3"
                 style={{ background: 'hsla(36,20%,40%,0.06)', border: '1px solid hsla(36,30%,60%,0.10)' }}
               >
-                <p className="text-[8px] tracking-[0.2em] uppercase text-muted-foreground/70 font-body font-semibold mb-2">
+                <p className="text-[10px] tracking-[0.2em] uppercase text-muted-foreground/70 font-body font-semibold mb-2">
                   Benefits
                 </p>
                 <ul className="space-y-1.5">
                   {tier.benefits.map((b, j) => (
                     <li
                       key={j}
-                      className={`flex items-start gap-2 text-[10px] font-body ${isLocked ? 'text-muted-foreground/40' : 'text-muted-foreground'}`}
+                      className={`flex items-start gap-2 text-[12px] font-body ${isLocked ? 'text-muted-foreground/40' : 'text-muted-foreground'}`}
                     >
                       <span
-                        className="mt-0.5 text-[8px] flex-shrink-0"
+                        className="mt-0.5 text-[10px] flex-shrink-0"
                         style={{ color: isLocked ? 'hsla(36,30%,60%,0.3)' : tier.accent }}
                       >
                         ✦
@@ -227,8 +227,8 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
             <div key={i} className="flex items-center gap-3">
               <span className="text-lg w-6 text-center">{item.icon}</span>
               <div className="flex-1">
-                <p className="text-[11px] font-body font-semibold text-foreground">{item.from}</p>
-                <p className="text-[10px] text-muted-foreground font-body">{item.desc}</p>
+                <p className="text-[13px] font-body font-semibold text-foreground">{item.from}</p>
+                <p className="text-[12px] text-muted-foreground font-body">{item.desc}</p>
               </div>
             </div>
           ))}
@@ -240,7 +240,7 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
         <h3 className="font-display text-lg font-semibold text-foreground mb-3">
           Points Earning Examples
         </h3>
-        <p className="text-[10px] text-muted-foreground font-body mb-3">
+        <p className="text-[12px] text-muted-foreground font-body mb-3">
           Based on a ¥50,000 purchase:
         </p>
         <div className="space-y-2">
@@ -248,13 +248,13 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
             <div key={tier.name} className="flex items-center justify-between py-1.5 border-b border-border/30 last:border-0">
               <div className="flex items-center gap-2">
                 <span className="text-sm">{tier.icon}</span>
-                <span className="text-[11px] font-body font-medium text-foreground">{tier.name}</span>
+                <span className="text-[13px] font-body font-medium text-foreground">{tier.name}</span>
               </div>
               <div className="text-right">
-                <span className="text-[11px] font-body font-bold text-primary">
+                <span className="text-[13px] font-body font-bold text-primary">
                   {500 * tier.multiplier} points
                 </span>
-                <span className="text-[9px] text-muted-foreground font-body ml-1">
+                <span className="text-[11px] text-muted-foreground font-body ml-1">
                   ({tier.multiplier}x)
                 </span>
               </div>
@@ -276,7 +276,7 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
           ].map((tip, i) => (
             <div key={i} className="flex items-center gap-3">
               <span className="text-lg">{tip.icon}</span>
-              <p className="text-[11px] font-body text-foreground">{tip.text}</p>
+              <p className="text-[13px] font-body text-foreground">{tip.text}</p>
             </div>
           ))}
         </div>
@@ -285,7 +285,7 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
       {/* Footer */}
       <div className="text-center pb-2">
         <div className="divider-gold mb-3" />
-        <p className="text-[9px] text-muted-foreground/60 font-body italic tracking-wide">
+        <p className="text-[11px] text-muted-foreground/60 font-body italic tracking-wide">
           Earn · Level Up · Unlock More
         </p>
       </div>

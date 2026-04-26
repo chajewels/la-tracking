@@ -44,11 +44,11 @@ export default function RewardsScreen() {
     <>
       <div className="px-5 pt-6 pb-4 space-y-6">
         <div>
-          <p className="text-[10px] text-muted-foreground font-body tracking-[0.2em] uppercase">
+          <p className="text-[12px] text-muted-foreground font-body tracking-[0.2em] uppercase">
             Cha Jewels Rewards
           </p>
           <h1 className="font-display text-2xl font-semibold text-foreground mt-1">Rewards</h1>
-          <p className="text-[11px] text-muted-foreground font-body mt-1">
+          <p className="text-[13px] text-muted-foreground font-body mt-1">
             You have{' '}
             <span className="text-primary font-semibold">
               {member.available_points.toLocaleString()} points
@@ -59,7 +59,7 @@ export default function RewardsScreen() {
 
         {/* Redemption info */}
         <div className="bg-primary/5 rounded-xl p-3.5 border border-primary/10">
-          <p className="text-[10px] text-muted-foreground font-body leading-relaxed">
+          <p className="text-[12px] text-muted-foreground font-body leading-relaxed">
             Redeem points on{' '}
             <span className="font-semibold text-foreground">regular items</span>,{' '}
             <span className="font-semibold text-foreground">layaway purchases</span>, and{' '}
@@ -74,7 +74,7 @@ export default function RewardsScreen() {
             <button
               key={cat}
               onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1.5 rounded-full text-[11px] font-body font-medium whitespace-nowrap transition-colors ${
+              className={`px-3 py-1.5 rounded-full text-[13px] font-body font-medium whitespace-nowrap transition-colors ${
                 selectedCategory === cat
                   ? 'gradient-gold text-primary-foreground shadow-sm'
                   : 'bg-card text-muted-foreground shadow-card border-gold-accent'
@@ -104,17 +104,17 @@ export default function RewardsScreen() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       {reward.isLimited && (
-                        <span className="text-[8px] tracking-[0.2em] uppercase text-primary font-body font-semibold bg-primary/10 px-1.5 py-0.5 rounded-full">
+                        <span className="text-[10px] tracking-[0.2em] uppercase text-primary font-body font-semibold bg-primary/10 px-1.5 py-0.5 rounded-full">
                           Limited
                         </span>
                       )}
                       {reward.isVipOnly && (
-                        <span className="text-[8px] tracking-[0.2em] uppercase font-body font-semibold gradient-gold text-primary-foreground px-1.5 py-0.5 rounded-full">
+                        <span className="text-[10px] tracking-[0.2em] uppercase font-body font-semibold gradient-gold text-primary-foreground px-1.5 py-0.5 rounded-full">
                           Crown VIP
                         </span>
                       )}
                       {reward.tier !== 'All' && !reward.isVipOnly && (
-                        <span className="text-[8px] tracking-[0.15em] uppercase text-muted-foreground font-body bg-muted px-1.5 py-0.5 rounded-full">
+                        <span className="text-[10px] tracking-[0.15em] uppercase text-muted-foreground font-body bg-muted px-1.5 py-0.5 rounded-full">
                           {reward.tier}+
                         </span>
                       )}
@@ -122,7 +122,7 @@ export default function RewardsScreen() {
                     <h3 className="font-display text-base font-semibold text-foreground">
                       {reward.name}
                     </h3>
-                    <p className="text-[10px] text-muted-foreground font-body mt-1 line-clamp-2">
+                    <p className="text-[12px] text-muted-foreground font-body mt-1 line-clamp-2">
                       {reward.description}
                     </p>
                   </div>
@@ -137,7 +137,7 @@ export default function RewardsScreen() {
                             : reward.pointsCost.toLocaleString()}
                         </p>
                         {reward.pointsCost > 0 && (
-                          <p className="text-[9px] text-muted-foreground font-body">points</p>
+                          <p className="text-[11px] text-muted-foreground font-body">points</p>
                         )}
                       </div>
                     )}
@@ -145,12 +145,12 @@ export default function RewardsScreen() {
                 </div>
                 {unlocked && affordable && reward.pointsCost > 0 && (
                   <div className="flex items-center gap-1 mt-3 text-primary">
-                    <span className="text-[10px] font-body font-semibold">Redeem Now</span>
+                    <span className="text-[12px] font-body font-semibold">Redeem Now</span>
                     <ArrowRight size={10} />
                   </div>
                 )}
                 {unlocked && !affordable && reward.pointsCost > 0 && (
-                  <p className="text-[10px] text-muted-foreground font-body mt-3">
+                  <p className="text-[12px] text-muted-foreground font-body mt-3">
                     You need{' '}
                     {(reward.pointsCost - member.available_points).toLocaleString()} more
                     points
@@ -164,7 +164,7 @@ export default function RewardsScreen() {
         {/* VIP Rewards Vault */}
         <VipRewardsVault onSelectReward={(r) => setSelectedReward(r)} />
 
-        <p className="text-center text-[9px] text-muted-foreground/50 font-body italic pb-2">
+        <p className="text-center text-[11px] text-muted-foreground/50 font-body italic pb-2">
           Your points, your perks, your tier
         </p>
       </div>
@@ -200,7 +200,7 @@ export default function RewardsScreen() {
               </p>
 
               <div className="bg-background rounded-xl p-4 text-center border-gold-accent">
-                <p className="text-[10px] text-muted-foreground font-body tracking-wider uppercase">
+                <p className="text-[12px] text-muted-foreground font-body tracking-wider uppercase">
                   Points Required
                 </p>
                 <p className="font-display text-3xl font-bold text-foreground mt-1">
@@ -208,7 +208,7 @@ export default function RewardsScreen() {
                     ? 'Free'
                     : selectedReward.pointsCost.toLocaleString()}
                 </p>
-                <p className="text-[11px] text-muted-foreground font-body mt-1">
+                <p className="text-[13px] text-muted-foreground font-body mt-1">
                   Your balance:{' '}
                   <span className="text-primary font-semibold">
                     {member.available_points.toLocaleString()}

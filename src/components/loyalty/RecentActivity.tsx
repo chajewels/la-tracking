@@ -18,7 +18,7 @@ const RecentActivity = ({ onViewAll }: RecentActivityProps) => {
         </h3>
         <button
           onClick={onViewAll}
-          className="text-[11px] text-primary font-body font-semibold tracking-wide"
+          className="text-[13px] text-primary font-body font-semibold tracking-wide"
         >
           View All
         </button>
@@ -51,10 +51,10 @@ const RecentActivity = ({ onViewAll }: RecentActivityProps) => {
                 )}
               </div>
               <div>
-                <p className="text-[11px] font-body font-medium text-foreground">
+                <p className="text-[13px] font-body font-medium text-foreground">
                   {tx.description}
                 </p>
-                <p className="text-[10px] text-muted-foreground font-body mt-0.5">
+                <p className="text-[12px] text-muted-foreground font-body mt-0.5">
                   {tx.date}
                 </p>
               </div>
