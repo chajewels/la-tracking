@@ -202,6 +202,13 @@
     animation: shimmer 3s ease-in-out infinite;
   }
   .animate-golden-pulse { animation: golden-pulse 4s ease-in-out infinite; }
+  .animate-soft-glow { animation: soft-glow 3s ease-in-out infinite; }
+  .divider-gold {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, hsl(42,60%,62%), transparent);
+  }
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
 }
 
 @keyframes shimmer {
@@ -212,4 +219,9 @@
 @keyframes golden-pulse {
   0%, 100% { box-shadow: 0 0 0 0 hsla(36,50%,48%,0.2); }
   50% { box-shadow: 0 0 24px 6px hsla(36,50%,48%,0.08); }
+}
+
+@keyframes soft-glow {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
 }

@@ -1,0 +1,32 @@
+import { motion } from 'framer-motion';
+import { ArrowRight } from 'lucide-react';
+
+export default function FeaturedBanner() {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ delay: 0.5 }}
+      className="relative overflow-hidden rounded-2xl shadow-soft"
+    >
+      <div className="bg-gradient-to-br from-primary/8 via-accent/15 to-primary/5 p-6 border-gold-accent">
+        <div className="absolute top-3 right-4 text-primary/20 animate-soft-glow">✦</div>
+        <div className="absolute bottom-4 right-8 text-primary/10 animate-soft-glow" style={{ animationDelay: '1.5s' }}>✦</div>
+
+        <p className="text-[9px] tracking-[0.3em] uppercase text-primary font-body font-semibold">
+          New Japan Gold Collection
+        </p>
+        <h3 className="font-display text-xl font-semibold text-foreground mt-2 tracking-tight">
+          Spring 2026 Gold Collection
+        </h3>
+        <p className="text-[11px] text-muted-foreground font-body mt-2 leading-relaxed max-w-[85%]">
+          Discover our newest 18K Japan Gold pieces — available first to Radiant members and above.
+        </p>
+        <button className="flex items-center gap-1.5 text-primary text-[11px] font-body font-semibold mt-4 group">
+          Explore Collection
+          <ArrowRight size={12} className="group-hover:translate-x-0.5 transition-transform" />
+        </button>
+      </div>
+    </motion.div>
+  );
+}

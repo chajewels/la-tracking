@@ -2,6 +2,15 @@ import MemberCard from '@/components/loyalty/MemberCard';
 import VipProgressSection from '@/components/loyalty/VipProgressSection';
 import PointsSnapshot from '@/components/loyalty/PointsSnapshot';
 import RecentActivity from '@/components/loyalty/RecentActivity';
+import HomeHeader from '@/components/loyalty/home/HomeHeader';
+import MilestoneBanner from '@/components/loyalty/home/MilestoneBanner';
+import QuickActions from '@/components/loyalty/home/QuickActions';
+import BirthdayRewardCard from '@/components/loyalty/home/BirthdayRewardCard';
+import FeaturedBanner from '@/components/loyalty/home/FeaturedBanner';
+import PromoBanners from '@/components/loyalty/home/PromoBanners';
+import ReferralSection from '@/components/loyalty/home/ReferralSection';
+import ExclusiveOffers from '@/components/loyalty/home/ExclusiveOffers';
+import MilestoneCard from '@/components/loyalty/home/MilestoneCard';
 import { Button } from '@/components/ui/button';
 import type { LoyaltyTab } from '@/components/loyalty/LoyaltyBottomNav';
 
@@ -14,12 +23,15 @@ interface HomeScreenProps {
 export default function HomeScreen({ canRedeem, onRedeemClick, setTab }: HomeScreenProps) {
   return (
     <div className="px-5 pt-6 pb-4 space-y-5">
-      {/* Phase 3 will replace this with HomeHeader, MilestoneBanner,
-          QuickActions, BirthdayRewardCard, FeaturedBanner, PromoBanners,
-          ReferralSection, ExclusiveOffers, MilestoneCard. */}
+      <HomeHeader setTab={setTab} />
       <MemberCard />
+      <MilestoneBanner />
       <VipProgressSection onExploreTiers={() => setTab('tiers')} />
       <PointsSnapshot />
+      <QuickActions setTab={setTab} />
+      <BirthdayRewardCard setTab={setTab} />
+      <FeaturedBanner />
+      <PromoBanners />
 
       <Button
         onClick={onRedeemClick}
@@ -38,14 +50,9 @@ export default function HomeScreen({ canRedeem, onRedeemClick, setTab }: HomeScr
       </Button>
 
       <RecentActivity />
-
-      <button
-        type="button"
-        onClick={() => setTab('tiers')}
-        className="block w-full text-center text-[11px] font-body font-semibold text-primary py-2"
-      >
-        View all tiers →
-      </button>
+      <ReferralSection />
+      <ExclusiveOffers />
+      <MilestoneCard setTab={setTab} />
     </div>
   );
 }
