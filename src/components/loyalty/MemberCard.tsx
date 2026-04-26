@@ -2,6 +2,52 @@ import { motion } from "framer-motion";
 import { TrendingUp, Activity } from "lucide-react";
 import { useLoyaltyData } from "@/components/loyalty/loyaltyData";
 
+// Scoped keyframes + overlay layers for the diagonal gold-foil shine
+// sweeping across the card surface, plus the damask metallic texture.
+// Restored from commit 6f277d0. Self-contained — no Tailwind utility
+// dependencies, so the effect renders regardless of global config.
+const STYLE_BLOCK = `
+@keyframes member-card-shimmer {
+  0%   { transform: translateX(-120%) skewX(-12deg); }
+  100% { transform: translateX(220%)  skewX(-12deg); }
+}
+.member-card-shimmer-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: inherit;
+}
+.member-card-shimmer-layer::before {
+  content: '';
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  width: 35%;
+  left: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255,255,255,0) 25%,
+    rgba(255,255,255,0.55) 50%,
+    rgba(255,255,255,0) 75%,
+    transparent 100%
+  );
+  filter: blur(8px);
+  mix-blend-mode: screen;
+  animation: member-card-shimmer 7s linear infinite;
+}
+.member-card-damask {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: 0.08;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'><g fill='none' stroke='%233D2F0E' stroke-width='0.6'><path d='M20 4 L36 20 L20 36 L4 20 Z'/><circle cx='20' cy='20' r='3'/></g></svg>");
+  background-size: 48px 48px;
+}
+`;
+
 const MemberCard = () => {
   const { member, tiers } = useLoyaltyData();
 
@@ -31,7 +77,9 @@ const MemberCard = () => {
             'linear-gradient(135deg, #C9A84C 0%, #E8C96D 50%, #C9A84C 100%)',
         }}
       >
-        <div className="absolute inset-0 animate-shimmer opacity-30 pointer-events-none" />
+        <style>{STYLE_BLOCK}</style>
+        <div className="member-card-damask" />
+        <div className="member-card-shimmer-layer" />
         <div
           className="absolute top-0 right-0 w-40 h-40 opacity-[0.10]"
           style={{
