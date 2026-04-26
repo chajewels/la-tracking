@@ -265,6 +265,7 @@ Deno.serve(async (req) => {
       { data: cashPaymentsRaw },
       { data: loyaltyMemberRow },
       { data: loyaltyTiersRows },
+      { data: loyaltyBetaRow },
     ] = await Promise.all([
       cashPaymentsPromise,
       supabase
@@ -278,6 +279,15 @@ Deno.serve(async (req) => {
         .from("loyalty_tiers")
         .select("id, name, min_spend_jpy, points_multiplier, color_hex, free_shipping_min_items, mystery_gift")
         .order("min_spend_jpy", { ascending: true }),
+      // Beta whitelist read runs server-side here because the table's RLS
+      // denies anon SELECT — useLoyaltyAccess on the browser would fail
+      // silently for any portal session that isn't an admin/staff/finance
+      // login.
+      supabase
+        .from("loyalty_beta_members")
+        .select("id")
+        .eq("customer_id", customerId)
+        .maybeSingle(),
     ]);
 
     let loyaltyTransactions: any[] = [];
@@ -525,6 +535,7 @@ Deno.serve(async (req) => {
       loyalty_tiers: loyaltyTiersRows ?? [],
       loyalty_transactions: loyaltyTransactions,
       loyalty_redemptions: loyaltyRedemptions,
+      is_loyalty_beta: loyaltyBetaRow !== null,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

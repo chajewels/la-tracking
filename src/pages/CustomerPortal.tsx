@@ -166,6 +166,12 @@ interface PortalData {
     remaining_points: number;
     current_tier: { name: string; points_multiplier: number; color_hex: string | null } | null;
   } | null;
+  /**
+   * True when the customer has a row in loyalty_beta_members. Resolved
+   * server-side by customer-portal because the browser session can't read
+   * that RLS-protected table from a portal-token context.
+   */
+  is_loyalty_beta?: boolean;
 }
 
 function fmt(amount: number, currency: string): string {
@@ -623,10 +629,11 @@ export default function CustomerPortal() {
               </div>
             )}
 
-            {/* Loyalty entry card — gates on useLoyaltyAccess for visibility */}
+            {/* Loyalty entry card — beta flag resolved server-side via customer-portal */}
             <LoyaltyEntryCard
               customerId={data.customer_id}
               member={data.loyalty_member ?? null}
+              isBeta={!!data.is_loyalty_beta}
               token={token!}
             />
 
@@ -957,21 +964,30 @@ function SummaryTile({ label, value, financial, danger, success, sub }: {
 function LoyaltyEntryCard({
   customerId,
   member,
+  isBeta,
   token,
 }: {
   customerId: string;
   member: PortalData['loyalty_member'];
+  isBeta: boolean;
   token: string;
 }) {
   const navigate = useNavigate();
+  // useLoyaltyAccess still supplies isFeatureEnabled (read from
+  // system_settings, which the browser session can fetch). The beta flag
+  // it returns is unreliable in the portal-token context — RLS denies the
+  // anon read on loyalty_beta_members — so we ignore access.isBeta and use
+  // the server-resolved isBeta prop instead.
   const access = useLoyaltyAccess(customerId);
   if (access.isLoading) return null;
+
+  const hasAccess = access.isFeatureEnabled || isBeta;
 
   const goToLoyalty = () =>
     navigate(`/loyalty?token=${encodeURIComponent(token)}`);
 
   // State 3 — no access (feature off + not in beta)
-  if (!access.hasAccess) {
+  if (!hasAccess) {
     return (
       <div
         className="flex items-center gap-3 rounded-md px-4 py-3"
