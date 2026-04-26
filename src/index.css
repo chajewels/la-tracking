@@ -186,3 +186,30 @@
 [role="alertdialog"][data-state="open"] ~ [data-state="open"] {
   z-index: 60 !important;
 }
+
+@layer utilities {
+  .font-display { font-family: 'Cormorant Garamond', serif; }
+  .font-body { font-family: 'Inter', sans-serif; }
+  .gradient-gold { background: linear-gradient(135deg, hsl(36,50%,48%) 0%, hsl(42,60%,62%) 50%, hsl(36,50%,48%) 100%); }
+  .gradient-hero { background: linear-gradient(160deg, hsl(30,15%,15%) 0%, hsl(34,20%,22%) 40%, hsl(36,30%,28%) 100%); }
+  .shadow-elevated { box-shadow: 0px 12px 40px rgba(180,150,100,0.12); }
+  .shadow-card { box-shadow: 0px 2px 16px rgba(180,150,100,0.06), 0px 1px 3px rgba(0,0,0,0.03); }
+  .shadow-gold { box-shadow: 0px 4px 20px rgba(200,170,100,0.2); }
+  .border-gold-accent { border: 1px solid hsla(36,50%,48%,0.15); }
+  .animate-shimmer {
+    background: linear-gradient(90deg, transparent 0%, hsla(42,60%,62%,0.15) 25%, hsla(42,60%,62%,0.3) 50%, hsla(42,60%,62%,0.15) 75%, transparent 100%);
+    background-size: 200% 100%;
+    animation: shimmer 3s ease-in-out infinite;
+  }
+  .animate-golden-pulse { animation: golden-pulse 4s ease-in-out infinite; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes golden-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 hsla(36,50%,48%,0.2); }
+  50% { box-shadow: 0 0 24px 6px hsla(36,50%,48%,0.08); }
+}
