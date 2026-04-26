@@ -252,7 +252,7 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
               </div>
               <div className="text-right">
                 <span className="text-[11px] font-body font-bold text-primary">
-                  {50 * tier.multiplier} points
+                  {500 * tier.multiplier} points
                 </span>
                 <span className="text-[9px] text-muted-foreground font-body ml-1">
                   ({tier.multiplier}x)

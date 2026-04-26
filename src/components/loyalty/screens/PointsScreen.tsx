@@ -84,7 +84,7 @@ export default function PointsScreen() {
         </h3>
         <div className="space-y-2.5">
           {[
-            { source: 'Base Rate', rule: '¥10,000 spent = 10 points (1 pt per ¥1,000)', icon: '💎' },
+            { source: 'Base Rate', rule: '¥10,000 spent = 100 points', icon: '💎' },
             {
               source: 'Tier Multiplier',
               rule: `${currentTier.multiplier}x as ${currentTier.name} Member`,
@@ -92,7 +92,7 @@ export default function PointsScreen() {
             },
             {
               source: 'Example',
-              rule: `¥50,000 purchase = ${50 * currentTier.multiplier} points`,
+              rule: `¥50,000 purchase = ${500 * currentTier.multiplier} points`,
               icon: '✨',
             },
           ].map((item) => (
