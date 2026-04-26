@@ -261,7 +261,7 @@ export default function LoyaltySettingsTab() {
       const trimmedNote = noteInput.trim();
       if (trimmedNote) payload.notes = trimmedNote;
 
-      const { error } = await supabase.from('loyalty_beta_members').insert(payload);
+      const { error } = await (supabase as any).from('loyalty_beta_members').insert(payload);
       if (error && !String(error.message).toLowerCase().includes('duplicate')) {
         throw error;
       }
