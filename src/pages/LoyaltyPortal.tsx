@@ -21,7 +21,7 @@ import {
   type LoyaltyTierData,
   type LoyaltyTransactionData,
 } from '@/components/loyalty/loyaltyData';
-import SplashScreen from '@/components/portal/SplashScreen';
+import LoyaltySplashScreen from '@/components/portal/LoyaltySplashScreen';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -402,7 +402,7 @@ export default function LoyaltyPortal() {
   // of Hooks aren't violated when showSplash flips. Mirrors the placement
   // in CustomerPortal.tsx (line ~397, after fetchPortal's useEffect).
   if (showSplash) {
-    return <SplashScreen onComplete={() => setShowSplash(false)} />;
+    return <LoyaltySplashScreen onComplete={() => setShowSplash(false)} />;
   }
 
   if (portalQuery.isLoading) {
