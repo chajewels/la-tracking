@@ -325,7 +325,7 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
   const canRedeem = (loyaltyMember?.remaining_points ?? 0) > 0;
 
   return (
-    <>
+    <div className="loyalty-portal">
       <div className="pb-24">
         {tab === 'home' && (
           <HomeScreen
@@ -364,7 +364,7 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
         isOpen={celebration !== null}
         onClose={handleCelebrationClose}
       />
-    </>
+    </div>
   );
 }
 
