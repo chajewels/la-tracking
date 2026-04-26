@@ -16,7 +16,8 @@ export type Database = {
     Tables: {
       account_notes: {
         Row: {
-          account_id: string
+          account_id: string | null
+          cash_order_id: string | null
           created_at: string
           created_by_name: string | null
           created_by_user_id: string | null
@@ -24,7 +25,8 @@ export type Database = {
           note_text: string
         }
         Insert: {
-          account_id: string
+          account_id?: string | null
+          cash_order_id?: string | null
           created_at?: string
           created_by_name?: string | null
           created_by_user_id?: string | null
@@ -32,7 +34,8 @@ export type Database = {
           note_text: string
         }
         Update: {
-          account_id?: string
+          account_id?: string | null
+          cash_order_id?: string | null
           created_at?: string
           created_by_name?: string | null
           created_by_user_id?: string | null
@@ -45,6 +48,13 @@ export type Database = {
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "account_notes_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
             referencedColumns: ["id"]
           },
         ]
@@ -173,6 +183,9 @@ export type Database = {
           accepted_by_user_id: string | null
           agreement_acceptance_datetime: string | null
           agreement_version: string | null
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by_user_id: string | null
           completed_at: string | null
           created_at: string
           created_by_user_id: string | null
@@ -194,6 +207,9 @@ export type Database = {
           accepted_by_user_id?: string | null
           agreement_acceptance_datetime?: string | null
           agreement_version?: string | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by_user_id?: string | null
           completed_at?: string | null
           created_at?: string
           created_by_user_id?: string | null
@@ -215,6 +231,9 @@ export type Database = {
           accepted_by_user_id?: string | null
           agreement_acceptance_datetime?: string | null
           agreement_version?: string | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by_user_id?: string | null
           completed_at?: string | null
           created_at?: string
           created_by_user_id?: string | null
@@ -889,6 +908,7 @@ export type Database = {
           id: string
           invoice_number: string
           is_reactivated: boolean
+          loyalty_jpy_amount: number | null
           notes: string | null
           order_date: string
           payment_plan_months: number
@@ -917,6 +937,7 @@ export type Database = {
           id?: string
           invoice_number: string
           is_reactivated?: boolean
+          loyalty_jpy_amount?: number | null
           notes?: string | null
           order_date: string
           payment_plan_months: number
@@ -945,6 +966,7 @@ export type Database = {
           id?: string
           invoice_number?: string
           is_reactivated?: boolean
+          loyalty_jpy_amount?: number | null
           notes?: string | null
           order_date?: string
           payment_plan_months?: number
@@ -1099,6 +1121,421 @@ export type Database = {
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      loyalty_beta_members: {
+        Row: {
+          added_by_user_id: string | null
+          created_at: string
+          customer_id: string
+          id: string
+          notes: string | null
+        }
+        Insert: {
+          added_by_user_id?: string | null
+          created_at?: string
+          customer_id: string
+          id?: string
+          notes?: string | null
+        }
+        Update: {
+          added_by_user_id?: string | null
+          created_at?: string
+          customer_id?: string
+          id?: string
+          notes?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loyalty_beta_members_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: true
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      loyalty_members: {
+        Row: {
+          cumulative_spend_jpy: number
+          current_tier_id: string
+          customer_id: string
+          earned_tier_id: string
+          enrolled_at: string
+          id: string
+          is_downgraded: boolean
+          last_purchase_at: string | null
+          pre_expiry_warned_at: string | null
+          prev_purchase_at: string | null
+          remaining_points: number
+          total_points_earned: number
+          total_points_expired: number
+          total_points_redeemed: number
+          updated_at: string
+        }
+        Insert: {
+          cumulative_spend_jpy?: number
+          current_tier_id: string
+          customer_id: string
+          earned_tier_id: string
+          enrolled_at?: string
+          id?: string
+          is_downgraded?: boolean
+          last_purchase_at?: string | null
+          pre_expiry_warned_at?: string | null
+          prev_purchase_at?: string | null
+          remaining_points?: number
+          total_points_earned?: number
+          total_points_expired?: number
+          total_points_redeemed?: number
+          updated_at?: string
+        }
+        Update: {
+          cumulative_spend_jpy?: number
+          current_tier_id?: string
+          customer_id?: string
+          earned_tier_id?: string
+          enrolled_at?: string
+          id?: string
+          is_downgraded?: boolean
+          last_purchase_at?: string | null
+          pre_expiry_warned_at?: string | null
+          prev_purchase_at?: string | null
+          remaining_points?: number
+          total_points_earned?: number
+          total_points_expired?: number
+          total_points_redeemed?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loyalty_members_current_tier_id_fkey"
+            columns: ["current_tier_id"]
+            isOneToOne: false
+            referencedRelation: "loyalty_tiers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loyalty_members_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: true
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loyalty_members_earned_tier_id_fkey"
+            columns: ["earned_tier_id"]
+            isOneToOne: false
+            referencedRelation: "loyalty_tiers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      loyalty_promos: {
+        Row: {
+          applicable_tiers: string[] | null
+          applies_per_purchase: boolean
+          bonus_points: number
+          created_at: string
+          created_by_user_id: string | null
+          description: string | null
+          end_date: string
+          id: string
+          is_active: boolean
+          max_per_customer: number | null
+          name: string
+          start_date: string
+          updated_at: string
+        }
+        Insert: {
+          applicable_tiers?: string[] | null
+          applies_per_purchase?: boolean
+          bonus_points: number
+          created_at?: string
+          created_by_user_id?: string | null
+          description?: string | null
+          end_date: string
+          id?: string
+          is_active?: boolean
+          max_per_customer?: number | null
+          name: string
+          start_date: string
+          updated_at?: string
+        }
+        Update: {
+          applicable_tiers?: string[] | null
+          applies_per_purchase?: boolean
+          bonus_points?: number
+          created_at?: string
+          created_by_user_id?: string | null
+          description?: string | null
+          end_date?: string
+          id?: string
+          is_active?: boolean
+          max_per_customer?: number | null
+          name?: string
+          start_date?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      loyalty_redemptions: {
+        Row: {
+          account_id: string | null
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by_user_id: string | null
+          cash_order_id: string | null
+          created_at: string
+          created_by_user_id: string | null
+          id: string
+          invoice_number: string
+          member_id: string
+          notes: string | null
+          points_redeemed: number
+          processed_at: string | null
+          processed_by_user_id: string | null
+          rate_snapshot: number | null
+          redemption_type: Database["public"]["Enums"]["loyalty_redemption_type"]
+          status: Database["public"]["Enums"]["loyalty_redemption_status"]
+          transaction_id: string | null
+          value_applied_jpy: number
+          value_applied_php: number | null
+        }
+        Insert: {
+          account_id?: string | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by_user_id?: string | null
+          cash_order_id?: string | null
+          created_at?: string
+          created_by_user_id?: string | null
+          id?: string
+          invoice_number: string
+          member_id: string
+          notes?: string | null
+          points_redeemed: number
+          processed_at?: string | null
+          processed_by_user_id?: string | null
+          rate_snapshot?: number | null
+          redemption_type: Database["public"]["Enums"]["loyalty_redemption_type"]
+          status?: Database["public"]["Enums"]["loyalty_redemption_status"]
+          transaction_id?: string | null
+          value_applied_jpy: number
+          value_applied_php?: number | null
+        }
+        Update: {
+          account_id?: string | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by_user_id?: string | null
+          cash_order_id?: string | null
+          created_at?: string
+          created_by_user_id?: string | null
+          id?: string
+          invoice_number?: string
+          member_id?: string
+          notes?: string | null
+          points_redeemed?: number
+          processed_at?: string | null
+          processed_by_user_id?: string | null
+          rate_snapshot?: number | null
+          redemption_type?: Database["public"]["Enums"]["loyalty_redemption_type"]
+          status?: Database["public"]["Enums"]["loyalty_redemption_status"]
+          transaction_id?: string | null
+          value_applied_jpy?: number
+          value_applied_php?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loyalty_redemptions_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loyalty_redemptions_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loyalty_redemptions_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "loyalty_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loyalty_redemptions_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "loyalty_transactions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      loyalty_tiers: {
+        Row: {
+          color_hex: string | null
+          created_at: string
+          display_order: number
+          free_shipping_min_items: number | null
+          id: string
+          min_spend_jpy: number
+          mystery_gift: boolean
+          name: string
+          points_multiplier: number
+        }
+        Insert: {
+          color_hex?: string | null
+          created_at?: string
+          display_order: number
+          free_shipping_min_items?: number | null
+          id?: string
+          min_spend_jpy: number
+          mystery_gift?: boolean
+          name: string
+          points_multiplier: number
+        }
+        Update: {
+          color_hex?: string | null
+          created_at?: string
+          display_order?: number
+          free_shipping_min_items?: number | null
+          id?: string
+          min_spend_jpy?: number
+          mystery_gift?: boolean
+          name?: string
+          points_multiplier?: number
+        }
+        Relationships: []
+      }
+      loyalty_transactions: {
+        Row: {
+          account_id: string | null
+          cash_order_id: string | null
+          created_at: string
+          created_by_user_id: string | null
+          id: string
+          invoice_number: string | null
+          member_id: string
+          notes: string | null
+          payment_id: string | null
+          points_amount: number
+          promo_id: string | null
+          rate_snapshot: number | null
+          spend_amount_jpy: number | null
+          tier_at_time: string | null
+          transaction_type: Database["public"]["Enums"]["loyalty_transaction_type"]
+        }
+        Insert: {
+          account_id?: string | null
+          cash_order_id?: string | null
+          created_at?: string
+          created_by_user_id?: string | null
+          id?: string
+          invoice_number?: string | null
+          member_id: string
+          notes?: string | null
+          payment_id?: string | null
+          points_amount: number
+          promo_id?: string | null
+          rate_snapshot?: number | null
+          spend_amount_jpy?: number | null
+          tier_at_time?: string | null
+          transaction_type: Database["public"]["Enums"]["loyalty_transaction_type"]
+        }
+        Update: {
+          account_id?: string | null
+          cash_order_id?: string | null
+          created_at?: string
+          created_by_user_id?: string | null
+          id?: string
+          invoice_number?: string | null
+          member_id?: string
+          notes?: string | null
+          payment_id?: string | null
+          points_amount?: number
+          promo_id?: string | null
+          rate_snapshot?: number | null
+          spend_amount_jpy?: number | null
+          tier_at_time?: string | null
+          transaction_type?: Database["public"]["Enums"]["loyalty_transaction_type"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_loyalty_tx_promo"
+            columns: ["promo_id"]
+            isOneToOne: false
+            referencedRelation: "loyalty_promos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loyalty_transactions_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loyalty_transactions_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loyalty_transactions_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "loyalty_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loyalty_transactions_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notify_loyalty_launch: {
+        Row: {
+          created_at: string
+          customer_id: string | null
+          email: string
+          id: string
+          notes: string | null
+          notified_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          customer_id?: string | null
+          email: string
+          id?: string
+          notes?: string | null
+          notified_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          customer_id?: string | null
+          email?: string
+          id?: string
+          notes?: string | null
+          notified_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notify_loyalty_launch_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
             referencedColumns: ["id"]
           },
         ]
@@ -2600,6 +3037,17 @@ export type Database = {
       app_role: "admin" | "staff" | "finance" | "csr"
       cash_order_status: "pending" | "completed" | "cancelled"
       clv_tier: "bronze" | "silver" | "gold" | "vip"
+      loyalty_redemption_status: "pending" | "confirmed" | "cancelled"
+      loyalty_redemption_type:
+        | "new_order_discount"
+        | "shipping_fee"
+        | "service_fee"
+      loyalty_transaction_type:
+        | "earned"
+        | "bonus"
+        | "redeemed"
+        | "expired"
+        | "adjusted"
       penalty_fee_status: "unpaid" | "paid" | "waived"
       penalty_stage: "week1" | "week2"
       risk_level: "low" | "medium" | "high"
@@ -2761,6 +3209,19 @@ export const Constants = {
       app_role: ["admin", "staff", "finance", "csr"],
       cash_order_status: ["pending", "completed", "cancelled"],
       clv_tier: ["bronze", "silver", "gold", "vip"],
+      loyalty_redemption_status: ["pending", "confirmed", "cancelled"],
+      loyalty_redemption_type: [
+        "new_order_discount",
+        "shipping_fee",
+        "service_fee",
+      ],
+      loyalty_transaction_type: [
+        "earned",
+        "bonus",
+        "redeemed",
+        "expired",
+        "adjusted",
+      ],
       penalty_fee_status: ["unpaid", "paid", "waived"],
       penalty_stage: ["week1", "week2"],
       risk_level: ["low", "medium", "high"],
