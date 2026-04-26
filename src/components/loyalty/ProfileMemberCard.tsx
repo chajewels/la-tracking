@@ -1,5 +1,4 @@
 import { motion } from "framer-motion";
-import { Calendar, Sparkles, TrendingUp } from "lucide-react";
 import { useLoyaltyData } from "@/components/loyalty/loyaltyData";
 
 const ProfileMemberCard = () => {
@@ -18,25 +17,47 @@ const ProfileMemberCard = () => {
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6 }}
-      whileHover={{ y: -2 }}
-      className="relative overflow-hidden rounded-2xl shadow-elevated"
+      animate={{
+        opacity: 1,
+        y: [0, -3, 0],
+      }}
+      transition={{
+        opacity: { duration: 0.6 },
+        y: {
+          duration: 4,
+          repeat: Infinity,
+          ease: "easeInOut",
+        },
+      }}
+      whileHover={{
+        y: -8,
+        scale: 1.02,
+        boxShadow: "0 20px 50px rgba(201,168,76,0.5)",
+      }}
+      whileTap={{
+        scale: 0.98,
+      }}
+      className="relative overflow-hidden rounded-2xl shadow-elevated cursor-pointer"
       style={{
         background:
           "linear-gradient(135deg, #C9A84C 0%, #E8C96D 50%, #C9A84C 100%)",
         boxShadow: "0 8px 32px rgba(201,168,76,0.35)",
       }}
     >
-      {/* Shine effect on hover */}
+      {/* Continuous slow shine sweep */}
       <motion.div
         className="absolute inset-0 pointer-events-none"
-        initial={{ x: "-100%" }}
-        whileHover={{ x: "100%" }}
-        transition={{ duration: 1.2, ease: "easeOut" }}
+        animate={{ x: ["-100%", "200%"] }}
+        transition={{
+          duration: 5,
+          repeat: Infinity,
+          ease: "linear",
+          repeatDelay: 2,
+        }}
         style={{
           background:
-            "linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.4) 50%, transparent 60%)",
+            "linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.3) 50%, transparent 60%)",
+          width: "30%",
           mixBlendMode: "overlay",
         }}
       />
@@ -97,54 +118,59 @@ const ProfileMemberCard = () => {
           </motion.p>
         </div>
 
-        {/* Bottom row — Joining date + Latest points */}
+        {/* Bottom row — Member Since / Lifetime Spend / Latest */}
         <div
-          className="flex items-center justify-between pt-4"
+          className="grid grid-cols-3 gap-3 pt-4"
           style={{ borderTop: "1px solid rgba(0,0,0,0.18)" }}
         >
-          <div className="flex items-center gap-2">
-            <Calendar size={12} style={{ color: "rgba(0,0,0,0.55)" }} />
-            <div>
-              <p
-                className="text-[9px] tracking-wider uppercase font-semibold"
-                style={{ color: "rgba(0,0,0,0.5)" }}
-              >
-                Member Since
-              </p>
-              <p
-                className="text-[12px] font-semibold"
-                style={{ color: "rgba(0,0,0,0.85)" }}
-              >
-                {member.join_date || "—"}
-              </p>
-            </div>
+          <div className="flex flex-col items-start gap-1">
+            <p
+              className="text-[9px] tracking-wider uppercase font-semibold"
+              style={{ color: "rgba(0,0,0,0.5)" }}
+            >
+              Member Since
+            </p>
+            <p
+              className="text-[12px] font-semibold"
+              style={{ color: "rgba(0,0,0,0.85)" }}
+            >
+              {member.join_date || "—"}
+            </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            {latestPoints > 0 ? (
-              <Sparkles size={12} style={{ color: "rgba(0,0,0,0.55)" }} />
-            ) : (
-              <TrendingUp size={12} style={{ color: "rgba(0,0,0,0.55)" }} />
-            )}
-            <div className="text-right">
-              <p
-                className="text-[9px] tracking-wider uppercase font-semibold"
-                style={{ color: "rgba(0,0,0,0.5)" }}
-              >
-                Latest
-              </p>
-              <p
-                className="text-[12px] font-bold"
-                style={{
-                  color:
-                    latestPoints > 0
-                      ? "rgba(20,80,20,0.85)"
-                      : "rgba(120,40,40,0.85)",
-                }}
-              >
-                {latestPointsLabel} pts
-              </p>
-            </div>
+          <div className="flex flex-col items-center gap-1">
+            <p
+              className="text-[9px] tracking-wider uppercase font-semibold"
+              style={{ color: "rgba(0,0,0,0.5)" }}
+            >
+              Lifetime Spend
+            </p>
+            <p
+              className="text-[12px] font-bold"
+              style={{ color: "rgba(0,0,0,0.85)" }}
+            >
+              ¥{member.lifetime_spend_yen.toLocaleString()}
+            </p>
+          </div>
+
+          <div className="flex flex-col items-end gap-1">
+            <p
+              className="text-[9px] tracking-wider uppercase font-semibold"
+              style={{ color: "rgba(0,0,0,0.5)" }}
+            >
+              Latest
+            </p>
+            <p
+              className="text-[12px] font-bold"
+              style={{
+                color:
+                  latestPoints > 0
+                    ? "rgba(20,80,20,0.85)"
+                    : "rgba(120,40,40,0.85)",
+              }}
+            >
+              {latestPointsLabel} pts
+            </p>
           </div>
         </div>
       </div>
