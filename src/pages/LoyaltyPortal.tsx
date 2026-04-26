@@ -62,6 +62,13 @@ interface PortalData {
   loyalty_member: LoyaltyMember | null;
   loyalty_tiers: TierRow[];
   loyalty_transactions: LoyaltyTxRow[];
+  /**
+   * Server-resolved beta whitelist flag. customer-portal reads
+   * loyalty_beta_members with the service role because the table's RLS
+   * denies anon SELECT — the browser-side useLoyaltyAccess check would
+   * silently return false for any portal-token session.
+   */
+  is_loyalty_beta?: boolean;
 }
 
 const tierStorageKey = (customerId: string) => `cha-jewels-last-seen-tier-${customerId}`;
@@ -312,11 +319,16 @@ export default function LoyaltyPortal() {
   const data = portalQuery.data;
   const member = data.loyalty_member;
 
+  // The hook's access.isBeta is unreliable here — the portal-token
+  // session has no auth and RLS blocks loyalty_beta_members reads. Use
+  // the server-resolved is_loyalty_beta from customer-portal instead.
+  const hasAccess = access.isFeatureEnabled || !!data.is_loyalty_beta;
+
   // Routing decision:
   //   - !hasAccess              → ComingSoon
   //   - hasAccess && !member    → JoinPrompt
   //   - hasAccess && member     → MemberView (full stack)
-  if (!access.hasAccess) {
+  if (!hasAccess) {
     return (
       <FullScreenWrap>
         <TopBar token={token} />
