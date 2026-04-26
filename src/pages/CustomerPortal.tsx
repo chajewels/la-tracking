@@ -265,7 +265,18 @@ export default function CustomerPortal() {
   const [showSplash, setShowSplash] = useState(true);
 
   // ── PIN gate state ──
-  const [pinVerified, setPinVerified] = useState(false);
+  // Per-token sessionStorage key so the PIN gate is skipped after the user
+  // has already verified once in this browser session. Closing the tab
+  // clears sessionStorage, so the gate fires again on the next visit.
+  const pinSessionKey = token ? `portal_pin_verified_${token}` : '';
+  const [pinVerified, setPinVerified] = useState(() => {
+    if (!pinSessionKey) return false;
+    try {
+      return sessionStorage.getItem(pinSessionKey) === '1';
+    } catch {
+      return false;
+    }
+  });
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState('');
   const [pinLoading, setPinLoading] = useState(false);
@@ -290,6 +301,13 @@ export default function CustomerPortal() {
       } else {
         setPinVerified(true);
         setPin('');
+        if (pinSessionKey) {
+          try {
+            sessionStorage.setItem(pinSessionKey, '1');
+          } catch {
+            /* private mode / quota — non-fatal, gate falls back to React state */
+          }
+        }
       }
     } catch {
       setPinError('Something went wrong. Please try again.');
