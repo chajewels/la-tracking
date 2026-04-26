@@ -1,124 +1,80 @@
-import { useEffect, useState } from 'react';
-import { motion, useReducedMotion } from 'framer-motion';
-import { useLoyaltyData } from './loyaltyData';
+import { motion } from "framer-motion";
+import { Coins, ArrowUpRight, Gift, Activity } from "lucide-react";
+import { useLoyaltyData } from "@/components/loyalty/loyaltyData";
 
-const CG = "'Cormorant Garamond',Georgia,serif";
-
-const P = {
-  s: '#111111',
-  s2: '#1A1A1A',
-  br: '#2A2200',
-  gp: '#C9A84C',
-  gl: '#E8C96D',
-  tp: '#F5F0E8',
-  ts: '#9A8F7E',
-  gr: 'linear-gradient(135deg,#C9A84C 0%,#E8C96D 50%,#C9A84C 100%)',
-} as const;
-
-function useCountUp(target: number, durationMs = 1200, enabled = true) {
-  const [value, setValue] = useState(enabled ? 0 : target);
-  useEffect(() => {
-    if (!enabled) {
-      setValue(target);
-      return;
-    }
-    const start = performance.now();
-    let raf = 0;
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / durationMs);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setValue(Math.round(target * eased));
-      if (t < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [target, durationMs, enabled]);
-  return value;
-}
-
-export function PointsSnapshot() {
+const PointsSnapshot = () => {
   const { member } = useLoyaltyData();
-  const reduce = useReducedMotion();
+  if (!member) return null;
 
-  const remaining = member?.available_points ?? 0;
-  const earned = member?.lifetime_points_earned ?? 0;
-  const redeemed = member?.redeemed_points ?? 0;
-  const multiplier = member?.current_multiplier ?? 1;
-
-  const animated = useCountUp(remaining, 1200, !reduce);
+  const stats = [
+    {
+      label: "Lifetime Earned",
+      value: member.lifetime_points_earned.toLocaleString(),
+      icon: ArrowUpRight,
+      color: "text-primary",
+    },
+    {
+      label: "Redeemed",
+      value: member.redeemed_points.toLocaleString(),
+      icon: Gift,
+      color: "text-primary",
+    },
+    {
+      label: "Multiplier",
+      value: `${member.current_multiplier}x`,
+      icon: Coins,
+      color: "text-primary",
+    },
+  ];
 
   return (
     <motion.div
-      initial={reduce ? false : { opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: 'easeOut' }}
-      className="mx-auto w-full max-w-md rounded-2xl p-6 sm:p-8"
-      style={{
-        background: P.s,
-        border: `1px solid ${P.gp}55`,
-        boxShadow: `0 4px 24px ${P.gp}22`,
-      }}
+      transition={{ delay: 0.4 }}
     >
-      <div
-        className="text-center text-xs"
-        style={{ color: P.ts, letterSpacing: '0.22em', textTransform: 'uppercase' }}
-      >
-        Your Points
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-display text-lg font-semibold text-foreground">
+          Points Overview
+        </h3>
+        <button
+          onClick={() => {}}
+          className="text-[11px] text-primary font-body font-semibold tracking-wide"
+        >
+          Details
+        </button>
       </div>
-
-      <div className="mt-4 text-center">
-        <div
-          style={{
-            fontFamily: CG,
-            fontSize: 'clamp(48px, 12vw, 72px)',
-            lineHeight: 1,
-            background: P.gr,
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            fontWeight: 600,
-            letterSpacing: '0.02em',
-          }}
-        >
-          {animated.toLocaleString()}
-        </div>
-        <div
-          className="mt-1 text-sm italic"
-          style={{ color: P.ts, fontFamily: CG }}
-        >
-          points available
-        </div>
-        {multiplier > 1 && (
+      <div className="grid grid-cols-3 gap-2">
+        {stats.map((stat, i) => (
           <div
-            className="mt-2 text-[11px]"
-            style={{ color: P.gl, letterSpacing: '0.18em', textTransform: 'uppercase' }}
+            key={i}
+            className="bg-card rounded-xl p-3 shadow-card border-gold-accent text-center"
           >
-            {multiplier}× earn rate active
+            <stat.icon
+              size={14}
+              className={`${stat.color} mx-auto mb-1.5`}
+              strokeWidth={2}
+            />
+            <p className="font-display text-lg font-bold text-foreground leading-none">
+              {stat.value}
+            </p>
+            <p className="text-[8px] text-muted-foreground font-body mt-1 tracking-wider uppercase">
+              {stat.label}
+            </p>
           </div>
-        )}
+        ))}
       </div>
-
-      <div
-        className="my-5 h-px w-full"
-        style={{
-          background: `linear-gradient(90deg, transparent 0%, ${P.br} 50%, transparent 100%)`,
-        }}
-      />
-
-      <div className="space-y-1.5 text-sm" style={{ color: P.tp }}>
-        <Row label="Total Earned" value={earned.toLocaleString()} />
-        <Row label="Total Redeemed" value={redeemed.toLocaleString()} />
+      <div className="flex items-center justify-center gap-1.5 mt-2">
+        <Activity size={10} className="text-primary" />
+        <p className="text-[10px] text-muted-foreground font-body">
+          Status:{' '}
+          <span className="font-semibold text-primary">
+            {member.activity_status}
+          </span>
+        </p>
       </div>
     </motion.div>
   );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between">
-      <span style={{ color: P.ts }}>{label}</span>
-      <span style={{ color: P.tp, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
-    </div>
-  );
-}
+};
 
 export default PointsSnapshot;

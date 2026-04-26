@@ -1,174 +1,107 @@
-import { motion, useReducedMotion } from 'framer-motion';
-import { useLoyaltyData, type LoyaltyTierData, type TierName } from './loyaltyData';
+import { motion } from "framer-motion";
+import { ArrowRight, Sparkles } from "lucide-react";
+import { useLoyaltyData } from "@/components/loyalty/loyaltyData";
 
-const CG = "'Cormorant Garamond',Georgia,serif";
-
-const P = {
-  s: '#111111',
-  s2: '#1A1A1A',
-  br: '#2A2200',
-  gp: '#C9A84C',
-  gl: '#E8C96D',
-  tp: '#F5F0E8',
-  ts: '#9A8F7E',
-  gr: 'linear-gradient(90deg,#C9A84C 0%,#E8C96D 50%,#C9A84C 100%)',
-} as const;
-
-const fmtJpy = (n: number) => `¥${Math.round(n).toLocaleString()}`;
-
-function findTier(tiers: LoyaltyTierData[], name: TierName | undefined): {
-  current: LoyaltyTierData | null;
-  next: LoyaltyTierData | null;
-  isMax: boolean;
-} {
-  const sorted = [...tiers].sort((a, b) => a.spendRequired - b.spendRequired);
-  const idx = name
-    ? sorted.findIndex((t) => t.name.toLowerCase() === name.toLowerCase())
-    : -1;
-  const current = idx >= 0 ? sorted[idx] : null;
-  const next =
-    idx >= 0 && idx < sorted.length - 1 ? sorted[idx + 1] : null;
-  const isMax = idx >= 0 && idx === sorted.length - 1;
-  return { current, next, isMax };
-}
-
-export function VipProgressSection() {
+const VipProgressSection = () => {
   const { member, tiers } = useLoyaltyData();
-  const reduce = useReducedMotion();
+  if (!member || !tiers || tiers.length === 0) return null;
 
-  const cumulative = member?.lifetime_spend_yen ?? 0;
-  const { current, next, isMax } = findTier(tiers, member?.current_tier);
+  const currentTier = tiers.find((t) => t.name === member.current_tier);
+  if (!currentTier) return null;
+  const currentTierIndex = tiers.indexOf(currentTier);
+  const nextTier = tiers[currentTierIndex + 1];
+  if (!nextTier) return null;
+
+  const progress =
+    ((member.lifetime_spend_yen - currentTier.spendRequired) /
+      (nextTier.spendRequired - currentTier.spendRequired)) *
+    100;
+  const remaining = member.amount_needed_for_next_tier;
+  const isClose = progress > 70;
 
   return (
-    <div
-      className="mx-auto w-full max-w-md rounded-2xl p-6 sm:p-8"
-      style={{
-        background: P.s,
-        border: `1px solid ${P.br}`,
-        boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
-      }}
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.35 }}
+      className="bg-card rounded-2xl p-5 shadow-card border-gold-accent space-y-4"
     >
-      <div
-        className="text-center text-xs"
-        style={{ color: P.ts, letterSpacing: '0.22em', textTransform: 'uppercase' }}
-      >
-        Tier Progress
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Sparkles size={14} className="text-primary" />
+          <p className="text-[11px] font-body font-semibold text-foreground">
+            Progress to {nextTier.name}
+          </p>
+        </div>
+        <span className="text-[10px] font-body font-bold text-primary">
+          {Math.round(progress)}%
+        </span>
       </div>
-
-      {isMax ? (
-        <div className="mt-5 text-center">
-          <div className="text-4xl">👑</div>
-          <div
-            className="mt-2 text-lg sm:text-xl"
-            style={{
-              fontFamily: CG,
-              background: P.gr,
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-            }}
-          >
-            Maximum Tier Achieved
-          </div>
-          <div
-            className="mt-2 text-xs italic"
-            style={{ color: P.ts, fontFamily: CG }}
-          >
-            Cumulative spend: {fmtJpy(cumulative)}
-          </div>
-        </div>
-      ) : current && next ? (
-        <Progress
-          current={current}
-          next={next}
-          cumulative={cumulative}
-          reduce={!!reduce}
-        />
-      ) : (
-        <div
-          className="mt-5 text-center text-xs italic"
-          style={{ color: P.ts }}
-        >
-          Tier data unavailable
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Progress({
-  current,
-  next,
-  cumulative,
-  reduce,
-}: {
-  current: LoyaltyTierData;
-  next: LoyaltyTierData;
-  cumulative: number;
-  reduce: boolean;
-}) {
-  const span = Math.max(1, next.spendRequired - current.spendRequired);
-  const within = Math.max(0, cumulative - current.spendRequired);
-  const pct = Math.min(100, Math.max(0, (within / span) * 100));
-  const toNext = Math.max(0, next.spendRequired - cumulative);
-
-  return (
-    <>
-      <div className="mt-4 flex items-baseline justify-between text-sm" style={{ color: P.tp }}>
-        <div>
-          <div
-            className="text-[10px]"
-            style={{ color: P.ts, letterSpacing: '0.2em', textTransform: 'uppercase' }}
-          >
-            Current
-          </div>
-          <div style={{ fontFamily: CG, fontSize: '18px' }}>
-            <span aria-hidden="true">{current.icon}</span> {current.name}
-          </div>
-        </div>
-        <div className="text-right">
-          <div
-            className="text-[10px]"
-            style={{ color: P.ts, letterSpacing: '0.2em', textTransform: 'uppercase' }}
-          >
-            Next
-          </div>
-          <div style={{ fontFamily: CG, fontSize: '18px', color: P.gl }}>
-            <span aria-hidden="true">{next.icon}</span> {next.name}
-          </div>
-        </div>
-      </div>
-
       <div
-        className="mt-4 flex items-baseline justify-between text-xs"
-        style={{ color: P.tp, fontVariantNumeric: 'tabular-nums' }}
-      >
-        <span>{fmtJpy(cumulative)} / {fmtJpy(next.spendRequired)}</span>
-        <span style={{ color: P.gl }}>{Math.round(pct)}%</span>
-      </div>
-
-      <div
-        className="mt-2 h-2.5 w-full overflow-hidden rounded-full"
-        style={{ background: P.s2, border: `1px solid ${P.br}` }}
+        className="w-full h-2.5 rounded-full overflow-hidden"
+        style={{ background: 'hsla(36, 20%, 40%, 0.15)' }}
       >
         <motion.div
-          initial={reduce ? false : { width: 0 }}
-          animate={{ width: `${pct}%` }}
-          transition={{ duration: 1, ease: 'easeOut' }}
-          className="h-full rounded-full"
-          style={{ background: P.gr, boxShadow: `0 0 8px ${P.gp}66` }}
-        />
+          initial={{ width: 0 }}
+          animate={{ width: `${Math.min(progress, 100)}%` }}
+          transition={{ duration: 1.4, ease: "easeOut", delay: 0.5 }}
+          className="h-full rounded-full gradient-gold relative"
+        >
+          <div
+            className="absolute right-0 top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full animate-golden-pulse"
+            style={{ background: 'hsl(42, 60%, 65%)' }}
+          />
+        </motion.div>
       </div>
-
-      <div
-        className="mt-3 text-center text-xs italic"
-        style={{ color: P.ts, fontFamily: CG }}
+      <p className="text-[11px] text-muted-foreground font-body leading-relaxed">
+        Spend{' '}
+        <span className="font-bold text-primary">
+          ¥{remaining.toLocaleString()}
+        </span>{' '}
+        more to unlock{' '}
+        <span className="font-semibold text-foreground">{nextTier.name}</span>.
+      </p>
+      <p className="text-[10px] text-muted-foreground/70 font-body italic">
+        {isClose
+          ? `You're almost there! Just ¥${remaining.toLocaleString()} away from unlocking ${nextTier.name} benefits.`
+          : `You are getting closer to ${nextTier.name} rewards.`}
+      </p>
+      <div className="bg-background/60 rounded-xl p-3.5 border-gold-accent">
+        <p className="text-[9px] tracking-[0.2em] uppercase text-primary font-body font-semibold mb-2.5">
+          Next Tier Benefits
+        </p>
+        <ul className="space-y-1.5">
+          {nextTier.benefits.map((b, i) => (
+            <li
+              key={i}
+              className="flex items-start gap-2 text-[10px] text-muted-foreground font-body"
+            >
+              <span className="text-primary mt-0.5 text-[8px]">✦</span>
+              <span>{b}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="flex items-center justify-between py-2 border-t border-border/50">
+        <p className="text-[10px] text-muted-foreground font-body">
+          Points Rule:{' '}
+          <span className="font-semibold text-foreground">
+            ¥10,000 = 100 loyalty points
+          </span>
+        </p>
+      </div>
+      <button
+        onClick={() => {}}
+        className="flex items-center gap-1 text-primary text-[10px] font-body font-semibold group"
       >
-        {fmtJpy(toNext)} to {next.name}
-      </div>
-    </>
+        Explore Tier Benefits
+        <ArrowRight
+          size={10}
+          className="group-hover:translate-x-0.5 transition-transform"
+        />
+      </button>
+    </motion.div>
   );
-}
+};
 
 export default VipProgressSection;
