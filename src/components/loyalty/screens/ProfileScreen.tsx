@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { ChevronRight, LogOut, HelpCircle, Shield, Bell, FileText, MessageCircle, Crown, Calendar, Users } from "lucide-react";
+import { ChevronRight, LogOut, HelpCircle, Shield, Bell, FileText, MessageCircle, Crown, Calendar, Users, X } from "lucide-react";
+import { toast } from "sonner";
 import { useLoyaltyData } from "@/components/loyalty/loyaltyData";
+import MemberCard from "@/components/loyalty/MemberCard";
 // TODO: wire to Supabase
 import { FAQS, REFERRAL } from "@/components/loyalty/staticFallback";
 import chaJewelsLogo from "@/assets/cha-jewels-logo.jpeg";
@@ -14,6 +16,7 @@ export default function ProfileScreen({ setTab }: ProfileScreenProps) {
   const { member, tiers } = useLoyaltyData();
   const [showFaq, setShowFaq] = useState(false);
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
+  const [showTerms, setShowTerms] = useState(false);
   // TODO: wire birthday to Supabase (no store field yet)
   const [birthday, setBirthday] = useState('');
   const [editingBirthday, setEditingBirthday] = useState(false);
@@ -32,6 +35,9 @@ export default function ProfileScreen({ setTab }: ProfileScreenProps) {
   return (
     <div className="px-5 pt-6 pb-4 space-y-6">
       <h1 className="font-display text-2xl font-semibold text-foreground">Profile</h1>
+
+      {/* Gold loyalty Member Card */}
+      <MemberCard />
 
       {/* Member Card */}
       <motion.div
@@ -159,11 +165,12 @@ export default function ProfileScreen({ setTab }: ProfileScreenProps) {
       <div className="bg-card rounded-2xl shadow-card border-gold-accent overflow-hidden">
         {[
           { label: 'My Tier Benefits', icon: Crown, action: () => setTab('tiers') },
-          { label: 'Notification Preferences', icon: Bell, action: () => {} },
-          { label: 'Security Settings', icon: Shield, action: () => {} },
+          { label: 'Notification Preferences', icon: Bell, action: () => toast('Notification preferences coming soon') },
+          // TODO: build security settings page
+          { label: 'Security Settings', icon: Shield, action: () => toast('Security settings coming soon') },
           { label: 'Help & FAQ', icon: HelpCircle, action: () => setShowFaq(!showFaq) },
-          { label: 'Contact Cha Jewels Support', icon: MessageCircle, action: () => {} },
-          { label: 'Terms & Privacy', icon: FileText, action: () => {} },
+          { label: 'Contact Cha Jewels Support', icon: MessageCircle, action: () => window.open('https://m.me/chajewelsjp', '_blank') },
+          { label: 'Terms & Privacy', icon: FileText, action: () => setShowTerms(true) },
         ].map((item, i) => (
           <button
             key={item.label}
@@ -225,9 +232,58 @@ export default function ProfileScreen({ setTab }: ProfileScreenProps) {
           className="w-10 h-10 object-contain opacity-40 mix-blend-multiply dark:mix-blend-screen"
         />
         <p className="text-[11px] text-muted-foreground/40 font-body italic">
-          Cha Jewels Japan Gold · Loyalty v1.0
+          Cha Jewels Loyalty V1.0
         </p>
       </div>
+
+      {/* Terms & Privacy modal */}
+      {showTerms && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => setShowTerms(false)}
+        >
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-card rounded-2xl shadow-elevated border-gold-accent w-full max-w-md max-h-[80vh] overflow-y-auto"
+          >
+            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-border/50 sticky top-0 bg-card">
+              <h3 className="font-display text-lg font-semibold text-foreground">
+                Terms &amp; Privacy
+              </h3>
+              <button
+                onClick={() => setShowTerms(false)}
+                className="w-8 h-8 rounded-full bg-muted/40 flex items-center justify-center"
+                aria-label="Close"
+              >
+                <X size={16} className="text-muted-foreground" />
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              {/* TODO: replace with actual legal text from Cha Jewels */}
+              <p className="text-[13px] font-body text-foreground leading-relaxed">
+                Terms of Service and Privacy Policy for Cha Jewels Loyalty Program.
+                Full legal text will be added soon.
+              </p>
+              <p className="text-[12px] font-body text-muted-foreground leading-relaxed">
+                By participating in the Cha Jewels Loyalty Program, you agree to the
+                terms governing point earning, redemption, tier qualification, and
+                account activity. Points are non-transferable and have no cash value.
+              </p>
+              <p className="text-[12px] font-body text-muted-foreground leading-relaxed">
+                Cha Jewels reserves the right to update these terms at any time.
+                Continued participation in the program constitutes acceptance of
+                the latest version.
+              </p>
+              <p className="text-[12px] font-body text-muted-foreground/70 italic leading-relaxed">
+                For questions, contact us via the Contact Support option in your
+                Profile.
+              </p>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Check, Lock } from 'lucide-react';
 import { useLoyaltyData } from '@/components/loyalty/loyaltyData';
@@ -15,6 +16,17 @@ const formatSpend = (yen: number) => {
 
 export default function TiersScreen({ onBack }: TiersScreenProps) {
   const { member, tiers } = useLoyaltyData();
+  const currentTierRef = useRef<HTMLDivElement | null>(null);
+
+  // Scroll the user's current tier card into view on mount.
+  // TiersScreen unmounts when leaving the tab, so this fires
+  // each time the user opens Tiers from any source (Home, Profile).
+  useEffect(() => {
+    if (currentTierRef.current) {
+      currentTierRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, []);
+
   if (!member || !tiers || tiers.length === 0) return null;
 
   const currentTierIndex = tiers.findIndex((t) => t.name === member.current_tier);
@@ -101,10 +113,11 @@ export default function TiersScreen({ onBack }: TiersScreenProps) {
           return (
             <motion.div
               key={tier.name}
+              ref={isCurrent ? currentTierRef : undefined}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.12 * i + 0.15 }}
-              className="rounded-2xl p-4 shadow-card bg-card"
+              className="rounded-2xl p-4 shadow-card bg-card scroll-mt-6"
               style={
                 isCurrent
                   ? { border: `2px solid ${tier.accent}` }

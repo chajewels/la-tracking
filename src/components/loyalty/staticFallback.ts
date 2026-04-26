@@ -105,13 +105,13 @@ export interface FallbackFaq {
 
 // TODO: wire to Supabase
 export const FAQS: FallbackFaq[] = [
-  { q: 'How do I earn Cha Jewels loyalty points?', a: 'You earn 1 point per ¥1,000 spent on every qualifying purchase or layaway order. Your tier multiplier is applied automatically — for example, Radiant members earn 2x, so a ¥50,000 purchase earns 100 points.' },
-  { q: 'Do my points expire?', a: "Points do not expire as long as you remain an active customer. Active means making at least 1 purchase every 6 months. If inactive for 6 months, tier downgrade may apply and benefits may be reduced." },
-  { q: 'How do tier upgrades work?', a: "Your tier is based on your total lifetime spend in Japanese Yen (¥). Once your lifetime spend reaches a tier threshold, you're upgraded automatically and enjoy new benefits instantly." },
-  { q: 'Can I redeem points on layaway purchases?', a: 'Yes! Points can be redeemed on regular items, layaway purchases, and discounted items. Everyday Layaway, Cha Jewels All the Way!' },
-  { q: 'Can I transfer or cash out my points?', a: 'Points are non-transferable and cannot be exchanged for cash. They can only be redeemed for Cha Jewels rewards and discounts.' },
-  { q: 'What happens if I become inactive?', a: "If you don't make a purchase for 6 months, you may be moved to inactive status. This could result in a tier downgrade and reduced benefits. Simply make a purchase to reactivate your membership." },
-  { q: 'What is the VIP Rewards Vault?', a: 'The VIP Rewards Vault is an exclusive rewards section available to higher-tier members. Radiant members get limited access, Elite members get full access, and Crown VIP members enjoy premium access to the most exclusive rewards.' },
-  { q: 'How does the referral program work?', a: 'Share your unique referral code with friends. When they sign up and complete their first purchase, you earn 100 bonus points and they receive 50 welcome bonus points.' },
-  { q: 'What is Japan Gold?', a: "Japan Gold is our signature line of premium gold jewelry sourced and crafted using Japanese goldsmithing techniques. It's what makes Cha Jewels unique!" },
+  { q: 'How do I earn loyalty points?', a: 'You earn 100 loyalty points for every ¥10,000 spent on Cha Jewels purchases. Higher tier members earn 2x or 3x points based on their tier multiplier.' },
+  { q: 'What are the loyalty tiers?', a: 'Cha Jewels has 4 tiers — Glimmer (¥0+), Radiant (¥1M+), Elite (¥4M+), and Crown VIP (¥8M+). Each tier unlocks better rewards and earning rates.' },
+  { q: 'How do I redeem my points?', a: 'Browse the Rewards tab to see what you can redeem with your points. Some rewards are available to all members, others are tier-exclusive.' },
+  { q: 'When do my points expire?', a: 'Loyalty points are valid as long as you remain an active member. Make at least one purchase every 6 months to keep your tier and points active.' },
+  { q: 'How do I check my tier progress?', a: 'Visit the Tiers tab to see your current tier, your progress to the next tier, and all tier benefits.' },
+  { q: 'Can I share my points with someone else?', a: 'No, loyalty points are non-transferable and tied to your customer account.' },
+  { q: 'How does the referral program work?', a: 'Share your referral code from the Profile tab. When a friend joins using your code, you both earn bonus points.' },
+  { q: 'What happens if I become inactive?', a: 'After 6 months without a purchase, your tier may be downgraded one level. Stay active with regular purchases to maintain your tier.' },
+  { q: 'How do I contact customer support?', a: 'Use the Contact Support button in the Profile tab to reach the Cha Jewels team via Messenger or email.' },
 ];
