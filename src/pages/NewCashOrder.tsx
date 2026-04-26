@@ -158,7 +158,7 @@ export default function NewCashOrder() {
       toast.error('Please complete all required fields');
       return;
     }
-    if (invoiceCheck === 'taken') {
+    if ((invoiceCheck as InvoiceCheck) === 'taken') {
       toast.error(`Invoice number "${invoiceNumber}" already exists`);
       return;
     }

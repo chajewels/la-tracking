@@ -133,10 +133,10 @@ function useCashSubmissions(orderId: string | undefined) {
     enabled: !!orderId,
     staleTime: 30_000,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('payment_submissions' as any)
+      const { data, error } = await (supabase as any)
+        .from('payment_submissions')
         .select('id, cash_order_id, submitted_amount, payment_method, payment_date, sender_name, status, created_at')
-        .eq('cash_order_id' as any, orderId)
+        .eq('cash_order_id', orderId)
         .in('status', ['submitted', 'under_review', 'needs_clarification'])
         .order('created_at', { ascending: false });
       if (error) throw error;
