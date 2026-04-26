@@ -2,15 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Diamond } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { useLoyaltyAccess } from '@/hooks/useLoyaltyAccess';
 import { LoyaltyComingSoon } from '@/components/loyalty/LoyaltyComingSoon';
 import { LoyaltyJoinPrompt } from '@/components/loyalty/LoyaltyJoinPrompt';
-import MemberCard from '@/components/loyalty/MemberCard';
-import VipProgressSection from '@/components/loyalty/VipProgressSection';
-import PointsSnapshot from '@/components/loyalty/PointsSnapshot';
-import RecentActivity from '@/components/loyalty/RecentActivity';
 import TierCelebrationModal from '@/components/loyalty/TierCelebrationModal';
 import { RedemptionForm } from '@/components/loyalty/RedemptionForm';
 import {
@@ -22,6 +17,15 @@ import {
   type LoyaltyTransactionData,
 } from '@/components/loyalty/loyaltyData';
 import LoyaltySplashScreen from '@/components/portal/LoyaltySplashScreen';
+import LoyaltyBottomNav, {
+  type LoyaltyTab,
+} from '@/components/loyalty/LoyaltyBottomNav';
+import HomeScreen from '@/components/loyalty/screens/HomeScreen';
+import RewardsScreen from '@/components/loyalty/screens/RewardsScreen';
+import PointsScreen from '@/components/loyalty/screens/PointsScreen';
+import NotificationsScreen from '@/components/loyalty/screens/NotificationsScreen';
+import ProfileScreen from '@/components/loyalty/screens/ProfileScreen';
+import TiersScreen from '@/components/loyalty/screens/TiersScreen';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -169,6 +173,9 @@ interface MemberViewProps {
 function MemberView({ data, member, portalToken }: MemberViewProps) {
   const queryClient = useQueryClient();
   const [isRedemptionOpen, setIsRedemptionOpen] = useState(false);
+  // 'tiers' is a hidden tab — reached via Home → QuickActions.
+  // BottomNav highlights nothing while it is active.
+  const [tab, setTab] = useState<LoyaltyTab>('home');
 
   // ── Build the loyalty data store snapshot ──────────────────────
   const loyaltyMember = data.loyalty_member;
@@ -319,27 +326,26 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
 
   return (
     <>
-      <div className="px-5 pt-6 pb-4 space-y-5">
-        <MemberCard />
-        <VipProgressSection />
-        <PointsSnapshot />
-
-        <Button
-          onClick={() => setIsRedemptionOpen(true)}
-          disabled={!canRedeem}
-          className="w-full max-w-md mx-auto block"
-          style={{
-            background: canRedeem ? P.gr : P.s2,
-            color: canRedeem ? '#1A1500' : P.ts,
-            fontWeight: 600,
-            border: 'none',
-          }}
-        >
-          {canRedeem ? '💎 Redeem Points' : 'No points to redeem yet'}
-        </Button>
-
-        <RecentActivity />
+      <div className="pb-24">
+        {tab === 'home' && (
+          <HomeScreen
+            canRedeem={canRedeem}
+            onRedeemClick={() => setIsRedemptionOpen(true)}
+            onShowTiers={() => setTab('tiers')}
+          />
+        )}
+        {tab === 'rewards' && <RewardsScreen />}
+        {tab === 'points' && <PointsScreen />}
+        {tab === 'notifications' && <NotificationsScreen />}
+        {tab === 'profile' && <ProfileScreen />}
+        {tab === 'tiers' && <TiersScreen onBack={() => setTab('home')} />}
       </div>
+
+      <LoyaltyBottomNav
+        active={tab}
+        unreadCount={0}
+        onChange={setTab}
+      />
 
       <RedemptionForm
         isOpen={isRedemptionOpen}
