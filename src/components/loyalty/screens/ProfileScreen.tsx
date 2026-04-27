@@ -7,9 +7,10 @@ import ProfileMemberCard from "@/components/loyalty/ProfileMemberCard";
 // TODO: wire to Supabase
 import { FAQS, REFERRAL } from "@/components/loyalty/staticFallback";
 import chaJewelsLogo from "@/assets/cha-jewels-logo.jpeg";
+import type { LoyaltyTab } from "@/components/loyalty/LoyaltyBottomNav";
 
 interface ProfileScreenProps {
-  setTab: (tab: string) => void;
+  setTab: (tab: LoyaltyTab) => void;
 }
 
 export default function ProfileScreen({ setTab }: ProfileScreenProps) {
