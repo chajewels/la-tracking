@@ -125,17 +125,18 @@ export default function CashPortalPaymentDialog({
 
   const uploadProof = useCallback(async (): Promise<string | null> => {
     if (!proofFile) return null;
-    const ext = (proofFile.name.split('.').pop() || 'jpg').toLowerCase();
-    const fileName = `${safeForFilename(customerName)}_${safeForFilename(cashOrder.invoice_number)}_Cash_${paymentDate}.${ext}`;
-    const filePath = `${cashOrder.id}/${fileName}`;
+    const timestamp = Date.now();
+    const fileExt = (proofFile.name.split('.').pop() || 'jpg').toLowerCase();
+    const uniqueFilePath = `${cashOrder.id}/${timestamp}_${safeForFilename(cashOrder.invoice_number)}_Cash.${fileExt}`;
     const uploadRes = await fetch(
-      `${SUPABASE_URL}/storage/v1/object/payment-proofs/${filePath}`,
+      `${SUPABASE_URL}/storage/v1/object/payment-proofs/${uniqueFilePath}`,
       {
         method: 'POST',
         headers: {
           apikey: SUPABASE_KEY,
           Authorization: `Bearer ${SUPABASE_KEY}`,
           'Content-Type': proofFile.type,
+          'x-upsert': 'true',
         },
         body: proofFile,
       },
@@ -144,8 +145,8 @@ export default function CashPortalPaymentDialog({
       const text = await uploadRes.text();
       throw new Error(text || 'Proof upload failed');
     }
-    return `${SUPABASE_URL}/storage/v1/object/public/payment-proofs/${filePath}`;
-  }, [proofFile, customerName, cashOrder.invoice_number, cashOrder.id, paymentDate]);
+    return `${SUPABASE_URL}/storage/v1/object/public/payment-proofs/${uniqueFilePath}`;
+  }, [proofFile, cashOrder.invoice_number, cashOrder.id]);
 
   const handleSubmit = async () => {
     setFormError(null);
