@@ -8,14 +8,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
 import { Currency } from '@/lib/types';
 import { formatCurrency } from '@/lib/calculations';
+import { CHA_PAYMENT_METHODS } from '@/lib/payment-methods';
 import { supabase } from '@/integrations/supabase/client';
 
-type PaymentMethod = 'gcash' | 'bank' | 'cash';
+type PaymentMethod = string;
 
 interface CashOrderArg {
   id: string;
@@ -55,7 +53,7 @@ export default function RecordCashPaymentDialog({
 
   // Form state
   const [amountInput, setAmountInput] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('gcash');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('');
   const [referenceNumber, setReferenceNumber] = useState('');
   const [paymentDate, setPaymentDate] = useState(todayISODate());
   const [senderName, setSenderName] = useState(customerName);
@@ -68,7 +66,7 @@ export default function RecordCashPaymentDialog({
   useEffect(() => {
     if (isOpen) {
       setAmountInput('');
-      setPaymentMethod('gcash');
+      setPaymentMethod('');
       setReferenceNumber('');
       setPaymentDate(todayISODate());
       setSenderName(customerName);
@@ -96,7 +94,7 @@ export default function RecordCashPaymentDialog({
 
   const isFormValid =
     isAmountValid &&
-    !!paymentMethod &&
+    !!paymentMethod.trim() &&
     isDateValid &&
     !!senderName.trim() &&
     !proofError;
@@ -245,16 +243,41 @@ export default function RecordCashPaymentDialog({
           {/* Payment Method */}
           <div className="space-y-1.5">
             <Label className="text-card-foreground">Payment Method *</Label>
-            <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as PaymentMethod)}>
-              <SelectTrigger className="bg-background border-border">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="gcash">GCash</SelectItem>
-                <SelectItem value="bank">Bank Transfer</SelectItem>
-                <SelectItem value="cash">Cash</SelectItem>
-              </SelectContent>
-            </Select>
+            {!paymentMethod ? (
+              <div className="grid gap-2 max-h-48 overflow-y-auto">
+                {CHA_PAYMENT_METHODS.map(method => (
+                  <button
+                    key={method.id}
+                    type="button"
+                    onClick={() => setPaymentMethod(method.name)}
+                    className="text-left p-3 rounded-lg border border-border bg-background hover:border-primary/50 transition-colors"
+                  >
+                    <p className="font-medium text-card-foreground text-sm">{method.name}</p>
+                    {method.bankName && <p className="text-xs text-muted-foreground">{method.bankName}</p>}
+                    {method.accountNumber && <p className="text-xs text-muted-foreground">Account: {method.accountNumber}</p>}
+                    {method.accountName && <p className="text-xs text-muted-foreground">{method.accountName}</p>}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="flex items-center justify-between p-3 rounded-lg border border-primary/50 bg-primary/5">
+                <div>
+                  <p className="font-medium text-card-foreground text-sm">{paymentMethod}</p>
+                  {CHA_PAYMENT_METHODS.find(m => m.name === paymentMethod)?.accountNumber && (
+                    <p className="text-xs text-muted-foreground">
+                      {CHA_PAYMENT_METHODS.find(m => m.name === paymentMethod)?.accountNumber}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('')}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Change
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Reference + Date */}
