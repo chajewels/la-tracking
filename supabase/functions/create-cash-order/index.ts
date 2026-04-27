@@ -51,13 +51,12 @@ Deno.serve(async (req) => {
       invoice_number,
       currency,
       total_amount,
-      item_description,
       order_date,
       notes,
       agreement_version,
     } = body;
 
-    if (!customer_id || !invoice_number || !currency || total_amount == null || !item_description) {
+    if (!customer_id || !invoice_number || !currency || total_amount == null) {
       return new Response(JSON.stringify({ error: "Missing required fields" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -121,7 +120,6 @@ Deno.serve(async (req) => {
       invoice_number,
       currency,
       total_amount: totalAmountNum,
-      item_description,
       order_date: resolvedOrderDate,
       notes: notes ?? null,
       status: "pending",

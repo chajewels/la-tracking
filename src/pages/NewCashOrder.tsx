@@ -43,7 +43,6 @@ export default function NewCashOrder() {
   const [currency, setCurrency] = useState<Currency>('JPY');
   const [totalAmount, setTotalAmount] = useState('');
   const [loyaltyJpyInput, setLoyaltyJpyInput] = useState('');
-  const [itemDescription, setItemDescription] = useState('');
   const [orderDate, setOrderDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
   const [acceptAgreement, setAcceptAgreement] = useState(false);
@@ -149,7 +148,6 @@ export default function NewCashOrder() {
     invoiceCheck !== 'taken' &&
     !!currency &&
     amount > 0 &&
-    !!itemDescription.trim() &&
     !!orderDate;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -169,7 +167,6 @@ export default function NewCashOrder() {
         invoice_number: invoiceNumber.trim(),
         currency,
         total_amount: amount,
-        item_description: itemDescription.trim(),
         order_date: orderDate,
       };
       const loyaltyJpyParsed = Number(loyaltyJpyInput);
@@ -443,18 +440,6 @@ export default function NewCashOrder() {
                   className="bg-background border-border"
                 />
               </div>
-            </div>
-
-            {/* Item Description */}
-            <div className="space-y-2">
-              <Label className="text-card-foreground">Item Description *</Label>
-              <Input
-                value={itemDescription}
-                onChange={(e) => { setItemDescription(e.target.value); markDirty(); }}
-                placeholder="e.g. Gold necklace — 18k, 40cm"
-                className="bg-background border-border"
-                maxLength={200}
-              />
             </div>
 
             {/* Loyalty product amount (admin/finance only) */}
