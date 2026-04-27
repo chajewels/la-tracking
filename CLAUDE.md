@@ -1042,6 +1042,20 @@ When completing a partially_paid month:
       cash vs layaway deferred (needs
       cash_revenue_by_month_6m RPC)
 
+  Cash order payment submission flow: LIVE ✅ (2026-04-27)
+    - submit-cash-payment: duplicate guard (409),
+      rate limit (3/24h, excludes cancelled+rejected)
+    - account_id nullable on payment_submissions
+    - anon storage policy for payment-proofs bucket
+    - service_role SELECT/UPDATE policies on customers table
+    - Payment methods: CHA_PAYMENT_METHODS shared to
+      src/lib/payment-methods.tsx
+    - Pending Submissions hidden when cash order completed
+    - Cancel submission: customer can cancel and resubmit
+
+  Cash order item_description: REMOVED from form ✅ (2026-04-27)
+    - Column remains nullable in DB for invoice use
+
   Loyalty Program Phase 1 (DB): COMPLETE ✅ (2026-04-25)
     - 5 tables created: loyalty_tiers, loyalty_members,
       loyalty_transactions, loyalty_redemptions,
@@ -1335,6 +1349,17 @@ loyalty portal. In progress.
     (separate Firebase repo, not in main repo)
   - Email wiring — wire send-transactional-email
     into send-reminders for grace_period variant
+
+### SYSTEM & PRODUCT (added 2026-04-27)
+  - Session timeout — auto-logout 2 hours
+    inactivity (P5)
+  - Admin audit log for manual DB changes (P6)
+  - Invoice generator — Google Sheets + Drive
+    (service account ready)
+  - Loyalty amount field — make visible to staff
+    role
+  - Invoice button — add to AccountDetail and
+    CashOrderDetail
 
 ## PERIODIC HEALTH QUERIES
 
