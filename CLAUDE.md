@@ -880,6 +880,55 @@ When completing a partially_paid month:
   admin/finance client-side insert from RecordPaymentDialog) use
   status='submitted'.
 
+## LOYALTY AWARD SYSTEM (added 2026-04-27)
+
+### Award triggers:
+  Points are awarded automatically when:
+  - cash_orders.status flips to 'completed'
+  - layaway_accounts.status flips to 'completed'
+    (safety net — primary award still on DP
+    confirmation per non-negotiable rule)
+
+### Two-layer wiring:
+  Layer 1 — Edge function call (primary)
+    review-payment-submission line 615-632
+    calls award-loyalty-points edge function
+    when payment confirmation results in
+    cash order completion or DP confirmation.
+
+  Layer 2 — DB trigger (safety net, added
+            2026-04-27)
+    trg_loyalty_on_cash_order_complete
+      on cash_orders UPDATE
+    trg_loyalty_on_layaway_complete
+      on layaway_accounts UPDATE
+
+    Function: award_loyalty_points_on_complete()
+    - SECURITY DEFINER, exception-safe
+    - Idempotency check: skips if loyalty
+      transaction already exists for this
+      cash_order_id or account_id
+    - Skips if loyalty_jpy_amount < ¥10,000
+      or NULL
+    - Skips if customer not enrolled in
+      loyalty (no auto-enroll)
+    - No tier upgrade detection (edge
+      function handles)
+    - No email send (edge function handles)
+    - First writer wins; second writer sees
+      existing transaction and bails
+
+### Points formula:
+  points = floor(loyalty_jpy_amount / 10000)
+           × 100
+           × current_tier_multiplier
+
+### Tier multipliers:
+  Glimmer:   1x
+  Radiant:   2x
+  Elite:     2x
+  Crown VIP: 3x
+
 ## PROOF OF PAYMENT (added 2026-04-13)
 
   - Stored in Supabase Storage bucket: payment-proofs
@@ -1233,8 +1282,6 @@ loyalty portal. In progress.
      is sole sender)
   4. Adjust Points feature — placeholder UI
      only, no functionality yet
-  5. loyalty_jpy_amount staff guidance —
-     manual entry (product only, no fees)
 
 ### BUG INVESTIGATIONS — DEFERRED
   6. Schedule rows disappearing bug — 3
@@ -1253,6 +1300,13 @@ loyalty portal. In progress.
      with paid_amount = 0 (caused 17636 bug).
      Auto-pay penalty logic should require
      paid_amount >= base_installment_amount.
+  8. review-payment-submission returned 500
+     error on cash order #10000 confirmation.
+     Cause unknown — error log not captured.
+     Order status flipped to completed despite
+     crash, but award call never fired. DB
+     trigger now provides safety net so future
+     failures won't lose points.
 
 ### TODAY'S DATA FIXES (completed)
   - 17636: Month 4 penalties reset from
@@ -1263,6 +1317,18 @@ loyalty portal. In progress.
   - 18088: Month 6 restored manually +
     total_amount corrected from ₱52,118
     to ₱67,980
+
+### TODAY'S DATA FIXES (2026-04-27)
+  - Manually awarded 100 points to Test
+    Customer for cash order #10000 (failed
+    auto-award due to review-payment-submission
+    500 error)
+  - Built DB trigger safety net
+    (award_loyalty_points_on_complete +
+    trg_loyalty_on_cash_order_complete +
+    trg_loyalty_on_layaway_complete)
+  - Verified trigger works end-to-end with
+    cash order #10001 (auto-awarded 100 pts)
 
 ### OTHER
   - Firebase signing page Steps 13-17
