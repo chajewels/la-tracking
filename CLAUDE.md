@@ -1190,6 +1190,36 @@ When completing a partially_paid month:
     - CSR Alerts, Smart Reminders, Extensions: unchanged
     - New Audit tab with 4 sub-tabs added
 
+  Cash order payment submission flow: LIVE ✅ (2026-04-27)
+    - submit-cash-payment: duplicate guard (409),
+      rate limit (3/24h, excludes cancelled+rejected)
+    - account_id nullable on payment_submissions
+    - anon storage policy for payment-proofs bucket
+    - service_role SELECT/UPDATE policies on
+      customers table
+    - Payment methods: CHA_PAYMENT_METHODS shared
+      to src/lib/payment-methods.tsx
+    - Pending Submissions hidden when cash order
+      completed
+    - Cancel submission: customer can cancel and
+      resubmit
+
+  Cash order item_description: REMOVED from form ✅ (2026-04-27)
+    - Column remains nullable in DB for invoice use
+
+  Loyalty award system: LIVE ✅ (2026-04-27)
+    - Two-layer wiring: edge function call +
+      DB trigger safety net
+    - DB trigger: award_loyalty_points_on_complete()
+    - trg_loyalty_on_cash_order_complete on
+      cash_orders UPDATE
+    - trg_loyalty_on_layaway_complete on
+      layaway_accounts UPDATE
+    - Idempotent (skips if transaction exists)
+    - Skips if loyalty_jpy < ¥10,000 or null
+    - Skips if customer not enrolled (no auto-enroll)
+    - Verified end-to-end with cash order #10001
+
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
   PIN hash storage: customers.portal_pin_hash (64-char SHA-256 hex digest)
@@ -1343,6 +1373,17 @@ loyalty portal. In progress.
     trg_loyalty_on_layaway_complete)
   - Verified trigger works end-to-end with
     cash order #10001 (auto-awarded 100 pts)
+  - Cash order #10001 created and completed
+    successfully
+
+### OPERATIONAL ENHANCEMENTS
+  P6: Admin audit log for manual DB changes
+  P7: Invoice generator — Google Sheets +
+      Drive (service account ready)
+  P8: Loyalty amount field — make visible
+      to staff role (currently admin/finance only)
+  P9: Invoice button — add to AccountDetail
+      and CashOrderDetail pages
 
 ### OTHER
   - Firebase signing page Steps 13-17
