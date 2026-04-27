@@ -583,8 +583,8 @@ export default function CashOrderDetail() {
           )}
         </div>
 
-        {/* Payment submissions (admin/finance/staff) */}
-        {(isAdmin || isFinance || isStaff) && (
+        {/* Payment submissions (admin/finance/staff) — hidden once the order is closed */}
+        {(isAdmin || isFinance || isStaff) && order.status === 'pending' && (
           <div className="rounded-xl border border-border bg-card p-5">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-card-foreground">Pending Submissions</h3>
