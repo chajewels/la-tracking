@@ -1,10 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
-import { CheckCircle, Loader2, Upload, X } from 'lucide-react';
+import { CheckCircle, ChevronLeft, Loader2, Upload, X } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  CHA_PAYMENT_METHODS,
+  type ChaPaymentMethod,
+  PaymentMethodCard,
+} from '@/lib/payment-methods';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -19,8 +23,6 @@ const P = {
 const CG = "'Cormorant Garamond',Georgia,serif";
 const MAX_PROOF_BYTES = 5 * 1024 * 1024;
 const ACCEPTED_MIME = 'image/png,image/jpeg,image/jpg,image/webp,application/pdf';
-
-type PaymentMethod = 'gcash' | 'bank' | 'cash';
 
 interface CashOrderArg {
   id: string;
@@ -60,32 +62,40 @@ export default function CashPortalPaymentDialog({
 }: CashPortalPaymentDialogProps) {
   const remaining = Number(cashOrder.remaining_balance);
   const currency = cashOrder.currency;
+  // Prefer the method group that matches the order currency
+  const relevantGroup: 'PH' | 'JP' = currency === 'JPY' ? 'JP' : 'PH';
 
+  // Form state
   const [amountInput, setAmountInput] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('gcash');
+  const [selectedMethodName, setSelectedMethodName] = useState<string>('');
+  const [selectedChaMethod, setSelectedChaMethod] = useState<ChaPaymentMethod | null>(null);
   const [referenceNumber, setReferenceNumber] = useState('');
   const [paymentDate, setPaymentDate] = useState(todayISODate());
   const [senderName, setSenderName] = useState(customerName);
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [notes, setNotes] = useState('');
+  const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [step, setStep] = useState<'form' | 'success'>('form');
+  // 'pick' = choosing payment method, 'form' = filling in submission, 'success' = done
+  const [step, setStep] = useState<'pick' | 'form' | 'success'>('pick');
 
   // Reset when re-opened
   useEffect(() => {
     if (isOpen) {
       setAmountInput('');
-      setPaymentMethod('gcash');
+      setSelectedMethodName('');
+      setSelectedChaMethod(null);
       setReferenceNumber('');
       setPaymentDate(todayISODate());
       setSenderName(customerName);
       setProofFile(null);
       setNotes('');
+      setCopiedField(null);
       setSubmitting(false);
       setFormError(null);
-      setStep('form');
+      setStep('pick');
     }
   }, [isOpen, customerName]);
 
@@ -98,13 +108,20 @@ export default function CashPortalPaymentDialog({
   const isFormValid =
     amount > 0 &&
     !exceedsRemaining &&
-    !!paymentMethod &&
+    !!selectedMethodName.trim() &&
     !!paymentDate &&
     !dateIsFuture &&
     !!senderName.trim() &&
     !proofTooLarge;
 
   const setPayFull = () => setAmountInput(String(Math.round(remaining * 100) / 100));
+
+  const handleSelectMethod = (m: ChaPaymentMethod) => {
+    setSelectedMethodName(m.name);
+    setSelectedChaMethod(m);
+    setStep('form');
+    setFormError(null);
+  };
 
   const uploadProof = useCallback(async (): Promise<string | null> => {
     if (!proofFile) return null;
@@ -150,7 +167,7 @@ export default function CashPortalPaymentDialog({
         portal_token: portalToken,
         cash_order_id: cashOrder.id,
         submitted_amount: amount,
-        payment_method: paymentMethod,
+        payment_method: selectedMethodName,
         payment_date: paymentDate,
         sender_name: senderName.trim(),
       };
@@ -181,6 +198,10 @@ export default function CashPortalPaymentDialog({
       setSubmitting(false);
     }
   };
+
+  // Method picker grouped by relevant currency
+  const primaryMethods = CHA_PAYMENT_METHODS.filter(m => m.group === relevantGroup);
+  const otherMethods = CHA_PAYMENT_METHODS.filter(m => m.group !== relevantGroup);
 
   const fieldLabel = { color: P.ts, fontSize: '10px', letterSpacing: '0.15em', textTransform: 'uppercase' as const, fontWeight: 600 };
   const inputStyle = { background: P.s, border: `1px solid ${P.br}`, borderRadius: '2px', color: P.tp };
@@ -222,11 +243,88 @@ export default function CashPortalPaymentDialog({
               Close
             </button>
           </div>
+        ) : step === 'pick' ? (
+          <div className="px-5 py-4 space-y-4">
+            <p style={{ color: P.ts, fontSize: '12px', fontFamily: 'Inter,sans-serif', lineHeight: 1.5 }}>
+              Choose a payment method below. Account details are shown for your reference — copy what you need, then tap "Select &amp; Pay" to continue.
+            </p>
+
+            {primaryMethods.length > 0 && (
+              <div className="space-y-3">
+                <p style={fieldLabel}>
+                  {relevantGroup === 'PH' ? 'Philippines' : 'Japan'}
+                </p>
+                {primaryMethods.map(method => (
+                  <PaymentMethodCard
+                    key={method.id}
+                    method={method}
+                    onSelect={() => handleSelectMethod(method)}
+                    copiedField={copiedField}
+                    setCopied={setCopiedField}
+                  />
+                ))}
+              </div>
+            )}
+
+            {otherMethods.length > 0 && (
+              <div className="space-y-3 pt-2">
+                <p style={fieldLabel}>
+                  {relevantGroup === 'PH' ? 'Japan (Other)' : 'Philippines (Other)'}
+                </p>
+                {otherMethods.map(method => (
+                  <PaymentMethodCard
+                    key={method.id}
+                    method={method}
+                    onSelect={() => handleSelectMethod(method)}
+                    copiedField={copiedField}
+                    setCopied={setCopiedField}
+                  />
+                ))}
+              </div>
+            )}
+
+            <p style={{ color: P.ts, fontSize: '10px', lineHeight: 1.5, marginTop: '12px' }}>
+              Your payment will be reviewed by the Cha Jewels team before being
+              marked as received. You'll be notified once it's confirmed.
+            </p>
+          </div>
         ) : (
           <form
             onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}
             className="px-5 py-4 space-y-4"
           >
+            {/* Selected method banner with change button */}
+            {selectedChaMethod && (
+              <div
+                className="flex items-center gap-3 p-3"
+                style={{ background: P.s, border: `1px solid ${P.br}`, borderLeft: `2px solid ${P.gp}`, borderRadius: '2px' }}
+              >
+                <div
+                  style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(201,168,76,0.1)', color: P.gp, flexShrink: 0 }}
+                >
+                  {selectedChaMethod.icon}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p style={{ fontFamily: CG, fontSize: '14px', fontWeight: 600, color: P.tp, lineHeight: 1.2 }}>
+                    {selectedChaMethod.name}
+                  </p>
+                  {selectedChaMethod.accountNumber && (
+                    <p style={{ fontFamily: 'monospace', fontSize: '11px', color: P.ts }}>
+                      {selectedChaMethod.accountNumber}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setStep('pick'); setSelectedMethodName(''); setSelectedChaMethod(null); }}
+                  className="inline-flex items-center gap-1"
+                  style={{ background: 'transparent', border: 'none', color: P.gp, fontFamily: 'Inter,sans-serif', fontSize: '10px', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', cursor: 'pointer' }}
+                >
+                  <ChevronLeft className="h-3 w-3" /> Change
+                </button>
+              </div>
+            )}
+
             {/* Amount */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
@@ -259,21 +357,6 @@ export default function CashPortalPaymentDialog({
                 <span style={helperStyle}>Remaining: {fmt(remaining, currency)}</span>
                 {exceedsRemaining && <span style={errorStyle}>Exceeds remaining balance</span>}
               </div>
-            </div>
-
-            {/* Payment method */}
-            <div className="space-y-1.5">
-              <Label style={fieldLabel}>Payment Method *</Label>
-              <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as PaymentMethod)}>
-                <SelectTrigger style={inputStyle}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="gcash">GCash</SelectItem>
-                  <SelectItem value="bank">Bank Transfer</SelectItem>
-                  <SelectItem value="cash">Cash</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
 
             {/* Reference + Date */}
