@@ -1801,7 +1801,7 @@ export type Database = {
       }
       payment_submissions: {
         Row: {
-          account_id: string
+          account_id: string | null
           cash_order_id: string | null
           confirmed_payment_id: string | null
           created_at: string
@@ -1824,7 +1824,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          account_id: string
+          account_id?: string | null
           cash_order_id?: string | null
           confirmed_payment_id?: string | null
           created_at?: string
@@ -1847,7 +1847,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          account_id?: string
+          account_id?: string | null
           cash_order_id?: string | null
           confirmed_payment_id?: string | null
           created_at?: string
