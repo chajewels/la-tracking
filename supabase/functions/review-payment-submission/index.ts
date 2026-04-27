@@ -473,7 +473,7 @@ Deno.serve(async (req) => {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (cashOrder.status !== "pending") {
+      if (cashOrder.status === "cancelled") {
         return new Response(JSON.stringify({ error: `cash_order is ${cashOrder.status}, cannot confirm payment` }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
