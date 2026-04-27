@@ -3,8 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  ArrowLeft, Banknote, RefreshCcw, Receipt, Upload, XCircle, ChevronDown, ChevronUp,
-  AlertTriangle, User as UserIcon, MessageCircle, Plus,
+  ArrowLeft, Banknote, RefreshCcw, Receipt, Upload, XCircle,
+  AlertTriangle, User as UserIcon, MessageCircle, Plus, Sparkles,
 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,7 @@ import { formatCurrency } from '@/lib/calculations';
 import { supabase } from '@/integrations/supabase/client';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
 
 interface CashOrderRow {
   id: string;
@@ -79,17 +80,6 @@ interface CashOrderNoteRow {
   id: string;
   note_text: string;
   created_by_name: string | null;
-  created_at: string;
-}
-
-interface AuditLogRow {
-  id: string;
-  action: string;
-  entity_type: string;
-  entity_id: string;
-  new_value_json: any;
-  old_value_json: any;
-  performed_by_user_id: string | null;
   created_at: string;
 }
 
@@ -178,25 +168,6 @@ function useProfileName(userId: string | null | undefined) {
   });
 }
 
-function useCashAuditLogs(orderId: string | undefined, enabled: boolean) {
-  return useQuery({
-    queryKey: ['cash-audit-logs', orderId],
-    enabled: !!orderId && enabled,
-    staleTime: 60_000,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('audit_logs')
-        .select('id, action, entity_type, entity_id, new_value_json, old_value_json, performed_by_user_id, created_at')
-        .eq('entity_type', 'cash_order')
-        .eq('entity_id', orderId!)
-        .order('created_at', { ascending: false })
-        .limit(50);
-      if (error) throw error;
-      return ((data || []) as unknown as AuditLogRow[]);
-    },
-  });
-}
-
 export default function CashOrderDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -220,8 +191,7 @@ export default function CashOrderDetail() {
   const { data: cancelledByProfile } = useProfileName(
     order?.status === 'cancelled' ? order?.cancelled_by_user_id : undefined,
   );
-  const [auditOpen, setAuditOpen] = useState(false);
-  const { data: auditLogs } = useCashAuditLogs(id, isAdmin && auditOpen);
+  const { data: loyaltyTier } = useCustomerLoyaltyTier(order?.customer_id);
 
   // Record payment dialog state
   const [recordOpen, setRecordOpen] = useState(false);
@@ -422,25 +392,33 @@ export default function CashOrderDetail() {
 
         {/* Amount card */}
         <div className="rounded-xl border border-primary/30 bg-card p-6 shadow-sm">
-          <div className="grid grid-cols-3 gap-4">
+          <div className={`grid gap-4 ${order.loyalty_jpy_amount && Number(order.loyalty_jpy_amount) > 0 ? 'grid-cols-4' : 'grid-cols-3'}`}>
             <div className="text-center">
               <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Total</p>
               <p className="mt-1 text-lg sm:text-xl font-bold text-card-foreground tabular-nums">
                 {formatCurrency(Number(order.total_amount), currency)}
               </p>
             </div>
-            <div className="text-center border-x border-border">
+            <div className="text-center border-l border-border">
               <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Paid</p>
               <p className="mt-1 text-lg sm:text-xl font-bold text-success tabular-nums">
                 {formatCurrency(Number(order.total_paid), currency)}
               </p>
             </div>
-            <div className="text-center">
+            <div className="text-center border-l border-border">
               <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Remaining</p>
               <p className="mt-1 text-lg sm:text-xl font-bold text-primary tabular-nums">
                 {formatCurrency(Number(order.remaining_balance), currency)}
               </p>
             </div>
+            {order.loyalty_jpy_amount && Number(order.loyalty_jpy_amount) > 0 && (
+              <div className="text-center border-l border-border">
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Loyalty Amount</p>
+                <p className="mt-1 text-lg sm:text-xl font-bold text-card-foreground tabular-nums">
+                  ¥{Number(order.loyalty_jpy_amount).toLocaleString()}
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -476,27 +454,42 @@ export default function CashOrderDetail() {
           )}
         </div>
 
-        {/* Item details */}
-        <div className="rounded-xl border border-border bg-card p-5 space-y-3">
-          <h3 className="text-sm font-semibold text-card-foreground">Item Details</h3>
-          {order.item_description && (
-            <div>
-              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Item</p>
-              <p className="text-sm text-card-foreground mt-0.5">{order.item_description}</p>
+        {/* Loyalty Points Preview */}
+        {loyaltyTier && order.loyalty_jpy_amount && Number(order.loyalty_jpy_amount) > 0 && (
+          <div className="rounded-xl border border-primary/30 bg-card p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="text-primary" size={16} />
+              <h3 className="font-semibold text-sm">Loyalty Points Preview</h3>
             </div>
-          )}
-          {order.notes && (
-            <div>
-              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Notes</p>
-              <p className="text-sm text-card-foreground mt-0.5 whitespace-pre-wrap">{order.notes}</p>
+
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Customer Tier</span>
+                <span className="font-semibold">
+                  {loyaltyTier.current_tier_name} ({loyaltyTier.current_tier_multiplier}x)
+                </span>
+              </div>
+
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Loyalty Amount</span>
+                <span className="font-semibold">
+                  ¥{Number(order.loyalty_jpy_amount).toLocaleString()}
+                </span>
+              </div>
+
+              <div className="flex justify-between pt-2 border-t border-border">
+                <span className="text-muted-foreground">Points to Earn</span>
+                <span className="font-bold text-primary text-base">
+                  {Math.floor(Number(order.loyalty_jpy_amount) / 10000) * 100 * loyaltyTier.current_tier_multiplier} pts
+                </span>
+              </div>
             </div>
-          )}
-          {isAdmin && order.loyalty_jpy_amount != null && (
-            <p className="text-[11px] text-muted-foreground pt-1 border-t border-border/50">
-              Product Value (Loyalty pts): ¥{Number(order.loyalty_jpy_amount).toLocaleString()}
+
+            <p className="text-xs text-muted-foreground italic">
+              Points will be awarded once the order is fully paid.
             </p>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Payment history */}
         <div className="rounded-xl border border-border bg-card p-5">
@@ -722,44 +715,6 @@ export default function CashOrderDetail() {
           </div>
         )}
 
-        {/* Activity Log (admin only, collapsible) */}
-        {isAdmin && (
-          <div className="rounded-xl border border-border bg-card">
-            <button
-              type="button"
-              onClick={() => setAuditOpen(v => !v)}
-              className="w-full flex items-center justify-between p-5 text-sm font-semibold text-card-foreground hover:bg-muted/40 transition-colors rounded-xl"
-            >
-              <span>Activity Log</span>
-              {auditOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            </button>
-            {auditOpen && (
-              <div className="px-5 pb-5 pt-0 border-t border-border/60 space-y-2">
-                {(auditLogs || []).length === 0 ? (
-                  <p className="text-sm text-muted-foreground italic pt-4">No activity recorded yet</p>
-                ) : (
-                  auditLogs!.map(log => (
-                    <div key={log.id} className="rounded-lg border border-border/60 bg-background p-3">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <span className="text-xs font-medium text-card-foreground capitalize">
-                          {log.action.replace(/_/g, ' ')}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground">
-                          {new Date(log.created_at).toLocaleString()}
-                        </span>
-                      </div>
-                      {log.new_value_json && (
-                        <pre className="mt-1 text-[10px] text-muted-foreground bg-muted/40 p-2 rounded overflow-x-auto">
-                          {JSON.stringify(log.new_value_json, null, 2)}
-                        </pre>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Record Cash Payment */}
