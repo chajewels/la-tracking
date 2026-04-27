@@ -1,6 +1,15 @@
-import { useState, useMemo } from 'react';
-import { ChevronDown, ChevronUp, Banknote, CheckCircle } from 'lucide-react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { ChevronDown, ChevronUp, Banknote, CheckCircle, XCircle } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 import CashPortalPaymentDialog from './CashPortalPaymentDialog';
+
+interface PortalPendingSubmission {
+  id: string;
+  cash_order_id: string;
+  submitted_amount: number;
+  payment_method: string | null;
+  status: string;
+}
 
 // Portal palette — must match src/pages/CustomerPortal.tsx
 const P = {
@@ -92,6 +101,7 @@ export default function CashOrdersSection({
   cashOrders, cashPayments, customerName, portalToken, onRefresh,
 }: CashOrdersSectionProps) {
   const [payTarget, setPayTarget] = useState<PortalCashOrder | null>(null);
+  const [pendingByOrder, setPendingByOrder] = useState<Map<string, PortalPendingSubmission>>(new Map());
 
   // Group non-voided payments by cash_order_id once, client-side
   const paymentsByOrder = useMemo(() => {
@@ -104,6 +114,37 @@ export default function CashOrdersSection({
     }
     return map;
   }, [cashPayments]);
+
+  // Fetch pending submissions for all visible cash orders. Re-runs when the
+  // order set changes; can be invoked manually after a cancel.
+  const fetchPending = useCallback(async () => {
+    if (!cashOrders || cashOrders.length === 0) {
+      setPendingByOrder(new Map());
+      return;
+    }
+    const orderIds = cashOrders.map(o => o.id);
+    const { data } = await (supabase as any)
+      .from('payment_submissions')
+      .select('id, cash_order_id, submitted_amount, payment_method, status')
+      .in('cash_order_id', orderIds)
+      .in('status', ['submitted', 'under_review']);
+    const next = new Map<string, PortalPendingSubmission>();
+    for (const sub of (data || []) as PortalPendingSubmission[]) {
+      next.set(sub.cash_order_id, sub);
+    }
+    setPendingByOrder(next);
+  }, [cashOrders]);
+
+  useEffect(() => { fetchPending(); }, [fetchPending]);
+
+  const handleCancelSubmission = useCallback(async (submissionId: string) => {
+    await (supabase as any)
+      .from('payment_submissions')
+      .update({ status: 'cancelled' })
+      .eq('id', submissionId);
+    await fetchPending();
+    onRefresh();
+  }, [fetchPending, onRefresh]);
 
   // Per spec: don't render empty state — section is hidden when there are no orders
   if (!cashOrders || cashOrders.length === 0) return null;
@@ -125,7 +166,9 @@ export default function CashOrdersSection({
               key={order.id}
               order={order}
               payments={paymentsByOrder.get(order.id) || []}
+              pendingSubmission={pendingByOrder.get(order.id) || null}
               onPay={() => setPayTarget(order)}
+              onCancelSubmission={handleCancelSubmission}
             />
           ))}
         </div>
@@ -153,14 +196,17 @@ export default function CashOrdersSection({
 }
 
 function CashOrderCard({
-  order, payments, onPay,
+  order, payments, pendingSubmission, onPay, onCancelSubmission,
 }: {
   order: PortalCashOrder;
   payments: PortalCashPayment[];
+  pendingSubmission: PortalPendingSubmission | null;
   onPay: () => void;
+  onCancelSubmission: (submissionId: string) => Promise<void>;
 }) {
   const currency = order.currency;
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   const isPending = order.status === 'pending';
   const isCompleted = order.status === 'completed';
@@ -231,8 +277,50 @@ function CashOrderCard({
         </div>
       </div>
 
-      {/* Action */}
-      {isPending && (
+      {/* Action — pending-submission banner takes precedence over the Submit button */}
+      {isPending && pendingSubmission ? (
+        <div
+          style={{ background: '#1a2a1a', border: '1px solid #22c55e', borderRadius: 8, padding: '10px 14px', marginTop: 12 }}
+        >
+          <p style={{ color: '#22c55e', fontSize: 12, margin: 0 }}>
+            ⏳ Payment submitted — awaiting confirmation
+          </p>
+          <p style={{ color: '#888', fontSize: 11, marginTop: 4 }}>
+            {fmt(Number(pendingSubmission.submitted_amount), currency)}
+            {pendingSubmission.payment_method ? ` via ${pendingSubmission.payment_method}` : ''}
+          </p>
+          <button
+            type="button"
+            disabled={cancelling}
+            onClick={async () => {
+              if (cancelling) return;
+              setCancelling(true);
+              try {
+                await onCancelSubmission(pendingSubmission.id);
+              } finally {
+                setCancelling(false);
+              }
+            }}
+            style={{
+              marginTop: 8,
+              background: 'none',
+              border: '1px solid #666',
+              borderRadius: 6,
+              color: '#aaa',
+              fontSize: 11,
+              padding: '4px 10px',
+              cursor: cancelling ? 'not-allowed' : 'pointer',
+              opacity: cancelling ? 0.6 : 1,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}
+          >
+            <XCircle className="h-3 w-3" />
+            {cancelling ? 'Cancelling…' : 'Cancel Submission'}
+          </button>
+        </div>
+      ) : isPending ? (
         <button
           onClick={onPay}
           className="w-full mt-3"
@@ -245,7 +333,7 @@ function CashOrderCard({
         >
           Submit Payment
         </button>
-      )}
+      ) : null}
 
       {/* Payment history (collapsible, client-side filtered from props) */}
       <div className="mt-3" style={{ borderTop: `1px solid ${P.br}`, paddingTop: '10px' }}>

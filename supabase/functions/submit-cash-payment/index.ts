@@ -128,6 +128,36 @@ Deno.serve(async (req) => {
       });
     }
 
+    // 4a. Block duplicate pending submission for this cash order
+    const { data: existingSubmission } = await supabase
+      .from('payment_submissions')
+      .select('id, status')
+      .eq('cash_order_id', cash_order_id)
+      .in('status', ['submitted', 'under_review'])
+      .maybeSingle();
+
+    if (existingSubmission) {
+      return new Response(
+        JSON.stringify({ error: 'A payment submission is already pending review for this order. Please wait for it to be reviewed or cancel it first.' }),
+        { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // 4b. Rate limit — max 3 non-rejected submissions per cash order in 24 hours
+    const { count: recentCount } = await supabase
+      .from('payment_submissions')
+      .select('*', { count: 'exact', head: true })
+      .eq('cash_order_id', cash_order_id)
+      .neq('status', 'rejected')
+      .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+
+    if ((recentCount ?? 0) >= 3) {
+      return new Response(
+        JSON.stringify({ error: 'Too many submissions. Maximum 3 payment submissions per 24 hours.' }),
+        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     // 5. submitted_amount must not exceed remaining_balance
     const remaining = Number(cashOrder.remaining_balance);
     if (submittedNum > remaining + 0.005) {
