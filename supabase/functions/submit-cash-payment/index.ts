@@ -148,7 +148,7 @@ Deno.serve(async (req) => {
       .from('payment_submissions')
       .select('*', { count: 'exact', head: true })
       .eq('cash_order_id', cash_order_id)
-      .neq('status', 'rejected')
+      .not('status', 'in', '("rejected","cancelled")')
       .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
 
     if ((recentCount ?? 0) >= 3) {
