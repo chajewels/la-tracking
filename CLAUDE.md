@@ -929,6 +929,39 @@ When completing a partially_paid month:
     change; no DB-side trigger added (single attack
     surface, application-layer enforcement is
     sufficient for now). (2026-04-28)
+  - 55. dashboard-summary had 4 timestamptz
+    month-boundary filters with the same TZ-skew
+    bug class as D1 (commit 63bc008): bare
+    monthStartStr / nextMonthStartStr were passed
+    to PostgREST gte/lt against timestamptz columns
+    (layaway_accounts.completed_at,
+    cash_orders.completed_at, cash_orders.created_at,
+    layaway_accounts.created_at). PostgREST
+    forwarded them as no-offset strings, Postgres
+    parsed them as UTC midnight, shifting the PHT
+    month window by +8h. Visible failure mode was
+    bounded to PHT 00:00–08:00 on month-1st
+    boundaries — produced wrong absolute counts
+    during that window for "Completed (this month)"
+    card, "Cash Orders → Completed" card, and Cash
+    Conversion Rate denominators.
+
+    Fixed in commit ae5a000 by adding monthStartPht /
+    nextMonthStartPht helpers (computed once at the
+    top, parallel to today / tomorrow from D1) and
+    switching the 4 affected queries
+    (completedThisMonthQ, cashCompletedMonthQ,
+    cashCreatedMonthQ, layawayCreatedMonthQ) to use
+    them. Bare monthStartStr / nextMonthStartStr
+    remain in 3 places that legitimately use them
+    against `date` columns or in JS string compares
+    (monthPayQ on payments.date_paid, plus 2 JS
+    aggregations in cash/layaway revenue
+    bucketing). Block comment in the helpers
+    declaration documents the contract: bare
+    strings for date columns, PHT-suffixed for
+    timestamptz. Auto-deployed via GitHub Actions
+    on push. (2026-04-28)
 
 ## Known Open Bugs
 
@@ -994,38 +1027,22 @@ When completing a partially_paid month:
   - ExecutiveDashboard.tsx — confirmed clean
     (uses fc_* server-side RPCs, JPY-normalized).
   - dashboard-summary edge function timestamptz
-    month-boundary bugs — see "Pending KPI accuracy
-    items" below; HIGH severity, tracked separately.
+    month-boundary bugs — RESOLVED in commit
+    ae5a000 (2026-04-28). See Known Fixed Bug #55.
 
 ### Pending KPI accuracy items (surfaced 2026-04-28)
 
-  Audit findings from the KPI cleanup that were
-  not shipped tonight. Group D items follow the
-  numbering from the original audit report.
+  Audit findings from the KPI cleanup. Group D items
+  follow the numbering from the original audit report.
 
-  HIGH severity — same TZ bug class as D1 but on
-  MONTH boundaries in dashboard-summary edge function
-  (timestamptz columns, silent UTC reinterpretation):
-  - completed_this_month (layaway_accounts.completed_at,
-    lines 99–105)
-  - cashCompletedMonthQ (cash_orders.completed_at,
-    lines 151–157)
-  - cashCreatedMonthQ (cash_orders.created_at,
-    lines 172–177)
-  - layawayCreatedMonthQ (layaway_accounts.created_at,
-    lines 184–189)
-
-  Same fix pattern as D1: append `+08:00` and use
-  half-open intervals. Recommend a `monthStartPht` /
-  `nextMonthStartPht` pair of helpers (computed once
-  at the top, parallel to `today` / `tomorrow` from
-  commit 63bc008) so all four sites reuse the same
-  PHT-anchored timestamps. Bug is invisible most of
-  the time (only fires PHT 00:00–08:00 on the 1st of
-  each month) but produces wrong absolute counts
-  during that window for: "Completed (this month)"
-  card, "Cash Orders → Completed" card, and
-  Cash Conversion Rate denominators.
+  ~~HIGH severity — same TZ bug class as D1 but on
+  MONTH boundaries in dashboard-summary edge function~~
+  RESOLVED 2026-04-28 in commit ae5a000. See Known
+  Fixed Bug #55. Originally listed:
+    - completed_this_month  (layaway_accounts.completed_at)
+    - cashCompletedMonthQ   (cash_orders.completed_at)
+    - cashCreatedMonthQ     (cash_orders.created_at)
+    - layawayCreatedMonthQ  (layaway_accounts.created_at)
 
   LOW / MEDIUM severity — display polish + design
   decisions, not data accuracy:
