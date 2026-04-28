@@ -485,7 +485,7 @@ export function useCreateCustomer() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (payload: {
-      customer_code: string;
+      customer_code?: string;
       full_name: string;
       mobile_number?: string;
       email?: string;

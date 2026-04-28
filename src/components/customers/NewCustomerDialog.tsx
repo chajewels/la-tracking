@@ -21,7 +21,6 @@ export default function NewCustomerDialog({ onCreated, trigger }: NewCustomerDia
   const createCustomer = useCreateCustomer();
 
   const [fullName, setFullName] = useState('');
-  const [customerCode, setCustomerCode] = useState('');
   const [facebookName, setFacebookName] = useState('');
   const [messengerLink, setMessengerLink] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
@@ -32,7 +31,6 @@ export default function NewCustomerDialog({ onCreated, trigger }: NewCustomerDia
 
   const resetForm = () => {
     setFullName('');
-    setCustomerCode('');
     setFacebookName('');
     setMessengerLink('');
     setMobileNumber('');
@@ -50,8 +48,8 @@ export default function NewCustomerDialog({ onCreated, trigger }: NewCustomerDia
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName.trim() || !customerCode.trim()) {
-      toast.error('Full name and customer code are required');
+    if (!fullName.trim()) {
+      toast.error('Full name is required');
       return;
     }
     if (locationType === 'international' && !country.trim()) {
@@ -62,7 +60,6 @@ export default function NewCustomerDialog({ onCreated, trigger }: NewCustomerDia
     try {
       const customer = await createCustomer.mutateAsync({
         full_name: fullName.trim(),
-        customer_code: customerCode.trim(),
         facebook_name: facebookName.trim() || undefined,
         messenger_link: messengerLink.trim() || undefined,
         mobile_number: mobileNumber.trim() || undefined,
@@ -70,7 +67,7 @@ export default function NewCustomerDialog({ onCreated, trigger }: NewCustomerDia
         notes: notes.trim() || undefined,
         location,
       });
-      toast.success(`Customer "${fullName}" created`);
+      toast.success(`Customer created! Code: ${customer.customer_code}`);
       onCreated?.(customer as DbCustomer);
       resetForm();
       setOpen(false);
@@ -94,15 +91,9 @@ export default function NewCustomerDialog({ onCreated, trigger }: NewCustomerDia
           <DialogTitle className="font-display">New Customer</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Full Name *</Label>
-              <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="e.g. Maria Santos" />
-            </div>
-            <div className="space-y-2">
-              <Label>Customer Code *</Label>
-              <Input value={customerCode} onChange={(e) => setCustomerCode(e.target.value)} placeholder="e.g. CUST-001" />
-            </div>
+          <div className="space-y-2">
+            <Label>Full Name *</Label>
+            <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="e.g. Maria Santos" />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
