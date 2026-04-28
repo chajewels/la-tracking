@@ -22,6 +22,18 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 
+interface DriftFinding {
+  delete_function: string;
+  parent_table: string;
+  child_table: string;
+  fk_name: string | null;
+  on_delete: string | null;
+  in_allowlist: boolean;
+  finding_type: 'missing_cleanup' | 'preventive_no_delete_fn' | 'stale_allowlist_entry';
+  severity: 'critical' | 'warning' | 'info';
+  message: string;
+}
+
 export default function Dashboard() {
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
   const { session, loading: authLoading, profile, roles } = useAuth();
@@ -53,18 +65,35 @@ export default function Dashboard() {
   const [auditResults, setAuditResults] = useState<any[] | null>(null);
   const [auditFilter, setAuditFilter] = useState<'all' | 'failed'>('failed');
   const [auditError, setAuditError] = useState<string | null>(null);
+  const [driftFindings, setDriftFindings] = useState<DriftFinding[] | null>(null);
+  const [driftError, setDriftError] = useState<string | null>(null);
 
   const runSystemAudit = async () => {
     setAuditLoading(true);
     setAuditError(null);
     setAuditResults(null);
+    setDriftFindings(null);
+    setDriftError(null);
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 25000);
-      const { data, error } = await (supabase.rpc as any)('audit_all_accounts', undefined, { signal: controller.signal });
+      const [accountAudit, drift] = await Promise.all([
+        (supabase.rpc as any)('audit_all_accounts', undefined, { signal: controller.signal }),
+        (supabase.rpc as any)('audit_delete_cleanup_invariants', undefined, { signal: controller.signal }),
+      ]);
       clearTimeout(timeout);
-      if (error) throw error;
-      setAuditResults(data || []);
+
+      if (accountAudit.error) throw accountAudit.error;
+      setAuditResults(accountAudit.data || []);
+
+      // Drift check is soft-fail — if RPC missing or errors, surface as
+      // warning but still show account audit results.
+      if (drift.error) {
+        setDriftError(drift.error.message || 'Schema drift check unavailable');
+        setDriftFindings(null);
+      } else {
+        setDriftFindings(drift.data || []);
+      }
     } catch (err: any) {
       if (err.name === 'AbortError' || err.message?.includes('abort')) {
         setAuditError('Audit timed out — too many accounts. Run per-account health checks individually instead.');
@@ -304,17 +333,17 @@ export default function Dashboard() {
             <div
               className="fixed inset-0"
               style={{ zIndex: 9998, pointerEvents: 'auto', backgroundColor: 'rgba(0,0,0,0.7)' }}
-              onClick={() => { setAuditOpen(false); setAuditResults(null); setAuditError(null); }}
+              onClick={() => { setAuditOpen(false); setAuditResults(null); setAuditError(null); setDriftFindings(null); setDriftError(null); }}
             />
             <div
               className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
               style={{ zIndex: 9999, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', borderRadius: 8, padding: 24, maxWidth: 700, width: '95%', maxHeight: '85vh', overflowY: 'auto', color: 'var(--foreground)' }}
             >
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold">System Audit — All Accounts</h2>
+                <h2 className="text-lg font-semibold">System Audit</h2>
                 <button
                   className="text-muted-foreground hover:text-foreground text-lg leading-none px-2"
-                  onClick={() => { setAuditOpen(false); setAuditResults(null); setAuditError(null); }}
+                  onClick={() => { setAuditOpen(false); setAuditResults(null); setAuditError(null); setDriftFindings(null); setDriftError(null); }}
                 >×</button>
               </div>
 
@@ -333,6 +362,81 @@ export default function Dashboard() {
 
               {!auditLoading && auditResults && (
                 <div className="space-y-3">
+                  {/* Schema drift findings */}
+                  {driftError && (
+                    <div className="rounded-md p-2.5 bg-warning/10 border border-warning/20 text-xs text-warning">
+                      Schema drift check unavailable: {driftError}
+                    </div>
+                  )}
+                  {driftFindings && driftFindings.length === 0 && (
+                    <div className="rounded-md p-3 text-sm font-medium bg-success/10 text-success border border-success/20">
+                      ✅ No schema drift detected
+                    </div>
+                  )}
+                  {driftFindings && driftFindings.length > 0 && (() => {
+                    const counts = driftFindings.reduce(
+                      (acc, f) => { acc[f.severity] = (acc[f.severity] || 0) + 1; return acc; },
+                      {} as Record<'critical' | 'warning' | 'info', number>
+                    );
+                    const headerColor = counts.critical
+                      ? 'bg-destructive/10 text-destructive border-destructive/20'
+                      : counts.warning
+                        ? 'bg-warning/10 text-warning border-warning/20'
+                        : 'bg-info/10 text-info border-info/20';
+                    const sevBadge = (sev: DriftFinding['severity']) =>
+                      sev === 'critical' ? 'bg-destructive/15 text-destructive border-destructive/30'
+                      : sev === 'warning' ? 'bg-warning/15 text-warning border-warning/30'
+                      : 'bg-info/15 text-info border-info/30';
+                    return (
+                      <div className="space-y-2">
+                        <div className={`rounded-md p-3 text-sm font-medium border ${headerColor}`}>
+                          ⚠️ {driftFindings.length} schema drift finding{driftFindings.length !== 1 ? 's' : ''}
+                          {counts.critical ? ` · ${counts.critical} critical` : ''}
+                          {counts.warning ? ` · ${counts.warning} warning` : ''}
+                          {counts.info ? ` · ${counts.info} info` : ''}
+                        </div>
+                        <div className="rounded-md border border-border overflow-hidden">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="bg-muted/30 border-b border-border">
+                                <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Severity</th>
+                                <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Delete Fn</th>
+                                <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Parent</th>
+                                <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Child</th>
+                                <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Finding</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {driftFindings.map((f, i) => (
+                                <tr key={i} className="border-b border-border/50 last:border-0">
+                                  <td className="px-3 py-2">
+                                    <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider ${sevBadge(f.severity)}`}>
+                                      {f.severity}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2 font-mono text-foreground">{f.delete_function}</td>
+                                  <td className="px-3 py-2 text-muted-foreground">{f.parent_table}</td>
+                                  <td className="px-3 py-2 font-mono text-foreground">{f.child_table}</td>
+                                  <td className="px-3 py-2 text-muted-foreground">{f.message}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          Drift findings indicate FK gaps in delete-cleanup edge functions. See CLAUDE.md "AUDIT RPCs" section for fix patterns.
+                        </p>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Visual divider before per-account section */}
+                  {driftFindings !== null && (
+                    <div className="border-t border-border pt-3">
+                      <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Per-Account Health</p>
+                    </div>
+                  )}
+
                   {(() => {
                     const failedAccounts = auditResults.filter((r: any) => !r.all_pass);
                     const passedCount = auditResults.length - failedAccounts.length;
@@ -406,7 +510,7 @@ export default function Dashboard() {
                 </button>
                 <button
                   className="px-4 py-2 rounded-lg text-sm border border-border"
-                  onClick={() => { setAuditOpen(false); setAuditResults(null); setAuditError(null); }}
+                  onClick={() => { setAuditOpen(false); setAuditResults(null); setAuditError(null); setDriftFindings(null); setDriftError(null); }}
                 >
                   Close
                 </button>
