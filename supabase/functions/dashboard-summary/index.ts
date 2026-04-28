@@ -72,6 +72,11 @@ Deno.serve(async (req) => {
     const phtDateStr = (d: Date) =>
       Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(d);
     const today = phtDateStr(new Date());
+    // PHT-tomorrow string for half-open day-window queries on timestamptz
+    // columns. PostgREST gte/lt on timestamptz interpret no-TZ strings as
+    // UTC; appending +08:00 makes them PHT-correct. Half-open avoids the
+    // .999999µs hack. See CLAUDE.md TIMEZONE STANDARD.
+    const tomorrow = phtDateStr(new Date(Date.now() + 86400000));
     const phtNow = new Date(
       new Date().toLocaleString("en-US", { timeZone: "Asia/Manila" }),
     );
@@ -103,8 +108,17 @@ Deno.serve(async (req) => {
     let forfeitedQ = supabase.from("layaway_accounts").select("id").in("status", ["forfeited", "final_forfeited"]).not("invoice_number", "like", "TEST-%");
     if (currencyWhere) forfeitedQ = forfeitedQ.eq("currency", currencyWhere);
 
-    // Forfeited today — accounts forfeited on current date
-    let forfeitedTodayQ = supabase.from("layaway_accounts").select("id").in("status", ["forfeited", "final_forfeited"]).gte("forfeited_at", today + "T00:00:00").lt("forfeited_at", today + "T23:59:59.999999").not("invoice_number", "like", "TEST-%");
+    // Forfeited today — accounts forfeited within the current PHT calendar
+    // day. Half-open interval at PHT midnight (today 00:00 PHT inclusive,
+    // tomorrow 00:00 PHT exclusive). The +08:00 offset is required because
+    // forfeited_at is timestamptz and a bare ISO string would be parsed as
+    // UTC. See CLAUDE.md TIMEZONE STANDARD.
+    let forfeitedTodayQ = supabase.from("layaway_accounts")
+      .select("id")
+      .in("status", ["forfeited", "final_forfeited"])
+      .gte("forfeited_at", today    + "T00:00:00+08:00")
+      .lt ("forfeited_at", tomorrow + "T00:00:00+08:00")
+      .not("invoice_number", "like", "TEST-%");
     if (currencyWhere) forfeitedTodayQ = forfeitedTodayQ.eq("currency", currencyWhere);
 
     // All-time completed accounts

@@ -56,7 +56,23 @@ export default function Dashboard() {
   ]);
   // Note: accounts/customers are cached with staleTime so these calls are cheap when already loaded
 
-  const customerCount = customers?.length ?? 0;
+  const customerCount = useMemo(() => {
+    if (currencyFilter === 'ALL') return customers?.length ?? 0;
+    if (!accounts) return 0;
+    // Distinct customers with at least one layaway account in the selected
+    // currency, excluding TEST accounts (matches dashboard-summary edge
+    // function convention). Status-agnostic — counts anyone who ever had
+    // an account in this currency.
+    const matchingCustomerIds = new Set(
+      accounts
+        .filter((a: any) =>
+          a.currency === currencyFilter &&
+          !String(a.invoice_number).startsWith('TEST-')
+        )
+        .map((a: any) => a.customer_id)
+    );
+    return matchingCustomerIds.size;
+  }, [customers, accounts, currencyFilter]);
 
   // System Audit (admin only)
   const isAdmin = (roles as any[]).includes('admin');
@@ -148,7 +164,11 @@ export default function Dashboard() {
                 <StatCard
                   title="Total Customers"
                   value={customerCount.toString()}
-                  subtitle="All registered"
+                  subtitle={
+                    currencyFilter === 'ALL'
+                      ? 'All registered'
+                      : `with ${currencyFilter} accounts`
+                  }
                   icon={Users}
                 />
                 <StatCard
