@@ -936,10 +936,147 @@ When completing a partially_paid month:
   yet fixed. Each entry should describe the fix
   pattern so the next session can pick it up cleanly.
 
-  (No currently-open bugs as of 2026-04-28. The
-  delete-customer FK gaps surfaced earlier today by
-  audit_delete_cleanup_invariants() were closed in
-  the same session — see Known Fixed Bug #53.)
+### PHT timezone sweep across non-Dashboard surfaces (deferred — surfaced 2026-04-28)
+
+  After the D1 fix (forfeited_today TZ skew, commit
+  63bc008) shipped, an audit of non-Dashboard surfaces
+  found 11 instances of `new Date(...).toISOString().split('T')[0]`
+  across 7 files. Returns UTC date string instead of
+  PHT date string, causing date filters to be off by
+  1 day during the PHT 00:00–08:00 window (when UTC
+  is still on the prior calendar day).
+
+  Severity: LOW.
+  All hits filter against `date` columns (`due_date`,
+  `date_paid`), not `timestamptz`. No silent UTC
+  reinterpretation like the D1 case. Visible failure
+  mode bounded to 8 hours per day. Most staff use
+  these dashboards 09:00–18:00 PHT when the bug
+  doesn't fire.
+
+  Affected files:
+  - src/pages/Monitoring.tsx lines 96, 97, 184
+    (mixed convention: line 95 uses getPHTToday()
+    correctly, lines 96/97 don't)
+  - src/components/dashboard/OverdueAlerts.tsx
+    lines 15, 16
+  - src/components/dashboard/OperationsPanel.tsx
+    line 22
+  - src/components/dashboard/AIRiskPanel.tsx line 14
+  - src/components/dashboard/PenaltyCapAuditPanel.tsx
+    line 73
+  - src/components/dashboard/LiveCollectionTracker.tsx
+    lines 27, 40
+  - src/components/monitoring/PenaltyFollowUpSection.tsx
+    line 186
+  - src/pages/Finance.tsx line 437 (todayStr already
+    imported, just unused for this purpose)
+  - src/hooks/useExecutiveDashboard.ts line 160
+    (very low — only affects 6-months-ago boundary
+    on PHT-1st-of-month between 00:00–08:00)
+
+  Fix shape (uniform across all 11 sites):
+    Replace `new Date(...).toISOString().split('T')[0]`
+    with one of:
+    - getPHTToday() from src/lib/date-utils.ts (for "today")
+    - todayStr()    from src/lib/business-rules.ts (alternative)
+    - For relative dates:
+        Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' })
+          .format(new Date(Date.now() + N * 86400000))
+
+  All frontend, single PR, ~9 files modified, ~15 lines
+  changed, no edge function changes.
+
+  Out of scope for this sweep (separate concerns):
+  - src/lib/business-rules.ts lines 296, 718, 723 —
+    library internals, ripple risk, dedicated audit
+    later.
+  - ExecutiveDashboard.tsx — confirmed clean
+    (uses fc_* server-side RPCs, JPY-normalized).
+  - dashboard-summary edge function timestamptz
+    month-boundary bugs — see "Pending KPI accuracy
+    items" below; HIGH severity, tracked separately.
+
+### Pending KPI accuracy items (surfaced 2026-04-28)
+
+  Audit findings from the KPI cleanup that were
+  not shipped tonight. Group D items follow the
+  numbering from the original audit report.
+
+  HIGH severity — same TZ bug class as D1 but on
+  MONTH boundaries in dashboard-summary edge function
+  (timestamptz columns, silent UTC reinterpretation):
+  - completed_this_month (layaway_accounts.completed_at,
+    lines 99–105)
+  - cashCompletedMonthQ (cash_orders.completed_at,
+    lines 151–157)
+  - cashCreatedMonthQ (cash_orders.created_at,
+    lines 172–177)
+  - layawayCreatedMonthQ (layaway_accounts.created_at,
+    lines 184–189)
+
+  Same fix pattern as D1: append `+08:00` and use
+  half-open intervals. Recommend a `monthStartPht` /
+  `nextMonthStartPht` pair of helpers (computed once
+  at the top, parallel to `today` / `tomorrow` from
+  commit 63bc008) so all four sites reuse the same
+  PHT-anchored timestamps. Bug is invisible most of
+  the time (only fires PHT 00:00–08:00 on the 1st of
+  each month) but produces wrong absolute counts
+  during that window for: "Completed (this month)"
+  card, "Cash Orders → Completed" card, and
+  Cash Conversion Rate denominators.
+
+  LOW / MEDIUM severity — display polish + design
+  decisions, not data accuracy:
+  - D2: AgingBuckets doesn't exclude TEST accounts.
+    Currently inflates aging counts by ~₱30k from
+    test data. Add `.not("invoice_number", "like",
+    "TEST-%")` to the layaway_schedule + layaway_accounts
+    join in src/components/dashboard/AgingBuckets.tsx.
+  - D3: Reminder counts capped at 200 in
+    dashboard-summary (line 142, `.limit(200)`).
+    After 200 reminders accumulate, "Reminders Sent"
+    card permanently shows 200. Replace with
+    `count: 'exact', head: true` queries to get true
+    totals; no row data is needed for the count cards.
+  - D4: AgingBuckets reads write-only cache columns
+    (violates INVARIANT 2 — should read from
+    schedule_with_actuals view). Refactor to read
+    `actual_remaining` instead of computing
+    `total_due_amount - paid_amount`.
+  - D5: Dashboard polling 30s — not a correctness
+    bug, perf footnote. Each poll runs ~22 parallel
+    SELECTs in dashboard-summary. Consider raising
+    interval to 60s or driving via supabase-realtime
+    subscription if perf becomes an issue at scale.
+  - D7: Two cards share `cash_revenue_month_jpy` field
+    (Dashboard "Revenue This Month" + Executive
+    "Cash Sales (This Month · JPY)"). Not a bug —
+    intentional reuse. If one is ever expected to
+    diverge from the other (e.g. different scope
+    rules), they need to become two separate fields.
+  - D8: Hardcoded `riskFactor = 0.85` at
+    dashboard-summary line 417 is undocumented and
+    drives Predicted (30d), Predicted (90d), and
+    Expected Next Month cards. Move to system_settings
+    table OR document the value choice in a code
+    comment + CLAUDE.md.
+  - D9: `predicted_30d_raw` subtitle wording is
+    confusing — Finance.tsx Predicted (30d) card
+    headline is risk-adjusted (×0.85) while subtitle
+    "of {raw} due" exposes the un-adjusted value.
+    Easy to misread as "predicted of X due" implying
+    X is the target. Reword subtitle to clarify
+    risk-adjustment, or surface both numbers more
+    explicitly.
+
+  Sweep recommendation: ship the 4 HIGH severity
+  timestamptz fixes as one PR (cleanest match to
+  D1 pattern, single deploy). D2/D3/D4 can ride
+  in a separate sweep alongside the PHT-frontend
+  audit above. D5/D7/D8/D9 are lower priority and
+  can wait for a dashboard polish session.
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
