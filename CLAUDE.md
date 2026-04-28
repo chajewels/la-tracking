@@ -654,8 +654,8 @@ All values come from computeLayaway() in business-rules.ts
     Then run `SELECT * FROM audit_delete_cleanup_invariants()`
     in SQL Editor to confirm zero new findings.
 
-  Verification (2026-04-28): returns exactly 4 rows in
-  current production:
+  Verification — initial run on 2026-04-28: returned
+  exactly 4 rows:
     - 3 critical: delete-customer missing cleanup for
       cash_orders, extension_requests, payment_submissions
     - 1 info:     cash_payments preventive (no
@@ -663,8 +663,16 @@ All values come from computeLayaway() in business-rules.ts
     - 0 layaway findings: delete-account is fully
       covered after commits bdac341 + 1ff9cd8.
 
-  The 3 critical rows are tracked under "Known Open Bugs:
-  delete-customer FK gaps (deferred)".
+  After delete-customer fix (Known Fixed Bug #53,
+  same day 2026-04-28): the 3 critical rows are
+  resolved. Once Cynthia adds the 3 new allowlist
+  rows to the audit RPC in SQL Editor:
+    ('delete-customer', 'customers', 'cash_orders',         false, true),
+    ('delete-customer', 'customers', 'extension_requests',  false, false),
+    ('delete-customer', 'customers', 'payment_submissions', false, false)
+  the RPC returns exactly 1 row — the cash_payments
+  info finding (preventive, unchanged because no
+  delete-cash-order function exists yet).
 
 ## Payment Recording Rules
 
@@ -881,6 +889,27 @@ When completing a partially_paid month:
     cash-order partials/expiry); will fix in next
     session. Function body recorded under AUDIT RPCs
     section. (2026-04-28)
+  - 53. delete-customer FK gaps closed: added
+    cash_orders pre-check (mirrors layaway_accounts
+    block — RESTRICT FK), extension_requests cleanup
+    (NO ACTION FK), payment_submissions cleanup
+    (NO ACTION FK), and audit_logs entry on
+    successful delete (matches delete-account
+    pattern from bf368a6). Pre-check is now
+    consolidated and parallel — single Promise.all
+    fetches both layaway_accounts and cash_orders;
+    error response includes a structured
+    `blocked_by` payload listing every blocker so
+    admin sees the complete picture in one round
+    trip instead of fixing one error then hitting
+    the next. Surfaced by
+    audit_delete_cleanup_invariants() and tracked as
+    Known Open Bug entry; that entry is now resolved.
+    Manual deploy required (delete-customer is not
+    in auto-deploy workflow). After deploy, the 3
+    new allowlist rows must be added to the audit
+    RPC in SQL Editor — see AUDIT RPCs section.
+    (2026-04-28)
 
 ## Known Open Bugs
 
@@ -888,63 +917,10 @@ When completing a partially_paid month:
   yet fixed. Each entry should describe the fix
   pattern so the next session can pick it up cleanly.
 
-### delete-customer FK gaps (deferred — surfaced 2026-04-28)
-
-  delete-customer edge function only handles
-  customer_analytics cleanup + a pre-check that
-  rejects deletion if linked layaway_accounts exist.
-  It does NOT handle 3 other NO ACTION/RESTRICT FKs
-  to customers, all surfaced by
-  audit_delete_cleanup_invariants() on 2026-04-28:
-
-  - cash_orders.customer_id (RESTRICT) — no pre-check,
-    no cleanup. Customer with cash orders but no
-    layaway accounts will fail deletion with FK
-    violation 'cash_orders_customer_id_fkey'.
-  - payment_submissions.customer_id (NO ACTION) — no
-    cleanup. Same failure mode.
-  - extension_requests.customer_id (NO ACTION) — no
-    cleanup. Same failure mode.
-
-  Status: Not currently blocking. Test Customer (the
-  only customer in production with mixed records) has
-  layaway accounts, so the existing pre-check already
-  blocks deletion. Becomes blocking once a customer
-  exists in production who has only cash_orders /
-  payment_submissions / extension_requests but no
-  layaway accounts.
-
-  Fix pattern when prioritized — mirror delete-account
-  structure. Two options per FK:
-    1. Add explicit DELETE before the parent DELETE
-       (like reconciliation_log fix in commit bdac341
-       and extension_requests fix in commit 1ff9cd8).
-    2. Extend the pre-check to reject deletion if any
-       of these children exist (like the existing
-       layaway_accounts pre-check at delete-customer
-       lines 55–66).
-
-  Recommended per FK:
-    - cash_orders          → pre-check (mirrors the
-                             existing layaway_accounts
-                             pre-check; cash orders
-                             carry money, refusing
-                             deletion is correct).
-    - payment_submissions  → cleanup (auditable
-                             history rows, no business
-                             reason to block deletion).
-    - extension_requests   → cleanup (same — history
-                             rows tied to forfeited
-                             accounts that may have
-                             been resolved already).
-
-  After fix: add cash_orders to delete-customer's
-  pre-check + add payment_submissions and
-  extension_requests rows to the
-  audit_delete_cleanup_invariants() allowlist for
-  parent_table='customers'. Run the audit to confirm
-  zero remaining critical findings against
-  delete-customer.
+  (No currently-open bugs as of 2026-04-28. The
+  delete-customer FK gaps surfaced earlier today by
+  audit_delete_cleanup_invariants() were closed in
+  the same session — see Known Fixed Bug #53.)
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
