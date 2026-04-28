@@ -1891,13 +1891,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "payment_submissions_confirmed_payment_id_fkey"
-            columns: ["confirmed_payment_id"]
-            isOneToOne: false
-            referencedRelation: "payments"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "payment_submissions_customer_id_fkey"
             columns: ["customer_id"]
             isOneToOne: false
