@@ -84,6 +84,18 @@ Deno.serve(async (req) => {
     const nextMonthYear = phtNow.getMonth() === 11 ? phtNow.getFullYear() + 1 : phtNow.getFullYear();
     const nextMonthMonth = phtNow.getMonth() === 11 ? 0 : phtNow.getMonth() + 1;
     const nextMonthStartStr = `${nextMonthYear}-${pad(nextMonthMonth + 1)}-01`;
+    // PHT-anchored month-boundary timestamps for half-open timestamptz queries.
+    // monthStartStr and nextMonthStartStr alone are bare YYYY-MM-DD; PostgREST
+    // would interpret those as UTC midnight when filtering a timestamptz column.
+    // Appending +08:00 makes them PHT-correct. Mirrors the day-window helpers
+    // `today` and `tomorrow` declared above, plus the D1 fix in commit 63bc008.
+    //
+    // Use monthStartStr / nextMonthStartStr for date-column queries
+    // (payments.date_paid, cash_payments.date_paid, JS string compares).
+    // Use monthStartPht / nextMonthStartPht for timestamptz queries
+    // (completed_at, created_at).
+    const monthStartPht     = monthStartStr     + "T00:00:00+08:00";
+    const nextMonthStartPht = nextMonthStartStr + "T00:00:00+08:00";
 
     // ── Build all queries in parallel ──
     // Active statuses must match ACTIVE_STATUSES in business-rules.ts
@@ -100,8 +112,8 @@ Deno.serve(async (req) => {
       .from("layaway_accounts")
       .select("id", { count: "exact", head: true })
       .eq("status", "completed")
-      .gte("completed_at", monthStartStr)
-      .lt("completed_at", nextMonthStartStr)
+      .gte("completed_at", monthStartPht)
+      .lt("completed_at", nextMonthStartPht)
       .not("invoice_number", "like", "TEST-%");
 
     // Include both forfeited and final_forfeited — both represent forfeited accounts
@@ -152,8 +164,8 @@ Deno.serve(async (req) => {
       .from("cash_orders")
       .select("id", { count: "exact", head: true })
       .eq("status", "completed")
-      .gte("completed_at", monthStartStr)
-      .lt("completed_at", nextMonthStartStr)
+      .gte("completed_at", monthStartPht)
+      .lt("completed_at", nextMonthStartPht)
       .not("invoice_number", "like", "TEST-%");
 
     const cashCompletedAllQ = supabase
@@ -172,8 +184,8 @@ Deno.serve(async (req) => {
     const cashCreatedMonthQ = supabase
       .from("cash_orders")
       .select("id", { count: "exact", head: true })
-      .gte("created_at", monthStartStr)
-      .lt("created_at", nextMonthStartStr)
+      .gte("created_at", monthStartPht)
+      .lt("created_at", nextMonthStartPht)
       .not("invoice_number", "like", "TEST-%");
 
     const cashCreatedAllQ = supabase
@@ -184,8 +196,8 @@ Deno.serve(async (req) => {
     const layawayCreatedMonthQ = supabase
       .from("layaway_accounts")
       .select("id", { count: "exact", head: true })
-      .gte("created_at", monthStartStr)
-      .lt("created_at", nextMonthStartStr)
+      .gte("created_at", monthStartPht)
+      .lt("created_at", nextMonthStartPht)
       .not("invoice_number", "like", "TEST-%");
 
     const layawayCreatedAllQ = supabase
