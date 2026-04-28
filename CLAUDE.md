@@ -1034,15 +1034,9 @@ When completing a partially_paid month:
 
   Audit findings from the KPI cleanup. Group D items
   follow the numbering from the original audit report.
-
-  ~~HIGH severity — same TZ bug class as D1 but on
-  MONTH boundaries in dashboard-summary edge function~~
-  RESOLVED 2026-04-28 in commit ae5a000. See Known
-  Fixed Bug #55. Originally listed:
-    - completed_this_month  (layaway_accounts.completed_at)
-    - cashCompletedMonthQ   (cash_orders.completed_at)
-    - cashCreatedMonthQ     (cash_orders.created_at)
-    - layawayCreatedMonthQ  (layaway_accounts.created_at)
+  The HIGH-severity timestamptz items originally
+  flagged here were resolved in commit ae5a000 — see
+  Known Fixed Bug #55.
 
   LOW / MEDIUM severity — display polish + design
   decisions, not data accuracy:
