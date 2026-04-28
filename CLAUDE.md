@@ -588,6 +588,20 @@ When completing a partially_paid month:
     snapshot + manual rollback in step 5 failure path
     — see CASH ORDER CONFIRM ROLLBACK section
     (2026-04-28)
+  - 50. delete-account did not clean up reconciliation_log
+    — fixed (2026-04-28). reconciliation_log table
+    was created via SQL Editor 2026-04-20 with
+    account_id FK using ON DELETE NO ACTION. delete-account
+    cleanup list at lines 73–117 of the edge function
+    explicitly deletes 13 child tables but did not
+    include reconciliation_log, so any account that
+    had been reconciled (most active accounts after
+    2026-04-20) failed to delete with FK violation
+    'reconciliation_log_account_id_fkey'. Added
+    explicit DELETE as step 8 between reminder_logs
+    and account_services. Subsequent step comments
+    renumbered. Manual deploy required (delete-account
+    is not in auto-deploy workflow).
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
@@ -1329,6 +1343,13 @@ When completing a partially_paid month:
     (layaway_accounts + payments tables)
   delete-account audit wipe: FIXED ✅
     (commit bf368a6)
+  delete-account reconciliation_log cleanup: ADDED ✅
+    (2026-04-28) — reconciliation_log was created
+    via SQL Editor 2026-04-20 with ON DELETE NO ACTION;
+    delete-account cleanup list now includes it as
+    step 8 between reminder_logs and account_services.
+    Manual deploy required — delete-account is not in
+    the auto-deploy workflow. See bug #50.
   record-payment canonical formula: FIXED ✅
     (commit 6dd13e4)
   Platform rebrand → Cha Jewels Hub: DONE ✅

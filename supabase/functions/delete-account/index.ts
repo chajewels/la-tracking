@@ -94,29 +94,35 @@ Deno.serve(async (req) => {
     // 7. Reminder logs (references layaway_accounts)
     await supabase.from("reminder_logs").delete().eq("account_id", account_id);
 
-    // 8. Account services (references layaway_accounts)
+    // 8. Reconciliation log (drift reports written by reconcile-account edge
+    //    function — must be explicitly deleted because the FK has
+    //    ON DELETE NO ACTION). Table was created via SQL Editor 2026-04-20
+    //    and is not visible in repo migrations. See CLAUDE.md bug #50.
+    await supabase.from("reconciliation_log").delete().eq("account_id", account_id);
+
+    // 9. Account services (references layaway_accounts)
     await supabase.from("account_services").delete().eq("account_id", account_id);
 
-    // 9. Final settlement records (references layaway_accounts)
+    // 10. Final settlement records (references layaway_accounts)
     await supabase.from("final_settlement_records").delete().eq("account_id", account_id);
 
-    // 10. Penalty cap overrides (references layaway_accounts)
+    // 11. Penalty cap overrides (references layaway_accounts)
     await supabase.from("penalty_cap_overrides").delete().eq("account_id", account_id);
 
-    // 11. Statement tokens (references layaway_accounts)
+    // 12. Statement tokens (references layaway_accounts)
     await supabase.from("statement_tokens").delete().eq("account_id", account_id);
 
-    // 12. Payments (references layaway_accounts)
+    // 13. Payments (references layaway_accounts)
     await supabase.from("payments").delete().eq("account_id", account_id);
 
-    // 13. Layaway schedule (references layaway_accounts)
+    // 14. Layaway schedule (references layaway_accounts)
     await supabase.from("layaway_schedule").delete().eq("account_id", account_id);
 
-    // 14. Audit logs are PRESERVED — no delete here. Prior audit trail
+    // 15. Audit logs are PRESERVED — no delete here. Prior audit trail
     //     (payments, penalties, schedule changes, etc.) must survive
     //     account deletion so the account history is never lost.
 
-    // 15. Finally, the account itself
+    // 16. Finally, the account itself
     const { error: delErr } = await supabase.from("layaway_accounts").delete().eq("id", account_id);
     if (delErr) {
       console.error("Failed to delete account:", delErr);
