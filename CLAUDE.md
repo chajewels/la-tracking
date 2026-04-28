@@ -910,6 +910,25 @@ When completing a partially_paid month:
     new allowlist rows must be added to the audit
     RPC in SQL Editor — see AUDIT RPCs section.
     (2026-04-28)
+  - 54. EditCustomerDialog allowed manual customer_code
+    overwrite — discovered when customer "Charm Monaka"
+    had a Facebook URL in the customer_code field
+    instead of the canonical CJ-YYYY-XXXXX format.
+    Data was repaired manually via SQL Editor; the
+    UI hole that allowed it (writable Input at
+    EditCustomerDialog.tsx:108 plus customer_code
+    in the saveEdit UPDATE payload) is now closed.
+    Field is read-only with a Lock icon, helper text
+    explaining the cross-platform sync requirement,
+    and the UPDATE payload no longer carries the
+    column. Defense in depth: even if the input were
+    re-enabled or DOM-tampered, the saveEdit handler
+    won't write the field. Forensic repair path
+    documented under CUSTOMER CODE STANDARD —
+    Forensic repair subsection. Frontend-only
+    change; no DB-side trigger added (single attack
+    surface, application-layer enforcement is
+    sufficient for now). (2026-04-28)
 
 ## Known Open Bugs
 
@@ -1114,6 +1133,33 @@ When completing a partially_paid month:
 
   Used for cross-platform synchronization with Loyalty App.
   This is the universal customer identifier across all Cha Jewels platforms.
+
+### Forensic repair (manual customer_code edits)
+
+  If a customer_code is ever corrupted (e.g., a row backfilled
+  from an external source with malformed data, or a manual
+  override before the EditCustomer lock landed on 2026-04-28),
+  the only repair path is direct SQL Editor:
+
+    UPDATE public.customers
+       SET customer_code = 'CJ-YYYY-XXXXX'
+     WHERE id = '<uuid>';
+
+  Audit-log the change manually:
+
+    INSERT INTO public.audit_logs
+      (entity_type, entity_id, action,
+       old_value_json, new_value_json,
+       performed_by_user_id)
+    VALUES ('customer', '<uuid>',
+            'manual_customer_code_repair',
+            jsonb_build_object('customer_code', '<old>'),
+            jsonb_build_object('customer_code', 'CJ-YYYY-XXXXX'),
+            auth.uid());
+
+  EditCustomerDialog UI does NOT allow customer_code edits
+  (locked 2026-04-28 after the Charm Monaka incident — see
+  Known Fixed Bugs #54).
 
 ## PENALTY STANDARD — NON-NEGOTIABLE (added 2026-04-12)
 
