@@ -191,6 +191,8 @@ export type Database = {
           created_by_user_id: string | null
           currency: Database["public"]["Enums"]["account_currency"]
           customer_id: string
+          expired_at: string | null
+          expires_at: string | null
           id: string
           invoice_number: string
           item_description: string | null
@@ -215,6 +217,8 @@ export type Database = {
           created_by_user_id?: string | null
           currency?: Database["public"]["Enums"]["account_currency"]
           customer_id: string
+          expired_at?: string | null
+          expires_at?: string | null
           id?: string
           invoice_number: string
           item_description?: string | null
@@ -239,6 +243,8 @@ export type Database = {
           created_by_user_id?: string | null
           currency?: Database["public"]["Enums"]["account_currency"]
           customer_id?: string
+          expired_at?: string | null
+          expires_at?: string | null
           id?: string
           invoice_number?: string
           item_description?: string | null
@@ -3035,7 +3041,7 @@ export type Database = {
         | "final_forfeited"
       allocation_type: "penalty" | "installment"
       app_role: "admin" | "staff" | "finance" | "csr"
-      cash_order_status: "pending" | "completed" | "cancelled"
+      cash_order_status: "pending" | "completed" | "cancelled" | "expired"
       clv_tier: "bronze" | "silver" | "gold" | "vip"
       loyalty_redemption_status: "pending" | "confirmed" | "cancelled"
       loyalty_redemption_type:
@@ -3207,7 +3213,7 @@ export const Constants = {
       ],
       allocation_type: ["penalty", "installment"],
       app_role: ["admin", "staff", "finance", "csr"],
-      cash_order_status: ["pending", "completed", "cancelled"],
+      cash_order_status: ["pending", "completed", "cancelled", "expired"],
       clv_tier: ["bronze", "silver", "gold", "vip"],
       loyalty_redemption_status: ["pending", "confirmed", "cancelled"],
       loyalty_redemption_type: [
