@@ -2775,6 +2775,20 @@ export type Database = {
           status: string
         }[]
       }
+      audit_delete_cleanup_invariants: {
+        Args: never
+        Returns: {
+          child_table: string
+          delete_function: string
+          finding_type: string
+          fk_name: string
+          in_allowlist: boolean
+          message: string
+          on_delete: string
+          parent_table: string
+          severity: string
+        }[]
+      }
       check_duplicate_payment: {
         Args: { p_account_id: string; p_amount: number; p_date?: string }
         Returns: Json
