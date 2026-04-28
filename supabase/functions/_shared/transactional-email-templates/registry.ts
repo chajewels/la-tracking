@@ -24,6 +24,7 @@ import { template as extensionGranted } from './extension-granted.tsx'
 import { template as extensionRequested } from './extension-requested.tsx'
 import { template as cashPaymentSubmitted } from './cash-payment-submitted.tsx'
 import { template as cashPaymentConfirmed } from './cash-payment-confirmed.tsx'
+import { template as cashOrderExpired } from './cash-order-expired.tsx'
 import { template as loyaltyWelcome } from './loyalty-welcome.tsx'
 import { template as loyaltyEarned } from './loyalty-earned.tsx'
 import { template as loyaltyBonus } from './loyalty-bonus.tsx'
@@ -49,6 +50,7 @@ export const TEMPLATES: Record<string, TemplateEntry> = {
   'extension-requested': extensionRequested,
   'cash-payment-submitted': cashPaymentSubmitted,
   'cash-payment-confirmed': cashPaymentConfirmed,
+  'cash-order-expired': cashOrderExpired,
   'loyalty-welcome': loyaltyWelcome,
   'loyalty-earned': loyaltyEarned,
   'loyalty-bonus': loyaltyBonus,

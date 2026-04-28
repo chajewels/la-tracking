@@ -1,18 +1,20 @@
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
-type CashOrderStatus = 'pending' | 'completed' | 'cancelled' | string;
+type CashOrderStatus = 'pending' | 'completed' | 'cancelled' | 'expired' | string;
 
 const statusStyles: Record<string, string> = {
   pending: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
   completed: 'bg-success/10 text-success border-success/20',
   cancelled: 'bg-muted text-muted-foreground border-border',
+  expired: 'bg-destructive/10 text-destructive border-destructive/30',
 };
 
 const statusLabel: Record<string, string> = {
   pending: 'Pending',
   completed: 'Completed',
   cancelled: 'Cancelled',
+  expired: 'Expired',
 };
 
 export default function StatusBadge({ status, className }: { status: CashOrderStatus; className?: string }) {

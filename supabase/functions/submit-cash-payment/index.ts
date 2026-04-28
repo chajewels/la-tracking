@@ -128,17 +128,22 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 4a. Block duplicate pending submission for this cash order
+    // 4a. Block exact-duplicate pending submission for this cash order.
+    // Different amounts / different methods are allowed — legitimate sequential
+    // partial payments. Only block when a row with the SAME amount AND SAME
+    // method is already pending review.
     const { data: existingSubmission } = await supabase
       .from('payment_submissions')
       .select('id, status')
       .eq('cash_order_id', cash_order_id)
+      .eq('submitted_amount', submittedNum)
+      .eq('payment_method', payment_method)
       .in('status', ['submitted', 'under_review'])
       .maybeSingle();
 
     if (existingSubmission) {
       return new Response(
-        JSON.stringify({ error: 'A payment submission is already pending review for this order. Please wait for it to be reviewed or cancel it first.' }),
+        JSON.stringify({ error: 'A payment submission with the same amount and method is already pending review for this order. Please wait for it to be reviewed or cancel it first.' }),
         { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

@@ -23,6 +23,7 @@ interface CashOrderArg {
   total_amount: number;
   total_paid: number;
   remaining_balance: number;
+  expires_at?: string | null;
   customer: { full_name: string } | null;
 }
 
@@ -52,7 +53,9 @@ export default function RecordCashPaymentDialog({
   const customerName = cashOrder.customer?.full_name || '';
 
   // Form state
-  const [amountInput, setAmountInput] = useState('');
+  const fullAmountStr = String(Math.round(remaining * 100) / 100);
+  const [isPartial, setIsPartial] = useState(false);
+  const [amountInput, setAmountInput] = useState(fullAmountStr);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('');
   const [referenceNumber, setReferenceNumber] = useState('');
   const [paymentDate, setPaymentDate] = useState(todayISODate());
@@ -65,7 +68,8 @@ export default function RecordCashPaymentDialog({
   // Reset when the dialog re-opens for a new order
   useEffect(() => {
     if (isOpen) {
-      setAmountInput('');
+      setIsPartial(false);
+      setAmountInput(String(Math.round(remaining * 100) / 100));
       setPaymentMethod('');
       setReferenceNumber('');
       setPaymentDate(todayISODate());
@@ -75,7 +79,8 @@ export default function RecordCashPaymentDialog({
       setBannerDismissed(false);
       setSubmitting(false);
     }
-  }, [isOpen, customerName]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, customerName, remaining]);
 
   const amount = Number(amountInput) || 0;
   const isAmountPositive = amount > 0;
@@ -100,6 +105,24 @@ export default function RecordCashPaymentDialog({
     !proofError;
 
   const setPayFull = () => setAmountInput(String(Math.round(remaining * 100) / 100));
+
+  // Toggle partial mode: when enabled, clear the amount; when disabled,
+  // re-prefill with full remaining.
+  const handleTogglePartial = (next: boolean) => {
+    setIsPartial(next);
+    if (next) {
+      setAmountInput('');
+    } else {
+      setAmountInput(String(Math.round(remaining * 100) / 100));
+    }
+  };
+
+  // Expiry display helpers
+  const expiresAtDate = cashOrder.expires_at ? new Date(cashOrder.expires_at) : null;
+  const expiryDaysRemaining = expiresAtDate
+    ? Math.floor((expiresAtDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    : null;
+  const expiryIsPastDue = expiresAtDate ? expiresAtDate < new Date() : false;
 
   const uploadProof = useCallback(async (): Promise<string | null> => {
     if (!proofFile) return null;
@@ -199,19 +222,40 @@ export default function RecordCashPaymentDialog({
           </div>
         )}
 
+        {expiresAtDate && (
+          expiryIsPastDue ? (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">
+              <Info className="h-4 w-4 mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <strong>This order has expired.</strong> Submissions on expired
+                orders will be auto-rejected.
+              </div>
+            </div>
+          ) : (
+            <div className="text-[11px] text-muted-foreground">
+              Expires {expiresAtDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              {expiryDaysRemaining !== null && expiryDaysRemaining >= 0 && (
+                <> · {expiryDaysRemaining === 0 ? 'today' : expiryDaysRemaining === 1 ? '1 day left' : `${expiryDaysRemaining} days left`}</>
+              )}
+            </div>
+          )
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Amount */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <Label className="text-card-foreground">Amount to Pay *</Label>
-              <button
-                type="button"
-                onClick={setPayFull}
-                disabled={remaining <= 0}
-                className="text-[11px] font-medium text-primary hover:underline disabled:opacity-40 disabled:no-underline"
-              >
-                Pay Full Remaining
-              </button>
+              {isPartial && (
+                <button
+                  type="button"
+                  onClick={setPayFull}
+                  disabled={remaining <= 0}
+                  className="text-[11px] font-medium text-primary hover:underline disabled:opacity-40 disabled:no-underline"
+                >
+                  Pay Full Remaining
+                </button>
+              )}
             </div>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground pointer-events-none">
@@ -222,14 +266,18 @@ export default function RecordCashPaymentDialog({
                 min="0"
                 step="0.01"
                 value={amountInput}
+                readOnly={!isPartial}
+                disabled={!isPartial}
                 onChange={(e) => setAmountInput(e.target.value)}
                 placeholder="0"
-                className="bg-background border-border pl-8 tabular-nums"
+                className="bg-background border-border pl-8 tabular-nums disabled:opacity-100 disabled:cursor-not-allowed"
               />
             </div>
             <div className="flex items-center justify-between text-[11px]">
               <span className="text-muted-foreground">
-                Remaining: <span className="tabular-nums">{formatCurrency(remaining, currency)}</span>
+                {isPartial
+                  ? <>Maximum: <span className="tabular-nums">{formatCurrency(remaining, currency)}</span></>
+                  : <>Full payment of <span className="tabular-nums">{formatCurrency(remaining, currency)}</span></>}
               </span>
               {exceedsRemaining && (
                 <span className="text-destructive">Exceeds remaining balance</span>
@@ -238,6 +286,18 @@ export default function RecordCashPaymentDialog({
                 <span className="text-destructive">Amount must be greater than zero</span>
               )}
             </div>
+            {/* Partial-payment toggle */}
+            <label className="flex items-center gap-2 pt-1 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={isPartial}
+                onChange={(e) => handleTogglePartial(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-border accent-primary"
+              />
+              <span className="text-[11px] text-card-foreground">
+                Make partial payment
+              </span>
+            </label>
           </div>
 
           {/* Payment Method */}
@@ -380,7 +440,7 @@ export default function RecordCashPaymentDialog({
                   <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
                   Submitting…
                 </>
-              ) : 'Submit Payment'}
+              ) : (isPartial ? 'Submit Partial Payment' : 'Pay Full Amount')}
             </Button>
           </DialogFooter>
         </form>

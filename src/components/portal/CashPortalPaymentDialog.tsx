@@ -31,6 +31,7 @@ interface CashOrderArg {
   total_amount: number;
   total_paid: number;
   remaining_balance: number;
+  expires_at?: string | null;
 }
 
 interface CashPortalPaymentDialogProps {
@@ -223,6 +224,11 @@ export default function CashPortalPaymentDialog({
           <p style={{ color: P.ts, fontSize: '11px', fontFamily: 'Inter,sans-serif' }}>
             #{cashOrder.invoice_number} · Remaining {fmt(remaining, currency)}
           </p>
+          {cashOrder.expires_at && (
+            <p style={{ color: P.gp, fontSize: '10px', fontFamily: 'Inter,sans-serif', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+              Pay by {new Date(cashOrder.expires_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </p>
+          )}
         </SheetHeader>
 
         {step === 'success' ? (

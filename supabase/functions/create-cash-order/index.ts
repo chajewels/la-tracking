@@ -52,11 +52,12 @@ Deno.serve(async (req) => {
       currency,
       total_amount,
       order_date,
+      expires_at,
       notes,
       agreement_version,
     } = body;
 
-    if (!customer_id || !invoice_number || !currency || total_amount == null) {
+    if (!customer_id || !invoice_number || !currency || total_amount == null || !expires_at) {
       return new Response(JSON.stringify({ error: "Missing required fields" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -71,6 +72,14 @@ Deno.serve(async (req) => {
     const totalAmountNum = Number(total_amount);
     if (!Number.isFinite(totalAmountNum) || totalAmountNum <= 0) {
       return new Response(JSON.stringify({ error: "total_amount must be a positive number" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    // Validate expires_at parses to a real timestamp
+    const expiresAtDate = new Date(expires_at);
+    if (Number.isNaN(expiresAtDate.getTime())) {
+      return new Response(JSON.stringify({ error: "expires_at must be a valid date/timestamp" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -121,6 +130,7 @@ Deno.serve(async (req) => {
       currency,
       total_amount: totalAmountNum,
       order_date: resolvedOrderDate,
+      expires_at: expiresAtDate.toISOString(),
       notes: notes ?? null,
       status: "pending",
       total_paid: 0,

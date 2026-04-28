@@ -473,7 +473,7 @@ Deno.serve(async (req) => {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (cashOrder.status === "cancelled") {
+      if (cashOrder.status === "cancelled" || cashOrder.status === "expired") {
         return new Response(JSON.stringify({ error: `cash_order is ${cashOrder.status}, cannot confirm payment` }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -517,7 +517,11 @@ Deno.serve(async (req) => {
       const newTotalPaid = Math.round((Number(cashOrder.total_paid) + submittedAmount) * 100) / 100;
       const newRemaining = Math.max(0, Math.round((liveRemaining - submittedAmount) * 100) / 100);
       const isFullyPaid = newRemaining <= 0.005;
-      const statusAfter = isFullyPaid ? "completed" : "pending";
+      // Preserve existing status when not fully paid — partial payments do NOT
+      // flip an expired/extension/etc. order back to pending. The line 476 block
+      // above already prevents confirming on cancelled/expired orders, so this
+      // is defense in depth for any future status enum additions.
+      const statusAfter = isFullyPaid ? "completed" : cashOrder.status;
       const orderUpdate: Record<string, unknown> = {
         total_paid: newTotalPaid,
         remaining_balance: newRemaining,

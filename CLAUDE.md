@@ -880,6 +880,103 @@ When completing a partially_paid month:
   admin/finance client-side insert from RecordPaymentDialog) use
   status='submitted'.
 
+## CASH ORDER EXPIRY (added 2026-04-28)
+
+  Cash orders carry a manual expiration deadline.
+  expires_at on cash_orders is set at order creation
+  (NewCashOrder form) and is required — no default,
+  no auto-derivation. Staff sets it per customer
+  arrangement.
+
+  Database (added 2026-04-28):
+  - cash_order_status enum widened: pending, completed,
+    cancelled, expired
+  - cash_orders.expires_at (timestamptz, nullable)
+  - cash_orders.expired_at (timestamptz, nullable)
+  - idx_payment_submissions_cash_order_status
+
+  Edit rights: admin + finance only.
+  - "Edit Expiry" button on CashOrderDetail (admin/finance)
+  - Direct UPDATE on cash_orders.expires_at (no edge
+    function), audit-logged via audit_logs
+
+  Cron (auto-expire-cash-orders):
+  - Schedule: 30 0 * * * (08:30 PHT)
+  - Runs after auto-forfeit-settlement and
+    daily-reconciliation, alongside
+    loyalty-inactivity-check
+  - Selects WHERE status = 'pending'
+    AND expires_at IS NOT NULL
+    AND expires_at < NOW()
+    AND remaining_balance > 0
+  - Per order: status → 'expired', expired_at = now(),
+    audit_logs row, fire-and-forget cash-order-expired
+    email
+  - Auto-rejects all pending payment_submissions on
+    the order: status → 'rejected',
+    reviewer_notes = 'Cash order expired (auto-rejected)'
+  - MAX_ORDERS_PER_RUN = 100
+  - Per-order try/catch — one failure does not abort
+    the batch; failure is audit-logged separately
+  - Confirmed payments (cash_payments) are NEVER
+    voided — money already received stays received,
+    only the unpaid portion is forfeited per terms
+
+  Confirm guard (review-payment-submission):
+  - cash_orders with status='cancelled' OR 'expired'
+    cannot have payments confirmed
+  - Partial-payment confirmations preserve the
+    existing cash_orders.status when not fully paid
+    (defense in depth — line 476 block already
+    prevents confirming on cancelled/expired)
+
+  Submit guard (submit-cash-payment):
+  - Existing status check rejects anything that is not
+    'pending' (line 116) — naturally blocks 'expired'
+  - 409 duplicate guard relaxed: only blocks when an
+    existing pending submission has the SAME amount
+    AND SAME method (legitimate sequential partials
+    are allowed)
+  - Rate limit unchanged: 3 non-rejected/non-cancelled
+    submissions per 24h. Auto-rejected-by-expiry
+    submissions land at status='rejected', already
+    excluded.
+
+  Existing cash_orders backfilled with expires_at = NULL
+  — these are EXEMPT from auto-expire until staff
+  manually sets a date via Edit Expiry.
+
+## CASH ORDER PARTIAL PAYMENTS (added 2026-04-28)
+
+  Both staff and customer flows now support partial
+  payments on cash orders.
+
+  Math (review-payment-submission):
+  - Already additive (lines 516–541, unchanged):
+      newTotalPaid = total_paid + submitted_amount
+      newRemaining = max(0, remaining_balance - submitted_amount)
+      isFullyPaid → status='completed' + completed_at
+      not fully paid → preserve current status
+  - Rounded to 2 decimal places
+  - Validates submitted_amount ≤ remaining_balance + 0.005
+    at both submit and review time
+
+  Loyalty trigger:
+  - Points awarded only when the order completes
+    (isFullyPaid). Partial payments do not award.
+
+  RecordCashPaymentDialog:
+  - Default mode: amount field locked, pre-filled with
+    full remaining balance, button reads "Pay Full Amount"
+  - "Make partial payment" toggle unlocks the amount
+    field, button reads "Submit Partial Payment"
+  - Validation unchanged: amount > 0 AND ≤ remaining + 0.005
+
+  CashPortalPaymentDialog:
+  - Already partial-friendly — no functional change
+  - Cosmetic: "Pay by [date]" in Sheet header when
+    expires_at is set
+
 ## LOYALTY AWARD SYSTEM (added 2026-04-27)
 
 ### Award triggers:
@@ -1450,6 +1547,7 @@ SUPABASE EDGE FUNCTIONS — these auto-deploy when their files change:
 - send-transactional-email
 - preview-transactional-email
 - customer-portal
+- auto-expire-cash-orders
 
 Note: _shared/** changes trigger redeploy of
 send-transactional-email and preview-transactional-email,

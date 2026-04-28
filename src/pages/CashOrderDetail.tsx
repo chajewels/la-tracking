@@ -5,10 +5,13 @@ import { toast } from 'sonner';
 import {
   ArrowLeft, Banknote, RefreshCcw, Receipt, Upload, XCircle,
   AlertTriangle, User as UserIcon, MessageCircle, Plus, Sparkles,
+  CalendarClock, Send, Eye, CheckCircle, MessageSquare, FileText,
+  Image as ImageIcon, Clock, Pencil,
 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -36,6 +39,8 @@ interface CashOrderRow {
   status: string;
   item_description: string | null;
   order_date: string | null;
+  expires_at: string | null;
+  expired_at: string | null;
   notes: string | null;
   agreement_version: string | null;
   agreement_acceptance_datetime: string | null;
@@ -72,6 +77,12 @@ interface SubmissionRow {
   payment_method: string | null;
   payment_date: string | null;
   sender_name: string | null;
+  reference_number: string | null;
+  proof_url: string | null;
+  notes: string | null;
+  reviewer_notes: string | null;
+  customer_edited_at: string | null;
+  submission_type: string | null;
   status: string;
   created_at: string;
 }
@@ -125,7 +136,7 @@ function useCashSubmissions(orderId: string | undefined) {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from('payment_submissions')
-        .select('id, cash_order_id, submitted_amount, payment_method, payment_date, sender_name, status, created_at')
+        .select('id, cash_order_id, submitted_amount, payment_method, payment_date, sender_name, reference_number, proof_url, notes, reviewer_notes, customer_edited_at, submission_type, status, created_at')
         .eq('cash_order_id', orderId)
         .in('status', ['submitted', 'under_review', 'needs_clarification'])
         .order('created_at', { ascending: false });
@@ -166,6 +177,38 @@ function useProfileName(userId: string | null | undefined) {
       return (data as { user_id: string; full_name: string | null } | null) ?? null;
     },
   });
+}
+
+// Mirrors PaymentSubmissions.tsx so the inline pending panel matches the
+// shared review surface visually.
+const submissionStatusConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
+  submitted: { label: 'Submitted', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20', icon: <Send className="h-3 w-3" /> },
+  under_review: { label: 'Under Review', color: 'bg-warning/10 text-warning border-warning/20', icon: <Eye className="h-3 w-3" /> },
+  confirmed: { label: 'Confirmed', color: 'bg-success/10 text-success border-success/20', icon: <CheckCircle className="h-3 w-3" /> },
+  rejected: { label: 'Rejected', color: 'bg-destructive/10 text-destructive border-destructive/20', icon: <XCircle className="h-3 w-3" /> },
+  needs_clarification: { label: 'Needs Clarification', color: 'bg-warning/10 text-warning border-warning/20', icon: <MessageSquare className="h-3 w-3" /> },
+};
+
+/** Render a proof-of-payment image directly from its public URL.
+ *  Mirrors PaymentSubmissions.tsx ProofImage so the inline panel
+ *  preview matches the shared review surface. */
+function ProofImage({ url, className }: { url: string; className?: string }) {
+  const [imgError, setImgError] = useState(false);
+  const src = /^https?:\/\//.test(url)
+    ? url.replace('/storage/v1/object/sign/payment-proofs/', '/storage/v1/object/public/payment-proofs/').split('?')[0]
+    : `${(import.meta as any).env?.VITE_SUPABASE_URL ?? ''}/storage/v1/object/public/payment-proofs/${url}`;
+  if (imgError) {
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer"
+        className="inline-flex items-center gap-1.5 text-xs text-primary underline">
+        <ImageIcon className="h-3.5 w-3.5" /> View proof (open in new tab)
+      </a>
+    );
+  }
+  return (
+    <img src={src} alt="Proof of payment" className={className}
+      onError={() => setImgError(true)} />
+  );
 }
 
 export default function CashOrderDetail() {
@@ -216,6 +259,55 @@ export default function CashOrderDetail() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
+
+  // Edit expiry dialog
+  const [editExpiryOpen, setEditExpiryOpen] = useState(false);
+  const [editExpiryValue, setEditExpiryValue] = useState('');
+  const [editExpirySaving, setEditExpirySaving] = useState(false);
+  const openEditExpiry = useCallback(() => {
+    if (!order) return;
+    // Pre-fill with current expires_at as YYYY-MM-DD if set
+    const initial = order.expires_at
+      ? new Date(order.expires_at).toISOString().split('T')[0]
+      : '';
+    setEditExpiryValue(initial);
+    setEditExpiryOpen(true);
+  }, [order]);
+  const confirmEditExpiry = useCallback(async () => {
+    if (!order || !editExpiryValue) {
+      toast.error('Please pick a new expiration date');
+      return;
+    }
+    setEditExpirySaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const oldExpiresAt = order.expires_at;
+      const newIso = new Date(editExpiryValue + 'T00:00:00Z').toISOString();
+      const { error } = await (supabase as any)
+        .from('cash_orders')
+        .update({ expires_at: newIso })
+        .eq('id', order.id);
+      if (error) throw error;
+      // Best-effort audit log
+      try {
+        await (supabase as any).from('audit_logs').insert({
+          entity_type: 'cash_order',
+          entity_id: order.id,
+          action: 'expires_at_updated',
+          performed_by_user_id: user?.id ?? null,
+          old_value_json: { expires_at: oldExpiresAt },
+          new_value_json: { expires_at: newIso, invoice_number: order.invoice_number },
+        });
+      } catch { /* non-blocking */ }
+      toast.success('Expiration date updated');
+      setEditExpiryOpen(false);
+      qc.invalidateQueries({ queryKey: ['cash-order', id] });
+    } catch (err: unknown) {
+      toast.error((err as Error).message || 'Failed to update expiration');
+    } finally {
+      setEditExpirySaving(false);
+    }
+  }, [order, editExpiryValue, qc, id]);
 
   const confirmCancel = useCallback(async () => {
     if (!order || !cancelReason.trim()) {
@@ -392,34 +484,94 @@ export default function CashOrderDetail() {
 
         {/* Amount card */}
         <div className="rounded-xl border border-primary/30 bg-card p-6 shadow-sm">
-          <div className={`grid gap-4 ${order.loyalty_jpy_amount && Number(order.loyalty_jpy_amount) > 0 ? 'grid-cols-4' : 'grid-cols-3'}`}>
-            <div className="text-center">
-              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Total</p>
-              <p className="mt-1 text-lg sm:text-xl font-bold text-card-foreground tabular-nums">
-                {formatCurrency(Number(order.total_amount), currency)}
-              </p>
-            </div>
-            <div className="text-center border-l border-border">
-              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Paid</p>
-              <p className="mt-1 text-lg sm:text-xl font-bold text-success tabular-nums">
-                {formatCurrency(Number(order.total_paid), currency)}
-              </p>
-            </div>
-            <div className="text-center border-l border-border">
-              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Remaining</p>
-              <p className="mt-1 text-lg sm:text-xl font-bold text-primary tabular-nums">
-                {formatCurrency(Number(order.remaining_balance), currency)}
-              </p>
-            </div>
-            {order.loyalty_jpy_amount && Number(order.loyalty_jpy_amount) > 0 && (
-              <div className="text-center border-l border-border">
-                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Loyalty Amount</p>
-                <p className="mt-1 text-lg sm:text-xl font-bold text-card-foreground tabular-nums">
-                  ¥{Number(order.loyalty_jpy_amount).toLocaleString()}
-                </p>
+          {(() => {
+            const hasLoyalty = order.loyalty_jpy_amount && Number(order.loyalty_jpy_amount) > 0;
+            const showExpiry = !!order.expires_at || order.status === 'expired';
+            const tileCount = 3 + (hasLoyalty ? 1 : 0) + (showExpiry ? 1 : 0);
+            const gridClass =
+              tileCount === 5 ? 'grid-cols-2 sm:grid-cols-5'
+              : tileCount === 4 ? 'grid-cols-2 sm:grid-cols-4'
+              : 'grid-cols-3';
+            // Expiry color logic
+            const expiresAtDate = order.expires_at ? new Date(order.expires_at) : null;
+            const expiredAtDate = order.expired_at ? new Date(order.expired_at) : null;
+            const daysRemaining = expiresAtDate
+              ? Math.floor((expiresAtDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+              : null;
+            const expiryColor = order.status === 'expired'
+              ? 'text-destructive'
+              : daysRemaining === null
+                ? 'text-card-foreground'
+                : daysRemaining < 0
+                  ? 'text-destructive'
+                  : daysRemaining <= 1
+                    ? 'text-amber-500'
+                    : 'text-success';
+            return (
+              <div className={`grid gap-4 ${gridClass}`}>
+                <div className="text-center">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Total</p>
+                  <p className="mt-1 text-lg sm:text-xl font-bold text-card-foreground tabular-nums">
+                    {formatCurrency(Number(order.total_amount), currency)}
+                  </p>
+                </div>
+                <div className="text-center border-l border-border">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Paid</p>
+                  <p className="mt-1 text-lg sm:text-xl font-bold text-success tabular-nums">
+                    {formatCurrency(Number(order.total_paid), currency)}
+                  </p>
+                </div>
+                <div className="text-center border-l border-border">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Remaining</p>
+                  <p className="mt-1 text-lg sm:text-xl font-bold text-primary tabular-nums">
+                    {formatCurrency(Number(order.remaining_balance), currency)}
+                  </p>
+                </div>
+                {hasLoyalty && (
+                  <div className="text-center border-l border-border">
+                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Loyalty Amount</p>
+                    <p className="mt-1 text-lg sm:text-xl font-bold text-card-foreground tabular-nums">
+                      ¥{Number(order.loyalty_jpy_amount).toLocaleString()}
+                    </p>
+                  </div>
+                )}
+                {showExpiry && (
+                  <div className="text-center border-l border-border">
+                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                      {order.status === 'expired' ? 'Expired' : 'Expires'}
+                    </p>
+                    {order.status === 'expired' && expiredAtDate ? (
+                      <>
+                        <p className={`mt-1 text-sm font-bold ${expiryColor}`}>
+                          {expiredAtDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </p>
+                        <p className="text-[10px] text-destructive uppercase tracking-wide">forfeited</p>
+                      </>
+                    ) : expiresAtDate ? (
+                      <>
+                        <p className={`mt-1 text-sm font-bold ${expiryColor}`}>
+                          {expiresAtDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </p>
+                        <p className={`text-[10px] uppercase tracking-wide ${expiryColor}`}>
+                          {daysRemaining === null
+                            ? ''
+                            : daysRemaining < 0
+                              ? `${Math.abs(daysRemaining)}d overdue`
+                              : daysRemaining === 0
+                                ? 'today'
+                                : daysRemaining === 1
+                                  ? '1 day left'
+                                  : `${daysRemaining} days left`}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="mt-1 text-sm text-muted-foreground">—</p>
+                    )}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            );
+          })()}
         </div>
 
         {/* Actions */}
@@ -450,6 +602,15 @@ export default function CashOrderDetail() {
             >
               <XCircle className="h-4 w-4 mr-1.5" />
               Cancel Order
+            </Button>
+          )}
+          {(isAdmin || isFinance) && (
+            <Button
+              variant="outline"
+              onClick={openEditExpiry}
+            >
+              <Pencil className="h-4 w-4 mr-1.5" />
+              Edit Expiry
             </Button>
           )}
         </div>
@@ -588,30 +749,135 @@ export default function CashOrderDetail() {
             {(submissions || []).length === 0 ? (
               <p className="text-sm text-muted-foreground italic">No pending submissions</p>
             ) : (
-              <div className="space-y-2">
-                {submissions!.map(s => (
-                  <div key={s.id} className="rounded-lg border border-border bg-background p-3 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-semibold text-card-foreground tabular-nums">
-                          {formatCurrency(Number(s.submitted_amount), currency)}
-                        </span>
-                        <Badge variant="outline" className="text-[10px] capitalize">
-                          {s.status.replace('_', ' ')}
-                        </Badge>
-                        {s.payment_method && (
-                          <Badge variant="outline" className="text-[10px]">{s.payment_method}</Badge>
-                        )}
-                      </div>
-                      <div className="mt-1 text-[11px] text-muted-foreground">
-                        {s.payment_date} {s.sender_name ? `· ${s.sender_name}` : ''}
-                      </div>
-                    </div>
-                    <Link to="/payments-hub">
-                      <Button variant="outline" size="sm" className="h-7 text-[11px]">Review</Button>
-                    </Link>
-                  </div>
-                ))}
+              <div className="space-y-3">
+                {submissions!.map(sub => {
+                  const cfg = submissionStatusConfig[sub.status] || submissionStatusConfig.submitted;
+                  const isPending = ['submitted', 'under_review'].includes(sub.status);
+                  const hasProof = !!(sub.proof_url && sub.proof_url.trim().length > 0);
+                  return (
+                    <Card key={sub.id} className={`shadow-sm ${isPending ? 'ring-1 ring-primary/10' : ''}`}>
+                      <CardContent className="p-4 sm:p-5">
+                        <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+                          {/* Left: Details */}
+                          <div className="flex-1 min-w-0 space-y-2.5">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <p className="text-base font-bold font-display text-card-foreground tabular-nums">
+                                    {formatCurrency(Number(sub.submitted_amount), currency)}
+                                  </p>
+                                  <Badge variant="outline" className="text-[9px] bg-amber-500/10 text-amber-500 border-amber-500/30">
+                                    💵 CASH ORDER
+                                  </Badge>
+                                  {hasProof ? (
+                                    <span title="Proof attached" className="inline-flex items-center text-sm leading-none text-emerald-500">📎</span>
+                                  ) : (
+                                    <Badge variant="outline" className="text-[9px] bg-destructive/10 text-destructive border-destructive/30" title="No proof of payment attached">
+                                      No proof
+                                    </Badge>
+                                  )}
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  via {sub.payment_method || '—'} · {new Date(sub.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                                </p>
+                              </div>
+                              <Badge variant="outline" className={`text-[10px] gap-1 shrink-0 ${cfg.color}`}>
+                                {cfg.icon} {cfg.label}
+                              </Badge>
+                            </div>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                              <div>
+                                <p className="text-muted-foreground">Payment Date</p>
+                                <p className="text-card-foreground font-medium">
+                                  {sub.payment_date
+                                    ? new Date(sub.payment_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                    : '—'}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Reference</p>
+                                <p className="text-card-foreground font-mono text-[11px]">{sub.reference_number || '—'}</p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Sender</p>
+                                <p className="text-card-foreground font-medium truncate">{sub.sender_name || '—'}</p>
+                              </div>
+                            </div>
+
+                            {sub.notes && (
+                              <p className="text-xs text-muted-foreground">Notes: <span className="text-card-foreground">{sub.notes}</span></p>
+                            )}
+                            {sub.customer_edited_at && isPending && (
+                              <div className="flex items-center gap-1.5 p-2 rounded-md bg-warning/10 border border-warning/30">
+                                <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0" />
+                                <p className="text-xs text-warning font-medium">
+                                  ⚠️ Customer edited this submission on {new Date(sub.customer_edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })} — re-check the proof.
+                                </p>
+                              </div>
+                            )}
+                            {sub.reviewer_notes && (
+                              <div className="p-2.5 rounded-lg bg-muted/30 border border-[hsl(var(--border))]">
+                                <p className="text-[10px] text-muted-foreground mb-0.5 font-medium">Staff Note:</p>
+                                <p className="text-xs text-card-foreground">{sub.reviewer_notes}</p>
+                              </div>
+                            )}
+
+                            {hasProof ? (
+                              <div className="mt-1 space-y-1.5">
+                                <p className="text-[10px] text-muted-foreground font-medium">Proof of Payment</p>
+                                {sub.proof_url!.match(/\.pdf$/i) ? (
+                                  <div className="flex items-center gap-2 rounded border border-primary/20 bg-primary/5 p-2">
+                                    <FileText className="h-4 w-4 text-primary shrink-0" />
+                                    <span className="text-xs text-card-foreground truncate flex-1" title={sub.proof_url!.split('/').pop()}>
+                                      {decodeURIComponent(sub.proof_url!.split('/').pop() || 'proof.pdf').split('?')[0]}
+                                    </span>
+                                    <a href={sub.proof_url!} target="_blank" rel="noopener noreferrer"
+                                      className="text-[10px] text-primary underline whitespace-nowrap">
+                                      View Proof
+                                    </a>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => window.open(sub.proof_url!, '_blank', 'noopener,noreferrer')}
+                                      className="block w-full text-left">
+                                      <ProofImage url={sub.proof_url!}
+                                        className="w-full max-h-48 object-cover rounded border border-[hsl(var(--border))] hover:opacity-90 transition-opacity cursor-zoom-in" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => window.open(sub.proof_url!, '_blank', 'noopener,noreferrer')}
+                                      className="text-[10px] text-primary underline inline-flex items-center gap-1">
+                                      <ImageIcon className="h-3 w-3" /> View Proof
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            ) : (
+                              <p className="text-[10px] text-destructive italic font-medium">No proof attached</p>
+                            )}
+                          </div>
+
+                          {/* Right: Action */}
+                          <div className="flex flex-row sm:flex-col gap-1.5 shrink-0">
+                            {isPending && (
+                              <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20 text-[10px]">
+                                <Clock className="h-3 w-3 mr-1" /> Pending Confirmation
+                              </Badge>
+                            )}
+                            <Link to="/payments-hub">
+                              <Button variant="outline" size="sm" className="h-7 text-[11px] w-full">
+                                Review →
+                              </Button>
+                            </Link>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -772,6 +1038,47 @@ export default function CashOrderDetail() {
               disabled={cancelling || !cancelReason.trim()}
             >
               {cancelling ? 'Cancelling…' : 'Confirm Cancel'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Expiry */}
+      <Dialog open={editExpiryOpen} onOpenChange={setEditExpiryOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarClock className="h-5 w-5 text-primary" />
+              Edit Expiration Date
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Cash order #{order.invoice_number}. Updating this date changes when
+            the order will be auto-expired.
+          </p>
+          <div className="space-y-2">
+            <Label htmlFor="edit-expiry">New expiration date *</Label>
+            <Input
+              id="edit-expiry"
+              type="date"
+              value={editExpiryValue}
+              onChange={e => setEditExpiryValue(e.target.value)}
+              className="bg-background border-border"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Order will be auto-expired the morning after this date.
+            </p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setEditExpiryOpen(false)} disabled={editExpirySaving}>
+              Back
+            </Button>
+            <Button
+              onClick={confirmEditExpiry}
+              disabled={editExpirySaving || !editExpiryValue}
+              className="gold-gradient text-primary-foreground font-medium"
+            >
+              {editExpirySaving ? 'Saving…' : 'Save'}
             </Button>
           </DialogFooter>
         </DialogContent>

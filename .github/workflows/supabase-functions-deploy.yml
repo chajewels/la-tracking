@@ -32,6 +32,7 @@ on:
       - 'supabase/functions/join-loyalty-program/**'
       - 'supabase/functions/process-loyalty-redemption/**'
       - 'supabase/functions/loyalty-inactivity-check/**'
+      - 'supabase/functions/auto-expire-cash-orders/**'
       - 'supabase/functions/_shared/**'
   workflow_dispatch:
 
@@ -211,5 +212,11 @@ jobs:
       - name: Deploy loyalty-inactivity-check
         if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/loyalty-inactivity-check/')
         run: npx supabase functions deploy loyalty-inactivity-check --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy auto-expire-cash-orders
+        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/auto-expire-cash-orders/')
+        run: npx supabase functions deploy auto-expire-cash-orders --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

@@ -44,6 +44,7 @@ export default function NewCashOrder() {
   const [totalAmount, setTotalAmount] = useState('');
   const [loyaltyJpyInput, setLoyaltyJpyInput] = useState('');
   const [orderDate, setOrderDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [expiresAt, setExpiresAt] = useState<string>('');
   const [notes, setNotes] = useState('');
   const [acceptAgreement, setAcceptAgreement] = useState(false);
 
@@ -148,7 +149,12 @@ export default function NewCashOrder() {
     invoiceCheck !== 'taken' &&
     !!currency &&
     amount > 0 &&
-    !!orderDate;
+    !!orderDate &&
+    !!expiresAt;
+
+  // Warn if expiry is in the past — order will be auto-expired by cron
+  const today = new Date().toISOString().split('T')[0];
+  const expiresAtIsPast = !!expiresAt && expiresAt < today;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -168,6 +174,7 @@ export default function NewCashOrder() {
         currency,
         total_amount: amount,
         order_date: orderDate,
+        expires_at: expiresAt,
       };
       const loyaltyJpyParsed = Number(loyaltyJpyInput);
       if (
@@ -440,6 +447,27 @@ export default function NewCashOrder() {
                   className="bg-background border-border"
                 />
               </div>
+            </div>
+
+            {/* Expiration Date */}
+            <div className="space-y-2">
+              <Label className="text-card-foreground">Expiration Date *</Label>
+              <Input
+                type="date"
+                value={expiresAt}
+                onChange={(e) => { setExpiresAt(e.target.value); markDirty(); }}
+                className={`bg-background border-border ${expiresAtIsPast ? 'border-destructive' : ''}`}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Manual entry — staff sets per customer arrangement. Order will
+                be auto-expired the morning after this date.
+              </p>
+              {expiresAtIsPast && (
+                <p className="text-xs text-destructive">
+                  ⚠️ This date has already passed — order will be auto-expired
+                  tomorrow morning.
+                </p>
+              )}
             </div>
 
             {/* Loyalty product amount (admin/finance only) */}
