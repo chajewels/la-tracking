@@ -465,7 +465,7 @@ Deno.serve(async (req) => {
       // 1. Fetch cash order — must exist and be pending
       const { data: cashOrder, error: cashOrderErr } = await supabase
         .from("cash_orders")
-        .select("id, customer_id, currency, invoice_number, status, total_paid, remaining_balance")
+        .select("id, customer_id, currency, invoice_number, status, total_paid, remaining_balance, completed_at")
         .eq("id", submission.cash_order_id)
         .maybeSingle();
       if (cashOrderErr || !cashOrder) {
@@ -513,7 +513,21 @@ Deno.serve(async (req) => {
         });
       }
 
-      // 4. Update cash_orders totals + status if fully paid
+      // 4. Update cash_orders totals + status if fully paid.
+      //
+      // Before mutating, capture a pre-update snapshot so we can revert if
+      // step 5 (submission update) fails. Edge functions don't have DB
+      // transactions across multiple statements, so we hand-roll rollback to
+      // prevent the half-confirmed state where cash_payment + cash_order are
+      // updated but the submission row is still 'submitted' (caught in
+      // production 2026-04-28 — fully paid order with stale submission row,
+      // customer unable to retry because remaining_balance was 0).
+      const cashOrderSnapshot = {
+        total_paid: cashOrder.total_paid,
+        remaining_balance: cashOrder.remaining_balance,
+        status: cashOrder.status,
+        completed_at: cashOrder.completed_at,
+      };
       const newTotalPaid = Math.round((Number(cashOrder.total_paid) + submittedAmount) * 100) / 100;
       const newRemaining = Math.max(0, Math.round((liveRemaining - submittedAmount) * 100) / 100);
       const isFullyPaid = newRemaining <= 0.005;
@@ -537,7 +551,7 @@ Deno.serve(async (req) => {
         .select()
         .single();
       if (orderUpdErr) {
-        // Rollback the cash_payment we just inserted to avoid drift
+        // Step 4 failed — rollback the cash_payment from step 3.
         await supabase.from("cash_payments").delete().eq("id", cashPayment.id);
         return new Response(JSON.stringify({ error: "Failed to update cash_order: " + orderUpdErr.message }), {
           status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -557,12 +571,52 @@ Deno.serve(async (req) => {
         .update(subUpdate)
         .eq("id", submission_id);
       if (subUpdErr) {
-        console.error("submission update error after cash confirm:", subUpdErr);
-        // Don't roll back at this point — the payment is real and the order totals are correct.
-        // Surface the error so the reviewer sees the inconsistent submission state.
-        return new Response(JSON.stringify({ error: "Cash payment recorded but submission update failed: " + subUpdErr.message }), {
-          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        console.error("[review-payment-submission] submission update failed for cash confirm — rolling back:", subUpdErr);
+        // Step 5 failed — manual rollback of step 4 (cash_orders) and step 3
+        // (cash_payments) to prevent half-confirmed state.
+        const { error: orderRevertErr } = await supabase
+          .from("cash_orders")
+          .update({
+            total_paid: cashOrderSnapshot.total_paid,
+            remaining_balance: cashOrderSnapshot.remaining_balance,
+            status: cashOrderSnapshot.status,
+            completed_at: cashOrderSnapshot.completed_at,
+          })
+          .eq("id", cashOrder.id);
+        if (orderRevertErr) {
+          // Revert failed — flag this loudly. We are now in a state where:
+          //   - cash_payment exists
+          //   - cash_order is updated (not reverted)
+          //   - submission is still 'submitted'
+          // This requires manual reconciliation. Audit-log the situation.
+          console.error("[review-payment-submission] CRITICAL: cash_orders revert failed after submission update failure:", orderRevertErr);
+          await supabase.from("audit_logs").insert({
+            entity_type: "cash_payment_submission",
+            entity_id: submission_id,
+            action: "confirm_rollback_failed",
+            performed_by_user_id: user.id,
+            new_value_json: {
+              cash_payment_id: cashPayment.id,
+              cash_order_id: cashOrder.id,
+              submission_update_error: subUpdErr.message,
+              order_revert_error: orderRevertErr.message,
+              snapshot: cashOrderSnapshot,
+            },
+          });
+          return new Response(JSON.stringify({
+            error: "Failed to record confirmation and rollback also failed. Manual reconciliation required. cash_payment_id=" + cashPayment.id,
+          }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        const { error: cpDeleteErr } = await supabase
+          .from("cash_payments")
+          .delete()
+          .eq("id", cashPayment.id);
+        if (cpDeleteErr) {
+          console.error("[review-payment-submission] cash_payment delete failed during rollback:", cpDeleteErr);
+        }
+        return new Response(JSON.stringify({
+          error: "Failed to record confirmation: " + subUpdErr.message + ". State has been rolled back; please retry.",
+        }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       // 6. Audit log

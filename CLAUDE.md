@@ -570,6 +570,24 @@ When completing a partially_paid month:
     installment order, pay that row's own penalties first
     (scoped by schedule_id), then pay its base — commit
     9069ffd (2026-04-23)
+  - 48. payment_submissions.confirmed_payment_id had FK to
+    payments(id), causing every cash confirm to fail with
+    FK violation (cash_payment.id is in cash_payments,
+    not payments). FK was DROPPED in production. Column
+    is now a soft reference dispatched by submission_type
+    / cash_order_id presence — see PAYMENT SUBMISSIONS FK
+    NOTE section (2026-04-28)
+  - 49. review-payment-submission cash branch step 5
+    failure had no rollback. When the submission UPDATE
+    failed after cash_payments INSERT and cash_orders
+    UPDATE both succeeded, the function returned 500 but
+    left a half-confirmed state: cash_payment existed,
+    cash_order was completed, submission was still
+    'submitted', customer could not retry because
+    remaining_balance was 0. Fixed with pre-update
+    snapshot + manual rollback in step 5 failure path
+    — see CASH ORDER CONFIRM ROLLBACK section
+    (2026-04-28)
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
@@ -879,6 +897,57 @@ When completing a partially_paid month:
   paths (submit-payment, record-payment staff path, record-payment
   admin/finance client-side insert from RecordPaymentDialog) use
   status='submitted'.
+
+## PAYMENT SUBMISSIONS FK NOTE (added 2026-04-28)
+
+  payment_submissions.confirmed_payment_id is a SOFT
+  reference — no FK constraint. It may point to either:
+    - payments(id)        when submission.account_id IS NOT NULL  (layaway)
+    - cash_payments(id)   when submission.cash_order_id IS NOT NULL (cash)
+
+  Dispatch is by submission_type / cash_order_id presence,
+  not by FK. The original FK to payments was DROPPED in
+  production on 2026-04-28 because cash confirms always
+  failed with FK violation (cash_payments rows are not in
+  payments).
+
+  Do NOT recreate this FK without first splitting
+  confirmed_payment_id into two columns
+  (confirmed_layaway_payment_id +
+   confirmed_cash_payment_id) and migrating all rows.
+
+## CASH ORDER CONFIRM ROLLBACK (added 2026-04-28)
+
+  review-payment-submission cash branch hand-rolls
+  rollback because edge functions have no DB transactions
+  across multiple statements.
+
+  Order of operations on cash confirm:
+    1. Fetch cash_order (capture pre-update snapshot:
+       total_paid, remaining_balance, status, completed_at)
+    2. Re-validate ceiling
+    3. INSERT cash_payments
+    4. UPDATE cash_orders (totals + status if fully paid)
+    5. UPDATE payment_submissions (status='confirmed',
+       confirmed_payment_id, reviewer_user_id, etc.)
+
+  Failure handling:
+    - Step 3 fails → return 500, nothing to roll back
+    - Step 4 fails → DELETE cash_payment from step 3,
+      return 500
+    - Step 5 fails → revert cash_orders to snapshot,
+      DELETE cash_payment, return 500
+    - Step 5 + revert both fail → audit-log
+      'confirm_rollback_failed' with snapshot for manual
+      reconciliation, return 500 with cash_payment_id in
+      error message
+
+  Production hit 2026-04-28: step 5 failed silently due
+  to dropped FK collision (cash_payment.id not in
+  payments table). Half-confirmed state corrupted the
+  order: customer could not retry because
+  remaining_balance was 0. Hotfix dropped the FK; this
+  permanent fix wraps steps 3-5 with manual rollback.
 
 ## CASH ORDER EXPIRY (added 2026-04-28)
 
