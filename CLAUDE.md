@@ -429,6 +429,243 @@ All values come from computeLayaway() in business-rules.ts
     2. Run "System Audit" from Dashboard → check for new failures
     3. If any check fails, the change broke something
 
+## AUDIT RPCs
+
+  All audit RPCs live in Supabase SQL Editor — NOT in repo
+  migrations. Function bodies recorded here so future Claude
+  sessions can see what exists without querying the live DB.
+
+### audit_account(p_invoice_number text) RETURNS JSONB
+
+  Per-account real-time audit. Called by "Check Health"
+  button in AccountDetail (admin + finance). Returns JSONB
+  with checks array, each entry { label, expected, stored, pass }.
+
+### audit_all_accounts() RETURNS TABLE
+
+  System-wide audit. Calls audit_account() per account in a
+  loop (per Known Fixed Bug #28, rewritten 2026-04-19 to
+  delegate rather than reimplement). Returns:
+    invoice_number text, status text,
+    all_pass boolean, failed_checks text[]
+
+  Called by "Run System Audit" button in Dashboard (admin only).
+
+### audit_delete_cleanup_invariants() RETURNS TABLE
+
+  Schema-invariant audit RPC. Detects FK gaps in
+  delete-cleanup edge functions before they cause
+  production 500 errors. Created 2026-04-28 after
+  tonight's reconciliation_log + extension_requests
+  incidents (see Known Fixed Bugs #50 and #51) revealed
+  delete-account was vulnerable to silent schema drift
+  from SQL-Editor-created tables.
+
+  Lives in: Supabase SQL Editor (not in repo migrations).
+
+  Signature:
+    RETURNS TABLE (
+      delete_function text,
+      parent_table    text,
+      child_table     text,
+      fk_name         text,
+      on_delete       text,
+      in_allowlist    boolean,
+      finding_type    text,
+      severity        text,
+      message         text
+    )
+
+  Empty result = healthy. Any rows returned = drift to
+  investigate.
+
+  Allowlist flags (set per allowlist row):
+    - defensive = true — entry is CASCADE belt-and-
+      suspenders cleanup. Stale check is skipped because
+      the entry is intentionally redundant with DB-level
+      CASCADE.
+    - pre_check_protected = true — the parent edge
+      function rejects deletion via a pre-check rather
+      than cleaning up. Missing-cleanup check is skipped
+      because the pre-check enforces the invariant.
+
+  Audited parents:
+    - layaway_accounts → delete-account
+      (14 child entries, all covered after commits
+       bdac341 + 1ff9cd8)
+    - customers → delete-customer
+      (2 entries: customer_analytics defensive,
+       layaway_accounts pre_check_protected)
+    - cash_orders → none yet
+      (no delete-cash-order function exists; surfaces
+       preventive findings as severity='info' so future
+       gaps are visible before a delete function is
+       built)
+
+  Function body (current production):
+
+  ```sql
+  CREATE OR REPLACE FUNCTION public.audit_delete_cleanup_invariants()
+  RETURNS TABLE (
+    delete_function text,
+    parent_table    text,
+    child_table     text,
+    fk_name         text,
+    on_delete       text,
+    in_allowlist    boolean,
+    finding_type    text,
+    severity        text,
+    message         text
+  )
+  LANGUAGE sql
+  STABLE
+  SECURITY DEFINER
+  SET search_path = public
+  AS $$
+    WITH
+    allowlist (delete_function, parent_table, child_table,
+               defensive, pre_check_protected) AS (
+      VALUES
+        -- delete-account (supabase/functions/delete-account/index.ts)
+        -- 14 direct-FK children. payment_allocations is excluded
+        -- because it is deleted indirectly via payment_id IN
+        -- (paymentIds) and has no direct FK to layaway_accounts.
+        ('delete-account',  'layaway_accounts', 'payment_submission_allocations', false, false),
+        ('delete-account',  'layaway_accounts', 'payment_submissions',            false, false),
+        ('delete-account',  'layaway_accounts', 'penalty_waiver_requests',        false, false),
+        ('delete-account',  'layaway_accounts', 'penalty_fees',                   false, false),
+        ('delete-account',  'layaway_accounts', 'csr_notifications',              false, false),
+        ('delete-account',  'layaway_accounts', 'extension_requests',             false, false),
+        ('delete-account',  'layaway_accounts', 'reminder_logs',                  false, false),
+        ('delete-account',  'layaway_accounts', 'reconciliation_log',             false, false),
+        ('delete-account',  'layaway_accounts', 'account_services',               false, false),
+        ('delete-account',  'layaway_accounts', 'final_settlement_records',       false, false),
+        ('delete-account',  'layaway_accounts', 'penalty_cap_overrides',          false, false),
+        ('delete-account',  'layaway_accounts', 'statement_tokens',               false, false),
+        ('delete-account',  'layaway_accounts', 'payments',                       false, false),
+        ('delete-account',  'layaway_accounts', 'layaway_schedule',               false, false),
+        -- delete-customer (supabase/functions/delete-customer/index.ts)
+        ('delete-customer', 'customers',        'customer_analytics',             true,  false),
+        ('delete-customer', 'customers',        'layaway_accounts',               false, true)
+        -- cash_orders has no delete function — allowlist intentionally
+        -- empty so any blocking FK to cash_orders surfaces as a
+        -- preventive finding.
+    ),
+    parents (parent_table, delete_function) AS (
+      VALUES
+        ('layaway_accounts', 'delete-account'),
+        ('customers',        'delete-customer'),
+        ('cash_orders',      '(none — soft-cancel only)')
+    ),
+    -- All blocking FKs in pg_constraint pointing at audited parents.
+    fks AS (
+      SELECT
+        p.parent_table,
+        p.delete_function,
+        regexp_replace(c.conrelid::regclass::text, '^public\.', '') AS child_table,
+        c.conname AS fk_name,
+        CASE c.confdeltype
+          WHEN 'a' THEN 'NO ACTION'
+          WHEN 'r' THEN 'RESTRICT'
+        END AS on_delete
+      FROM pg_constraint c
+      JOIN parents p
+        ON c.confrelid = ('public.' || p.parent_table)::regclass
+      WHERE c.contype = 'f'
+        AND c.confdeltype IN ('a', 'r')
+    ),
+    -- Finding 1: blocking FK exists, child not covered by allowlist.
+    -- pre_check_protected entries silently cover the FK so they do
+    -- not appear here. Cash_orders gaps are info, others are critical.
+    missing AS (
+      SELECT
+        f.delete_function,
+        f.parent_table,
+        f.child_table,
+        f.fk_name,
+        f.on_delete,
+        false AS in_allowlist,
+        CASE
+          WHEN f.parent_table = 'cash_orders' THEN 'preventive_no_delete_fn'
+          ELSE 'missing_cleanup'
+        END AS finding_type,
+        CASE
+          WHEN f.parent_table = 'cash_orders' THEN 'info'
+          ELSE 'critical'
+        END AS severity,
+        format(
+          '%s blocks DELETE on %s but is not in the %s cleanup list. Add an explicit DELETE in the edge function or a pre-check that rejects deletion.',
+          f.fk_name, f.parent_table, f.delete_function
+        ) AS message
+      FROM fks f
+      WHERE NOT EXISTS (
+        SELECT 1 FROM allowlist a
+        WHERE a.parent_table = f.parent_table
+          AND a.child_table  = f.child_table
+      )
+    ),
+    -- Finding 2: allowlist entry that no longer matches a blocking FK.
+    -- defensive entries are excluded because they are intentionally
+    -- redundant (CASCADE at the DB level handles them, the explicit
+    -- DELETE is belt-and-suspenders).
+    stale AS (
+      SELECT
+        a.delete_function,
+        a.parent_table,
+        a.child_table,
+        NULL::text AS fk_name,
+        NULL::text AS on_delete,
+        true AS in_allowlist,
+        'stale_allowlist_entry' AS finding_type,
+        'warning' AS severity,
+        format(
+          'Allowlist tracks %s.%s for %s but no NO ACTION/RESTRICT FK to %s exists. The FK may have been changed to CASCADE/SET NULL, or the table was dropped.',
+          a.parent_table, a.child_table, a.delete_function, a.parent_table
+        ) AS message
+      FROM allowlist a
+      WHERE a.defensive = false
+        AND NOT EXISTS (
+          SELECT 1 FROM fks f
+          WHERE f.parent_table = a.parent_table
+            AND f.child_table  = a.child_table
+        )
+    )
+    SELECT * FROM missing
+    UNION ALL
+    SELECT * FROM stale
+    ORDER BY severity DESC, parent_table, child_table;
+  $$;
+
+  REVOKE ALL ON FUNCTION public.audit_delete_cleanup_invariants() FROM PUBLIC;
+  GRANT EXECUTE ON FUNCTION public.audit_delete_cleanup_invariants() TO authenticated;
+  ```
+
+  Maintenance rule:
+    Whenever a new SQL-Editor table is created with a
+    NO ACTION/RESTRICT FK to any audited parent, EITHER:
+      1. Add the table to the relevant edge function's
+         cleanup list AND add a row to the allowlist
+         VALUES block, OR
+      2. Set defensive=true (CASCADE at the DB level
+         covers it; allowlist entry is redundancy), OR
+      3. Set pre_check_protected=true (parent edge
+         function's pre-check rejects deletion when
+         this child has rows).
+    Then run `SELECT * FROM audit_delete_cleanup_invariants()`
+    in SQL Editor to confirm zero new findings.
+
+  Verification (2026-04-28): returns exactly 4 rows in
+  current production:
+    - 3 critical: delete-customer missing cleanup for
+      cash_orders, extension_requests, payment_submissions
+    - 1 info:     cash_payments preventive (no
+      delete-cash-order function exists)
+    - 0 layaway findings: delete-account is fully
+      covered after commits bdac341 + 1ff9cd8.
+
+  The 3 critical rows are tracked under "Known Open Bugs:
+  delete-customer FK gaps (deferred)".
+
 ## Payment Recording Rules
 
 Every payment operation must update ALL 3 tables atomically:
@@ -631,6 +868,83 @@ When completing a partially_paid month:
     3 SET NULL + 6 NO ACTION/RESTRICT = 19 total);
     can be re-verified if a future SQL-Editor table
     introduces another NO ACTION FK.
+  - 52. Schema-drift detection: created
+    audit_delete_cleanup_invariants() RPC to detect
+    FK gaps in delete-cleanup edge functions before
+    they cause production failures. Surfaced 3
+    deferred bugs in delete-customer (cash_orders,
+    payment_submissions, extension_requests FK gaps —
+    see Known Open Bugs). Tracking these as
+    known-open rather than fixing tonight (4 deploys
+    already shipped — bdac341, 1ff9cd8, plus the
+    earlier review-payment-submission rollback and
+    cash-order partials/expiry); will fix in next
+    session. Function body recorded under AUDIT RPCs
+    section. (2026-04-28)
+
+## Known Open Bugs
+
+  Bugs that have been surfaced and triaged but not
+  yet fixed. Each entry should describe the fix
+  pattern so the next session can pick it up cleanly.
+
+### delete-customer FK gaps (deferred — surfaced 2026-04-28)
+
+  delete-customer edge function only handles
+  customer_analytics cleanup + a pre-check that
+  rejects deletion if linked layaway_accounts exist.
+  It does NOT handle 3 other NO ACTION/RESTRICT FKs
+  to customers, all surfaced by
+  audit_delete_cleanup_invariants() on 2026-04-28:
+
+  - cash_orders.customer_id (RESTRICT) — no pre-check,
+    no cleanup. Customer with cash orders but no
+    layaway accounts will fail deletion with FK
+    violation 'cash_orders_customer_id_fkey'.
+  - payment_submissions.customer_id (NO ACTION) — no
+    cleanup. Same failure mode.
+  - extension_requests.customer_id (NO ACTION) — no
+    cleanup. Same failure mode.
+
+  Status: Not currently blocking. Test Customer (the
+  only customer in production with mixed records) has
+  layaway accounts, so the existing pre-check already
+  blocks deletion. Becomes blocking once a customer
+  exists in production who has only cash_orders /
+  payment_submissions / extension_requests but no
+  layaway accounts.
+
+  Fix pattern when prioritized — mirror delete-account
+  structure. Two options per FK:
+    1. Add explicit DELETE before the parent DELETE
+       (like reconciliation_log fix in commit bdac341
+       and extension_requests fix in commit 1ff9cd8).
+    2. Extend the pre-check to reject deletion if any
+       of these children exist (like the existing
+       layaway_accounts pre-check at delete-customer
+       lines 55–66).
+
+  Recommended per FK:
+    - cash_orders          → pre-check (mirrors the
+                             existing layaway_accounts
+                             pre-check; cash orders
+                             carry money, refusing
+                             deletion is correct).
+    - payment_submissions  → cleanup (auditable
+                             history rows, no business
+                             reason to block deletion).
+    - extension_requests   → cleanup (same — history
+                             rows tied to forfeited
+                             accounts that may have
+                             been resolved already).
+
+  After fix: add cash_orders to delete-customer's
+  pre-check + add payment_submissions and
+  extension_requests rows to the
+  audit_delete_cleanup_invariants() allowlist for
+  parent_table='customers'. Run the audit to confirm
+  zero remaining critical findings against
+  delete-customer.
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
