@@ -602,6 +602,35 @@ When completing a partially_paid month:
     and account_services. Subsequent step comments
     renumbered. Manual deploy required (delete-account
     is not in auto-deploy workflow).
+  - 51. delete-account did not clean up extension_requests
+    — fixed (2026-04-28). extension_requests table was
+    declared in repo migration
+    20260418010000_create_extension_requests.sql with
+    `account_id uuid NOT NULL REFERENCES
+    layaway_accounts(id)` and no ON DELETE clause,
+    which defaults to NO ACTION. Confirmed in production
+    via pg_constraint query. Any account that had
+    submitted an extension request (typically forfeited
+    accounts) failed to delete with FK violation
+    'extension_requests_account_id_fkey'. Added
+    explicit DELETE as step 7, immediately after
+    csr_notifications and before reminder_logs.
+    Subsequent step comments renumbered 7–16 → 8–17.
+    Verified leaf table — no children, no triggers.
+    Manual deploy required (delete-account is not in
+    auto-deploy workflow). Closes the second of two
+    confirmed FK gaps tonight; together with bug #50
+    these two account for the remaining 1 of 6
+    NO ACTION/RESTRICT FKs to layaway_accounts that
+    were not handled by the cleanup list. Other
+    SQL-Editor-created child tables (account_notes,
+    schedule_audit_log, loyalty_transactions,
+    loyalty_redemptions, financial_alerts) are
+    presumed to use CASCADE or SET NULL based on
+    user's live pg_constraint count (10 CASCADE +
+    3 SET NULL + 6 NO ACTION/RESTRICT = 19 total);
+    can be re-verified if a future SQL-Editor table
+    introduces another NO ACTION FK.
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
@@ -1347,9 +1376,20 @@ When completing a partially_paid month:
     (2026-04-28) — reconciliation_log was created
     via SQL Editor 2026-04-20 with ON DELETE NO ACTION;
     delete-account cleanup list now includes it as
-    step 8 between reminder_logs and account_services.
-    Manual deploy required — delete-account is not in
-    the auto-deploy workflow. See bug #50.
+    step 9 (originally step 8 in commit bdac341,
+    renumbered to 9 when extension_requests was
+    inserted at step 7). Manual deploy required —
+    delete-account is not in the auto-deploy workflow.
+    See bug #50.
+  delete-account extension_requests cleanup: ADDED ✅
+    (2026-04-28) — extension_requests FK declared in
+    repo migration 20260418010000 with no ON DELETE
+    clause (defaults to NO ACTION). Added as step 7
+    immediately after csr_notifications, in the same
+    session as the reconciliation_log fix. After
+    these two additions the cleanup list now covers
+    all 6 NO ACTION/RESTRICT FKs to layaway_accounts.
+    Manual deploy required. See bug #51.
   record-payment canonical formula: FIXED ✅
     (commit 6dd13e4)
   Platform rebrand → Cha Jewels Hub: DONE ✅
