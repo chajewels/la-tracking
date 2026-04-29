@@ -283,6 +283,21 @@ Deno.serve(async (req) => {
         );
       }
 
+      await supabase.from("audit_logs").insert({
+        entity_type: "loyalty_redemption",
+        entity_id: redemption.id,
+        action: "redemption_approved",
+        performed_by_user_id: user.id,
+        old_value_json: { status: "pending" },
+        new_value_json: {
+          status: "confirmed",
+          transaction_id: txRow.id,
+          points_redeemed: Number(redemption.points_redeemed),
+          redemption_type: redemption.redemption_type,
+          invoice_number: redemption.invoice_number,
+        },
+      });
+
       const newRemaining = Number(member.remaining_points ?? 0) -
         Number(redemption.points_redeemed);
       const newRedeemedTotal = Number(member.total_points_redeemed ?? 0) +
@@ -423,6 +438,19 @@ Deno.serve(async (req) => {
         console.error("[process-loyalty-redemption] cancel update failed:", updErr);
         return json({ error: "Failed to cancel redemption" }, 500);
       }
+
+      await supabase.from("audit_logs").insert({
+        entity_type: "loyalty_redemption",
+        entity_id: redemption_id,
+        action: "redemption_cancelled",
+        performed_by_user_id: user.id,
+        old_value_json: { status: "pending" },
+        new_value_json: {
+          status: "cancelled",
+          cancellation_reason,
+          cancelled_at: cancelledAt,
+        },
+      });
 
       return json({
         cancelled: true,
