@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Search, Plus, X, Sparkles } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Search, Plus, X, Sparkles, ExternalLink } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -16,22 +16,11 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import {
   useBetaMembers,
   useCustomerSearchForBeta,
   useAddBetaMember,
   useRemoveBetaMember,
   useLoyaltyEnabledFlag,
-  useSetLoyaltyEnabled,
   type BetaMemberView,
   type CustomerSearchHit,
 } from '@/hooks/loyalty-admin/useLoyaltyBetaMembers';
@@ -54,13 +43,10 @@ export default function BetaWhitelistTab() {
 
   const flagQuery = useLoyaltyEnabledFlag();
   const featureEnabled = flagQuery.data ?? false;
-  const setFlagMutation = useSetLoyaltyEnabled();
 
   const betaQuery = useBetaMembers(true);
   const addMutation = useAddBetaMember();
   const removeMutation = useRemoveBetaMember();
-
-  const [confirmEnable, setConfirmEnable] = useState(false);
 
   // Customer search state
   const [searchInput, setSearchInput] = useState('');
@@ -77,28 +63,6 @@ export default function BetaWhitelistTab() {
   }, [betaQuery.data]);
 
   const searchQuery = useCustomerSearchForBeta(debouncedQuery, excludeIds);
-
-  async function applyFlag(next: boolean) {
-    try {
-      await setFlagMutation.mutateAsync(next);
-      toast.success(
-        next
-          ? 'Loyalty program enabled for all customers'
-          : 'Loyalty program set to beta mode',
-      );
-      await queryClient.invalidateQueries({ queryKey: ['loyalty-access'] });
-    } catch (err: any) {
-      toast.error(err?.message || 'Could not update feature flag');
-    }
-  }
-
-  async function handleFlagChange(next: boolean) {
-    if (next) {
-      setConfirmEnable(true);
-    } else {
-      await applyFlag(false);
-    }
-  }
 
   async function handleAddBeta(hit: CustomerSearchHit) {
     try {
@@ -151,7 +115,7 @@ export default function BetaWhitelistTab() {
 
   return (
     <div className="space-y-5">
-      {/* Feature flag */}
+      {/* Read-only program-status indicator (toggle lives in Settings tab) */}
       <div className="rounded-xl border border-border bg-card p-5">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="min-w-0 flex-1">
@@ -163,10 +127,10 @@ export default function BetaWhitelistTab() {
                 ? 'Loading…'
                 : featureEnabled
                 ? 'Loyalty program is LIVE for all customers. Beta whitelist is now superseded — all enrolled customers have access.'
-                : 'Loyalty program is in BETA MODE. Only customers in the beta whitelist can access the loyalty UI. Toggle ON to launch to all customers.'}
+                : 'Loyalty program is in BETA MODE. Only customers in the beta whitelist can access the loyalty UI.'}
             </p>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-3 shrink-0">
             <span
               className={`text-[11px] font-semibold uppercase tracking-wider ${
                 featureEnabled ? 'text-emerald-700' : 'text-amber-700'
@@ -174,11 +138,13 @@ export default function BetaWhitelistTab() {
             >
               {featureEnabled ? 'Enabled for All' : 'Beta Mode Only'}
             </span>
-            <Switch
-              checked={featureEnabled}
-              disabled={flagQuery.isLoading || setFlagMutation.isPending}
-              onCheckedChange={(v) => handleFlagChange(v)}
-            />
+            <Link
+              to="/loyalty/admin?tab=settings"
+              className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
+            >
+              Manage in Settings tab
+              <ExternalLink className="h-3 w-3" />
+            </Link>
           </div>
         </div>
       </div>
@@ -319,37 +285,6 @@ export default function BetaWhitelistTab() {
           )}
         </div>
       </div>
-
-      {/* Confirmation: enabling for all customers */}
-      <AlertDialog
-        open={confirmEnable}
-        onOpenChange={(o) => (!o ? setConfirmEnable(false) : undefined)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Enable loyalty for all customers?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will enable the loyalty UI for ALL customers, regardless of the
-              beta whitelist. Beta gating is bypassed once this is on. Are you sure?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={setFlagMutation.isPending}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={setFlagMutation.isPending}
-              onClick={async () => {
-                setConfirmEnable(false);
-                await applyFlag(true);
-              }}
-              className="gold-gradient text-primary-foreground"
-            >
-              {setFlagMutation.isPending ? 'Saving…' : 'Enable for All'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
