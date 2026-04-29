@@ -1,6 +1,6 @@
 
 import { ROUTES } from "@/constants/routes";
-import { lazy, Suspense, ComponentType, useEffect, useState } from "react";
+import { lazy, Suspense, ComponentType, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -9,66 +9,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { PermissionsProvider } from "@/contexts/PermissionsContext";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
-
-type BeforeInstallPromptEvent = Event & {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
-};
-
-function InstallAppBanner() {
-  const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    if (sessionStorage.getItem('install-prompt-dismissed') === '1') return;
-    const onPrompt = (e: Event) => {
-      e.preventDefault();
-      setDeferred(e as BeforeInstallPromptEvent);
-      setVisible(true);
-    };
-    const onInstalled = () => setVisible(false);
-    window.addEventListener('beforeinstallprompt', onPrompt);
-    window.addEventListener('appinstalled', onInstalled);
-    return () => {
-      window.removeEventListener('beforeinstallprompt', onPrompt);
-      window.removeEventListener('appinstalled', onInstalled);
-    };
-  }, []);
-
-  if (!visible || !deferred) return null;
-
-  const dismiss = () => {
-    sessionStorage.setItem('install-prompt-dismissed', '1');
-    setVisible(false);
-  };
-
-  const install = async () => {
-    await deferred.prompt();
-    await deferred.userChoice;
-    setDeferred(null);
-    setVisible(false);
-  };
-
-  return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[10000] flex items-center gap-3 rounded-xl border border-[#D4AF37]/40 bg-black/90 px-4 py-2.5 text-sm text-white shadow-xl backdrop-blur">
-      <span className="text-[#D4AF37] font-semibold">Install Cha Jewels</span>
-      <span className="text-white/70 hidden sm:inline">for a faster, app-like experience</span>
-      <button
-        onClick={install}
-        className="rounded-lg bg-[#D4AF37] px-3 py-1 text-xs font-semibold text-black hover:bg-[#E7D7A2] transition"
-      >
-        Install App
-      </button>
-      <button
-        onClick={dismiss}
-        className="text-xs text-white/60 hover:text-white transition"
-        aria-label="Dismiss"
-      >
-        ✕
-      </button>
-    </div>
-  );
-}
 
 // Retry wrapper for lazy imports — handles stale chunks after dev server restart
 function lazyWithRetry(factory: () => Promise<{ default: ComponentType<any> }>) {
@@ -153,7 +93,6 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <InstallAppBanner />
         <AuthProvider>
           <PermissionsProvider>
             <Suspense fallback={<PageLoader />}>

@@ -1276,6 +1276,39 @@ When completing a partially_paid month:
     process-loyalty-redemption is in the
     auto-deploy workflow, so the fix shipped on
     push to main. (2026-04-29)
+  - 65. Phase 0 — PWA banner & dynamic
+    manifest cleanup. Removed the install
+    banner UI, BeforeInstallPromptEvent type,
+    beforeinstallprompt/appinstalled event
+    listeners, and the data:-URL dynamic
+    manifest helper that PR-1 (cae1bc8) and
+    PR-2 (bef1949) shipped. Bugs #61 and #62
+    above are now SUPERSEDED by this cleanup
+    but kept in the file for audit trail.
+
+    Why removed: PR-2's data:-URL manifest
+    approach failed Chrome's install-eligibility
+    heuristic (data: URLs have opaque origin
+    and Chrome cannot resolve relative
+    start_url against them), so customers
+    never saw a working install prompt
+    anyway. Verified via DevTools — manifest
+    parsed but Start URL field was empty in
+    Chrome's parsed view. This cleanup
+    creates a clean baseline for upcoming
+    Cloud-Function-backed manifest work
+    (Phase 1+ of multi-phase PWA fix project).
+
+    Static manifest from vite-plugin-pwa and
+    service worker untouched. iOS Safari
+    "Add to Home Screen" still works
+    natively (uses current URL with token,
+    not start_url from manifest). Existing
+    customer devices with broken admin-context
+    PWA installed before this cleanup retain
+    the dead shortcut — no Phase 0 remediation
+    needed; will be addressed by Phase 6
+    dead-shortcut UX handler. (2026-04-29)
 
 ## Known Open Bugs
 
