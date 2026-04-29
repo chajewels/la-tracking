@@ -6,14 +6,15 @@ import { Link } from 'react-router-dom';
 import { useAccounts, useSchedule } from '@/hooks/use-supabase-data';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { getPHTToday } from '@/lib/date-utils';
 
 export default function OverdueAlerts() {
   // Fetch overdue/upcoming schedule items
   const { data: overdueItems } = useQuery({
     queryKey: ['overdue-schedule'],
     queryFn: async () => {
-      const today = new Date().toISOString().split('T')[0];
-      const threeDaysFromNow = new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0];
+      const today = getPHTToday();
+      const threeDaysFromNow = Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(Date.now() + 3 * 86400000));
 
       // Get overdue or due-soon schedule items
       const { data, error } = await supabase

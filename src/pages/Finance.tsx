@@ -434,7 +434,7 @@ export default function Finance() {
       const createdAccounts = accts.filter(a => a.created_by_user_id === s.user_id);
       const overdueAccountIds = new Set(
         (allSchedules || [])
-          .filter((sc: any) => sc.due_date < new Date().toISOString().split('T')[0] && ['pending', 'partially_paid'].includes(sc.status))
+          .filter((sc: any) => sc.due_date < todayStr() && ['pending', 'partially_paid'].includes(sc.status))
           .map((sc: any) => sc.account_id)
       );
       const recoveries = userPayments.filter((p: any) => overdueAccountIds.has(p.account_id)).length;

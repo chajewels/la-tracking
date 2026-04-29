@@ -17,9 +17,7 @@ export default function OperationsPanel({ summary, displayCurrency }: Operations
   const { data: actionItems } = useQuery({
     queryKey: ['operations-action-items'],
     queryFn: async () => {
-      const next7 = new Date();
-      next7.setDate(next7.getDate() + 7);
-      const next7Str = next7.toISOString().split('T')[0];
+      const next7Str = Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(Date.now() + 7 * 86400000));
 
       const { data, error } = await supabase
         .from('layaway_schedule')

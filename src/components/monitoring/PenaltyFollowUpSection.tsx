@@ -36,6 +36,7 @@ import { formatCurrency } from '@/lib/calculations';
 import { daysOverdueFromToday } from '@/lib/business-rules';
 import { toast } from 'sonner';
 import type { Currency } from '@/lib/types';
+import { getPHTToday } from '@/lib/date-utils';
 
 // ── Penalty Stage Definitions ──
 export type PenaltyStage = 'P1' | 'P2' | 'P3' | 'P4' | 'P5' | 'P6' | 'P7' | 'P8';
@@ -183,7 +184,7 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
         .in('layaway_accounts.status', ['active', 'overdue', 'extension_active', 'final_settlement'])
         .in('status', ['pending', 'overdue', 'partially_paid'])
         .gt('penalty_amount', 0)
-        .lt('due_date', new Date().toISOString().split('T')[0])
+        .lt('due_date', getPHTToday())
         .order('due_date', { ascending: true })
         .limit(800);
 

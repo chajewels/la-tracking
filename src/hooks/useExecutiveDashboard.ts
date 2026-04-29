@@ -157,7 +157,7 @@ export function useMonthlyInflowByPlan() {
   const fetchData = useCallback(async () => {
     const now = new Date();
     const sixAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-    const startDate = sixAgo.toISOString().split('T')[0];
+    const startDate = Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(sixAgo);
 
     const { data: rows } = await supabase
       .from('payments')

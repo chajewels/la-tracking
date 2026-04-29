@@ -93,8 +93,8 @@ export default function Monitoring() {
     queryFn: async () => {
       // Day boundaries are PHT-anchored — see src/lib/date-utils.ts.
       const today = getPHTToday();
-      const in7days = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
-      const past730 = new Date(Date.now() - 730 * 86400000).toISOString().split('T')[0];
+      const in7days = Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(Date.now() + 7 * 86400000));
+      const past730 = Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(Date.now() - 730 * 86400000));
       const { data, error } = await supabase.from('layaway_schedule')
         .select('*, layaway_accounts!inner(id, status, currency, invoice_number, customer_id, customers(full_name, messenger_link))')
         .in('layaway_accounts.status', ['active', 'overdue', 'final_settlement', 'extension_active'])
@@ -179,11 +179,9 @@ export default function Monitoring() {
     queryKey: ['monitoring-schedules'],
     staleTime: 30_000,
     queryFn: async () => {
-      const next7 = new Date();
-      next7.setDate(next7.getDate() + 7);
-      const next7Str = next7.toISOString().split('T')[0];
       // Day boundaries are PHT-anchored — see src/lib/date-utils.ts.
       const today = getPHTToday();
+      const next7Str = Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(Date.now() + 7 * 86400000));
 
       const ACTIVE_STATUSES = ['active', 'overdue', 'final_settlement', 'extension_active'] as const;
       const [overdueRes, upcomingRes] = await Promise.all([

@@ -7,11 +7,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Link } from 'react-router-dom';
 import { useAccounts, useCustomers, AccountWithCustomer, DbCustomer } from '@/hooks/use-supabase-data';
 import { Currency, RiskLevel, CLVTier, CompletionProbability } from '@/lib/types';
+import { getPHTToday } from '@/lib/date-utils';
 
 // ── Risk assessment ──
 function assessRisk(account: AccountWithCustomer, schedules: any[]): { riskLevel: RiskLevel; score: number; maxOverdueDays: number } {
   const acctSchedules = schedules.filter(s => s.account_id === account.id);
-  const today = new Date().toISOString().split('T')[0];
+  const today = getPHTToday();
   const overdueItems = acctSchedules.filter(s => s.due_date < today && ['pending', 'partially_paid'].includes(s.status));
 
   if (overdueItems.length === 0) return { riskLevel: 'low', score: 0, maxOverdueDays: 0 };

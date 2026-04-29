@@ -962,73 +962,55 @@ When completing a partially_paid month:
     strings for date columns, PHT-suffixed for
     timestamptz. Auto-deployed via GitHub Actions
     on push. (2026-04-28)
+  - 56. PHT timezone sweep across 7 non-Dashboard
+    files closed. 11 instances of
+    `new Date(...).toISOString().split('T')[0]`
+    replaced with getPHTToday() / todayStr() /
+    Intl.DateTimeFormat with Asia/Manila timezone.
+    All hits filtered against `date` columns
+    (`due_date`, `date_paid`), not `timestamptz`,
+    so the bug class was lower severity than D1 —
+    bounded to PHT 00:00–08:00 window when UTC was
+    still on the prior calendar day.
+
+    Affected files:
+    - src/pages/Monitoring.tsx (3 sites: in7days,
+      past730, next7Str — line 95 already used
+      getPHTToday correctly)
+    - src/components/dashboard/OverdueAlerts.tsx
+      (2 sites: today, threeDaysFromNow)
+    - src/components/dashboard/OperationsPanel.tsx
+      (1 site: next7Str)
+    - src/components/dashboard/AIRiskPanel.tsx
+      (1 site: today, inside assessRisk helper)
+    - src/components/dashboard/PenaltyCapAuditPanel.tsx
+      (1 site: today)
+    - src/components/dashboard/LiveCollectionTracker.tsx
+      (2 sites: weekly chart startStr + dayMap key)
+    - src/components/monitoring/PenaltyFollowUpSection.tsx
+      (1 site: due_date filter)
+    - src/pages/Finance.tsx:437 (CSR performance
+      overdue count)
+    - src/hooks/useExecutiveDashboard.ts:160
+      (6-months-ago boundary)
+
+    Library internals at src/lib/business-rules.ts
+    lines 296, 718, 723 deferred for separate audit
+    — those are inside helper functions and have
+    ripple risk across many call sites. Customer
+    portal, statement, account-detail, and payment-
+    dialog files also still use the pattern but
+    were out of scope for the admin/staff KPI
+    sweep — separate audit later.
+
+    Frontend-only PR. Auto-deploys via Firebase
+    Hosting on push. (2026-04-29)
 
 ## Known Open Bugs
 
   Bugs that have been surfaced and triaged but not
   yet fixed. Each entry should describe the fix
   pattern so the next session can pick it up cleanly.
-
-### PHT timezone sweep across non-Dashboard surfaces (deferred — surfaced 2026-04-28)
-
-  After the D1 fix (forfeited_today TZ skew, commit
-  63bc008) shipped, an audit of non-Dashboard surfaces
-  found 11 instances of `new Date(...).toISOString().split('T')[0]`
-  across 7 files. Returns UTC date string instead of
-  PHT date string, causing date filters to be off by
-  1 day during the PHT 00:00–08:00 window (when UTC
-  is still on the prior calendar day).
-
-  Severity: LOW.
-  All hits filter against `date` columns (`due_date`,
-  `date_paid`), not `timestamptz`. No silent UTC
-  reinterpretation like the D1 case. Visible failure
-  mode bounded to 8 hours per day. Most staff use
-  these dashboards 09:00–18:00 PHT when the bug
-  doesn't fire.
-
-  Affected files:
-  - src/pages/Monitoring.tsx lines 96, 97, 184
-    (mixed convention: line 95 uses getPHTToday()
-    correctly, lines 96/97 don't)
-  - src/components/dashboard/OverdueAlerts.tsx
-    lines 15, 16
-  - src/components/dashboard/OperationsPanel.tsx
-    line 22
-  - src/components/dashboard/AIRiskPanel.tsx line 14
-  - src/components/dashboard/PenaltyCapAuditPanel.tsx
-    line 73
-  - src/components/dashboard/LiveCollectionTracker.tsx
-    lines 27, 40
-  - src/components/monitoring/PenaltyFollowUpSection.tsx
-    line 186
-  - src/pages/Finance.tsx line 437 (todayStr already
-    imported, just unused for this purpose)
-  - src/hooks/useExecutiveDashboard.ts line 160
-    (very low — only affects 6-months-ago boundary
-    on PHT-1st-of-month between 00:00–08:00)
-
-  Fix shape (uniform across all 11 sites):
-    Replace `new Date(...).toISOString().split('T')[0]`
-    with one of:
-    - getPHTToday() from src/lib/date-utils.ts (for "today")
-    - todayStr()    from src/lib/business-rules.ts (alternative)
-    - For relative dates:
-        Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' })
-          .format(new Date(Date.now() + N * 86400000))
-
-  All frontend, single PR, ~9 files modified, ~15 lines
-  changed, no edge function changes.
-
-  Out of scope for this sweep (separate concerns):
-  - src/lib/business-rules.ts lines 296, 718, 723 —
-    library internals, ripple risk, dedicated audit
-    later.
-  - ExecutiveDashboard.tsx — confirmed clean
-    (uses fc_* server-side RPCs, JPY-normalized).
-  - dashboard-summary edge function timestamptz
-    month-boundary bugs — RESOLVED in commit
-    ae5a000 (2026-04-28). See Known Fixed Bug #55.
 
 ### Pending KPI accuracy items (surfaced 2026-04-28)
 

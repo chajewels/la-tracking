@@ -8,6 +8,7 @@ import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
+import { getPHTToday } from '@/lib/date-utils';
 import { Link } from 'react-router-dom';
 
 interface AuditRow {
@@ -70,7 +71,7 @@ export default function PenaltyCapAuditPanel() {
       const schedIdsCapped = new Set(schedItemsCapped.map((s: any) => s.id));
 
       // Count overdue months (past due, not paid)
-      const today = new Date().toISOString().split('T')[0];
+      const today = getPHTToday();
       const overdueItems = schedItemsCapped.filter(
         (s: any) => s.due_date < today && s.status !== 'paid'
       );

@@ -22,9 +22,7 @@ export default function LiveCollectionTracker({ currencyFilter, displayCurrency 
     queryKey: ['weekly-collections'],
     staleTime: 60_000,
     queryFn: async () => {
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-      const startStr = sevenDaysAgo.toISOString().split('T')[0];
+      const startStr = Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(Date.now() - 6 * 86400000));
 
       const { data } = await supabase
         .from('payments')
@@ -37,7 +35,7 @@ export default function LiveCollectionTracker({ currencyFilter, displayCurrency 
       for (let i = 6; i >= 0; i--) {
         const d = new Date();
         d.setDate(d.getDate() - i);
-        dayMap.set(d.toISOString().split('T')[0], 0);
+        dayMap.set(Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(d), 0);
       }
 
       for (const p of data || []) {
