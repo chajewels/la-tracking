@@ -2,7 +2,7 @@
 import { ROUTES } from "@/constants/routes";
 import { lazy, Suspense, ComponentType, useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useNavigate, useSearchParams } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -18,6 +18,8 @@ type BeforeInstallPromptEvent = Event & {
 function InstallAppBanner() {
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
   const [visible, setVisible] = useState(false);
+  const [searchParams] = useSearchParams();
+  const isCustomerContext = searchParams.get('token') !== null;
 
   useEffect(() => {
     if (sessionStorage.getItem('install-prompt-dismissed') === '1') return;
@@ -34,6 +36,12 @@ function InstallAppBanner() {
       window.removeEventListener('appinstalled', onInstalled);
     };
   }, []);
+
+  // Hide install banner from customer-facing pages (token in URL = customer
+  // context). Customer-side install requires a different start_url than admin
+  // install — to be addressed in a follow-up PR with dynamic manifest. For
+  // now, customers don't see the banner at all.
+  if (isCustomerContext) return null;
 
   if (!visible || !deferred) return null;
 
@@ -152,8 +160,8 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <InstallAppBanner />
       <BrowserRouter>
+        <InstallAppBanner />
         <AuthProvider>
           <PermissionsProvider>
             <Suspense fallback={<PageLoader />}>

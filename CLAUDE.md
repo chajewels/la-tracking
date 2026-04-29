@@ -1154,6 +1154,29 @@ When completing a partially_paid month:
 
     Auto-deploys via GitHub Actions on push.
     (2026-04-29)
+  - 61. (HOTFIX) PWA install banner appeared on
+    customer-facing routes (/portal, /statement)
+    but installs landed at admin login because
+    manifest start_url='/' is hardcoded. Customer
+    on /portal?token=abc taps "Install App", PWA
+    installs with start_url='/', launches to
+    /login (admin login), customer hits dead-end.
+
+    Hotfix: detect customer context via the
+    `?token=` query param and hide the banner on
+    those routes. `<InstallAppBanner />` was
+    moved from outside `<BrowserRouter>` to
+    inside it so `useSearchParams()` resolves;
+    new early-return `if (isCustomerContext)
+    return null;` runs before the visibility
+    gate. Admin pages (/login, /dashboard, etc.)
+    still surface the banner normally.
+
+    Durable fix (dynamic manifest with
+    token-baked start_url) deferred to a
+    follow-up PR — see Known Open Bug
+    "PWA dynamic manifest for customer install"
+    below. (2026-04-29)
 
 ## Known Open Bugs
 
@@ -1266,6 +1289,44 @@ When completing a partially_paid month:
     the filter into a server-side RPC instead
     of a client-side `.in()` over a large
     UUID list).
+
+### PWA dynamic manifest for customer install (surfaced 2026-04-29)
+
+  Hotfix in Known Fixed Bug #61 hides the install
+  banner from customer-facing routes (any URL
+  carrying `?token=`). The DURABLE fix is to
+  generate a dynamic manifest at customer portal
+  page load with `start_url='/portal?token=<actual
+  token>'`, so customers can install AND have the
+  PWA launch directly at their portal.
+
+  Implementation outline:
+    - Build a per-load manifest as a `data:` URL
+      (or Blob URL) containing the customer's
+      token in start_url and scope.
+    - Swap the `<link rel="manifest">` href to
+      that URL on `/portal` mount, BEFORE
+      `beforeinstallprompt` fires (Chrome reads
+      the manifest at prompt time).
+    - Re-enable the install banner on
+      `?token=` routes after this lands; remove
+      the `if (isCustomerContext) return null;`
+      guard introduced by the hotfix.
+
+  Sharp edges:
+    - If the portal token is rotated server-side,
+      the installed PWA shortcut becomes a dead
+      link until the customer clicks a fresh
+      Messenger link and re-installs. Need a
+      fallback page that detects 401 from
+      `/customer-portal` and prompts the customer
+      to tap their latest reminder.
+    - Browsers cache manifest aggressively. Bust
+      with `?v=<token-hash>` or similar query.
+    - Token visible in the OS shortcut metadata
+      — same exposure surface as the original
+      Messenger URL, but worth noting in the
+      privacy review.
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
