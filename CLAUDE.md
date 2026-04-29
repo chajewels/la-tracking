@@ -236,15 +236,22 @@ When checking whether a user can perform an action:
 - Commit and push all changes directly to **main** branch
 - Do NOT create feature branches unless explicitly asked
 
-## TOOL OWNERSHIP RULES (LOCKED — 2026-03-29)
+## TOOL OWNERSHIP RULES (updated 2026-04-29)
 
   Lovable → src/ AND supabase/functions/ file creation and editing
+  Claude Code → src/ AND supabase/functions/ editing when explicitly
+                directed by Cynthia. Default mode is read-only audit
+                and diagnosis. May commit and push to git when asked.
   Cloud Shell → npx supabase functions deploy commands ONLY
+                (and only for functions not in the auto-deploy
+                workflow — see AUTO-DEPLOY RULES list)
   Supabase SQL Editor → database changes only (pure SQL)
-  Claude Code → READ-ONLY audit and diagnosis — never commit to repo
 
-  No prompt written without plan confirmed first.
-  No step executed without explicit go signal from Cynthia.
+  Practice rules (apply to both Lovable and Claude Code):
+  - No prompt written without plan confirmed first.
+  - No step executed without explicit go signal from Cynthia.
+  - SQL changes are applied in the SQL Editor by Cynthia and are NOT
+    committed to repo as migrations unless explicitly told to.
 
   CLAUDE.md is the single source of truth — both Lovable and
   Claude Code must read it before any changes.
@@ -1221,6 +1228,54 @@ When completing a partially_paid month:
 
     Frontend-only PR. Auto-deploys via
     Firebase Hosting on push. (2026-04-29)
+  - 63. /loyalty/redemptions page-access bug:
+    PAGE_PERMISSION_MAP in
+    src/contexts/PermissionsContext.tsx had no
+    entry for /loyalty/redemptions. canAccessPage()
+    fell through to `else return false`, denying
+    access for every role — admins included — so
+    <Protected> rendered AccessDenied universally.
+    The sidebar entry in AppSidebar.tsx had no
+    permPath either, so the menu item still showed
+    up; clicking it landed users on AccessDenied.
+
+    Fixed in commit cc8e7a8 by:
+      1. Seeding view_loyalty_redemptions in
+         role_permissions via SQL Editor
+         (admin/finance/staff = true, csr = false).
+      2. Mapping /loyalty/redemptions to the new
+         key in PAGE_PERMISSION_MAP.
+      3. Adding permPath: ROUTES.LOYALTY_REDEMPTIONS
+         to the sidebar menuItems entry so the
+         menu item now hides for users without
+         the permission.
+
+    Frontend-only PR. Auto-deploys via Firebase
+    Hosting on push. SQL applied separately by
+    Cynthia in the SQL Editor. (2026-04-29)
+  - 64. UI/server gate drift in
+    process-loyalty-redemption: commit ab2d955
+    gated the RedemptionApprovalModal Approve
+    button to admin || finance, but the edge
+    function still accepted approve from staff
+    (line 214: `isAdmin || isFinance || isStaff`).
+    A staff user with the function URL could
+    have approved a redemption via direct API
+    call (DevTools fetch, Postman, custom
+    script), bypassing the UI restriction.
+    Self-approval was theoretically possible if
+    a staff user was also a customer with their
+    own pending redemption.
+
+    Fixed in commit 030d2f9 by dropping
+    `|| isStaff` from the approve action gate.
+    create gate (admin || finance || staff) and
+    cancel gate (admin only) left unchanged —
+    they were already correct.
+
+    process-loyalty-redemption is in the
+    auto-deploy workflow, so the fix shipped on
+    push to main. (2026-04-29)
 
 ## Known Open Bugs
 
@@ -2176,6 +2231,52 @@ When completing a partially_paid month:
     - Skips if customer not enrolled (no auto-enroll)
     - Verified end-to-end with cash order #10001
 
+  Loyalty staff visibility: LIVE ✅ (2026-04-29)
+    - view_loyalty_redemptions permission key seeded in
+      role_permissions (admin/finance/staff = true,
+      csr = false). Applied via SQL Editor.
+    - PAGE_PERMISSION_MAP gates /loyalty/redemptions
+      via the new key — closes the prior page-access
+      bug where the route was denied for everyone (see
+      Known Fixed Bug #63).
+    - AppSidebar permPath added so the sidebar entry
+      now respects canSeeNav.
+    - NewCashOrder + NewAccount: staff role can see the
+      "Product Amount (JPY) — Loyalty Only" input.
+    - AccountDetail: Loyalty Points Preview card added
+      (parity with CashOrderDetail). Footnote reads
+      "awarded once downpayment is confirmed" per the
+      locked layaway DP-trigger rule.
+    - RedemptionApprovalModal: Approve button gated to
+      admin || finance. Staff sees a read-only modal
+      with Close only.
+    - process-loyalty-redemption: server-side approve
+      gate tightened to admin || finance, closing the
+      UI/server drift surfaced in Known Fixed Bug #64.
+      create and cancel gates left unchanged.
+
+  PWA install on customer portal: LIVE ✅ (2026-04-29)
+    - Customers can install the PWA from
+      /portal?token=... or /statement?token=... and
+      the installed shortcut launches directly into
+      their portal with the token preserved.
+    - src/lib/dynamic-manifest.ts builds a
+      data:application/manifest+json URL with
+      start_url='/portal?token=<token>' and replaces
+      the <link rel="manifest"> href on portal mount;
+      reverts to the static /manifest.webmanifest on
+      unmount so admin pages keep start_url='/'.
+    - Wired in CustomerPortal.tsx and
+      CustomerStatement.tsx via useEffect([token]).
+    - Earlier hotfix (#61) that hid the install
+      banner on customer routes was reverted as part
+      of #62 — banner is safe to show again because
+      the manifest now points to the correct URL.
+    - Sharp edge: customers who installed the broken
+      admin-context PWA before this fix have a dead
+      shortcut; remediation = delete icon, re-open
+      portal, re-install.
+
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
   PIN hash storage: customers.portal_pin_hash (64-char SHA-256 hex digest)
@@ -2332,12 +2433,17 @@ loyalty portal. In progress.
   - Cash order #10001 created and completed
     successfully
 
+### TODAY'S DATA FIXES (2026-04-29)
+  - Seeded view_loyalty_redemptions in
+    role_permissions via SQL Editor
+    (admin/finance/staff = true, csr = false).
+    Closes the page-access gap surfaced as
+    Known Fixed Bug #63.
+
 ### OPERATIONAL ENHANCEMENTS
   P6: Admin audit log for manual DB changes
   P7: Invoice generator — Google Sheets +
       Drive (service account ready)
-  P8: Loyalty amount field — make visible
-      to staff role (currently admin/finance only)
   P9: Invoice button — add to AccountDetail
       and CashOrderDetail pages
 
@@ -2382,31 +2488,46 @@ WHERE ls.status = 'partially_paid'
 -- Expected result: 0 rows. If rows appear, update db_status to paid.
 ```
 
-## AUTO-DEPLOY RULES (updated 2026-04-12)
+## AUTO-DEPLOY RULES (updated 2026-04-29)
 
 GitHub Actions auto-deploys on every push to main:
 
 FRONTEND: Firebase Hosting — ALL pushes trigger rebuild and deploy
 
-SUPABASE EDGE FUNCTIONS — these auto-deploy when their files change:
-- reconcile-account
-- daily-reconciliation
-- record-payment
-- record-multi-payment
+SUPABASE EDGE FUNCTIONS — these auto-deploy when their files change.
+Source of truth: .github/workflows/supabase-functions-deploy.yml.
+Always re-check the workflow file before assuming a function is or
+isn't auto-deployed; this list reflects the workflow as of 2026-04-29:
+
+- accept-underpayment
+- add-service
+- auto-expire-cash-orders
+- auto-forfeit-settlement
+- award-loyalty-points
 - bulk-import
 - carry-over
-- accept-underpayment
-- review-payment-submission
-- manual-forfeit
-- auto-forfeit-settlement
-- recalculate-penalties (DISABLED — returns 410)
+- create-cash-order
+- customer-portal
+- daily-reconciliation
 - dashboard-summary
-- add-service
+- join-loyalty-program
+- loyalty-inactivity-check
+- manual-forfeit
+- preview-transactional-email
+- process-loyalty-redemption
+- recalculate-penalties (DISABLED — returns 410)
+- reconcile-account
+- record-multi-payment
+- record-payment
+- review-payment-submission
 - send-reminders
 - send-transactional-email
-- preview-transactional-email
-- customer-portal
-- auto-expire-cash-orders
+- set-portal-pin
+- submit-cash-payment
+- submit-payment
+- sync-loyalty-to-sheet
+- verify-portal-pin
+- void-cash-payment
 
 Note: _shared/** changes trigger redeploy of
 send-transactional-email and preview-transactional-email,
