@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Search, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, Users } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -68,7 +69,8 @@ export default function MembersTab({
   selectedMemberId: string | null;
   setSelectedMemberId: (id: string | null) => void;
 }) {
-  const [search, setSearch] = useState('');
+  const [urlSearchParams] = useSearchParams();
+  const [search, setSearch] = useState<string>(() => urlSearchParams.get('search') ?? '');
   const [tierFilter, setTierFilter] = useState<string>('all');
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all');
   const [sortKey, setSortKey] = useState<MemberSortKey>('full_name');
