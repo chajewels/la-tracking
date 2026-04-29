@@ -16,6 +16,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { type AppRole } from '@/lib/role-permissions';
 import { usePaymentDraft } from '@/hooks/use-payment-draft';
+import { getPHTToday } from '@/lib/date-utils';
 
 interface Allocation {
   schedule_id: string;
@@ -67,7 +68,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState('');
   const [carryOver, setCarryOver] = useState(false);
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [paymentDate, setPaymentDate] = useState(getPHTToday());
   const [notes, setNotes] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [paymentType, setPaymentType] = useState<'installment' | 'downpayment'>('installment');
@@ -433,7 +434,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     setNotes('');
     setPaymentMethod('cash');
     setPaymentType('installment');
-    setPaymentDate(new Date().toISOString().split('T')[0]);
+    setPaymentDate(getPHTToday());
     setStep('input');
     setPreview(null);
     setProofFile(null);

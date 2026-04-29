@@ -268,7 +268,7 @@ export default function CashOrderDetail() {
     if (!order) return;
     // Pre-fill with current expires_at as YYYY-MM-DD if set
     const initial = order.expires_at
-      ? new Date(order.expires_at).toISOString().split('T')[0]
+      ? Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(order.expires_at))
       : '';
     setEditExpiryValue(initial);
     setEditExpiryOpen(true);

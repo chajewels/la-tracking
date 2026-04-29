@@ -19,6 +19,7 @@ import CustomerCashOrdersTab from '@/components/customers/CustomerCashOrdersTab'
 import CustomerLoyaltyTab from '@/components/customers/CustomerLoyaltyTab';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
+import { getPHTToday } from '@/lib/date-utils';
 import { toast } from 'sonner';
 import { useCustomerAccounts, useForfeitAccount } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
@@ -568,7 +569,7 @@ export default function CustomerDetail() {
           const progress = totalAmount > 0 ? (totalPaid / totalAmount) * 100 : 0;
 
           // Override stale OVERDUE status: only truly overdue if an unpaid month has a past due_date
-          const cdToday = new Date().toISOString().split('T')[0];
+          const cdToday = getPHTToday();
           const cdHasUnpaidPastDue = schedule.some(s => !isEffectivelyPaid(s) && s.due_date < cdToday);
           const effectiveStatus = account.status === 'overdue' && !cdHasUnpaidPastDue
             ? 'active'

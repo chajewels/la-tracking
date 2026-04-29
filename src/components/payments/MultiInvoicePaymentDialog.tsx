@@ -20,6 +20,7 @@ import {
   computeWaterfall, getRowStatus, isRowPaid, getRowRemaining, getRowAllocated,
   type ScheduleViewRow, type WaterfallResult,
 } from '@/lib/business-rules';
+import { getPHTToday } from '@/lib/date-utils';
 
 interface ScheduleItem {
   id: string;
@@ -138,7 +139,7 @@ export default function MultiInvoicePaymentDialog({
   const [msgCopied, setMsgCopied] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [amounts, setAmounts] = useState<Record<string, string>>({});
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [paymentDate, setPaymentDate] = useState(getPHTToday());
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [referenceNumber, setReferenceNumber] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -470,7 +471,7 @@ export default function MultiInvoicePaymentDialog({
     setCarryOverMap({});
     setReferenceNumber('');
     setPaymentMethod('cash');
-    setPaymentDate(new Date().toISOString().split('T')[0]);
+    setPaymentDate(getPHTToday());
     setStep('input');
     setConsolidatedMessage('');
     setMsgCopied(false);

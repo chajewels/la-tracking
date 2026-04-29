@@ -1050,6 +1050,72 @@ When completing a partially_paid month:
 
     Frontend-only PR. Auto-deploys via Firebase
     Hosting on push. (2026-04-29)
+  - 58. Admin-side PHT timezone sweep — 16 sites
+    across 12 files closed. Final frontend PHT
+    sweep PR; together with #56 (admin-staff
+    surfaces, ddeec70) and #57 (customer-facing,
+    23e19bb) this closes every site outside
+    library internals.
+
+    Affected files:
+    - src/pages/AccountDetail.tsx (2 sites:
+      todayStr override-stale-OVERDUE,
+      setNewInstDueDate Date-to-string)
+    - src/pages/CustomerDetail.tsx (1 site:
+      cdToday override-stale-OVERDUE)
+    - src/pages/AccountList.tsx (1 site:
+      todayStr filter)
+    - src/pages/NewCashOrder.tsx (2 sites:
+      orderDate form initial value,
+      today expires-at-past warning)
+    - src/pages/CashOrderDetail.tsx (1 site:
+      Edit Expiry dialog initial value from
+      timestamptz)
+    - src/components/payments/RecordPaymentDialog.tsx
+      (2 sites: paymentDate form initial +
+      reset on submit)
+    - src/components/payments/MultiInvoicePaymentDialog.tsx
+      (2 sites: same form-default pattern)
+    - src/components/customers/RecordCashPaymentDialog.tsx
+      (1 site: todayISODate() helper body —
+      cascades to form initial value AND
+      max-date constraint)
+    - src/components/accounts/EditAccountDialog.tsx
+      (1 site: due_date Date-to-string formatting
+      for new installment row)
+    - src/components/loyalty/LoyaltyPromosTab.tsx
+      (1 site: todayYmd() helper body)
+    - src/components/customers/CashOrdersList.tsx
+      (1 site: order_date display fallback)
+    - src/components/customers/CustomerCashOrdersTab.tsx
+      (1 site: same display-fallback pattern)
+
+    Mix of getPHTToday() for "today"
+    comparisons + form initial values, and
+    inline Intl.DateTimeFormat for Date-object
+    formatting where a Date object exists
+    rather than computing "now".
+
+    Lower real-world impact than #57 (admins
+    mostly work 09:00–18:00 PHT outside the
+    bad window), but the form-initial-value
+    sites in payment-recording dialogs are
+    MEDIUM impact — admin recording at unusual
+    hour could silently log wrong payment_date.
+
+    Library internals at src/lib/business-rules.ts
+    lines 296, 718, 723 remain deferred for
+    separate cross-cutting audit.
+    src/lib/date-utils.ts:4 is a JSDoc comment
+    intentionally referencing the bug pattern;
+    not changed.
+
+    Final remaining `toISOString().split('T')[0]`
+    sites in src/ after this PR: 4 (all expected —
+    1 JSDoc comment + 3 library internals).
+
+    Frontend-only PR. Auto-deploys via Firebase
+    Hosting on push. (2026-04-29)
 
 ## Known Open Bugs
 

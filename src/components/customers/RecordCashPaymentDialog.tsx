@@ -12,6 +12,7 @@ import { Currency } from '@/lib/types';
 import { formatCurrency } from '@/lib/calculations';
 import { CHA_PAYMENT_METHODS } from '@/lib/payment-methods';
 import { supabase } from '@/integrations/supabase/client';
+import { getPHTToday } from '@/lib/date-utils';
 
 type PaymentMethod = string;
 
@@ -38,7 +39,7 @@ const MAX_PROOF_BYTES = 5 * 1024 * 1024; // 5 MB
 const ACCEPTED_MIME = 'image/png,image/jpeg,image/jpg,image/webp,application/pdf';
 
 function todayISODate() {
-  return new Date().toISOString().split('T')[0];
+  return getPHTToday();
 }
 
 function safeForFilename(value: string | null | undefined) {

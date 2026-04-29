@@ -13,6 +13,7 @@ import { Currency } from '@/lib/types';
 import { useAccounts } from '@/hooks/use-supabase-data';
 import { Skeleton } from '@/components/ui/skeleton';
 import AccountSearchBar from '@/components/search/AccountSearchBar';
+import { getPHTToday } from '@/lib/date-utils';
 
 const statusStyles: Record<string, string> = {
   active: 'bg-success/10 text-success border-success/20',
@@ -81,7 +82,7 @@ const AccountList = memo(function AccountList({ embedded = false }: { embedded?:
     const matchesSearch = !searchRef.current || a.invoice_number.includes(searchRef.current) ||
       (a.customers?.full_name || '').toLowerCase().includes(searchRef.current.toLowerCase());
     const matchesCurrency = filterCurrency === 'all' || a.currency === filterCurrency;
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getPHTToday();
     const matchesStatus = filterStatus === 'all'
       ? true
       : filterStatus === 'forfeited' && filterPeriod === 'today'

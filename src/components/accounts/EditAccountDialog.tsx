@@ -86,7 +86,7 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
     const nextDate = new Date(lastDate);
     nextDate.setMonth(nextDate.getMonth() + 1);
     setNewInstallments(prev => [...prev, {
-      due_date: nextDate.toISOString().split('T')[0],
+      due_date: Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(nextDate),
       base_amount: '',
     }]);
   };

@@ -23,6 +23,7 @@ import {
   LoyaltyPromoFormModal,
   type LoyaltyPromoRow,
 } from '@/components/loyalty/LoyaltyPromoFormModal';
+import { getPHTToday } from '@/lib/date-utils';
 
 type Bucket = 'scheduled' | 'upcoming' | 'past';
 
@@ -35,8 +36,7 @@ function fmtDate(iso: string) {
 }
 
 function todayYmd() {
-  const d = new Date();
-  return d.toISOString().split('T')[0];
+  return getPHTToday();
 }
 
 function bucketOf(p: LoyaltyPromoRow, today: string): Bucket {

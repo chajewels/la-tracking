@@ -35,6 +35,7 @@ import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, use
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
+import { getPHTToday } from '@/lib/date-utils';
 import {
   isEffectivelyPaid, isPartiallyPaid, remainingDue, remainingPrincipalDue, computeRemainingBalance,
   getUnpaidScheduleItems, getActivePayments, accountProgress,
@@ -433,7 +434,7 @@ export default function AccountDetail() {
   const principalTotal = Number(account?.total_amount || 0);
   const scheduleItems = schedule || [];
   // Override DB status: account is only truly overdue if an unpaid month has a past due_date
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getPHTToday();
   const hasUnpaidPastDue = scheduleItems.some(
     (item: any) => !isRowPaid(item) && item.due_date <= todayStr
   );
@@ -1252,7 +1253,7 @@ export default function AccountDetail() {
                     const lastDate = lastItem ? new Date(lastItem.due_date) : new Date(account.order_date);
                     const nextDate = new Date(lastDate);
                     nextDate.setMonth(nextDate.getMonth() + 1);
-                    setNewInstDueDate(nextDate.toISOString().split('T')[0]);
+                    setNewInstDueDate(Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(nextDate));
                     setNewInstAmount('');
                     setAddingInstallment(true);
                   }}

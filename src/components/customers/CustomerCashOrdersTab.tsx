@@ -165,7 +165,7 @@ export default memo(function CustomerCashOrdersTab({ customerId }: { customerId:
 
                   <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
                     <span className="text-[10px] text-muted-foreground">
-                      {order.order_date || new Date(order.created_at).toISOString().split('T')[0]} · {currency}
+                      {order.order_date || Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(order.created_at))} · {currency}
                     </span>
                     <Link to={`/cash-orders/${order.id}`} onClick={(e) => e.stopPropagation()}>
                       <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary">

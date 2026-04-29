@@ -253,7 +253,7 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false }: { embe
 
                     <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
                       <span className="text-[10px] text-muted-foreground">
-                        {order.order_date || new Date(order.created_at).toISOString().split('T')[0]} · {currency}
+                        {order.order_date || Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(order.created_at))} · {currency}
                       </span>
                       <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                         <Link to={`/cash-orders/${order.id}`}>

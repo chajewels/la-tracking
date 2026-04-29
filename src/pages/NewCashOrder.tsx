@@ -16,6 +16,7 @@ import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
+import { getPHTToday } from '@/lib/date-utils';
 
 type InvoiceCheck = 'idle' | 'checking' | 'available' | 'taken';
 
@@ -43,7 +44,7 @@ export default function NewCashOrder() {
   const [currency, setCurrency] = useState<Currency>('JPY');
   const [totalAmount, setTotalAmount] = useState('');
   const [loyaltyJpyInput, setLoyaltyJpyInput] = useState('');
-  const [orderDate, setOrderDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [orderDate, setOrderDate] = useState(() => getPHTToday());
   const [expiresAt, setExpiresAt] = useState<string>('');
   const [notes, setNotes] = useState('');
   const [acceptAgreement, setAcceptAgreement] = useState(false);
@@ -153,7 +154,7 @@ export default function NewCashOrder() {
     !!expiresAt;
 
   // Warn if expiry is in the past — order will be auto-expired by cron
-  const today = new Date().toISOString().split('T')[0];
+  const today = getPHTToday();
   const expiresAtIsPast = !!expiresAt && expiresAt < today;
 
   const handleSubmit = async (e: React.FormEvent) => {
