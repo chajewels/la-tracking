@@ -1,6 +1,7 @@
 import { memo, useMemo, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Diamond, Sparkles, Plus, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { Diamond, Sparkles, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -11,7 +12,6 @@ import {
 } from '@/components/ui/tooltip';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { toast } from 'sonner';
 
 import MemberCard from '@/components/loyalty/MemberCard';
 import PointsSnapshot from '@/components/loyalty/PointsSnapshot';
@@ -205,11 +205,9 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
   const rolesArr = roles as any[];
   const isAdmin = rolesArr.includes('admin');
   const isFinance = rolesArr.includes('finance');
-  const queryClient = useQueryClient();
 
   const { data, isLoading } = useCustomerLoyalty(customerId);
   const [filter, setFilter] = useState<ActivityFilter>('all');
-  const [betaPending, setBetaPending] = useState(false);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
 
   const filteredTransactions = useMemo(() => {
@@ -291,43 +289,6 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
 
   setLoyaltyData(memberData, tiersData, transactionsData);
 
-  async function handleAddBeta() {
-    if (!customerId) return;
-    setBetaPending(true);
-    try {
-      const { error } = await supabase
-        .from('loyalty_beta_members')
-        .insert({ customer_id: customerId });
-      if (error && !String(error.message).toLowerCase().includes('duplicate')) {
-        throw error;
-      }
-      toast.success('Added to beta whitelist');
-      await queryClient.invalidateQueries({ queryKey: ['customer-loyalty', customerId] });
-    } catch (err: any) {
-      toast.error(err?.message || 'Could not add to beta whitelist');
-    } finally {
-      setBetaPending(false);
-    }
-  }
-
-  async function handleRemoveBeta() {
-    if (!customerId) return;
-    setBetaPending(true);
-    try {
-      const { error } = await supabase
-        .from('loyalty_beta_members')
-        .delete()
-        .eq('customer_id', customerId);
-      if (error) throw error;
-      toast.success('Removed from beta whitelist');
-      await queryClient.invalidateQueries({ queryKey: ['customer-loyalty', customerId] });
-    } catch (err: any) {
-      toast.error(err?.message || 'Could not remove from beta whitelist');
-    } finally {
-      setBetaPending(false);
-    }
-  }
-
   if (isLoading || !data) {
     return (
       <div className="space-y-4">
@@ -349,41 +310,24 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
           <p className="text-sm font-medium text-foreground">Not enrolled</p>
           <p className="text-xs text-muted-foreground mt-1">
             This customer hasn't joined the loyalty program yet.
+            {isBeta ? ' They are on the beta whitelist.' : ''}
           </p>
         </div>
-        {isAdmin && (
-          <div className="rounded-xl border border-border bg-card p-5">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div>
-                <p className="text-sm font-semibold text-foreground">Beta Whitelist</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {isBeta
-                    ? 'In beta — they can see the loyalty section even with the global flag off.'
-                    : 'Add to beta to give early access while the program is gated.'}
-                </p>
-              </div>
-              {isBeta ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={betaPending}
-                  onClick={handleRemoveBeta}
-                >
-                  <X className="h-4 w-4 mr-1.5" /> Remove from Beta
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  className="gold-gradient text-primary-foreground"
-                  disabled={betaPending}
-                  onClick={handleAddBeta}
-                >
-                  <Plus className="h-4 w-4 mr-1.5" /> Add to Beta Whitelist
-                </Button>
-              )}
-            </div>
+        <div className="rounded-xl border border-border bg-card p-5">
+          <p className="text-sm font-semibold text-foreground">Loyalty Portal</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Manage beta access and program-wide controls in one place.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link
+              to="/loyalty/admin?tab=beta"
+              className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
+            >
+              Manage Beta Status
+              <ExternalLink className="h-3 w-3" />
+            </Link>
           </div>
-        )}
+        </div>
       </div>
     );
   }
@@ -559,7 +503,35 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
         )}
       </div>
 
-      {/* 7. Admin Actions */}
+      {/* 7. Loyalty Portal links (all viewers) */}
+      <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+        <div>
+          <p className="text-sm font-semibold text-foreground">Loyalty Portal</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Open the global Loyalty Portal to manage members and beta access.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {data.customer?.customer_code && (
+            <Link
+              to={`/loyalty/admin?tab=members&search=${encodeURIComponent(data.customer.customer_code)}`}
+              className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
+            >
+              View in Members
+              <ExternalLink className="h-3 w-3" />
+            </Link>
+          )}
+          <Link
+            to="/loyalty/admin?tab=beta"
+            className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
+          >
+            Manage Beta Status
+            <ExternalLink className="h-3 w-3" />
+          </Link>
+        </div>
+      </div>
+
+      {/* 8. Admin Actions */}
       {isAdmin && (
         <div className="rounded-xl border border-border bg-card p-5 space-y-4">
           <div>
@@ -584,26 +556,6 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-
-            {isBeta ? (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={betaPending}
-                onClick={handleRemoveBeta}
-              >
-                <X className="h-4 w-4 mr-1.5" /> Remove from Beta Whitelist
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                className="gold-gradient text-primary-foreground"
-                disabled={betaPending}
-                onClick={handleAddBeta}
-              >
-                <Plus className="h-4 w-4 mr-1.5" /> Add to Beta Whitelist
-              </Button>
-            )}
           </div>
         </div>
       )}
