@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Printer, Check, AlertTriangle, Clock, MessageCircle, Download } from 'lucide-react';
+import { getPHTToday } from '@/lib/date-utils';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -94,7 +95,7 @@ function buildPenaltyCheckpoints(dueDateStr: string): Date[] {
  * 14-day checkpoints only apply to installments that have penalty > 0.
  */
 function getNextPaymentInfo(schedule: StatementData['schedule']): { date: string; amount: number; isAdjusted: boolean } | null {
-  const today = new Date().toISOString().split('T')[0];
+  const today = getPHTToday();
   const todayDate = new Date(today + 'T00:00:00Z');
   // Detect partial items using BOTH DB status AND computed check:
   // DB status may be stale ('paid'/'pending') while item actually has partial payment,
@@ -145,10 +146,10 @@ function getNextPaymentInfo(schedule: StatementData['schedule']): { date: string
   candidates.sort((a, b) => a.date.getTime() - b.date.getTime());
   const future = candidates.find(c => c.date >= todayDate);
   if (future) {
-    return { date: future.date.toISOString().split('T')[0], amount: future.amount, isAdjusted: future.isAdjusted };
+    return { date: Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(future.date), amount: future.amount, isAdjusted: future.isAdjusted };
   }
   const latest = candidates[candidates.length - 1];
-  return { date: latest.date.toISOString().split('T')[0], amount: latest.amount, isAdjusted: latest.isAdjusted };
+  return { date: Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(latest.date), amount: latest.amount, isAdjusted: latest.isAdjusted };
 }
 
 export default function CustomerStatement() {
@@ -351,7 +352,7 @@ export default function CustomerStatement() {
               {data.schedule.map((item) => {
                 const isPaid = item.status === 'paid' || (item.paid_amount > 0 && item.paid_amount >= item.total_due);
                 const remaining = Math.max(0, item.total_due - item.paid_amount);
-                const today = new Date().toISOString().split('T')[0];
+                const today = getPHTToday();
                 const isOverdue = !isPaid && item.due_date < today && item.status !== 'cancelled';
 
                 // Find penalties for this installment

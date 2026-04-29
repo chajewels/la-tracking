@@ -31,6 +31,7 @@ import {
   copyToClipboard,
 } from '@/lib/payment-methods';
 import { LocationType, parseLocation, toLocationString } from '@/lib/countries';
+import { getPHTToday } from '@/lib/date-utils';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -365,7 +366,7 @@ export default function CustomerPortal() {
   ) || [];
   const hasOverdue = payableAccounts.some(a => a.status_label === 'Overdue');
   const hasDueToday = payableAccounts.some(a => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getPHTToday();
     return a.next_due_date === today;
   });
   const firstPayable = payableAccounts[0];
@@ -381,7 +382,7 @@ export default function CustomerPortal() {
       if (!res.ok) { setError(json.error || 'Access denied'); return; }
       // Override stale 'Overdue' status_label: account is only truly overdue if
       // an unpaid schedule row has due_date < today (same logic as admin view)
-      const portalToday = new Date().toISOString().split('T')[0];
+      const portalToday = getPHTToday();
       const normalizedJson = {
         ...json,
         accounts: (json.accounts || []).map((a: PortalAccount) => {
@@ -1204,7 +1205,7 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
       <>
       {/* Active: compact next-payment row */}
       {(() => {
-        const today = new Date().toISOString().split('T')[0];
+        const today = getPHTToday();
         const sorted = [...account.schedule].sort((a, b) => a.installment_number - b.installment_number);
         // Detect partial items via BOTH DB status and computed check (paid > 0 but < base)
         const isPartial = (s: typeof sorted[0]) =>
@@ -1305,7 +1306,7 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
 }) {
   const currency = account.currency;
   const colorClass = statusColor[account.status_label] || statusColor['Active'];
-  const today = new Date().toISOString().split('T')[0];
+  const today = getPHTToday();
   const isOverdue = account.status_label === 'Overdue';
   const canPay = account.remaining_balance > 0 && !['completed', 'cancelled', 'forfeited', 'final_forfeited'].includes(account.status);
   const [activeTab, setActiveTab] = useState<'overview' | 'pay' | 'submissions'>(canPay ? initialTab : 'overview');
@@ -1773,7 +1774,7 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
   // ── Auto-distribute helper ──
   // Compute due priority and target amount per account
   const getAccountDuePriority = (acct: PortalAccount): { priority: number; label: string; badgeClass: string; targetAmount: number } => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getPHTToday();
     const unpaidItems = acct.schedule
       .filter(s => s.status !== 'cancelled' && (
         s.status === 'partially_paid' ||
@@ -1876,7 +1877,7 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
 
   // Form state
   const [amount, setAmount] = useState(account.next_due_amount ? String(account.next_due_amount) : '');
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [paymentDate, setPaymentDate] = useState(getPHTToday());
   const [referenceNumber, setReferenceNumber] = useState('');
   const [senderName, setSenderName] = useState('');
   const [notes, setNotes] = useState('');

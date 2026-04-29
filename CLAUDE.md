@@ -1005,6 +1005,51 @@ When completing a partially_paid month:
 
     Frontend-only PR. Auto-deploys via Firebase
     Hosting on push. (2026-04-29)
+  - 57. Customer-facing PHT timezone sweep — 11
+    sites across 3 files. Same
+    `toISOString().split('T')[0]` bug class as #56
+    but on customer portal surfaces, where the bug
+    fires in real production whenever a customer
+    uses the portal between PHT 00:00–08:00.
+    Customer-facing impact is structurally higher
+    than the admin sweep because customers tap
+    portal links at any hour (mobile reminders,
+    Messenger threads, etc.).
+
+    Affected files:
+    - src/pages/CustomerPortal.tsx (6 sites:
+      hasDueToday flag, portalToday status
+      override, next-payment row, per-account
+      Overdue pill, getAccountDuePriority,
+      payment-form initial value)
+    - src/pages/CustomerStatement.tsx (4 sites:
+      getNextPaymentInfo today derivation,
+      future/latest Date-to-string formatting
+      x2, per-row overdue indicator)
+    - src/components/portal/CashPortalPaymentDialog.tsx
+      (1 site: todayISODate() helper body —
+      affects form initial value AND max-date
+      constraint)
+
+    CRITICAL severity: CustomerPortal.tsx line
+    1879 form initial value for paymentDate.
+    Customer submitting a portal payment between
+    PHT 00:00–08:00 silently pre-filled
+    yesterday's date, which then gets logged on
+    payment_submissions.payment_date and flows
+    into audit logs. The customer has no obvious
+    cue that the date is wrong because the input
+    looks like "today" to them.
+
+    Replaced with getPHTToday() (5 sites in
+    CustomerPortal, 2 sites in CustomerStatement,
+    1 site in CashPortalPaymentDialog) and inline
+    Intl.DateTimeFormat with Asia/Manila timezone
+    (2 sites in CustomerStatement that format
+    Date objects rather than computing "today").
+
+    Frontend-only PR. Auto-deploys via Firebase
+    Hosting on push. (2026-04-29)
 
 ## Known Open Bugs
 

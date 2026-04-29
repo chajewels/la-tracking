@@ -9,6 +9,7 @@ import {
   type ChaPaymentMethod,
   PaymentMethodCard,
 } from '@/lib/payment-methods';
+import { getPHTToday } from '@/lib/date-utils';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -44,7 +45,7 @@ interface CashPortalPaymentDialogProps {
 }
 
 function todayISODate() {
-  return new Date().toISOString().split('T')[0];
+  return getPHTToday();
 }
 
 function safeForFilename(v: string | null | undefined) {
