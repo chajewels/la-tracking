@@ -1231,6 +1231,42 @@ When completing a partially_paid month:
   audit above. D5/D7/D8/D9 are lower priority and
   can wait for a dashboard polish session.
 
+### AgingBuckets follow-ups (surfaced 2026-04-29)
+
+  Two low/medium issues found while verifying the
+  D2/D4 revert (commit 1b9ff78). Both will be
+  folded into the same get_aging_buckets() RPC
+  work as D2/D4.
+
+  - AgingBuckets currency-prop ignored:
+    src/components/dashboard/AgingBuckets.tsx
+    accepts a `currency` prop and uses it only
+    for formatCurrency() display. The query
+    itself does not filter by currency, so PHP
+    and JPY rows are bucketed together and the
+    formatted total mislabels them. Surfaced
+    during D2/D4 investigation. Fix path: add
+    a `currency` filter on the schedule_with_actuals
+    side of the get_aging_buckets() RPC and
+    pass it from the prop. Defer until the
+    RPC lands.
+
+  - TEST-005 in Overdue & Due Soon widget:
+    Pre-existing TEST exclusion gap on the
+    Overdue & Due Soon widget (not AgingBuckets
+    — separate component). Surfaced 2026-04-29
+    during D2/D4 verification. Fix path: add
+    `.not('invoice_number', 'like', 'TEST-%')`
+    on the underlying query, mirroring the
+    pattern used elsewhere on the dashboard.
+    Verify the widget's account-id filter
+    chain stays under PostgREST URL limits
+    (do NOT repeat the de1e640 mistake — if a
+    join can't carry the TEST exclusion, push
+    the filter into a server-side RPC instead
+    of a client-side `.in()` over a large
+    UUID list).
+
 ## SYSTEM INVARIANTS (permanent — never violate)
 
   INVARIANT 1 — total_paid source:
@@ -2321,3 +2357,28 @@ after every deploy. If unchanged, manually deploy:
 
   npx supabase functions deploy review-payment-submission \
     --no-verify-jwt --project-ref pfoicalpzdcmyxzvwyhz
+
+### IMPORTANT — STALE EDGE FUNCTION DEPLOYS
+
+GitHub Actions auto-deploy can report success while
+the deployed Supabase edge function stays stale.
+Confirmed twice:
+- Cash KPI deploy (2026-04-28)
+- D3 reminder count fix — commit 0fe7517
+  (2026-04-29). Auto-deploy job reported green
+  but Dashboard kept showing the capped 200
+  value until a manual deploy was issued.
+
+After ANY dashboard-summary change, verify the
+fix actually shipped (compare Supabase function
+version + spot-check a metric). If the metric
+looks stale, manually redeploy from Cloud Shell:
+
+  npx supabase functions deploy dashboard-summary \
+    --project-ref pfoicalpzdcmyxzvwyhz
+
+This forces Supabase to take the latest code.
+Same pattern applies to any other auto-deployed
+edge function whose effect is observable in the
+UI — if you can't see the fix, redeploy manually
+before assuming the code is wrong.
