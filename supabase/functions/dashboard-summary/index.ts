@@ -151,7 +151,13 @@ Deno.serve(async (req) => {
       .eq("status", "pending");
 
     const totalPenaltiesQ = supabase.from("penalty_fees").select("id, status, penalty_amount, currency");
-    const reminderLogsQ = supabase.from("reminder_logs").select("id, delivery_status").order("created_at", { ascending: false }).limit(200);
+    // Reminder counts — exact totals via head:true count queries instead of
+    // fetching rows. Previous .limit(200) silently capped the count once
+    // reminder_logs grew beyond 200 (production at fix time had ~7,970 entries).
+    // Pattern matches completedAllTimeQ's count-only approach.
+    const reminderTotalQ   = supabase.from("reminder_logs").select("id", { count: "exact", head: true });
+    const reminderSuccessQ = supabase.from("reminder_logs").select("id", { count: "exact", head: true }).in("delivery_status", ["sent", "delivered"]);
+    const reminderFailedQ  = supabase.from("reminder_logs").select("id", { count: "exact", head: true }).eq("delivery_status", "failed");
 
     // ── Cash order queries (independent of currencyFilter — cash KPIs always reported in JPY) ──
     const cashActiveQ = supabase
@@ -250,7 +256,9 @@ Deno.serve(async (req) => {
       { data: penaltiesToday },
       { data: pendingWaivers },
       { data: allPenalties },
-      { data: reminderLogs },
+      { count: reminderTotal },
+      { count: reminderSuccess },
+      { count: reminderFailed },
       allUnpaidScheduleItems,
       { data: forfeitedTodayAccounts },
       { count: completedAllTime },
@@ -267,7 +275,7 @@ Deno.serve(async (req) => {
     ] = await Promise.all([
       accountsQ, todayPayQ, monthPayQ, completedThisMonthQ, forfeitedQ,
       penaltiesTodayQ, pendingWaiversQ,
-      totalPenaltiesQ, reminderLogsQ, fetchAllScheduleItems(),
+      totalPenaltiesQ, reminderTotalQ, reminderSuccessQ, reminderFailedQ, fetchAllScheduleItems(),
       forfeitedTodayQ, completedAllTimeQ,
       cashActiveQ, cashCompletedMonthQ, cashCompletedAllQ, cashCancelledQ,
       cashCreatedMonthQ, cashCreatedAllQ, layawayCreatedMonthQ, layawayCreatedAllQ,
@@ -392,9 +400,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    const totalReminders = (reminderLogs || []).length;
-    const successReminders = (reminderLogs || []).filter((r: any) => r.delivery_status === "sent" || r.delivery_status === "delivered").length;
-    const failedReminders = (reminderLogs || []).filter((r: any) => r.delivery_status === "failed").length;
+    const totalReminders = reminderTotal ?? 0;
+    const successReminders = reminderSuccess ?? 0;
+    const failedReminders = reminderFailed ?? 0;
 
     // ── Predictions: 30d, 90d, next month, 6-month forecast ──
     const now = new Date();

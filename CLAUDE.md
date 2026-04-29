@@ -1156,6 +1156,29 @@ When completing a partially_paid month:
     — AgingBuckets ignores the currency prop —
     is documented as a separate Known Open Bug
     entry above. (2026-04-29)
+  - 60. Dashboard Reminder counts capped at 200.
+    dashboard-summary edge function used
+    `.limit(200).select('id, delivery_status')` then
+    computed counts via `.length` and `.filter().length`.
+    Once reminder_logs grew past 200 rows, the count
+    silently capped — production at fix time had
+    7,970 total reminders (6,368 success) and
+    Dashboard "Reminders Sent" card was showing 200,
+    a 40x under-report.
+
+    Fixed by replacing the single row-fetching query
+    with three count-only queries
+    (`select('id', { count: 'exact', head: true })`)
+    matching the existing completedAllTimeQ pattern:
+    reminderTotalQ (no filter), reminderSuccessQ
+    (delivery_status IN sent/delivered), and
+    reminderFailedQ (delivery_status = failed). All
+    three run inside the same Promise.all batch so
+    parallelism is preserved. Consumers read
+    `count ?? 0` instead of `.length`.
+
+    Auto-deploys via GitHub Actions on push.
+    (2026-04-29)
 
 ## Known Open Bugs
 
@@ -1173,12 +1196,6 @@ When completing a partially_paid month:
 
   LOW / MEDIUM severity — display polish + design
   decisions, not data accuracy:
-  - D3: Reminder counts capped at 200 in
-    dashboard-summary (line 142, `.limit(200)`).
-    After 200 reminders accumulate, "Reminders Sent"
-    card permanently shows 200. Replace with
-    `count: 'exact', head: true` queries to get true
-    totals; no row data is needed for the count cards.
   - D5: Dashboard polling 30s — not a correctness
     bug, perf footnote. Each poll runs ~22 parallel
     SELECTs in dashboard-summary. Consider raising
