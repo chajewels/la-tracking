@@ -211,8 +211,8 @@ Deno.serve(async (req) => {
 
     // ── APPROVE ─────────────────────────────────────────────────────
     if (action === "approve") {
-      if (!(isAdmin || isFinance || isStaff)) {
-        return json({ error: "Admin, finance, or staff role required" }, 403);
+      if (!(isAdmin || isFinance)) {
+        return json({ error: "Admin or finance role required" }, 403);
       }
 
       const { redemption_id } = body;
