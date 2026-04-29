@@ -1116,46 +1116,6 @@ When completing a partially_paid month:
 
     Frontend-only PR. Auto-deploys via Firebase
     Hosting on push. (2026-04-29)
-  - 59. AgingBuckets fixes — D2 + D4 closed in
-    one queryFn change.
-
-    D2: TEST account exclusion. Was inflating
-    aging totals by ₱30,166 across 3 buckets:
-    - 1–30 days: +₱2,500 from TEST-004
-    - 31–60 days: +₱14,666 from TEST-002 (₱6,166)
-      + TEST-003 (₱8,500)
-    - 61–90 days: +₱13,000 from TEST-005
-    The component had a layaway_accounts!inner
-    join but never applied
-    `.not('invoice_number', 'like', 'TEST-%')`.
-
-    D4: Was reading layaway_schedule.total_due_amount
-    and layaway_schedule.paid_amount and computing
-    `total_due_amount - paid_amount`, violating
-    INVARIANT 2 (per-row remaining must come from
-    schedule_with_actuals.actual_remaining; the
-    cache columns are write-only). Verified
-    pre-fix INV #18531 installment 1 had ₱1,000
-    cache-vs-canonical drift — AgingBuckets was
-    showing the wrong number for that row.
-
-    Fix shape: replaced the single layaway_schedule
-    query with a two-step pattern:
-    1. Fetch active/overdue layaway_accounts.id
-       excluding TEST.
-    2. Read schedule_with_actuals filtered by
-       account_id IN (...) and computed_status IN
-       ('pending', 'overdue', 'partially_paid').
-       Use actual_remaining as the bucket amount.
-
-    Two-step pattern was chosen over a join
-    through schedule_with_actuals because PostgREST
-    FK resolution through views is fragile.
-
-    A 5th issue surfaced during this investigation
-    — AgingBuckets ignores the currency prop —
-    is documented as a separate Known Open Bug
-    entry above. (2026-04-29)
   - 60. Dashboard Reminder counts capped at 200.
     dashboard-summary edge function used
     `.limit(200).select('id, delivery_status')` then
@@ -1196,6 +1156,16 @@ When completing a partially_paid month:
 
   LOW / MEDIUM severity — display polish + design
   decisions, not data accuracy:
+  - D2: AgingBuckets doesn't exclude TEST accounts.
+    Currently inflates aging counts by ~₱30k from
+    test data. Add `.not("invoice_number", "like",
+    "TEST-%")` to the layaway_schedule + layaway_accounts
+    join in src/components/dashboard/AgingBuckets.tsx.
+  - D4: AgingBuckets reads write-only cache columns
+    (violates INVARIANT 2 — should read from
+    schedule_with_actuals view). Refactor to read
+    `actual_remaining` instead of computing
+    `total_due_amount - paid_amount`.
   - D5: Dashboard polling 30s — not a correctness
     bug, perf footnote. Each poll runs ~22 parallel
     SELECTs in dashboard-summary. Consider raising
@@ -1222,38 +1192,12 @@ When completing a partially_paid month:
     risk-adjustment, or surface both numbers more
     explicitly.
 
-  Sweep recommendation: D3 remains as the next
-  cleanup target. D5/D7/D8/D9 are lower priority
-  and can wait for a dashboard polish session.
-  D2 and D4 closed in commit fac4274 follow-up
-  (see Known Fixed Bug #59).
-
-### AgingBuckets currency filter not applied (deferred — surfaced 2026-04-29)
-
-  AgingBuckets component
-  (src/components/dashboard/AgingBuckets.tsx) takes
-  a `currency` prop from Dashboard's
-  CurrencyToggle, but the underlying query does
-  NOT filter `layaway_accounts.currency`. When
-  Dashboard is toggled to JPY, AgingBuckets
-  fetches both PHP and JPY active accounts, sums
-  `actual_remaining` across all of them, and
-  formats the totals using `formatCurrency(amount,
-  'JPY')` — labeling mixed-currency totals with ¥.
-
-  Severity: MEDIUM. Visible to admin every time
-  the currency toggle is used. Surfaced 2026-04-29
-  during the D2/D4 investigation. Not bundled
-  with the D2/D4 fix because it's a different
-  concern (filter logic vs source-of-truth).
-
-  Fix shape: extend the active-accounts query in
-  AgingBuckets queryFn to add an optional
-  `.eq('currency', currency)` when currency is
-  passed (matches the pattern used elsewhere in
-  the app — Finance.tsx, dashboard-summary edge
-  function). Pass the prop into the queryKey so
-  React Query refetches on toggle.
+  Sweep recommendation: ship the 4 HIGH severity
+  timestamptz fixes as one PR (cleanest match to
+  D1 pattern, single deploy). D2/D3/D4 can ride
+  in a separate sweep alongside the PHT-frontend
+  audit above. D5/D7/D8/D9 are lower priority and
+  can wait for a dashboard polish session.
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 

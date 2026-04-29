@@ -16,26 +16,11 @@ export default function AgingBuckets({ currency = 'PHP' }: { currency?: Currency
     queryKey: ['aging-buckets'],
     staleTime: 60_000,
     queryFn: async () => {
-      // Step 1: list active/overdue account IDs (excludes TEST per dashboard convention).
-      // Two-step pattern because schedule_with_actuals is a view; PostgREST FK
-      // resolution through views is fragile, so we filter account_id IN (...) instead.
-      const { data: activeAccounts, error: acctErr } = await supabase
-        .from('layaway_accounts')
-        .select('id')
-        .in('status', ['active', 'overdue'])
-        .not('invoice_number', 'like', 'TEST-%');
-      if (acctErr) throw acctErr;
-      const accountIds = (activeAccounts || []).map(a => a.id);
-      if (accountIds.length === 0) return [];
-
-      // Step 2: read aging rows from canonical view (CLAUDE.md INVARIANT 2 compliant).
-      // actual_remaining is the canonical per-row remaining; do NOT compute it
-      // from total_due_amount - paid_amount (those are write-only caches).
       const { data, error } = await supabase
-        .from('schedule_with_actuals')
-        .select('due_date, actual_remaining, computed_status, account_id')
-        .in('computed_status', ['pending', 'overdue', 'partially_paid'])
-        .in('account_id', accountIds);
+        .from('layaway_schedule')
+        .select('due_date, total_due_amount, paid_amount, layaway_accounts!inner(status)')
+        .in('status', ['pending', 'overdue', 'partially_paid'])
+        .in('layaway_accounts.status', ['active', 'overdue']);
       if (error) throw error;
       return data;
     },
@@ -52,7 +37,7 @@ export default function AgingBuckets({ currency = 'PHP' }: { currency?: Currency
 
   items.forEach(item => {
     const overdueDays = daysOverdueFromToday(item.due_date);
-    const amount = Number(item.actual_remaining);
+    const amount = Number(item.total_due_amount) - Number(item.paid_amount);
 
     if (overdueDays <= 0) {
       buckets[0].count++;
