@@ -58,7 +58,7 @@ export default function NewAccount() {
   // Loyalty-only product amount field is admin/finance only.
   const { roles } = useAuth();
   const rolesArr = roles as any[];
-  const canSeeLoyaltyField = rolesArr.includes('admin') || rolesArr.includes('finance');
+  const canSeeLoyaltyField = rolesArr.includes('admin') || rolesArr.includes('finance') || rolesArr.includes('staff');
 
   // Custom installment mode
   const [installmentMode, setInstallmentMode] = useState<InstallmentMode>('equal');

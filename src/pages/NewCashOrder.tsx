@@ -29,7 +29,7 @@ export default function NewCashOrder() {
   const { can, loading: permLoading } = usePermissions();
   const { data: customers } = useCustomers();
   const rolesArr = roles as any[];
-  const canSeeLoyaltyField = rolesArr.includes('admin') || rolesArr.includes('finance');
+  const canSeeLoyaltyField = rolesArr.includes('admin') || rolesArr.includes('finance') || rolesArr.includes('staff');
 
   // Permission gate — driven by role_permissions via usePermissions().can()
   const isAuthorized = can('create_cash_order');

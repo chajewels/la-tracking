@@ -74,6 +74,8 @@ export function RedemptionApprovalModal({
   const { roles } = useAuth();
   const rolesArr = roles as any[];
   const isAdmin = rolesArr.includes('admin');
+  const isFinance = rolesArr.includes('finance');
+  const canApprove = isAdmin || isFinance;
 
   const [check1, setCheck1] = useState(false);
   const [check2, setCheck2] = useState(false);
@@ -348,14 +350,16 @@ export function RedemptionApprovalModal({
                     Cancel Request
                   </Button>
                 )}
-                <Button
-                  type="button"
-                  onClick={handleApprove}
-                  disabled={submitting || !allChecksPassed}
-                  className="gold-gradient text-primary-foreground"
-                >
-                  {submitting ? 'Approving…' : 'Approve & Apply'}
-                </Button>
+                {canApprove && (
+                  <Button
+                    type="button"
+                    onClick={handleApprove}
+                    disabled={submitting || !allChecksPassed}
+                    className="gold-gradient text-primary-foreground"
+                  >
+                    {submitting ? 'Approving…' : 'Approve & Apply'}
+                  </Button>
+                )}
               </div>
             )}
 
