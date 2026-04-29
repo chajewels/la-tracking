@@ -2288,64 +2288,115 @@ When completing a partially_paid month:
       UI/server drift surfaced in Known Fixed Bug #64.
       create and cancel gates left unchanged.
 
-  PWA install on customer portal: LIVE ✅ (2026-04-29)
-    - Customers can install the PWA from
-      /portal?token=... or /statement?token=... and
-      the installed shortcut launches directly into
-      their portal with the token preserved.
-    - src/lib/dynamic-manifest.ts builds a
-      data:application/manifest+json URL with
-      start_url='/portal?token=<token>' and replaces
-      the <link rel="manifest"> href on portal mount;
-      reverts to the static /manifest.webmanifest on
-      unmount so admin pages keep start_url='/'.
-    - Wired in CustomerPortal.tsx and
-      CustomerStatement.tsx via useEffect([token]).
-    - Earlier hotfix (#61) that hid the install
-      banner on customer routes was reverted as part
-      of #62 — banner is safe to show again because
-      the manifest now points to the correct URL.
-    - Sharp edge: customers who installed the broken
-      admin-context PWA before this fix have a dead
-      shortcut; remediation = delete icon, re-open
-      portal, re-install.
+  PWA install on customer portal: ROLLED BACK 🚧 (2026-04-29)
+    - PR-1 (cae1bc8, bug #61) and PR-2 (bef1949, bug #62)
+      shipped a hide-banner hotfix and a data:-URL dynamic
+      manifest. Phase 0 (commit referenced as Known Fixed
+      Bug #65) reverted both because the data:-URL manifest
+      failed Chrome's install-eligibility heuristic — Start
+      URL parsed empty in DevTools and customers never saw
+      a working install prompt anyway.
+    - Current state: customers cannot install the portal as
+      a PWA. Static /manifest.webmanifest from vite-plugin-pwa
+      and the service worker remain in place untouched. iOS
+      Safari "Add to Home Screen" still works natively (uses
+      the current URL with token, not start_url).
+    - Forward fix: PWA TOKEN-TO-SESSION REDEMPTION Phase A
+      (see PENDING ITEMS) — token-to-cookie/session swap
+      so the installed shortcut resolves to the right
+      customer without needing to bake the token into
+      start_url.
+    - Customers who installed the broken admin-context PWA
+      before Phase 0 still have a dead shortcut on their
+      device. Phase 6 dead-shortcut UX handler (in PENDING)
+      will cover that.
 
-  Loyalty Admin Portal Phase 1: LIVE ✅ (2026-04-29)
-    - New route /loyalty/admin with 4 tabs:
-      Dashboard / Members / Redemptions / Beta
-    - Sidebar entry "Loyalty" replaces
-      "Loyalty Redemptions" (top-level, between
-      Promotions and Settings)
-    - Old /loyalty/redemptions redirects to
-      /loyalty/admin?tab=redemptions
-    - URL-driven tab state with deep-linking
-      support (?tab=members&search=<code>)
-    - Pending redemptions count badge on
-      sidebar entry
-    - Dashboard: total members, per-tier counts,
-      points outstanding/redeemed, lifetime
-      spend, recent enrollments table, tier
-      distribution chart, pending redemptions
-      card
-    - Members: search/filter/sort/pagination,
-      drawer view (read-only, links to
-      Customer Detail for Adjust Points)
-    - Redemptions: full queue with approve/reject
-      flows preserved (admin/finance gated
-      server + UI)
-    - Beta Whitelist: feature flag toggle
-      "Open to All", customer search,
-      add/remove flow
-    - CustomerLoyaltyTab: removed inline beta
-      UI, added portal links (View in Members,
-      Manage Beta Status)
-    - LoyaltySettingsTab: trimmed to feature
-      flag toggle only + portal link
-      (single source of truth for beta in
-      admin portal)
-    - 11 new files, 6 modified, 1 deleted
-      (LoyaltyRedemptions.tsx orphaned)
-    - ~793 lines of duplicate code removed
+  Loyalty Admin Portal: LIVE ✅
+    Phase 1 — Foundation (LIVE 2026-04-29)
+      - Route /loyalty/admin with 4 tabs:
+        Dashboard / Members / Redemptions /
+        Beta Whitelist
+      - Sidebar entry "Loyalty" replaces
+        "Loyalty Redemptions" (top-level,
+        between Promotions and Settings)
+      - Old /loyalty/redemptions redirects to
+        /loyalty/admin?tab=redemptions
+      - URL-driven tab state with deep-linking
+        support (?tab=members&search=<code>)
+      - Pending redemptions count badge on
+        sidebar entry
+      - Dashboard: total members, per-tier
+        counts, points outstanding/redeemed,
+        lifetime spend, recent enrollments
+        table, tier distribution donut chart,
+        pending redemptions card
+      - Members: search/filter/sort/pagination,
+        drawer view (read-only, links to
+        Customer Detail for Adjust Points)
+      - Redemptions: full queue with approve/
+        reject flows (admin/finance gated
+        server + UI)
+      - Beta Whitelist: customer search +
+        add/remove flow
+      - CustomerLoyaltyTab: removed inline beta
+        UI, added portal links (View in Members,
+        Manage Beta Status)
+      - ~793 lines of duplicate code removed
+    Phase 2 — Configuration (LIVE 2026-04-29)
+      - Tiers tab: 4 tier cards. Edit dialog is
+        a two-step flow (form → impact preview)
+        that recomputes every member's tier
+        under the proposed threshold and
+        surfaces promoted_in / demoted_out
+        counts before save.
+      - Tier name is read-only — locked because
+        loyalty_promos.applicable_tiers
+        references tier names and renaming
+        would silently break promo applicability.
+      - Editable per tier: min_spend_jpy,
+        points_multiplier, color_hex,
+        free_shipping_min_items (nullable),
+        mystery_gift.
+      - Settings tab: master loyalty_enabled
+        toggle (admin only) with confirmation
+        modal; hardcoded constants display
+        (base rate, activity threshold, expiry
+        rule); 8 email notification toggles;
+        Google Sheets sync config (sheet ID,
+        service account, frequency) with
+        disabled "Sync Now" button.
+      - Email toggles ship UI only — Phase 2.5
+        wires the gates at each send site.
+        Toggling stores the preference in
+        system_settings; sends still fire
+        unconditionally.
+      - Audit Log tab: paginated audit_logs
+        query filtered to loyalty entity_types,
+        with entity_type / action / performer /
+        date-range filters and a row-click
+        drawer showing old/new JSON diff.
+      - Audit instrumentation added to all
+        Phase 1 mutations: beta add/remove,
+        feature flag toggle, redemption
+        approve/cancel.
+      - LOYALTY_SETTINGS_AUDIT_ID sentinel
+        00000000-0000-0000-0000-0000000000a1
+        used for system-level audit entries
+        because audit_logs.entity_id is
+        UUID NOT NULL and system_settings has
+        no per-row UUID.
+      - LoyaltySettingsTab.tsx deleted (191
+        lines); the Settings menu Loyalty tab
+        was removed. Single source of truth
+        for the feature flag now lives in the
+        admin portal Settings tab.
+      - BetaWhitelistTab feature-flag toggle
+        removed; now shows a read-only status
+        indicator + "Manage in Settings tab →"
+        link.
+      - 11 system_settings keys seeded for
+        Phase 2 (8 email toggles, 3 sheet sync
+        config keys).
 
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
@@ -2509,6 +2560,23 @@ loyalty portal. In progress.
     (admin/finance/staff = true, csr = false).
     Closes the page-access gap surfaced as
     Known Fixed Bug #63.
+  - Seeded 11 system_settings keys for
+    Phase 2: 8 email toggles
+    (loyalty_email_*) defaulted true to
+    preserve current send behavior; 3 sheet
+    sync keys (loyalty_sheet_id,
+    loyalty_sheet_service_account,
+    loyalty_sheet_sync_frequency) defaulted
+    to empty / "manual".
+  - Sentinel UUID
+    00000000-0000-0000-0000-0000000000a1
+    used as audit_logs.entity_id for every
+    entity_type='loyalty_settings' row,
+    since audit_logs.entity_id is UUID NOT
+    NULL and system_settings has no per-row
+    UUID. Documented in
+    src/hooks/loyalty-admin/useLoyaltySettings.ts
+    as LOYALTY_SETTINGS_AUDIT_ID.
 
 ### OPERATIONAL ENHANCEMENTS
   P6: Admin audit log for manual DB changes
@@ -2519,12 +2587,25 @@ loyalty portal. In progress.
 
 ### LOYALTY ADMIN PORTAL — phased build
   ✅ Phase 1 — Foundation (LIVE 2026-04-29)
-  ⏳ Phase 2 — Configuration
-     - Tiers tab (view/edit with confirmation
-       modal showing affected member counts)
-     - Settings tab (move from Settings menu
-       to admin portal)
-     - Audit Log tab
+  ✅ Phase 2 — Configuration (LIVE 2026-04-29)
+  ⏳ Phase 2.5 — Email gate plumbing
+     Wire the 8 loyalty_email_* toggle keys
+     to the actual gate at each send site:
+       - award-loyalty-points (3 sends:
+         loyalty-earned, loyalty-bonus,
+         loyalty-tier-upgrade)
+       - process-loyalty-redemption (1 send:
+         loyalty-redeem)
+       - loyalty-inactivity-check (2 sends:
+         loyalty-pre-expire,
+         loyalty-expire-deduct)
+       - join-loyalty-program (1 send:
+         loyalty-welcome)
+       - review-payment-submission (1 indirect
+         send via award-loyalty-points fanout)
+     Each call site reads system_settings
+     before fetching to send-transactional-email
+     and skips on false. No new tables.
   ⏳ Phase 3 — Content Management
      - Promotions tab (loyalty-only promos)
      - Rewards Catalog tab
@@ -2533,6 +2614,68 @@ loyalty portal. In progress.
      - Notifications tab (broadcast system)
      - Notification templates
      - Per-event email/SMS toggles
+
+### PWA TOKEN-TO-SESSION REDEMPTION (Phase A)
+  Multi-phase PWA fix project lineage:
+    Phase 0 (Known Fixed Bug #65) — Cleanup of
+            failed dynamic manifest approach.
+            Reverted PR-1 (cae1bc8, bug #61)
+            and PR-2 (bef1949, bug #62).
+            Static manifest remains; PWA
+            install no longer works.
+    Phase A — Token-to-cookie/session redemption
+            (planned, not yet shipped).
+    Phase 6 — Dead-shortcut UX handler for
+            customers who installed the broken
+            admin-context PWA pre-#65, plus
+            customers on iOS < 17.2 where A2HS
+            cannot reliably redeem the token.
+
+  Phase A scope (planned):
+    - New customer_portal_sessions table
+      (server-side session keyed by token swap)
+    - New redeem-portal-token edge function;
+      must be added to
+      .github/workflows/supabase-functions-deploy.yml
+      so it auto-deploys with the rest
+    - 7 portal-facing edge functions accept
+      session_id alongside token:
+        customer-portal
+        verify-portal-pin
+        set-portal-pin
+        submit-payment
+        submit-cash-payment
+        process-loyalty-redemption
+        join-loyalty-program
+    - LoyaltyPortal.tsx — additive only
+      (new useEffect for token → session
+      redemption + session_id branch in
+      fetchPortal)
+    - Add audit_delete_cleanup_invariants()
+      allowlist row for the new
+      customer_portal_sessions table when
+      it is created (otherwise the audit
+      RPC will flag it as a missing-cleanup
+      gap on customers delete-account)
+    - Solves the iOS A2HS limitation that
+      sank bug #62's manifest approach
+
+  Sharp edges to capture in the eventual
+  Known Fixed Bug entry:
+    - S5: multi-customer same-device caveat
+          — sessions are per-token, not
+          per-device, so a phone shared
+          between two enrolled customers
+          will show whichever portal
+          redeemed last
+    - S9: iOS 7-day ITP storage uncertainty
+          — Safari may evict the session
+          cookie within 7 days of last
+          interaction; document the
+          re-redeem flow
+    - Pre-iOS-17.2 customers fall back to
+      the Messenger-link prompt path
+      (Phase 6 still planned)
 
 ### OTHER
   - Firebase signing page Steps 13-17
