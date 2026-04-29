@@ -2310,6 +2310,43 @@ When completing a partially_paid month:
       shortcut; remediation = delete icon, re-open
       portal, re-install.
 
+  Loyalty Admin Portal Phase 1: LIVE ✅ (2026-04-29)
+    - New route /loyalty/admin with 4 tabs:
+      Dashboard / Members / Redemptions / Beta
+    - Sidebar entry "Loyalty" replaces
+      "Loyalty Redemptions" (top-level, between
+      Promotions and Settings)
+    - Old /loyalty/redemptions redirects to
+      /loyalty/admin?tab=redemptions
+    - URL-driven tab state with deep-linking
+      support (?tab=members&search=<code>)
+    - Pending redemptions count badge on
+      sidebar entry
+    - Dashboard: total members, per-tier counts,
+      points outstanding/redeemed, lifetime
+      spend, recent enrollments table, tier
+      distribution chart, pending redemptions
+      card
+    - Members: search/filter/sort/pagination,
+      drawer view (read-only, links to
+      Customer Detail for Adjust Points)
+    - Redemptions: full queue with approve/reject
+      flows preserved (admin/finance gated
+      server + UI)
+    - Beta Whitelist: feature flag toggle
+      "Open to All", customer search,
+      add/remove flow
+    - CustomerLoyaltyTab: removed inline beta
+      UI, added portal links (View in Members,
+      Manage Beta Status)
+    - LoyaltySettingsTab: trimmed to feature
+      flag toggle only + portal link
+      (single source of truth for beta in
+      admin portal)
+    - 11 new files, 6 modified, 1 deleted
+      (LoyaltyRedemptions.tsx orphaned)
+    - ~793 lines of duplicate code removed
+
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
   PIN hash storage: customers.portal_pin_hash (64-char SHA-256 hex digest)
@@ -2479,6 +2516,23 @@ loyalty portal. In progress.
       Drive (service account ready)
   P9: Invoice button — add to AccountDetail
       and CashOrderDetail pages
+
+### LOYALTY ADMIN PORTAL — phased build
+  ✅ Phase 1 — Foundation (LIVE 2026-04-29)
+  ⏳ Phase 2 — Configuration
+     - Tiers tab (view/edit with confirmation
+       modal showing affected member counts)
+     - Settings tab (move from Settings menu
+       to admin portal)
+     - Audit Log tab
+  ⏳ Phase 3 — Content Management
+     - Promotions tab (loyalty-only promos)
+     - Rewards Catalog tab
+     - Featured banner system
+  ⏳ Phase 4 — Communications
+     - Notifications tab (broadcast system)
+     - Notification templates
+     - Per-event email/SMS toggles
 
 ### OTHER
   - Firebase signing page Steps 13-17
