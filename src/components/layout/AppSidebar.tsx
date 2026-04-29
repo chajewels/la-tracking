@@ -48,7 +48,7 @@ const menuItems: MenuItem[] = [
   { label: 'Executive Dashboard', icon: BarChart3, path: ROUTES.EXECUTIVE_DASHBOARD, adminOnly: true },
   { label: 'Bulk Import', icon: Upload, path: ROUTES.BULK_PAYMENT_IMPORT },
   { label: 'Promotions', icon: Megaphone, path: ROUTES.PROMOTIONS },
-  { label: 'Loyalty Redemptions', icon: Sparkles, path: ROUTES.LOYALTY_REDEMPTIONS },
+  { label: 'Loyalty Redemptions', icon: Sparkles, path: ROUTES.LOYALTY_REDEMPTIONS, permPath: ROUTES.LOYALTY_REDEMPTIONS },
   { label: 'Settings', icon: Settings, path: ROUTES.SETTINGS },
 ];
 

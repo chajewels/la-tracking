@@ -72,6 +72,7 @@ const PAGE_PERMISSION_MAP: Record<string, PermissionKey> = {
   '/admin/payment-vault': 'admin_settings',
   '/bulk-payment-import': 'view_finance',
   '/promotions': 'manage_promotions',
+  '/loyalty/redemptions': 'view_loyalty_redemptions',
 };
 
 // Map page paths to feature toggle keys
