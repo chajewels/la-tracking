@@ -32,6 +32,7 @@ import {
 } from '@/lib/payment-methods';
 import { LocationType, parseLocation, toLocationString } from '@/lib/countries';
 import { getPHTToday } from '@/lib/date-utils';
+import { setCustomerPortalManifest, resetToDefaultManifest } from '@/lib/dynamic-manifest';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -265,6 +266,19 @@ function ordinal(n: number): string {
 export default function CustomerPortal() {
   const [params] = useSearchParams();
   const token = params.get('token');
+
+  // Swap the page manifest to a token-baked one so the installed PWA shortcut
+  // opens at this customer's portal instead of the admin login (start_url='/').
+  // Restored on unmount when navigating away. See src/lib/dynamic-manifest.ts.
+  useEffect(() => {
+    if (token) {
+      setCustomerPortalManifest(token);
+    }
+    return () => {
+      resetToDefaultManifest();
+    };
+  }, [token]);
+
   const [data, setData] = useState<PortalData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

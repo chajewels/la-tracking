@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Printer, Check, AlertTriangle, Clock, MessageCircle, Download } from 'lucide-react';
 import { getPHTToday } from '@/lib/date-utils';
+import { setCustomerPortalManifest, resetToDefaultManifest } from '@/lib/dynamic-manifest';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -155,6 +156,19 @@ function getNextPaymentInfo(schedule: StatementData['schedule']): { date: string
 export default function CustomerStatement() {
   const [params] = useSearchParams();
   const token = params.get('token');
+
+  // Swap the page manifest to a token-baked one so the installed PWA shortcut
+  // opens at the customer's portal instead of the admin login (start_url='/').
+  // Restored on unmount when navigating away. See src/lib/dynamic-manifest.ts.
+  useEffect(() => {
+    if (token) {
+      setCustomerPortalManifest(token);
+    }
+    return () => {
+      resetToDefaultManifest();
+    };
+  }, [token]);
+
   const [data, setData] = useState<StatementData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

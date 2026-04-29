@@ -1174,9 +1174,53 @@ When completing a partially_paid month:
 
     Durable fix (dynamic manifest with
     token-baked start_url) deferred to a
-    follow-up PR — see Known Open Bug
-    "PWA dynamic manifest for customer install"
-    below. (2026-04-29)
+    follow-up PR — see bug #62 below.
+    (2026-04-29)
+  - 62. PWA install on customer portal —
+    durable fix. Customers can now install the
+    app from `/portal?token=abc` (or
+    `/statement?token=abc`) and the installed
+    PWA opens directly at the customer's portal
+    with the token preserved in start_url.
+
+    Implementation: src/lib/dynamic-manifest.ts
+    builds a `data:application/manifest+json`
+    URL with `start_url='/portal?token=<token>'`
+    and replaces the `<link rel="manifest">`
+    href on portal page mount. Reverts to the
+    static `/manifest.webmanifest` on unmount
+    so admin pages keep their original
+    `start_url='/'`. Wired into
+    src/pages/CustomerPortal.tsx and
+    src/pages/CustomerStatement.tsx via a
+    `useEffect([token])`.
+
+    PR-1 hotfix from bug #61 reverted: the
+    `if (isCustomerContext) return null;`
+    guard and the `useSearchParams` import
+    were removed from src/App.tsx so the
+    install banner re-appears on customer
+    routes. The dynamic manifest now ensures
+    the installed shortcut points back to the
+    correct customer URL, so the banner is
+    safe to show.
+
+    Sharp edges:
+      - If the portal token is rotated
+        server-side, the installed PWA
+        shortcut becomes a dead link until
+        the customer clicks a fresh Messenger
+        link and re-installs.
+      - Customers who installed the broken
+        admin-context PWA before this fix
+        will still have the dead shortcut on
+        their device. Remediation: delete
+        the broken icon, re-open the portal
+        from the latest Messenger link, tap
+        Install App again.
+
+    Frontend-only PR. Auto-deploys via
+    Firebase Hosting on push. (2026-04-29)
 
 ## Known Open Bugs
 
@@ -1289,44 +1333,6 @@ When completing a partially_paid month:
     the filter into a server-side RPC instead
     of a client-side `.in()` over a large
     UUID list).
-
-### PWA dynamic manifest for customer install (surfaced 2026-04-29)
-
-  Hotfix in Known Fixed Bug #61 hides the install
-  banner from customer-facing routes (any URL
-  carrying `?token=`). The DURABLE fix is to
-  generate a dynamic manifest at customer portal
-  page load with `start_url='/portal?token=<actual
-  token>'`, so customers can install AND have the
-  PWA launch directly at their portal.
-
-  Implementation outline:
-    - Build a per-load manifest as a `data:` URL
-      (or Blob URL) containing the customer's
-      token in start_url and scope.
-    - Swap the `<link rel="manifest">` href to
-      that URL on `/portal` mount, BEFORE
-      `beforeinstallprompt` fires (Chrome reads
-      the manifest at prompt time).
-    - Re-enable the install banner on
-      `?token=` routes after this lands; remove
-      the `if (isCustomerContext) return null;`
-      guard introduced by the hotfix.
-
-  Sharp edges:
-    - If the portal token is rotated server-side,
-      the installed PWA shortcut becomes a dead
-      link until the customer clicks a fresh
-      Messenger link and re-installs. Need a
-      fallback page that detects 401 from
-      `/customer-portal` and prompts the customer
-      to tap their latest reminder.
-    - Browsers cache manifest aggressively. Bust
-      with `?v=<token-hash>` or similar query.
-    - Token visible in the OS shortcut metadata
-      — same exposure surface as the original
-      Messenger URL, but worth noting in the
-      privacy review.
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
