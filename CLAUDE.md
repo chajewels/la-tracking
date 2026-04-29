@@ -1116,6 +1116,21 @@ When completing a partially_paid month:
 
     Frontend-only PR. Auto-deploys via Firebase
     Hosting on push. (2026-04-29)
+  - 59. ROLLBACK — AgingBuckets D2+D4 fix attempt
+    (commit de1e640) reverted because the
+    PostgREST URL-length failure mode broke all
+    aging buckets in production. The two-step
+    query pattern used `.in('account_id',
+    accountIds)` on a 600+ UUID list, triggering
+    the documented PostgREST limit; all buckets
+    returned ₱0 / 0 accounts in both PHP and JPY
+    views ~40 minutes after deploy. Reverted via
+    git revert (commit 1b9ff78). CLAUDE.md
+    INVARIANT 2 + D2 TEST exclusion remain
+    unfixed; correct approach is a server-side
+    RPC (get_aging_buckets()) that runs the join
+    in SQL and returns aggregated results.
+    (2026-04-29)
   - 60. Dashboard Reminder counts capped at 200.
     dashboard-summary edge function used
     `.limit(200).select('id, delivery_status')` then
@@ -1157,15 +1172,32 @@ When completing a partially_paid month:
   LOW / MEDIUM severity — display polish + design
   decisions, not data accuracy:
   - D2: AgingBuckets doesn't exclude TEST accounts.
-    Currently inflates aging counts by ~₱30k from
-    test data. Add `.not("invoice_number", "like",
-    "TEST-%")` to the layaway_schedule + layaway_accounts
-    join in src/components/dashboard/AgingBuckets.tsx.
+    Confirmed inflating aging by ₱30,166 across 3
+    buckets:
+    - 1–30 days: +₱2,500 from TEST-004
+    - 31–60 days: +₱14,666 from TEST-002 (₱6,166)
+      + TEST-003 (₱8,500)
+    - 61–90 days: +₱13,000 from TEST-005
   - D4: AgingBuckets reads write-only cache columns
-    (violates INVARIANT 2 — should read from
-    schedule_with_actuals view). Refactor to read
-    `actual_remaining` instead of computing
-    `total_due_amount - paid_amount`.
+    (CLAUDE.md INVARIANT 2 violation). Confirmed
+    via INV #18531 ₱1,000 drift — pre-fix the
+    cache showed a value ₱1,000 different from
+    the canonical schedule_with_actuals
+    actual_remaining for installment 1.
+
+  ATTEMPTED FIX (REVERTED 2026-04-29): Commit
+  de1e640 used a two-step query pattern with
+  `.in('account_id', accountIds)` on a 600+ UUID
+  list. Triggered the PostgREST URL-length
+  failure mode documented in this file. All
+  buckets returned ₱0 in production. Reverted
+  via git revert (commit 1b9ff78).
+
+  CORRECT FIX PATH: server-side RPC
+  (get_aging_buckets()) that runs the join in
+  SQL and returns aggregated results. Frontend
+  consumes RPC output. Defer until investigation
+  + RPC creation in next session.
   - D5: Dashboard polling 30s — not a correctness
     bug, perf footnote. Each poll runs ~22 parallel
     SELECTs in dashboard-summary. Consider raising
