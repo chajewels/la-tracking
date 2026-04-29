@@ -16,6 +16,7 @@ export const ROUTES = {
   PAYMENTS_HUB: "/payments-hub",
   BULK_PAYMENT_IMPORT: "/bulk-payment-import",
   PROMOTIONS: "/promotions",
+  LOYALTY_ADMIN: "/loyalty/admin",
   LOYALTY_REDEMPTIONS: "/loyalty/redemptions",
   EXECUTIVE_DASHBOARD: "/executive-dashboard",
 };

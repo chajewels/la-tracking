@@ -48,7 +48,7 @@ const menuItems: MenuItem[] = [
   { label: 'Executive Dashboard', icon: BarChart3, path: ROUTES.EXECUTIVE_DASHBOARD, adminOnly: true },
   { label: 'Bulk Import', icon: Upload, path: ROUTES.BULK_PAYMENT_IMPORT },
   { label: 'Promotions', icon: Megaphone, path: ROUTES.PROMOTIONS },
-  { label: 'Loyalty Redemptions', icon: Sparkles, path: ROUTES.LOYALTY_REDEMPTIONS, permPath: ROUTES.LOYALTY_REDEMPTIONS },
+  { label: 'Loyalty', icon: Sparkles, path: ROUTES.LOYALTY_ADMIN, permPath: ROUTES.LOYALTY_ADMIN },
   { label: 'Settings', icon: Settings, path: ROUTES.SETTINGS },
 ];
 
@@ -119,7 +119,7 @@ export default function AppSidebar() {
                       )}
                     />
                     <span className="flex-1">{item.label}</span>
-                    {item.path === ROUTES.LOYALTY_REDEMPTIONS && pendingRedemptions > 0 && (
+                    {item.path === ROUTES.LOYALTY_ADMIN && pendingRedemptions > 0 && (
                       <span
                         className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
                         style={{
