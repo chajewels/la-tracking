@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
-import { DollarSign, FileText, AlertTriangle, TrendingUp, CheckCircle2, Banknote, Users, ShieldAlert, Gem, Award, Flame, ShieldCheck, Loader2 } from 'lucide-react';
+import { FileText, AlertTriangle, CheckCircle2, Users, ShieldAlert, Gem, Award, Flame, ShieldCheck, Loader2, Clock, CalendarCheck, Calendar } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import PendingSubmissionsAlert from '@/components/dashboard/PendingSubmissionsAlert';
 import AppLayout from '@/components/layout/AppLayout';
@@ -13,7 +14,6 @@ import OperationsPanel from '@/components/dashboard/OperationsPanel';
 import LiveCollectionTracker from '@/components/dashboard/LiveCollectionTracker';
 import { LatePaymentRiskPanel, CompletionProbabilityPanel, CLVPanel } from '@/components/dashboard/AIRiskPanel';
 import SystemHealthPanel from '@/components/dashboard/SystemHealthPanel';
-import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { getDisplayCurrencyForFilter } from '@/lib/currency-converter';
 import { useAccounts, useCustomers, useDashboardSummary } from '@/hooks/use-supabase-data';
@@ -74,6 +74,28 @@ export default function Dashboard() {
     return matchingCustomerIds.size;
   }, [customers, accounts, currencyFilter]);
 
+  // Plan tier counts derived from already-loaded accounts list.
+  // Active-flow scope: 4 statuses, TEST excluded (mirrors get_aging_buckets).
+  const PLAN_TIERS = [3, 6, 8, 10, 12] as const;
+  const ACTIVE_FLOW_STATUSES = new Set([
+    'active', 'overdue', 'extension_active', 'final_settlement',
+  ]);
+  const planTierCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const t of PLAN_TIERS) counts.set(t, 0);
+    for (const a of accounts ?? []) {
+      if (!ACTIVE_FLOW_STATUSES.has(String((a as any).status))) continue;
+      if (String((a as any).invoice_number).startsWith('TEST-')) continue;
+      const m = Number((a as any).payment_plan_months);
+      if (!counts.has(m)) continue;
+      counts.set(m, (counts.get(m) ?? 0) + 1);
+    }
+    return counts;
+  }, [accounts]);
+
+  // Aging buckets scope toggle (count-only on Dashboard).
+  const [agingScope, setAgingScope] = useState<'all_collectible' | 'active_flow'>('all_collectible');
+
   // System Audit (admin only)
   const isAdmin = (roles as any[]).includes('admin');
   const [auditOpen, setAuditOpen] = useState(false);
@@ -132,7 +154,7 @@ export default function Dashboard() {
   return (
     <AppLayout>
       <div className="animate-fade-in space-y-8">
-        {/* Welcome Banner */}
+        {/* Section 1 — Welcome Banner */}
         <div className="relative overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-card via-card to-primary/5 p-6 sm:p-8">
           <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full -translate-y-1/2 translate-x-1/3 blur-3xl" />
           <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -153,12 +175,12 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* KPI Cards */}
+        {/* Section 2 — Key Metrics (counts only) */}
         <div>
           <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Key Metrics</p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-4 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             {summaryLoading ? (
-              [...Array(4)].map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)
+              [...Array(2)].map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)
             ) : (
               <>
                 <StatCard
@@ -172,34 +194,108 @@ export default function Dashboard() {
                   icon={Users}
                 />
                 <StatCard
-                  title="Total Receivables"
-                  value={formatCurrency(summary?.total_receivables ?? 0, displayCurrency)}
-                  icon={DollarSign}
-                  variant="gold"
-                />
-                <StatCard
-                  title="Active Accounts"
+                  title="Total Active Accounts"
                   value={(summary?.active_layaways ?? 0).toString()}
                   subtitle={currencyFilter === 'ALL' ? 'PHP & JPY' : `${currencyFilter} only`}
                   icon={FileText}
-                />
-                <StatCard
-                  title="Collections Today"
-                  value={formatCurrency(summary?.payments_today ?? 0, displayCurrency)}
-                  icon={TrendingUp}
-                  variant="success"
                 />
               </>
             )}
           </div>
         </div>
 
-        {/* Cash Orders — always JPY regardless of currencyFilter */}
+        {/* Section 3 — Pending Submissions Alert */}
+        {canSeePendingSubmissions && <PendingSubmissionsAlert />}
+
+        {/* Section 4 — Layaway Accounts */}
         <div>
-          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Cash Orders (JPY)</p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-1">Layaway Accounts</p>
+          <p className="text-xs text-muted-foreground mb-3">By plan tier</p>
+
+          {/* 5 fixed plan tiles */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 mb-4">
+            {PLAN_TIERS.map((tier) => {
+              const count = planTierCounts.get(tier) ?? 0;
+              const isZero = count === 0;
+              return (
+                <Link
+                  key={tier}
+                  to={`${ROUTES.ACCOUNTS}?plan_months=${tier}`}
+                  className={`group relative overflow-hidden rounded-xl border p-4 card-hover ${
+                    isZero
+                      ? 'bg-card border-border hover:border-border'
+                      : 'bg-card border-border hover:border-primary/30'
+                  }`}
+                >
+                  <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider leading-tight">
+                    {tier} months
+                  </p>
+                  <p className={`mt-1.5 text-xl sm:text-2xl font-bold font-display tabular-nums ${
+                    isZero ? 'text-muted-foreground/50' : 'text-card-foreground'
+                  }`}>
+                    {count}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {count === 1 ? 'account' : 'accounts'}
+                  </p>
+                </Link>
+              );
+            })}
+          </div>
+
+          {/* 5 status cards (count-only) */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
             {summaryLoading ? (
-              [...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+              [...Array(5)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+            ) : (
+              <>
+                <StatCard
+                  title="Overdue"
+                  value={(summary?.overdue_accounts ?? 0).toString()}
+                  icon={AlertTriangle}
+                  variant="danger"
+                  href={`${ROUTES.MONITORING}?filter=overdue`}
+                />
+                <StatCard
+                  title="Completed"
+                  value={(summary?.completed_this_month ?? 0).toString()}
+                  subtitle="This month"
+                  icon={CheckCircle2}
+                  variant="success"
+                  href={`${ROUTES.ACCOUNTS}?status=completed`}
+                />
+                <StatCard
+                  title="Forfeited"
+                  value={(summary?.forfeited_accounts ?? 0).toString()}
+                  icon={ShieldAlert}
+                  variant="danger"
+                  href={`${ROUTES.ACCOUNTS}?status=forfeited`}
+                />
+                <StatCard
+                  title="Forfeited Today"
+                  value={(summary?.forfeited_today ?? 0).toString()}
+                  icon={Flame}
+                  variant="warning"
+                  href={`${ROUTES.ACCOUNTS}?status=forfeited&period=today`}
+                />
+                <StatCard
+                  title="All Time Completed"
+                  value={(summary?.completed_all_time ?? 0).toString()}
+                  icon={Award}
+                  variant="success"
+                  href={`${ROUTES.ACCOUNTS}?status=completed`}
+                />
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Section 5 — Cash Orders (counts only — revenue cards moved to Finance) */}
+        <div>
+          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Cash Orders</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+            {summaryLoading ? (
+              [...Array(2)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
             ) : (
               <>
                 <StatCard
@@ -215,100 +311,70 @@ export default function Dashboard() {
                   icon={CheckCircle2}
                   variant="success"
                 />
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Section 6 — Aging Buckets (count variant, scope-toggleable) */}
+        {can('view_aging_buckets') && (
+          <div>
+            <AgingBuckets
+              currency={displayCurrency}
+              variant="count"
+              scope={agingScope}
+              onScopeChange={setAgingScope}
+            />
+          </div>
+        )}
+
+        {/* Section 7 — Overdue & Due Soon (count-only) */}
+        <div>
+          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Overdue & Due Soon</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+            {summaryLoading ? (
+              [...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+            ) : (
+              <>
                 <StatCard
-                  title="Revenue Today"
-                  value={formatCurrency(summary?.cash_revenue_today_jpy ?? 0, 'JPY')}
-                  icon={TrendingUp}
-                  variant="success"
+                  title="Due Today"
+                  value={(summary?.due_today_count ?? 0).toString()}
+                  icon={Clock}
+                  variant="warning"
+                  href={`${ROUTES.MONITORING}?filter=due_today`}
                 />
                 <StatCard
-                  title="Revenue This Month"
-                  value={formatCurrency(summary?.cash_revenue_month_jpy ?? 0, 'JPY')}
-                  icon={Banknote}
-                  variant="gold"
+                  title="Due in 3 Days"
+                  value={(summary?.due_3_days_count ?? 0).toString()}
+                  icon={CalendarCheck}
+                />
+                <StatCard
+                  title="Due in 7 Days"
+                  value={(summary?.due_7_days_count ?? 0).toString()}
+                  icon={Calendar}
                 />
               </>
             )}
           </div>
         </div>
 
-        {canSeePendingSubmissions && <PendingSubmissionsAlert />}
-
-        {/* Secondary KPIs */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
-          {summaryLoading ? (
-            [...Array(6)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
-          ) : (
-            <>
-              <StatCard
-                title="This Month"
-                value={formatCurrency(summary?.collections_this_month ?? 0, displayCurrency)}
-                icon={Banknote}
-                variant="success"
-              />
-              <StatCard
-                title="Overdue"
-                value={(summary?.overdue_accounts ?? 0).toString()}
-                subtitle={formatCurrency(summary?.overdue_amount ?? 0, displayCurrency)}
-                icon={AlertTriangle}
-                variant="danger"
-                href={`${ROUTES.MONITORING}?filter=overdue`}
-              />
-              <StatCard
-                title="Completed"
-                value={(summary?.completed_this_month ?? 0).toString()}
-                subtitle="This month"
-                icon={CheckCircle2}
-                variant="success"
-                href={`${ROUTES.ACCOUNTS}?status=completed`}
-              />
-              <StatCard
-                title="Forfeited"
-                value={(summary?.forfeited_accounts ?? 0).toString()}
-                subtitle="Inactive"
-                icon={ShieldAlert}
-                variant="danger"
-                href={`${ROUTES.ACCOUNTS}?status=forfeited`}
-              />
-              <StatCard
-                title="Forfeited Today"
-                value={(summary?.forfeited_today ?? 0).toString()}
-                icon={Flame}
-                variant="warning"
-                href={`${ROUTES.ACCOUNTS}?status=forfeited&period=today`}
-              />
-              <StatCard
-                title="All Time Completed"
-                value={(summary?.completed_all_time ?? 0).toString()}
-                subtitle="All time"
-                icon={Award}
-                variant="success"
-                href={`${ROUTES.ACCOUNTS}?status=completed`}
-              />
-            </>
-          )}
-        </div>
-
-        {/* Geo Breakdown */}
+        {/* Section 8 — Regional Overview (count-only on Dashboard) */}
         {needsGeo && (
         <div>
           <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Regional Overview</p>
-          <GeoBreakdown accounts={accounts || []} customers={customers || []} />
+          <GeoBreakdown accounts={accounts || []} customers={customers || []} countOnly />
         </div>
         )}
 
-        {/* Operations + Live Collection */}
-        {(can('view_operations_panel') || can('view_live_collection')) && (
-        <div>
-          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Operations & Activity</p>
+        {/* Section 9 — System Health + Overdue Alerts */}
+        {(can('view_overdue_alerts') || can('view_system_health')) && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {can('view_operations_panel') && <OperationsPanel summary={summary} displayCurrency={displayCurrency} />}
-            {can('view_live_collection') && <LiveCollectionTracker currencyFilter={currencyFilter} displayCurrency={displayCurrency} />}
+            {can('view_overdue_alerts') && <OverdueAlerts />}
+            {can('view_system_health') && <SystemHealthPanel summary={summary} />}
           </div>
-        </div>
         )}
 
-        {/* AI & Predictions */}
+        {/* Section 10 — AI & Predictions */}
         {can('view_ai_risk') && (
         <div>
           <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">AI & Predictions</p>
@@ -320,17 +386,18 @@ export default function Dashboard() {
         </div>
         )}
 
-        {/* Aging + Overdue + System Health */}
+        {/* Sections 11 + 12 — Operations Panel + Live Collection Tracker (count-only) */}
+        {(can('view_operations_panel') || can('view_live_collection')) && (
         <div>
-          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">System Overview</p>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {can('view_aging_buckets') && <AgingBuckets currency={displayCurrency} />}
-            {can('view_overdue_alerts') && <OverdueAlerts />}
-            {can('view_system_health') && <SystemHealthPanel summary={summary} />}
+          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Operations & Activity</p>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {can('view_operations_panel') && <OperationsPanel summary={summary} displayCurrency={displayCurrency} countOnly />}
+            {can('view_live_collection') && <LiveCollectionTracker currencyFilter={currencyFilter} displayCurrency={displayCurrency} countOnly />}
           </div>
         </div>
+        )}
 
-        {/* System Audit — admin only */}
+        {/* Section 13 — System Audit — admin only */}
         {isAdmin && (
           <div>
             <div className="flex items-center justify-between mb-3">

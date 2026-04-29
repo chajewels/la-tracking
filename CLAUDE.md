@@ -1309,6 +1309,58 @@ When completing a partially_paid month:
     the dead shortcut — no Phase 0 remediation
     needed; will be addressed by Phase 6
     dead-shortcut UX handler. (2026-04-29)
+  - 67. Dashboard restructure to account-counts-only.
+    AgingBuckets D2 (TEST exclusion) and D4
+    (INVARIANT 2 violation via cache columns)
+    closed. New get_aging_buckets(p_scope) RPC
+    deployed; reads from
+    schedule_with_actuals.actual_remaining
+    (canonical), excludes TEST accounts via
+    NOT LIKE 'TEST-%', accepts scope parameter
+    ('all_collectible' = 4 statuses,
+    'active_flow' = 2 statuses, default
+    'all_collectible'). Returns raw
+    (bucket, currency, account_count, amount)
+    rows; frontend converts PHP→JPY via
+    toJpy() per row.
+
+    Dashboard now displays counts only across
+    all sections. All money KPIs moved to
+    Finance:
+      - Total Receivables (already on Finance)
+      - Collections Today (already on Finance
+        Collections tab)
+      - Cash Revenue Today (NEW on Finance
+        Overview)
+      - Cash Revenue This Month (already on
+        Finance)
+      - This Month layaway (already on
+        Finance, twice)
+      - Total Overdue with amount (NEW on
+        Finance Overview)
+
+    Layaway Accounts section split by 5 fixed
+    plan tiers (3M, 6M, 8M, 10M, 12M) per
+    plan_configurations reference table.
+    Production distribution at restructure
+    time: 3M=16, 6M=661, 8M=1, 10M=0, 12M=0
+    (active_flow scope).
+
+    Regional Overview now counts-only on
+    Dashboard (countOnly prop added to
+    GeoBreakdown). Continent rollup
+    preserved.
+
+    Live Collection Tracker stripped to
+    counts on Dashboard (countOnly prop).
+    Full money version remains on Finance
+    via same component without the prop.
+
+    Cash Orders section moved above Aging
+    Buckets per UX spec. Pending Submissions
+    alert raised to operational priority
+    slot.
+    (2026-04-30)
 
 ## Known Open Bugs
 
@@ -1421,6 +1473,53 @@ When completing a partially_paid month:
     the filter into a server-side RPC instead
     of a client-side `.in()` over a large
     UUID list).
+
+### Dashboard restructure follow-ups (surfaced 2026-04-30)
+
+  Open items surfaced during the Dashboard
+  account-counts-only restructure (Known Fixed
+  Bug #67). All are INVARIANT 2 / TEST-exclusion
+  consistency items that remain after the
+  AgingBuckets fix landed.
+
+  - INVARIANT 2 violations in dashboard-summary
+    edge function (lines 237, 321, 322, 339,
+    340, 426 read total_due_amount and
+    paid_amount cache columns). To be migrated
+    to schedule_with_actuals in a follow-up
+    RPC pass. Server-side equivalent of the
+    AgingBuckets D4 bug — same cache-vs-
+    canonical drift potential. (2026-04-30)
+
+  - INVARIANT 2 violation in get_forecast_6m()
+    RPC body — reads
+    `total_due_amount - COALESCE(paid_amount, 0)`.
+    Numbers may diverge from get_aging_buckets()
+    for the same accounts. Migrate to
+    schedule_with_actuals when next touched.
+    (2026-04-30)
+
+  - INVARIANT 2 violation in Finance.tsx
+    forecast drilldown slide-over (~line 1005+).
+    Reads cache columns for the per-account
+    drill list. Migrate to schedule_with_actuals
+    when next touched. (2026-04-30)
+
+  - dashboard-summary TEST exclusion uses
+    `'TEST%'` (no hyphen) at line 2278 —
+    inconsistent with `'TEST-%'` (with hyphen)
+    used in get_forecast_6m(),
+    get_aging_buckets(), Finance.tsx drilldown,
+    and audit RPCs. Standardize to `'TEST-%'`.
+    (2026-04-30)
+
+  - useDashboardSummary payload contains
+    `reminder_total` / `reminder_success` /
+    `reminder_failed` fields that are not
+    rendered anywhere on Dashboard. Either
+    dead fields, or surface on a future
+    Reminders panel. (2026-04-30, surfaced
+    during Dashboard inventory)
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 

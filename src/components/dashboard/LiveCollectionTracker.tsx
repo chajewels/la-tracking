@@ -12,9 +12,10 @@ import { useMemo } from 'react';
 interface LiveCollectionTrackerProps {
   currencyFilter: CurrencyFilter;
   displayCurrency: Currency;
+  countOnly?: boolean;
 }
 
-export default function LiveCollectionTracker({ currencyFilter, displayCurrency }: LiveCollectionTrackerProps) {
+export default function LiveCollectionTracker({ currencyFilter, displayCurrency, countOnly = false }: LiveCollectionTrackerProps) {
   const { data: paymentsWithAccounts, isLoading } = useRecentPaymentsWithAccount();
 
   // Weekly collections - SINGLE query instead of 7 serial queries
@@ -31,21 +32,26 @@ export default function LiveCollectionTracker({ currencyFilter, displayCurrency 
         .is('voided_at', null);
 
       // Group by date
-      const dayMap = new Map<string, number>();
+      const dayAmount = new Map<string, number>();
+      const dayCount = new Map<string, number>();
       for (let i = 6; i >= 0; i--) {
         const d = new Date();
         d.setDate(d.getDate() - i);
-        dayMap.set(Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(d), 0);
+        const key = Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(d);
+        dayAmount.set(key, 0);
+        dayCount.set(key, 0);
       }
 
       for (const p of data || []) {
-        if (!dayMap.has(p.date_paid)) continue;
-        dayMap.set(p.date_paid, dayMap.get(p.date_paid)! + toJpy(Number(p.amount_paid), p.currency as Currency));
+        if (!dayAmount.has(p.date_paid)) continue;
+        dayAmount.set(p.date_paid, dayAmount.get(p.date_paid)! + toJpy(Number(p.amount_paid), p.currency as Currency));
+        dayCount.set(p.date_paid, dayCount.get(p.date_paid)! + 1);
       }
 
-      return [...dayMap.entries()].map(([dateStr, amount]) => ({
+      return [...dayAmount.entries()].map(([dateStr, amount]) => ({
         label: new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' }),
         amount,
+        count: dayCount.get(dateStr) ?? 0,
       }));
     },
   });
@@ -54,7 +60,11 @@ export default function LiveCollectionTracker({ currencyFilter, displayCurrency 
     .filter(p => currencyFilter === 'ALL' || p.currency === currencyFilter)
     .slice(0, 8);
 
-  const maxDay = useMemo(() => Math.max(...(weeklyData || []).map(d => d.amount), 1), [weeklyData]);
+  const maxDay = useMemo(() => {
+    if (!weeklyData) return 1;
+    if (countOnly) return Math.max(...weeklyData.map(d => d.count), 1);
+    return Math.max(...weeklyData.map(d => d.amount), 1);
+  }, [weeklyData, countOnly]);
 
   return (
     <div className="rounded-xl border border-border bg-card p-5 space-y-4">
@@ -66,17 +76,23 @@ export default function LiveCollectionTracker({ currencyFilter, displayCurrency 
       {/* Mini bar chart - last 7 days */}
       {weeklyData && (
         <div>
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Last 7 Days</p>
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+            Last 7 Days {countOnly ? '· Payments' : ''}
+          </p>
           <div className="flex items-end gap-1.5 h-16">
-            {weeklyData.map((d, i) => (
-              <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                <div
-                  className="w-full rounded-t bg-success/60 transition-all min-h-[2px]"
-                  style={{ height: `${Math.max((d.amount / maxDay) * 100, 3)}%` }}
-                />
-                <span className="text-[9px] text-muted-foreground">{d.label}</span>
-              </div>
-            ))}
+            {weeklyData.map((d, i) => {
+              const value = countOnly ? d.count : d.amount;
+              return (
+                <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                  <div
+                    className="w-full rounded-t bg-success/60 transition-all min-h-[2px]"
+                    style={{ height: `${Math.max((value / maxDay) * 100, 3)}%` }}
+                    title={countOnly ? `${d.count} payments` : undefined}
+                  />
+                  <span className="text-[9px] text-muted-foreground">{d.label}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -109,9 +125,11 @@ export default function LiveCollectionTracker({ currencyFilter, displayCurrency 
                       </p>
                     </div>
                   </div>
-                  <span className={`text-xs font-semibold tabular-nums ${p.voided_at ? 'text-muted-foreground line-through' : 'text-success'}`}>
-                    +{formatCurrency(Number(p.amount_paid), currency)}
-                  </span>
+                  {!countOnly && (
+                    <span className={`text-xs font-semibold tabular-nums ${p.voided_at ? 'text-muted-foreground line-through' : 'text-success'}`}>
+                      +{formatCurrency(Number(p.amount_paid), currency)}
+                    </span>
+                  )}
                 </div>
               );
             })}

@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 interface GeoBreakdownProps {
   accounts: AccountWithCustomer[];
   customers: DbCustomer[];
+  countOnly?: boolean;
 }
 
 interface CountryData {
@@ -27,7 +28,7 @@ interface ContinentData {
   countries: CountryData[];
 }
 
-export default function GeoBreakdown({ accounts, customers }: GeoBreakdownProps) {
+export default function GeoBreakdown({ accounts, customers, countOnly = false }: GeoBreakdownProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const continents = useMemo(() => {
@@ -129,24 +130,26 @@ export default function GeoBreakdown({ accounts, customers }: GeoBreakdownProps)
                   {cont.count} active {cont.count === 1 ? 'account' : 'accounts'}
                 </p>
               </div>
-              <div className="text-right shrink-0">
-                <div className="space-y-0.5">
-                  {cont.amountJPY > 0 && (
-                    <p className="text-sm font-semibold text-card-foreground tabular-nums">
-                      {formatCurrency(cont.amountJPY, 'JPY')}
-                    </p>
-                  )}
-                  {cont.amountPHP > 0 && (
-                    <p className="text-sm font-semibold text-card-foreground tabular-nums">
-                      {formatCurrency(cont.amountPHP, 'PHP')}
-                    </p>
-                  )}
-                  {cont.amountPHP === 0 && cont.amountJPY === 0 && (
-                    <p className="text-sm font-semibold text-card-foreground tabular-nums">₱ 0</p>
-                  )}
+              {!countOnly && (
+                <div className="text-right shrink-0">
+                  <div className="space-y-0.5">
+                    {cont.amountJPY > 0 && (
+                      <p className="text-sm font-semibold text-card-foreground tabular-nums">
+                        {formatCurrency(cont.amountJPY, 'JPY')}
+                      </p>
+                    )}
+                    {cont.amountPHP > 0 && (
+                      <p className="text-sm font-semibold text-card-foreground tabular-nums">
+                        {formatCurrency(cont.amountPHP, 'PHP')}
+                      </p>
+                    )}
+                    {cont.amountPHP === 0 && cont.amountJPY === 0 && (
+                      <p className="text-sm font-semibold text-card-foreground tabular-nums">₱ 0</p>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">outstanding</p>
                 </div>
-                <p className="text-[10px] text-muted-foreground">outstanding</p>
-              </div>
+              )}
               <div className="shrink-0 ml-1">
                 {isOpen
                   ? <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform" />
@@ -170,9 +173,11 @@ export default function GeoBreakdown({ accounts, customers }: GeoBreakdownProps)
                           {c.count} {c.count === 1 ? 'account' : 'accounts'}
                         </p>
                       </div>
-                      <p className="text-xs font-semibold text-card-foreground tabular-nums shrink-0 ml-3">
-                        {formatAmount(c.amountPHP, c.amountJPY)}
-                      </p>
+                      {!countOnly && (
+                        <p className="text-xs font-semibold text-card-foreground tabular-nums shrink-0 ml-3">
+                          {formatAmount(c.amountPHP, c.amountJPY)}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>

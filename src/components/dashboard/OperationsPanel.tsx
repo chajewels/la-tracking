@@ -11,9 +11,10 @@ import { todayStr, categorizeByDueDate, remainingDue, alertTypeConfig } from '@/
 interface OperationsPanelProps {
   summary: any;
   displayCurrency: Currency;
+  countOnly?: boolean;
 }
 
-export default function OperationsPanel({ summary, displayCurrency }: OperationsPanelProps) {
+export default function OperationsPanel({ summary, displayCurrency, countOnly = false }: OperationsPanelProps) {
   const { data: actionItems } = useQuery({
     queryKey: ['operations-action-items'],
     queryFn: async () => {
@@ -85,7 +86,9 @@ export default function OperationsPanel({ summary, displayCurrency }: Operations
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    INV #{acc?.invoice_number} · {formatCurrency(remaining, item.currency as Currency)} · Due {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    INV #{acc?.invoice_number}
+                    {!countOnly && <> · {formatCurrency(remaining, item.currency as Currency)}</>}
+                    {' · '}Due {new Date(item.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </p>
                 </div>
                 <div className="flex gap-1 ml-2">

@@ -491,6 +491,19 @@ export default function Finance() {
                   <StatCard title="Predicted (90d)" value={formatCurrency(summary?.predicted_90d ?? 0, displayCurrency)} subtitle={`of ${formatCurrency(summary?.predicted_90d_raw ?? 0, displayCurrency)} due`} icon={TrendingUp} />
                   <StatCard title="Collections This Month" value={formatCurrency(summary?.collections_this_month ?? 0, displayCurrency)} icon={BarChart3} variant="success" />
                   <StatCard
+                    title="Cash Revenue Today (JPY)"
+                    value={`¥ ${Math.round(summary?.cash_revenue_today_jpy ?? 0).toLocaleString()}`}
+                    icon={Banknote}
+                    variant="success"
+                  />
+                  <StatCard
+                    title="Total Overdue"
+                    value={(summary?.overdue_accounts ?? 0).toString()}
+                    subtitle={formatCurrency(summary?.overdue_amount ?? 0, displayCurrency)}
+                    icon={AlertTriangle}
+                    variant="danger"
+                  />
+                  <StatCard
                     title="New Layaway Sales"
                     value={formatCurrency(thisMonthSales.total, displayCurrency)}
                     subtitle={`${thisMonthSales.count} new accounts · vs ${thisMonthSales.lastMonthCount} last month`}
