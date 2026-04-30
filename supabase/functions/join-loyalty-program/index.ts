@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,6 +20,7 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+    const gate = createLoyaltyEmailGate(supabase);
 
     const { portal_token } = await req.json().catch(() => ({})) as {
       portal_token?: string;
@@ -104,28 +106,34 @@ Deno.serve(async (req) => {
     // 6. Welcome email — fire-and-forget
     if (customer.email) {
       try {
-        await fetch(
-          `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-            },
-            body: JSON.stringify({
-              templateName: "loyalty-welcome",
-              recipientEmail: customer.email,
-              idempotencyKey: `loyalty-welcome-${member.id}`,
-              templateData: {
-                customerName: customer.full_name || "Valued Customer",
-                enrolledDate: enrolledAt,
-                portalUrl: `https://portal.chajewelsjp.com/loyalty?token=${encodeURIComponent(portal_token)}`,
+        if (await gate("loyalty_email_welcome")) {
+          await fetch(
+            `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
               },
-            }),
-          },
-        ).catch((e) =>
-          console.warn("[join-loyalty-program] welcome email failed:", e)
-        );
+              body: JSON.stringify({
+                templateName: "loyalty-welcome",
+                recipientEmail: customer.email,
+                idempotencyKey: `loyalty-welcome-${member.id}`,
+                templateData: {
+                  customerName: customer.full_name || "Valued Customer",
+                  enrolledDate: enrolledAt,
+                  portalUrl: `https://portal.chajewelsjp.com/loyalty?token=${encodeURIComponent(portal_token)}`,
+                },
+              }),
+            },
+          ).catch((e) =>
+            console.warn("[join-loyalty-program] welcome email failed:", e)
+          );
+        } else {
+          console.log(
+            "[email-gate] loyalty-welcome skipped — toggle 'loyalty_email_welcome' is OFF",
+          );
+        }
       } catch (emailErr) {
         console.warn("[join-loyalty-program] welcome email block failed:", emailErr);
       }

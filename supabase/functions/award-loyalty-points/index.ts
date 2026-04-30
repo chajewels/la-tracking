@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,6 +47,7 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+    const gate = createLoyaltyEmailGate(supabase);
 
     const body = await req.json().catch(() => ({}));
     const { account_id, cash_order_id } = body as {
@@ -259,77 +261,95 @@ Deno.serve(async (req) => {
         };
         const portalUrl = await buildLoyaltyPortalUrl(supabase, customerId!);
 
-        await fetch(baseUrl, {
-          method: "POST",
-          headers: authHeader,
-          body: JSON.stringify({
-            templateName: "loyalty-earned",
-            recipientEmail,
-            idempotencyKey: `loyalty-earned-${sourceKind}-${account_id ?? cash_order_id}`,
-            templateData: {
-              customerName,
-              pointsEarned: points,
-              spendAmountJpy: loyaltyJpy,
-              invoiceNumber,
-              tierName: currentTier.name,
-              tierMultiplier: multiplier,
-              remainingPoints: newRemaining,
-              cumulativeSpendJpy: newCumulative,
-              portalUrl,
-            },
-          }),
-        }).catch((e) =>
-          console.warn("[award-loyalty-points] loyalty-earned email failed:", e)
-        );
-
-        if (activePromo) {
+        if (await gate("loyalty_email_earned")) {
           await fetch(baseUrl, {
             method: "POST",
             headers: authHeader,
             body: JSON.stringify({
-              templateName: "loyalty-bonus",
+              templateName: "loyalty-earned",
               recipientEmail,
-              idempotencyKey:
-                `loyalty-bonus-${activePromo.id}-${sourceKind}-${account_id ?? cash_order_id}`,
+              idempotencyKey: `loyalty-earned-${sourceKind}-${account_id ?? cash_order_id}`,
               templateData: {
                 customerName,
-                bonusPoints,
-                promoName: activePromo.name,
-                promoEndDate: fmtFriendlyDate(activePromo.end_date),
+                pointsEarned: points,
+                spendAmountJpy: loyaltyJpy,
                 invoiceNumber,
+                tierName: currentTier.name,
+                tierMultiplier: multiplier,
                 remainingPoints: newRemaining,
+                cumulativeSpendJpy: newCumulative,
                 portalUrl,
               },
             }),
           }).catch((e) =>
-            console.warn("[award-loyalty-points] loyalty-bonus email failed:", e)
+            console.warn("[award-loyalty-points] loyalty-earned email failed:", e)
+          );
+        } else {
+          console.log(
+            "[email-gate] loyalty-earned skipped — toggle 'loyalty_email_earned' is OFF",
           );
         }
 
+        if (activePromo) {
+          if (await gate("loyalty_email_bonus")) {
+            await fetch(baseUrl, {
+              method: "POST",
+              headers: authHeader,
+              body: JSON.stringify({
+                templateName: "loyalty-bonus",
+                recipientEmail,
+                idempotencyKey:
+                  `loyalty-bonus-${activePromo.id}-${sourceKind}-${account_id ?? cash_order_id}`,
+                templateData: {
+                  customerName,
+                  bonusPoints,
+                  promoName: activePromo.name,
+                  promoEndDate: fmtFriendlyDate(activePromo.end_date),
+                  invoiceNumber,
+                  remainingPoints: newRemaining,
+                  portalUrl,
+                },
+              }),
+            }).catch((e) =>
+              console.warn("[award-loyalty-points] loyalty-bonus email failed:", e)
+            );
+          } else {
+            console.log(
+              "[email-gate] loyalty-bonus skipped — toggle 'loyalty_email_bonus' is OFF",
+            );
+          }
+        }
+
         if (tierUpgraded) {
-          await fetch(baseUrl, {
-            method: "POST",
-            headers: authHeader,
-            body: JSON.stringify({
-              templateName: "loyalty-tier-upgrade",
-              recipientEmail,
-              idempotencyKey: `loyalty-tier-upgrade-${member.id}-${newTierRow!.id}`,
-              templateData: {
-                customerName,
-                oldTier: oldTierName,
-                newTier: newTierName,
-                newMultiplier: Number(newTierRow!.points_multiplier ?? 1),
-                cumulativeSpendJpy: newCumulative,
-                remainingPoints: newRemaining,
-                portalUrl,
-              },
-            }),
-          }).catch((e) =>
-            console.warn(
-              "[award-loyalty-points] loyalty-tier-upgrade email failed:",
-              e,
-            )
-          );
+          if (await gate("loyalty_email_tier_upgrade")) {
+            await fetch(baseUrl, {
+              method: "POST",
+              headers: authHeader,
+              body: JSON.stringify({
+                templateName: "loyalty-tier-upgrade",
+                recipientEmail,
+                idempotencyKey: `loyalty-tier-upgrade-${member.id}-${newTierRow!.id}`,
+                templateData: {
+                  customerName,
+                  oldTier: oldTierName,
+                  newTier: newTierName,
+                  newMultiplier: Number(newTierRow!.points_multiplier ?? 1),
+                  cumulativeSpendJpy: newCumulative,
+                  remainingPoints: newRemaining,
+                  portalUrl,
+                },
+              }),
+            }).catch((e) =>
+              console.warn(
+                "[award-loyalty-points] loyalty-tier-upgrade email failed:",
+                e,
+              )
+            );
+          } else {
+            console.log(
+              "[email-gate] loyalty-tier-upgrade skipped — toggle 'loyalty_email_tier_upgrade' is OFF",
+            );
+          }
         }
       }
     } catch (emailErr) {

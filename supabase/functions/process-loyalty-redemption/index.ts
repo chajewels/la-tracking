@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -51,6 +52,7 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+    const gate = createLoyaltyEmailGate(supabase);
 
     // Auth
     const authHeader = req.headers.get("Authorization");
@@ -328,36 +330,42 @@ Deno.serve(async (req) => {
         const customerName = customer?.full_name || "Valued Customer";
 
         if (recipientEmail) {
-          const portalUrl = await buildLoyaltyPortalUrl(supabase, member.customer_id);
-          await fetch(
-            `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-              },
-              body: JSON.stringify({
-                templateName: "loyalty-redeem",
-                recipientEmail,
-                idempotencyKey: `loyalty-redeem-${redemption.id}`,
-                templateData: {
-                  customerName,
-                  pointsRedeemed: Number(redemption.points_redeemed),
-                  valueAppliedJpy: Number(redemption.value_applied_jpy),
-                  valueAppliedPhp: redemption.value_applied_php != null
-                    ? Number(redemption.value_applied_php)
-                    : null,
-                  redemptionType: redemption.redemption_type,
-                  invoiceNumber: redemption.invoice_number,
-                  remainingPoints: newRemaining,
-                  portalUrl,
+          if (await gate("loyalty_email_redeem")) {
+            const portalUrl = await buildLoyaltyPortalUrl(supabase, member.customer_id);
+            await fetch(
+              `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
                 },
-              }),
-            },
-          ).catch((e) =>
-            console.warn("[process-loyalty-redemption] redeem email failed:", e)
-          );
+                body: JSON.stringify({
+                  templateName: "loyalty-redeem",
+                  recipientEmail,
+                  idempotencyKey: `loyalty-redeem-${redemption.id}`,
+                  templateData: {
+                    customerName,
+                    pointsRedeemed: Number(redemption.points_redeemed),
+                    valueAppliedJpy: Number(redemption.value_applied_jpy),
+                    valueAppliedPhp: redemption.value_applied_php != null
+                      ? Number(redemption.value_applied_php)
+                      : null,
+                    redemptionType: redemption.redemption_type,
+                    invoiceNumber: redemption.invoice_number,
+                    remainingPoints: newRemaining,
+                    portalUrl,
+                  },
+                }),
+              },
+            ).catch((e) =>
+              console.warn("[process-loyalty-redemption] redeem email failed:", e)
+            );
+          } else {
+            console.log(
+              "[email-gate] loyalty-redeem skipped — toggle 'loyalty_email_redeem' is OFF",
+            );
+          }
         }
 
         if (customer) {

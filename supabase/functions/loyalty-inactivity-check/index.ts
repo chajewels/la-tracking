@@ -1,4 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  createLoyaltyEmailGate,
+  type LoyaltyEmailKey,
+} from "../_shared/loyalty-email-gate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -49,12 +53,20 @@ async function buildLoyaltyPortalUrl(supabase: any, customerId: string): Promise
 }
 
 async function sendEmail(
+  gate: (key: LoyaltyEmailKey) => Promise<boolean>,
+  gateKey: LoyaltyEmailKey,
   templateName: string,
   recipientEmail: string,
   idempotencyKey: string,
   templateData: Record<string, unknown>,
 ) {
   try {
+    if (!(await gate(gateKey))) {
+      console.log(
+        `[email-gate] ${templateName} skipped — toggle '${gateKey}' is OFF`,
+      );
+      return;
+    }
     await fetch(
       `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
       {
@@ -113,6 +125,7 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
+  const gate = createLoyaltyEmailGate(supabase);
 
   const now = new Date();
 
@@ -220,6 +233,8 @@ Deno.serve(async (req) => {
         if (customer?.email) {
           const portalUrl = await buildLoyaltyPortalUrl(supabase, member.customer_id);
           await sendEmail(
+            gate,
+            "loyalty_email_expire_deduct",
             "loyalty-expire-deduct",
             customer.email,
             `loyalty-expire-${member.id}-${lastPurchase.toISOString().split("T")[0]}`,
@@ -258,6 +273,8 @@ Deno.serve(async (req) => {
           if (customer?.email) {
             const portalUrl = await buildLoyaltyPortalUrl(supabase, member.customer_id);
             await sendEmail(
+              gate,
+              "loyalty_email_pre_expire",
               "loyalty-pre-expire",
               customer.email,
               `loyalty-pre-expire-${member.id}-${
@@ -311,6 +328,8 @@ Deno.serve(async (req) => {
           if (customer?.email) {
             const portalUrl = await buildLoyaltyPortalUrl(supabase, member.customer_id);
             await sendEmail(
+              gate,
+              "loyalty_email_tier_downgrade",
               "loyalty-tier-downgrade",
               customer.email,
               `loyalty-tier-downgrade-${member.id}-${
