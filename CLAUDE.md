@@ -1571,33 +1571,6 @@ When completing a partially_paid month:
 
   LOW / MEDIUM severity — display polish + design
   decisions, not data accuracy:
-  - D2: AgingBuckets doesn't exclude TEST accounts.
-    Confirmed inflating aging by ₱30,166 across 3
-    buckets:
-    - 1–30 days: +₱2,500 from TEST-004
-    - 31–60 days: +₱14,666 from TEST-002 (₱6,166)
-      + TEST-003 (₱8,500)
-    - 61–90 days: +₱13,000 from TEST-005
-  - D4: AgingBuckets reads write-only cache columns
-    (CLAUDE.md INVARIANT 2 violation). Confirmed
-    via INV #18531 ₱1,000 drift — pre-fix the
-    cache showed a value ₱1,000 different from
-    the canonical schedule_with_actuals
-    actual_remaining for installment 1.
-
-  ATTEMPTED FIX (REVERTED 2026-04-29): Commit
-  de1e640 used a two-step query pattern with
-  `.in('account_id', accountIds)` on a 600+ UUID
-  list. Triggered the PostgREST URL-length
-  failure mode documented in this file. All
-  buckets returned ₱0 in production. Reverted
-  via git revert (commit 1b9ff78).
-
-  CORRECT FIX PATH: server-side RPC
-  (get_aging_buckets()) that runs the join in
-  SQL and returns aggregated results. Frontend
-  consumes RPC output. Defer until investigation
-  + RPC creation in next session.
   - D5: Dashboard polling 30s — not a correctness
     bug, perf footnote. Each poll runs ~22 parallel
     SELECTs in dashboard-summary. Consider raising
@@ -1624,13 +1597,6 @@ When completing a partially_paid month:
     risk-adjustment, or surface both numbers more
     explicitly.
 
-  Sweep recommendation: ship the 4 HIGH severity
-  timestamptz fixes as one PR (cleanest match to
-  D1 pattern, single deploy). D2/D3/D4 can ride
-  in a separate sweep alongside the PHT-frontend
-  audit above. D5/D7/D8/D9 are lower priority and
-  can wait for a dashboard polish session.
-
 ### AgingBuckets follow-ups (surfaced 2026-04-29)
 
   Two low/medium issues found while verifying the
@@ -1638,18 +1604,19 @@ When completing a partially_paid month:
   folded into the same get_aging_buckets() RPC
   work as D2/D4.
 
-  - AgingBuckets currency-prop ignored:
-    src/components/dashboard/AgingBuckets.tsx
-    accepts a `currency` prop and uses it only
-    for formatCurrency() display. The query
-    itself does not filter by currency, so PHP
-    and JPY rows are bucketed together and the
-    formatted total mislabels them. Surfaced
-    during D2/D4 investigation. Fix path: add
-    a `currency` filter on the schedule_with_actuals
-    side of the get_aging_buckets() RPC and
-    pass it from the prop. Defer until the
-    RPC lands.
+  - AgingBuckets currency-prop partially resolved (2026-04-30):
+    The component now consumes the currency prop for
+    variant='amount' (toJpy conversion when displayCurrency=JPY;
+    PHP-only filter when displayCurrency=PHP). This closed the
+    user-visible "ignored" complaint.
+
+    Optional follow-up: get_aging_buckets() RPC still does not
+    take p_currency parameter. Adding it would push the filter
+    to the SQL layer instead of the JS layer. Currently no
+    behavioral difference because the JS-layer filter is correct.
+    Defer to future session.
+
+    (originally surfaced 2026-04-29, partially resolved 2026-04-30)
 
   - TEST-005 in Overdue & Due Soon widget:
     Pre-existing TEST exclusion gap on the
@@ -1691,6 +1658,22 @@ When completing a partially_paid month:
     Reminders panel. (2026-04-30, surfaced
     during Dashboard inventory)
 
+  - delete-account edge function uses TypeScript not plpgsql,
+    so the FK cleanup operations are NOT atomic. If the function
+    crashes mid-operation, partial deletion can leave referential
+    inconsistency. Current implementation works in practice (zero
+    known incidents) but plpgsql conversion would harden against
+    crash scenarios. No customer-facing impact today; defensive
+    work only. (Logged 2026-04-30, severity Low.)
+
+  - EditCustomerDialog DB-side defense-in-depth: customer_code
+    field is locked at the frontend level (per Known Fixed Bug #54).
+    A DB-side trigger that enforces the same lock would provide
+    belt-and-suspenders protection against direct SQL bypassing
+    the frontend (e.g., admin SQL editor, bulk-import edge
+    function bug). No incident driving this; defensive only.
+    (Logged 2026-04-30, severity Low.)
+
 ### Currency toggle behavior (surfaced 2026-04-30)
 
   Currency toggle Dashboard behavior is mixed.
@@ -1716,6 +1699,57 @@ When completing a partially_paid month:
   (counts always filter by currency).
 
   (2026-04-30)
+
+### Priority/severity guide (as of 2026-04-30)
+
+  Honest triage for the open bugs above + items in PENDING ITEMS.
+  Updated when severity changes or items resolve.
+
+  P0 — Customer-impacting / data integrity at risk
+    None as of 2026-04-30.
+
+  P1 — Operational gaps that affect business decisions (Medium severity)
+    - Currency toggle final decision (Path A vs B). Mixed state
+      is operationally workable but counterintuitive to new staff.
+      Decision deferred today as Option 3 (defer) per session log.
+    - Loyalty staff visibility — staff cannot see customer loyalty
+      tier when handling accounts. Resolved per bug #63 for the
+      page-access dimension; tier visibility on layaway accounts
+      may still need surfacing.
+    - Admin audit log UI (P6 in PENDING ITEMS legacy numbering) —
+      DB triggers exist on audit_logs; no admin query UI to read
+      "who changed what when." Compliance risk if dispute arises.
+
+  P2 — Hygiene / consistency (Low severity)
+    - 'TEST%' no-hyphen vs 'TEST-%' inconsistency at CLAUDE.md
+      PERIODIC HEALTH QUERIES line 2278. Edge function code uses
+      'TEST-%' correctly; only the CLAUDE.md doc query is
+      inconsistent. One-character fix.
+    - reminder_total/success/failed orphan fields in
+      dashboard-summary payload — rendered nowhere on Dashboard.
+      Either dead code (clean up) or surface them.
+
+  P3 — Defensive hardening (Low severity, no known bugs)
+    - Session timeout 2hr (P5 in legacy numbering) — security
+      hygiene.
+    - Convert delete-account to plpgsql for atomicity hardening
+      — defensive against crash mid-operation.
+    - EditCustomerDialog DB-side trigger backup — defensive
+      against direct SQL bypass.
+
+  P4 — Larger features (Medium severity, real effort, not blocking)
+    - PWA Phase A install routing — design complete in another
+      chat (e0eb0f1c), 3 documented gaps in mobile portal install
+      flow. Largest single workstream.
+    - Invoice generator — Google Sheets + Drive, JPY only.
+      Service account ready, code not written.
+    - Firebase signing steps 13-17 — contract signing flow
+      partially built.
+
+  No P0 work today. Triage triggered when an item escalates
+  (e.g., customer report, audit flag, regulatory deadline).
+
+  (last reviewed 2026-04-30)
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
@@ -2326,7 +2360,7 @@ When completing a partially_paid month:
   Check 20: carried amount on paid row — no unconsumed carry on paid rows
   Check 21: double carry — no account has carry on multiple rows
 
-## SYSTEM STATUS (as of 2026-04-23)
+## SYSTEM STATUS (as of 2026-04-30)
 
   Cash Basis Plan Phase 1 (DB): COMPLETE ✅
     - cash_orders table created with 3 indexes
@@ -2810,6 +2844,42 @@ When completing a partially_paid month:
         written on every create / update /
         delete via the admin hooks.
 
+  ### 2026-04-30 — Session shipped
+
+  Six commits to main, zero rollbacks. Audit pool 683 audited /
+  684 in scope / 1 excluded (INV #18857) / 0 failing.
+
+  - e28cf60 — Dashboard restructure to account-counts-only +
+    Finance gap-fill cards (Cash Revenue Today + Total Overdue).
+    get_aging_buckets(p_scope) RPC deployed. AgingBuckets
+    variant=count + scope toggle. Bug #67 logged.
+
+  - 76c9d3a — audit_skipped state for newly-created accounts.
+    audit_account() and audit_all_accounts() RPCs updated to
+    skip accounts where total_paid=0 AND no allocations.
+    Frontend AccountDetail Check Health modal handles new
+    response shape. Bug #68 logged.
+
+  - c26ec78 — partially_paid semantics doc fix + audit_account
+    Check 12 services double-count fix + currency toggle status
+    logged. CLAUDE.md PAYMENT ALLOCATION RULES section updated
+    to reflect actual runtime (full-owed semantic, not
+    shortfall). Bugs #71 and #72 logged. reconcile_failing_accounts()
+    Cartesian product bug fixed in same session via SQL Editor
+    (bug #69). TEST-004 audit drift healed via manual SQL
+    UPDATE (bug #70).
+
+  - fff86ce — INVARIANT 2 migration to schedule_with_actuals
+    across 3 surfaces:
+    - get_forecast_6m() RPC migrated
+    - dashboard-summary edge function 5 cache-read sites migrated
+    - get_forecast_drilldown(p_month) RPC created (server-side
+      join pattern matching get_aging_buckets() — avoids URL-length
+      risk)
+    - Finance.tsx forecast drilldown migrated to use new RPC
+    Bug #73 logged. INV #18531 ₱1,000 cumulative cache
+    overstatement eliminated (cache 65,186 → canonical 64,186).
+
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
   PIN hash storage: customers.portal_pin_hash (64-char SHA-256 hex digest)
@@ -2862,7 +2932,7 @@ When completing a partially_paid month:
        Blocks any account creation or edit below the minimum.
     3. Both PHP and JPY enforced — hard block, no override
 
-## PENDING ITEMS (as of 2026-04-26)
+## PENDING ITEMS (as of 2026-04-30)
 
 ### LOYALTY PORTAL — Cha Jewels Circle Port
 Multi-phase port of Circle UI into
@@ -3011,6 +3081,26 @@ loyalty portal. In progress.
     tables: admin/finance full CRUD,
     staff read, authenticated customer
     read where is_active = true.
+
+### TODAY'S DATA FIXES (2026-04-30)
+
+  Manual SQL UPDATEs applied via SQL Editor (no edge function
+  involvement, no commit traces in repo):
+
+  - TEST-004 audit drift healing
+    Layaway schedule row 3 status flipped from 'overdue' to
+    'partially_paid'. total_due_amount preserved at 4,000
+    (full-owed = base 3,500 + penalty 500).
+    layaway_accounts.remaining_balance updated to canonical
+    2,500. All 12 audit checks now pass.
+    Investigation took 5+ wrong attempts before reading
+    penalty_fees revealed the 500 PHP week-1 cycle 1 unpaid
+    penalty as the canonical truth driver. Logged as bug #70.
+
+  - INV #18852 plan flip
+    payment_plan_months changed 6 → 8 via single targeted SQL
+    UPDATE. Schedule rebuild handled separately by Cynthia.
+    Plan distribution: 3M=16, 6M=657, 8M=2, 10M=0, 12M=0 = 675.
 
 ### OPERATIONAL ENHANCEMENTS
   P6: Admin audit log for manual DB changes
