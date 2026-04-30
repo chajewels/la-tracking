@@ -119,8 +119,8 @@ export interface UpdateSettingInput<K extends LoyaltySettingKey> {
 
 export function useUpdateLoyaltySetting() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async <K extends LoyaltySettingKey>(input: UpdateSettingInput<K>) => {
+  return useMutation<void, Error, UpdateSettingInput<LoyaltySettingKey>>({
+    mutationFn: async (input) => {
       const { key, newValue, oldValue } = input;
 
       const { error: upsertErr } = await (supabase as any)

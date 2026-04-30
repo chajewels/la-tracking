@@ -212,7 +212,7 @@ export function useDeleteLoyaltyBanner() {
           entity_id: oldValues.id,
           action: 'banner_deleted',
           performed_by_user_id: user.id,
-          old_value_json: oldValues,
+          old_value_json: oldValues as any,
         });
       }
     },
