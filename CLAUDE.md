@@ -1361,6 +1361,93 @@ When completing a partially_paid month:
     alert raised to operational priority
     slot.
     (2026-04-30)
+  - 68. Audit RPCs (audit_account, audit_all_accounts)
+    updated to skip accounts with no allocations
+    yet. Rule:
+      total_paid = 0 AND NOT EXISTS
+      (non-voided allocations)
+      → audit_skipped: true, all_pass: null
+
+    Rationale: newly created accounts have
+    schedule rows but no payment_allocations;
+    canonical formula returns valid numbers
+    but schedule cache cannot be meaningfully
+    validated against them yet. Audit returns
+    "not applicable" state instead of failing
+    the cache-vs-canonical checks.
+
+    Excluded accounts:
+      - INV #18857 (zero payments, zero
+        allocations)
+      - Any future account in the same state
+
+    NOT excluded:
+      - Accounts with payments but no
+        allocations (77 historical accounts
+        confirmed passing audit — left in
+        the audit pool)
+      - All other accounts
+
+    Frontend: Check Health button in
+    src/pages/AccountDetail.tsx renders an
+    "Audit not applicable" info-color badge
+    when the response carries
+    `audit_skipped: true`, displays
+    `skip_reason` as the message body, and
+    hides the per-check pass/fail list.
+    Existing all_pass green/red branch is
+    preserved for the unskipped path.
+
+    (2026-04-30)
+  - 69. reconcile_failing_accounts() RPC
+    Cartesian product bug fixed. Original RPC
+    used double-LEFT-JOIN of payments and
+    penalty_fees, causing
+    `penalty_amount × payment_count` inflation
+    when account had multi-payment + active
+    penalty profile. Replaced with two
+    independent subqueries.
+
+    Production exposure verified zero before
+    fix:
+      - Repo investigation: zero callers
+        (no frontend, no edge functions, no
+        cron schedules in repo migrations)
+      - cron.job table: zero references to
+        the RPC
+      - Diagnostic query: zero accounts with
+        current drift matching bug profile
+
+    Bug confirmed on TEST-004 only during this
+    session (manual SQL Editor invocation):
+    inflated remaining_balance from 2,500 to
+    3,000. Already healed.
+
+    Fix snapshots both old and new values
+    correctly (original used RETURNING which
+    returned post-update values for both
+    fields).
+
+    (2026-04-30)
+  - 70. TEST-004 audit drift fixed. Symptom
+    was failing "sum of pending months matches
+    remaining balance" check. Root cause was
+    layaway_schedule row 3 cache columns out
+    of sync with canonical:
+      - status was 'overdue' but should be
+        'partially_paid'
+      - total_due_amount was 4,000 but should
+        be 4,000 (full owed including 500
+        penalty), kept on partial_paid rows
+        per audit RPC logic
+    Manual UPDATE corrections applied via
+    SQL Editor:
+      - layaway_accounts.remaining_balance
+        set to canonical 2,500
+      - layaway_schedule row 3 set to status
+        partially_paid, total_due_amount 4,000
+    All 12 audit checks now pass.
+    (2026-04-30)
 
 ## Known Open Bugs
 
@@ -1520,6 +1607,39 @@ When completing a partially_paid month:
     dead fields, or surface on a future
     Reminders panel. (2026-04-30, surfaced
     during Dashboard inventory)
+
+### Audit RPC follow-ups (surfaced 2026-04-30)
+
+  Open items surfaced while fixing the
+  TEST-004 audit drift and the
+  reconcile_failing_accounts() Cartesian bug
+  (Known Fixed Bugs #68, #69, #70).
+
+  - audit_account() Check 12 ("sum of pending
+    months") adds services to the sum in
+    addition to total_due_amount. Per
+    CLAUDE.md SERVICES RULE, services are
+    already included in total_amount and
+    should NOT be added separately. Possible
+    double-counting on accounts with non-zero
+    account_services. Surfaced 2026-04-30
+    during Workstream 4 investigation.
+    Confirm on a test account with services
+    before patching the RPC. (2026-04-30)
+
+  - CLAUDE.md PAYMENT ALLOCATION RULES
+    documents partially_paid rows as
+    "shortfall remaining (= base + penalty
+    - paid, after underpayment recorded)"
+    but audit_account() Check 12 expects
+    total_due_amount = full owed amount
+    (base + penalty) for partially_paid
+    rows. Documentation and running code
+    diverge. Resolve by either updating the
+    doc to match RPC behavior or updating
+    the RPC to match the doc. Surfaced
+    2026-04-30 during TEST-004 fix.
+    (2026-04-30)
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 

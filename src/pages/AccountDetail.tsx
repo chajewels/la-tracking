@@ -2080,7 +2080,16 @@ export default function AccountDetail() {
 
               {!healthCheckLoading && healthCheckResult && (
                 <div className="space-y-3">
-                  {(() => {
+                  {healthCheckResult.audit_skipped ? (
+                    <div className="rounded-md p-3 text-sm font-medium bg-info/10 text-info border border-info/20">
+                      ℹ️ Audit not applicable
+                      {healthCheckResult.skip_reason && (
+                        <p className="mt-1.5 text-xs font-normal text-info/90">
+                          {healthCheckResult.skip_reason}
+                        </p>
+                      )}
+                    </div>
+                  ) : (() => {
                     const checks = healthCheckResult.checks || [];
                     const allPass = checks.every((c: any) => c.pass);
                     const failCount = checks.filter((c: any) => !c.pass).length;
