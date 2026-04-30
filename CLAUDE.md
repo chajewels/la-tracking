@@ -2616,6 +2616,51 @@ When completing a partially_paid month:
       - 11 system_settings keys seeded for
         Phase 2 (8 email toggles, 3 sheet sync
         config keys).
+    Phase 2.5 — Email gate plumbing (LIVE 2026-04-29)
+      - New _shared/loyalty-email-gate.ts
+        helper exporting createLoyaltyEmailGate
+        factory + LOYALTY_EMAIL_KEYS tuple +
+        LoyaltyEmailKey type.
+      - 8 send sites gated across 4 edge
+        functions:
+          award-loyalty-points (3):
+            loyalty-earned, loyalty-bonus,
+            loyalty-tier-upgrade
+          process-loyalty-redemption (1):
+            loyalty-redeem
+          join-loyalty-program (1):
+            loyalty-welcome
+          loyalty-inactivity-check (3):
+            loyalty-pre-expire,
+            loyalty-expire-deduct,
+            loyalty-tier-downgrade
+      - sendEmail helper in
+        loyalty-inactivity-check now takes
+        gate + gateKey as its first two
+        params (Option A — explicit). Skip
+        log lives inside the helper so all
+        3 call sites are gated through one
+        code change.
+      - Per-invocation Map cache: each
+        handler creates its own gate via
+        createLoyaltyEmailGate(supabase) so
+        the same key is never queried twice
+        in a single invocation.
+      - Fail-safe to true: missing key, RLS
+        denial, network error, JSON parse
+        failure all return true so the gate
+        never silently suppresses a send
+        because of an infrastructure problem.
+      - Standardized skip log format:
+          [email-gate] {template} skipped
+          — toggle '{key}' is OFF
+        Greppable in Supabase function logs.
+      - All 4 functions are in the
+        auto-deploy workflow so the gates
+        ship on push to main. Toggling a
+        key off in /loyalty/admin?tab=settings
+        now actually suppresses the
+        corresponding sends.
 
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
@@ -2796,6 +2841,14 @@ loyalty portal. In progress.
     UUID. Documented in
     src/hooks/loyalty-admin/useLoyaltySettings.ts
     as LOYALTY_SETTINGS_AUDIT_ID.
+  - Phase 2.5 email gate plumbing — wired
+    8 system_settings toggles to actual
+    send sites across 4 edge functions.
+    Email toggles in admin portal Settings
+    tab now functional (no longer UI-only).
+    Defaults still true so production
+    behavior is unchanged until an admin
+    flips a toggle off.
 
 ### OPERATIONAL ENHANCEMENTS
   P6: Admin audit log for manual DB changes
@@ -2807,24 +2860,8 @@ loyalty portal. In progress.
 ### LOYALTY ADMIN PORTAL — phased build
   ✅ Phase 1 — Foundation (LIVE 2026-04-29)
   ✅ Phase 2 — Configuration (LIVE 2026-04-29)
-  ⏳ Phase 2.5 — Email gate plumbing
-     Wire the 8 loyalty_email_* toggle keys
-     to the actual gate at each send site:
-       - award-loyalty-points (3 sends:
-         loyalty-earned, loyalty-bonus,
-         loyalty-tier-upgrade)
-       - process-loyalty-redemption (1 send:
-         loyalty-redeem)
-       - loyalty-inactivity-check (2 sends:
-         loyalty-pre-expire,
-         loyalty-expire-deduct)
-       - join-loyalty-program (1 send:
-         loyalty-welcome)
-       - review-payment-submission (1 indirect
-         send via award-loyalty-points fanout)
-     Each call site reads system_settings
-     before fetching to send-transactional-email
-     and skips on false. No new tables.
+  ✅ Phase 2.5 — Email gate plumbing
+     (LIVE 2026-04-29)
   ⏳ Phase 3 — Content Management
      - Promotions tab (loyalty-only promos)
      - Rewards Catalog tab
