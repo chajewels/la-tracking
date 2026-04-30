@@ -223,13 +223,18 @@ When checking whether a user can perform an action:
     - Call accept-underpayment to perform carry (it is audit-log only)
 
   total_due_amount semantics by status:
-    pending / overdue:    base_installment_amount + penalty_amount (full amount owed)
-    partially_paid:       shortfall remaining (= base - paid, after underpayment recorded)
+    pending / overdue:    base_installment_amount + penalty_amount + carried_amount (full amount owed)
+    partially_paid:       full amount owed (base + penalty + carried) — paid_amount tracked separately
     paid:                 amount actually paid (= paid_amount)
 
   When processing an existing partially_paid row in edge functions:
-    If paid_amount > total_due_amount → "new semantics": due = total_due_amount (IS the remaining)
-    If paid_amount <= total_due_amount → "old semantics": due = total_due_amount - paid_amount
+    total_due_amount holds the FULL amount owed (base + penalty + carried),
+    independent of paid_amount. Remaining for the row is computed as
+    total_due_amount - paid_amount at read time.
+
+    audit_account() Check 12 enforces this semantic by subtracting
+    paid_amount from total_due_amount for partially_paid rows when
+    summing pending months.
 
 ## Git Workflow
 
@@ -1448,6 +1453,56 @@ When completing a partially_paid month:
         partially_paid, total_due_amount 4,000
     All 12 audit checks now pass.
     (2026-04-30)
+  - 71. audit_account() Check 12 services
+    double-count fixed. The check was adding
+    v_services to sum_pending when services
+    are already included in total_amount per
+    SERVICES RULE. Effect: any account with
+    non-zero account_services would have
+    falsely failed Check 12.
+
+    Production exposure verified zero before
+    fix:
+      - Pre-flight query returned no rows —
+        zero accounts with non-zero services
+        in active/overdue/extension/settlement
+        status as of 2026-04-30.
+
+    Fix: removed `+ v_services` term from
+    Check 12 sum_pending calculation in
+    audit_account() RPC body. No regression
+    possible — term was zero on all accounts
+    without services. Future accounts with
+    services now audit correctly.
+
+    Verified: TEST-004 still passes all 12
+    checks. INV #18857 still excluded via
+    audit_skipped. System audit count stable
+    at 683 audited / 684 in scope / 1 excluded
+    / 0 failing.
+
+    (2026-04-30)
+  - 72. CLAUDE.md PAYMENT ALLOCATION RULES
+    doc-vs-code divergence on partially_paid
+    total_due_amount semantics resolved.
+
+    Documentation incorrectly stated
+    total_due_amount = "shortfall remaining
+    (= base + penalty - paid)" for
+    partially_paid rows. Investigation
+    2026-04-30 confirmed NO code path
+    implements this semantic — all writers
+    preserve full-owed value (base + penalty
+    + carried). audit_account() Check 12
+    expects full-owed and subtracts
+    paid_amount separately at audit time.
+
+    Resolution: documentation updated to
+    match runtime. Zero code changes. The
+    runtime behavior was correct; only
+    documentation was wrong.
+
+    (2026-04-30)
 
 ## Known Open Bugs
 
@@ -1608,38 +1663,31 @@ When completing a partially_paid month:
     Reminders panel. (2026-04-30, surfaced
     during Dashboard inventory)
 
-### Audit RPC follow-ups (surfaced 2026-04-30)
+### Currency toggle behavior (surfaced 2026-04-30)
 
-  Open items surfaced while fixing the
-  TEST-004 audit drift and the
-  reconcile_failing_accounts() Cartesian bug
-  (Known Fixed Bugs #68, #69, #70).
+  Currency toggle Dashboard behavior is mixed.
+  Investigation 2026-04-30 mapped per-widget
+  currency awareness:
 
-  - audit_account() Check 12 ("sum of pending
-    months") adds services to the sum in
-    addition to total_due_amount. Per
-    CLAUDE.md SERVICES RULE, services are
-    already included in total_amount and
-    should NOT be added separately. Possible
-    double-counting on accounts with non-zero
-    account_services. Surfaced 2026-04-30
-    during Workstream 4 investigation.
-    Confirm on a test account with services
-    before patching the RPC. (2026-04-30)
+  Currency-aware (filter by toggle): Total
+    Customers, Total Active Accounts, Overdue
+    (status), Forfeited, Forfeited Today,
+    today/month payments, Live Collection
+    Tracker recent feed, Operations Panel
+    pills.
 
-  - CLAUDE.md PAYMENT ALLOCATION RULES
-    documents partially_paid rows as
-    "shortfall remaining (= base + penalty
-    - paid, after underpayment recorded)"
-    but audit_account() Check 12 expects
-    total_due_amount = full owed amount
-    (base + penalty) for partially_paid
-    rows. Documentation and running code
-    diverge. Resolve by either updating the
-    doc to match RPC behavior or updating
-    the RPC to match the doc. Surfaced
-    2026-04-30 during TEST-004 fix.
-    (2026-04-30)
+  Currency-agnostic (always global): Plan
+    tiles, Completed (this month), All Time
+    Completed, Cash Orders (always JPY),
+    AgingBuckets, Regional Overview, AI &
+    Predictions panels.
+
+  No codified principle; split is organic.
+  Status quo held pending UX decision on
+  Path A (counts always global) vs Path B
+  (counts always filter by currency).
+
+  (2026-04-30)
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
