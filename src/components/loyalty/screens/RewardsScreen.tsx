@@ -1,9 +1,29 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, Check, ArrowRight, X } from 'lucide-react';
 import { useLoyaltyData } from '@/components/loyalty/loyaltyData';
-import { REWARDS, type FallbackReward } from '@/components/loyalty/staticFallback';
+import { type FallbackReward } from '@/components/loyalty/staticFallback';
+import { useLoyaltyRewardsCatalog, type LoyaltyRewardRow } from '@/hooks/loyalty-admin/useLoyaltyRewards';
+import { Skeleton } from '@/components/ui/skeleton';
 import VipRewardsVault from '@/components/loyalty/rewards/VipRewardsVault';
+
+/**
+ * Adapter: DB row → existing FallbackReward shape so the existing
+ * UI logic (canRedeem, badges, redeem flow) keeps working unchanged.
+ */
+function rowToReward(r: LoyaltyRewardRow): FallbackReward {
+  return {
+    id: r.id,
+    name: r.name,
+    description: r.description ?? '',
+    pointsCost: r.points_cost,
+    category: r.category,
+    tier: r.tier_visibility,
+    isLimited: r.is_limited,
+    isVipOnly: r.is_vip_only,
+    isVault: r.is_vault,
+  };
+}
 
 const categories = [
   'All',
@@ -15,9 +35,19 @@ const categories = [
 
 export default function RewardsScreen() {
   const { member, tiers } = useLoyaltyData();
+  const { data: rewardRows, isLoading } = useLoyaltyRewardsCatalog();
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedReward, setSelectedReward] = useState<FallbackReward | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
+
+  const allRewards = useMemo<FallbackReward[]>(
+    () => (rewardRows ?? []).map(rowToReward),
+    [rewardRows],
+  );
+  const vaultRewards = useMemo(
+    () => allRewards.filter((r) => r.isVault),
+    [allRewards],
+  );
 
   if (!member || !tiers || tiers.length === 0) return null;
 
@@ -29,9 +59,11 @@ export default function RewardsScreen() {
     return currentTierIndex >= rewardTierIndex;
   };
 
-  const filtered = REWARDS.filter((r) => !r.isVault).filter((r) =>
-    selectedCategory === 'All' ? true : r.category === selectedCategory,
-  );
+  const filtered = allRewards
+    .filter((r) => !r.isVault)
+    .filter((r) =>
+      selectedCategory === 'All' ? true : r.category === selectedCategory,
+    );
 
   // TODO: wire to RedemptionForm submit for actual redemption processing
   const handleRedeem = () => {
@@ -87,6 +119,18 @@ export default function RewardsScreen() {
 
         {/* Rewards Grid */}
         <div className="space-y-3">
+          {isLoading && filtered.length === 0 && (
+            <>
+              {[...Array(4)].map((_, i) => (
+                <Skeleton key={i} className="h-24 rounded-xl" />
+              ))}
+            </>
+          )}
+          {!isLoading && filtered.length === 0 && (
+            <p className="text-center text-[12px] text-muted-foreground/70 font-body italic py-6">
+              No rewards in this category yet.
+            </p>
+          )}
           {filtered.map((reward) => {
             const unlocked = canRedeem(reward);
             const affordable = member.available_points >= reward.pointsCost;
@@ -162,7 +206,10 @@ export default function RewardsScreen() {
         </div>
 
         {/* VIP Rewards Vault */}
-        <VipRewardsVault onSelectReward={(r) => setSelectedReward(r)} />
+        <VipRewardsVault
+          vaultRewards={vaultRewards}
+          onSelectReward={(r) => setSelectedReward(r)}
+        />
 
         <p className="text-center text-[11px] text-muted-foreground/50 font-body italic pb-2">
           Your points, your perks, your tier

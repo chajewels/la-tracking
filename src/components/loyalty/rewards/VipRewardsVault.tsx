@@ -1,15 +1,16 @@
 import { motion } from 'framer-motion';
 import { Lock, ArrowRight, Sparkles } from 'lucide-react';
 import { useLoyaltyData } from '@/components/loyalty/loyaltyData';
-import { REWARDS, type FallbackReward } from '@/components/loyalty/staticFallback';
+import { type FallbackReward } from '@/components/loyalty/staticFallback';
 
 type VaultAccess = 'locked' | 'limited' | 'full' | 'premium';
 
 interface VipRewardsVaultProps {
+  vaultRewards: FallbackReward[];
   onSelectReward: (reward: FallbackReward) => void;
 }
 
-const VipRewardsVault = ({ onSelectReward }: VipRewardsVaultProps) => {
+const VipRewardsVault = ({ vaultRewards, onSelectReward }: VipRewardsVaultProps) => {
   const { member, tiers } = useLoyaltyData();
   if (!member || !tiers || tiers.length === 0) return null;
 
@@ -29,7 +30,11 @@ const VipRewardsVault = ({ onSelectReward }: VipRewardsVaultProps) => {
   };
 
   const vaultAccess = getVaultAccess();
-  const vaultRewards = REWARDS.filter((r) => r.isVault);
+
+  // Empty vault: render nothing rather than an empty section
+  if (vaultRewards.length === 0 && vaultAccess !== 'locked') {
+    return null;
+  }
 
   const accessLabel = {
     locked: 'Locked',
@@ -57,6 +62,9 @@ const VipRewardsVault = ({ onSelectReward }: VipRewardsVaultProps) => {
           <div className="opacity-30 space-y-3">
             {vaultRewards.slice(0, 3).map((r) => (
               <div key={r.id} className="bg-background/40 rounded-xl p-3 h-16" />
+            ))}
+            {vaultRewards.length === 0 && [...Array(3)].map((_, i) => (
+              <div key={`ph-${i}`} className="bg-background/40 rounded-xl p-3 h-16" />
             ))}
           </div>
         </div>

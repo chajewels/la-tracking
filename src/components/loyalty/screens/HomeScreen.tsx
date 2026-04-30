@@ -30,7 +30,7 @@ export default function HomeScreen({ canRedeem, onRedeemClick, setTab }: HomeScr
       <PointsSnapshot />
       <QuickActions setTab={setTab} />
       <BirthdayRewardCard setTab={setTab} />
-      <FeaturedBanner />
+      <FeaturedBanner setTab={setTab} />
       <PromoBanners setTab={setTab} />
 
       <Button
