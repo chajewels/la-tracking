@@ -213,7 +213,7 @@ export function useDeleteLoyaltyPromo() {
           entity_id: oldValues.id,
           action: 'promo_deleted',
           performed_by_user_id: user.id,
-          old_value_json: oldValues,
+          old_value_json: oldValues as any,
         });
       }
     },

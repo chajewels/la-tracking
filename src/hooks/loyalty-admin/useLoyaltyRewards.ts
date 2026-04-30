@@ -195,7 +195,7 @@ export function useDeleteLoyaltyReward() {
           entity_id: oldValues.id,
           action: 'reward_deleted',
           performed_by_user_id: user.id,
-          old_value_json: oldValues,
+          old_value_json: oldValues as any,
         });
       }
     },
