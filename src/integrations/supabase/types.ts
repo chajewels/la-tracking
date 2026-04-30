@@ -1131,6 +1131,63 @@ export type Database = {
           },
         ]
       }
+      loyalty_banners: {
+        Row: {
+          applicable_tiers: string[] | null
+          banner_type: string
+          created_at: string
+          created_by_user_id: string | null
+          description: string | null
+          display_priority: number
+          emoji: string | null
+          end_at: string | null
+          id: string
+          image_url: string | null
+          is_active: boolean
+          link_target: string | null
+          start_at: string | null
+          subtitle: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          applicable_tiers?: string[] | null
+          banner_type: string
+          created_at?: string
+          created_by_user_id?: string | null
+          description?: string | null
+          display_priority?: number
+          emoji?: string | null
+          end_at?: string | null
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          link_target?: string | null
+          start_at?: string | null
+          subtitle?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          applicable_tiers?: string[] | null
+          banner_type?: string
+          created_at?: string
+          created_by_user_id?: string | null
+          description?: string | null
+          display_priority?: number
+          emoji?: string | null
+          end_at?: string | null
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          link_target?: string | null
+          start_at?: string | null
+          subtitle?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       loyalty_beta_members: {
         Row: {
           added_by_user_id: string | null
@@ -1247,8 +1304,10 @@ export type Database = {
           created_at: string
           created_by_user_id: string | null
           description: string | null
+          display_priority: number
           end_date: string
           id: string
+          image_url: string | null
           is_active: boolean
           max_per_customer: number | null
           name: string
@@ -1262,8 +1321,10 @@ export type Database = {
           created_at?: string
           created_by_user_id?: string | null
           description?: string | null
+          display_priority?: number
           end_date: string
           id?: string
+          image_url?: string | null
           is_active?: boolean
           max_per_customer?: number | null
           name: string
@@ -1277,8 +1338,10 @@ export type Database = {
           created_at?: string
           created_by_user_id?: string | null
           description?: string | null
+          display_priority?: number
           end_date?: string
           id?: string
+          image_url?: string | null
           is_active?: boolean
           max_per_customer?: number | null
           name?: string
@@ -1384,6 +1447,66 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      loyalty_rewards: {
+        Row: {
+          category: string
+          created_at: string
+          created_by_user_id: string | null
+          current_stock: number | null
+          description: string | null
+          display_priority: number
+          id: string
+          image_url: string | null
+          is_active: boolean
+          is_limited: boolean
+          is_vault: boolean
+          is_vip_only: boolean
+          name: string
+          points_cost: number
+          stock_limit: number | null
+          tier_visibility: string
+          updated_at: string
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          created_by_user_id?: string | null
+          current_stock?: number | null
+          description?: string | null
+          display_priority?: number
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          is_limited?: boolean
+          is_vault?: boolean
+          is_vip_only?: boolean
+          name: string
+          points_cost?: number
+          stock_limit?: number | null
+          tier_visibility?: string
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          created_by_user_id?: string | null
+          current_stock?: number | null
+          description?: string | null
+          display_priority?: number
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          is_limited?: boolean
+          is_vault?: boolean
+          is_vip_only?: boolean
+          name?: string
+          points_cost?: number
+          stock_limit?: number | null
+          tier_visibility?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       loyalty_tiers: {
         Row: {
@@ -2953,6 +3076,15 @@ export type Database = {
         }[]
       }
       fc_portfolio_value: { Args: never; Returns: number }
+      get_aging_buckets: {
+        Args: { p_scope?: string }
+        Returns: {
+          account_count: number
+          amount: number
+          bucket: string
+          currency: string
+        }[]
+      }
       get_collection_analytics: {
         Args: { currency_mode?: string; months_back?: number }
         Returns: Json
@@ -2964,6 +3096,20 @@ export type Database = {
           installments: number
           month: string
           remaining: number
+        }[]
+      }
+      get_forecast_drilldown: {
+        Args: { p_month: string }
+        Returns: {
+          account_id: string
+          account_status: string
+          actual_remaining: number
+          computed_status: string
+          currency: string
+          customer_name: string
+          due_date: string
+          invoice_number: string
+          schedule_id: string
         }[]
       }
       get_monthly_analytics: {
