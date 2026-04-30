@@ -234,9 +234,9 @@ Deno.serve(async (req) => {
       const pageSize = 1000;
       while (true) {
         const { data, error } = await supabase
-          .from("layaway_schedule")
-          .select("account_id, due_date, total_due_amount, paid_amount, currency, status")
-          .in("status", ["pending", "partially_paid", "overdue"])
+          .from("schedule_with_actuals")
+          .select("account_id, due_date, actual_remaining, allocated, currency, computed_status")
+          .in("computed_status", ["pending", "partially_paid", "overdue"])
           .range(from, from + pageSize - 1);
         if (error) break;
         if (!data || data.length === 0) break;
@@ -315,13 +315,11 @@ Deno.serve(async (req) => {
       const acctCurrency = accountCurrencyMap.get(accountId) || "PHP";
       if (currencyWhere && acctCurrency !== currencyWhere) continue;
 
-      // Find next unpaid due date (earliest)
+      // Find next unpaid due date (earliest) — canonical via schedule_with_actuals
       const unpaidSorted = items
         .filter((s: any) => {
-          const paid = Number(s.paid_amount);
-          const due = Number(s.total_due_amount);
-          if (s.status === "paid") return false;
-          if (paid > 0 && paid >= due) return false;
+          if (s.computed_status === "paid") return false;
+          if (Number(s.actual_remaining) <= 0) return false;
           return true;
         })
         .sort((a: any, b: any) => a.due_date.localeCompare(b.due_date));
@@ -336,10 +334,8 @@ Deno.serve(async (req) => {
         // Sum ALL overdue amounts for this account (not just next due)
         for (const s of items) {
           if (s.due_date < today) {
-            const paid = Number(s.paid_amount);
-            const due = Number(s.total_due_amount);
-            if (s.status !== "paid" && !(paid > 0 && paid >= due)) {
-              const amt = due - paid;
+            if (s.computed_status !== "paid" && Number(s.actual_remaining) > 0) {
+              const amt = Number(s.actual_remaining);
               overdueAmount += isAllMode ? toJpy(amt, acctCurrency) : amt;
             }
           }
@@ -423,7 +419,9 @@ Deno.serve(async (req) => {
     }
 
     for (const item of allUnpaidScheduleItems) {
-      const remaining = Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
+      // Canonical per-row remaining from schedule_with_actuals.actual_remaining
+      // (already GREATEST(0, ...) inside the view).
+      const remaining = Number(item.actual_remaining);
       if (remaining <= 0) continue;
       if (!activeAccountIds.has(item.account_id)) continue;
 

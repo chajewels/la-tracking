@@ -1503,6 +1503,57 @@ When completing a partially_paid month:
     documentation was wrong.
 
     (2026-04-30)
+  - 73. INVARIANT 2 violations in
+    dashboard-summary edge function +
+    get_forecast_6m() RPC + Finance.tsx
+    forecast drilldown migrated to canonical
+    schedule_with_actuals reads.
+
+    Production drift before fix: 1 account
+    (INV #18531, JPY, status overdue) with
+    ₱1,000 cumulative cache overstatement.
+    Post-migration resolves to canonical
+    ₱64,186 from cache ₱65,186.
+
+    Migrations:
+    - get_forecast_6m() RPC: rewritten to
+      read from schedule_with_actuals using
+      actual_remaining and computed_status.
+      Same return shape preserved. Verified
+      drift eliminated of exactly ₱1,000 vs
+      cache.
+    - dashboard-summary edge function: 4
+      cache-read sites at lines 237 (query),
+      321-322 (filter), 339-340 (overdue
+      sum), 426 (forecast remaining) all
+      migrated to canonical.
+    - get_forecast_drilldown(p_month text)
+      RPC created — server-side join pattern
+      matching get_aging_buckets() to avoid
+      PostgREST URL-length risk on busy
+      months. Returns flat shape with all
+      account + customer fields pre-joined.
+    - Finance.tsx forecast drilldown
+      migrated to use the new RPC.
+      Cache-based PostgREST query removed.
+
+    Affected dashboard-summary payload
+    fields (now canonical):
+      overdue_accounts, overdue_amount,
+      due_today_count, due_3_days_count,
+      due_7_days_count, predicted_30d/_raw,
+      predicted_90d/_raw,
+      next_month_expected/_adjusted,
+      forecast_6_months[].
+
+    No customer-facing balance change —
+    customer portal reads
+    layaway_accounts.remaining_balance which
+    is already canonical-computed via
+    record-payment / void-payment /
+    record-multi-payment edge functions.
+
+    (2026-04-30)
 
 ## Known Open Bugs
 
@@ -1623,29 +1674,6 @@ When completing a partially_paid month:
   Bug #67). All are INVARIANT 2 / TEST-exclusion
   consistency items that remain after the
   AgingBuckets fix landed.
-
-  - INVARIANT 2 violations in dashboard-summary
-    edge function (lines 237, 321, 322, 339,
-    340, 426 read total_due_amount and
-    paid_amount cache columns). To be migrated
-    to schedule_with_actuals in a follow-up
-    RPC pass. Server-side equivalent of the
-    AgingBuckets D4 bug — same cache-vs-
-    canonical drift potential. (2026-04-30)
-
-  - INVARIANT 2 violation in get_forecast_6m()
-    RPC body — reads
-    `total_due_amount - COALESCE(paid_amount, 0)`.
-    Numbers may diverge from get_aging_buckets()
-    for the same accounts. Migrate to
-    schedule_with_actuals when next touched.
-    (2026-04-30)
-
-  - INVARIANT 2 violation in Finance.tsx
-    forecast drilldown slide-over (~line 1005+).
-    Reads cache columns for the per-account
-    drill list. Migrate to schedule_with_actuals
-    when next touched. (2026-04-30)
 
   - dashboard-summary TEST exclusion uses
     `'TEST%'` (no hyphen) at line 2278 —

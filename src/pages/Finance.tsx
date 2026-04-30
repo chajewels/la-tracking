@@ -93,21 +93,11 @@ export default function Finance() {
     enabled: !!selectedCard,
     queryFn: async () => {
       if (!selectedCard) return [];
-      const monthStart = selectedCard.key + '-01';
-      const d = new Date(monthStart + 'T00:00:00');
-      const monthEnd = format(endOfMonth(d), 'yyyy-MM-dd');
-      const { data, error } = await supabase
-        .from('layaway_schedule')
-        .select('id, due_date, status, total_due_amount, paid_amount, layaway_accounts!inner(id, invoice_number, currency, status, customers(full_name))')
-        .gte('due_date', monthStart)
-        .lte('due_date', monthEnd)
-        .in('status', ['pending', 'overdue', 'partially_paid'])
-        .order('due_date', { ascending: true });
-      if (error) throw error;
-      return (data || []).filter((row: any) => {
-        const a = row.layaway_accounts;
-        return a && ['active', 'overdue', 'final_settlement', 'extension_active'].includes(a.status) && !String(a.invoice_number).startsWith('TEST-');
+      const { data, error } = await (supabase as any).rpc('get_forecast_drilldown', {
+        p_month: selectedCard.key,
       });
+      if (error) throw error;
+      return data || [];
     },
   });
 
@@ -116,8 +106,8 @@ export default function Finance() {
     const q = drillSearch.toLowerCase().trim();
     if (!q) return drilldownRaw;
     return drilldownRaw.filter((row: any) => {
-      const inv = String(row.layaway_accounts?.invoice_number ?? '').toLowerCase();
-      const name = String(row.layaway_accounts?.customers?.full_name ?? '').toLowerCase();
+      const inv = String(row.invoice_number ?? '').toLowerCase();
+      const name = String(row.customer_name ?? '').toLowerCase();
       return inv.includes(q) || name.includes(q);
     });
   }, [drilldownRaw, drillSearch]);
@@ -1049,17 +1039,16 @@ export default function Finance() {
                   </thead>
                   <tbody>
                     {drilldownRows.map((row: any) => {
-                      const acct = row.layaway_accounts;
-                      const amountDue = Math.max(0, Number(row.total_due_amount) - Number(row.paid_amount));
-                      const jpyEq = Math.round(toJpy(amountDue, acct.currency as Currency));
-                      const isOverdue = row.status === 'overdue' || (row.due_date < collToday && row.status !== 'paid');
-                      const isPartial = row.status === 'partially_paid';
+                      const amountDue = Number(row.actual_remaining);
+                      const jpyEq = Math.round(toJpy(amountDue, row.currency as Currency));
+                      const isOverdue = row.computed_status === 'overdue' || (row.due_date < collToday && row.computed_status !== 'paid');
+                      const isPartial = row.computed_status === 'partially_paid';
                       return (
-                        <tr key={row.id} className="border-b border-zinc-800 hover:bg-zinc-800/50 transition-colors">
-                          <td className="px-4 py-2.5"><Link to={`/accounts/${acct.id}`} onClick={() => setSelectedCard(null)} className="text-xs font-mono text-primary hover:underline">#{acct.invoice_number}</Link></td>
-                          <td className="px-4 py-2.5 text-xs text-zinc-300 max-w-[140px] truncate">{acct.customers?.full_name || '—'}</td>
+                        <tr key={row.schedule_id} className="border-b border-zinc-800 hover:bg-zinc-800/50 transition-colors">
+                          <td className="px-4 py-2.5"><Link to={`/accounts/${row.account_id}`} onClick={() => setSelectedCard(null)} className="text-xs font-mono text-primary hover:underline">#{row.invoice_number}</Link></td>
+                          <td className="px-4 py-2.5 text-xs text-zinc-300 max-w-[140px] truncate">{row.customer_name || '—'}</td>
                           <td className="px-4 py-2.5 text-xs text-zinc-400">{new Date(row.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
-                          <td className="px-4 py-2.5 text-xs font-semibold tabular-nums text-right text-zinc-100">{formatCurrency(amountDue, acct.currency as Currency)}</td>
+                          <td className="px-4 py-2.5 text-xs font-semibold tabular-nums text-right text-zinc-100">{formatCurrency(amountDue, row.currency as Currency)}</td>
                           <td className="px-4 py-2.5 text-xs tabular-nums text-right text-zinc-400">¥{jpyEq.toLocaleString()}</td>
                           <td className="px-4 py-2.5">
                             <Badge variant="outline" className={`text-[9px] h-4 px-1.5 bg-zinc-900 ${isOverdue ? 'text-destructive border-destructive/40' : isPartial ? 'text-warning border-warning/40' : 'text-zinc-400 border-zinc-600'}`}>
