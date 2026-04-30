@@ -2737,6 +2737,78 @@ When completing a partially_paid month:
         key off in /loyalty/admin?tab=settings
         now actually suppresses the
         corresponding sends.
+    Phase 3 — Content Management (LIVE 2026-04-29)
+      - Promotions tab: full CRUD with stats
+        per promo (uses, unique customers,
+        total bonus points), 3-bucket
+        grouping (scheduled / upcoming /
+        past). Stats aggregated client-side
+        from loyalty_transactions where
+        transaction_type='bonus' and
+        promo_id IS NOT NULL.
+      - Rewards Catalog tab: 5 collapsible
+        category groups (Redeem with Points
+        / Tier Exclusive / Shipping Rewards
+        / Member-Only Offers / VIP Vault).
+        Full CRUD with Vault toggle that
+        locks category='VIP Vault' and
+        is_vault=true in sync. Stock display
+        with "Out of stock" / low (≤10% of
+        limit) / "X / Y left" / "Unlimited"
+        tones.
+      - Banners tab: featured + promo banner
+        management with live preview pane
+        mirroring customer-facing component
+        shape. link_target supports
+        tab:foo (in-portal nav: home /
+        rewards / points / notifications /
+        profile / tiers) and http(s)://
+        (external open). Schedule status
+        chips (Live / Scheduled / Expired /
+        Always on / Paused).
+      - Admin portal tab count: 7 → 10.
+        TabsList layout switched to
+        flex+overflow on <xl, grid-cols-10
+        on xl+. Order:
+          Dashboard / Members / Redemptions /
+          Beta / Tiers / Settings / Audit Log /
+          Promotions / Rewards / Banners.
+      - Customer portal now reads from DB:
+          RewardsScreen → useLoyaltyRewardsCatalog
+          VipRewardsVault → vault subset
+            (passed as prop)
+          FeaturedBanner → useLoyaltyBannersByType
+            ('featured'), top priority becomes
+            hero card
+          PromoBanners → useLoyaltyBannersByType
+            ('promo'), all active sorted by
+            display_priority
+        New shared dispatchBannerLink helper
+        in src/components/loyalty/home/bannerLink.ts
+        parses link_target prefix and routes
+        to setTab or window.open.
+        rowToReward adapter in RewardsScreen
+        maps LoyaltyRewardRow → existing
+        FallbackReward shape so canRedeem /
+        canAccessReward / badge logic stays
+        unchanged.
+      - 17 rewards + 4 banners (1 featured,
+        3 promo) seeded so customer portal
+        works from first deploy without
+        admin intervention.
+      - LoyaltyPromosTab.tsx (443 lines) and
+        LoyaltyPromoFormModal.tsx (369 lines)
+        deleted. Single source of truth for
+        promo admin is now /loyalty/admin?tab=promotions.
+        Promotions menu page (/promotions)
+        kept its other 3 tabs (Promos /
+        Categories / Announcements) but
+        dropped the Loyalty Promos tab.
+      - Audit instrumentation: 3 new
+        entity_types (loyalty_promo /
+        loyalty_reward / loyalty_banner)
+        written on every create / update /
+        delete via the admin hooks.
 
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
@@ -2925,6 +2997,20 @@ loyalty portal. In progress.
     Defaults still true so production
     behavior is unchanged until an admin
     flips a toggle off.
+  - Phase 3 schema: extended loyalty_promos
+    with image_url and display_priority
+    columns; created loyalty_rewards (17
+    rows seeded matching the prior
+    staticFallback.REWARDS catalog) and
+    loyalty_banners (4 rows seeded — 1
+    featured matching the old hardcoded
+    "Spring 2026 Gold Collection" hero, 3
+    promo matching the old PromoBanners
+    array: birthday / layaway / tier-up).
+  - RLS policies seeded for both new
+    tables: admin/finance full CRUD,
+    staff read, authenticated customer
+    read where is_active = true.
 
 ### OPERATIONAL ENHANCEMENTS
   P6: Admin audit log for manual DB changes
@@ -2938,10 +3024,28 @@ loyalty portal. In progress.
   ✅ Phase 2 — Configuration (LIVE 2026-04-29)
   ✅ Phase 2.5 — Email gate plumbing
      (LIVE 2026-04-29)
-  ⏳ Phase 3 — Content Management
-     - Promotions tab (loyalty-only promos)
-     - Rewards Catalog tab
-     - Featured banner system
+  ✅ Phase 3 — Content Management
+     (LIVE 2026-04-29)
+  ⏳ Phase 3.1 — bonus_multiplier wiring
+     Schema column on loyalty_promos plus
+     edge function changes to honor a promo
+     multiplier override at award time.
+     Currently award-loyalty-points reads
+     bonus_points only.
+  ⏳ Phase 3.2 — Stock decrement plumbing
+     Wire process-loyalty-redemption to
+     decrement loyalty_rewards.current_stock
+     by 1 on approval (with current_stock
+     IS NOT NULL guard so unlimited rewards
+     are unaffected). Block approval when
+     current_stock <= 0.
+  ⏳ Phase 3.5 — Image upload to Supabase
+     Storage
+     New bucket (e.g. loyalty-content) with
+     RLS, plus an upload widget in the three
+     edit dialogs (Promo / Reward / Banner)
+     replacing the current image_url paste-
+     only flow.
   ⏳ Phase 4 — Communications
      - Notifications tab (broadcast system)
      - Notification templates
