@@ -7,7 +7,10 @@ export type LoyaltyAuditEntityType =
   | 'loyalty_settings'
   | 'loyalty_beta'
   | 'loyalty_redemption'
-  | 'loyalty_member';
+  | 'loyalty_member'
+  | 'loyalty_promo'
+  | 'loyalty_reward'
+  | 'loyalty_banner';
 
 export interface LoyaltyAuditRow {
   id: string;
@@ -42,6 +45,9 @@ const ALL_LOYALTY_ENTITY_TYPES: ReadonlyArray<string> = [
   'loyalty_beta',
   'loyalty_redemption',
   'loyalty_member',
+  'loyalty_promo',
+  'loyalty_reward',
+  'loyalty_banner',
 ];
 
 export function useLoyaltyAuditLog(filters: LoyaltyAuditFilters) {

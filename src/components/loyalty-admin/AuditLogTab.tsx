@@ -42,6 +42,9 @@ const ENTITY_OPTIONS: Array<{ value: LoyaltyAuditEntityType; label: string }> = 
   { value: 'loyalty_beta', label: 'Beta Whitelist' },
   { value: 'loyalty_redemption', label: 'Redemption' },
   { value: 'loyalty_member', label: 'Member' },
+  { value: 'loyalty_promo', label: 'Promo' },
+  { value: 'loyalty_reward', label: 'Reward' },
+  { value: 'loyalty_banner', label: 'Banner' },
 ];
 
 const ENTITY_LABELS: Record<string, string> = {
@@ -50,6 +53,9 @@ const ENTITY_LABELS: Record<string, string> = {
   loyalty_beta: 'Beta',
   loyalty_redemption: 'Redemption',
   loyalty_member: 'Member',
+  loyalty_promo: 'Promo',
+  loyalty_reward: 'Reward',
+  loyalty_banner: 'Banner',
 };
 
 const PAGE_SIZE = 25;
@@ -60,6 +66,9 @@ const LOYALTY_ENTITY_TYPES = [
   'loyalty_beta',
   'loyalty_redemption',
   'loyalty_member',
+  'loyalty_promo',
+  'loyalty_reward',
+  'loyalty_banner',
 ];
 
 function rangeStartIso(range: RangeKey): string | null {

@@ -8,6 +8,9 @@ const ENTITY_LABELS: Record<string, string> = {
   loyalty_beta: 'Beta Whitelist',
   loyalty_redemption: 'Redemption',
   loyalty_member: 'Member',
+  loyalty_promo: 'Promo',
+  loyalty_reward: 'Reward',
+  loyalty_banner: 'Banner',
 };
 
 function fmtDateTime(iso: string) {
