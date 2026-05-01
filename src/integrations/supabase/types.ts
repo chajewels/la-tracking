@@ -459,6 +459,54 @@ export type Database = {
           },
         ]
       }
+      customer_portal_sessions: {
+        Row: {
+          created_at: string
+          customer_id: string
+          expires_at: string
+          ip_address: unknown
+          last_used_at: string
+          session_id: string
+          source_token_id: string
+          user_agent: string | null
+        }
+        Insert: {
+          created_at?: string
+          customer_id: string
+          expires_at?: string
+          ip_address?: unknown
+          last_used_at?: string
+          session_id?: string
+          source_token_id: string
+          user_agent?: string | null
+        }
+        Update: {
+          created_at?: string
+          customer_id?: string
+          expires_at?: string
+          ip_address?: unknown
+          last_used_at?: string
+          session_id?: string
+          source_token_id?: string
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_portal_sessions_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_portal_sessions_source_token_id_fkey"
+            columns: ["source_token_id"]
+            isOneToOne: false
+            referencedRelation: "customer_portal_tokens"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customer_portal_tokens: {
         Row: {
           created_at: string
@@ -1368,6 +1416,7 @@ export type Database = {
           processed_by_user_id: string | null
           rate_snapshot: number | null
           redemption_type: Database["public"]["Enums"]["loyalty_redemption_type"]
+          reward_id: string | null
           status: Database["public"]["Enums"]["loyalty_redemption_status"]
           transaction_id: string | null
           value_applied_jpy: number
@@ -1390,6 +1439,7 @@ export type Database = {
           processed_by_user_id?: string | null
           rate_snapshot?: number | null
           redemption_type: Database["public"]["Enums"]["loyalty_redemption_type"]
+          reward_id?: string | null
           status?: Database["public"]["Enums"]["loyalty_redemption_status"]
           transaction_id?: string | null
           value_applied_jpy: number
@@ -1412,6 +1462,7 @@ export type Database = {
           processed_by_user_id?: string | null
           rate_snapshot?: number | null
           redemption_type?: Database["public"]["Enums"]["loyalty_redemption_type"]
+          reward_id?: string | null
           status?: Database["public"]["Enums"]["loyalty_redemption_status"]
           transaction_id?: string | null
           value_applied_jpy?: number
@@ -1437,6 +1488,13 @@ export type Database = {
             columns: ["member_id"]
             isOneToOne: false
             referencedRelation: "loyalty_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loyalty_redemptions_reward_id_fkey"
+            columns: ["reward_id"]
+            isOneToOne: false
+            referencedRelation: "loyalty_rewards"
             referencedColumns: ["id"]
           },
           {
@@ -3201,6 +3259,7 @@ export type Database = {
         | "new_order_discount"
         | "shipping_fee"
         | "service_fee"
+        | "catalog_reward"
       loyalty_transaction_type:
         | "earned"
         | "bonus"
@@ -3373,6 +3432,7 @@ export const Constants = {
         "new_order_discount",
         "shipping_fee",
         "service_fee",
+        "catalog_reward",
       ],
       loyalty_transaction_type: [
         "earned",
