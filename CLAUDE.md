@@ -3220,6 +3220,41 @@ When completing a partially_paid month:
   and submit-cash-payment as those functions are wired to
   resolvePortalAuth.
 
+  ### 2026-05-01 — PWA Phase A Step 3a-2 deployed
+
+  Fourth portal edge function wired to resolvePortalAuth.
+
+  Function wired in this commit:
+    - verify-portal-pin (PIN logic preserved bit-for-bit)
+
+  Workflow gap closed: verify-portal-pin deploy step now
+  includes _shared/ OR clause for auto-propagation of
+  helper changes (matches Bug #77 pattern).
+
+  Phase A scope correction: customer-statement was originally
+  listed in the 7-function Phase A audit but is NOT a portal-
+  token consumer. It uses statement_tokens table (different
+  FK target — layaway_accounts vs customers — and different
+  auth lifecycle: account-scoped print/share vs customer-
+  scoped portal session). resolvePortalAuth cannot
+  authenticate statement_tokens values. Phase A scope is now
+  6 functions, not 7. customer-statement stays on token-only
+  auth indefinitely or until separately deprecated (planned
+  follow-up workstream — feature confirmed unused 2026-05-01).
+
+  Phase A status:
+    - Step 1 (table): COMPLETE
+    - Step 2 (helper + redeem): COMPLETE
+    - Step 3a-1 (3 functions): COMPLETE
+    - Step 3a-2 (1 function): THIS COMMIT
+    - Step 3a-3 (2 remaining: customer-portal, submit-cash-payment):
+      PENDING
+    - Step 3b (frontend redemption + /launch + manifest +
+      banner): PENDING
+
+  After this commit: 4 of 6 portal functions accept session_id
+  alongside token. 2 remain to wire in Step 3a-3.
+
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
   PIN hash storage: customers.portal_pin_hash (64-char SHA-256 hex digest)

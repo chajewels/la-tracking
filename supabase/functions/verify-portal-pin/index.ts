@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,33 +15,23 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    const { token, pin } = await req.json();
-    if (!token || !pin) {
+    const { token, pin, session_id } = await req.json();
+    if ((!token && !session_id) || !pin) {
       return new Response(
-        JSON.stringify({ error: "token and pin are required" }),
+        JSON.stringify({ error: "token (or session_id) and pin are required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    // 1. Resolve customer via customer_portal_tokens (the canonical portal token store)
-    const { data: tokenRow } = await supabase
-      .from("customer_portal_tokens")
-      .select("customer_id, is_active, expires_at")
-      .eq("token", token)
-      .eq("is_active", true)
-      .maybeSingle();
-
-    if (!tokenRow) {
+    // 1. Resolve customer via portal token or session_id
+    let customerId: string;
+    try {
+      const auth = await resolvePortalAuth(supabase, { token, session_id });
+      customerId = auth.customer_id;
+    } catch (err: any) {
       return new Response(
-        JSON.stringify({ error: "Invalid portal token" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
-    if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) {
-      return new Response(
-        JSON.stringify({ error: "Portal link has expired" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        JSON.stringify({ error: err?.message || "Invalid portal token" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
@@ -48,7 +39,7 @@ Deno.serve(async (req) => {
     const { data: customer } = await supabase
       .from("customers")
       .select("id, portal_pin_hash, portal_pin_attempts, portal_pin_locked_until, mobile_number")
-      .eq("id", tokenRow.customer_id)
+      .eq("id", customerId)
       .maybeSingle();
 
     if (!customer) {
