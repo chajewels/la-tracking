@@ -1348,6 +1348,7 @@ export type Database = {
         Row: {
           applicable_tiers: string[] | null
           applies_per_purchase: boolean
+          bonus_multiplier: number
           bonus_points: number
           created_at: string
           created_by_user_id: string | null
@@ -1365,6 +1366,7 @@ export type Database = {
         Insert: {
           applicable_tiers?: string[] | null
           applies_per_purchase?: boolean
+          bonus_multiplier?: number
           bonus_points: number
           created_at?: string
           created_by_user_id?: string | null
@@ -1382,6 +1384,7 @@ export type Database = {
         Update: {
           applicable_tiers?: string[] | null
           applies_per_purchase?: boolean
+          bonus_multiplier?: number
           bonus_points?: number
           created_at?: string
           created_by_user_id?: string | null
