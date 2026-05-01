@@ -120,11 +120,7 @@ Deno.serve(async (req) => {
 
     const multiplier = Number(currentTier.points_multiplier ?? 1);
 
-    // 6. Calculate points
-    const baseUnits = Math.floor(loyaltyJpy / 10000);
-    const points = baseUnits * 100 * multiplier;
-
-    // 7. Check active promo
+    // 6. Check active promo
     const today = new Date().toISOString().split("T")[0];
     const { data: promos } = await supabase
       .from("loyalty_promos")
@@ -156,7 +152,21 @@ Deno.serve(async (req) => {
       if (tierOk && underCap) activePromo = candidate;
     }
 
-    const bonusPoints = activePromo ? Number(activePromo.bonus_points ?? 0) : 0;
+    // 7. Calculate points
+    // earned tx = baseUnits × 100 × tier_multiplier (tier-only, no promo)
+    // bonus tx  = delta_from_multiplier + flat_bonus_points
+    //   delta = baseUnits × 100 × tier_multiplier × (promo_multiplier - 1)
+    // member total = earned + bonus = baseUnits × 100 × tier × promo_mult + flat
+    const promoMultiplier = activePromo
+      ? Number(activePromo.bonus_multiplier ?? 1)
+      : 1;
+    const flatBonus = activePromo ? Number(activePromo.bonus_points ?? 0) : 0;
+    const baseUnits = Math.floor(loyaltyJpy / 10000);
+    const points = baseUnits * 100 * multiplier;
+    const deltaFromMultiplier = activePromo
+      ? Math.round(points * (promoMultiplier - 1))
+      : 0;
+    const bonusTxPoints = deltaFromMultiplier + flatBonus;
 
     // 8. Insert earned transaction
     const earnedTxRow: Record<string, unknown> = {
@@ -179,15 +189,26 @@ Deno.serve(async (req) => {
       return json({ error: "earned_tx_insert_failed", detail: earnedErr.message }, 500);
     }
 
-    // 9. Insert bonus transaction if promo active
-    if (activePromo) {
+    // 9. Insert bonus transaction if any bonus applies
+    //    Skip when both delta_from_multiplier = 0 AND flat_bonus = 0
+    //    (e.g. no active promo, or active promo with multiplier=1.00 and bonus_points=0)
+    if (activePromo && bonusTxPoints > 0) {
+      let bonusNotes: string;
+      if (deltaFromMultiplier > 0 && flatBonus > 0) {
+        bonusNotes =
+          `Multiplier promo (delta: ${deltaFromMultiplier}) + flat bonus (${flatBonus})`;
+      } else if (deltaFromMultiplier > 0) {
+        bonusNotes = `Multiplier promo (delta: ${deltaFromMultiplier})`;
+      } else {
+        bonusNotes = `Flat bonus (${flatBonus})`;
+      }
       const { error: bonusErr } = await supabase.from("loyalty_transactions").insert({
         member_id: member.id,
         transaction_type: "bonus",
-        points_amount: bonusPoints,
+        points_amount: bonusTxPoints,
         promo_id: activePromo.id,
         invoice_number: invoiceNumber,
-        notes: `Promo: ${activePromo.name}`,
+        notes: bonusNotes,
       });
       if (bonusErr) {
         console.warn(
@@ -198,7 +219,7 @@ Deno.serve(async (req) => {
     }
 
     // 10. Recalculate tier
-    const totalAdded = points + bonusPoints;
+    const totalAdded = points + bonusTxPoints;
     const newCumulative = Number(member.cumulative_spend_jpy ?? 0) + loyaltyJpy;
     const newTotalEarned = Number(member.total_points_earned ?? 0) + totalAdded;
     const newRemaining = Number(member.remaining_points ?? 0) + totalAdded;
@@ -302,7 +323,7 @@ Deno.serve(async (req) => {
                   `loyalty-bonus-${activePromo.id}-${sourceKind}-${account_id ?? cash_order_id}`,
                 templateData: {
                   customerName,
-                  bonusPoints,
+                  bonusPoints: bonusTxPoints,
                   promoName: activePromo.name,
                   promoEndDate: fmtFriendlyDate(activePromo.end_date),
                   invoiceNumber,
@@ -379,7 +400,7 @@ Deno.serve(async (req) => {
     return json({
       awarded: true,
       points_earned: points,
-      bonus_points: bonusPoints,
+      bonus_points: bonusTxPoints,
       tier_upgraded: tierUpgraded,
       old_tier: oldTierName,
       new_tier: newTierName,
