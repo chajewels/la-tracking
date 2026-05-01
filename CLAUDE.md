@@ -2870,6 +2870,100 @@ When completing a partially_paid month:
         loyalty_reward / loyalty_banner)
         written on every create / update /
         delete via the admin hooks.
+    Phase 3.2 — Catalog Redemption Wiring (LIVE 2026-05-01)
+      - Schema:
+          loyalty_redemptions.reward_id uuid
+            REFERENCES loyalty_rewards(id)
+            ON DELETE SET NULL
+          idx_loyalty_redemptions_reward_id
+          loyalty_redemption_type enum
+            extended with 'catalog_reward'
+            (4th value alongside the 3
+            legacy types).
+      - process-loyalty-redemption changes
+        (commit f632b5c):
+          create action accepts reward_id;
+          when reward_id is set,
+          redemption_type defaults to
+          'catalog_reward' and
+          invoice_number is optional.
+          Validates the reward exists,
+          is_active, current_stock > 0
+          (or NULL = unlimited), and
+          points_redeemed === points_cost.
+          Inserts the redemption row with
+          a placeholder invoice_number
+          'REDEEM-PENDING' (NOT NULL
+          constraint preserved) then
+          immediately UPDATEs to
+          REDEEM-${redemption.id} so each
+          catalog redemption has a 1:1
+          stable forensic identifier.
+          approve action does an atomic
+          UPDATE … SET current_stock =
+          current_stock - 1 WHERE id = $1
+          AND current_stock > 0 (race-free
+          decrement). If the WHERE clause
+          fails to match (a parallel
+          approval drained the last unit
+          first) the function returns 409
+          with stock_race: true and the
+          redemption stays pending so
+          staff can cancel it explicitly.
+          On success, writes an
+          audit_logs entry with
+          entity_type='loyalty_reward',
+          action='stock_decremented'.
+          cancel action carries a TODO
+          for Phase 3.2.1 — re-incrementing
+          stock when an already-approved
+          catalog redemption is voided.
+      - Customer portal RewardsScreen real
+        flow (commit ace3c6a):
+          handleRedeem replaced (was a
+          stub) with a real call to
+          process-loyalty-redemption
+          action='create'. Pattern-matched
+          error toasts: 409 → "sold out",
+          config-mismatch → "config
+          changed, refresh the catalog",
+          insufficient-points →
+          "Insufficient points".
+          Modal carries an optional
+          invoice_number input and a
+          three-state Confirm button (Out
+          of Stock / Insufficient Points /
+          Confirm Redemption with spinner).
+          Stock badges: "Out of stock"
+          (red) when current_stock = 0,
+          "Only X left" (amber) when
+          current_stock between 1 and 5.
+          Success copy is now "Redemption
+          Submitted!" + "pending admin
+          approval" — no more "Redemption
+          Successful" claim before the
+          approval step.
+          inStock(reward) helper centralizes
+          the unlimited / 0 / >0 check.
+          rowToReward adapter propagates
+          current_stock onto the
+          FallbackReward shape via a new
+          optional currentStock?: number |
+          null field on the type.
+      - Anon RLS policies (applied via
+        SQL Editor):
+          loyalty_rewards anon SELECT
+            WHERE is_active = true
+          loyalty_banners anon SELECT
+            WHERE is_active = true
+          Customer portal uses token-
+          based auth (anonymous to
+          Supabase) so the prior
+          authenticated-only policies
+          blocked customers from reading
+          either table once the portal
+          was switched to DB-driven
+          rewards/banners in Phase 3.
 
   ### 2026-04-30 — Session shipped
 
@@ -3161,6 +3255,30 @@ loyalty portal. In progress.
     UPDATE. Schedule rebuild handled separately by Cynthia.
     Plan distribution: 3M=16, 6M=657, 8M=2, 10M=0, 12M=0 = 675.
 
+### TODAY'S DATA FIXES (2026-05-01)
+
+  Schema changes and RLS policies applied via SQL Editor in
+  support of Phase 3.2 (Catalog Redemption Wiring):
+
+  - loyalty_redemptions schema additions
+    Added reward_id uuid column with FK to
+    loyalty_rewards(id) ON DELETE SET NULL, plus
+    idx_loyalty_redemptions_reward_id index. Extended the
+    loyalty_redemption_type enum with 'catalog_reward' as a
+    4th value (used when a redemption is tied to a specific
+    loyalty_rewards row rather than one of the 3 legacy
+    self-describing types).
+
+  - Anon SELECT policies on loyalty_rewards and loyalty_banners
+    Customer portal uses token-based auth (anonymous role to
+    Supabase). Phase 3 RLS shipped TO authenticated only,
+    which blocked customers from reading the catalog and
+    banners once the portal was switched to DB-driven content.
+    Added: "Anon can read active rewards" ON loyalty_rewards
+    FOR SELECT TO anon USING (is_active = true) and the
+    parallel "Anon can read active banners" policy on
+    loyalty_banners. No code change — RLS only.
+
 ### OPERATIONAL ENHANCEMENTS
   P6: Admin audit log for manual DB changes
   P7: Invoice generator — Google Sheets +
@@ -3181,13 +3299,38 @@ loyalty portal. In progress.
      multiplier override at award time.
      Currently award-loyalty-points reads
      bonus_points only.
-  ⏳ Phase 3.2 — Stock decrement plumbing
-     Wire process-loyalty-redemption to
-     decrement loyalty_rewards.current_stock
-     by 1 on approval (with current_stock
-     IS NOT NULL guard so unlimited rewards
-     are unaffected). Block approval when
-     current_stock <= 0.
+  ✅ Phase 3.2 — Catalog Redemption Wiring
+     (LIVE 2026-05-01)
+     reward_id FK + 'catalog_reward' enum
+     value + atomic stock decrement on
+     approve + RewardsScreen real flow +
+     anon RLS policies. See SYSTEM STATUS
+     entry above.
+  ⏳ Phase 3.2.1 — Cancel/void of approved
+     redemption with stock re-increment
+     When an admin cancels a redemption
+     that has already been approved (and
+     therefore already decremented
+     loyalty_rewards.current_stock), the
+     stock should be re-incremented by 1
+     so the unit returns to inventory.
+     Currently the cancel branch of
+     process-loyalty-redemption carries a
+     TODO and does not touch stock —
+     approved → cancelled would silently
+     lose a unit.
+     Implementation sketch: in cancel,
+     fetch the redemption, branch on
+     prior status. If prior status was
+     'approved' and reward_id is set,
+     atomically increment current_stock
+     by 1 (mirror of the approve
+     decrement, no WHERE-clause guard
+     needed because we're going up).
+     Write a parallel audit_logs entry
+     with action='stock_reincremented'.
+     Skip when reward_id is null or
+     current_stock is null (unlimited).
   ⏳ Phase 3.5 — Image upload to Supabase
      Storage
      New bucket (e.g. loyalty-content) with
