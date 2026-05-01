@@ -1638,6 +1638,48 @@ When completing a partially_paid month:
 
     (2026-05-01)
 
+  - 77. GitHub Actions workflow gap: 7 edge functions that
+    import from supabase/functions/_shared/ helpers were
+    NOT redeployed when those helpers changed. Only
+    send-transactional-email and preview-transactional-email
+    propagated _shared/ changes via their deploy step's
+    if: condition.
+
+    Symptom: helper changes (e.g., bug #76 fix in
+    portal-auth.ts) require manual Cloud Shell deploy of
+    every dependent function. GitHub Actions reports
+    workflow success but stale code keeps running.
+
+    Investigation 2026-05-01 confirmed:
+      - Path filter at line 38 already includes _shared/**
+        — workflow runs on _shared changes
+      - But each deploy step's if: condition controls
+        whether THAT step actually fires within the run
+      - Only 2 of 7 affected steps had the _shared/ OR
+        clause
+
+    Fix: appended ||contains(...'supabase/functions/_shared/')
+    to the if: condition of each of the 7 affected deploy
+    steps:
+      - submit-payment, join-loyalty-program,
+        edit-payment-submission (portal-auth.ts callers)
+      - award-loyalty-points, loyalty-inactivity-check,
+        process-loyalty-redemption (loyalty-email-gate.ts
+        callers)
+      - manual-forfeit (check-permission.ts caller)
+
+    Trade-off accepted: portal/loyalty/forfeit functions
+    will redeploy on ANY _shared/ change (~60s extra CI
+    per false-positive). Acceptable. Could be tightened
+    to specific helper files later if CI cost becomes
+    a concern.
+
+    Net effect: future _shared/ helper changes will
+    auto-propagate to all 7 dependent functions. No more
+    manual Cloud Shell deploys for helper updates.
+
+    (2026-05-01)
+
 ## Known Open Bugs
 
   Bugs that have been surfaced and triaged but not
@@ -1740,6 +1782,24 @@ When completing a partially_paid month:
     the frontend (e.g., admin SQL editor, bulk-import edge
     function bug). No incident driving this; defensive only.
     (Logged 2026-04-30, severity Low.)
+
+### Workflow gaps (surfaced 2026-05-01)
+
+  - 2 edge functions are completely missing from
+    .github/workflows/supabase-functions-deploy.yml:
+      - auth-email-hook (imports 6 templates from
+        _shared/email-templates/)
+      - reactivate-account (imports check-permission.ts)
+
+    These functions deploy manually only. Pre-existing
+    gap separate from bug #77 (which fixed the OR clause
+    propagation for functions already in the workflow).
+    Lower severity since manual deploys are tracked, but
+    future Lovable changes to these functions will not
+    auto-deploy.
+
+    Surfaced 2026-05-01 during workflow gap investigation
+    for bug #77.
 
 ### Currency toggle behavior (surfaced 2026-04-30)
 
@@ -3134,6 +3194,31 @@ When completing a partially_paid month:
   Step 3a-1 verification can now resume. Fresh redeem of
   test token will produce a session that authenticates
   successfully through the helper.
+
+  ### 2026-05-01 — Workflow _shared/ propagation fix (#77)
+
+  GitHub Actions workflow updated so 7 edge functions that
+  import from supabase/functions/_shared/ helpers now
+  auto-redeploy when those helpers change. Closes the
+  latent bug class that surfaced during Phase A Step 3a-1
+  (bug #76 helper fix required manual Cloud Shell deploys
+  of 3 portal functions).
+
+  Functions now propagating _shared/ changes:
+    - send-transactional-email (pre-existing)
+    - preview-transactional-email (pre-existing)
+    - submit-payment (NEW)
+    - join-loyalty-program (NEW)
+    - edit-payment-submission (NEW)
+    - award-loyalty-points (NEW)
+    - loyalty-inactivity-check (NEW)
+    - process-loyalty-redemption (NEW)
+    - manual-forfeit (NEW)
+
+  Phase A Step 3a-2 and 3a-3 will add the same OR clause
+  to verify-portal-pin, customer-statement, customer-portal,
+  and submit-cash-payment as those functions are wired to
+  resolvePortalAuth.
 
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
