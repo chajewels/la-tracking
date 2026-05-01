@@ -1555,6 +1555,54 @@ When completing a partially_paid month:
 
     (2026-04-30)
 
+  - 74. CLAUDE.md PERIODIC HEALTH QUERIES SQL block had
+    'TEST%' (no hyphen) at line ~3243 instead of 'TEST-%'.
+    Fixed in same commit.
+
+    Investigation 2026-05-01 confirmed:
+    - Single occurrence in CLAUDE.md doc only
+    - Zero runtime impact (no TESTxxx-style invoice numbers
+      exist in production; all 15 dashboard-summary edge
+      function sites use 'TEST-%' correctly; all frontend
+      filters use 'TEST-' or 'TEST-%' correctly)
+    - Pure doc hygiene fix; defensive against future test-
+      naming drift if e.g. a TESTING-001 account were ever
+      created
+
+    Stale line-number reference inside the original bug
+    description ("line 2278" — actual line was 3243) also
+    cleaned up by retiring the bug entry.
+
+    (2026-05-01)
+
+  - 75. CLAUDE.md open bug entry for reminder_total /
+    reminder_success / reminder_failed orphan fields was
+    incorrect. Fields are fully wired and rendered.
+
+    Investigation 2026-05-01 confirmed:
+    - dashboard-summary edge function lines 154-160
+      populate the three fields from reminder_logs (count
+      queries, no time filter, all-time totals)
+    - src/hooks/use-supabase-data.ts:368-370 declares them
+      in the summary type
+    - src/components/dashboard/SystemHealthPanel.tsx
+      consumes them at lines 11-16:
+        reminder_total → "Reminders Sent" tile
+        reminder_failed → "Reminders Failed" tile
+        reminder_success / reminder_total → "Reminder
+          Success Rate" %
+    - Panel is mounted on Dashboard behind
+      can('view_system_health') permission gate
+
+    Yesterday's audit (2026-04-30) likely missed the
+    SystemHealthPanel because the permission gate hides it
+    from inventory passes. Fields are functioning correctly.
+
+    Resolution: open bug entry retired (Bug #75 entry
+    documents the false-positive). No code change.
+
+    (2026-05-01)
+
 ## Known Open Bugs
 
   Bugs that have been surfaced and triaged but not
@@ -1642,22 +1690,6 @@ When completing a partially_paid month:
   consistency items that remain after the
   AgingBuckets fix landed.
 
-  - dashboard-summary TEST exclusion uses
-    `'TEST%'` (no hyphen) at line 2278 —
-    inconsistent with `'TEST-%'` (with hyphen)
-    used in get_forecast_6m(),
-    get_aging_buckets(), Finance.tsx drilldown,
-    and audit RPCs. Standardize to `'TEST-%'`.
-    (2026-04-30)
-
-  - useDashboardSummary payload contains
-    `reminder_total` / `reminder_success` /
-    `reminder_failed` fields that are not
-    rendered anywhere on Dashboard. Either
-    dead fields, or surface on a future
-    Reminders panel. (2026-04-30, surfaced
-    during Dashboard inventory)
-
   - delete-account edge function uses TypeScript not plpgsql,
     so the FK cleanup operations are NOT atomic. If the function
     crashes mid-operation, partial deletion can leave referential
@@ -1721,13 +1753,8 @@ When completing a partially_paid month:
       "who changed what when." Compliance risk if dispute arises.
 
   P2 — Hygiene / consistency (Low severity)
-    - 'TEST%' no-hyphen vs 'TEST-%' inconsistency at CLAUDE.md
-      PERIODIC HEALTH QUERIES line 2278. Edge function code uses
-      'TEST-%' correctly; only the CLAUDE.md doc query is
-      inconsistent. One-character fix.
-    - reminder_total/success/failed orphan fields in
-      dashboard-summary payload — rendered nowhere on Dashboard.
-      Either dead code (clean up) or surface them.
+    None as of 2026-05-01 (both items resolved — see bugs
+    #74 and #75).
 
   P3 — Defensive hardening (Low severity, no known bugs)
     - Session timeout 2hr (P5 in legacy numbering) — security
@@ -3240,7 +3267,7 @@ WHERE ls.status = 'partially_paid'
     + COALESCE(ls.penalty_amount, 0)
     + COALESCE(ls.carried_amount, 0)
   ) - 0.005
-  AND la.invoice_number NOT LIKE 'TEST%';
+  AND la.invoice_number NOT LIKE 'TEST-%';
 -- Expected result: 0 rows. If rows appear, update db_status to paid.
 ```
 
