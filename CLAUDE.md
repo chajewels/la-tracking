@@ -3059,6 +3059,105 @@ When completing a partially_paid month:
           either table once the portal
           was switched to DB-driven
           rewards/banners in Phase 3.
+    Phase 3.1 — Bonus Multiplier Wiring (LIVE 2026-05-01)
+      - Promos can apply a multiplier
+        override in addition to flat
+        bonus_points. Both fields can be
+        set on the same promo (no mutex);
+        either or both can be neutral
+        (1.00 / 0).
+      - Schema (commit referenced under
+        TODAY'S DATA FIXES 2026-05-01):
+          ALTER TABLE loyalty_promos
+            ADD COLUMN bonus_multiplier
+              numeric(5,2) NOT NULL
+              DEFAULT 1.00
+              CHECK (bonus_multiplier >= 1.00);
+        Existing rows backfilled to 1.00
+        (neutral). DB-level CHECK blocks
+        negative or fractional-discount
+        promos.
+      - Strategy B (multiply): tier
+        multiplier and promo multiplier
+        stack multiplicatively. Crown VIP
+        (3x) member during a 3x promo
+        earns 9x base. The tier ladder
+        keeps its meaning during promos
+        — Glimmer (1x) × 3x promo = 3x,
+        still less than Crown VIP × 3x.
+      - Edge function calculation
+        (commit 069d7ac in
+        supabase/functions/award-loyalty-points):
+          baseUnits  = floor(jpy/10000)
+          earnedTx   = baseUnits × 100
+                       × tier_multiplier
+          delta      = earnedTx
+                       × (promo_mult - 1)
+          flatBonus  = activePromo
+                       .bonus_points
+          bonusTx    = delta + flatBonus
+          memberTotal = earnedTx + bonusTx
+        Bonus tx skipped when bonusTx = 0
+        (no-op promo, e.g. mult=1.00 +
+        bonus=0). Bonus tx notes string
+        documents which fields contributed:
+        "Multiplier promo (delta: X) +
+        flat bonus (Y)" / "Multiplier
+        promo (delta: X)" / "Flat bonus
+        (Y)". Promo linkage preserved
+        via promo_id column.
+      - max_per_customer cap counts bonus
+        tx rows per (member, promo) —
+        unchanged. Each promo fire still
+        writes one bonus tx, so cap
+        behavior is identical for
+        flat-only, multiplier-only, and
+        combined promos.
+      - Email payload (loyalty-bonus
+        template) sends bonusTxPoints
+        (delta + flat) so customers see
+        the promo's full impact rather
+        than just the flat portion.
+      - Admin UI:
+          PromoEditDialog (commit 9a9d7f5):
+            side-by-side bonus_points +
+            bonus_multiplier inputs.
+            Multiplier accepts 1.00–99.99
+            with step 0.01. Helper text
+            under each input ("Flat bonus
+            points added on top. Leave at
+            0 to skip flat bonus." /
+            "Multiplier (1.0 = no boost).
+            Stacks with tier multiplier.").
+            Validation rejects < 1.00 and
+            > 99.99 with explanatory
+            messages. max_per_customer
+            moved to its own row.
+          PromotionsTab (commit 35ea1a9):
+            new BonusField cell renders
+            a solid-primary "{N}x Bonus"
+            badge when multiplier > 1
+            and a "+N pts" text when
+            bonus_points > 0; both
+            inline when both apply.
+            Tooltip on the badge
+            ("Multiplier stacks on top
+            of the member's tier
+            multiplier.") explains tier
+            stacking. fmtMultiplier
+            strips trailing zeros so
+            3.00 → "3x", 2.50 → "2.5x",
+            1.27 → "1.27x".
+      - useLoyaltyPromosAdmin types
+        updated: bonus_multiplier:number
+        on LoyaltyPromoRow,
+        bonus_multiplier?:number on
+        CreatePromoInput. Insert payload
+        sets `?? 1` fallback; SELECT
+        projection includes the new
+        column. UPDATE path passes
+        through partial input.updates
+        unchanged.
 
   ### 2026-04-30 — Session shipped
 
@@ -3501,6 +3600,14 @@ loyalty portal. In progress.
     parallel "Anon can read active banners" policy on
     loyalty_banners. No code change — RLS only.
 
+  - Phase 3.1 schema: ALTER TABLE loyalty_promos ADD COLUMN
+    bonus_multiplier numeric(5,2) NOT NULL DEFAULT 1.00
+    CHECK (bonus_multiplier >= 1.00). Existing rows backfilled
+    to 1.00 (neutral, no behavior change for promos already
+    running). COMMENT ON COLUMN documents the stack semantics:
+    total_mult = tier_mult × bonus_multiplier; flat
+    bonus_points still adds on top.
+
 ### OPERATIONAL ENHANCEMENTS
   P6: Admin audit log for manual DB changes
   P7: Invoice generator — Google Sheets +
@@ -3515,12 +3622,37 @@ loyalty portal. In progress.
      (LIVE 2026-04-29)
   ✅ Phase 3 — Content Management
      (LIVE 2026-04-29)
-  ⏳ Phase 3.1 — bonus_multiplier wiring
-     Schema column on loyalty_promos plus
-     edge function changes to honor a promo
-     multiplier override at award time.
-     Currently award-loyalty-points reads
-     bonus_points only.
+  ✅ Phase 3.1 — Bonus Multiplier Wiring
+     (LIVE 2026-05-01)
+     bonus_multiplier numeric(5,2) on
+     loyalty_promos. Strategy B —
+     multiplicative stack with tier
+     multiplier; flat bonus_points still
+     adds on top. Edge function awards
+     bonus tx with delta + flat;
+     PromoEditDialog gains side-by-side
+     inputs; PromotionsTab shows "{N}x
+     Bonus" badge. See SYSTEM STATUS
+     entry above.
+  ⏳ Phase 3.1.1 — Customer portal
+     "{N}x bonus active" badge
+     Surface active multiplier promos
+     to customers via portal indicator.
+     Banner system can advertise but a
+     real-time badge would reinforce
+     engagement (e.g. a small chip on
+     the loyalty home screen reading
+     "3x BONUS WEEKEND" while an
+     applicable promo is live for the
+     viewing member's tier). Requires
+     customer-portal edge function to
+     return the matching active promo
+     (gated by tier + cap), plus a
+     small UI surface on the loyalty
+     home screen. Same matching logic
+     as award-loyalty-points (date
+     window + applicable_tiers + cap
+     not exhausted).
   ✅ Phase 3.2 — Catalog Redemption Wiring
      (LIVE 2026-05-01)
      reward_id FK + 'catalog_reward' enum
