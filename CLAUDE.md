@@ -1603,6 +1603,41 @@ When completing a partially_paid month:
 
     (2026-05-01)
 
+  - 76. resolvePortalAuth helper had a bug in session
+    validation path. The PostgREST embed
+    customer_portal_tokens!inner(is_active) failed silently
+    because the schema cache could not resolve the FK
+    relationship from customer_portal_sessions to
+    customer_portal_tokens (table was created via SQL
+    Editor without a subsequent NOTIFY pgrst reload).
+
+    Symptom: all session_id-based auth returned 401/403
+    with generic "Invalid portal token" message even when
+    the session was healthy. last_used_at never updated.
+
+    Investigation surfaced (2026-05-01):
+      - Direct SQL JOIN works (verified via diagnostic
+        SELECT)
+      - PostgREST embed returns sessionErr that is silently
+        swallowed by the helper's generic catch
+      - Two diagnostic gaps in helper: missing error logging
+        and @ts-ignore on the embed shape access
+
+    Fix: replaced embed with two separate sequential queries
+    (session lookup, then token lookup). Eliminates
+    embedding-cardinality risk class. Added console.error
+    logging on both queries to expose future debugging info.
+
+    Net effect: 2 indexed queries vs 1 failing embed.
+    Sub-millisecond combined. Robustness wins over the
+    single-query optimization.
+
+    No customer impact — bug only affected dormant Phase A
+    session_id path. All 3 edge functions wired in Step
+    3a-1 still accept token-only auth normally.
+
+    (2026-05-01)
+
 ## Known Open Bugs
 
   Bugs that have been surfaced and triaged but not
@@ -3083,6 +3118,22 @@ When completing a partially_paid month:
 
   Step 3b (later) will flip frontend to redeem token → session
   on mount and add /launch route + manifest start_url change.
+
+  ### 2026-05-01 — PWA Phase A helper bugfix (76)
+
+  resolvePortalAuth session validation path rewritten from
+  PostgREST embed to two sequential queries. Bug surfaced
+  during Step 3a-1 verification when session_id auth
+  returned 401/403 despite healthy session. Root cause:
+  schema cache could not resolve the FK relationship for
+  the embed.
+
+  Fix preserves all session validation logic. Adds error
+  logging on both queries to expose future debugging info.
+
+  Step 3a-1 verification can now resume. Fresh redeem of
+  test token will produce a session that authenticates
+  successfully through the helper.
 
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 

@@ -53,19 +53,15 @@ export async function resolvePortalAuth(
 
   // Path 1 — session_id authentication (Phase A)
   if (session_id) {
+    // Query 1: validate session exists and not expired
     const { data: session, error: sessionErr } = await supabase
       .from('customer_portal_sessions')
-      .select(`
-        session_id,
-        customer_id,
-        source_token_id,
-        expires_at,
-        customer_portal_tokens!inner(is_active)
-      `)
+      .select('session_id, customer_id, source_token_id, expires_at')
       .eq('session_id', session_id)
       .single();
 
     if (sessionErr || !session) {
+      console.error('Session lookup failed:', sessionErr);
       throw new Error('Invalid or expired session');
     }
 
@@ -74,9 +70,19 @@ export async function resolvePortalAuth(
       throw new Error('Session expired');
     }
 
-    // Check token revocation via JOIN
-    // @ts-ignore - nested join shape from supabase-js
-    if (!session.customer_portal_tokens?.is_active) {
+    // Query 2: validate source token is still active
+    const { data: token, error: tokenErr } = await supabase
+      .from('customer_portal_tokens')
+      .select('id, is_active')
+      .eq('id', session.source_token_id)
+      .single();
+
+    if (tokenErr || !token) {
+      console.error('Token lookup failed:', tokenErr);
+      throw new Error('Source token not found');
+    }
+
+    if (!token.is_active) {
       throw new Error('Source token has been revoked');
     }
 
