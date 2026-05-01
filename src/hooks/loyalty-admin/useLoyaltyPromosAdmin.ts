@@ -9,6 +9,7 @@ export interface LoyaltyPromoRow {
   start_date: string;
   end_date: string;
   bonus_points: number;
+  bonus_multiplier: number;
   applicable_tiers: string[] | null;
   max_per_customer: number | null;
   applies_per_purchase: boolean;
@@ -52,7 +53,7 @@ export function useLoyaltyPromos(enabled: boolean = true) {
         supabase
           .from('loyalty_promos')
           .select(
-            'id, name, description, image_url, start_date, end_date, bonus_points, applicable_tiers, max_per_customer, applies_per_purchase, display_priority, is_active, created_at, updated_at, created_by_user_id',
+            'id, name, description, image_url, start_date, end_date, bonus_points, bonus_multiplier, applicable_tiers, max_per_customer, applies_per_purchase, display_priority, is_active, created_at, updated_at, created_by_user_id',
           )
           .order('display_priority', { ascending: false })
           .order('start_date', { ascending: false }),
@@ -105,6 +106,7 @@ export interface CreatePromoInput {
   start_date: string;
   end_date: string;
   bonus_points: number;
+  bonus_multiplier?: number;
   applicable_tiers?: string[] | null;
   max_per_customer?: number | null;
   applies_per_purchase?: boolean;
@@ -126,6 +128,7 @@ export function useCreateLoyaltyPromo() {
           start_date: input.start_date,
           end_date: input.end_date,
           bonus_points: input.bonus_points,
+          bonus_multiplier: input.bonus_multiplier ?? 1,
           applicable_tiers: input.applicable_tiers ?? null,
           max_per_customer: input.max_per_customer ?? null,
           applies_per_purchase: input.applies_per_purchase ?? false,

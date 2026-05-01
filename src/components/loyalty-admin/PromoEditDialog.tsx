@@ -31,6 +31,7 @@ interface FormState {
   start_date: string;
   end_date: string;
   bonus_points: string;
+  bonus_multiplier: string;
   selected_tiers: string[]; // empty = "All tiers" (applicable_tiers = null)
   max_per_customer: string;
   applies_per_purchase: boolean;
@@ -51,6 +52,7 @@ function emptyForm(): FormState {
     start_date: today,
     end_date: today,
     bonus_points: '0',
+    bonus_multiplier: '1.00',
     selected_tiers: [],
     max_per_customer: '',
     applies_per_purchase: false,
@@ -67,6 +69,7 @@ function rowToForm(p: LoyaltyPromoRow): FormState {
     start_date: p.start_date,
     end_date: p.end_date,
     bonus_points: String(p.bonus_points),
+    bonus_multiplier: Number(p.bonus_multiplier ?? 1).toFixed(2),
     selected_tiers: p.applicable_tiers ?? [],
     max_per_customer: p.max_per_customer != null ? String(p.max_per_customer) : '',
     applies_per_purchase: p.applies_per_purchase,
@@ -86,6 +89,13 @@ function validate(form: FormState): string[] {
   const bonus = Number(form.bonus_points);
   if (!Number.isFinite(bonus) || bonus < 0) {
     errors.push('Bonus points must be a non-negative number');
+  }
+  const mult = Number(form.bonus_multiplier);
+  if (!Number.isFinite(mult) || mult < 1) {
+    errors.push('Bonus multiplier must be at least 1.00 (1.0 = no boost)');
+  }
+  if (Number.isFinite(mult) && mult > 99.99) {
+    errors.push('Bonus multiplier cannot exceed 99.99');
   }
   if (form.max_per_customer.trim() !== '') {
     const cap = Number(form.max_per_customer);
@@ -108,6 +118,7 @@ function formToInput(form: FormState): CreatePromoInput {
     start_date: form.start_date,
     end_date: form.end_date,
     bonus_points: Math.round(Number(form.bonus_points)),
+    bonus_multiplier: Math.round(Number(form.bonus_multiplier) * 100) / 100,
     applicable_tiers:
       form.selected_tiers.length === 0 ? null : form.selected_tiers,
     max_per_customer:
@@ -266,20 +277,42 @@ export default function PromoEditDialog({
                 onChange={(e) => setForm({ ...form, bonus_points: e.target.value })}
                 disabled={isPending}
               />
+              <p className="text-[11px] text-muted-foreground">
+                Flat bonus points added on top. Leave at 0 to skip flat bonus.
+              </p>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="promo-cap">Max per customer</Label>
+              <Label htmlFor="promo-multiplier">Bonus multiplier</Label>
               <Input
-                id="promo-cap"
+                id="promo-multiplier"
                 type="number"
-                min={0}
-                step={1}
-                value={form.max_per_customer}
-                onChange={(e) => setForm({ ...form, max_per_customer: e.target.value })}
-                placeholder="Unlimited"
+                min={1}
+                max={99.99}
+                step={0.01}
+                value={form.bonus_multiplier}
+                onChange={(e) =>
+                  setForm({ ...form, bonus_multiplier: e.target.value })
+                }
                 disabled={isPending}
               />
+              <p className="text-[11px] text-muted-foreground">
+                Multiplier (1.0 = no boost). Stacks with tier multiplier.
+              </p>
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="promo-cap">Max per customer</Label>
+            <Input
+              id="promo-cap"
+              type="number"
+              min={0}
+              step={1}
+              value={form.max_per_customer}
+              onChange={(e) => setForm({ ...form, max_per_customer: e.target.value })}
+              placeholder="Unlimited"
+              disabled={isPending}
+            />
           </div>
 
           <div className="space-y-2">
