@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -27,6 +28,7 @@ Deno.serve(async (req) => {
       proof_url,
       notes,
       portal_token,
+      session_id,
     } = body;
 
     // 1. Basic body validation
@@ -48,27 +50,17 @@ Deno.serve(async (req) => {
     let pathACustomerId: string | null = null;
     let pathBUserId: string | null = null;
 
-    if (portal_token) {
+    if (portal_token || session_id) {
       // Path A: customer portal
-      const { data: tokenRow, error: tokenErr } = await supabase
-        .from("customer_portal_tokens")
-        .select("customer_id, expires_at, is_active")
-        .eq("token", portal_token)
-        .eq("is_active", true)
-        .maybeSingle();
-      if (tokenErr || !tokenRow) {
-        return new Response(JSON.stringify({ error: "Invalid portal token" }), {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+      try {
+        const auth = await resolvePortalAuth(supabase, { portal_token, session_id });
+        pathACustomerId = auth.customer_id;
+      } catch (err: any) {
+        return new Response(
+          JSON.stringify({ error: err?.message || "Invalid portal token" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
       }
-      if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) {
-        return new Response(JSON.stringify({ error: "Portal link has expired" }), {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      pathACustomerId = tokenRow.customer_id;
     } else {
       // Path B: staff bearer token
       const authHeader = req.headers.get("Authorization");

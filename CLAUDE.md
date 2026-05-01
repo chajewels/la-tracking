@@ -3354,6 +3354,40 @@ When completing a partially_paid month:
   After this commit: 4 of 6 portal functions accept session_id
   alongside token. 2 remain to wire in Step 3a-3.
 
+  ### 2026-05-01 — PWA Phase A Step 3a-3a deployed
+
+  Fifth portal edge function wired to resolvePortalAuth
+  (Path A only).
+
+  Function wired in this commit:
+    - submit-cash-payment Path A (customer-facing portal
+      token auth)
+
+  Path B (admin Bearer JWT auth, lines 72-102) deliberately
+  preserved bit-for-bit. Path B handles admin cash payment
+  recording via RecordCashPaymentDialog and is structurally
+  separate from Path A.
+
+  Workflow gap closed: submit-cash-payment deploy step now
+  includes _shared/ OR clause for auto-propagation of helper
+  changes (matches Bug #77 pattern). 11 deploy steps now
+  propagate _shared/ changes (2 pre-existing + 7 from #77
+  + 1 from 3a-2 + 1 from this commit).
+
+  Phase A status:
+    - Step 1 (table): COMPLETE
+    - Step 2 (helper + redeem): COMPLETE
+    - Step 3a-1 (3 functions): COMPLETE
+    - Step 3a-2 (verify-portal-pin): COMPLETE
+    - Step 3a-3a (submit-cash-payment Path A): THIS COMMIT
+    - Step 3a-3b (customer-portal dual-mode): PENDING
+    - Step 3b (frontend redemption + /launch + manifest
+      + InstallAppBanner): PENDING
+
+  After this commit: 5 of 6 portal functions accept
+  session_id alongside token. customer-portal is the last
+  remaining function (wires next in Step 3a-3b).
+
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
   PIN hash storage: customers.portal_pin_hash (64-char SHA-256 hex digest)
