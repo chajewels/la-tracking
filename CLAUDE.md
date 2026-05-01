@@ -2907,6 +2907,38 @@ When completing a partially_paid month:
     Bug #73 logged. INV #18531 ₱1,000 cumulative cache
     overstatement eliminated (cache 65,186 → canonical 64,186).
 
+  ### 2026-05-01 — PWA Phase A Step 2 deployed (infrastructure)
+
+  Backend infrastructure for portal session redemption deployed.
+  Both new edge function and shared helper are DORMANT — no
+  existing code path calls them yet. Step 3 will wire them in.
+
+  - New edge function: redeem-portal-token
+    POST { token } → { session_id, customer_id, expires_at }
+    Validates token via customer_portal_tokens.is_active
+    Creates row in customer_portal_sessions
+    Captures user-agent and IP for audit
+    Auto-deploys via GitHub Actions
+
+  - New shared helper: supabase/functions/_shared/portal-auth.ts
+    Exports resolvePortalAuth(supabase, { token?, portal_token?, session_id? })
+    Returns { customer_id, source_token_id, session_id?, via: 'session' | 'token' }
+    Accepts both 'token' and 'portal_token' field names
+    (handles historical inconsistency across the 7 portal
+    edge functions)
+    Updates last_used_at on session validation (fire-and-forget)
+    Throws structured error messages on auth failure
+
+  Step 1 (SQL Editor, today) created customer_portal_sessions
+  table with FK CASCADE to customers and customer_portal_tokens.
+  Step 3 (next session) will wire 7 portal edge functions to use
+  resolvePortalAuth, update 3 frontend pages to redeem on first
+  mount, add /launch route, change manifest start_url, and
+  recreate InstallAppBanner gated to TEST-% accounts.
+
+  No customer-facing impact from Step 2 alone. Token-based auth
+  flow unchanged.
+
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
   PIN hash storage: customers.portal_pin_hash (64-char SHA-256 hex digest)
@@ -3299,6 +3331,7 @@ isn't auto-deployed; this list reflects the workflow as of 2026-04-29:
 - preview-transactional-email
 - process-loyalty-redemption
 - recalculate-penalties (DISABLED — returns 410)
+- redeem-portal-token
 - reconcile-account
 - record-multi-payment
 - record-payment

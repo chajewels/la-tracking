@@ -33,6 +33,7 @@ on:
       - 'supabase/functions/process-loyalty-redemption/**'
       - 'supabase/functions/loyalty-inactivity-check/**'
       - 'supabase/functions/auto-expire-cash-orders/**'
+      - 'supabase/functions/redeem-portal-token/**'
       - 'supabase/functions/_shared/**'
   workflow_dispatch:
 
@@ -218,5 +219,11 @@ jobs:
       - name: Deploy auto-expire-cash-orders
         if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/auto-expire-cash-orders/')
         run: npx supabase functions deploy auto-expire-cash-orders --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy redeem-portal-token
+        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/redeem-portal-token/')
+        run: npx supabase functions deploy redeem-portal-token --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
