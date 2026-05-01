@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -20,6 +21,7 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const {
       portal_token,
+      session_id,
       account_id,        // for single payments (backward compat)
       submitted_amount,
       payment_date,
@@ -33,13 +35,7 @@ Deno.serve(async (req) => {
       allocations,        // Array<{ account_id, invoice_number, allocated_amount }>
     } = body;
 
-    // Validate required fields
-    if (!portal_token || portal_token.length < 16) {
-      return new Response(JSON.stringify({ error: "Invalid portal token" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    // Validate required fields (auth handled below via resolvePortalAuth)
     if (!submitted_amount || !payment_date || !payment_method) {
       return new Response(JSON.stringify({ error: "Missing required fields" }), {
         status: 400,
@@ -87,29 +83,17 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Validate portal token
-    const { data: tokenRow, error: tokenErr } = await supabase
-      .from("customer_portal_tokens")
-      .select("customer_id, expires_at, is_active")
-      .eq("token", portal_token)
-      .eq("is_active", true)
-      .maybeSingle();
-
-    if (tokenErr || !tokenRow) {
-      return new Response(JSON.stringify({ error: "Access denied" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    // Validate portal token or session_id
+    let customerId: string;
+    try {
+      const auth = await resolvePortalAuth(supabase, { portal_token, session_id });
+      customerId = auth.customer_id;
+    } catch (err: any) {
+      return new Response(
+        JSON.stringify({ error: err?.message || "Access denied" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
-
-    if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) {
-      return new Response(JSON.stringify({ error: "Portal link has expired" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const customerId = tokenRow.customer_id;
 
     // Determine the primary account_id (first allocation for split, or the given one)
     const primaryAccountId = isSplit ? parsedAllocations[0].account_id : account_id;

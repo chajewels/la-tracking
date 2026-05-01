@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
+import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,30 +23,19 @@ Deno.serve(async (req) => {
     );
     const gate = createLoyaltyEmailGate(supabase);
 
-    const { portal_token } = await req.json().catch(() => ({})) as {
+    const { portal_token, session_id } = await req.json().catch(() => ({})) as {
       portal_token?: string;
+      session_id?: string;
     };
 
-    if (!portal_token || portal_token.length < 16) {
-      return json({ error: "Invalid portal token" }, 401);
+    // 1. Validate portal token or session_id
+    let customerId: string;
+    try {
+      const auth = await resolvePortalAuth(supabase, { portal_token, session_id });
+      customerId = auth.customer_id;
+    } catch (err: any) {
+      return json({ error: err?.message || "Invalid or expired portal token" }, 401);
     }
-
-    // 1. Validate portal token
-    const { data: tokenRow, error: tokenErr } = await supabase
-      .from("customer_portal_tokens")
-      .select("customer_id, expires_at, is_active")
-      .eq("token", portal_token)
-      .eq("is_active", true)
-      .maybeSingle();
-
-    if (tokenErr || !tokenRow) {
-      return json({ error: "Invalid or expired portal token" }, 401);
-    }
-    if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) {
-      return json({ error: "Portal link has expired" }, 401);
-    }
-
-    const customerId = tokenRow.customer_id;
 
     // 2. Fetch customer
     const { data: customer, error: custErr } = await supabase

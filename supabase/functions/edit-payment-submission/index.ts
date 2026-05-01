@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -29,6 +30,7 @@ serve(async (req) => {
 
   const {
     portal_token,
+    session_id,
     submission_id,
     action = "edit", // 'edit' | 'cancel'
     submitted_amount,
@@ -39,8 +41,8 @@ serve(async (req) => {
     notes,
   } = body;
 
-  if (!portal_token || !submission_id) {
-    return new Response(JSON.stringify({ error: "Missing required fields: portal_token, submission_id" }), {
+  if (!submission_id) {
+    return new Response(JSON.stringify({ error: "Missing required field: submission_id" }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -53,29 +55,17 @@ serve(async (req) => {
     });
   }
 
-  // Validate portal token
-  const { data: tokenRow, error: tokenErr } = await supabase
-    .from("customer_portal_tokens")
-    .select("customer_id, expires_at, is_active")
-    .eq("token", portal_token)
-    .eq("is_active", true)
-    .maybeSingle();
-
-  if (tokenErr || !tokenRow) {
-    return new Response(JSON.stringify({ error: "Access denied" }), {
-      status: 403,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  // Validate portal token or session_id
+  let customerId: string;
+  try {
+    const auth = await resolvePortalAuth(supabase, { portal_token, session_id });
+    customerId = auth.customer_id;
+  } catch (err: any) {
+    return new Response(
+      JSON.stringify({ error: err?.message || "Access denied" }),
+      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
-
-  if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) {
-    return new Response(JSON.stringify({ error: "Portal link has expired" }), {
-      status: 403,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-
-  const customerId = tokenRow.customer_id;
 
   // Fetch submission — verify ownership
   const { data: submission, error: subErr } = await supabase

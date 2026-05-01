@@ -3033,6 +3033,57 @@ When completing a partially_paid month:
   No customer-facing impact from Step 2 alone. Token-based auth
   flow unchanged.
 
+  ### 2026-05-01 — PWA Phase A Step 3a-1 deployed (3 of 7 functions)
+
+  First batch of portal edge function wiring. Three simplest
+  functions now accept session_id alongside legacy token via
+  the resolvePortalAuth helper.
+
+  Functions wired in this commit:
+    - join-loyalty-program
+    - submit-payment
+    - edit-payment-submission
+
+  Workflow gap closed: edit-payment-submission added to
+  auto-deploy path filter and deploy step.
+
+  Length pre-check removed: submit-payment line ~37
+  (token.length < 16 would have rejected session_ids).
+  Same pre-check also removed from join-loyalty-program
+  for the same reason (spec said only submit-payment but
+  join-loyalty-program had the identical guard at line 29
+  that would have blocked session_id-only calls).
+
+  edit-payment-submission presence check loosened: the
+  guard `if (!portal_token || !submission_id)` would have
+  rejected session-only callers. Replaced with
+  `if (!submission_id)` since resolvePortalAuth handles
+  the auth-side missing-credentials case.
+
+  Backwards compatible — existing token-based callers see no
+  change. No customer impact (frontend hasn't changed).
+
+  Known follow-ups for Step 3b:
+    - join-loyalty-program welcome email URL embeds
+      portal_token at line ~125. When a session-only call
+      reaches this function (after Step 3b ships), the URL
+      becomes ?token=undefined. Step 3b should either look
+      up the customer's active token for the email URL or
+      switch the email link shape to a session-aware URL.
+    - submit-payment writes portal_token into the
+      payment_submissions row at line ~189. Session-only
+      submissions would store NULL. Acceptable today
+      (customer_id is also captured) but worth tracking.
+
+  Steps 3a-2 and 3a-3 will wire the remaining 4 functions:
+    - 3a-2: verify-portal-pin (PIN logic), customer-statement
+      (workflow gap check)
+    - 3a-3: customer-portal (dual-mode), submit-cash-payment
+      (dual-auth)
+
+  Step 3b (later) will flip frontend to redeem token → session
+  on mount and add /launch route + manifest start_url change.
+
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
   PIN hash storage: customers.portal_pin_hash (64-char SHA-256 hex digest)
@@ -3468,6 +3519,7 @@ isn't auto-deployed; this list reflects the workflow as of 2026-04-29:
 - customer-portal
 - daily-reconciliation
 - dashboard-summary
+- edit-payment-submission
 - join-loyalty-program
 - loyalty-inactivity-check
 - manual-forfeit
