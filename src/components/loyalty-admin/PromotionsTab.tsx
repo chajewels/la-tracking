@@ -427,9 +427,9 @@ function PromoCard({
           label="Period"
           value={`${fmtDate(promo.start_date)} — ${fmtDate(promo.end_date)}`}
         />
-        <Field
-          label="Bonus"
-          value={`+${Number(promo.bonus_points).toLocaleString()} pts`}
+        <BonusField
+          bonusPoints={Number(promo.bonus_points)}
+          bonusMultiplier={Number(promo.bonus_multiplier ?? 1)}
         />
         <Field label="Applicable tiers" value={tiers} />
         <Field
@@ -494,6 +494,49 @@ function Field({ label, value }: { label: string; value: string }) {
       <p className="text-xs font-medium text-foreground mt-0.5 truncate">
         {value}
       </p>
+    </div>
+  );
+}
+
+// Strip trailing zeros: 3.00 → "3", 2.50 → "2.5", 1.27 → "1.27"
+function fmtMultiplier(n: number) {
+  return parseFloat(n.toFixed(2)).toString();
+}
+
+function BonusField({
+  bonusPoints,
+  bonusMultiplier,
+}: {
+  bonusPoints: number;
+  bonusMultiplier: number;
+}) {
+  const hasMultiplier = bonusMultiplier > 1;
+  const hasPoints = bonusPoints > 0;
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+        Bonus
+      </p>
+      <div className="mt-0.5 flex flex-wrap items-center gap-1">
+        {hasMultiplier && (
+          <span
+            className="inline-flex items-center rounded-md bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground"
+            title="Multiplier stacks on top of the member's tier multiplier."
+          >
+            {fmtMultiplier(bonusMultiplier)}x Bonus
+          </span>
+        )}
+        {hasPoints && (
+          <span className="text-xs font-medium text-foreground">
+            +{bonusPoints.toLocaleString()} pts
+          </span>
+        )}
+        {!hasMultiplier && !hasPoints && (
+          <span className="text-xs font-medium text-muted-foreground">
+            +0 pts
+          </span>
+        )}
+      </div>
     </div>
   );
 }
