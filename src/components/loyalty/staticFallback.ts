@@ -9,6 +9,9 @@ export interface FallbackReward {
   isLimited?: boolean;
   isVipOnly?: boolean;
   isVault?: boolean;
+  // Phase 3.2: stock tracking from loyalty_rewards.current_stock.
+  // null = unlimited; undefined when sourced from staticFallback.
+  currentStock?: number | null;
 }
 
 // TODO: wire to Supabase

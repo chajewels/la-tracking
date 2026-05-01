@@ -1,15 +1,20 @@
 import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Lock, Check, ArrowRight, X } from 'lucide-react';
+import { Lock, Check, ArrowRight, X, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 import { useLoyaltyData } from '@/components/loyalty/loyaltyData';
 import { type FallbackReward } from '@/components/loyalty/staticFallback';
 import { useLoyaltyRewardsCatalog, type LoyaltyRewardRow } from '@/hooks/loyalty-admin/useLoyaltyRewards';
+import { supabase } from '@/integrations/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
 import VipRewardsVault from '@/components/loyalty/rewards/VipRewardsVault';
 
 /**
  * Adapter: DB row → existing FallbackReward shape so the existing
  * UI logic (canRedeem, badges, redeem flow) keeps working unchanged.
+ * currentStock is propagated so the modal/grid can render stock
+ * indicators and gate the Confirm button.
  */
 function rowToReward(r: LoyaltyRewardRow): FallbackReward {
   return {
@@ -22,7 +27,12 @@ function rowToReward(r: LoyaltyRewardRow): FallbackReward {
     isLimited: r.is_limited,
     isVipOnly: r.is_vip_only,
     isVault: r.is_vault,
+    currentStock: r.current_stock,
   };
+}
+
+function inStock(reward: FallbackReward): boolean {
+  return reward.currentStock == null || reward.currentStock > 0;
 }
 
 const categories = [
@@ -35,10 +45,13 @@ const categories = [
 
 export default function RewardsScreen() {
   const { member, tiers } = useLoyaltyData();
+  const queryClient = useQueryClient();
   const { data: rewardRows, isLoading } = useLoyaltyRewardsCatalog();
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedReward, setSelectedReward] = useState<FallbackReward | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [invoiceInput, setInvoiceInput] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const allRewards = useMemo<FallbackReward[]>(
     () => (rewardRows ?? []).map(rowToReward),
@@ -65,12 +78,78 @@ export default function RewardsScreen() {
       selectedCategory === 'All' ? true : r.category === selectedCategory,
     );
 
-  // TODO: wire to RedemptionForm submit for actual redemption processing
-  const handleRedeem = () => {
+  function closeModal() {
+    if (submitting) return;
     setSelectedReward(null);
-    setShowSuccess(true);
-    setTimeout(() => setShowSuccess(false), 3000);
-  };
+    setInvoiceInput('');
+  }
+
+  async function handleRedeem() {
+    if (!selectedReward || !member || submitting) return;
+    if (member.available_points < selectedReward.pointsCost) return;
+    if (!inStock(selectedReward)) return;
+
+    setSubmitting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        'process-loyalty-redemption',
+        {
+          body: {
+            action: 'create',
+            member_id: (member as any).id,
+            reward_id: selectedReward.id,
+            redemption_type: 'catalog_reward',
+            points_redeemed: selectedReward.pointsCost,
+            invoice_number: invoiceInput.trim() || null,
+          },
+        },
+      );
+      if (error) throw error;
+      const errFromBody = (data as any)?.error as string | undefined;
+      if (errFromBody) {
+        const status = (data as any)?.status ?? 0;
+        if (status === 409 || /out of stock|raced/i.test(errFromBody)) {
+          throw new Error('This reward just sold out, please pick another');
+        }
+        if (/mismatch/i.test(errFromBody)) {
+          throw new Error(
+            'Reward configuration changed since you opened this card. Please refresh and try again.',
+          );
+        }
+        throw new Error(errFromBody);
+      }
+
+      setSelectedReward(null);
+      setInvoiceInput('');
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
+
+      // Refresh stock + customer-loyalty caches so the catalog updates
+      // if stock dropped (only happens on approval, but doesn't hurt
+      // to refetch in case admin processed quickly).
+      queryClient.invalidateQueries({ queryKey: ['loyalty-rewards-catalog'] });
+      if ((member as any).customer_id) {
+        queryClient.invalidateQueries({
+          queryKey: ['customer-loyalty', (member as any).customer_id],
+        });
+      }
+    } catch (err: any) {
+      const msg = String(err?.message || err || '');
+      if (/sold out|out of stock|raced/i.test(msg)) {
+        toast.error('This reward just sold out, please pick another');
+      } else if (/mismatch|configuration changed/i.test(msg)) {
+        toast.error(
+          'Reward configuration changed. Please refresh and try again.',
+        );
+      } else if (/insufficient/i.test(msg)) {
+        toast.error('Insufficient points');
+      } else {
+        toast.error(msg || 'Could not submit redemption');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <>
@@ -134,14 +213,20 @@ export default function RewardsScreen() {
           {filtered.map((reward) => {
             const unlocked = canRedeem(reward);
             const affordable = member.available_points >= reward.pointsCost;
+            const stockOk = inStock(reward);
+            const lowStock =
+              reward.currentStock != null &&
+              reward.currentStock > 0 &&
+              reward.currentStock <= 5;
+            const tappable = unlocked && stockOk;
             return (
               <motion.button
                 key={reward.id}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                onClick={() => unlocked && setSelectedReward(reward)}
+                onClick={() => tappable && setSelectedReward(reward)}
                 className={`w-full text-left bg-card rounded-xl p-4 shadow-card border-gold-accent transition-all ${
-                  !unlocked ? 'opacity-50' : 'hover:shadow-soft'
+                  !tappable ? 'opacity-50' : 'hover:shadow-soft'
                 }`}
               >
                 <div className="flex items-start justify-between">
@@ -160,6 +245,16 @@ export default function RewardsScreen() {
                       {reward.tier !== 'All' && !reward.isVipOnly && (
                         <span className="text-[10px] tracking-[0.15em] uppercase text-muted-foreground font-body bg-muted px-1.5 py-0.5 rounded-full">
                           {reward.tier}+
+                        </span>
+                      )}
+                      {!stockOk && (
+                        <span className="text-[10px] tracking-[0.2em] uppercase font-body font-semibold bg-destructive/10 text-destructive px-1.5 py-0.5 rounded-full">
+                          Out of stock
+                        </span>
+                      )}
+                      {stockOk && lowStock && (
+                        <span className="text-[10px] tracking-[0.2em] uppercase font-body font-semibold bg-amber-500/15 text-amber-700 px-1.5 py-0.5 rounded-full">
+                          Only {reward.currentStock} left
                         </span>
                       )}
                     </div>
@@ -187,13 +282,13 @@ export default function RewardsScreen() {
                     )}
                   </div>
                 </div>
-                {unlocked && affordable && reward.pointsCost > 0 && (
+                {tappable && affordable && reward.pointsCost > 0 && (
                   <div className="flex items-center gap-1 mt-3 text-primary">
                     <span className="text-[12px] font-body font-semibold">Redeem Now</span>
                     <ArrowRight size={10} />
                   </div>
                 )}
-                {unlocked && !affordable && reward.pointsCost > 0 && (
+                {tappable && !affordable && reward.pointsCost > 0 && (
                   <p className="text-[12px] text-muted-foreground font-body mt-3">
                     You need{' '}
                     {(reward.pointsCost - member.available_points).toLocaleString()} more
@@ -224,7 +319,7 @@ export default function RewardsScreen() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-foreground/30 backdrop-blur-sm z-50 flex items-end justify-center"
-            onClick={() => setSelectedReward(null)}
+            onClick={closeModal}
           >
             <motion.div
               initial={{ y: 300 }}
@@ -238,7 +333,7 @@ export default function RewardsScreen() {
                 <h2 className="font-display text-xl font-semibold text-foreground">
                   {selectedReward.name}
                 </h2>
-                <button onClick={() => setSelectedReward(null)} className="p-1">
+                <button onClick={closeModal} className="p-1" disabled={submitting}>
                   <X size={18} className="text-muted-foreground" />
                 </button>
               </div>
@@ -264,21 +359,67 @@ export default function RewardsScreen() {
                 </p>
               </div>
 
-              {member.available_points >= selectedReward.pointsCost ? (
-                <button
-                  onClick={handleRedeem}
-                  className="w-full py-3.5 gradient-gold text-primary-foreground rounded-xl font-body text-sm font-semibold shadow-gold"
+              {/* Optional invoice number — placeholder REDEEM-{id}
+                  is generated server-side if left blank. */}
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="reward-invoice"
+                  className="text-[12px] text-muted-foreground font-body tracking-wider uppercase block"
                 >
-                  Confirm Redemption
-                </button>
-              ) : (
-                <button
-                  disabled
-                  className="w-full py-3.5 bg-muted text-muted-foreground rounded-xl font-body text-sm font-medium"
-                >
-                  Insufficient Points
-                </button>
-              )}
+                  Invoice Number (optional)
+                </label>
+                <input
+                  id="reward-invoice"
+                  type="text"
+                  value={invoiceInput}
+                  onChange={(e) => setInvoiceInput(e.target.value)}
+                  placeholder="e.g. CJ-2026-12345"
+                  disabled={submitting}
+                  className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm font-body text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+                <p className="text-[11px] text-muted-foreground/70 font-body">
+                  Leave blank if no specific invoice. A placeholder will
+                  be assigned.
+                </p>
+              </div>
+
+              {(() => {
+                const affordable =
+                  member.available_points >= selectedReward.pointsCost;
+                const stockOk = inStock(selectedReward);
+                if (!stockOk) {
+                  return (
+                    <button
+                      disabled
+                      className="w-full py-3.5 bg-muted text-muted-foreground rounded-xl font-body text-sm font-medium"
+                    >
+                      Out of Stock
+                    </button>
+                  );
+                }
+                if (!affordable) {
+                  return (
+                    <button
+                      disabled
+                      className="w-full py-3.5 bg-muted text-muted-foreground rounded-xl font-body text-sm font-medium"
+                    >
+                      Insufficient Points
+                    </button>
+                  );
+                }
+                return (
+                  <button
+                    onClick={handleRedeem}
+                    disabled={submitting}
+                    className="w-full py-3.5 gradient-gold text-primary-foreground rounded-xl font-body text-sm font-semibold shadow-gold disabled:opacity-70 flex items-center justify-center gap-2"
+                  >
+                    {submitting && (
+                      <Loader2 size={14} className="animate-spin" />
+                    )}
+                    {submitting ? 'Submitting…' : 'Confirm Redemption'}
+                  </button>
+                );
+              })()}
             </motion.div>
           </motion.div>
         )}
@@ -303,10 +444,12 @@ export default function RewardsScreen() {
                 <Check size={28} className="text-primary-foreground" />
               </div>
               <h2 className="font-display text-2xl font-semibold text-foreground">
-                Redemption Successful!
+                Redemption Submitted!
               </h2>
               <p className="text-sm text-muted-foreground font-body">
-                Your reward has been claimed. Thank you for choosing Cha Jewels Japan Gold! ✨
+                Your request is pending admin approval. Points will be
+                deducted once approved. Thank you for choosing Cha Jewels
+                Japan Gold! ✨
               </p>
             </motion.div>
           </motion.div>
