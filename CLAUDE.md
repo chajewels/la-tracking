@@ -3158,6 +3158,114 @@ When completing a partially_paid month:
         column. UPDATE path passes
         through partial input.updates
         unchanged.
+    Phase 3.5 — Image Upload to Storage (LIVE 2026-05-03)
+      - Replaced the paste-image-URL flow
+        with a real Supabase Storage upload
+        UI across all 3 loyalty admin
+        dialogs: PromoEditDialog,
+        RewardEditDialog, BannerEditDialog.
+      - New storage bucket: loyalty-images
+          public = true (anon read for
+            customer portal — same pattern
+            as the promotions bucket and
+            the Phase 3.2 anon RLS on
+            loyalty_rewards / banners)
+          file_size_limit = 5_242_880
+            (5 MB) enforced at storage
+            layer
+          allowed_mime_types =
+            {image/jpeg, image/png,
+             image/webp}
+        Bucket-level constraints back up
+        the client-side validation.
+      - 4 RLS policies on storage.objects
+        scoped to bucket_id =
+        'loyalty-images':
+          SELECT  → anon, authenticated
+          INSERT  → admin OR finance
+          UPDATE  → admin OR finance
+          DELETE  → admin OR finance
+        Tighter than the promotions
+        bucket precedent (admin+staff) —
+        loyalty content stays in the
+        admin/finance domain.
+      - New shared component
+        (commit 27b1f2b):
+        src/components/loyalty-admin/ImageUploadField.tsx
+          Click-to-browse + drag-and-drop
+          drop zone (empty state) or
+          80×80 thumbnail with Replace +
+          Remove buttons (filled state).
+          Loading spinner overlays both
+          states during upload. Inline
+          error text + sonner toast on
+          rejection.
+          Client validation: mime in
+          {jpeg,png,webp} and size ≤ 5 MB
+          before any upload attempt.
+          Filename pattern:
+            ${entity}-${crypto.randomUUID()}-${Date.now()}.${ext}
+          Stored flat in the bucket root.
+          Extension derived from filename
+          with mime-type fallback when
+          missing.
+          Returns the public URL via
+          supabase.storage.getPublicUrl
+          and writes it to image_url via
+          the onChange callback.
+          Fire-and-forget delete on
+          Replace and on Remove. Scoped
+          via regex against
+          /storage/v1/object/public/loyalty-images/
+          so legacy paste URLs (and any
+          external URLs) are never
+          touched — only files we own
+          get cleaned up.
+          Drag handlers preventDefault
+          + stopPropagation on the
+          three drag events so dropping
+          a file outside the zone does
+          not navigate the page.
+      - Wired into 3 dialogs (commits
+        5194de7 / 39aea4d / 7b8eafd):
+          PromoEditDialog,
+          RewardEditDialog,
+          BannerEditDialog.
+        Boundary conversions preserve
+        the existing
+        FormState.image_url:string
+        contract:
+          value:    form.image_url || null
+          onChange: (url) => image_url:
+                    url ?? ''
+        formToInput's empty-to-null logic
+        on each dialog continues to map
+        empty strings back to null on
+        save, so the image_url database
+        column shape is unchanged.
+        BannerEditDialog's existing
+        live preview pane reads
+        form.image_url directly and
+        continues to work unmodified —
+        the boundary conversion keeps
+        that string populated whenever
+        a URL is set.
+        Layout adjustment in
+        BannerEditDialog: image_url and
+        emoji were paired in a 2-col
+        grid; the new ImageUploadField
+        is much taller than a single
+        Input, so the pair was split
+        into two stacked full-width
+        rows. Promo and Reward dialogs
+        kept their original full-width
+        Image row.
+        Label text on all 3 dialogs
+        renamed from "Image URL
+        (optional)" to "Image (optional)"
+        — no longer a URL paste.
+      - Phase 3 series complete — full
+        content management end-to-end.
 
   ### 2026-04-30 — Session shipped
 
@@ -3687,6 +3795,37 @@ loyalty portal. In progress.
     total_mult = tier_mult × bonus_multiplier; flat
     bonus_points still adds on top.
 
+### TODAY'S DATA FIXES (2026-05-03)
+
+  Storage bucket and RLS policies applied via SQL Editor in
+  support of Phase 3.5 (Image Upload to Storage):
+
+  - Created loyalty-images storage bucket
+    INSERT INTO storage.buckets with public=true,
+    file_size_limit=5242880 (5 MB), and allowed_mime_types
+    ARRAY['image/jpeg','image/png','image/webp']. Public flag
+    matches the promotions bucket precedent so the customer
+    loyalty portal can read directly via anon role; mime
+    whitelist + size limit enforce the upload contract at
+    storage layer (defense-in-depth alongside client-side
+    validation in ImageUploadField).
+
+  - 4 RLS policies on storage.objects scoped to bucket_id =
+    'loyalty-images':
+      "Public read loyalty images" — SELECT to anon +
+        authenticated. Required for customer portal
+        rendering (token-based, anonymous to Supabase).
+      "Admin and finance upload loyalty images" — INSERT
+        WITH CHECK (admin OR finance). Tighter than the
+        promotions bucket (admin+staff) by design.
+      "Admin and finance update loyalty images" — UPDATE
+        with the same role check. Needed because Supabase
+        upsert mode hits the UPDATE path on overwrite.
+      "Admin and finance delete loyalty images" — DELETE
+        with the same role check. Required by the
+        ImageUploadField fire-and-forget cleanup on
+        Replace / Remove.
+
 ### OPERATIONAL ENHANCEMENTS
   P6: Admin audit log for manual DB changes
   P7: Invoice generator — Google Sheets +
@@ -3764,13 +3903,43 @@ loyalty portal. In progress.
      with action='stock_reincremented'.
      Skip when reward_id is null or
      current_stock is null (unlimited).
-  ⏳ Phase 3.5 — Image upload to Supabase
-     Storage
-     New bucket (e.g. loyalty-content) with
-     RLS, plus an upload widget in the three
-     edit dialogs (Promo / Reward / Banner)
-     replacing the current image_url paste-
-     only flow.
+  ✅ Phase 3.5 — Image Upload to Storage
+     (LIVE 2026-05-03)
+     loyalty-images public bucket (5 MB
+     cap, jpeg/png/webp whitelist) with
+     4 RLS policies. New shared
+     ImageUploadField component (click +
+     drag/drop, 80×80 thumbnail, replace/
+     remove, fire-and-forget delete on
+     replace) wired into PromoEditDialog,
+     RewardEditDialog, BannerEditDialog.
+     See SYSTEM STATUS entry above.
+  ⏳ Phase 3.5.1 — Orphan image cleanup
+     Periodic edge function or cron job
+     to detect images in loyalty-images
+     bucket not referenced by any
+     loyalty_promos / loyalty_rewards /
+     loyalty_banners row. The Phase 3.5
+     fire-and-forget delete on Replace /
+     Remove handles the common case
+     (admin swaps an image, original gets
+     cleaned up), but rows deleted while
+     keeping image_url do not trigger
+     storage cleanup, and rows whose
+     image_url is hand-edited via SQL
+     bypass the widget entirely.
+     Implementation sketch: list bucket
+     objects, full outer join against
+     UNION of image_url values from the
+     three tables, delete rows present in
+     bucket but missing from any table.
+     Run weekly via pg_cron + edge
+     function. Storage cost on a few
+     hundred orphan JPEGs is trivial so
+     this is hygiene, not urgent.
+
+  Phase 3 series complete — full content
+  management end-to-end.
   ⏳ Phase 4 — Communications
      - Notifications tab (broadcast system)
      - Notification templates
