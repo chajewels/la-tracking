@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import ImageUploadField from '@/components/loyalty-admin/ImageUploadField';
 import {
   useCreateLoyaltyReward,
   useUpdateLoyaltyReward,
@@ -269,12 +270,11 @@ export default function RewardEditDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="reward-image">Image URL (optional)</Label>
-            <Input
-              id="reward-image"
-              value={form.image_url}
-              onChange={(e) => setForm({ ...form, image_url: e.target.value })}
-              placeholder="https://..."
+            <Label>Image (optional)</Label>
+            <ImageUploadField
+              entity="reward"
+              value={form.image_url || null}
+              onChange={(url) => setForm({ ...form, image_url: url ?? '' })}
               disabled={isPending}
             />
           </div>
