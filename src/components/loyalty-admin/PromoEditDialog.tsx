@@ -15,6 +15,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
+import ImageUploadField from '@/components/loyalty-admin/ImageUploadField';
 import {
   useCreateLoyaltyPromo,
   useUpdateLoyaltyPromo,
@@ -232,12 +233,11 @@ export default function PromoEditDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="promo-image">Image URL (optional)</Label>
-            <Input
-              id="promo-image"
-              value={form.image_url}
-              onChange={(e) => setForm({ ...form, image_url: e.target.value })}
-              placeholder="https://..."
+            <Label>Image (optional)</Label>
+            <ImageUploadField
+              entity="promo"
+              value={form.image_url || null}
+              onChange={(url) => setForm({ ...form, image_url: url ?? '' })}
               disabled={isPending}
             />
           </div>
