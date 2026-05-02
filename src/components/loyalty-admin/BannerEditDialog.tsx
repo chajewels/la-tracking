@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import ImageUploadField from '@/components/loyalty-admin/ImageUploadField';
 import {
   useCreateLoyaltyBanner,
   useUpdateLoyaltyBanner,
@@ -276,29 +277,27 @@ export default function BannerEditDialog({
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="banner-image">Image URL (optional)</Label>
-                <Input
-                  id="banner-image"
-                  value={form.image_url}
-                  onChange={(e) =>
-                    setForm({ ...form, image_url: e.target.value })
-                  }
-                  placeholder="https://..."
-                  disabled={isPending}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="banner-emoji">Emoji</Label>
-                <Input
-                  id="banner-emoji"
-                  value={form.emoji}
-                  onChange={(e) => setForm({ ...form, emoji: e.target.value })}
-                  placeholder="e.g. 🎂  💎  👑"
-                  disabled={isPending}
-                />
-              </div>
+            <div className="space-y-1.5">
+              <Label>Image (optional)</Label>
+              <ImageUploadField
+                entity="banner"
+                value={form.image_url || null}
+                onChange={(url) =>
+                  setForm({ ...form, image_url: url ?? '' })
+                }
+                disabled={isPending}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="banner-emoji">Emoji</Label>
+              <Input
+                id="banner-emoji"
+                value={form.emoji}
+                onChange={(e) => setForm({ ...form, emoji: e.target.value })}
+                placeholder="e.g. 🎂  💎  👑"
+                disabled={isPending}
+              />
             </div>
 
             <div className="space-y-1.5">
