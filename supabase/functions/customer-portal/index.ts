@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -69,35 +70,19 @@ Deno.serve(async (req) => {
     if (req.method === "POST") {
       const body = await req.json();
       const token = body.token;
+      const session_id = body.session_id;
       const action = body.action;
 
-      if (!token || token.length < 16) {
-        return new Response(JSON.stringify({ error: "Invalid token" }), {
-          status: 403,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      // Validate token
-      const { data: tokenRow } = await supabase
-        .from("customer_portal_tokens")
-        .select("*")
-        .eq("token", token)
-        .eq("is_active", true)
-        .maybeSingle();
-
-      if (!tokenRow) {
-        return new Response(JSON.stringify({ error: "Access denied" }), {
-          status: 403,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) {
-        return new Response(JSON.stringify({ error: "Portal link has expired" }), {
-          status: 403,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+      // Validate token or session_id via shared helper
+      let customerId: string;
+      try {
+        const auth = await resolvePortalAuth(supabase, { token, session_id });
+        customerId = auth.customer_id;
+      } catch (err: any) {
+        return new Response(
+          JSON.stringify({ error: err?.message || "Access denied" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
       }
 
       if (action === "update_profile") {
@@ -122,7 +107,7 @@ Deno.serve(async (req) => {
         const { error: updateErr } = await supabase
           .from("customers")
           .update(updateData)
-          .eq("id", tokenRow.customer_id);
+          .eq("id", customerId);
 
         if (updateErr) {
           return new Response(JSON.stringify({ error: "Failed to update profile" }), {
@@ -134,7 +119,7 @@ Deno.serve(async (req) => {
         // Log audit
         await supabase.from("audit_logs").insert({
           entity_type: "customer",
-          entity_id: tokenRow.customer_id,
+          entity_id: customerId,
           action: "portal_profile_update",
           new_value_json: updateData,
         });
@@ -153,37 +138,22 @@ Deno.serve(async (req) => {
     // GET flow - existing portal data
     const url = new URL(req.url);
     const token = url.searchParams.get("token");
+    const session_id = url.searchParams.get("session_id");
 
-    if (!token || token.length < 16) {
-      return new Response(JSON.stringify({ error: "Invalid or missing token" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // Validate token or session_id via shared helper
+    let customerId: string;
+    try {
+      const auth = await resolvePortalAuth(supabase, {
+        token: token ?? undefined,
+        session_id: session_id ?? undefined,
       });
+      customerId = auth.customer_id;
+    } catch (err: any) {
+      return new Response(
+        JSON.stringify({ error: err?.message || "Access denied" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
-
-    // Validate portal token
-    const { data: tokenRow, error: tokenErr } = await supabase
-      .from("customer_portal_tokens")
-      .select("*")
-      .eq("token", token)
-      .eq("is_active", true)
-      .maybeSingle();
-
-    if (tokenErr || !tokenRow) {
-      return new Response(JSON.stringify({ error: "Access denied" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) {
-      return new Response(JSON.stringify({ error: "Portal link has expired" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const customerId = tokenRow.customer_id;
 
     // Fetch customer with profile fields
     const { data: customer, error: custErr } = await supabase

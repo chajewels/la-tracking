@@ -3388,6 +3388,51 @@ When completing a partially_paid month:
   session_id alongside token. customer-portal is the last
   remaining function (wires next in Step 3a-3b).
 
+  ### 2026-05-01 — PWA Phase A Step 3a-3b deployed (Backend complete)
+
+  Sixth and final portal edge function wired to
+  resolvePortalAuth. Phase A backend is now fully wired.
+
+  Function wired in this commit:
+    - customer-portal (dual-mode: GET + POST, two separate
+      auth sites, both wired independently)
+
+  Length pre-checks removed at 2 sites:
+    - POST handler line 74 (was: token.length < 16)
+    - GET handler line 157 (was: token.length < 16)
+
+  Workflow gap closed: customer-portal deploy step now
+  includes _shared/ OR clause for auto-propagation of helper
+  changes. 12 deploy steps now propagate _shared/ changes
+  (2 pre-existing + 7 from #77 + 1 from 3a-2 + 1 from 3a-3a
+  + this commit).
+
+  Phase A backend status: COMPLETE
+    - Step 1 (table): ✓
+    - Step 2 (helper + redeem): ✓
+    - Step 3a-1 (3 functions): ✓
+    - Step 3a-2 (verify-portal-pin): ✓
+    - Step 3a-3a (submit-cash-payment Path A): ✓
+    - Step 3a-3b (customer-portal dual-mode): ✓ THIS COMMIT
+    - Step 3b (frontend redemption + /launch + manifest
+      + InstallAppBanner): PENDING
+
+  All 6 portal functions now accept session_id alongside
+  legacy token. Backwards compatible — existing token-based
+  callers see no behavior change.
+
+  Step 3b (frontend) is the customer-visible flip:
+    - 3 frontend pages add token-redemption logic
+      (CustomerPortal, LoyaltyPortal, and any third)
+    - New /launch route with 3-case logic
+      (session/admin/neither)
+    - vite.config.ts manifest start_url change to /launch
+    - New InstallAppBanner gated to TEST-% accounts only
+
+  Step 3b ships in next session given its production-visible
+  nature. Backend is stable and verified — frontend can flip
+  with a single revert if needed.
+
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
   PIN hash storage: customers.portal_pin_hash (64-char SHA-256 hex digest)
