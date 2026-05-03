@@ -1,12 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Download, X } from 'lucide-react';
+import { usePWAInstall } from '@/contexts/PWAInstallContext';
 
 const DISMISSED_KEY = 'cha_install_banner_dismissed';
-
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
-}
 
 interface InstallAppBannerProps {
   // Parent gates this — typically: account.invoice_number
@@ -14,19 +10,21 @@ interface InstallAppBannerProps {
   show: boolean;
 }
 
-// PWA install banner. Listens for beforeinstallprompt on
-// Chrome / Edge / Android; renders iOS-specific instructions
-// on iOS Safari (which does not fire beforeinstallprompt and
-// requires the user to "Add to Home Screen" via Share sheet).
+// PWA install banner. Reads the captured beforeinstallprompt
+// event from PWAInstallContext (registered at App root).
+// On iOS Safari renders instructional text instead of a
+// button, since iOS does not fire beforeinstallprompt and
+// the user must "Add to Home Screen" via the Share sheet.
 //
-// Greenfield rebuild after Bug #65 cleanup (commit 63ffb16
-// removed the prior banner UI and its dynamic-manifest
-// helper). Now gated to TEST-% accounts only so production
-// customers do not see it until manifest start_url change
-// in Step 3b-3 has been verified.
+// Bug #78: previously this component owned its own
+// beforeinstallprompt listener via useEffect, which only
+// registered after the banner mounted — too late, since
+// CustomerPortal's splash + load + PIN gate delays mount
+// for many seconds while Chrome fires the event almost
+// immediately. Listener was moved to PWAInstallProvider
+// at App root to capture the event on app boot.
 export function InstallAppBanner({ show }: InstallAppBannerProps) {
-  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [isIOS, setIsIOS] = useState(false);
+  const { deferredPrompt, isIOS, clearPrompt } = usePWAInstall();
   const [dismissed, setDismissed] = useState(() => {
     try {
       return localStorage.getItem(DISMISSED_KEY) === 'true';
@@ -34,21 +32,6 @@ export function InstallAppBanner({ show }: InstallAppBannerProps) {
       return false;
     }
   });
-
-  useEffect(() => {
-    const userAgent = window.navigator.userAgent.toLowerCase();
-    setIsIOS(/iphone|ipad|ipod/.test(userAgent));
-
-    const handler = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e as BeforeInstallPromptEvent);
-    };
-    window.addEventListener('beforeinstallprompt', handler);
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handler);
-    };
-  }, []);
 
   if (!show || dismissed) return null;
   if (!deferredPrompt && !isIOS) return null;
@@ -58,6 +41,7 @@ export function InstallAppBanner({ show }: InstallAppBannerProps) {
     await deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
     if (outcome === 'accepted') {
+      clearPrompt();
       handleDismiss();
     }
   };
