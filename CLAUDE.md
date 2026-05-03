@@ -1680,45 +1680,6 @@ When completing a partially_paid month:
 
     (2026-05-01)
 
-  - 78. InstallAppBanner did not render despite Chrome's
-    beforeinstallprompt firing on TEST-% accounts. Root
-    cause: banner mounted only after CustomerPortal's
-    splash (3s) + portal data load + PIN gate. Chrome
-    fired beforeinstallprompt during the splash window,
-    listener was not yet registered, event was lost,
-    deferredPrompt stayed null, banner returned null
-    forever.
-
-    Symptom: Chrome's native install dialog appeared
-    (proving event fired), but the custom banner never
-    showed even after PIN entry.
-
-    Investigation 2026-05-03 traced render lifecycle and
-    confirmed the listener registered post-mount via
-    useEffect, while Chrome fires the event seconds after
-    page load. Same race existed in LoyaltyPortal.tsx.
-
-    Fix: moved beforeinstallprompt listener to a new
-    PWAInstallProvider wrapped at App.tsx top level.
-    Listener registers immediately on app boot, before
-    any route or page mounts. InstallAppBanner reads
-    deferredPrompt + isIOS from the context via
-    usePWAInstall() hook. Local-only state (dismissed)
-    stays inside the banner.
-
-    Files changed:
-      - src/contexts/PWAInstallContext.tsx (NEW)
-      - src/App.tsx (PWAInstallProvider wrap)
-      - src/components/portal/InstallAppBanner.tsx
-        (consume context instead of local listener)
-
-    Net effect: banner now renders correctly on TEST-%
-    accounts in regular Chrome. Production customers
-    (no TEST-% accounts) still see no banner per the
-    show prop gate.
-
-    (2026-05-03)
-
 ## Known Open Bugs
 
   Bugs that have been surfaced and triaged but not
@@ -3727,25 +3688,6 @@ When completing a partially_paid month:
 
   Frontend-only commit. Single revert removes /launch route
   and InstallAppBanner. Backend and 3b-1 unaffected.
-
-  ### 2026-05-03 — PWA Phase A Step 3b-2 fix (#78)
-
-  Bug #78 fixed: InstallAppBanner now renders for TEST-%
-  customers in Chrome. The beforeinstallprompt listener
-  was racing with the splash screen and PIN gate, causing
-  the event to fire before the listener registered.
-
-  Listener moved to PWAInstallProvider at App.tsx top
-  level. Captures the event on app boot, before any
-  route mounts. Banner reads from context via
-  usePWAInstall().
-
-  No customer impact (banner gated to TEST-% accounts
-  only).
-
-  Phase A status:
-    - Step 1 through 3b-2: COMPLETE (with #78 fix)
-    - Step 3b-3 (manifest start_url): PENDING
 
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 

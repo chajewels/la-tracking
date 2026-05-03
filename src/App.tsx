@@ -8,7 +8,6 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { PermissionsProvider } from "@/contexts/PermissionsContext";
-import { PWAInstallProvider } from "@/contexts/PWAInstallContext";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 
 // Retry wrapper for lazy imports — handles stale chunks after dev server restart
@@ -90,14 +89,13 @@ function RecoveryRedirect() {
 }
 
 const App = () => (
-  <PWAInstallProvider>
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <AuthProvider>
-            <PermissionsProvider>
+  <QueryClientProvider client={queryClient}>
+    <TooltipProvider>
+      <Toaster />
+      <Sonner />
+      <BrowserRouter>
+        <AuthProvider>
+          <PermissionsProvider>
             <Suspense fallback={<PageLoader />}>
               <RecoveryRedirect />
               <Routes>
@@ -142,7 +140,6 @@ const App = () => (
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
-  </PWAInstallProvider>
 );
 
 export default App;
