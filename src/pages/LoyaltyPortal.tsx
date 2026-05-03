@@ -100,6 +100,19 @@ interface PortalData {
    * silently return false for any portal-token session.
    */
   is_loyalty_beta?: boolean;
+  /** Phase 4: loyalty notifications fanned out to this member. */
+  notifications?: Array<{
+    id: string;
+    title: string;
+    body: string;
+    category: string;
+    link_target: string | null;
+    expires_at: string | null;
+    created_at: string;
+    is_read: boolean;
+    read_at: string | null;
+  }>;
+  unread_count?: number;
 }
 
 const tierStorageKey = (customerId: string) => `cha-jewels-last-seen-tier-${customerId}`;
@@ -336,14 +349,21 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
         )}
         {tab === 'rewards' && <RewardsScreen />}
         {tab === 'points' && <PointsScreen />}
-        {tab === 'notifications' && <NotificationsScreen />}
+        {tab === 'notifications' && (
+          <NotificationsScreen
+            notifications={data.notifications ?? []}
+            portalToken={portalToken}
+            sessionId={null}
+            onSetTab={setTab}
+          />
+        )}
         {tab === 'profile' && <ProfileScreen setTab={setTab} />}
         {tab === 'tiers' && <TiersScreen onBack={() => setTab('home')} />}
       </div>
 
       <LoyaltyBottomNav
         active={tab}
-        unreadCount={0}
+        unreadCount={data.unread_count ?? 0}
         onChange={setTab}
       />
 
