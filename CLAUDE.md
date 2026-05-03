@@ -1680,6 +1680,40 @@ When completing a partially_paid month:
 
     (2026-05-01)
 
+  - 79. Phase A 3b-1 frontend token redemption broke PIN
+    UI transition. PIN backend verify returned 200/success,
+    follow-up portal data calls fired correctly, but the
+    UI stayed stuck on PIN entry screen and did not
+    transition to dashboard.
+
+    Symptom: Customers entered correct PIN, page did
+    nothing. Customers retried, got rate-limited, locked
+    out. 3 customers affected today (Test Customer, Diana
+    Ramirez, PE RI Dot).
+
+    Detection: Production diagnosis 2026-05-03 evening.
+    Backend curl test showed PIN verify working (HTTP 200,
+    success:true). Browser network tab showed same. But
+    UI did not proceed.
+
+    Root cause: TBD — pending investigation. 3b-1 modified
+    PIN response handling to send session_id when present.
+    Suspected break in pinVerified state setter or
+    re-render trigger.
+
+    Resolution: Reverted commits 703a516, dc31be1, 85a8d23
+    via git revert. Pushed at HEAD 235bf30. Affected
+    customers unlocked manually via SQL UPDATE.
+
+    Phase A backend (commits 17fa7a6 and earlier) remains
+    intact and operational. Token-only auth path still
+    works for customers.
+
+    Next step: investigate root cause before any retry of
+    3b-1.
+
+    (2026-05-03)
+
 ## Known Open Bugs
 
   Bugs that have been surfaced and triaged but not
@@ -3540,6 +3574,31 @@ When completing a partially_paid month:
   Step 3b ships in next session given its production-visible
   nature. Backend is stable and verified — frontend can flip
   with a single revert if needed.
+
+  ### 2026-05-03 — Phase A frontend reverted (#79)
+
+  Frontend commits 703a516 (3b-1), dc31be1 (3b-2),
+  85a8d23 (3b-2-fix) reverted. Phase A backend intact.
+
+  Production state:
+    - HEAD: 235bf30 (revert of 3b-1)
+    - Customer auth: token-only (backend supports both
+      modes; frontend uses token only)
+    - InstallAppBanner: not deployed
+    - /launch route: not deployed
+    - PWAInstallContext: not deployed
+
+  Phase A status update:
+    - Step 1 through 3a-3b (backend): COMPLETE, live
+    - Step 3b-1 (frontend redemption): REVERTED — broke
+      PIN UI transition (#79)
+    - Step 3b-2 (/launch + banner): REVERTED (revert chain)
+    - Step 3b-2 fix (#78): REVERTED (revert chain)
+    - Step 3b-3 (manifest): NOT SHIPPED
+
+  Pending: root cause analysis of #79 before any retry.
+  Phase A may proceed backend-only if frontend retry is
+  deferred.
 
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
