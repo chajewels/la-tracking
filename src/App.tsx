@@ -54,6 +54,7 @@ const LoyaltyAdmin = lazyWithRetry(() => import("./pages/LoyaltyAdmin"));
 const ExecutiveDashboard = lazyWithRetry(() => import("./pages/ExecutiveDashboard"));
 const NewCashOrder = lazyWithRetry(() => import("./pages/NewCashOrder"));
 const CashOrderDetail = lazyWithRetry(() => import("./pages/CashOrderDetail"));
+const Launch = lazyWithRetry(() => import("./pages/Launch"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -105,7 +106,8 @@ const App = () => (
                 <Route path="/portal" element={<CustomerPortal />} />
                 <Route path="/loyalty" element={<LoyaltyPortal />} />
                 <Route path="/unsubscribe" element={<Unsubscribe />} />
-                
+                <Route path="/launch" element={<Launch />} />
+
                 <Route path="/" element={<Protected><Dashboard /></Protected>} />
                 <Route path="/accounts" element={<Protected><AccountList /></Protected>} />
                 <Route path="/accounts/new" element={<Protected><NewAccount /></Protected>} />

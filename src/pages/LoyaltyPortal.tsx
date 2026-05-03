@@ -17,6 +17,7 @@ import {
   type LoyaltyTransactionData,
 } from '@/components/loyalty/loyaltyData';
 import LoyaltySplashScreen from '@/components/portal/LoyaltySplashScreen';
+import { InstallAppBanner } from '@/components/portal/InstallAppBanner';
 import LoyaltyBottomNav, {
   type LoyaltyTab,
 } from '@/components/loyalty/LoyaltyBottomNav';
@@ -106,6 +107,8 @@ interface PortalData {
    * silently return false for any portal-token session.
    */
   is_loyalty_beta?: boolean;
+  /** Layaway accounts — used by InstallAppBanner TEST-% gate. */
+  accounts?: Array<{ invoice_number?: string }>;
 }
 
 const tierStorageKey = (customerId: string) => `cha-jewels-last-seen-tier-${customerId}`;
@@ -510,9 +513,18 @@ export default function LoyaltyPortal() {
     );
   }
 
+  const isTestAccount = (data.accounts || []).some(
+    (a) => a.invoice_number?.startsWith('TEST-'),
+  );
+
   return (
     <FullScreenWrap>
       <TopBar token={token} />
+      {isTestAccount && (
+        <div className="px-4 pt-3">
+          <InstallAppBanner show={true} />
+        </div>
+      )}
       <MemberView data={data} member={member} portalToken={token} />
     </FullScreenWrap>
   );
