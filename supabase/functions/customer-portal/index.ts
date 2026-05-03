@@ -262,9 +262,12 @@ Deno.serve(async (req) => {
 
     let loyaltyTransactions: any[] = [];
     let loyaltyRedemptions: any[] = [];
+    let notifications: any[] = [];
+    let unreadCount = 0;
     if (loyaltyMemberRow) {
       const memberId = (loyaltyMemberRow as any).id;
-      const [txnsRes, redRes] = await Promise.all([
+      const nowIso = new Date().toISOString();
+      const [txnsRes, redRes, notifRes, unreadRes] = await Promise.all([
         supabase
           .from("loyalty_transactions")
           .select(
@@ -280,9 +283,62 @@ Deno.serve(async (req) => {
           )
           .eq("member_id", memberId)
           .order("created_at", { ascending: false }),
+        // Phase 4: notifications for this member, joined to the master row
+        // for title/body/category/link_target/expires_at. Filter to sent +
+        // not-yet-expired. Indexed by
+        // idx_loyalty_notification_recipients_member_created.
+        supabase
+          .from("loyalty_notification_recipients")
+          .select(
+            "is_read, read_at, loyalty_notifications!inner(id, title, body, category, link_target, expires_at, created_at, status)",
+          )
+          .eq("member_id", memberId)
+          .eq("loyalty_notifications.status", "sent")
+          .or(`expires_at.is.null,expires_at.gt.${nowIso}`, {
+            referencedTable: "loyalty_notifications",
+          })
+          .order("created_at", {
+            ascending: false,
+            referencedTable: "loyalty_notifications",
+          })
+          .limit(100),
+        // Unread count via partial index
+        // idx_loyalty_notification_recipients_member_unread.
+        supabase
+          .from("loyalty_notification_recipients")
+          .select("id", { count: "exact", head: true })
+          .eq("member_id", memberId)
+          .eq("is_read", false),
       ]);
       loyaltyTransactions = txnsRes.data || [];
       loyaltyRedemptions = redRes.data || [];
+
+      const notifRows = (notifRes.data || []) as Array<{
+        is_read: boolean;
+        read_at: string | null;
+        loyalty_notifications: {
+          id: string;
+          title: string;
+          body: string;
+          category: string;
+          link_target: string | null;
+          expires_at: string | null;
+          created_at: string;
+          status: string;
+        };
+      }>;
+      notifications = notifRows.map((r) => ({
+        id: r.loyalty_notifications.id,
+        title: r.loyalty_notifications.title,
+        body: r.loyalty_notifications.body,
+        category: r.loyalty_notifications.category,
+        link_target: r.loyalty_notifications.link_target,
+        expires_at: r.loyalty_notifications.expires_at,
+        created_at: r.loyalty_notifications.created_at,
+        is_read: r.is_read,
+        read_at: r.read_at,
+      }));
+      unreadCount = unreadRes.count ?? 0;
     }
 
     const schedulesByAccount: Record<string, any[]> = {};
@@ -506,6 +562,8 @@ Deno.serve(async (req) => {
       loyalty_transactions: loyaltyTransactions,
       loyalty_redemptions: loyaltyRedemptions,
       is_loyalty_beta: loyaltyBetaRow !== null,
+      notifications,
+      unread_count: unreadCount,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
