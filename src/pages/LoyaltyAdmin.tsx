@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Bell } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import DashboardTab from '@/components/loyalty-admin/DashboardTab';
@@ -13,6 +13,7 @@ import AuditLogTab from '@/components/loyalty-admin/AuditLogTab';
 import PromotionsTab from '@/components/loyalty-admin/PromotionsTab';
 import RewardsTab from '@/components/loyalty-admin/RewardsTab';
 import BannersTab from '@/components/loyalty-admin/BannersTab';
+import NotificationsTab from '@/components/loyalty-admin/NotificationsTab';
 import { useLoyaltyPendingCount } from '@/hooks/useLoyaltyPendingCount';
 
 type LoyaltyAdminTab =
@@ -25,7 +26,8 @@ type LoyaltyAdminTab =
   | 'audit'
   | 'promotions'
   | 'rewards'
-  | 'banners';
+  | 'banners'
+  | 'notifications';
 
 const VALID_TABS: ReadonlySet<LoyaltyAdminTab> = new Set([
   'dashboard',
@@ -38,6 +40,7 @@ const VALID_TABS: ReadonlySet<LoyaltyAdminTab> = new Set([
   'promotions',
   'rewards',
   'banners',
+  'notifications',
 ]);
 
 function readTab(value: string | null): LoyaltyAdminTab {
@@ -101,12 +104,12 @@ export default function LoyaltyAdmin() {
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-5">
           {/*
-            10 tabs. shadcn TabsTrigger has whitespace-nowrap so labels
+            11 tabs. shadcn TabsTrigger has whitespace-nowrap so labels
             stay on one line. Default behavior is flex + horizontal
-            scroll for narrow screens; on xl (1280+) we use a 10-column
+            scroll for narrow screens; on xl (1280+) we use an 11-column
             grid for an even split.
           */}
-          <TabsList className="flex w-full overflow-x-auto xl:grid xl:grid-cols-10">
+          <TabsList className="flex w-full overflow-x-auto xl:grid xl:grid-cols-11">
             <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
             <TabsTrigger value="members">Members</TabsTrigger>
             <TabsTrigger value="redemptions">
@@ -131,6 +134,10 @@ export default function LoyaltyAdmin() {
             <TabsTrigger value="promotions">Promotions</TabsTrigger>
             <TabsTrigger value="rewards">Rewards</TabsTrigger>
             <TabsTrigger value="banners">Banners</TabsTrigger>
+            <TabsTrigger value="notifications">
+              <Bell className="h-3.5 w-3.5 mr-1.5" />
+              Notifications
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="dashboard" className="mt-0">
@@ -177,6 +184,10 @@ export default function LoyaltyAdmin() {
 
           <TabsContent value="banners" className="mt-0">
             <BannersTab />
+          </TabsContent>
+
+          <TabsContent value="notifications" className="mt-0">
+            <NotificationsTab />
           </TabsContent>
         </Tabs>
       </div>
