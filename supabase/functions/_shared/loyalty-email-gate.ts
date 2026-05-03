@@ -44,6 +44,7 @@ export const LOYALTY_EMAIL_KEYS = [
   "loyalty_email_pre_expire",
   "loyalty_email_expire_deduct",
   "loyalty_email_redeem",
+  "loyalty_email_broadcast",
 ] as const;
 
 export type LoyaltyEmailKey = typeof LOYALTY_EMAIL_KEYS[number];

@@ -33,6 +33,7 @@ import { template as loyaltyTierDowngrade } from './loyalty-tier-downgrade.tsx'
 import { template as loyaltyPreExpire } from './loyalty-pre-expire.tsx'
 import { template as loyaltyExpireDeduct } from './loyalty-expire-deduct.tsx'
 import { template as loyaltyRedeem } from './loyalty-redeem.tsx'
+import { template as loyaltyBroadcast } from './loyalty-broadcast.tsx'
 
 export const TEMPLATES: Record<string, TemplateEntry> = {
   'payment-reminder': paymentReminder,
@@ -59,6 +60,7 @@ export const TEMPLATES: Record<string, TemplateEntry> = {
   'loyalty-pre-expire': loyaltyPreExpire,
   'loyalty-expire-deduct': loyaltyExpireDeduct,
   'loyalty-redeem': loyaltyRedeem,
+  'loyalty-broadcast': loyaltyBroadcast,
   'payment-grace-period': {
     ...paymentReminder,
     subject: (data: Record<string, any>) =>
