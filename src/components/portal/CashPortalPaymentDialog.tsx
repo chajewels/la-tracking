@@ -10,6 +10,7 @@ import {
   PaymentMethodCard,
 } from '@/lib/payment-methods';
 import { getPHTToday } from '@/lib/date-utils';
+import { getPortalSession } from '@/lib/portal-session';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -166,8 +167,11 @@ export default function CashPortalPaymentDialog({
         }
       }
 
+      const sess = getPortalSession();
       const body: Record<string, unknown> = {
-        portal_token: portalToken,
+        ...(sess
+          ? { session_id: sess.session_id }
+          : { portal_token: portalToken }),
         cash_order_id: cashOrder.id,
         submitted_amount: amount,
         payment_method: selectedMethodName,
