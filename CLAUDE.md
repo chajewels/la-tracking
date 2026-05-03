@@ -3300,6 +3300,216 @@ When completing a partially_paid month:
         — no longer a URL paste.
       - Phase 3 series complete — full
         content management end-to-end.
+    Phase 4 — Communications/Notifications (LIVE 2026-05-04)
+      - Manual admin broadcast notifications
+        to loyalty members. Auto-triggered
+        notifications (points / order /
+        milestone / etc.) deferred to Phase
+        4.2.
+      - 6 admin-pickable categories: info /
+        promo / tier / system / reward /
+        birthday. Customer-side icon mapping
+        retains all 12 prior categories so
+        future Phase 4.2 auto-trigger types
+        render with the right icon when they
+        land.
+      - 3 audience modes: 'all' (every
+        enrolled loyalty_members row),
+        'tier' (JOIN audience_tiers names →
+        loyalty_tiers.id → members.current_tier_id),
+        'specific' (audience_member_ids
+        array passthrough).
+      - Schedule for future send. Hourly
+        cron (loyalty-notification-queue,
+        jobid=19, '0 * * * *' UTC) picks up
+        rows where status='scheduled' AND
+        scheduled_for <= now(), atomically
+        locks status → 'sending' to prevent
+        double-send across overlapping
+        ticks, then runs the same fan-out
+        as the synchronous path.
+      - Optional per-notification email
+        side-fire gated by the per-row
+        send_email toggle AND the global
+        system_settings.loyalty_email_broadcast
+        setting (default true). Email loop
+        runs in EdgeRuntime.waitUntil
+        background so the response returns
+        promptly even on 464-member
+        broadcasts. Per-recipient portal
+        URL built from a single batched
+        customer_portal_tokens lookup.
+      - Read state per recipient with
+        mark-as-read (single) and
+        mark-all-read endpoints. Customer
+        portal NotificationsScreen does
+        optimistic flips on click with
+        rollback on error.
+
+      Schema:
+      - loyalty_notifications (master, 17 cols)
+          id, title, body, category, audience_type,
+          audience_tiers, audience_member_ids,
+          link_target, status, scheduled_for,
+          sent_at, expires_at, send_email,
+          email_sent, created_by_user_id,
+          created_at, updated_at.
+        Status flow: draft → scheduled →
+          sending → sent (or cancelled /
+          failed). CHECK constraint widened
+          from 4 to 6 values.
+        audience_member_ids[] is ephemeral —
+          NULLed post-send so the recipients
+          table becomes the truth.
+        email_sent boolean tracks whether
+          the email side-fire actually ran
+          (set true at the end of the
+          background email loop; useful for
+          audit + retry diagnostics).
+      - loyalty_notification_recipients
+        (per-member delivery + read state,
+        6 cols)
+          id, notification_id, member_id,
+          is_read, read_at, created_at.
+        UNIQUE (notification_id, member_id)
+          prevents double fan-out on retry.
+        4 indexes including 2 partials:
+          idx_loyalty_notification_recipients_member_created
+            for portal listing
+          idx_loyalty_notification_recipients_member_unread
+            (WHERE is_read=false) for unread
+            count
+          idx_loyalty_notifications_status_scheduled
+            (WHERE status='scheduled') for
+            queue processor
+          idx_loyalty_notifications_status_created
+            for admin list
+
+      Edge functions (4 new + 1 extended):
+      - send-loyalty-notification
+        (synchronous fan-out, admin/finance
+         JWT auth, validates body, persists
+         master row, resolves audience,
+         bulk-inserts recipients, fires
+         email side-fire in background,
+         writes audit_logs)
+      - mark-loyalty-notification-read
+        (token-auth via resolvePortalAuth,
+         mode='single' OR mode='all',
+         service_role bypasses RLS for the
+         updates, idempotent on already-read
+         rows)
+      - process-loyalty-notification-queue
+        (service_role JWT only, hourly cron
+         picks up overdue scheduled rows,
+         atomic check-and-update lock,
+         per-iteration try/catch so one bad
+         row doesn't abort the batch,
+         terminal 'failed' status on error
+         with audit_logs entry)
+      - customer-portal extended to return
+        notifications array (max 100, sent +
+        not-expired, ordered created_at
+        DESC) + unread_count
+
+      Email template:
+      - loyalty-broadcast template at
+        supabase/functions/_shared/transactional-email-templates/
+          loyalty-broadcast.tsx
+        with memberFirstName,
+        notificationTitle, notificationBody,
+        ctaUrl. Mirrors the loyalty-welcome
+        layout (gold header bar, brand text,
+        h1, greeting, body, optional CTA
+        button, footer). Registered in
+        registry.ts.
+      - Loyalty email gate
+        (LOYALTY_EMAIL_KEYS) extended with
+        the 9th key 'loyalty_email_broadcast'.
+
+      Hooks (src/hooks/loyalty-admin/useLoyaltyNotifications.ts):
+      - useLoyaltyNotifications(filters)
+        admin list with stats joined
+        client-side. refetchOnWindowFocus
+        per Q3.
+      - useLoyaltyNotificationStats(id)
+        per-notification stats — total /
+        read_count / read_rate / email_sent /
+        email_pending. Three parallel count
+        queries.
+      - useSendNotification,
+        useUpdateNotification,
+        useCancelNotification — mutations
+        wired to the edge function (send /
+        update) or direct RLS-permitted
+        UPDATE (cancel) with audit_logs
+        entry.
+      - useLoyaltyMembersForAudience for the
+        Specific audience picker, 5-min
+        staleTime.
+      - useTierList returns the 4 hardcoded
+        tier names; TIERS const + Tier type
+        also exported.
+
+      UI:
+      - NotificationsTab admin component as
+        the 11th tab in LoyaltyAdmin
+        (xl:grid-cols-11). Card grid with
+        status / category badges, audience
+        labels, stats panel for sent rows
+        (recipients / read / read rate %),
+        timestamps (Created / Scheduled /
+        Sent / Expires), and per-status
+        action buttons (Edit on draft /
+        scheduled, Edit + Cancel on
+        scheduled, View on sent / cancelled /
+        failed). Empty state, loading
+        skeletons, and AlertDialog confirm
+        on cancel.
+      - NotificationComposeDialog with
+        title / body char counters, category
+        select, audience radio + conditional
+        sub-pickers (tier checkboxes or
+        member search), link target
+        (none / portal tab / external URL),
+        schedule radio (now / future
+        datetime), email toggle with global
+        gate state, expiry collapsible.
+        Edit mode pre-fills the form;
+        editLocked banner blocks interaction
+        when status is sent / sending /
+        cancelled / failed. AlertDialog
+        confirm before send/schedule
+        showing audience + send time + email
+        status.
+      - NotificationsScreen.tsx (customer
+        portal) replaced staticFallback with
+        real DB-driven array. PHT-aware
+        date grouping (Today / Yesterday /
+        "Mon DD"). Optimistic mark-as-read
+        with rollback. Link target dispatch
+        — tab:foo → onSetTab; https:// →
+        window.open. Bottom-nav
+        unreadCount wired to data.unread_count.
+
+      System settings:
+      - loyalty_email_broadcast (default
+        true) seeded in C1 SQL. Admin can
+        flip from the Settings tab to
+        globally suppress notification
+        emails without disabling the
+        per-row toggle UI.
+
+      Cron:
+      - jobid=19 in pg_cron, scheduled
+        '0 * * * *' (top of every hour
+        UTC). Calls
+        process-loyalty-notification-queue
+        with the service_role JWT
+        Authorization header (vault-fetched
+        in the cron command body, so the
+        JWT isn't hardcoded in the
+        schedule).
 
   ### 2026-04-30 — Session shipped
 
@@ -3885,6 +4095,53 @@ loyalty portal. In progress.
         ImageUploadField fire-and-forget cleanup on
         Replace / Remove.
 
+### TODAY'S DATA FIXES (2026-05-04)
+
+  Schema, indexes, RLS, system_settings, and pg_cron job applied
+  via SQL Editor in support of Phase 4 (Communications/Notifications):
+
+  - Phase 4 schema: created two tables.
+      loyalty_notifications — master, 17 columns, with CHECK
+        constraints on title (1-100), body (1-500), category
+        (6-value whitelist), audience_type (3-value whitelist),
+        and status (initially 4-value, widened to 6 — see
+        next bullet). updated_at trigger via the canonical
+        public.update_updated_at_column().
+      loyalty_notification_recipients — per-member delivery +
+        read state, 6 columns, UNIQUE (notification_id,
+        member_id), CASCADE on both FKs (master + member).
+      4 indexes: 2 on recipients (member_id+created_at DESC,
+        partial member_id WHERE is_read=false), 2 on master
+        (partial status='scheduled', status+created_at DESC).
+      3 RLS policies: admin/finance read on both tables;
+        admin/finance manage on master. No client write
+        policies on recipients — service_role only via the
+        edge functions.
+
+  - Phase 4 status CHECK widened from 4 to 6 values:
+    DROP + ADD CHECK (status IN ('draft', 'scheduled',
+    'sending', 'sent', 'cancelled', 'failed')). The new
+    'sending' state is set by the queue processor's atomic
+    lock to prevent overlapping ticks from double-sending;
+    'failed' is the terminal state when fan-out errors out.
+    Existing rows in draft / scheduled / sent / cancelled
+    remain valid, no backfill needed.
+
+  - system_settings.loyalty_email_broadcast seeded as
+    to_jsonb(true) with a description column documenting it
+    as the global gate for the per-notification email
+    side-fire from send-loyalty-notification. Admin can flip
+    via the Settings tab to globally suppress notification
+    emails (e.g., during email provider incident).
+
+  - pg_cron job 'loyalty-notification-queue' scheduled at
+    '0 * * * *' (top of every hour UTC, jobid=19). Calls
+    process-loyalty-notification-queue with the service_role
+    JWT in the Authorization header. The JWT is fetched from
+    Supabase Vault inside the cron command body rather than
+    hardcoded in the schedule, so rotating the service_role
+    key does not require a cron re-schedule.
+
 ### OPERATIONAL ENHANCEMENTS
   P6: Admin audit log for manual DB changes
   P7: Invoice generator — Google Sheets +
@@ -3999,10 +4256,73 @@ loyalty portal. In progress.
 
   Phase 3 series complete — full content
   management end-to-end.
-  ⏳ Phase 4 — Communications
-     - Notifications tab (broadcast system)
-     - Notification templates
-     - Per-event email/SMS toggles
+  ✅ Phase 4 — Communications/Notifications
+     (LIVE 2026-05-04)
+     Manual admin broadcast notifications to
+     loyalty members — 6 categories, 3
+     audience modes, schedule for future
+     send via hourly cron, optional per-row
+     email side-fire gated by global toggle,
+     per-recipient read state, mark-as-read
+     and mark-all-read endpoints.
+     2 new tables (loyalty_notifications +
+     loyalty_notification_recipients), 4
+     edge functions (send / mark-read /
+     queue-processor + customer-portal
+     extension), 1 email template
+     (loyalty-broadcast), 1 cron job
+     (jobid=19, hourly), 1 admin tab
+     (NotificationsTab as 11th tab in
+     LoyaltyAdmin), full customer-portal
+     integration (NotificationsScreen
+     replaces staticFallback). See SYSTEM
+     STATUS entry above.
+  ⏳ Phase 4.1 — Notification templates
+     Saved reusable templates for common
+     broadcasts (e.g. "Tier Upgrade Welcome",
+     "Promo Reminder"). Adds a
+     loyalty_notification_templates table +
+     CRUD UI + a Templates picker on the
+     compose dialog ("Load template" button
+     above the title field). Roughly half-day
+     of work; deferred until admin demand
+     justifies it (admins can copy/paste from
+     a Notes app for now).
+  ⏳ Phase 4.2 — Auto-trigger notifications
+     Instrument the existing loyalty edge
+     functions to emit in-portal notifications
+     for the auto-trigger categories that
+     Phase 4 deferred (points / order / vip /
+     activity / milestone / referral / expiry
+     / security). Call sites: award-loyalty-points
+     (points + tier upgrade), process-loyalty-
+     redemption (redemption category),
+     loyalty-inactivity-check (expiry
+     category), and the layaway DP-confirm
+     path in review-payment-submission (order
+     category). Each call site must wrap the
+     notification insert in try/catch so a
+     failure doesn't break the parent
+     operation. Larger surface area than
+     Phase 4 because it touches 4+ edge
+     functions; a future session should pick
+     this up after operational data on
+     Phase 4 broadcasts confirms the schema
+     scales.
+  ⏳ Phase 4.3 — Notification preferences
+     Per-member opt-out for admin broadcasts
+     by category. Adds
+     loyalty_notification_preferences table
+     (member_id, category, enabled) + a
+     Preferences screen on the customer
+     portal + a check at fan-out time in
+     send-loyalty-notification and
+     process-loyalty-notification-queue.
+     Defer unless regulatory pressure
+     emerges (e.g., GDPR-style explicit
+     opt-out requirement) or admin-spam
+     pressure shows up in customer
+     complaints.
 
 ### PWA TOKEN-TO-SESSION REDEMPTION (Phase A)
   Multi-phase PWA fix project lineage:
@@ -4107,7 +4427,7 @@ WHERE ls.status = 'partially_paid'
 -- Expected result: 0 rows. If rows appear, update db_status to paid.
 ```
 
-## AUTO-DEPLOY RULES (updated 2026-04-29)
+## AUTO-DEPLOY RULES (updated 2026-05-04)
 
 GitHub Actions auto-deploys on every push to main:
 
@@ -4116,7 +4436,7 @@ FRONTEND: Firebase Hosting — ALL pushes trigger rebuild and deploy
 SUPABASE EDGE FUNCTIONS — these auto-deploy when their files change.
 Source of truth: .github/workflows/supabase-functions-deploy.yml.
 Always re-check the workflow file before assuming a function is or
-isn't auto-deployed; this list reflects the workflow as of 2026-04-29:
+isn't auto-deployed; this list reflects the workflow as of 2026-05-04:
 
 - accept-underpayment
 - add-service
@@ -4133,7 +4453,9 @@ isn't auto-deployed; this list reflects the workflow as of 2026-04-29:
 - join-loyalty-program
 - loyalty-inactivity-check
 - manual-forfeit
+- mark-loyalty-notification-read
 - preview-transactional-email
+- process-loyalty-notification-queue
 - process-loyalty-redemption
 - recalculate-penalties (DISABLED — returns 410)
 - redeem-portal-token
@@ -4141,6 +4463,7 @@ isn't auto-deployed; this list reflects the workflow as of 2026-04-29:
 - record-multi-payment
 - record-payment
 - review-payment-submission
+- send-loyalty-notification
 - send-reminders
 - send-transactional-email
 - set-portal-pin
