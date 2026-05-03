@@ -32,13 +32,6 @@ import {
 } from '@/lib/payment-methods';
 import { LocationType, parseLocation, toLocationString } from '@/lib/countries';
 import { getPHTToday } from '@/lib/date-utils';
-import {
-  getPortalSession,
-  setPortalSession,
-  clearPortalSession,
-  redeemPortalToken,
-  type PortalSession,
-} from '@/lib/portal-session';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -273,11 +266,6 @@ export default function CustomerPortal() {
   const [params] = useSearchParams();
   const token = params.get('token');
 
-  // Portal session — hydrated from localStorage on mount.
-  // Phase A: prefer session_id over URL token. Both are accepted
-  // by the backend during the transition period.
-  const [session, setSession] = useState<PortalSession | null>(() => getPortalSession());
-
   const [data, setData] = useState<PortalData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -303,7 +291,7 @@ export default function CustomerPortal() {
   const [pinLoading, setPinLoading] = useState(false);
 
   const handlePinSubmit = async () => {
-    if (pin.length !== 4 || (!token && !session)) return;
+    if (pin.length !== 4 || !token) return;
     setPinLoading(true);
     setPinError('');
     try {
@@ -314,9 +302,7 @@ export default function CustomerPortal() {
           Authorization: `Bearer ${SUPABASE_KEY}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(
-          session ? { session_id: session.session_id, pin } : { token, pin },
-        ),
+        body: JSON.stringify({ token, pin }),
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok || !payload?.success) {
@@ -386,30 +372,13 @@ export default function CustomerPortal() {
   });
   const firstPayable = payableAccounts[0];
 
-  // fetchPortal reads `session` from React state at call time. This
-  // preserves the `onRefresh={fetchPortal}` callback pattern below
-  // without changing every call site signature.
-  const fetchPortal = async (overrideSession?: PortalSession | null) => {
-    const activeSession = overrideSession !== undefined ? overrideSession : session;
-    if (!activeSession && !token) {
-      setError('No access token provided.');
-      setLoading(false);
-      return;
-    }
+  const fetchPortal = async () => {
+    if (!token) { setError('No access token provided.'); setLoading(false); return; }
     try {
-      const url = activeSession
-        ? `${SUPABASE_URL}/functions/v1/customer-portal?session_id=${encodeURIComponent(activeSession.session_id)}`
-        : `${SUPABASE_URL}/functions/v1/customer-portal?token=${encodeURIComponent(token!)}`;
-      const res = await fetch(url, { headers: { apikey: SUPABASE_KEY } });
-
-      // Session may have been revoked or expired — fall back to URL token if available
-      if (res.status === 401 && activeSession && token) {
-        clearPortalSession();
-        setSession(null);
-        await fetchPortal(null);
-        return;
-      }
-
+      const res = await fetch(
+        `${SUPABASE_URL}/functions/v1/customer-portal?token=${encodeURIComponent(token)}`,
+        { headers: { apikey: SUPABASE_KEY } },
+      );
       const json = await res.json();
       if (!res.ok) { setError(json.error || 'Access denied'); return; }
       // Override stale 'Overdue' status_label: account is only truly overdue if
@@ -432,34 +401,7 @@ export default function CustomerPortal() {
     finally { setLoading(false); }
   };
 
-  // Initial mount: redeem URL token → session if no session yet, then fetch.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      // Already have a valid cached session — use it directly
-      if (session) {
-        await fetchPortal(session);
-        return;
-      }
-      // Otherwise redeem the URL token for a session
-      if (token) {
-        const redeemed = await redeemPortalToken(token, SUPABASE_URL, SUPABASE_KEY);
-        if (cancelled) return;
-        if (redeemed) {
-          setSession(redeemed);
-          await fetchPortal(redeemed);
-        } else {
-          // Redeem failed (network error or invalid token) — fall back to token-only auth
-          await fetchPortal(null);
-        }
-      } else {
-        // Neither session nor token — show error
-        await fetchPortal(null);
-      }
-    })();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  useEffect(() => { fetchPortal(); }, [token]);
 
   if (showSplash) {
     return <SplashScreen onComplete={() => setShowSplash(false)} />;
@@ -2069,7 +2011,7 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          ...(getPortalSession() ? { session_id: getPortalSession()!.session_id } : { portal_token: portalToken }),
+          portal_token: portalToken,
           account_id: isSplit ? allocations[0]?.account_id : account.id,
           submitted_amount: submittedAmount,
           payment_date: paymentDate,
@@ -2553,7 +2495,7 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
         method: 'POST',
         headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...(getPortalSession() ? { session_id: getPortalSession()!.session_id } : { portal_token: portalToken }),
+          portal_token: portalToken,
           submission_id: sub.id,
           action: 'edit',
           submitted_amount: parsedAmount,
@@ -2581,11 +2523,7 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/edit-payment-submission`, {
         method: 'POST',
         headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...(getPortalSession() ? { session_id: getPortalSession()!.session_id } : { portal_token: portalToken }),
-          submission_id: sub.id,
-          action: 'cancel',
-        }),
+        body: JSON.stringify({ portal_token: portalToken, submission_id: sub.id, action: 'cancel' }),
       });
       let json: any = {};
       try { json = await res.json(); } catch { /* no-op */ }
@@ -2882,7 +2820,7 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
         method: 'POST',
         headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...(getPortalSession() ? { session_id: getPortalSession()!.session_id } : { token: portalToken }),
+          token: portalToken,
           action: 'update_profile',
           profile: {
             full_name: fullName.trim(),

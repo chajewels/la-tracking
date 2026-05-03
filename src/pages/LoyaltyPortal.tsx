@@ -26,12 +26,6 @@ import PointsScreen from '@/components/loyalty/screens/PointsScreen';
 import NotificationsScreen from '@/components/loyalty/screens/NotificationsScreen';
 import ProfileScreen from '@/components/loyalty/screens/ProfileScreen';
 import TiersScreen from '@/components/loyalty/screens/TiersScreen';
-import {
-  getPortalSession,
-  clearPortalSession,
-  redeemPortalToken,
-  type PortalSession,
-} from '@/lib/portal-session';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -374,18 +368,11 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
   );
 }
 
-async function fetchPortal(
-  auth: { session?: PortalSession | null; token?: string },
-): Promise<PortalData> {
-  const url = auth.session
-    ? `${SUPABASE_URL}/functions/v1/customer-portal?session_id=${encodeURIComponent(auth.session.session_id)}`
-    : `${SUPABASE_URL}/functions/v1/customer-portal?token=${encodeURIComponent(auth.token || '')}`;
-  const res = await fetch(url, { headers: { apikey: SUPABASE_KEY } });
-  if (res.status === 401 && auth.session) {
-    // Session may have been revoked — clear and signal caller to retry
-    clearPortalSession();
-    throw new Error('Session expired');
-  }
+async function fetchPortal(token: string): Promise<PortalData> {
+  const res = await fetch(
+    `${SUPABASE_URL}/functions/v1/customer-portal?token=${encodeURIComponent(token)}`,
+    { headers: { apikey: SUPABASE_KEY } },
+  );
   const json = await res.json();
   if (!res.ok) throw new Error(json?.error || 'Access denied');
   return json as PortalData;
@@ -402,28 +389,10 @@ export default function LoyaltyPortal() {
   // violating the Rules of Hooks when showSplash flips.
   const [showSplash, setShowSplash] = useState(true);
 
-  // Portal session — hydrated from localStorage, refreshed on first
-  // mount when only a URL token is provided.
-  const [session, setSession] = useState<PortalSession | null>(() => getPortalSession());
-
-  useEffect(() => {
-    if (session) return;
-    if (!token) return;
-    let cancelled = false;
-    (async () => {
-      const redeemed = await redeemPortalToken(token, SUPABASE_URL, SUPABASE_KEY);
-      if (cancelled) return;
-      if (redeemed) setSession(redeemed);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [token, session]);
-
   const portalQuery = useQuery({
-    queryKey: ['portal', token || session?.session_id || ''],
-    queryFn: () => fetchPortal({ session, token }),
-    enabled: !!token || !!session,
+    queryKey: ['portal', token],
+    queryFn: () => fetchPortal(token),
+    enabled: !!token,
     staleTime: 30_000,
     refetchOnMount: true,
   });

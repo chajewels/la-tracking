@@ -3,7 +3,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { getPortalSession } from '@/lib/portal-session';
 
 const P = {
   s: '#111111',
@@ -37,11 +36,8 @@ export function LoyaltyJoinPrompt({ portalToken, customerId, onJoined }: Loyalty
   async function handleJoin() {
     setJoining(true);
     try {
-      const sess = getPortalSession();
       const { data, error } = await supabase.functions.invoke('join-loyalty-program', {
-        body: sess
-          ? { session_id: sess.session_id }
-          : { portal_token: portalToken },
+        body: { portal_token: portalToken },
       });
       if (error) throw error;
 
