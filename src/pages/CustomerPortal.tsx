@@ -23,7 +23,6 @@ import CountrySelect from '@/components/customers/CountrySelect';
 import PromoBanner from '@/components/customers/PromoBanner';
 import SplashScreen from '@/components/portal/SplashScreen';
 import CashOrdersSection from '@/components/portal/CashOrdersSection';
-import { InstallAppBanner } from '@/components/portal/InstallAppBanner';
 import {
   CHA_PAYMENT_METHODS,
   type ChaPaymentMethod,
@@ -619,11 +618,6 @@ export default function CustomerPortal() {
       </div>
 
       <div className="max-w-lg sm:max-w-2xl lg:max-w-5xl mx-auto px-4 py-6 space-y-6">
-        <InstallAppBanner
-          show={(data?.accounts || []).some(
-            (a: PortalAccount) => a.invoice_number?.startsWith('TEST-'),
-          )}
-        />
         {portalView === 'profile' ? (
           <ProfileEditor
             profile={data.profile}
