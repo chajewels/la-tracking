@@ -3,6 +3,7 @@ import {
   createLoyaltyEmailGate,
   type LoyaltyEmailKey,
 } from "../_shared/loyalty-email-gate.ts";
+import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -33,24 +34,6 @@ const fmtFriendlyDate = (d: Date) =>
     day: "numeric",
     year: "numeric",
   });
-
-async function buildLoyaltyPortalUrl(supabase: any, customerId: string): Promise<string> {
-  const { data: tokenRow } = await supabase
-    .from("customer_portal_tokens")
-    .select("token, expires_at")
-    .eq("customer_id", customerId)
-    .eq("is_active", true)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (tokenRow?.token) {
-    const expired = tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date();
-    if (!expired) {
-      return `https://portal.chajewelsjp.com/loyalty?token=${encodeURIComponent(tokenRow.token)}`;
-    }
-  }
-  return "https://portal.chajewelsjp.com/portal";
-}
 
 async function sendEmail(
   gate: (key: LoyaltyEmailKey) => Promise<boolean>,
@@ -231,7 +214,7 @@ Deno.serve(async (req) => {
         summary.expiries_processed += 1;
 
         if (customer?.email) {
-          const portalUrl = await buildLoyaltyPortalUrl(supabase, member.customer_id);
+          const portalUrl = await buildPortalLinkForCustomerId(supabase, member.customer_id, 'loyalty');
           await sendEmail(
             gate,
             "loyalty_email_expire_deduct",
@@ -271,7 +254,7 @@ Deno.serve(async (req) => {
           const expirationDate = addDays(lastPurchase, INACTIVITY_DAYS);
 
           if (customer?.email) {
-            const portalUrl = await buildLoyaltyPortalUrl(supabase, member.customer_id);
+            const portalUrl = await buildPortalLinkForCustomerId(supabase, member.customer_id, 'loyalty');
             await sendEmail(
               gate,
               "loyalty_email_pre_expire",
@@ -326,7 +309,7 @@ Deno.serve(async (req) => {
           summary.downgrades_processed += 1;
 
           if (customer?.email) {
-            const portalUrl = await buildLoyaltyPortalUrl(supabase, member.customer_id);
+            const portalUrl = await buildPortalLinkForCustomerId(supabase, member.customer_id, 'loyalty');
             await sendEmail(
               gate,
               "loyalty_email_tier_downgrade",

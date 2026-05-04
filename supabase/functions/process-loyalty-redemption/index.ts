@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
+import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,24 +26,6 @@ async function getUserRoles(supabase: any, userId: string): Promise<string[]> {
     .select("role")
     .eq("user_id", userId);
   return (data ?? []).map((r: any) => r.role);
-}
-
-async function buildLoyaltyPortalUrl(supabase: any, customerId: string): Promise<string> {
-  const { data: tokenRow } = await supabase
-    .from("customer_portal_tokens")
-    .select("token, expires_at")
-    .eq("customer_id", customerId)
-    .eq("is_active", true)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (tokenRow?.token) {
-    const expired = tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date();
-    if (!expired) {
-      return `https://portal.chajewelsjp.com/loyalty?token=${encodeURIComponent(tokenRow.token)}`;
-    }
-  }
-  return "https://portal.chajewelsjp.com/portal";
 }
 
 Deno.serve(async (req) => {
@@ -465,7 +448,7 @@ Deno.serve(async (req) => {
 
         if (recipientEmail) {
           if (await gate("loyalty_email_redeem")) {
-            const portalUrl = await buildLoyaltyPortalUrl(supabase, member.customer_id);
+            const portalUrl = await buildPortalLinkForCustomerId(supabase, member.customer_id, 'loyalty');
             await fetch(
               `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
               {
