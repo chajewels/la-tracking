@@ -215,14 +215,29 @@ function fmtPht(iso: string): string {
 interface NotificationComposeDialogProps {
   open: boolean;
   notification: LoyaltyNotificationRow | null;
+  /**
+   * 'create'    — fresh form (notification ignored)
+   * 'edit'      — pre-fill from notification, save reuses notification_id
+   * 'duplicate' — pre-fill from notification but treat as create:
+   *               clear scheduled_for / expires_at / audience_member_ids
+   *               so the admin re-picks anything time-sensitive or
+   *               audience-specific. notification_id is NOT passed.
+   * Defaults to 'edit' when notification is set, 'create' otherwise.
+   */
+  mode?: 'create' | 'edit' | 'duplicate';
   onClose: () => void;
 }
 
 export default function NotificationComposeDialog({
   open,
   notification,
+  mode,
   onClose,
 }: NotificationComposeDialogProps) {
+  const effectiveMode: 'create' | 'edit' | 'duplicate' =
+    mode ?? (notification ? 'edit' : 'create');
+  const isEditMode = effectiveMode === 'edit';
+  const isDuplicateMode = effectiveMode === 'duplicate';
   const [form, setForm] = useState<FormState>(emptyForm);
   const [showConfirm, setShowConfirm] = useState(false);
   const [memberSearch, setMemberSearch] = useState('');
@@ -231,7 +246,8 @@ export default function NotificationComposeDialog({
   const sendMutation = useSendNotification();
   const updateMutation = useUpdateNotification();
   const isPending = sendMutation.isPending || updateMutation.isPending;
-  const isEditMode = !!notification;
+  // editLocked only applies in edit mode; duplicate creates a fresh row so
+  // the source's terminal status doesn't lock the form.
   const editLocked = isEditMode && !['draft', 'scheduled'].includes(notification!.status);
 
   const { data: audienceMembers, isLoading: membersLoading } =
@@ -256,12 +272,35 @@ export default function NotificationComposeDialog({
   }, [open]);
 
   useEffect(() => {
-    if (open) {
-      setForm(notification ? rowToForm(notification) : emptyForm());
-      setMemberSearch('');
-      setShowConfirm(false);
+    if (!open) return;
+    if (!notification) {
+      setForm(emptyForm());
+    } else if (isDuplicateMode) {
+      // Pre-fill from source but clear time-sensitive + audience-specific
+      // fields so the admin re-picks anything that depends on the moment
+      // of sending or on the original recipient list (audience_member_ids
+      // is NULLed post-send per the Q9 schema delta — there's nothing to
+      // preserve anyway).
+      const base = rowToForm(notification);
+      setForm({
+        ...base,
+        schedule_mode: 'now',
+        scheduled_for: '',
+        expires_at_enabled: false,
+        expires_at: '',
+        audience_member_ids: [],
+      });
+      if (notification.audience_type === 'specific') {
+        toast.info(
+          'Audience type carried over — re-pick the specific members before sending.',
+        );
+      }
+    } else {
+      setForm(rowToForm(notification));
     }
-  }, [open, notification?.id]);
+    setMemberSearch('');
+    setShowConfirm(false);
+  }, [open, notification?.id, isDuplicateMode]);
 
   const errors = useMemo(() => validate(form), [form]);
   const filteredMembers = useMemo(() => {
@@ -373,7 +412,9 @@ export default function NotificationComposeDialog({
                 : 'Send notification now?'
               : isEditMode
                 ? 'Edit Notification'
-                : 'New Notification'}
+                : isDuplicateMode
+                  ? 'Duplicate Notification'
+                  : 'New Notification'}
           </DialogTitle>
           <DialogDescription>
             {showConfirm

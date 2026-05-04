@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
-  Bell, Plus, Pencil, X, Eye, Search, Sparkles, Crown, Cake, Gift,
+  Bell, Plus, Pencil, X, Eye, Copy, Search, Sparkles, Crown, Cake, Gift,
   Megaphone, Settings as SettingsIcon, Send, Calendar, Users as UsersIcon,
   Clock, AlertCircle, CheckCircle2, Loader2,
 } from 'lucide-react';
@@ -93,7 +93,8 @@ export default function NotificationsTab() {
   const [categoryFilter, setCategoryFilter] = useState<NotificationCategory | 'all'>('all');
   const [search, setSearch] = useState('');
   const [composeOpen, setComposeOpen] = useState(false);
-  const [editing, setEditing] = useState<LoyaltyNotificationWithStats | null>(null);
+  const [composeMode, setComposeMode] = useState<'create' | 'edit' | 'duplicate'>('create');
+  const [composeSource, setComposeSource] = useState<LoyaltyNotificationWithStats | null>(null);
   const [cancelTarget, setCancelTarget] = useState<LoyaltyNotificationWithStats | null>(null);
 
   const filters: NotificationFilters = useMemo(() => {
@@ -118,7 +119,8 @@ export default function NotificationsTab() {
   }, [data, search]);
 
   function handleNew() {
-    setEditing(null);
+    setComposeMode('create');
+    setComposeSource(null);
     setComposeOpen(true);
   }
 
@@ -127,18 +129,27 @@ export default function NotificationsTab() {
       toast.error(`Cannot edit a ${n.status} notification`);
       return;
     }
-    setEditing(n);
+    setComposeMode('edit');
+    setComposeSource(n);
     setComposeOpen(true);
   }
 
   function handleView(n: LoyaltyNotificationWithStats) {
-    setEditing(n);
+    setComposeMode('edit'); // editLocked banner inside the dialog handles read-only UX
+    setComposeSource(n);
+    setComposeOpen(true);
+  }
+
+  function handleDuplicate(n: LoyaltyNotificationWithStats) {
+    setComposeMode('duplicate');
+    setComposeSource(n);
     setComposeOpen(true);
   }
 
   function handleCloseCompose() {
     setComposeOpen(false);
-    setEditing(null);
+    setComposeSource(null);
+    setComposeMode('create');
   }
 
   async function confirmCancel() {
@@ -256,6 +267,7 @@ export default function NotificationsTab() {
               notif={n}
               onEdit={() => handleEdit(n)}
               onView={() => handleView(n)}
+              onDuplicate={() => handleDuplicate(n)}
               onCancel={() => setCancelTarget(n)}
             />
           ))}
@@ -264,7 +276,8 @@ export default function NotificationsTab() {
 
       <NotificationComposeDialog
         open={composeOpen}
-        notification={editing}
+        notification={composeSource}
+        mode={composeMode}
         onClose={handleCloseCompose}
       />
 
@@ -314,17 +327,31 @@ interface NotificationCardProps {
   notif: LoyaltyNotificationWithStats;
   onEdit: () => void;
   onView: () => void;
+  onDuplicate: () => void;
   onCancel: () => void;
 }
 
-function NotificationCard({ notif, onEdit, onView, onCancel }: NotificationCardProps) {
+function NotificationCard({
+  notif, onEdit, onView, onDuplicate, onCancel,
+}: NotificationCardProps) {
   const Icon = CATEGORY_ICON[notif.category];
   const status = STATUS_STYLES[notif.status];
   const showStats = notif.status === 'sent' && notif.stats.total > 0;
   const readPct = showStats ? Math.round(notif.stats.read_rate * 100) : 0;
 
+  // Per-status action matrix:
+  //   draft     → Edit
+  //   scheduled → Edit + Cancel
+  //   sending   → View only (in-progress, no admin action)
+  //   sent      → View + Duplicate (Duplicate is the primary action)
+  //   cancelled → View + Duplicate
+  //   failed    → View + Duplicate
   const canEdit = notif.status === 'draft' || notif.status === 'scheduled';
   const canCancel = notif.status === 'scheduled';
+  const canDuplicate =
+    notif.status === 'sent' ||
+    notif.status === 'cancelled' ||
+    notif.status === 'failed';
 
   return (
     <div className="rounded-xl border bg-card p-4 flex flex-col gap-3">
@@ -379,7 +406,7 @@ function NotificationCard({ notif, onEdit, onView, onCancel }: NotificationCardP
       </div>
 
       <div className="flex justify-end gap-2 pt-1">
-        {canEdit ? (
+        {canEdit && (
           <Button
             size="sm"
             variant="outline"
@@ -388,7 +415,8 @@ function NotificationCard({ notif, onEdit, onView, onCancel }: NotificationCardP
           >
             <Pencil className="h-3 w-3 mr-1" /> Edit
           </Button>
-        ) : (
+        )}
+        {!canEdit && (
           <Button
             size="sm"
             variant="outline"
@@ -396,6 +424,15 @@ function NotificationCard({ notif, onEdit, onView, onCancel }: NotificationCardP
             className="h-7 px-2 text-[11px]"
           >
             <Eye className="h-3 w-3 mr-1" /> View
+          </Button>
+        )}
+        {canDuplicate && (
+          <Button
+            size="sm"
+            onClick={onDuplicate}
+            className="h-7 px-2 text-[11px] gold-gradient text-primary-foreground"
+          >
+            <Copy className="h-3 w-3 mr-1" /> Duplicate
           </Button>
         )}
         {canCancel && (
