@@ -38,6 +38,11 @@ export interface CustomerForLink {
  *   - If null and portal_token present → token-bearing URL
  *   - If null and no token available → bare URL fallback
  *
+ * The caller is responsible for ensuring portal_token is a
+ * valid, non-expired, active token. This function does not
+ * validate the token. For DB-backed token resolution with
+ * expiry/active checks, use buildPortalLinkForCustomerId.
+ *
  * @param customer Object with auth_user_id and optional portal_token
  * @param intent 'portal' (default) or 'loyalty'
  * @returns Fully-qualified portal URL string
@@ -103,18 +108,30 @@ export async function buildPortalLinkForCustomerId(
     return `${PORTAL_BASE}${path}`;
   }
 
-  // Non-migrated → fetch active token
+  // Non-migrated → fetch newest active non-expired token.
+  // Matches production buildLoyaltyPortalUrl pattern:
+  //   - is_active = true
+  //   - ordered by created_at DESC, take latest (handles
+  //     case where multiple active tokens exist)
+  //   - check expires_at, treat expired token as no-token
   const { data: tokenRow } = await supabase
     .from('customer_portal_tokens')
-    .select('token')
+    .select('token, expires_at')
     .eq('customer_id', customerId)
     .eq('is_active', true)
+    .order('created_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (tokenRow?.token) {
-    return `${PORTAL_BASE}${path}?token=${encodeURIComponent(tokenRow.token)}`;
+    const expired =
+      tokenRow.expires_at &&
+      new Date(tokenRow.expires_at) < new Date();
+    if (!expired) {
+      return `${PORTAL_BASE}${path}?token=${encodeURIComponent(tokenRow.token)}`;
+    }
   }
 
-  // Fallback if no active token
+  // Fallback if no valid active token (none, all expired, etc.)
   return `${PORTAL_BASE}${path}`;
 }
