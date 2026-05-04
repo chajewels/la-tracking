@@ -3582,6 +3582,78 @@ When completing a partially_paid month:
         in the cron command body, so the
         JWT isn't hardcoded in the
         schedule).
+    Phase 4 polish (LIVE 2026-05-04)
+      - Sent / cancelled / failed
+        notifications are immutable history.
+        New "Duplicate" action button on
+        those terminal-state cards (gold
+        primary, alongside View) opens
+        NotificationComposeDialog
+        pre-filled with the source row's
+        content but treated as a fresh
+        send — original history preserved.
+      - NotificationComposeDialog accepts a
+        new optional prop:
+          mode?: 'create' | 'edit' | 'duplicate'
+        defaulting to 'edit' when
+        notification is set, 'create'
+        otherwise. Backwards-compatible
+        with prior call sites.
+      - Duplicate-mode pre-fill carries
+        title / body / category /
+        audience_type / audience_tiers /
+        send_email. Clears scheduled_for,
+        expires_at, and audience_member_ids
+        so admin re-picks anything
+        time-sensitive. (audience_member_ids
+        is NULLed post-send per the Q9
+        ephemeral rule — there's nothing
+        to preserve anyway.)
+      - When source had audience_type
+        ='specific', a toast.info on
+        dialog open prompts:
+        "Audience type carried over —
+        re-pick the specific members
+        before sending." Forces the admin
+        to re-confirm members; the picker
+        opens with an empty selection.
+      - editLocked banner is skipped in
+        duplicate mode — duplicate is a
+        fresh insert, so the source's
+        terminal status doesn't lock the
+        form. isEditMode (true only in
+        'edit') gates the notification_id
+        passing to the mutation, so
+        duplicate uses useSendNotification
+        like create.
+      - Per-status action matrix on
+        NotificationsTab cards:
+          draft     → Edit
+          scheduled → Edit + Cancel
+          sending   → View only
+          sent      → View + Duplicate
+          cancelled → View + Duplicate
+          failed    → View + Duplicate
+      - Modal stacking bug fixed in the
+        same session: the original
+        compose-and-confirm flow used a
+        nested AlertDialog inside the
+        Dialog, which stacked two
+        bg-black/80 overlays (near-opaque
+        backdrop) and trapped Confirm
+        button clicks at the upper
+        portal. Refactored to a single
+        Dialog with a two-view toggle
+        (showConfirm boolean state) —
+        same DialogContent renders form
+        OR confirmation summary panel
+        based on the flag. Footer
+        buttons swap with the view
+        (Cancel + Send/Schedule on form;
+        Back + Confirm on summary).
+        Error path keeps the confirm
+        view open so admin can retry
+        without re-filling the form.
 
   ### 2026-04-30 — Session shipped
 
@@ -4253,6 +4325,109 @@ loyalty portal. In progress.
     Supabase Vault inside the cron command body rather than
     hardcoded in the schedule, so rotating the service_role
     key does not require a cron re-schedule.
+
+  - Phase 4 polish: Modal opacity + click-trapping bug fixed.
+    NotificationComposeDialog originally rendered an AlertDialog
+    inside the open Dialog for the send/schedule confirmation
+    step. Two shadcn portal overlays stacked at z-50 caused
+    a near-opaque backdrop (bg-black/80 layered twice) AND
+    trapped the Confirm button click at the upper portal so
+    the handler never fired. Refactored to a single Dialog
+    with a two-view pattern: showConfirm boolean state
+    toggles between form view and confirmation summary
+    panel inside the same DialogContent. Footer buttons
+    swap with the view. Error path stays on confirm view
+    so admin can retry without re-filling the form. Both
+    issues resolved by removing the second portal entirely.
+
+  - Phase 4 polish: Duplicate action button for sent /
+    cancelled / failed notifications.
+    NotificationComposeDialog now accepts a `mode` prop
+    ('create' | 'edit' | 'duplicate'), backwards-compatible
+    (defaults to 'edit' when notification is set,
+    'create' otherwise). Duplicate mode pre-fills title /
+    body / category / audience_type / audience_tiers /
+    send_email; clears scheduled_for / expires_at /
+    audience_member_ids; toasts a re-pick warning when
+    source had specific-audience. editLocked skipped in
+    duplicate mode. Creates new loyalty_notifications row
+    on send; original history preserved (terminal-state
+    notifications remain immutable). Per-status action
+    matrix on the cards: draft → Edit; scheduled → Edit
+    + Cancel; sending → View only; sent / cancelled /
+    failed → View + Duplicate (gold primary).
+
+  - Bug #81 — Dashboard.tsx:365 TypeScript error from
+    PR #80 fixed. PR #80 (47a3e3e, "paginate + lighten
+    accounts query") swapped Dashboard's useAccounts()
+    for useAccountsLight() to drop the customers embed
+    for the mobile Chrome OOM fix on /customers. The
+    lightened 12-column shape no longer satisfied
+    GeoBreakdown's prop type of AccountWithCustomer[],
+    even though GeoBreakdown only reads 4 scalar fields
+    (status, customer_id, currency, remaining_balance)
+    and never accesses account.customers.* at runtime.
+    Vite/esbuild stripped types and shipped JS anyway —
+    Dashboard's Regional Overview rendered correctly in
+    production; the error was compile-time noise about
+    an over-specified prop type. Fix: introduced a fresh
+    local GeoAccount interface in GeoBreakdown.tsx (4
+    fields, primitive types, no Pick<> coupling) and
+    dropped the AccountWithCustomer import. Both
+    useAccounts() and useAccountsLight() satisfy the
+    contract because both are supersets. PR #80's mobile
+    perf optimization is preserved. GeoBreakdown is
+    imported by exactly one file (Dashboard.tsx, verified
+    by grep) so no other call sites are affected.
+
+  - Bug #82 — HomeHeader staticFallback leak fixed.
+    HomeHeader.tsx still imported NOTIFICATIONS from
+    staticFallback even after Phase 4 C8 wired
+    NotificationsScreen.tsx to real DB data. The fixture
+    array contained 4 unread items, hard-pegging the
+    home-tab bell badge to "4" and surfacing a fake
+    "Happy Birthday Month, Cynthia! 🎂💛" preview card
+    visible to every member. Surfaced during end-to-end
+    Phase 4 verification: bell showed "4", bottom-nav
+    showed no badge, NotificationsScreen filter showed
+    "Unread (0)" — three counters disagreeing because
+    only HomeHeader was on stale fixtures. Fix: drop
+    the staticFallback import from HomeHeader.tsx; add
+    unreadCount + latestUnread props; pass-through via
+    LoyaltyPortal → HomeScreen → HomeHeader. latestUnread
+    computed inline in LoyaltyPortal as the first
+    !is_read item from data.notifications, projected to
+    { title, body }. Preview card hidden when
+    unreadCount === 0 (no fake birthday banner for
+    caught-up members). Removed the
+    "TODO: wire to live notifications source — Phase 7"
+    comment that flagged the issue but never got
+    addressed. Bell badge now matches bottom-nav (both
+    read from data.unread_count) and screen filter
+    (reads same data via prop), single source of truth.
+
+  - Bug #83 — mark-loyalty-notification-read stale
+    auto-deploy. Function code (CORS handler at top
+    of Deno.serve, per-response corsHeaders) and
+    workflow flag (--no-verify-jwt deploy step,
+    correct path filter) were both correct from C3
+    (commit a1dcca6). Browser nevertheless saw
+    "Failed to send a request to the Edge Function"
+    on click-to-read AND mark-all-read. Same class
+    as the send-loyalty-notification CORS bug from
+    earlier today: GitHub Actions reported green but
+    Supabase served stale function code with
+    verify_jwt: true, blocking OPTIONS preflight at
+    the gateway before the function's own handler
+    ran. Fix was operational: manual Cloud Shell
+    redeploy with --no-verify-jwt:
+      npx supabase functions deploy mark-loyalty-notification-read \
+        --no-verify-jwt --project-ref pfoicalpzdcmyxzvwyhz
+    Reinforces the AUTO-DEPLOY RULES "STALE EDGE
+    FUNCTION DEPLOYS" section: for any browser-callable
+    edge function reporting CORS or invocation failure,
+    manual Cloud Shell redeploy is the fastest fix —
+    don't trust the green CI badge alone.
 
 ### OPERATIONAL ENHANCEMENTS
   P6: Admin audit log for manual DB changes
