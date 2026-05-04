@@ -3,7 +3,6 @@ import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { Link } from 'react-router-dom';
-import { useAccounts, useSchedule } from '@/hooks/use-supabase-data';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { getPHTToday } from '@/lib/date-utils';

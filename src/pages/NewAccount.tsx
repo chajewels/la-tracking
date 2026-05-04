@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { generateScheduleDates, calculateInstallments, formatCurrency } from '@/lib/calculations';
 import { Currency, PaymentPlan } from '@/lib/types';
 import { toast } from 'sonner';
-import { useCustomers, useAccounts, useCreateAccount, DbCustomer } from '@/hooks/use-supabase-data';
+import { useCustomers, useAccountsLight, useCreateAccount, DbCustomer } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useQuery } from '@tanstack/react-query';
@@ -32,7 +32,7 @@ interface SplitAllocation {
 export default function NewAccount() {
   const navigate = useNavigate();
   const { data: customers } = useCustomers();
-  const { data: allAccounts } = useAccounts();
+  const { data: allAccounts } = useAccountsLight();
   const createAccount = useCreateAccount();
   const { initialDraft, persistDraft, clearDraft, restored, markRestored } = useAccountDraft();
   const draftRestoredRef = useRef(false);

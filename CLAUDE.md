@@ -1714,6 +1714,44 @@ When completing a partially_paid month:
 
     (2026-05-03)
 
+  - 80. Customers menu crashed mobile Chrome on
+    app.chajewelsjp.com (iOS) with "Can't open this page"
+    error. Pre-existing issue, surfaced 2026-05-04 when
+    user was out of office and needed mobile access.
+
+    Root cause: Customers page rendered all 662 customer
+    cards at once with no pagination. useAccounts() fetched
+    .select('*, customers(*)') duplicating customer data
+    per account row, producing ~10 MB payload. Combined
+    with ~6,500 React components + ~2,600 SVG nodes,
+    exceeded iOS WebKit's per-tab heap limit (~200-300 MB)
+    and triggered OOM kill.
+
+    Why other admin pages worked: AccountList paginates at
+    30/page. Loyalty Admin paginates members. Only Customers
+    page brute-force rendered everything.
+
+    Fix (4 independent improvements, single commit):
+    - Tightened useAccounts() embed from customers(*) to
+      customers(full_name, messenger_link). Saves payload
+      for all consumers (AIRiskPanel, AccountList, Finance)
+      without breaking anything.
+    - Added useAccountsLight() hook with no embed for
+      consumers that don't read account.customers
+    - Migrated Customers, Dashboard, NewAccount to
+      useAccountsLight()
+    - Added pagination on Customers page (50 per page,
+      mirroring AccountList pattern)
+    - Cleaned up dead useAccounts import in OverdueAlerts.tsx
+
+    Net effect: mobile Customers menu loads correctly.
+    Initial render 50 cards instead of 662. Payload from
+    accounts query drops from ~10 MB to ~50-100 KB on
+    light-hook consumers, and from ~10 MB to ~2-3 MB on
+    embed consumers (full_name + messenger_link only).
+
+    (2026-05-04)
+
 ## Known Open Bugs
 
   Bugs that have been surfaced and triaged but not
@@ -3809,6 +3847,28 @@ When completing a partially_paid month:
   Pending: root cause analysis of #79 before any retry.
   Phase A may proceed backend-only if frontend retry is
   deferred.
+
+  ### 2026-05-04 — Customers mobile crash fixed (#80)
+
+  Customers page now paginates at 50 per page. Three pages
+  migrated to useAccountsLight() (no embed).
+  AIRiskPanel/AccountList/Finance unchanged but benefit
+  from tightened embed (full_name + messenger_link only).
+  Mobile Chrome on iOS loads Customers menu correctly.
+
+  Files modified:
+    - src/hooks/use-supabase-data.ts (tightened useAccounts
+      embed + added useAccountsLight)
+    - src/pages/Customers.tsx (pagination + light hook)
+    - src/pages/Dashboard.tsx (light hook)
+    - src/pages/NewAccount.tsx (light hook)
+    - src/components/dashboard/OverdueAlerts.tsx (dead
+      import cleanup)
+
+  Phase A status (unchanged):
+    - Backend (commits through 17fa7a6): live
+    - Frontend (3b-1 through 3b-2-fix): reverted, pending
+      investigation of #79
 
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 

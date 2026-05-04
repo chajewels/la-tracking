@@ -16,7 +16,7 @@ import { LatePaymentRiskPanel, CompletionProbabilityPanel, CLVPanel } from '@/co
 import SystemHealthPanel from '@/components/dashboard/SystemHealthPanel';
 import { Currency } from '@/lib/types';
 import { getDisplayCurrencyForFilter } from '@/lib/currency-converter';
-import { useAccounts, useCustomers, useDashboardSummary } from '@/hooks/use-supabase-data';
+import { useAccountsLight, useCustomers, useDashboardSummary } from '@/hooks/use-supabase-data';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
@@ -47,7 +47,7 @@ export default function Dashboard() {
   );
   // Only load accounts/customers if needed by visible widgets
   const needsGeo = can('view_geo_breakdown');
-  const { data: accounts } = useAccounts();
+  const { data: accounts } = useAccountsLight();
   const { data: customers } = useCustomers();
   useAutoRefresh([
     ['accounts'],

@@ -65,6 +65,13 @@ export function useCustomers() {
 // ──────────────────────────────────────────────
 // LAYAWAY ACCOUNTS (with joined customer)
 // ──────────────────────────────────────────────
+// Embed tightened to (full_name, messenger_link) — these
+// are the only customer fields read by AIRiskPanel,
+// AccountList, and Finance. Pre-#80 the embed was
+// customers(*) which duplicated the full customer row
+// for every account and produced ~10 MB payload at 700+
+// accounts × 662 customers, contributing to iOS WebKit OOM
+// on the Customers page.
 export function useAccounts() {
   return useQuery({
     queryKey: ['accounts'],
@@ -74,10 +81,38 @@ export function useAccounts() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('layaway_accounts')
-        .select('*, customers(*)')
+        .select('*, customers(full_name, messenger_link)')
         .order('created_at', { ascending: false });
       if (error) throw error;
       return data as AccountWithCustomer[];
+    },
+  });
+}
+
+// useAccountsLight — same row shape minus the customers
+// embed. Use this from pages that only need scalar
+// columns (id, customer_id, status, totals, dates) and
+// never read account.customers.*. Saves the embed payload
+// entirely.
+//
+// Current consumers: Customers page, Dashboard, NewAccount.
+// Embed-using consumers (AIRiskPanel, AccountList,
+// Finance) stay on useAccounts above.
+export function useAccountsLight() {
+  return useQuery({
+    queryKey: ['accounts-light'],
+    staleTime: STALE_SHORT,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('layaway_accounts')
+        .select(
+          'id, customer_id, status, currency, invoice_number, total_amount, total_paid, remaining_balance, payment_plan_months, created_at, updated_at, created_by_user_id',
+        )
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data;
     },
   });
 }

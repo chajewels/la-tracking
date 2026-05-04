@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { parseLocation, LocationType } from '@/lib/countries';
 import { Users, Search, LayoutGrid, ListFilter, Layers } from 'lucide-react';
@@ -8,7 +8,7 @@ import AccountList from './AccountList';
 import CashOrdersList from '@/components/customers/CashOrdersList';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useCustomers, useAccounts } from '@/hooks/use-supabase-data';
+import { useCustomers, useAccountsLight } from '@/hooks/use-supabase-data';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
@@ -37,13 +37,28 @@ export default function Customers() {
     setSearchParams(searchParams, { replace: true });
   }, [searchParams, setSearchParams]);
   const { data: customers, isLoading } = useCustomers();
-  const { data: accounts } = useAccounts();
+  const { data: accounts } = useAccountsLight();
   const { roles } = useAuth();
   const { can } = usePermissions();
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('all');
   const [activeLetter, setActiveLetter] = useState<string | null>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // Pagination — fixes mobile OOM crash on iOS WebKit
+  // (#80). Without it, all 662 cards render at once. 50
+  // per page mirrors the AccountList pattern (30/page;
+  // 50 here because customer cards are lighter than
+  // account cards).
+  const PAGE_SIZE = 50;
+  const [page, setPage] = useState(0);
+
+  // Reset to page 0 whenever the filter set changes —
+  // otherwise the user could be stuck on page 5 of a
+  // filtered list that has 1 page.
+  useEffect(() => {
+    setPage(0);
+  }, [search, viewMode, activeLetter]);
 
   // Edit dialog state
   const [editOpen, setEditOpen] = useState(false);
@@ -95,6 +110,16 @@ export default function Customers() {
     }
     return searchFiltered;
   }, [searchFiltered, viewMode, activeLetter, search]);
+
+  // Paginated slice of `displayed` for the default and
+  // filter views. Grouped view paginates by letter group
+  // (each group is naturally bounded), so it does not
+  // use this.
+  const totalPages = Math.max(1, Math.ceil(displayed.length / PAGE_SIZE));
+  const paged = useMemo(
+    () => displayed.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+    [displayed, page],
+  );
 
   // Grouped data (for grouped view)
   const grouped = useMemo(() => {
@@ -272,7 +297,33 @@ export default function Customers() {
             </p>
           </div>
         ) : (
-          renderCards(displayed)
+          <>
+            {renderCards(paged)}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-3 mt-6">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(p => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                >
+                  Previous
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Page {page + 1} of {totalPages}
+                  <span className="hidden sm:inline"> · {displayed.length} customer{displayed.length !== 1 ? 's' : ''}</span>
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                >
+                  Next
+                </Button>
+              </div>
+            )}
+          </>
         )}
 
         <EditCustomerDialog
