@@ -2,7 +2,7 @@ import MemberCard from '@/components/loyalty/MemberCard';
 import VipProgressSection from '@/components/loyalty/VipProgressSection';
 import PointsSnapshot from '@/components/loyalty/PointsSnapshot';
 import RecentActivity from '@/components/loyalty/RecentActivity';
-import HomeHeader from '@/components/loyalty/home/HomeHeader';
+import HomeHeader, { type HomeHeaderUnreadPreview } from '@/components/loyalty/home/HomeHeader';
 import MilestoneBanner from '@/components/loyalty/home/MilestoneBanner';
 import QuickActions from '@/components/loyalty/home/QuickActions';
 import BirthdayRewardCard from '@/components/loyalty/home/BirthdayRewardCard';
@@ -18,12 +18,24 @@ interface HomeScreenProps {
   canRedeem: boolean;
   onRedeemClick: () => void;
   setTab: (tab: LoyaltyTab) => void;
+  unreadCount: number;
+  latestUnread?: HomeHeaderUnreadPreview | null;
 }
 
-export default function HomeScreen({ canRedeem, onRedeemClick, setTab }: HomeScreenProps) {
+export default function HomeScreen({
+  canRedeem,
+  onRedeemClick,
+  setTab,
+  unreadCount,
+  latestUnread,
+}: HomeScreenProps) {
   return (
     <div className="px-5 pt-6 pb-4 space-y-5">
-      <HomeHeader setTab={setTab} />
+      <HomeHeader
+        setTab={setTab}
+        unreadCount={unreadCount}
+        latestUnread={latestUnread}
+      />
       <MemberCard />
       <MilestoneBanner />
       <VipProgressSection onExploreTiers={() => setTab('tiers')} />

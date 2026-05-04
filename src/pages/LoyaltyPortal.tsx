@@ -345,6 +345,11 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
             canRedeem={canRedeem}
             onRedeemClick={() => setIsRedemptionOpen(true)}
             setTab={setTab}
+            unreadCount={data.unread_count ?? 0}
+            latestUnread={(() => {
+              const first = (data.notifications ?? []).find((n) => !n.is_read);
+              return first ? { title: first.title, body: first.body } : null;
+            })()}
           />
         )}
         {tab === 'rewards' && <RewardsScreen />}

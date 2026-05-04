@@ -1,20 +1,30 @@
 import { motion } from 'framer-motion';
 import { Bell, ChevronRight } from 'lucide-react';
 import { useLoyaltyData } from '@/components/loyalty/loyaltyData';
-import { NOTIFICATIONS } from '@/components/loyalty/staticFallback';
 import type { LoyaltyTab } from '@/components/loyalty/LoyaltyBottomNav';
+
+export interface HomeHeaderUnreadPreview {
+  title: string;
+  body: string;
+}
 
 interface HomeHeaderProps {
   setTab: (tab: LoyaltyTab) => void;
+  unreadCount: number;
+  latestUnread?: HomeHeaderUnreadPreview | null;
 }
 
-export default function HomeHeader({ setTab }: HomeHeaderProps) {
+export default function HomeHeader({
+  setTab,
+  unreadCount,
+  latestUnread,
+}: HomeHeaderProps) {
   const { member } = useLoyaltyData();
   const firstName = (member?.customer_name || 'there').split(' ')[0];
 
-  // TODO: wire to live notifications source — Phase 7
-  const unreadCount = NOTIFICATIONS.filter((n) => !n.isRead).length;
-  const latestUnread = NOTIFICATIONS.find((n) => !n.isRead);
+  // No preview when there's nothing unread — avoids leaking stale fixture
+  // data and keeps the header clean for caught-up members.
+  const showPreview = unreadCount > 0 && !!latestUnread;
 
   return (
     <div className="space-y-3">
@@ -44,7 +54,7 @@ export default function HomeHeader({ setTab }: HomeHeaderProps) {
         </button>
       </motion.div>
 
-      {latestUnread && (
+      {showPreview && (
         <motion.button
           initial={{ opacity: 0, y: -4 }}
           animate={{ opacity: 1, y: 0 }}
@@ -56,8 +66,8 @@ export default function HomeHeader({ setTab }: HomeHeaderProps) {
             <Bell size={14} className="text-primary" strokeWidth={2} />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[13px] font-body font-semibold text-foreground truncate">{latestUnread.title}</p>
-            <p className="text-[12px] text-muted-foreground font-body mt-0.5 truncate">{latestUnread.message}</p>
+            <p className="text-[13px] font-body font-semibold text-foreground truncate">{latestUnread!.title}</p>
+            <p className="text-[12px] text-muted-foreground font-body mt-0.5 truncate">{latestUnread!.body}</p>
           </div>
           <ChevronRight size={14} className="text-primary/50 flex-shrink-0" />
         </motion.button>
