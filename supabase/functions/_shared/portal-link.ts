@@ -63,9 +63,12 @@ export function getPortalLinkForCustomer(
     return `${PORTAL_BASE}${path}?token=${encodeURIComponent(customer.portal_token)}`;
   }
 
-  // Non-migrated customer without token → bare URL fallback
-  // (portal will prompt for token via Messenger or other recovery)
-  return `${PORTAL_BASE}${path}`;
+  // Non-migrated customer without token → /portal home regardless
+  // of intent. The loyalty page requires auth to render, so we
+  // route token-less unauthenticated visitors to the portal home
+  // (Messenger token recovery flow). Matches production
+  // buildLoyaltyPortalUrl fallback behavior.
+  return `${PORTAL_BASE}/portal`;
 }
 
 /**
@@ -133,5 +136,8 @@ export async function buildPortalLinkForCustomerId(
   }
 
   // Fallback if no valid active token (none, all expired, etc.)
-  return `${PORTAL_BASE}${path}`;
+  // Returns /portal home regardless of intent — loyalty page
+  // requires auth, so token-less unauthenticated visitors land
+  // at portal home (Messenger token recovery flow).
+  return `${PORTAL_BASE}/portal`;
 }
