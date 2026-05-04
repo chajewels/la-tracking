@@ -1344,6 +1344,108 @@ export type Database = {
           },
         ]
       }
+      loyalty_notification_recipients: {
+        Row: {
+          created_at: string
+          id: string
+          is_read: boolean
+          member_id: string
+          notification_id: string
+          read_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          member_id: string
+          notification_id: string
+          read_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          member_id?: string
+          notification_id?: string
+          read_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loyalty_notification_recipients_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "loyalty_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loyalty_notification_recipients_notification_id_fkey"
+            columns: ["notification_id"]
+            isOneToOne: false
+            referencedRelation: "loyalty_notifications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      loyalty_notifications: {
+        Row: {
+          audience_member_ids: string[] | null
+          audience_tiers: string[] | null
+          audience_type: string
+          body: string
+          category: string
+          created_at: string
+          created_by_user_id: string | null
+          email_sent: boolean
+          expires_at: string | null
+          id: string
+          link_target: string | null
+          scheduled_for: string | null
+          send_email: boolean
+          sent_at: string | null
+          status: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          audience_member_ids?: string[] | null
+          audience_tiers?: string[] | null
+          audience_type: string
+          body: string
+          category: string
+          created_at?: string
+          created_by_user_id?: string | null
+          email_sent?: boolean
+          expires_at?: string | null
+          id?: string
+          link_target?: string | null
+          scheduled_for?: string | null
+          send_email?: boolean
+          sent_at?: string | null
+          status?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          audience_member_ids?: string[] | null
+          audience_tiers?: string[] | null
+          audience_type?: string
+          body?: string
+          category?: string
+          created_at?: string
+          created_by_user_id?: string | null
+          email_sent?: boolean
+          expires_at?: string | null
+          id?: string
+          link_target?: string | null
+          scheduled_for?: string | null
+          send_email?: boolean
+          sent_at?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       loyalty_promos: {
         Row: {
           applicable_tiers: string[] | null
