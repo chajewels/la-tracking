@@ -1,18 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Bell, Loader2, Send, Calendar, Users as UsersIcon, Crown, Sparkles,
-  Cake, Gift, Megaphone, Settings as SettingsIcon, X, Search,
+  Cake, Gift, Megaphone, Settings as SettingsIcon, X, Search, ArrowLeft,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -229,7 +224,7 @@ export default function NotificationComposeDialog({
   onClose,
 }: NotificationComposeDialogProps) {
   const [form, setForm] = useState<FormState>(emptyForm);
-  const [confirmAction, setConfirmAction] = useState<null | 'now' | 'schedule'>(null);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [memberSearch, setMemberSearch] = useState('');
   const [globalEmailGate, setGlobalEmailGate] = useState<boolean | null>(null);
 
@@ -264,6 +259,7 @@ export default function NotificationComposeDialog({
     if (open) {
       setForm(notification ? rowToForm(notification) : emptyForm());
       setMemberSearch('');
+      setShowConfirm(false);
     }
   }, [open, notification?.id]);
 
@@ -310,7 +306,7 @@ export default function NotificationComposeDialog({
 
   function handleClose() {
     if (isPending) return;
-    setConfirmAction(null);
+    setShowConfirm(false);
     onClose();
   }
 
@@ -323,11 +319,10 @@ export default function NotificationComposeDialog({
       toast.error(errors[0]);
       return;
     }
-    setConfirmAction(form.schedule_mode === 'schedule' ? 'schedule' : 'now');
+    setShowConfirm(true);
   }
 
   async function handleConfirm() {
-    if (confirmAction === null) return;
     const input = formToInput(form);
     try {
       if (isEditMode) {
@@ -348,11 +343,11 @@ export default function NotificationComposeDialog({
             : `Notification sent to ${res.recipient_count} recipient(s)`,
         );
       }
-      setConfirmAction(null);
+      setShowConfirm(false);
       onClose();
     } catch (err: any) {
       toast.error(err?.message || 'Failed to send notification');
-      setConfirmAction(null);
+      // Stay on confirm view so the admin can retry without re-entering data.
     }
   }
 
@@ -367,26 +362,89 @@ export default function NotificationComposeDialog({
   })();
 
   return (
-    <>
-      <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
-        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Bell className="h-4 w-4 text-primary" />
-              {isEditMode ? 'Edit Notification' : 'New Notification'}
-            </DialogTitle>
-            <DialogDescription>
-              Loyalty members see this in the Notifications tab of the customer portal.
-            </DialogDescription>
-          </DialogHeader>
+    <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
+      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Bell className="h-4 w-4 text-primary" />
+            {showConfirm
+              ? form.schedule_mode === 'schedule'
+                ? 'Schedule notification?'
+                : 'Send notification now?'
+              : isEditMode
+                ? 'Edit Notification'
+                : 'New Notification'}
+          </DialogTitle>
+          <DialogDescription>
+            {showConfirm
+              ? 'Review the details below, then confirm.'
+              : 'Loyalty members see this in the Notifications tab of the customer portal.'}
+          </DialogDescription>
+        </DialogHeader>
 
-          {editLocked && (
-            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
-              This notification is <strong>{notification!.status}</strong> and can no longer be
-              edited. Close and create a new one instead.
+        {!showConfirm && editLocked && (
+          <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
+            This notification is <strong>{notification!.status}</strong> and can no longer be
+            edited. Close and create a new one instead.
+          </div>
+        )}
+
+        {showConfirm && (
+          <div className="space-y-3">
+            <div className="rounded-md border border-border bg-muted/30 p-3 space-y-2.5 text-sm">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Title
+                </p>
+                <p className="font-medium text-foreground">{form.title.trim()}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Body
+                </p>
+                <p className="text-foreground whitespace-pre-wrap">{form.body.trim()}</p>
+              </div>
+              <div className="flex items-start gap-2 pt-1 border-t border-border">
+                <UsersIcon className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+                <span className="text-foreground">{audienceLabel}</span>
+              </div>
+              {form.schedule_mode === 'schedule' && form.scheduled_for && (
+                <div className="flex items-start gap-2">
+                  <Calendar className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+                  <span className="text-foreground">
+                    Sends at{' '}
+                    <strong>{fmtPht(localInputToIso(form.scheduled_for) || '')}</strong>
+                  </span>
+                </div>
+              )}
+              {form.schedule_mode === 'now' && (
+                <div className="flex items-start gap-2">
+                  <Send className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+                  <span className="text-foreground">Sends immediately on confirm</span>
+                </div>
+              )}
+              <div className="flex items-start gap-2">
+                <Bell className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+                <span className="text-foreground">
+                  Email{' '}
+                  <strong>{form.send_email ? 'will be sent' : 'will NOT be sent'}</strong>
+                  {form.send_email && globalEmailGate === false && (
+                    <span className="text-amber-600 ml-1">
+                      (global toggle is OFF — emails suppressed)
+                    </span>
+                  )}
+                </span>
+              </div>
             </div>
-          )}
+            <p className="text-[11px] text-muted-foreground">
+              {form.schedule_mode === 'schedule'
+                ? 'You can still cancel before the scheduled time.'
+                : 'This will be delivered to portal recipients immediately and cannot be undone.'}
+            </p>
+          </div>
+        )}
 
+        {!showConfirm && (
           <div className="space-y-4">
             <div className="space-y-1.5">
               <div className="flex items-baseline justify-between">
@@ -690,79 +748,56 @@ export default function NotificationComposeDialog({
               </div>
             )}
           </div>
+        )}
 
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleClose}
-              disabled={isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={attemptSend}
-              disabled={isPending || editLocked || errors.length > 0}
-              className="gold-gradient text-primary-foreground"
-            >
-              {isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
-              {form.schedule_mode === 'schedule' ? (
-                <><Calendar className="h-3.5 w-3.5 mr-1" /> Schedule</>
-              ) : (
-                <><Send className="h-3.5 w-3.5 mr-1" /> Send Now</>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog
-        open={confirmAction !== null}
-        onOpenChange={(o) => !o && setConfirmAction(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {confirmAction === 'schedule' ? 'Schedule notification?' : 'Send notification now?'}
-            </AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-2 text-sm">
-                <div className="flex items-start gap-2">
-                  <UsersIcon className="h-4 w-4 mt-0.5 text-muted-foreground" />
-                  <span>{audienceLabel}</span>
-                </div>
-                {confirmAction === 'schedule' && form.scheduled_for && (
-                  <div className="flex items-start gap-2">
-                    <Calendar className="h-4 w-4 mt-0.5 text-muted-foreground" />
-                    <span>
-                      Sends at <strong>{fmtPht(localInputToIso(form.scheduled_for) || '')}</strong>
-                    </span>
-                  </div>
+        <DialogFooter>
+          {showConfirm ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowConfirm(false)}
+                disabled={isPending}
+              >
+                <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Back
+              </Button>
+              <Button
+                type="button"
+                onClick={handleConfirm}
+                disabled={isPending}
+                className="gold-gradient text-primary-foreground"
+              >
+                {isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                Confirm
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleClose}
+                disabled={isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={attemptSend}
+                disabled={isPending || editLocked || errors.length > 0}
+                className="gold-gradient text-primary-foreground"
+              >
+                {isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                {form.schedule_mode === 'schedule' ? (
+                  <><Calendar className="h-3.5 w-3.5 mr-1" /> Schedule</>
+                ) : (
+                  <><Send className="h-3.5 w-3.5 mr-1" /> Send Now</>
                 )}
-                <div className="flex items-start gap-2">
-                  <Send className="h-4 w-4 mt-0.5 text-muted-foreground" />
-                  <span>
-                    Email{' '}
-                    <strong>{form.send_email ? 'will be sent' : 'will NOT be sent'}</strong>
-                  </span>
-                </div>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirm}
-              disabled={isPending}
-              className="gold-gradient text-primary-foreground"
-            >
-              {isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
-              Confirm
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+              </Button>
+            </>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
