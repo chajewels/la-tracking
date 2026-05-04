@@ -7,8 +7,17 @@ import { Currency } from '@/lib/types';
 import { getContinent, CONTINENT_ORDER, CONTINENT_ICONS } from '@/lib/continent-mapping';
 import { cn } from '@/lib/utils';
 
+// GeoBreakdown only reads 4 scalar account fields. Narrowing the prop
+// type to Pick<> lets callers pass either the full AccountWithCustomer
+// shape or the lightened useAccountsLight() shape (Bug #80) without a
+// type error, since both supersets satisfy this contract.
+type GeoAccount = Pick<
+  AccountWithCustomer,
+  'status' | 'customer_id' | 'currency' | 'remaining_balance'
+>;
+
 interface GeoBreakdownProps {
-  accounts: AccountWithCustomer[];
+  accounts: GeoAccount[];
   customers: DbCustomer[];
   countOnly?: boolean;
 }
