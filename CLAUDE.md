@@ -4690,6 +4690,23 @@ until full testing approved.
 Branch: `feature/email-password-auth` (created
 2026-05-04 from main at commit 491e44f)
 
+Per-customer auth routing (LOCKED 2026-05-04):
+  Both auth methods coexist permanently. Per-customer
+  routing is driven by customers.auth_user_id:
+
+    auth_user_id IS NULL  → messages contain token URL,
+                            customer logs in via the
+                            Messenger link
+    auth_user_id NOT NULL → messages contain bare portal
+                            URL, customer logs in with
+                            email/password
+
+  The token endpoint stays deployed indefinitely.
+  Existing token URLs continue to work for any
+  customer (no active revocation). The auth_user_id
+  flag controls only which URL gets sent in new
+  messages.
+
 Phase 0 — Data cleanup (✅ COMPLETE 2026-05-04):
   - 4 duplicate-email customers investigated
   - Kariemhe pair: deleted CJ-2026-04760 (zero linked
@@ -4701,20 +4718,74 @@ Step 1 — Branch creation (✅ COMPLETE 2026-05-04):
   - Branch pushed with -u tracking to origin
   - Working tree clean
 
-Step 2 — Database schema changes (⏳ NEXT):
-  - 5 SQL migration files to create on branch
-  - Add 'customer' role to app_role enum
-  - Add customers.auth_user_id (FK to auth.users)
-  - Email uniqueness for migrated customers only
-  - Auto-sync trigger (auth.users.email → customers.email)
-  - RLS policies for customer-scoped reads
-  - Files stay on branch; NOT applied to production until merge
+Step 2 — Database schema changes
+          (✅ COMPLETE 2026-05-04, with caveats):
+  6 SQL migration files committed to branch at 2d3ac1f
+  (originally; rebased to 208e8ef on top of main):
+    - 20260504000001_add_customer_role.sql
+    - 20260504000002_add_auth_user_id_to_customers.sql
+    - 20260504000003_partial_unique_email_index.sql
+    - 20260504000004_sync_auth_email_to_customer.sql
+    - 20260504000005_customer_rls_policies.sql
+    - 20260504000006_customer_rls_policies_remainder.sql
+
+  ⚠️ PROCEDURAL DRIFT: Files 1-5 (enum, FK column,
+  partial unique email index, email sync trigger,
+  3 of 9 customer RLS policies) were applied to
+  production via SQL Editor on 2026-05-04 ahead of
+  the merge plan. Effect on production: zero — all
+  changes dormant because no customer has
+  auth_user_id set yet, and no code path reads or
+  writes the new structures. Procedural rule
+  violated: schema changes were supposed to wait for
+  merge approval. File 6 (6 remaining customer RLS
+  policies for payments / payment_submissions /
+  loyalty_members / loyalty_transactions /
+  loyalty_redemptions / loyalty_notification_recipients)
+  is NOT yet in production — applied at merge time.
+
+  Production state vs branch state:
+    Files 1-5 schema: branch == prod
+    File 6 RLS policies: branch ahead of prod
+                          (will reconcile at merge time)
+
+  Process safeguard going forward: SQL intended to
+  be run is preceded by an explicit
+  "Run this in SQL Editor:" instruction line in
+  Claude responses. Anything inside design proposals
+  without that prefix is design only and must not
+  be executed.
 
 Step 3 — Backend dual-auth (⏳ PENDING):
   - 7 portal edge functions accept BOTH old auth
     (token/session) AND new auth (Bearer JWT)
   - 1-2 new functions: setup-customer-account, optionally
     invite-customer-account
+  - Both auth paths remain supported permanently
+    (verify-portal-pin and redeem-portal-token are
+    NOT deprecated)
+
+  Pre-Step-3 investigation REQUIRED:
+    Before any code is written for Step 3, the
+    existing email infrastructure must be inventoried
+    end-to-end:
+      - Every edge function that calls
+        send-transactional-email
+      - Every email template in use (auth, reminders,
+        loyalty notifications, payment confirmations,
+        cash order flows, forfeit warnings, etc.)
+      - Every place a portal URL is embedded in a
+        customer-facing message (so the
+        getPortalLinkForCustomer helper can be
+        applied uniformly — see Per-customer auth
+        routing above)
+      - Every cron job that sends emails
+    Goal: ensure new customer auth emails (signup
+    verification, password reset, email change)
+    integrate cleanly with the established
+    auth-email-hook + send-transactional-email
+    sole-sender pattern. No parallel paths, no
+    duplicate-send risk.
 
 Step 4 — Frontend customer login (⏳ PENDING):
   - 4 new routes: /portal/login, /portal/forgot-password,
@@ -4730,12 +4801,22 @@ Step 7 — Merge approval (⏳ PENDING — requires explicit
 user go signal)
 
 Customer rollout (post-launch):
-  - 662 customers migrate gradually over 8-12 weeks
-  - Opt-in prompt during existing token visit
-  - Messenger broadcasts + admin invites
-  - 71 no-email customers stay on token auth with
-    6-month grace
-  - 1 duplicate-email pair (Cabalza) stays on token auth
+  - Migration is opt-in only via existing token visit
+    ("set up email/password if you'd like — both
+    methods will continue to work")
+  - Messenger broadcasts + admin invites encourage
+    adoption but no deadline is enforced
+  - Token auth has NO sunset — supported as long as
+    any customer uses it
+  - Setting up email/password does NOT revoke
+    existing tokens (they just stop appearing in
+    new messages)
+  - 71 no-email customers stay on token auth
+    indefinitely (no email → cannot migrate, but
+    no expiration either)
+  - Cabalza family (shared email) stays on token
+    auth indefinitely
+  - Customers who never opt in stay on token auth
     indefinitely
 
 Locked decisions:
@@ -4748,6 +4829,16 @@ Locked decisions:
   - Session refresh token: 30 days
   - Empty accounts state: "You don't have any orders yet"
     with shop/Messenger CTA
+  - Token auth sunset: NONE — supported indefinitely
+  - Token revocation on signup: NONE — opting into
+    email/password does not revoke existing tokens
+  - Portal link in customer messages: bare URL
+    (https://portal.chajewelsjp.com) when
+    customers.auth_user_id IS NOT NULL,
+    token-bearing URL otherwise. Implemented via
+    centralized helper getPortalLinkForCustomer().
+  - Migration policy: opt-in only, no deadline,
+    no forced migration
 
 Branch isolation rules (LOCKED):
   - All work on feature/email-password-auth
