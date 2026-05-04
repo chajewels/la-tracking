@@ -267,7 +267,13 @@ Deno.serve(async (req) => {
     if (loyaltyMemberRow) {
       const memberId = (loyaltyMemberRow as any).id;
       const nowIso = new Date().toISOString();
-      const [txnsRes, redRes, notifRes, unreadRes] = await Promise.all([
+      // Phase 4: split the notifications fetch into two sequential queries
+      // (recipients → masters) instead of a PostgREST embed. The original
+      // embed pattern silently failed when the schema cache hadn't picked
+      // up the SQL-Editor-created FK relationship — same bug class as
+      // resolvePortalAuth (Known Fixed Bug #76). Sequential queries are
+      // robust against schema-cache drift.
+      const [txnsRes, redRes, recipientsRes, unreadRes] = await Promise.all([
         supabase
           .from("loyalty_transactions")
           .select(
@@ -283,24 +289,13 @@ Deno.serve(async (req) => {
           )
           .eq("member_id", memberId)
           .order("created_at", { ascending: false }),
-        // Phase 4: notifications for this member, joined to the master row
-        // for title/body/category/link_target/expires_at. Filter to sent +
-        // not-yet-expired. Indexed by
-        // idx_loyalty_notification_recipients_member_created.
+        // Step 1: recipient rows for this member (newest first, capped at
+        // 100). Indexed by idx_loyalty_notification_recipients_member_created.
         supabase
           .from("loyalty_notification_recipients")
-          .select(
-            "is_read, read_at, loyalty_notifications!inner(id, title, body, category, link_target, expires_at, created_at, status)",
-          )
+          .select("notification_id, is_read, read_at, created_at")
           .eq("member_id", memberId)
-          .eq("loyalty_notifications.status", "sent")
-          .or(`expires_at.is.null,expires_at.gt.${nowIso}`, {
-            referencedTable: "loyalty_notifications",
-          })
-          .order("created_at", {
-            ascending: false,
-            referencedTable: "loyalty_notifications",
-          })
+          .order("created_at", { ascending: false })
           .limit(100),
         // Unread count via partial index
         // idx_loyalty_notification_recipients_member_unread.
@@ -313,31 +308,80 @@ Deno.serve(async (req) => {
       loyaltyTransactions = txnsRes.data || [];
       loyaltyRedemptions = redRes.data || [];
 
-      const notifRows = (notifRes.data || []) as Array<{
+      if (recipientsRes.error) {
+        console.error(
+          "[customer-portal] notification recipients query failed:",
+          recipientsRes.error,
+        );
+      }
+      if (unreadRes.error) {
+        console.error(
+          "[customer-portal] notification unread-count query failed:",
+          unreadRes.error,
+        );
+      }
+
+      const recipientRows = (recipientsRes.data ?? []) as Array<{
+        notification_id: string;
         is_read: boolean;
         read_at: string | null;
-        loyalty_notifications: {
-          id: string;
-          title: string;
-          body: string;
-          category: string;
-          link_target: string | null;
-          expires_at: string | null;
-          created_at: string;
-          status: string;
-        };
+        created_at: string;
       }>;
-      notifications = notifRows.map((r) => ({
-        id: r.loyalty_notifications.id,
-        title: r.loyalty_notifications.title,
-        body: r.loyalty_notifications.body,
-        category: r.loyalty_notifications.category,
-        link_target: r.loyalty_notifications.link_target,
-        expires_at: r.loyalty_notifications.expires_at,
-        created_at: r.loyalty_notifications.created_at,
-        is_read: r.is_read,
-        read_at: r.read_at,
-      }));
+
+      // Step 2: fetch the master rows by id, filtered to sent +
+      // not-yet-expired. .or() on a single-table column doesn't need
+      // referencedTable; this query has no embed, so the schema cache
+      // path that broke #76 isn't involved.
+      let notifMasters: Array<{
+        id: string;
+        title: string;
+        body: string;
+        category: string;
+        link_target: string | null;
+        expires_at: string | null;
+        created_at: string;
+        status: string;
+      }> = [];
+      const ids = recipientRows.map((r) => r.notification_id);
+      if (ids.length > 0) {
+        const { data: masters, error: notifErr } = await supabase
+          .from("loyalty_notifications")
+          .select(
+            "id, title, body, category, link_target, expires_at, created_at, status",
+          )
+          .in("id", ids)
+          .eq("status", "sent")
+          .or(`expires_at.is.null,expires_at.gt.${nowIso}`);
+        if (notifErr) {
+          console.error(
+            "[customer-portal] notification masters query failed:",
+            notifErr,
+          );
+        }
+        notifMasters = (masters ?? []) as typeof notifMasters;
+      }
+
+      // Step 3: merge in JS. Drop recipient rows whose master was
+      // filtered out (status != sent or expired) so the customer never
+      // sees those.
+      const masterById = new Map(notifMasters.map((m) => [m.id, m]));
+      notifications = recipientRows
+        .map((r) => {
+          const m = masterById.get(r.notification_id);
+          if (!m) return null;
+          return {
+            id: m.id,
+            title: m.title,
+            body: m.body,
+            category: m.category,
+            link_target: m.link_target,
+            expires_at: m.expires_at,
+            created_at: m.created_at,
+            is_read: r.is_read,
+            read_at: r.read_at,
+          };
+        })
+        .filter((n): n is NonNullable<typeof n> => n !== null);
       unreadCount = unreadRes.count ?? 0;
     }
 
