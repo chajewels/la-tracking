@@ -6,7 +6,10 @@
 // recipient rows, and (optionally) fires per-recipient broadcast
 // emails as a background task.
 //
-// Auth: caller must be admin or finance.
+// Auth: caller must be admin or finance. Deployed with
+// --no-verify-jwt so CORS preflight (OPTIONS without Authorization)
+// reaches the function's own handler — internal supabase.auth.getUser()
+// + role check below enforce the actual auth contract.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";

@@ -240,7 +240,7 @@ jobs:
 
       - name: Deploy send-loyalty-notification
         if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/send-loyalty-notification/') || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/_shared/')
-        run: npx supabase functions deploy send-loyalty-notification --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: npx supabase functions deploy send-loyalty-notification --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
