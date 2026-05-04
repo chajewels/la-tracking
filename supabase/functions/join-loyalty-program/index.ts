@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { resolvePortalAuth } from "../_shared/portal-auth.ts";
+import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -97,6 +98,17 @@ Deno.serve(async (req) => {
     if (customer.email) {
       try {
         if (await gate("loyalty_email_welcome")) {
+          // Build portal URL via shared helper. Routes migrated
+          // customers (auth_user_id set) to bare /loyalty, and
+          // non-migrated customers to /loyalty?token=X with the
+          // newest active non-expired token from DB. Fixes existing
+          // latent bug where session_id auth path produced URL with
+          // literal "undefined" in the token slot.
+          const portalUrl = await buildPortalLinkForCustomerId(
+            supabase,
+            customerId,
+            'loyalty',
+          );
           await fetch(
             `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
             {
@@ -112,7 +124,7 @@ Deno.serve(async (req) => {
                 templateData: {
                   customerName: customer.full_name || "Valued Customer",
                   enrolledDate: enrolledAt,
-                  portalUrl: `https://portal.chajewelsjp.com/loyalty?token=${encodeURIComponent(portal_token)}`,
+                  portalUrl,
                 },
               }),
             },
