@@ -1967,9 +1967,8 @@ When completing a partially_paid month:
       against direct SQL bypass.
 
   P4 — Larger features (Medium severity, real effort, not blocking)
-    - PWA Phase A install routing — design complete in another
-      chat (e0eb0f1c), 3 documented gaps in mobile portal install
-      flow. Largest single workstream.
+    - PWA Phase A install routing — ABANDONED 2026-05-04,
+      see EMAIL/PASSWORD AUTH (Phase B) in PENDING ITEMS
     - Invoice generator — Google Sheets + Drive, JPY only.
       Service account ready, code not written.
     - Firebase signing steps 13-17 — contract signing flow
@@ -1978,7 +1977,7 @@ When completing a partially_paid month:
   No P0 work today. Triage triggered when an item escalates
   (e.g., customer report, audit flag, regulatory deadline).
 
-  (last reviewed 2026-04-30)
+  (last reviewed 2026-05-04)
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
@@ -2589,7 +2588,7 @@ When completing a partially_paid month:
   Check 20: carried amount on paid row — no unconsumed carry on paid rows
   Check 21: double carry — no account has carry on multiple rows
 
-## SYSTEM STATUS (as of 2026-04-30)
+## SYSTEM STATUS (as of 2026-05-04)
 
   Cash Basis Plan Phase 1 (DB): COMPLETE ✅
     - cash_orders table created with 3 indexes
@@ -3975,7 +3974,7 @@ When completing a partially_paid month:
        Blocks any account creation or edit below the minimum.
     3. Both PHP and JPY enforced — hard block, no override
 
-## PENDING ITEMS (as of 2026-04-30)
+## PENDING ITEMS (as of 2026-05-04)
 
 ### LOYALTY PORTAL — Cha Jewels Circle Port
 Multi-phase port of Circle UI into
@@ -4438,6 +4437,14 @@ loyalty portal. In progress.
      complaints.
 
 ### PWA TOKEN-TO-SESSION REDEMPTION (Phase A)
+
+  **STATUS: ABANDONED 2026-05-04** — replaced by
+  email/password auth workstream on
+  feature/email-password-auth branch. See EMAIL/PASSWORD
+  AUTH subsection below for the active replacement. The
+  Phase A scope below is preserved for historical
+  reference only and should NOT be picked up.
+
   Multi-phase PWA fix project lineage:
     Phase 0 (Known Fixed Bug #65) — Cleanup of
             failed dynamic manifest approach.
@@ -4498,6 +4505,81 @@ loyalty portal. In progress.
     - Pre-iOS-17.2 customers fall back to
       the Messenger-link prompt path
       (Phase 6 still planned)
+
+### EMAIL/PASSWORD AUTH (Phase B)
+
+**STATUS: IN PROGRESS** — replaces abandoned Phase A
+PWA approach. Branch-isolated work — NO main commits
+until full testing approved.
+
+Branch: `feature/email-password-auth` (created
+2026-05-04 from main at commit 491e44f)
+
+Phase 0 — Data cleanup (✅ COMPLETE 2026-05-04):
+  - 4 duplicate-email customers investigated
+  - Kariemhe pair: deleted CJ-2026-04760 (zero linked
+    data), kept CJ-2026-05104 "Karie Mhe Calon"
+  - Cabalza pair: deferred (family sharing one email;
+    keep using legacy token auth indefinitely)
+
+Step 1 — Branch creation (✅ COMPLETE 2026-05-04):
+  - Branch pushed with -u tracking to origin
+  - Working tree clean
+
+Step 2 — Database schema changes (⏳ NEXT):
+  - 5 SQL migration files to create on branch
+  - Add 'customer' role to app_role enum
+  - Add customers.auth_user_id (FK to auth.users)
+  - Email uniqueness for migrated customers only
+  - Auto-sync trigger (auth.users.email → customers.email)
+  - RLS policies for customer-scoped reads
+  - Files stay on branch; NOT applied to production until merge
+
+Step 3 — Backend dual-auth (⏳ PENDING):
+  - 7 portal edge functions accept BOTH old auth
+    (token/session) AND new auth (Bearer JWT)
+  - 1-2 new functions: setup-customer-account, optionally
+    invite-customer-account
+
+Step 4 — Frontend customer login (⏳ PENDING):
+  - 4 new routes: /portal/login, /portal/forgot-password,
+    /portal/reset-password, /portal/setup
+  - Modify CustomerPortal.tsx + LoyaltyPortal.tsx
+
+Step 5 — Admin tools (⏳ PENDING):
+  - Admin "Send setup email" per customer
+
+Step 6 — Branch testing (⏳ PENDING)
+
+Step 7 — Merge approval (⏳ PENDING — requires explicit
+user go signal)
+
+Customer rollout (post-launch):
+  - 662 customers migrate gradually over 8-12 weeks
+  - Opt-in prompt during existing token visit
+  - Messenger broadcasts + admin invites
+  - 71 no-email customers stay on token auth with
+    6-month grace
+  - 1 duplicate-email pair (Cabalza) stays on token auth
+    indefinitely
+
+Locked decisions:
+  - Email verification ON for post-launch self-signups
+  - Email verification OFF for migration signups (admin
+    pre-vetted)
+  - Customer-initiated email change: standard verification
+  - Admin-initiated email change: override + notify
+  - Password: 8 chars + 1 letter + 1 number
+  - Session refresh token: 30 days
+  - Empty accounts state: "You don't have any orders yet"
+    with shop/Messenger CTA
+
+Branch isolation rules (LOCKED):
+  - All work on feature/email-password-auth
+  - NO commits to main during development
+  - User explicitly approves merge to main only after
+    full testing
+  - portal.chajewelsjp.com stays customers-only
 
 ### OTHER
   - Firebase signing page Steps 13-17
