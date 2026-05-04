@@ -1,20 +1,24 @@
 import { useMemo, useState } from 'react';
 import { Globe, ChevronDown, ChevronRight } from 'lucide-react';
 import { formatCurrency } from '@/lib/calculations';
-import { AccountWithCustomer } from '@/hooks/use-supabase-data';
 import { DbCustomer } from '@/hooks/use-supabase-data';
 import { Currency } from '@/lib/types';
 import { getContinent, CONTINENT_ORDER, CONTINENT_ICONS } from '@/lib/continent-mapping';
 import { cn } from '@/lib/utils';
 
-// GeoBreakdown only reads 4 scalar account fields. Narrowing the prop
-// type to Pick<> lets callers pass either the full AccountWithCustomer
-// shape or the lightened useAccountsLight() shape (Bug #80) without a
-// type error, since both supersets satisfy this contract.
-type GeoAccount = Pick<
-  AccountWithCustomer,
-  'status' | 'customer_id' | 'currency' | 'remaining_balance'
->;
+// GeoBreakdown only reads 4 scalar account fields. A fresh local
+// interface (instead of Pick<AccountWithCustomer, ...>) decouples this
+// component from the wider account type — callers can pass either the
+// full useAccounts() shape or the lightened useAccountsLight() shape
+// (Bug #80) without coupling to fields they don't share. If
+// AccountWithCustomer ever drops or renames one of these 4 fields, the
+// type error will surface at the call site, not here.
+interface GeoAccount {
+  status: string;
+  customer_id: string;
+  currency: string;
+  remaining_balance: number;
+}
 
 interface GeoBreakdownProps {
   accounts: GeoAccount[];
