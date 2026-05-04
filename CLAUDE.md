@@ -1714,6 +1714,41 @@ When completing a partially_paid month:
 
     (2026-05-03)
 
+    Deeper investigation 2026-05-04 (post-revert):
+
+    Hypotheses ruled out via runtime evidence:
+      - Stale helper deployment: customer_portal_sessions
+        had last_used_at populated 6-36 sec after created_at
+        for all 3 affected customers, proving helper was
+        working at incident time
+      - pinVerified state setter changes: structurally
+        unchanged in 703a516 diff
+      - Response contract changes: verify-portal-pin not
+        modified in 703a516
+      - React Strict Mode: not enabled in main.tsx
+
+    Remaining suspect: frontend state machine in CustomerPortal
+    component fails to render dashboard after setPinVerified(true)
+    fires. Specific runtime cause undetermined from static
+    analysis.
+
+    Path A reproduction setup completed:
+      - Debug branch debug/repro-79 created locally at
+        commit 703a516 (NOT pushed to origin)
+      - 8 planned console.log instrumentation points
+        identified in handlePinSubmit + PIN gate + main
+        return
+      - Dev server config: bun run dev →
+        http://localhost:8080/portal?token=TEST_TOKEN
+      - Reproduction guide and decision tree documented in
+        Lovable session 2026-05-04
+
+    Phase A frontend status: PAUSED. Backend remains live
+    and operational. Token-only auth path continues to serve
+    all customers without issue. Reproduction work can resume
+    whenever local debugging time is available — debug branch
+    and instrumentation plan are preserved.
+
   - 80. Customers menu crashed mobile Chrome on
     app.chajewelsjp.com (iOS) with "Can't open this page"
     error. Pre-existing issue, surfaced 2026-05-04 when
@@ -3869,6 +3904,24 @@ When completing a partially_paid month:
     - Backend (commits through 17fa7a6): live
     - Frontend (3b-1 through 3b-2-fix): reverted, pending
       investigation of #79
+
+  ### 2026-05-04 — Phase A frontend Path A paused
+
+  Bug #79 deeper investigation completed. Stale helper
+  hypothesis ruled out by DB evidence. Remaining suspect
+  is frontend state machine in CustomerPortal — requires
+  runtime browser observation to pinpoint.
+
+  debug/repro-79 branch preserved locally at 703a516 with
+  reproduction steps documented. Resume when local
+  debugging time is available.
+
+  Phase A status:
+    - Backend (commits through 17fa7a6): LIVE
+    - Frontend (3b-1 through 3b-2-fix): REVERTED, on hold
+    - Reproduction setup: ready for future investigation
+
+  No customer impact. Token-only auth working as intended.
 
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
