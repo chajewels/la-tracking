@@ -28,6 +28,48 @@
   get_forecast_6m() returns raw (month, currency, remaining) rows —
   NO conversion in SQL. Frontend calls toJpy() per row.
 
+## DOMAIN ARCHITECTURE — STRICT RULE (NON-NEGOTIABLE)
+
+  This rule has been violated repeatedly. Anyone reading this file
+  (human, Claude, Lovable, future-self) MUST apply it before suggesting,
+  testing, documenting, or sharing any URL with a chajewelsjp.com host.
+
+  TWO SUBDOMAINS, TWO AUDIENCES — NO EXCEPTIONS:
+
+    portal.chajewelsjp.com   →   CUSTOMERS ONLY
+    app.chajewelsjp.com      →   INTERNAL ONLY (admin, staff, CSR, finance)
+
+  ALL customer-facing routes use portal.chajewelsjp.com:
+    /portal                   customer home
+    /portal/login             customer email/password sign-in (Phase B)
+    /portal/setup             customer email/password signup (Phase B)
+    /portal/forgot-password   customer password reset request (Phase B)
+    /portal/reset-password    customer password reset completion (Phase B)
+    /loyalty                  customer loyalty portal
+    Token-based legacy paths  /portal?token=X, /loyalty?token=X
+
+  ALL internal/employee routes use app.chajewelsjp.com:
+    /login                    admin/staff/CSR/finance sign-in
+    /dashboard, /customers, /finance, /operations, /loyalty-admin, etc.
+
+  BEFORE suggesting, testing, sharing, or documenting ANY URL with
+  a chajewelsjp.com host, check the audience:
+    Customer-facing?     →   portal.*
+    Internal/employee?   →   app.*
+
+  FORBIDDEN PATTERNS (these are recurring violations):
+    - Telling a customer to visit app.chajewelsjp.com for any reason
+    - Suggesting app.chajewelsjp.com/portal/... as a test URL
+    - Including app.chajewelsjp.com in customer-facing emails, share
+      buttons, marketing copy, QR codes, or print materials
+    - Internal staff using portal.chajewelsjp.com for their work
+    - Mixing the two in walkthroughs or screenshots
+
+  The two subdomains may serve the same React build but route by host.
+  They are functionally separate. The customer must NEVER see
+  app.chajewelsjp.com. Internal staff must NEVER use
+  portal.chajewelsjp.com for their work.
+
 ## PERMISSION RESOLUTION ORDER
 
 When checking whether a user can perform an action:
@@ -4690,6 +4732,23 @@ until full testing approved.
 Branch: `feature/email-password-auth` (created
 2026-05-04 from main at commit 491e44f)
 
+Per-customer auth routing (LOCKED 2026-05-04):
+  Both auth methods coexist permanently. Per-customer
+  routing is driven by customers.auth_user_id:
+
+    auth_user_id IS NULL  → messages contain token URL,
+                            customer logs in via the
+                            Messenger link
+    auth_user_id NOT NULL → messages contain bare portal
+                            URL, customer logs in with
+                            email/password
+
+  The token endpoint stays deployed indefinitely.
+  Existing token URLs continue to work for any
+  customer (no active revocation). The auth_user_id
+  flag controls only which URL gets sent in new
+  messages.
+
 Phase 0 — Data cleanup (✅ COMPLETE 2026-05-04):
   - 4 duplicate-email customers investigated
   - Kariemhe pair: deleted CJ-2026-04760 (zero linked
@@ -4701,25 +4760,121 @@ Step 1 — Branch creation (✅ COMPLETE 2026-05-04):
   - Branch pushed with -u tracking to origin
   - Working tree clean
 
-Step 2 — Database schema changes (⏳ NEXT):
-  - 5 SQL migration files to create on branch
-  - Add 'customer' role to app_role enum
-  - Add customers.auth_user_id (FK to auth.users)
-  - Email uniqueness for migrated customers only
-  - Auto-sync trigger (auth.users.email → customers.email)
-  - RLS policies for customer-scoped reads
-  - Files stay on branch; NOT applied to production until merge
+Step 2 — Database schema changes
+          (✅ COMPLETE 2026-05-04, with caveats):
+  6 SQL migration files committed to branch at 2d3ac1f
+  (originally; rebased to 208e8ef on top of main):
+    - 20260504000001_add_customer_role.sql
+    - 20260504000002_add_auth_user_id_to_customers.sql
+    - 20260504000003_partial_unique_email_index.sql
+    - 20260504000004_sync_auth_email_to_customer.sql
+    - 20260504000005_customer_rls_policies.sql
+    - 20260504000006_customer_rls_policies_remainder.sql
+
+  ⚠️ PROCEDURAL DRIFT: Files 1-5 (enum, FK column,
+  partial unique email index, email sync trigger,
+  3 of 9 customer RLS policies) were applied to
+  production via SQL Editor on 2026-05-04 ahead of
+  the merge plan. Effect on production: zero — all
+  changes dormant because no customer has
+  auth_user_id set yet, and no code path reads or
+  writes the new structures. Procedural rule
+  violated: schema changes were supposed to wait for
+  merge approval. File 6 (6 remaining customer RLS
+  policies for payments / payment_submissions /
+  loyalty_members / loyalty_transactions /
+  loyalty_redemptions / loyalty_notification_recipients)
+  is NOT yet in production — applied at merge time.
+
+  Production state vs branch state:
+    Files 1-5 schema: branch == prod
+    File 6 RLS policies: branch ahead of prod
+                          (will reconcile at merge time)
+
+  Process safeguard going forward: SQL intended to
+  be run is preceded by an explicit
+  "Run this in SQL Editor:" instruction line in
+  Claude responses. Anything inside design proposals
+  without that prefix is design only and must not
+  be executed.
 
 Step 3 — Backend dual-auth (⏳ PENDING):
   - 7 portal edge functions accept BOTH old auth
     (token/session) AND new auth (Bearer JWT)
   - 1-2 new functions: setup-customer-account, optionally
     invite-customer-account
+  - Both auth paths remain supported permanently
+    (verify-portal-pin and redeem-portal-token are
+    NOT deprecated)
+
+  Pre-Step-3 investigation REQUIRED:
+    Before any code is written for Step 3, the
+    existing email infrastructure must be inventoried
+    end-to-end:
+      - Every edge function that calls
+        send-transactional-email
+      - Every email template in use (auth, reminders,
+        loyalty notifications, payment confirmations,
+        cash order flows, forfeit warnings, etc.)
+      - Every place a portal URL is embedded in a
+        customer-facing message (so the
+        getPortalLinkForCustomer helper can be
+        applied uniformly — see Per-customer auth
+        routing above)
+      - Every cron job that sends emails
+    Goal: ensure new customer auth emails (signup
+    verification, password reset, email change)
+    integrate cleanly with the established
+    auth-email-hook + send-transactional-email
+    sole-sender pattern. No parallel paths, no
+    duplicate-send risk.
 
 Step 4 — Frontend customer login (⏳ PENDING):
   - 4 new routes: /portal/login, /portal/forgot-password,
     /portal/reset-password, /portal/setup
   - Modify CustomerPortal.tsx + LoyaltyPortal.tsx
+  - 4-B4-1 SHIPPED 2026-05-05: getPortalAuthHeaders extracted
+    to src/lib/portal-auth.ts shared module (commit 2b8c0b3)
+  - 4-B4-2 SHIPPED 2026-05-05: LoyaltyPortal dual-auth integration —
+    authMode/accessToken/bootstrapping state, bootstrap useEffect,
+    dual-auth fetchPortal, redirect changed to /portal/login,
+    TopBar back button auth-mode aware
+  - 4-B4-3 SHIPPED 2026-05-05: CustomerPortal View → handler conditional
+    navigation — session mode navigates to /loyalty (no token), token mode
+    preserves /loyalty?token=X behavior; authMode prop plumbed from parent
+    CustomerPortal to loyalty card sub-component
+
+#### PHASE B 4-B END-TO-END VALIDATED (2026-05-05)
+
+  Full session-auth customer journey passes all 6 checkpoints on Lovable
+  preview environment (preview--chajewelslayaway.lovable.app):
+
+    Checkpoint A — CustomerPortal home in session mode: customer name,
+      stats grid, payment buttons, My Loyalty card with View → arrow
+    Checkpoint B — Click View → goes to /loyalty WITHOUT ?token= (4-B4-3
+      conditional navigation), LoyaltyPortal renders via dual-auth
+      fetchPortal (4-B4-2)
+    Checkpoint C — All loyalty sub-tabs work (Alerts, Profile, Rewards,
+      Points). Q2 reactive bet validated — sub-components receive
+      portalToken='' but use supabase.functions.invoke() SDK auto-Bearer.
+      No 4-B4-4 substep needed.
+    Checkpoint D — Back to Portal goes to /portal WITHOUT ?token=
+      (4-B4-2 TopBar conditional fix)
+    Checkpoint E — Sign Out clears session, redirects to /portal/login
+      (4-B3 sign-out button)
+    Checkpoint F — Re-sign-in lands directly at /portal (auth_user_id
+      already linked, skips /portal/setup flow)
+
+  Test fixture: customer CJ-2026-05088 "Test Customer",
+  email chajewelsjapan@gmail.com, auth_user_id
+  3e6ca23f-0b14-44b4-ab41-3d1702bdda65. Linked via /portal/setup
+  flow validating setup-customer-account end-to-end.
+
+  Force-deployed during testing (auto-deploy was stale):
+    setup-customer-account — Step 3g function never auto-deployed
+      (workflow path filter bug, see open items)
+    customer-portal — Step 3f-2 modifications were stale on Supabase,
+      blocking session-mode fetchPortal until manual redeploy
 
 Step 5 — Admin tools (⏳ PENDING):
   - Admin "Send setup email" per customer
@@ -4730,24 +4885,47 @@ Step 7 — Merge approval (⏳ PENDING — requires explicit
 user go signal)
 
 Customer rollout (post-launch):
-  - 662 customers migrate gradually over 8-12 weeks
-  - Opt-in prompt during existing token visit
-  - Messenger broadcasts + admin invites
-  - 71 no-email customers stay on token auth with
-    6-month grace
-  - 1 duplicate-email pair (Cabalza) stays on token auth
+  - Migration is opt-in only via existing token visit
+    ("set up email/password if you'd like — both
+    methods will continue to work")
+  - Messenger broadcasts + admin invites encourage
+    adoption but no deadline is enforced
+  - Token auth has NO sunset — supported as long as
+    any customer uses it
+  - Setting up email/password does NOT revoke
+    existing tokens (they just stop appearing in
+    new messages)
+  - 71 no-email customers stay on token auth
+    indefinitely (no email → cannot migrate, but
+    no expiration either)
+  - Cabalza family (shared email) stays on token
+    auth indefinitely
+  - Customers who never opt in stay on token auth
     indefinitely
 
 Locked decisions:
   - Email verification ON for post-launch self-signups
-  - Email verification OFF for migration signups (admin
-    pre-vetted)
+  - Email verification ON for migration signups
+    (corrected 2026-05-05 after testing — Cynthia confirmed
+    verification gate is desired before account access;
+    PortalSetup.tsx handles the email-click round-trip via
+    emailRedirectTo + onAuthStateChange + getSession on mount)
   - Customer-initiated email change: standard verification
   - Admin-initiated email change: override + notify
   - Password: 8 chars + 1 letter + 1 number
   - Session refresh token: 30 days
   - Empty accounts state: "You don't have any orders yet"
     with shop/Messenger CTA
+  - Token auth sunset: NONE — supported indefinitely
+  - Token revocation on signup: NONE — opting into
+    email/password does not revoke existing tokens
+  - Portal link in customer messages: bare URL
+    (https://portal.chajewelsjp.com) when
+    customers.auth_user_id IS NOT NULL,
+    token-bearing URL otherwise. Implemented via
+    centralized helper getPortalLinkForCustomer().
+  - Migration policy: opt-in only, no deadline,
+    no forced migration
 
 Branch isolation rules (LOCKED):
   - All work on feature/email-password-auth
@@ -4755,6 +4933,39 @@ Branch isolation rules (LOCKED):
   - User explicitly approves merge to main only after
     full testing
   - portal.chajewelsjp.com stays customers-only
+
+#### Path forward (decided 2026-05-05)
+
+  Path β chosen — build Phase B Step 5 (admin "Send setup link" UI)
+  before merging branch to main. Rationale: Step 5 unblocks scaled
+  migration via broadcast invites instead of manual per-customer
+  Messenger sharing. Step 5 is additive (UI-only, no backend change),
+  low risk.
+
+  Open items before full Phase B completion:
+    - Step 5: Admin UI to send /portal/setup invitation per customer
+      (NEXT — no investigation done yet)
+    - RLS file 6: customer INSERT/UPDATE policies on payment_submissions
+      and related — apply only if 4-B2.5 extension request workflow is
+      reactivated. Currently 3 SELECT policies are live (customers,
+      layaway_accounts, cash_orders), which is sufficient for the
+      validated session-auth journey since all reads/writes go through
+      service-role edge functions.
+    - 4-B2.5: extension request via direct PostgREST insert — deferred
+      until RLS file 6 applied.
+    - Workflow path filter bug:
+      .github/workflows/supabase-functions-deploy.yml uses
+      contains(join(github.event.commits.*.modified, ' '), '...') only.
+      New files (commits.*.added) are not detected, causing
+      setup-customer-account to never auto-deploy after Step 3g
+      created it. Fix: add ".added" check alongside ".modified".
+      Small admin task; not blocking.
+    - Accessibility cleanup: PortalLogin / PortalSetup /
+      PortalForgotPassword / PortalResetPassword have form-field
+      id/name/label warnings. Cosmetic, future cleanup substep.
+
+  Merge to main: pending after Step 5 ships AND first pilot customer
+  successfully migrates via admin-sent setup link.
 
 ### OTHER
   - Firebase signing page Steps 13-17

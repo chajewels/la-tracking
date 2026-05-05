@@ -31,6 +31,10 @@ function lazyWithRetry(factory: () => Promise<{ default: ComponentType<any> }>) 
 const Login = lazyWithRetry(() => import("./pages/Login"));
 const ForgotPassword = lazyWithRetry(() => import("./pages/ForgotPassword"));
 const ResetPassword = lazyWithRetry(() => import("./pages/ResetPassword"));
+const PortalLogin = lazyWithRetry(() => import("./pages/PortalLogin"));
+const PortalForgotPassword = lazyWithRetry(() => import("./pages/PortalForgotPassword"));
+const PortalResetPassword = lazyWithRetry(() => import("./pages/PortalResetPassword"));
+const PortalSetup = lazyWithRetry(() => import("./pages/PortalSetup"));
 const Dashboard = lazyWithRetry(() => import("./pages/Dashboard"));
 const AccountList = lazyWithRetry(() => import("./pages/AccountList"));
 const AccountDetail = lazyWithRetry(() => import("./pages/AccountDetail"));
@@ -103,6 +107,10 @@ const App = () => (
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/statement" element={<CustomerStatement />} />
                 <Route path="/portal" element={<CustomerPortal />} />
+                <Route path="/portal/login" element={<PortalLogin />} />
+                <Route path="/portal/forgot-password" element={<PortalForgotPassword />} />
+                <Route path="/portal/reset-password" element={<PortalResetPassword />} />
+                <Route path="/portal/setup" element={<PortalSetup />} />
                 <Route path="/loyalty" element={<LoyaltyPortal />} />
                 <Route path="/unsubscribe" element={<Unsubscribe />} />
                 

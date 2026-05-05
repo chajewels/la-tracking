@@ -55,10 +55,14 @@ serve(async (req) => {
     });
   }
 
-  // Validate portal token or session_id
+  // Validate portal token, session_id, or Bearer JWT
   let customerId: string;
   try {
-    const auth = await resolvePortalAuth(supabase, { portal_token, session_id });
+    const auth = await resolvePortalAuth(supabase, {
+      portal_token,
+      session_id,
+      authHeader: req.headers.get('Authorization'),
+    });
     customerId = auth.customer_id;
   } catch (err: any) {
     return new Response(

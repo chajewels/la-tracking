@@ -55,13 +55,16 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Auth — token or session_id; resolvePortalAuth handles missing-credentials
+    // Auth — token, session_id, or Bearer JWT; resolvePortalAuth
+    // handles missing-credentials. authHeader comes from the HTTP
+    // Authorization header, NOT from the JSON body.
     let auth;
     try {
       auth = await resolvePortalAuth(supabase, {
         token: body.token,
         portal_token: body.portal_token,
         session_id: body.session_id,
+        authHeader: req.headers.get('Authorization'),
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "auth_failed";

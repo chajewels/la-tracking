@@ -1,12 +1,19 @@
-// Shared portal authentication helper for Phase A.
-// Resolves a portal request to a customer_id by checking either:
+// Shared portal authentication helper for Phase A + Phase B.
+// Resolves a portal request to a customer_id by checking, in order:
+//   0. Bearer JWT in Authorization header (Phase B email/password)
 //   1. session_id (from localStorage on portal.chajewelsjp.com)
 //   2. token (legacy URL token, still supported indefinitely)
+//
+// Path 0 is tried only if authHeader is provided. JWT validation
+// failures (malformed, expired) silently fall through to Path 1/2.
+// JWT-valid-but-no-linked-customer is a hard error — does NOT fall
+// through (data integrity issue).
 //
 // Field-name handling: accepts both `token` and `portal_token`
 // in request bodies (historical inconsistency across functions).
 //
-// Returns { customer_id, session_id?, source_token_id } on success.
+// Returns { customer_id, session_id?, source_token_id?, via } on
+// success. source_token_id is undefined for the JWT path.
 // Throws on auth failure with a structured error message.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
@@ -14,14 +21,15 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
 export interface PortalAuthResult {
   customer_id: string;
   session_id?: string;
-  source_token_id: string;
-  via: 'session' | 'token';
+  source_token_id?: string;
+  via: 'session' | 'token' | 'jwt';
 }
 
 export interface PortalAuthInput {
   token?: string;
   portal_token?: string;
   session_id?: string;
+  authHeader?: string | null;
 }
 
 /**
@@ -44,8 +52,43 @@ export async function resolvePortalAuth(
   supabase: ReturnType<typeof createClient>,
   input: PortalAuthInput,
 ): Promise<PortalAuthResult> {
-  const { token, portal_token, session_id } = input;
+  const { token, portal_token, session_id, authHeader } = input;
   const effectiveToken = token || portal_token;
+
+  // Path 0 — Bearer JWT authentication (Phase B email/password).
+  // Tried first if authHeader provided. JWT validation failures
+  // silently fall through to Path 1/2. JWT valid but no linked
+  // customer is a hard error.
+  if (authHeader) {
+    const match = authHeader.match(/^Bearer\s+(.+)$/i);
+    if (match) {
+      const jwt = match[1].trim();
+      const { data: userData, error: userErr } =
+        await supabase.auth.getUser(jwt);
+      if (!userErr && userData?.user) {
+        const authUserId = userData.user.id;
+        const { data: customer, error: custErr } = await supabase
+          .from('customers')
+          .select('id')
+          .eq('auth_user_id', authUserId)
+          .maybeSingle();
+        if (custErr) {
+          console.error('JWT customer lookup failed:', custErr);
+          throw new Error('No customer linked to this account');
+        }
+        if (!customer) {
+          throw new Error('No customer linked to this account');
+        }
+        return {
+          customer_id: customer.id,
+          source_token_id: undefined,
+          via: 'jwt',
+        };
+      }
+      // JWT validation failed — fall through to Path 1/2
+    }
+    // Authorization header present but not Bearer-shaped — fall through
+  }
 
   if (!effectiveToken && !session_id) {
     throw new Error('Authentication required: missing session_id or token');

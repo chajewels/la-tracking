@@ -14,6 +14,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
+import { getPortalLinkForCustomer } from "../_shared/portal-link.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -104,6 +105,7 @@ interface MemberWithCustomer {
   customers: {
     email: string | null;
     full_name: string | null;
+    auth_user_id: string | null;
   } | null;
 }
 
@@ -117,7 +119,7 @@ async function sendBroadcastEmails(
 ) {
   const { data: members, error } = await supabase
     .from("loyalty_members")
-    .select("id, customer_id, customers!inner(email, full_name)")
+    .select("id, customer_id, customers!inner(email, full_name, auth_user_id)")
     .in("id", memberIds);
   if (error) {
     console.warn(
@@ -146,11 +148,21 @@ async function sendBroadcastEmails(
     if (row.expires_at && new Date(row.expires_at) < new Date()) continue;
     tokenByCustomer.set(row.customer_id, row.token);
   }
+  // Build parallel auth_user_id map from already-fetched rows
+  // (no extra DB round-trip).
+  const authByCustomer = new Map<string, string | null>();
+  for (const r of rows) {
+    authByCustomer.set(r.customer_id, r.customers?.auth_user_id ?? null);
+  }
+
+  // Synchronous URL builder — uses the pure helper to route
+  // migrated customers to bare /loyalty URL and non-migrated
+  // customers to token-bearing /loyalty?token=... or /portal
+  // fallback. Preserves the bulk-Map performance pattern.
   const portalUrlFor = (customerId: string): string => {
-    const tok = tokenByCustomer.get(customerId);
-    return tok
-      ? `https://portal.chajewelsjp.com/loyalty?token=${encodeURIComponent(tok)}`
-      : "https://portal.chajewelsjp.com/portal";
+    const auth_user_id = authByCustomer.get(customerId) ?? null;
+    const portal_token = tokenByCustomer.get(customerId) ?? null;
+    return getPortalLinkForCustomer({ auth_user_id, portal_token }, 'loyalty');
   };
 
   const emailEndpoint = `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`;
