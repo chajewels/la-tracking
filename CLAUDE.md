@@ -4844,6 +4844,38 @@ Step 4 — Frontend customer login (⏳ PENDING):
     preserves /loyalty?token=X behavior; authMode prop plumbed from parent
     CustomerPortal to loyalty card sub-component
 
+#### PHASE B 4-B END-TO-END VALIDATED (2026-05-05)
+
+  Full session-auth customer journey passes all 6 checkpoints on Lovable
+  preview environment (preview--chajewelslayaway.lovable.app):
+
+    Checkpoint A — CustomerPortal home in session mode: customer name,
+      stats grid, payment buttons, My Loyalty card with View → arrow
+    Checkpoint B — Click View → goes to /loyalty WITHOUT ?token= (4-B4-3
+      conditional navigation), LoyaltyPortal renders via dual-auth
+      fetchPortal (4-B4-2)
+    Checkpoint C — All loyalty sub-tabs work (Alerts, Profile, Rewards,
+      Points). Q2 reactive bet validated — sub-components receive
+      portalToken='' but use supabase.functions.invoke() SDK auto-Bearer.
+      No 4-B4-4 substep needed.
+    Checkpoint D — Back to Portal goes to /portal WITHOUT ?token=
+      (4-B4-2 TopBar conditional fix)
+    Checkpoint E — Sign Out clears session, redirects to /portal/login
+      (4-B3 sign-out button)
+    Checkpoint F — Re-sign-in lands directly at /portal (auth_user_id
+      already linked, skips /portal/setup flow)
+
+  Test fixture: customer CJ-2026-05088 "Test Customer",
+  email chajewelsjapan@gmail.com, auth_user_id
+  3e6ca23f-0b14-44b4-ab41-3d1702bdda65. Linked via /portal/setup
+  flow validating setup-customer-account end-to-end.
+
+  Force-deployed during testing (auto-deploy was stale):
+    setup-customer-account — Step 3g function never auto-deployed
+      (workflow path filter bug, see open items)
+    customer-portal — Step 3f-2 modifications were stale on Supabase,
+      blocking session-mode fetchPortal until manual redeploy
+
 Step 5 — Admin tools (⏳ PENDING):
   - Admin "Send setup email" per customer
 
@@ -4873,8 +4905,11 @@ Customer rollout (post-launch):
 
 Locked decisions:
   - Email verification ON for post-launch self-signups
-  - Email verification OFF for migration signups (admin
-    pre-vetted)
+  - Email verification ON for migration signups
+    (corrected 2026-05-05 after testing — Cynthia confirmed
+    verification gate is desired before account access;
+    PortalSetup.tsx handles the email-click round-trip via
+    emailRedirectTo + onAuthStateChange + getSession on mount)
   - Customer-initiated email change: standard verification
   - Admin-initiated email change: override + notify
   - Password: 8 chars + 1 letter + 1 number
@@ -4898,6 +4933,39 @@ Branch isolation rules (LOCKED):
   - User explicitly approves merge to main only after
     full testing
   - portal.chajewelsjp.com stays customers-only
+
+#### Path forward (decided 2026-05-05)
+
+  Path β chosen — build Phase B Step 5 (admin "Send setup link" UI)
+  before merging branch to main. Rationale: Step 5 unblocks scaled
+  migration via broadcast invites instead of manual per-customer
+  Messenger sharing. Step 5 is additive (UI-only, no backend change),
+  low risk.
+
+  Open items before full Phase B completion:
+    - Step 5: Admin UI to send /portal/setup invitation per customer
+      (NEXT — no investigation done yet)
+    - RLS file 6: customer INSERT/UPDATE policies on payment_submissions
+      and related — apply only if 4-B2.5 extension request workflow is
+      reactivated. Currently 3 SELECT policies are live (customers,
+      layaway_accounts, cash_orders), which is sufficient for the
+      validated session-auth journey since all reads/writes go through
+      service-role edge functions.
+    - 4-B2.5: extension request via direct PostgREST insert — deferred
+      until RLS file 6 applied.
+    - Workflow path filter bug:
+      .github/workflows/supabase-functions-deploy.yml uses
+      contains(join(github.event.commits.*.modified, ' '), '...') only.
+      New files (commits.*.added) are not detected, causing
+      setup-customer-account to never auto-deploy after Step 3g
+      created it. Fix: add ".added" check alongside ".modified".
+      Small admin task; not blocking.
+    - Accessibility cleanup: PortalLogin / PortalSetup /
+      PortalForgotPassword / PortalResetPassword have form-field
+      id/name/label warnings. Cosmetic, future cleanup substep.
+
+  Merge to main: pending after Step 5 ships AND first pilot customer
+  successfully migrates via admin-sent setup link.
 
 ### OTHER
   - Firebase signing page Steps 13-17
