@@ -29,10 +29,14 @@ Deno.serve(async (req) => {
       session_id?: string;
     };
 
-    // 1. Validate portal token or session_id
+    // 1. Validate portal token, session_id, or Bearer JWT
     let customerId: string;
     try {
-      const auth = await resolvePortalAuth(supabase, { portal_token, session_id });
+      const auth = await resolvePortalAuth(supabase, {
+        portal_token,
+        session_id,
+        authHeader: req.headers.get('Authorization'),
+      });
       customerId = auth.customer_id;
     } catch (err: any) {
       return json({ error: err?.message || "Invalid or expired portal token" }, 401);

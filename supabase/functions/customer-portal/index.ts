@@ -73,10 +73,14 @@ Deno.serve(async (req) => {
       const session_id = body.session_id;
       const action = body.action;
 
-      // Validate token or session_id via shared helper
+      // Validate token, session_id, or Bearer JWT via shared helper
       let customerId: string;
       try {
-        const auth = await resolvePortalAuth(supabase, { token, session_id });
+        const auth = await resolvePortalAuth(supabase, {
+          token,
+          session_id,
+          authHeader: req.headers.get('Authorization'),
+        });
         customerId = auth.customer_id;
       } catch (err: any) {
         return new Response(
@@ -140,12 +144,13 @@ Deno.serve(async (req) => {
     const token = url.searchParams.get("token");
     const session_id = url.searchParams.get("session_id");
 
-    // Validate token or session_id via shared helper
+    // Validate token, session_id, or Bearer JWT via shared helper
     let customerId: string;
     try {
       const auth = await resolvePortalAuth(supabase, {
         token: token ?? undefined,
         session_id: session_id ?? undefined,
+        authHeader: req.headers.get('Authorization'),
       });
       customerId = auth.customer_id;
     } catch (err: any) {

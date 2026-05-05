@@ -50,10 +50,14 @@ Deno.serve(async (req) => {
     let pathACustomerId: string | null = null;
     let pathBUserId: string | null = null;
 
-    if (portal_token || session_id) {
-      // Path A: customer portal
+    if (portal_token || session_id || req.headers.get('Authorization')) {
+      // Path A: customer portal (token, session_id, or Bearer JWT)
       try {
-        const auth = await resolvePortalAuth(supabase, { portal_token, session_id });
+        const auth = await resolvePortalAuth(supabase, {
+          portal_token,
+          session_id,
+          authHeader: req.headers.get('Authorization'),
+        });
         pathACustomerId = auth.customer_id;
       } catch (err: any) {
         return new Response(

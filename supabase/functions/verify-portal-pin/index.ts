@@ -23,10 +23,14 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 1. Resolve customer via portal token or session_id
+    // 1. Resolve customer via portal token, session_id, or Bearer JWT
     let customerId: string;
     try {
-      const auth = await resolvePortalAuth(supabase, { token, session_id });
+      const auth = await resolvePortalAuth(supabase, {
+        token,
+        session_id,
+        authHeader: req.headers.get('Authorization'),
+      });
       customerId = auth.customer_id;
     } catch (err: any) {
       return new Response(
