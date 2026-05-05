@@ -33,7 +33,7 @@ export default function PortalForgotPassword() {
     }
     setLoading(true);
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: 'https://portal.chajewelsjp.com/portal/reset-password',
+      redirectTo: `${window.location.origin}/portal/reset-password`,
     });
     setLoading(false);
     if (error) {

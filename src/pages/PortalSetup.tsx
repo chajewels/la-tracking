@@ -117,7 +117,7 @@ export default function PortalSetup() {
       email,
       password,
       options: {
-        emailRedirectTo: 'https://portal.chajewelsjp.com/portal/setup',
+        emailRedirectTo: `${window.location.origin}/portal/setup`,
       },
     });
     setLoading(false);
