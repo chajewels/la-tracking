@@ -17,7 +17,7 @@ import {
   AlertTriangle, Calendar, Check, CheckCircle, ChevronRight, Clock,
   CreditCard, Diamond, FileText, Filter, Search, TrendingUp, X,
   Upload, Send, ArrowLeft, Landmark, Wallet, Eye, MessageSquare, XCircle, Loader2, Image as ImageIcon,
-  User, Pencil, Save, Copy, Phone, Mail,
+  User, Pencil, Save, Copy, Phone, Mail, LogOut,
 } from 'lucide-react';
 import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
 import CountrySelect from '@/components/customers/CountrySelect';
@@ -283,6 +283,7 @@ function ordinal(n: number): string {
 
 export default function CustomerPortal() {
   const [params] = useSearchParams();
+  const navigate = useNavigate();
   const token = params.get('token');
 
   const [data, setData] = useState<PortalData | null>(null);
@@ -318,6 +319,16 @@ export default function CustomerPortal() {
     return () => { mounted = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  // ── Phase B: Sign-out handler for session-auth users ──
+  const handleSignOut = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      /* non-fatal — proceed to login regardless */
+    }
+    navigate('/portal/login', { replace: true });
+  };
 
   // ── PIN gate state ──
   // Per-token sessionStorage key so the PIN gate is skipped after the user
@@ -644,6 +655,24 @@ export default function CustomerPortal() {
                 <User className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">{portalView === 'profile' ? 'Accounts' : 'Profile'}</span>
               </button>
+              {authMode === 'session' && (
+                <button
+                  className="flex items-center gap-1.5 px-3 h-9 text-xs transition-all"
+                  style={{
+                    background: 'transparent',
+                    border:`1px solid ${P.gp}`,
+                    color: P.gp,
+                    borderRadius:'2px',
+                    letterSpacing:'0.1em',
+                    textTransform:'uppercase' as const,
+                    cursor:'pointer',
+                  }}
+                  onClick={handleSignOut}
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Sign Out</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
