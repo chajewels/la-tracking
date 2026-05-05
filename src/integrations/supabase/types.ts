@@ -547,6 +547,7 @@ export type Database = {
       }
       customers: {
         Row: {
+          auth_user_id: string | null
           created_at: string
           customer_code: string | null
           email: string | null
@@ -564,6 +565,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          auth_user_id?: string | null
           created_at?: string
           customer_code?: string | null
           email?: string | null
@@ -581,6 +583,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          auth_user_id?: string | null
           created_at?: string
           customer_code?: string | null
           email?: string | null
@@ -3356,7 +3359,7 @@ export type Database = {
         | "extension_active"
         | "final_forfeited"
       allocation_type: "penalty" | "installment"
-      app_role: "admin" | "staff" | "finance" | "csr"
+      app_role: "admin" | "staff" | "finance" | "csr" | "customer"
       cash_order_status: "pending" | "completed" | "cancelled" | "expired"
       clv_tier: "bronze" | "silver" | "gold" | "vip"
       loyalty_redemption_status: "pending" | "confirmed" | "cancelled"
@@ -3529,7 +3532,7 @@ export const Constants = {
         "final_forfeited",
       ],
       allocation_type: ["penalty", "installment"],
-      app_role: ["admin", "staff", "finance", "csr"],
+      app_role: ["admin", "staff", "finance", "csr", "customer"],
       cash_order_status: ["pending", "completed", "cancelled", "expired"],
       clv_tier: ["bronze", "silver", "gold", "vip"],
       loyalty_redemption_status: ["pending", "confirmed", "cancelled"],
