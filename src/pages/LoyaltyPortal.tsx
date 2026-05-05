@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
 import { ArrowLeft, Diamond } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -134,7 +135,10 @@ function FullScreenWrap({ children }: { children: React.ReactNode }) {
   );
 }
 
-function TopBar({ token }: { token: string }) {
+function TopBar({ authMode, token }: {
+  authMode: 'session' | 'token' | null;
+  token: string;
+}) {
   const navigate = useNavigate();
   return (
     <div
@@ -142,7 +146,13 @@ function TopBar({ token }: { token: string }) {
       style={{ borderBottom: `1px solid ${P.br}` }}
     >
       <button
-        onClick={() => navigate(`/portal?token=${encodeURIComponent(token)}`)}
+        onClick={() => {
+          if (authMode === 'session') {
+            navigate('/portal');
+          } else {
+            navigate(`/portal?token=${encodeURIComponent(token)}`);
+          }
+        }}
         className="flex items-center gap-1 text-sm"
         style={{ color: P.gp }}
       >
@@ -393,11 +403,26 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
   );
 }
 
-async function fetchPortal(token: string): Promise<PortalData> {
-  const res = await fetch(
-    `${SUPABASE_URL}/functions/v1/customer-portal?token=${encodeURIComponent(token)}`,
-    { headers: { apikey: SUPABASE_KEY } },
-  );
+async function fetchPortal(args: {
+  authMode: 'session' | 'token';
+  token: string;
+  accessToken: string | null;
+}): Promise<PortalData> {
+  let url: string;
+  const headers: Record<string, string> = { apikey: SUPABASE_KEY };
+
+  if (args.authMode === 'session' && args.accessToken) {
+    // Session-auth path: Bearer JWT in Authorization header, no token param
+    url = `${SUPABASE_URL}/functions/v1/customer-portal`;
+    headers['Authorization'] = `Bearer ${args.accessToken}`;
+  } else if (args.authMode === 'token' && args.token) {
+    // Token-auth path: ?token=X URL param (legacy behavior)
+    url = `${SUPABASE_URL}/functions/v1/customer-portal?token=${encodeURIComponent(args.token)}`;
+  } else {
+    throw new Error('No auth provided to fetchPortal');
+  }
+
+  const res = await fetch(url, { headers });
   const json = await res.json();
   if (!res.ok) throw new Error(json?.error || 'Access denied');
   return json as PortalData;
@@ -414,27 +439,54 @@ export default function LoyaltyPortal() {
   // violating the Rules of Hooks when showSplash flips.
   const [showSplash, setShowSplash] = useState(true);
 
+  // ── Auth mode state (Phase B) ──
+  // 'session' = signed in via Supabase Auth (email/password customer)
+  // 'token'   = legacy ?token= URL param flow
+  // null      = bootstrapping OR no auth at all (will redirect to /portal/login)
+  const [authMode, setAuthMode] = useState<'session' | 'token' | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [bootstrapping, setBootstrapping] = useState(true);
+
+  // Bootstrap auth mode on mount: check session first, fall back to token
+  useEffect(() => {
+    let mounted = true;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return;
+      if (session) {
+        setAuthMode('session');
+        setAccessToken(session.access_token);
+      } else if (token) {
+        setAuthMode('token');
+      } else {
+        setAuthMode(null);
+      }
+      setBootstrapping(false);
+    });
+    return () => { mounted = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
   const portalQuery = useQuery({
-    queryKey: ['portal', token],
-    queryFn: () => fetchPortal(token),
-    enabled: !!token,
+    queryKey: ['portal', authMode, accessToken, token],
+    queryFn: () => fetchPortal({ authMode: authMode!, token, accessToken }),
+    enabled: authMode !== null && !bootstrapping,
     staleTime: 30_000,
     refetchOnMount: true,
   });
 
-  // Bail out + redirect if token missing or fetch failed.
+  // Redirect to portal login when no auth detected, or on fetch error.
   useEffect(() => {
-    if (!token) {
-      toast.error('No access token provided');
-      navigate('/');
+    if (bootstrapping) return;
+    if (authMode === null) {
+      navigate('/portal/login', { replace: true });
       return;
     }
     if (portalQuery.isError) {
       const msg = (portalQuery.error as Error)?.message || 'Unable to load your loyalty status';
       toast.error(msg);
-      navigate('/');
+      navigate('/portal/login', { replace: true });
     }
-  }, [token, portalQuery.isError, portalQuery.error, navigate]);
+  }, [bootstrapping, authMode, portalQuery.isError, portalQuery.error, navigate]);
 
   const access = useLoyaltyAccess(portalQuery.data?.customer_id ?? null);
 
@@ -479,7 +531,7 @@ export default function LoyaltyPortal() {
   if (!hasAccess) {
     return (
       <FullScreenWrap>
-        <TopBar token={token} />
+        <TopBar authMode={authMode} token={token} />
         <div className="flex flex-col items-center px-4 py-8 sm:py-12">
           <LoyaltyComingSoon
             customerEmail={customerForChild?.email ?? null}
@@ -493,7 +545,7 @@ export default function LoyaltyPortal() {
   if (!member) {
     return (
       <FullScreenWrap>
-        <TopBar token={token} />
+        <TopBar authMode={authMode} token={token} />
         <div className="flex flex-col items-center px-4 py-8 sm:py-12">
           <LoyaltyJoinPrompt
             portalToken={token}
@@ -506,7 +558,7 @@ export default function LoyaltyPortal() {
 
   return (
     <FullScreenWrap>
-      <TopBar token={token} />
+      <TopBar authMode={authMode} token={token} />
       <MemberView data={data} member={member} portalToken={token} />
     </FullScreenWrap>
   );

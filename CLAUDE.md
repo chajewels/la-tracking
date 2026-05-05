@@ -4791,6 +4791,12 @@ Step 4 — Frontend customer login (⏳ PENDING):
   - 4 new routes: /portal/login, /portal/forgot-password,
     /portal/reset-password, /portal/setup
   - Modify CustomerPortal.tsx + LoyaltyPortal.tsx
+  - 4-B4-1 SHIPPED 2026-05-05: getPortalAuthHeaders extracted
+    to src/lib/portal-auth.ts shared module (commit 2b8c0b3)
+  - 4-B4-2 SHIPPED 2026-05-05: LoyaltyPortal dual-auth integration —
+    authMode/accessToken/bootstrapping state, bootstrap useEffect,
+    dual-auth fetchPortal, redirect changed to /portal/login,
+    TopBar back button auth-mode aware
 
 Step 5 — Admin tools (⏳ PENDING):
   - Admin "Send setup email" per customer
