@@ -38,6 +38,24 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const STATEMENT_BASE = 'https://portal.chajewelsjp.com';
 
+// ── Phase B: Portal auth helper ──
+// Returns the Authorization header to add for session-auth users.
+// For token-auth users (portalToken truthy), returns empty headers
+// — auth is sent via portal_token in the request body (existing pattern).
+// For session-auth users (portalToken null/undefined), returns a
+// Bearer JWT header so resolvePortalAuth (backend) handles via Path 0.
+// Throws if neither auth source is available.
+async function getPortalAuthHeaders(portalToken: string | null | undefined): Promise<Record<string, string>> {
+  if (portalToken) {
+    return {};
+  }
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error('Not authenticated');
+  }
+  return { Authorization: `Bearer ${session.access_token}` };
+}
+
 /* ─── Types ─── */
 interface PaymentMethod {
   id: string;
@@ -2076,11 +2094,13 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
 
       const submittedAmount = isSplit ? splitTotal : parseFloat(amount);
 
+      const authHeaders = await getPortalAuthHeaders(portalToken);
       const res = await fetch(`${SUPABASE_URL}/functions/v1/submit-payment`, {
         method: 'POST',
         headers: {
           apikey: SUPABASE_KEY,
           'Content-Type': 'application/json',
+          ...authHeaders,
         },
         body: JSON.stringify({
           portal_token: portalToken,
@@ -2563,9 +2583,10 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
         }
       }
 
+      const editAuthHeaders = await getPortalAuthHeaders(portalToken);
       const res = await fetch(`${SUPABASE_URL}/functions/v1/edit-payment-submission`, {
         method: 'POST',
-        headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+        headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json', ...editAuthHeaders },
         body: JSON.stringify({
           portal_token: portalToken,
           submission_id: sub.id,
@@ -2592,9 +2613,10 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
   const handleCancelSubmission = async (sub: Submission) => {
     setCancellingId(sub.id);
     try {
+      const cancelAuthHeaders = await getPortalAuthHeaders(portalToken);
       const res = await fetch(`${SUPABASE_URL}/functions/v1/edit-payment-submission`, {
         method: 'POST',
-        headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+        headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json', ...cancelAuthHeaders },
         body: JSON.stringify({ portal_token: portalToken, submission_id: sub.id, action: 'cancel' }),
       });
       let json: any = {};
@@ -2888,9 +2910,10 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
     setSaving(true);
     try {
       const location = toLocationString(locationType, country);
+      const profileAuthHeaders = await getPortalAuthHeaders(portalToken);
       const res = await fetch(`${SUPABASE_URL}/functions/v1/customer-portal`, {
         method: 'POST',
-        headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+        headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json', ...profileAuthHeaders },
         body: JSON.stringify({
           token: portalToken,
           action: 'update_profile',
