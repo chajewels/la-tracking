@@ -760,6 +760,7 @@ export default function CustomerPortal() {
 
             {/* Loyalty entry card — beta flag resolved server-side via customer-portal */}
             <LoyaltyEntryCard
+              authMode={authMode}
               customerId={data.customer_id}
               member={data.loyalty_member ?? null}
               isBeta={!!data.is_loyalty_beta}
@@ -1091,11 +1092,13 @@ function SummaryTile({ label, value, financial, danger, success, sub }: {
 
 /* ─── Loyalty Entry Card ─── */
 function LoyaltyEntryCard({
+  authMode,
   customerId,
   member,
   isBeta,
   token,
 }: {
+  authMode: 'session' | 'token' | null;
   customerId: string;
   member: PortalData['loyalty_member'];
   isBeta: boolean;
@@ -1112,8 +1115,13 @@ function LoyaltyEntryCard({
 
   const hasAccess = access.isFeatureEnabled || isBeta;
 
-  const goToLoyalty = () =>
-    navigate(`/loyalty?token=${encodeURIComponent(token)}`);
+  const goToLoyalty = () => {
+    if (authMode === 'session') {
+      navigate('/loyalty');
+    } else {
+      navigate(`/loyalty?token=${encodeURIComponent(token)}`);
+    }
+  };
 
   // State 3 — no access (feature off + not in beta)
   if (!hasAccess) {

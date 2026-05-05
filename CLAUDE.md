@@ -4797,6 +4797,10 @@ Step 4 — Frontend customer login (⏳ PENDING):
     authMode/accessToken/bootstrapping state, bootstrap useEffect,
     dual-auth fetchPortal, redirect changed to /portal/login,
     TopBar back button auth-mode aware
+  - 4-B4-3 SHIPPED 2026-05-05: CustomerPortal View → handler conditional
+    navigation — session mode navigates to /loyalty (no token), token mode
+    preserves /loyalty?token=X behavior; authMode prop plumbed from parent
+    CustomerPortal to loyalty card sub-component
 
 Step 5 — Admin tools (⏳ PENDING):
   - Admin "Send setup email" per customer
