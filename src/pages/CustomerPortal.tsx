@@ -33,28 +33,11 @@ import {
 } from '@/lib/payment-methods';
 import { LocationType, parseLocation, toLocationString } from '@/lib/countries';
 import { getPHTToday } from '@/lib/date-utils';
+import { getPortalAuthHeaders } from '@/lib/portal-auth';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const STATEMENT_BASE = 'https://portal.chajewelsjp.com';
-
-// ── Phase B: Portal auth helper ──
-// Returns the Authorization header to add for session-auth users.
-// For token-auth users (portalToken truthy), returns empty headers
-// — auth is sent via portal_token in the request body (existing pattern).
-// For session-auth users (portalToken null/undefined), returns a
-// Bearer JWT header so resolvePortalAuth (backend) handles via Path 0.
-// Throws if neither auth source is available.
-async function getPortalAuthHeaders(portalToken: string | null | undefined): Promise<Record<string, string>> {
-  if (portalToken) {
-    return {};
-  }
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) {
-    throw new Error('Not authenticated');
-  }
-  return { Authorization: `Bearer ${session.access_token}` };
-}
 
 /* ─── Types ─── */
 interface PaymentMethod {
