@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, memo, useCallback, lazy, Suspense } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
 import { useLoyaltyAccess } from '@/hooks/useLoyaltyAccess';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -273,6 +274,33 @@ export default function CustomerPortal() {
   const [initialDetailTab, setInitialDetailTab] = useState<'overview' | 'pay' | 'submissions'>('overview');
   const [showSplash, setShowSplash] = useState(true);
 
+  // ── Auth mode state (Phase B) ──
+  // 'session' = signed in via Supabase Auth (email/password customer)
+  // 'token'   = legacy ?token= URL param flow (token+PIN customer)
+  // null      = bootstrapping (still checking session) OR no auth at all
+  const [authMode, setAuthMode] = useState<'session' | 'token' | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [bootstrapping, setBootstrapping] = useState(true);
+
+  // Bootstrap auth mode on mount: check session first, fall back to token
+  useEffect(() => {
+    let mounted = true;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return;
+      if (session) {
+        setAuthMode('session');
+        setAccessToken(session.access_token);
+      } else if (token) {
+        setAuthMode('token');
+      } else {
+        setAuthMode(null);
+      }
+      setBootstrapping(false);
+    });
+    return () => { mounted = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
   // ── PIN gate state ──
   // Per-token sessionStorage key so the PIN gate is skipped after the user
   // has already verified once in this browser session. Closing the tab
@@ -373,12 +401,27 @@ export default function CustomerPortal() {
   const firstPayable = payableAccounts[0];
 
   const fetchPortal = async () => {
-    if (!token) { setError('No access token provided.'); setLoading(false); return; }
+    if (bootstrapping) return; // Wait until auth mode is determined
+
+    // Determine auth mode and build fetch URL + headers accordingly
+    let fetchUrl: string;
+    const fetchHeaders: Record<string, string> = { apikey: SUPABASE_KEY };
+
+    if (authMode === 'session' && accessToken) {
+      // Session-auth path: Bearer JWT in Authorization header
+      fetchUrl = `${SUPABASE_URL}/functions/v1/customer-portal`;
+      fetchHeaders['Authorization'] = `Bearer ${accessToken}`;
+    } else if (authMode === 'token' && token) {
+      // Token-auth path: ?token=X URL param (existing behavior)
+      fetchUrl = `${SUPABASE_URL}/functions/v1/customer-portal?token=${encodeURIComponent(token)}`;
+    } else {
+      // No auth at all — show sign-in CTA via authMode === null render block
+      setLoading(false);
+      return;
+    }
+
     try {
-      const res = await fetch(
-        `${SUPABASE_URL}/functions/v1/customer-portal?token=${encodeURIComponent(token)}`,
-        { headers: { apikey: SUPABASE_KEY } },
-      );
+      const res = await fetch(fetchUrl, { headers: fetchHeaders });
       const json = await res.json();
       if (!res.ok) { setError(json.error || 'Access denied'); return; }
       // Override stale 'Overdue' status_label: account is only truly overdue if
@@ -401,7 +444,7 @@ export default function CustomerPortal() {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchPortal(); }, [token]);
+  useEffect(() => { fetchPortal(); }, [token, authMode, accessToken, bootstrapping]);
 
   if (showSplash) {
     return <SplashScreen onComplete={() => setShowSplash(false)} />;
@@ -412,6 +455,35 @@ export default function CustomerPortal() {
       <div style={{background:P.bg,minHeight:'100vh'}} className="flex flex-col items-center justify-center">
         <Diamond style={{color:P.gp}} className="h-8 w-8 animate-pulse mb-4" />
         <p style={{color:P.ts,fontFamily:CG,fontStyle:'italic',fontSize:'15px'}}>Loading your accounts…</p>
+      </div>
+    );
+  }
+
+  // ── No auth at all (no session AND no token URL) ──
+  // Show friendly Sign In CTA instead of the hostile 'Invalid Portal Link'
+  if (authMode === null && !bootstrapping && !error) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+        <div style={{ background: '#111', border: '1px solid #C9A84C', borderRadius: 12, padding: 40, width: 380, boxSizing: 'border-box', textAlign: 'center' }}>
+          <p style={{ color: '#C9A84C', fontFamily: 'Georgia, serif', fontSize: 22, marginBottom: 4 }}>Cha Jewels</p>
+          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 28 }}>Customer Portal</p>
+          <h2 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 12 }}>Sign in to your portal</h2>
+          <p style={{ color: '#888', fontSize: 13, marginBottom: 24, lineHeight: 1.6 }}>
+            Use your email and password to access your accounts.
+          </p>
+          <button
+            onClick={() => navigate('/portal/login')}
+            style={{ width: '100%', padding: 12, background: '#C9A84C', border: 'none', borderRadius: 8, color: '#0a0a0a', fontWeight: 700, fontSize: 14, cursor: 'pointer', marginBottom: 12 }}
+          >
+            Sign In
+          </button>
+          <button
+            onClick={() => navigate('/portal/setup')}
+            style={{ width: '100%', padding: 12, background: 'transparent', border: '1px solid #C9A84C', borderRadius: 8, color: '#C9A84C', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+          >
+            First time? Set up your account
+          </button>
+        </div>
       </div>
     );
   }
@@ -437,8 +509,8 @@ export default function CustomerPortal() {
     );
   }
 
-  // ── PIN gate ──
-  if (!pinVerified) {
+  // ── PIN gate (skipped for session-auth users) ──
+  if (authMode === 'token' && !pinVerified) {
     return (
       <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
         <div style={{ background: '#111', border: '1px solid #C9A84C', borderRadius: 12, padding: 40, width: 340, textAlign: 'center' }}>
