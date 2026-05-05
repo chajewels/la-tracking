@@ -28,6 +28,48 @@
   get_forecast_6m() returns raw (month, currency, remaining) rows —
   NO conversion in SQL. Frontend calls toJpy() per row.
 
+## DOMAIN ARCHITECTURE — STRICT RULE (NON-NEGOTIABLE)
+
+  This rule has been violated repeatedly. Anyone reading this file
+  (human, Claude, Lovable, future-self) MUST apply it before suggesting,
+  testing, documenting, or sharing any URL with a chajewelsjp.com host.
+
+  TWO SUBDOMAINS, TWO AUDIENCES — NO EXCEPTIONS:
+
+    portal.chajewelsjp.com   →   CUSTOMERS ONLY
+    app.chajewelsjp.com      →   INTERNAL ONLY (admin, staff, CSR, finance)
+
+  ALL customer-facing routes use portal.chajewelsjp.com:
+    /portal                   customer home
+    /portal/login             customer email/password sign-in (Phase B)
+    /portal/setup             customer email/password signup (Phase B)
+    /portal/forgot-password   customer password reset request (Phase B)
+    /portal/reset-password    customer password reset completion (Phase B)
+    /loyalty                  customer loyalty portal
+    Token-based legacy paths  /portal?token=X, /loyalty?token=X
+
+  ALL internal/employee routes use app.chajewelsjp.com:
+    /login                    admin/staff/CSR/finance sign-in
+    /dashboard, /customers, /finance, /operations, /loyalty-admin, etc.
+
+  BEFORE suggesting, testing, sharing, or documenting ANY URL with
+  a chajewelsjp.com host, check the audience:
+    Customer-facing?     →   portal.*
+    Internal/employee?   →   app.*
+
+  FORBIDDEN PATTERNS (these are recurring violations):
+    - Telling a customer to visit app.chajewelsjp.com for any reason
+    - Suggesting app.chajewelsjp.com/portal/... as a test URL
+    - Including app.chajewelsjp.com in customer-facing emails, share
+      buttons, marketing copy, QR codes, or print materials
+    - Internal staff using portal.chajewelsjp.com for their work
+    - Mixing the two in walkthroughs or screenshots
+
+  The two subdomains may serve the same React build but route by host.
+  They are functionally separate. The customer must NEVER see
+  app.chajewelsjp.com. Internal staff must NEVER use
+  portal.chajewelsjp.com for their work.
+
 ## PERMISSION RESOLUTION ORDER
 
 When checking whether a user can perform an action:
