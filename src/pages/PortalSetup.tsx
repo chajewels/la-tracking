@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -10,8 +10,10 @@ type SetupState = 'form' | 'check-email' | 'linking' | 'error-no-customer' | 'er
 
 export default function PortalSetup() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const initialEmail = searchParams.get('email') || '';
   const [state, setState] = useState<SetupState>('form');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);

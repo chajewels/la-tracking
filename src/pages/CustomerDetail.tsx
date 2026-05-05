@@ -501,7 +501,14 @@ export default function CustomerDetail() {
         )}
 
         {/* Customer Portal Link */}
-        <CustomerPortalShareMenu customerId={customer.id} customerName={customer.full_name} messengerLink={customer.messenger_link} />
+        <CustomerPortalShareMenu
+          customerId={customer.id}
+          customerName={customer.full_name}
+          messengerLink={customer.messenger_link}
+          customerEmail={customer.email ?? null}
+          authUserId={customer.auth_user_id ?? null}
+          setupLinkSentAt={(customer as any).setup_link_sent_at ?? null}
+        />
 
         {canManagePin && (
           <>

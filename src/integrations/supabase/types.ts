@@ -562,6 +562,7 @@ export type Database = {
           portal_pin_hash: string | null
           portal_pin_locked_until: string | null
           preferred_contact_method: string | null
+          setup_link_sent_at: string | null
           updated_at: string
         }
         Insert: {
@@ -580,6 +581,7 @@ export type Database = {
           portal_pin_hash?: string | null
           portal_pin_locked_until?: string | null
           preferred_contact_method?: string | null
+          setup_link_sent_at?: string | null
           updated_at?: string
         }
         Update: {
@@ -598,6 +600,7 @@ export type Database = {
           portal_pin_hash?: string | null
           portal_pin_locked_until?: string | null
           preferred_contact_method?: string | null
+          setup_link_sent_at?: string | null
           updated_at?: string
         }
         Relationships: []
