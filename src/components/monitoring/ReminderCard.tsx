@@ -24,8 +24,7 @@ import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { alertTypeConfig, type AlertType, type AccountBucket, daysOverdueFromToday } from '@/lib/business-rules';
 import { toast } from 'sonner';
-
-const PORTAL_BASE = 'https://portal.chajewelsjp.com';
+import { getPortalLinkForCustomer } from '@/lib/portal-link';
 
 export interface AlertItem {
   type: AlertType | 'grace_period';
@@ -42,6 +41,7 @@ export interface AlertItem {
   customerId: string;
   messengerLink?: string | null;
   portalToken?: string | null;
+  authUserId?: string | null;
 }
 
 const iconMap: Record<string, any> = {
@@ -62,8 +62,11 @@ function bucketToStage(bucket: AccountBucket): ReminderStage | null {
 export function generateReminderMessage(alert: AlertItem): string {
   const dueStr = new Date(alert.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   const amtStr = formatCurrency(alert.amount, alert.currency);
-  const portalLink = alert.portalToken
-    ? `\n\n📱 View your account anytime:\n${PORTAL_BASE}/portal?token=${alert.portalToken}`
+  const portalUrl = (alert.authUserId || alert.portalToken)
+    ? getPortalLinkForCustomer({ auth_user_id: alert.authUserId ?? null, portal_token: alert.portalToken })
+    : null;
+  const portalLink = portalUrl
+    ? `\n\n📱 View your account anytime:\n${portalUrl}`
     : '';
 
   if (alert.type === 'overdue') {
@@ -72,14 +75,14 @@ export function generateReminderMessage(alert: AlertItem): string {
     const graceEnd = new Date(alert.dueDate);
     graceEnd.setDate(graceEnd.getDate() + 7);
     const graceEndStr = graceEnd.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-    const portalLine = alert.portalToken ? `\n\nSettle your payment here:\n${PORTAL_BASE}/portal?token=${alert.portalToken}` : '';
+    const portalLine = portalUrl ? `\n\nSettle your payment here:\n${portalUrl}` : '';
     return `⏳ Cha Jewels Grace Period Reminder\n\nHi ${alert.customer} 💎\n\nYour layaway payment for Invoice #${alert.invoice} was due on ${dueStr} (${alert.daysOverdue} day${alert.daysOverdue !== 1 ? 's' : ''} ago).\n\nAmount Due: ${amtStr}\n\nYou are currently within your 7-day grace period, which ends on ${graceEndStr}.\n\nTo avoid penalties, please settle your payment before the grace period expires.${portalLine}\n\nThank you for choosing Cha Jewels 💛`;
   } else if (alert.type === 'due_today') {
     const dueDate = new Date(alert.dueDate);
     const graceEnd = new Date(dueDate);
     graceEnd.setDate(graceEnd.getDate() + 7);
     const graceEndStr = graceEnd.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-    const portalLine = alert.portalToken ? `\n\nSecure your account by completing your payment here:\n${PORTAL_BASE}/portal?token=${alert.portalToken}` : '';
+    const portalLine = portalUrl ? `\n\nSecure your account by completing your payment here:\n${portalUrl}` : '';
     return `⚠️ Cha Jewels Payment Due Today\n\nHi ${alert.customer} 💎\n\nYour layaway payment for Invoice #${alert.invoice} is due TODAY, ${dueStr}.\n\nAmount Due: ${amtStr}\n\nTo avoid any inconvenience, we highly encourage you to settle your payment today.\n\nYou are still within your 7-day grace period until ${graceEndStr}, after which penalties may apply.${portalLine}\n\nThank you for choosing Cha Jewels 💛`;
   } else {
     return `Hi ${alert.customer}! 👋\n\nThis is a friendly heads-up from Cha Jewels — your next layaway payment for INV #${alert.invoice} is coming up on ${dueStr}.\n\nAmount due: ${amtStr}${portalLink}\n\nThank you for staying on track! 💎`;
@@ -99,8 +102,10 @@ export default function ReminderCard({ alert, notifMap, onOpenMessenger }: Remin
   const Icon = iconMap[alert.type];
   const stage = bucketToStage(alert.bucket);
   const existingNotif = stage ? notifMap.get(`${alert.scheduleId}_${stage}`) || null : null;
-  const hasPortal = !!alert.portalToken;
-  const portalUrl = hasPortal ? `${PORTAL_BASE}/portal?token=${alert.portalToken}` : null;
+  const hasPortal = !!(alert.authUserId || alert.portalToken);
+  const portalUrl = hasPortal
+    ? getPortalLinkForCustomer({ auth_user_id: alert.authUserId ?? null, portal_token: alert.portalToken })
+    : null;
 
   const handleCopyPortalLink = async () => {
     if (!portalUrl) {
