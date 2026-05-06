@@ -37,7 +37,25 @@ export default defineConfig(({ mode }) => ({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        cleanupOutdatedCaches: true,
+        navigateFallback: 'index.html',
+        navigateFallbackDenylist: [
+          /\/[^/?]+\.[^/]+$/, // requests for files with extensions (don't redirect to index.html)
+        ],
         runtimeCaching: [
+          {
+            // NetworkFirst for SPA navigations — ensures fresh HTML/bundle
+            // on each visit with offline cache fallback. Fixes 404s when
+            // the client has stale cached index.html from before new routes
+            // were deployed.
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'navigation-cache',
+              networkTimeoutSeconds: 3,
+              expiration: { maxEntries: 50, maxAgeSeconds: 86400 },
+            },
+          },
           {
             urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
             handler: 'NetworkFirst',
