@@ -1829,6 +1829,24 @@ When completing a partially_paid month:
 
     (2026-05-04)
 
+  - 81. AlertDialog modals unclickable app-wide. Surfaced
+    during Phase B Step 5 testing 2026-05-05 when the new
+    "Send Setup Link" confirmation modal couldn't be clicked,
+    but the bug affected ALL AlertDialog usages across the app
+    (PenaltyFollowUpSection, NotificationsTab, Promotions,
+    RewardsTab, Underpayment confirm, etc).
+    Root cause: src/index.css lines 181-188 had two CSS rules
+    with !important that forced AlertDialog content (role
+    "alertdialog") to z-index 60, while AlertDialog overlay
+    rendered at z-9999. Result: overlay covered content,
+    intercepting all clicks. The rules were originally added
+    to layer "Underpayment AlertDialog above Action Dialog",
+    but the AlertDialog component now uses z-9999 baseline,
+    making the !important rules obsolete and harmful.
+    Fix: removed both !important rules. AlertDialog modals
+    across the app became clickable immediately.
+    Commit: 3d0a1b8 (2026-05-05)
+
 ## Known Open Bugs
 
   Bugs that have been surfaced and triaged but not
@@ -2630,7 +2648,15 @@ When completing a partially_paid month:
   Check 20: carried amount on paid row — no unconsumed carry on paid rows
   Check 21: double carry — no account has carry on multiple rows
 
-## SYSTEM STATUS (as of 2026-05-04)
+## SYSTEM STATUS (as of 2026-05-06)
+
+  Phase B email/password authentication: SHIPPED ✅ (2026-05-05)
+    - Customer portal supports both token-based and email/password auth
+    - Per-customer routing via customers.auth_user_id
+    - Token auth permanent — no sunset, no revocation on signup
+    - Admin Send Setup Link UI on CustomerDetail page
+    - Production-validated 2026-05-06 via CJ-2026-05088 re-migration
+    - 71 no-email customers + Cabalza family stay on token auth indefinitely
 
   Cash Basis Plan Phase 1 (DB): COMPLETE ✅
     - cash_orders table created with 3 indexes
@@ -4725,12 +4751,15 @@ loyalty portal. In progress.
 
 ### EMAIL/PASSWORD AUTH (Phase B)
 
-**STATUS: IN PROGRESS** — replaces abandoned Phase A
-PWA approach. Branch-isolated work — NO main commits
-until full testing approved.
+**STATUS: SHIPPED TO PRODUCTION 2026-05-05** — replaces abandoned
+Phase A PWA approach. Merged to main at commit 337d65c.
+End-to-end production validation complete 2026-05-06 via
+CJ-2026-05088 re-migration (test fixture; auth_user_id
+bcd8c2cf-23e0-4f9c-b507-f8ef15620da2).
 
-Branch: `feature/email-password-auth` (created
-2026-05-04 from main at commit 491e44f)
+Branch: `feature/email-password-auth` (created 2026-05-04 from
+main at commit 491e44f, merged to main 2026-05-05, deleted
+post-merge)
 
 Per-customer auth routing (LOCKED 2026-05-04):
   Both auth methods coexist permanently. Per-customer
@@ -4876,13 +4905,34 @@ Step 4 — Frontend customer login (⏳ PENDING):
     customer-portal — Step 3f-2 modifications were stale on Supabase,
       blocking session-mode fetchPortal until manual redeploy
 
-Step 5 — Admin tools (⏳ PENDING):
-  - Admin "Send setup email" per customer
+Step 5 — Admin tools (✅ COMPLETE 2026-05-05):
+  - 5-1 SHIPPED at fa64262: portal-setup-invite email template +
+    registry entry + setup_link_sent_at column migration
+  - 5-2 SHIPPED at 3ee12b4: Send Setup Link button + AlertDialog
+    confirm + Migrated/Token-based status badge in
+    CustomerPortalShareMenu, email pre-fill on PortalSetup,
+    setup_link_sent_at tracking
+  - Email-only delivery via existing send-transactional-email +
+    portal-setup-invite template
+  - Visible to admin + finance roles on CustomerDetail page
+  - Validated end-to-end 2026-05-06: setup link → email →
+    setup form (email pre-filled) → password creation →
+    sign-in success → CJ-2026-05088 re-migrated cleanly
 
-Step 6 — Branch testing (⏳ PENDING)
+Step 6 — Branch testing (✅ COMPLETE 2026-05-05):
+  - Full 6-checkpoint validation on Lovable preview (see
+    PHASE B 4-B END-TO-END VALIDATED above)
+  - Step 5 send-flow validated post-CSS-fix on preview
+    before merge
 
-Step 7 — Merge approval (⏳ PENDING — requires explicit
-user go signal)
+Step 7 — Merge approval (✅ COMPLETE 2026-05-05):
+  - Cynthia approved merge after Step 5 validation passed
+  - Merged at 337d65c via fast-forward of main + parallel
+    Lovable bot commits (b191129, b013b4b)
+  - 38 files changed, 2062 insertions, 169 deletions, zero conflicts
+  - Firebase auto-deploy completed in ~30 seconds
+  - Production verified: portal.chajewelsjp.com/portal/login
+    returns HTTP/2 200, /portal/setup?email=... pre-fill works
 
 Customer rollout (post-launch):
   - Migration is opt-in only via existing token visit
@@ -4942,9 +4992,7 @@ Branch isolation rules (LOCKED):
   Messenger sharing. Step 5 is additive (UI-only, no backend change),
   low risk.
 
-  Open items before full Phase B completion:
-    - Step 5: Admin UI to send /portal/setup invitation per customer
-      (NEXT — no investigation done yet)
+  Open items (post-launch):
     - RLS file 6: customer INSERT/UPDATE policies on payment_submissions
       and related — apply only if 4-B2.5 extension request workflow is
       reactivated. Currently 3 SELECT policies are live (customers,
@@ -4956,16 +5004,15 @@ Branch isolation rules (LOCKED):
     - Workflow path filter bug:
       .github/workflows/supabase-functions-deploy.yml uses
       contains(join(github.event.commits.*.modified, ' '), '...') only.
-      New files (commits.*.added) are not detected, causing
-      setup-customer-account to never auto-deploy after Step 3g
-      created it. Fix: add ".added" check alongside ".modified".
-      Small admin task; not blocking.
+      New files (commits.*.added) are not detected. setup-customer-account
+      Step 3h workflow trigger compensated by adding the file path
+      explicitly, but the underlying .added bug remains for future new
+      functions. Fix: add ".added" check alongside ".modified".
     - Accessibility cleanup: PortalLogin / PortalSetup /
       PortalForgotPassword / PortalResetPassword have form-field
-      id/name/label warnings. Cosmetic, future cleanup substep.
-
-  Merge to main: pending after Step 5 ships AND first pilot customer
-  successfully migrates via admin-sent setup link.
+      id/name/label warnings. Cosmetic.
+    - First pilot customer migration: pick a real customer with email
+      and observe the full setup → sign-in flow before broader rollout.
 
 ### OTHER
   - Firebase signing page Steps 13-17
