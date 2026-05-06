@@ -1850,6 +1850,57 @@ When completing a partially_paid month:
     and never reached any branch — fix only landed on main when
     re-applied via direct edit 2026-05-06.
 
+  - 82. Email setup-link button invisible on Yahoo Mail PH.
+    Surfaced 2026-05-06 during Cholita pilot migration.
+    Root cause: portal-setup-invite.tsx button used
+    backgroundColor: 'hsl(44, 72%, 47%)'. Yahoo Mail's
+    renderer strips HSL color values entirely from inline
+    styles, leaving white text on transparent background.
+    Brendalyn's earlier email (yahoo.com) hit the same bug —
+    she had to drag-select the area to reveal the button.
+    Fix: converted backgroundColor to '#CEA021' hex equivalent
+    in supabase/functions/_shared/transactional-email-templates/portal-setup-invite.tsx.
+    Manually deployed via npx supabase functions deploy
+    send-transactional-email since auto-deploy can be stale.
+    Subsequent Cholita migration verified visible button.
+    Shipped e0c7719 / 2026-05-06. General rule: email template
+    inline CSS must use hex or rgb(), never hsl().
+
+  - 83. PortalSetup got stuck on Loading screen forever after
+    email verification round-trip. Surfaced 2026-05-06 during
+    Brendalyn migration after a corrupted customer email caused
+    setup-customer-account to fail to match by email. Two
+    compounding bugs: (a) the bootstrapping flag was never
+    cleared in the session-exists path, so React kept rendering
+    the spinner indefinitely; (b) the setup-customer-account
+    fetch had no timeout, so a hung or failed request never
+    resolved to an error state. Fix in src/pages/PortalSetup.tsx:
+    moved setBootstrapping(false) before the if/else branch so
+    it always clears, and added AbortSignal.timeout(15000) plus
+    TimeoutError handling in the catch block to surface a clear
+    error message after 15 seconds. Shipped 633c211 / 2026-05-06.
+
+  - 84. Phase B routes (/portal/setup, /portal/login,
+    /portal/forgot-password, /portal/reset-password) returned
+    404 for customers with previously-installed PWAs or recent
+    visits. Surfaced 2026-05-06 during Brendalyn migration —
+    hard refresh resolved the symptom but not the cause. Root
+    cause: the PWA service worker (built by vite-plugin-pwa
+    with registerType: 'autoUpdate') served cached pre-Phase-B
+    index.html which referenced bundles that did not contain
+    the new routes. React Router 404'd on the unknown path.
+    Fix: three additions to vite.config.ts workbox config —
+    cleanupOutdatedCaches: true (purges stale precaches on SW
+    activation); explicit navigateFallback: 'index.html' with
+    denylist regex /\/[^/?]+\.[^/]+$/ (controlled SPA fallback
+    without redirecting file requests); runtimeCaching entry
+    with NetworkFirst handler for navigation requests
+    (request.mode === 'navigate'), networkTimeoutSeconds: 3,
+    expiration 50 entries / 86400 seconds. Existing PWA users
+    may need ONE reload after the new SW installs to pick up
+    the change; thereafter navigation requests always try
+    fresh HTML first. Shipped 4014f97 / 2026-05-06.
+
 ## Known Open Bugs
 
   Bugs that have been surfaced and triaged but not
@@ -2660,6 +2711,54 @@ When completing a partially_paid month:
     - Admin Send Setup Link UI on CustomerDetail page
     - Production-validated 2026-05-06 via CJ-2026-05088 re-migration
     - 71 no-email customers + Cabalza family stay on token auth indefinitely
+
+  Phase B post-launch hardening: SHIPPED ✅ (2026-05-06)
+    - Phase 1 portal-link helper integration: 3 admin URL builders
+      now route via getPortalLinkForCustomer() —
+      src/pages/CustomerDetail.tsx, src/pages/AccountDetail.tsx,
+      src/components/customers/CustomerPortalShareMenu.tsx
+      (commit 5363f7d). Migrated customers receive bare URL,
+      non-migrated continue with token URL.
+    - Phase 2 portal-link helper integration: reminder cards
+      (Monitoring overdue/grace/due_today/upcoming via
+      ReminderCard, commit d2525ce) + P1-P8 penalty messages
+      and dialog action buttons (PenaltyFollowUpSection,
+      commit 0ea159a) + Monitoring portalTokens query reshape
+      with auth_user_id (commit 7ff6937)
+    - portalTokens query Map shape extended:
+      Map<string, { token, authUserId }>; queryKey renamed to
+      'portal-tokens-with-auth' in both PenaltyFollowUpSection
+      and Monitoring to invalidate stale browser caches.
+      useAutoRefresh entries updated in lockstep with the
+      query key rename.
+    - Staff-email collision detection: SHIPPED ✅ — new
+      check_customer_email_conflict(p_customer_id)
+      SECURITY DEFINER RPC + yellow warning banner + Copy URL
+      + Messenger alt-channel buttons in CustomerPortalShareMenu
+      (commit 8265ce6). Prevents future Brendalyn-style mishaps
+      where admin unknowingly sends a setup link to an email
+      belonging to a staff account, which would silently link
+      the customer to the staff auth user.
+    - Email template HSL color fix (Yahoo Mail PH): see
+      Known Fixed Bug #82 (commit e0c7719). General rule:
+      inline email CSS must use hex or rgb(), never hsl().
+    - PortalSetup Loading-screen timeout + bootstrapping flag
+      fix: see Known Fixed Bug #83 (commit 633c211).
+    - PWA NetworkFirst nav caching: see Known Fixed Bug #84
+      (commit 4014f97).
+    - Pilot customer migrations: 3 customers migrated to
+      email/password — CJ-2026-05088 "Test Customer"
+      (unattended verification), Brendalyn CJ-2026-03936
+      (manual SQL email fix needed after a deferred SQL
+      placeholder bug), Cholita CJ-2026-02000 (clean
+      unattended after HSL→hex email fix).
+    - Net result: migrated customers (auth_user_id IS NOT NULL)
+      now consistently receive bare
+      https://portal.chajewelsjp.com/portal URLs across admin
+      payment confirmations, reminder cards
+      (overdue/grace/due_today/upcoming), and P1-P8 penalty
+      messages. Non-migrated customers continue receiving
+      ?token=X URLs.
 
   Cash Basis Plan Phase 1 (DB): COMPLETE ✅
     - cash_orders table created with 3 indexes
