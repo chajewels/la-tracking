@@ -1,6 +1,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
+import { emitNotification } from "../_shared/emit-notification.ts";
+import {
+  buildPointsEarnedNotification,
+  buildTierUpgradeNotification,
+  buildWelcomeNotification,
+} from "../_shared/loyalty-notification-templates.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -248,13 +254,25 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 13/14. Email — fire-and-forget
+    // 13. Fetch customer once for both the email block (recipient
+    //     address + greeting name) and the in-portal notification
+    //     block below (firstName extraction). Hoisted out of the
+    //     email try/catch so notifications can reuse it without a
+    //     second round-trip.
+    let customer: { full_name: string | null; email: string | null } | null = null;
     try {
-      const { data: customer } = await supabase
+      const { data } = await supabase
         .from("customers")
         .select("full_name, email")
         .eq("id", customerId!)
         .single();
+      customer = data ?? null;
+    } catch (custErr) {
+      console.warn("[award-loyalty-points] customer fetch failed:", custErr);
+    }
+
+    // 14. Email — fire-and-forget
+    try {
       const recipientEmail = customer?.email;
       if (recipientEmail) {
         const customerName = customer?.full_name || "Valued Customer";
@@ -358,6 +376,46 @@ Deno.serve(async (req) => {
       }
     } catch (emailErr) {
       console.warn("[award-loyalty-points] email block failed:", emailErr);
+    }
+
+    // 14b. In-portal notifications — Phase 4.2
+    //   Welcome on first-ever award; points earned on every award;
+    //   tier upgrade when crossed. emitNotification is fire-and-forget
+    //   internally — errors log with [loyalty-notify] and never throw,
+    //   so awaiting them won't fail the parent. Sequential await keeps
+    //   execution ordered and ensures the inserts complete before the
+    //   function returns (Edge Runtime can terminate post-response).
+    const prevTotalEarned = Number(member.total_points_earned ?? 0);
+    const isFirstAward = prevTotalEarned === 0;
+    const firstName =
+      (customer?.full_name || "").trim().split(" ")[0] || null;
+
+    if (isFirstAward) {
+      await emitNotification(supabase, member.id, {
+        category: "order",
+        ...buildWelcomeNotification({ firstName, points: totalAdded }),
+        link_target: "tab:home",
+      });
+    }
+
+    await emitNotification(supabase, member.id, {
+      category: "points",
+      ...buildPointsEarnedNotification({
+        points: totalAdded,
+        invoiceNumber,
+      }),
+      link_target: "tab:points",
+    });
+
+    if (tierUpgraded) {
+      await emitNotification(supabase, member.id, {
+        category: "tier",
+        ...buildTierUpgradeNotification({
+          oldTier: oldTierName,
+          newTier: newTierName,
+        }),
+        link_target: "tab:home",
+      });
     }
 
     // 15. Sync to Google Sheet — fire-and-forget
