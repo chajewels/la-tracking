@@ -47,6 +47,8 @@ export default function CustomerPortalShareMenu({
   const [showSetupConfirm, setShowSetupConfirm] = useState(false);
   const [sendingInvite, setSendingInvite] = useState(false);
   const [localSetupSentAt, setLocalSetupSentAt] = useState<string | null>(setupLinkSentAt ?? null);
+  const [emailConflict, setEmailConflict] = useState<string | null>(null);
+  const [conflictLoading, setConflictLoading] = useState(true);
 
   const fetchToken = async () => {
     setLoading(true);
@@ -77,6 +79,27 @@ export default function CustomerPortalShareMenu({
   useEffect(() => {
     setLocalSetupSentAt(setupLinkSentAt ?? null);
   }, [setupLinkSentAt]);
+
+  useEffect(() => {
+    if (!customerId || authUserId) {
+      // Skip check if already migrated (no conflict possible) or no customer ID
+      setEmailConflict(null);
+      setConflictLoading(false);
+      return;
+    }
+    setConflictLoading(true);
+    (async () => {
+      const { data, error } = await supabase.rpc('check_customer_email_conflict' as any, {
+        p_customer_id: customerId,
+      });
+      if (!error) {
+        setEmailConflict(data as string | null);
+      } else {
+        console.warn('[email-conflict-check] failed:', error);
+      }
+      setConflictLoading(false);
+    })();
+  }, [customerId, authUserId]);
 
   const generateToken = async () => {
     setGenerating(true);
@@ -283,21 +306,54 @@ export default function CustomerPortalShareMenu({
                 <p className="text-xs font-medium mb-2">Email/Password Setup</p>
                 {customerEmail ? (
                   <>
+                    {emailConflict === 'staff_conflict' && (
+                      <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-md p-2 mb-2">
+                        <p className="text-xs text-yellow-700 dark:text-yellow-400">
+                          ⚠️ This email is registered as a staff account. Migration may fail or cause confusion. Ask the customer to use a different email before sending the setup link.
+                        </p>
+                      </div>
+                    )}
                     {localSetupSentAt && (
                       <p className="text-xs text-muted-foreground mb-2">
                         Last sent: {formatLastSent(localSetupSentAt)}
                       </p>
                     )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setShowSetupConfirm(true)}
-                      disabled={sendingInvite}
-                      className="gap-1.5"
-                    >
-                      <Mail className="h-3.5 w-3.5" />
-                      {sendingInvite ? 'Sending…' : 'Send Setup Link'}
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setShowSetupConfirm(true)}
+                        disabled={sendingInvite}
+                        className="gap-1.5"
+                      >
+                        <Mail className="h-3.5 w-3.5" />
+                        {sendingInvite ? 'Sending…' : 'Send Setup Link'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          const setupUrl = `${PORTAL_BASE}/portal/setup?email=${encodeURIComponent(customerEmail)}`;
+                          navigator.clipboard.writeText(setupUrl);
+                          toast.success('Setup URL copied');
+                        }}
+                        className="gap-1.5"
+                      >
+                        <Copy className="h-3.5 w-3.5" /> Copy Setup URL
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          const setupUrl = `${PORTAL_BASE}/portal/setup?email=${encodeURIComponent(customerEmail)}`;
+                          const message = `Hi ${customerName}! Set up your Cha Jewels portal access here: ${setupUrl}`;
+                          window.open(`https://m.me/?text=${encodeURIComponent(message)}`, '_blank');
+                        }}
+                        className="gap-1.5"
+                      >
+                        <Send className="h-3.5 w-3.5" /> Messenger
+                      </Button>
+                    </div>
                   </>
                 ) : (
                   <p className="text-xs text-muted-foreground italic">
@@ -326,16 +382,28 @@ export default function CustomerPortalShareMenu({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Send setup link?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {emailConflict === 'staff_conflict' ? 'Send setup link anyway?' : 'Send setup link?'}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This will email <strong>{customerEmail}</strong> a link to set
-              up email and password access to their Cha Jewels portal.
+              {emailConflict === 'staff_conflict' ? (
+                <>
+                  ⚠️ <strong>Warning:</strong> This email (<strong>{customerEmail}</strong>) is registered as a staff account. The setup link may fail because email/password authentication will conflict with the staff account.
+                  <br /><br />
+                  Recommended: Ask the customer for a different email first, then update their customer record before sending.
+                </>
+              ) : (
+                <>
+                  This will email <strong>{customerEmail}</strong> a link to set
+                  up email and password access to their Cha Jewels portal.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={sendingInvite}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={sendSetupInvite} disabled={sendingInvite}>
-              {sendingInvite ? 'Sending…' : 'Send'}
+              {sendingInvite ? 'Sending…' : (emailConflict === 'staff_conflict' ? 'Send Anyway' : 'Send')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
