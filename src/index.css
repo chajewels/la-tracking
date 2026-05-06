@@ -179,14 +179,6 @@
   }
 }
 
-/* Underpayment AlertDialog must layer above the Action Dialog */
-[role="alertdialog"][data-state="open"] {
-  z-index: 60 !important;
-}
-[role="alertdialog"][data-state="open"] ~ [data-state="open"] {
-  z-index: 60 !important;
-}
-
 @layer utilities {
   .loyalty-portal .font-display { font-family: 'Cormorant Garamond', serif; }
   .loyalty-portal .font-body { font-family: 'Inter', sans-serif; }

@@ -1843,9 +1843,12 @@ When completing a partially_paid month:
     to layer "Underpayment AlertDialog above Action Dialog",
     but the AlertDialog component now uses z-9999 baseline,
     making the !important rules obsolete and harmful.
-    Fix: removed both !important rules. AlertDialog modals
-    across the app became clickable immediately.
-    Commit: 3d0a1b8 (2026-05-05)
+    Fix: removed both !important rules from src/index.css.
+    AlertDialog modals across the app became clickable immediately.
+    Shipped to main 2026-05-06. Lovable previously reported commit
+    3d0a1b8 for this fix on 2026-05-05 but that hash was fabricated
+    and never reached any branch — fix only landed on main when
+    re-applied via direct edit 2026-05-06.
 
 ## Known Open Bugs
 
