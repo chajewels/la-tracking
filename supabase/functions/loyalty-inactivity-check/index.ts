@@ -4,6 +4,12 @@ import {
   type LoyaltyEmailKey,
 } from "../_shared/loyalty-email-gate.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
+import { emitNotification } from "../_shared/emit-notification.ts";
+import {
+  buildExpiryFiredNotification,
+  buildPreExpiryNotification,
+  buildTierDowngradeNotification,
+} from "../_shared/loyalty-notification-templates.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -238,6 +244,26 @@ Deno.serve(async (req) => {
           });
         }
 
+        // Phase 4.2 — in-portal notifications.
+        // Expiry-fired always; tier-downgrade ALSO when expiry caused
+        // a tier change (two distinct events the customer should see
+        // as separate cards in their portal).
+        await emitNotification(supabase, member.id, {
+          category: "expiry",
+          ...buildExpiryFiredNotification({ pointsLost: wasRemaining }),
+          link_target: "tab:points",
+        });
+        if (tierChanged) {
+          await emitNotification(supabase, member.id, {
+            category: "tier",
+            ...buildTierDowngradeNotification({
+              oldTier: currentTier.name,
+              newTier: nextLower!.name,
+            }),
+            link_target: "tab:home",
+          });
+        }
+
         continue; // expiry replaces downgrade for this member
       }
 
@@ -279,6 +305,21 @@ Deno.serve(async (req) => {
             .update({ pre_expiry_warned_at: now.toISOString() })
             .eq("id", member.id);
           if (warnUpdErr) throw warnUpdErr;
+
+          // Phase 4.2 — in-portal pre-expiry warning. Inside the same
+          // (needsWarn) gate as the email so the notification respects
+          // the WARNING_REPEAT_COOLDOWN_DAYS cooldown via
+          // pre_expiry_warned_at. Emitted AFTER warned_at update so a
+          // failed update doesn't leave the customer notified-but-not-
+          // tracked (next tick would re-notify).
+          await emitNotification(supabase, member.id, {
+            category: "expiry",
+            ...buildPreExpiryNotification({
+              daysUntilExpiry: INACTIVITY_DAYS - daysSinceLast,
+              points: Number(member.remaining_points),
+            }),
+            link_target: "tab:points",
+          });
 
           summary.warnings_sent += 1;
         }
@@ -335,6 +376,21 @@ Deno.serve(async (req) => {
               reason: "inactivity",
             });
           }
+
+          // Phase 4.2 — in-portal tier-downgrade notification (standalone
+          // path: gap-too-big without points expiry). The expiry path
+          // above handles its own twin emit when expiry causes a
+          // downgrade; the two paths are mutually exclusive (expiry
+          // branch `continue`s out of the loop iteration) so no
+          // duplicate emit is possible.
+          await emitNotification(supabase, member.id, {
+            category: "tier",
+            ...buildTierDowngradeNotification({
+              oldTier: currentTier.name,
+              newTier: nextLower.name,
+            }),
+            link_target: "tab:home",
+          });
         }
       }
     } catch (memberErr: any) {
