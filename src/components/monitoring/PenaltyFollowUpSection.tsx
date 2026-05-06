@@ -35,13 +35,12 @@ import { useAuth } from '@/contexts/AuthContext';
 import { formatCurrency } from '@/lib/calculations';
 import { daysOverdueFromToday } from '@/lib/business-rules';
 import { toast } from 'sonner';
+import { getPortalLinkForCustomer } from '@/lib/portal-link';
 import type { Currency } from '@/lib/types';
 import { getPHTToday } from '@/lib/date-utils';
 
 // ── Penalty Stage Definitions ──
 export type PenaltyStage = 'P1' | 'P2' | 'P3' | 'P4' | 'P5' | 'P6' | 'P7' | 'P8';
-
-const PORTAL_BASE = 'https://portal.chajewelsjp.com';
 
 interface StageConfig {
   key: PenaltyStage;
@@ -96,13 +95,17 @@ export function generatePenaltyReminderMessage(
   remainingBalance: number,
   currency: Currency,
   portalToken?: string | null,
+  authUserId?: string | null,
 ): string {
   const dueStr = new Date(dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   const amtStr = formatCurrency(installmentAmount, currency);
   const penaltyStr = formatCurrency(penaltyAmount, currency);
   const balanceStr = formatCurrency(remainingBalance, currency);
-  const portalLink = portalToken
-    ? `\n\nYou may view and pay here:\n${PORTAL_BASE}/portal?token=${portalToken}`
+  const portalUrl = (authUserId || portalToken)
+    ? getPortalLinkForCustomer({ auth_user_id: authUserId ?? null, portal_token: portalToken })
+    : null;
+  const portalLink = portalUrl
+    ? `\n\nYou may view and pay here:\n${portalUrl}`
     : '';
 
   const templates: Record<PenaltyStage, string> = {
@@ -142,6 +145,7 @@ export interface PenaltyAlertItem {
   customerId: string;
   portalToken?: string | null;
   messengerLink?: string | null;
+  authUserId?: string | null;
 }
 
 interface StageBucket {
@@ -230,21 +234,36 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
     },
   });
 
-  // Fetch portal tokens
+  // Fetch portal tokens AND auth_user_id per customer
   const { data: portalTokens } = useQuery({
-    queryKey: ['portal-tokens-active'],
+    queryKey: ['portal-tokens-with-auth'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('customer_portal_tokens')
-        .select('customer_id, token, expires_at')
-        .eq('is_active', true)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      const map = new Map<string, string>();
-      for (const t of data || []) {
+      const [tokensRes, customersRes] = await Promise.all([
+        supabase
+          .from('customer_portal_tokens')
+          .select('customer_id, token, expires_at')
+          .eq('is_active', true)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('customers')
+          .select('id, auth_user_id'),
+      ]);
+      if (tokensRes.error) throw tokensRes.error;
+      if (customersRes.error) throw customersRes.error;
+      const authMap = new Map<string, string | null>();
+      for (const c of customersRes.data || []) {
+        authMap.set(c.id, c.auth_user_id);
+      }
+      const map = new Map<string, { token: string | null; authUserId: string | null }>();
+      for (const t of tokensRes.data || []) {
         if (map.has(t.customer_id)) continue;
         if (t.expires_at && new Date(t.expires_at) < new Date()) continue;
-        map.set(t.customer_id, t.token);
+        map.set(t.customer_id, { token: t.token, authUserId: authMap.get(t.customer_id) ?? null });
+      }
+      for (const [customerId, authUserId] of authMap.entries()) {
+        if (!authUserId) continue;
+        if (map.has(customerId)) continue;
+        map.set(customerId, { token: null, authUserId });
       }
       return map;
     },
@@ -278,10 +297,14 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
   // Enrich alerts
   const enrichedAlerts = useMemo(() => {
     if (!penaltyAlerts) return [];
-    return penaltyAlerts.map(a => ({
-      ...a,
-      portalToken: portalTokens?.get(a.customerId) || null,
-    }));
+    return penaltyAlerts.map(a => {
+      const tokenRow = portalTokens?.get(a.customerId);
+      return {
+        ...a,
+        portalToken: tokenRow?.token ?? null,
+        authUserId: tokenRow?.authUserId ?? null,
+      };
+    });
   }, [penaltyAlerts, portalTokens]);
 
   // Build stage buckets with notif counts
@@ -418,7 +441,7 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
     const msg = generatePenaltyReminderMessage(
       alert.stage, alert.customer, alert.invoice, alert.dueDate,
       alert.installmentAmount, alert.penaltyAmount, alert.remainingBalance,
-      alert.currency, alert.portalToken,
+      alert.currency, alert.portalToken, alert.authUserId,
     );
     setMessengerDialog({ alert, message: msg });
     setCopied(false);
@@ -448,9 +471,12 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
   };
 
   const handleCopyPortalLink = async () => {
-    if (!messengerDialog?.alert.portalToken) return;
+    if (!messengerDialog) return;
+    const { authUserId, portalToken } = messengerDialog.alert;
+    if (!authUserId && !portalToken) return;
     try {
-      await navigator.clipboard.writeText(`${PORTAL_BASE}/portal?token=${messengerDialog.alert.portalToken}`);
+      const portalUrl = getPortalLinkForCustomer({ auth_user_id: authUserId ?? null, portal_token: portalToken });
+      await navigator.clipboard.writeText(portalUrl);
       setCopiedPortal(true);
       toast.success('Portal link copied!');
       setTimeout(() => setCopiedPortal(false), 2000);
@@ -756,14 +782,14 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
                   Copy & Open Messenger
                 </Button>
               )}
-              {messengerDialog?.alert.portalToken && (
+              {(messengerDialog?.alert.portalToken || messengerDialog?.alert.authUserId) && (
                 <>
                   <Button variant="outline" className="gap-2 text-xs" onClick={handleCopyPortalLink}>
                     {copiedPortal ? <Check className="h-3.5 w-3.5 text-success" /> : <Link2 className="h-3.5 w-3.5" />}
                     {copiedPortal ? 'Copied!' : 'Copy Portal Link'}
                   </Button>
                   <Button variant="outline" className="gap-2 text-xs" asChild>
-                    <a href={`${PORTAL_BASE}/portal?token=${messengerDialog.alert.portalToken}`} target="_blank" rel="noopener noreferrer">
+                    <a href={getPortalLinkForCustomer({ auth_user_id: messengerDialog?.alert.authUserId ?? null, portal_token: messengerDialog?.alert.portalToken })} target="_blank" rel="noopener noreferrer">
                       <ExternalLink className="h-3.5 w-3.5" />
                       Open Portal
                     </a>
