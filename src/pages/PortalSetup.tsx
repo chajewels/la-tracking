@@ -40,6 +40,8 @@ export default function PortalSetup() {
           'Content-Type': 'application/json',
           'apikey': SUPABASE_KEY,
         },
+        // Defensive 15s timeout to avoid stuck Linking screen if function hangs
+        signal: AbortSignal.timeout(15000),
       });
 
       const result = await res.json();
@@ -62,7 +64,11 @@ export default function PortalSetup() {
         setState('error-conflict');
       }
     } catch (err: any) {
-      setErrorMessage('Network error. Please check your connection and try again.');
+      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+        setErrorMessage('Account linking timed out. Please try again — if this keeps happening, contact Cha Jewels for help.');
+      } else {
+        setErrorMessage('Network error. Please check your connection and try again.');
+      }
       setState('error-conflict');
     } finally {
       setLoading(false);
@@ -75,11 +81,10 @@ export default function PortalSetup() {
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!mounted) return;
+      setBootstrapping(false);
       if (session) {
         // User is signed in (verified) — proceed with linking
         linkCustomerAccount();
-      } else {
-        setBootstrapping(false);
       }
     });
 
