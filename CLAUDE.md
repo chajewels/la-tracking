@@ -3725,6 +3725,195 @@ When completing a partially_paid month:
         Error path keeps the confirm
         view open so admin can retry
         without re-filling the form.
+    Phase 4.2 — Auto-trigger Notifications (LIVE 2026-05-07)
+      - Instrumented 3 existing edge
+        functions to emit in-portal
+        notifications on loyalty events.
+        No new edge functions — sidesteps
+        the workflow path-filter .added
+        bug.
+      - Direct DB INSERT pattern (no edge
+        fn HTTP roundtrip). Sub-millisecond
+        and atomic with the parent
+        operation.
+      - send_email=false on all
+        auto-triggers. The existing
+        transactional email gates
+        (loyalty_email_earned, _bonus,
+        _tier_upgrade, _redeem,
+        _pre_expire, _expire_deduct,
+        _tier_downgrade) already cover the
+        email channel for these events;
+        notifications are the in-portal
+        complement. Doubling up would
+        double-email customers.
+      - try/catch wrap on every emit via
+        the shared helper — parent
+        operation never fails on
+        notification error.
+
+      CHECK constraint widened from 6 → 11
+      categories:
+        Phase 4 admin-pickable: info /
+          promo / tier / system / reward /
+          birthday
+        Phase 4.2 auto-trigger: points /
+          redemption / order / expiry /
+          milestone (milestone schema-only,
+          emit logic deferred to 4.2.1).
+
+      Shared helpers (NEW):
+        _shared/loyalty-notification-templates.ts
+          - 8 pure template builders:
+            buildWelcomeNotification,
+            buildPointsEarnedNotification,
+            buildTierUpgradeNotification,
+            buildTierDowngradeNotification,
+            buildRedemptionApprovedNotification,
+            buildRedemptionCancelledNotification,
+            buildPreExpiryNotification,
+            buildExpiryFiredNotification.
+          - Each returns { title, body }
+            with title ≤ 100 chars, body ≤
+            500 chars enforced via the local
+            truncate('…') helper, matching
+            the loyalty_notifications CHECK
+            constraints.
+          - Defensive: rewardName capped at
+            80 chars; cancellation reason
+            capped at 300; fmt() returns
+            '0' for NaN/Infinity.
+          - TIER_MULTIPLIERS map embedded
+            (Glimmer 1, Radiant 2, Elite 2,
+            Crown VIP 3) — kept in sync
+            with loyalty_tiers seed.
+        _shared/emit-notification.ts
+          - emitNotification(supabase,
+            member_id, args) — fire-and-
+            forget helper.
+          - Two INSERTs per call:
+            loyalty_notifications (master,
+            status='sent', sent_at=now,
+            audience_type='specific',
+            audience_member_ids=null,
+            send_email=false,
+            email_sent=false,
+            created_by_user_id=null) +
+            loyalty_notification_recipients
+            (single row, is_read=false).
+          - Defensive validation: empty
+            member_id → warn+return;
+            invalid category → warn+return.
+          - All failure paths log with the
+            '[loyalty-notify]' prefix
+            (greppable in Supabase function
+            logs). NEVER throws.
+          - Orphaned-master semantics on
+            partial failure: customer-portal's
+            INNER JOIN on recipients hides
+            orphans from customers; admin
+            tab shows 0 recipients as the
+            failure signal.
+
+      award-loyalty-points emits
+      (commit 33240b3):
+        - Welcome (first-ever award; prev
+          total_points_earned === 0) —
+          category 'order', link tab:home.
+          isFirstAward derived from the
+          local `member` object's pre-update
+          state (line 240 UPDATE doesn't
+          mutate the local).
+        - Points earned (every successful
+          award) — category 'points', link
+          tab:points. Body shows totalAdded
+          (earned + bonus) and the invoice
+          number.
+        - Tier upgrade (when tierUpgraded ===
+          true at line 222) — category
+          'tier', link tab:home.
+        Customer fetch hoisted out of the
+        email try/catch so notifications
+        reuse `customer` for firstName
+        without a second round-trip; fetch
+        wrapped in its own micro try/catch
+        so failure leaves customer=null and
+        firstName falls back to "there".
+        All three emits sequentially
+        awaited before function return so
+        Edge Runtime termination doesn't
+        drop inserts.
+
+      process-loyalty-redemption emits
+      (commit 6d27b1c):
+        - Redemption approved (normal path,
+          before success return) — category
+          'redemption', link tab:points.
+        - Redemption approved (stock-race-
+          loss path, before the 409 return).
+          Points are already debited at
+          this point so the customer needs
+          to see the redemption in their
+          portal even though admin will
+          manually cancel/refund afterward.
+        - Redemption cancelled (with admin
+          cancellation_reason in body) —
+          category 'redemption', link
+          tab:points.
+        Reward name resolution via shared
+        resolveRewardName helper:
+          - Catalog rewards (reward_id set)
+            fetch loyalty_rewards.name.
+          - Non-catalog (3 legacy enum
+            types) map to humanized labels
+            via REDEMPTION_TYPE_LABELS
+            ('New order discount' /
+            'Shipping fee' / 'Service fee').
+          - Final fallback "Your reward".
+        Cancel branch SELECT widened from
+        ('id, status') to include
+        ('member_id, reward_id,
+        redemption_type, points_redeemed')
+        — needed by both resolveRewardName
+        and emitNotification.
+
+      loyalty-inactivity-check emits
+      (commit 1ac5fd7):
+        - Pre-expiry warning — category
+          'expiry', link tab:points.
+          Inside the same if (needsWarn)
+          gate as the pre-expire email,
+          AFTER the pre_expiry_warned_at
+          UPDATE succeeds, so the
+          notification respects the
+          WARNING_REPEAT_COOLDOWN_DAYS
+          cooldown and a failed update
+          can't leave the customer
+          notified-but-not-tracked.
+        - Expiry fired — category 'expiry',
+          link tab:points. Body shows the
+          pointsLost. Always emitted when
+          daysSinceLast >= INACTIVITY_DAYS.
+        - Tier downgrade — category 'tier',
+          link tab:home. Twin emit when
+          expiry causes a downgrade
+          (tierChanged === true). Plus
+          standalone emission in the
+          gap-too-big branch. The two
+          paths are mutually exclusive
+          because expiry uses `continue`
+          to skip the standalone
+          downgrade branch.
+
+      Scope correction from spec:
+        Originally 4 functions; reduced to
+        3. review-payment-submission
+        delegates to award-loyalty-points
+        on the DP-confirm path (line 761);
+        instrumenting award covers
+        DP-confirm, cash-order-complete,
+        and any future trigger of award.
+        Single source of truth.
 
   ### 2026-04-30 — Session shipped
 
@@ -4500,6 +4689,22 @@ loyalty portal. In progress.
     manual Cloud Shell redeploy is the fastest fix —
     don't trust the green CI badge alone.
 
+### TODAY'S DATA FIXES (2026-05-07)
+
+  - Phase 4.2 schema: CHECK constraint on
+    loyalty_notifications.category widened from 6 → 11 values:
+      DROP CONSTRAINT loyalty_notifications_category_check;
+      ADD CHECK (category IN (
+        'info','promo','tier','system','reward','birthday',  -- Phase 4 admin-pickable
+        'points','redemption','order','expiry','milestone'   -- Phase 4.2 auto-trigger
+      ));
+    Existing Phase 4 rows untouched (all in the original 6).
+    Smoke-tested via DO blocks: all 5 new categories accepted,
+    invalid value 'unknown_category' still rejected with
+    check_violation. 'milestone' included in the CHECK now even
+    though emit logic is deferred to Phase 4.2.1 — avoids a second
+    migration round-trip when the milestone path lands.
+
 ### OPERATIONAL ENHANCEMENTS
   P6: Admin audit log for manual DB changes
   P7: Invoice generator — Google Sheets +
@@ -4646,27 +4851,49 @@ loyalty portal. In progress.
      of work; deferred until admin demand
      justifies it (admins can copy/paste from
      a Notes app for now).
-  ⏳ Phase 4.2 — Auto-trigger notifications
-     Instrument the existing loyalty edge
-     functions to emit in-portal notifications
-     for the auto-trigger categories that
-     Phase 4 deferred (points / order / vip /
-     activity / milestone / referral / expiry
-     / security). Call sites: award-loyalty-points
-     (points + tier upgrade), process-loyalty-
-     redemption (redemption category),
-     loyalty-inactivity-check (expiry
-     category), and the layaway DP-confirm
-     path in review-payment-submission (order
-     category). Each call site must wrap the
-     notification insert in try/catch so a
-     failure doesn't break the parent
-     operation. Larger surface area than
-     Phase 4 because it touches 4+ edge
-     functions; a future session should pick
-     this up after operational data on
-     Phase 4 broadcasts confirms the schema
-     scales.
+  ✅ Phase 4.2 — Auto-trigger Notifications
+     (LIVE 2026-05-07)
+     Instrumented 3 existing loyalty edge
+     functions (award-loyalty-points,
+     process-loyalty-redemption,
+     loyalty-inactivity-check) to emit
+     in-portal notifications on key member
+     events. Direct DB INSERT pattern via
+     two new shared helpers
+     (loyalty-notification-templates +
+     emit-notification). send_email=false
+     on all auto-triggers — existing
+     transactional emails cover the email
+     channel; doubling up would
+     double-email customers. CHECK
+     constraint widened from 6 to 11
+     categories. Scope reduced from spec's
+     4 functions to 3
+     (review-payment-submission delegates
+     to award-loyalty-points; single
+     source of truth). See SYSTEM STATUS
+     entry above.
+  ⏳ Phase 4.2.1 — Milestone notification
+     emission
+     CHECK constraint already accepts the
+     'milestone' category; Phase 4.2
+     widened it schema-only. Need emission
+     logic on lifetime spend thresholds
+     (e.g., the existing tier boundaries
+     ¥1M / ¥4M / ¥8M, plus anniversary
+     milestones like ¥10M / ¥20M
+     cumulative_spend_jpy). Likely
+     instrument award-loyalty-points to
+     detect threshold crossings —
+     newCumulative > threshold AND
+     prev cumulative_spend_jpy <
+     threshold = first crossing. Emit
+     once per crossing, not per award
+     above the threshold. Template
+     builder needs adding to
+     loyalty-notification-templates.ts
+     (e.g., buildMilestoneNotification({
+     thresholdJpy, totalSpentJpy })).
   ⏳ Phase 4.3 — Notification preferences
      Per-member opt-out for admin broadcasts
      by category. Adds
