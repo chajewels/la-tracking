@@ -3081,6 +3081,10 @@ export type Database = {
           severity: string
         }[]
       }
+      check_customer_email_conflict: {
+        Args: { p_customer_id: string }
+        Returns: string
+      }
       check_duplicate_payment: {
         Args: { p_account_id: string; p_amount: number; p_date?: string }
         Returns: Json
