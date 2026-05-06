@@ -1,6 +1,37 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
+import { emitNotification } from "../_shared/emit-notification.ts";
+import {
+  buildRedemptionApprovedNotification,
+  buildRedemptionCancelledNotification,
+} from "../_shared/loyalty-notification-templates.ts";
+
+// Phase 4.2 — for in-portal redemption notifications. Catalog rewards
+// resolve to loyalty_rewards.name; the 3 legacy enum types use a
+// human-readable label.
+const REDEMPTION_TYPE_LABELS: Record<string, string> = {
+  new_order_discount: "New order discount",
+  shipping_fee: "Shipping fee",
+  service_fee: "Service fee",
+  catalog_reward: "Reward",
+};
+
+async function resolveRewardName(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  redemption: { reward_id?: string | null; redemption_type?: string | null },
+): Promise<string> {
+  if (redemption.reward_id) {
+    const { data: reward } = await supabase
+      .from("loyalty_rewards")
+      .select("name")
+      .eq("id", redemption.reward_id)
+      .maybeSingle();
+    if (reward?.name) return reward.name as string;
+  }
+  return REDEMPTION_TYPE_LABELS[redemption.redemption_type ?? ""] ?? "Your reward";
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -408,6 +439,20 @@ Deno.serve(async (req) => {
               "[process-loyalty-redemption] stock raced to 0 — redemption approved but stock could not be decremented:",
               { redemption_id: redemption.id, reward_id: redemption.reward_id },
             );
+            // Phase 4.2 — emit the approved notification anyway: points
+            // ARE debited at this point, so the customer needs to see
+            // the redemption in their portal. Admin will manually
+            // cancel/refund afterward, which (per Phase 3.2.1 TODO)
+            // does not yet emit a separate notification.
+            const raceRewardName = await resolveRewardName(supabase, redemption);
+            await emitNotification(supabase, redemption.member_id, {
+              category: "redemption",
+              ...buildRedemptionApprovedNotification({
+                rewardName: raceRewardName,
+                points: Number(redemption.points_redeemed),
+              }),
+              link_target: "tab:points",
+            });
             return json(
               {
                 error:
@@ -517,6 +562,20 @@ Deno.serve(async (req) => {
         console.warn("[process-loyalty-redemption] side-effects block failed:", sideErr);
       }
 
+      // Phase 4.2 — in-portal notification (fire-and-forget, never throws).
+      // Sent on the normal approval path. The stock-race-loss path above
+      // also emits before its 409 return because points were already
+      // debited there.
+      const approvedRewardName = await resolveRewardName(supabase, redemption);
+      await emitNotification(supabase, redemption.member_id, {
+        category: "redemption",
+        ...buildRedemptionApprovedNotification({
+          rewardName: approvedRewardName,
+          points: Number(redemption.points_redeemed),
+        }),
+        link_target: "tab:points",
+      });
+
       return json({
         approved: true,
         transaction_id: txRow.id,
@@ -544,7 +603,7 @@ Deno.serve(async (req) => {
 
       const { data: redemption } = await supabase
         .from("loyalty_redemptions")
-        .select("id, status")
+        .select("id, status, member_id, reward_id, redemption_type, points_redeemed")
         .eq("id", redemption_id)
         .maybeSingle();
       if (!redemption) return json({ error: "Redemption not found" }, 404);
@@ -581,6 +640,17 @@ Deno.serve(async (req) => {
           cancellation_reason,
           cancelled_at: cancelledAt,
         },
+      });
+
+      // Phase 4.2 — in-portal notification with the admin reason.
+      const cancelledRewardName = await resolveRewardName(supabase, redemption);
+      await emitNotification(supabase, redemption.member_id, {
+        category: "redemption",
+        ...buildRedemptionCancelledNotification({
+          rewardName: cancelledRewardName,
+          reason: String(cancellation_reason),
+        }),
+        link_target: "tab:points",
       });
 
       return json({
