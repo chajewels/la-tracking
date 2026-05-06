@@ -69,7 +69,7 @@ export default function Monitoring() {
   const { lastRefreshedAt, refreshing, refresh } = useAutoRefresh([
     ['monitoring-schedules'],
     ['csr-notifications'],
-    ['portal-tokens-active'],
+    ['portal-tokens-with-auth'],
     ['reminder-logs'],
     ['reminder-actionable'],
   ]);
@@ -238,22 +238,37 @@ export default function Monitoring() {
     },
   });
 
-  // Fetch active portal tokens per customer
+  // Fetch active portal tokens AND auth_user_id per customer
   const { data: portalTokens } = useQuery({
-    queryKey: ['portal-tokens-active'],
+    queryKey: ['portal-tokens-with-auth'],
     staleTime: 5 * 60_000,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('customer_portal_tokens')
-        .select('customer_id, token, expires_at')
-        .eq('is_active', true)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      const map = new Map<string, string>();
-      for (const t of data || []) {
+      const [tokensRes, customersRes] = await Promise.all([
+        supabase
+          .from('customer_portal_tokens')
+          .select('customer_id, token, expires_at')
+          .eq('is_active', true)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('customers')
+          .select('id, auth_user_id'),
+      ]);
+      if (tokensRes.error) throw tokensRes.error;
+      if (customersRes.error) throw customersRes.error;
+      const authMap = new Map<string, string | null>();
+      for (const c of customersRes.data || []) {
+        authMap.set(c.id, c.auth_user_id);
+      }
+      const map = new Map<string, { token: string | null; authUserId: string | null }>();
+      for (const t of tokensRes.data || []) {
         if (map.has(t.customer_id)) continue;
         if (t.expires_at && new Date(t.expires_at) < new Date()) continue;
-        map.set(t.customer_id, t.token);
+        map.set(t.customer_id, { token: t.token, authUserId: authMap.get(t.customer_id) ?? null });
+      }
+      for (const [customerId, authUserId] of authMap.entries()) {
+        if (!authUserId) continue;
+        if (map.has(customerId)) continue;
+        map.set(customerId, { token: null, authUserId });
       }
       return map;
     },
@@ -316,7 +331,8 @@ export default function Monitoring() {
         scheduleId: nextItem.id,
         customerId: acc.customer_id,
         messengerLink: acc.customers?.messenger_link,
-        portalToken: portalTokens?.get(acc.customer_id) || null,
+        portalToken: portalTokens?.get(acc.customer_id)?.token ?? null,
+        authUserId: portalTokens?.get(acc.customer_id)?.authUserId ?? null,
       });
     }
 
