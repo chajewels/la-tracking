@@ -66,6 +66,6 @@ const h1 = { fontSize: '22px', fontWeight: '600' as const, color: '#0b0b0b', mar
 const greeting = { fontSize: '14px', color: '#0b0b0b', lineHeight: '1.6', margin: '0 0 12px' }
 const text = { fontSize: '14px', color: '#444444', lineHeight: '1.6', margin: '0 0 22px' }
 const smallText = { fontSize: '13px', color: '#666666', lineHeight: '1.6', margin: '20px 0 0' }
-const button = { backgroundColor: 'hsl(44, 72%, 47%)', color: '#ffffff', fontSize: '14px', fontWeight: '600' as const, borderRadius: '10px', padding: '12px 24px', textDecoration: 'none', display: 'inline-block', margin: '4px 0 8px' }
+const button = { backgroundColor: '#CEA021', color: '#ffffff', fontSize: '14px', fontWeight: '600' as const, borderRadius: '10px', padding: '12px 24px', textDecoration: 'none', display: 'inline-block', margin: '4px 0 8px' }
 const footer = { fontSize: '12px', color: '#999999', margin: '20px 0 0', lineHeight: '1.5' }
 const signature = { fontSize: '13px', color: '#444444', margin: '24px 0 0', lineHeight: '1.6' }
