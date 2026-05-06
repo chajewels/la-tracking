@@ -37,6 +37,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getPHTToday } from '@/lib/date-utils';
+import { getPortalLinkForCustomer } from '@/lib/portal-link';
 import {
   isEffectivelyPaid, isPartiallyPaid, remainingDue, remainingPrincipalDue, computeRemainingBalance,
   getUnpaidScheduleItems, getActivePayments, accountProgress,
@@ -155,6 +156,19 @@ export default function AccountDetail() {
         .maybeSingle();
       return data?.token || null;
     },
+  });
+  const { data: authUserId } = useQuery({
+    queryKey: ['customer_auth_user_id', account?.customer_id],
+    queryFn: async () => {
+      if (!account?.customer_id) return null;
+      const { data } = await supabase
+        .from('customers')
+        .select('auth_user_id')
+        .eq('id', account.customer_id)
+        .maybeSingle();
+      return ((data as any)?.auth_user_id as string | null) ?? null;
+    },
+    enabled: !!account?.customer_id,
   });
   const voidPayment = useVoidPayment();
   const editPaymentAmount = useEditPaymentAmount();
@@ -741,8 +755,13 @@ export default function AccountDetail() {
     //    Template A = single payment, Template B = split payment
     // ═══════════════════════════════════════════════════════════════
 
-    const PORTAL_BASE = 'https://portal.chajewelsjp.com';
-    const portalUrl = portalToken ? `${PORTAL_BASE}/portal?token=${portalToken}` : null;
+    const hasAuthMeans = !!authUserId || !!portalToken;
+    const portalUrl = hasAuthMeans
+      ? getPortalLinkForCustomer(
+          { auth_user_id: authUserId ?? null, portal_token: portalToken ?? null },
+          'portal'
+        )
+      : null;
 
     // Determine next due month info — priority: partially_paid → overdue → pending
     // Use BOTH DB status AND computed flags: DB status may be stale ('paid'/'pending')
@@ -831,7 +850,7 @@ export default function AccountDetail() {
     }
   }
   return message;
-  }, [account?.id, account?.status, summary, scheduleItems, currency, mostRecentPayment?.id, paymentBreakdownText, accountServices, unpaidSchedule, penaltyCapOverride, downpaymentAmount, dpPaidAmount, sessionPayments, portalToken]);
+  }, [account?.id, account?.status, summary, scheduleItems, currency, mostRecentPayment?.id, paymentBreakdownText, accountServices, unpaidSchedule, penaltyCapOverride, downpaymentAmount, dpPaidAmount, sessionPayments, portalToken, authUserId]);
 
 
   if (accountLoading) {

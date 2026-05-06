@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { getPortalLinkForCustomer } from '@/lib/portal-link';
 import { Copy, ExternalLink, Link2, Mail, RefreshCw, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import PortalActivationModal from './PortalActivationModal';
@@ -119,7 +120,12 @@ export default function CustomerPortalShareMenu({
     setGenerating(false);
   };
 
-  const portalUrl = token ? `${PORTAL_BASE}/portal?token=${token}` : null;
+  const portalUrl = (authUserId || token)
+    ? getPortalLinkForCustomer(
+        { auth_user_id: authUserId ?? null, portal_token: token },
+        'portal'
+      )
+    : null;
 
   const copyLink = () => {
     if (portalUrl) {

@@ -20,6 +20,7 @@ import CustomerLoyaltyTab from '@/components/customers/CustomerLoyaltyTab';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { getPHTToday } from '@/lib/date-utils';
+import { getPortalLinkForCustomer } from '@/lib/portal-link';
 import { toast } from 'sonner';
 import { useCustomerAccounts, useForfeitAccount } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
@@ -60,7 +61,7 @@ export default function CustomerDetail() {
   // Portal link for split payment confirmation message
   const [portalLink, setPortalLink] = useState<string | null>(null);
   useEffect(() => {
-    if (!customerId) return;
+    if (!customerId || !data?.customer) return;
     (async () => {
       const { data: tokenRow } = await (supabase as any)
         .from('customer_portal_tokens')
@@ -70,11 +71,17 @@ export default function CustomerDetail() {
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (tokenRow?.token) {
-        setPortalLink(`https://portal.chajewelsjp.com/portal?token=${tokenRow.token}`);
+      const authUserId = data.customer.auth_user_id ?? null;
+      const tokenValue = tokenRow?.token ?? null;
+      const hasAuthMeans = !!authUserId || !!tokenValue;
+      if (hasAuthMeans) {
+        setPortalLink(getPortalLinkForCustomer(
+          { auth_user_id: authUserId, portal_token: tokenValue },
+          'portal'
+        ));
       }
     })();
-  }, [customerId]);
+  }, [customerId, data?.customer?.auth_user_id]);
 
   // --- Inline customer detail editing (hooks must be before early returns) ---
   const [editingCustomer, setEditingCustomer] = useState(false);
