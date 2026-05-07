@@ -4084,6 +4084,164 @@ When completing a partially_paid month:
         DP-confirm, cash-order-complete,
         and any future trigger of award.
         Single source of truth.
+    Phase 3.1.1 — Customer portal "Nx Bonus" badge (LIVE 2026-05-08)
+      - Gold-gradient chip beside the
+        existing tier multiplier chip on
+        MemberCard's Home-tab header.
+        Surfaces the currently-active
+        multiplier promo to customers in
+        real time so they can see they're
+        in a 2x/3x/etc earning window
+        without admin having to broadcast.
+      - Resolution mirrors
+        award-loyalty-points selection
+        EXACTLY so the badge represents
+        what the customer would actually
+        earn:
+          1. Date window — is_active=true
+             AND today between start_date
+             and end_date.
+          2. Tier match — applicable_tiers
+             null/empty OR includes the
+             member's current tier name.
+          3. Cap remaining — bonus tx
+             count for (member_id,
+             promo_id) <
+             max_per_customer.
+          4. NEW Phase 3.1.1 filter —
+             bonus_multiplier > 1.00.
+             Flat bonus_points-only
+             promos don't surface the
+             chip because there's nothing
+             to multiply; they still
+             fire as bonuses, just no
+             "Nx" messaging.
+        On any cap-query failure: fail-
+        closed (don't show a badge we
+        can't validate). Outer try/catch
+        ensures unexpected errors keep
+        activePromo=null and never block
+        the rest of the portal payload.
+        All failure paths log with
+        '[customer-portal]' prefix
+        (greppable in Supabase function
+        logs alongside the Phase 4 C5
+        notifications-query logging).
+      - customer-portal payload extended
+        (commit ced71e4):
+          active_promo: {
+            bonus_multiplier: number,
+            name: string,
+            end_date: string  // YYYY-MM-DD
+          } | null
+        Fields chosen for what the badge
+        actually displays. id +
+        applicable_tiers omitted —
+        deferred to a future 3.1.2
+        if/when the badge needs to
+        deep-link to a details modal or
+        show "Crown VIP only" qualifier
+        text.
+      - Frontend wiring (commits f7e403d
+        + eb786d8):
+          loyaltyData.ts store:
+            New exported
+            LoyaltyActivePromoData type +
+            activePromo:
+            LoyaltyActivePromoData | null
+            field on the snapshot.
+            setLoyaltyData() signature
+            extended with an optional 4th
+            arg (defaults to null —
+            backwards-compatible).
+            Identity-equality short-
+            circuit extended so listeners
+            re-render only when the
+            promo state actually changes
+            (e.g., the next refetch
+            returns null after the promo
+            ends).
+          LoyaltyPortal.tsx:
+            PortalData.active_promo?
+            optional field. The existing
+            setLoyaltyData call now
+            passes data.active_promo ??
+            null as the 4th arg. No new
+            effect — runs on the same
+            cadence as the existing
+            tiers/transactions plumbing,
+            including refetchOnWindowFocus
+            from Phase 4.
+      - MemberCard.tsx UI (commit
+        282c4c4):
+          Tier chip wrapped in a flex
+          container with gap-2; the
+          conditional promo chip sits
+          beside it. When activePromo is
+          null, the wrapper collapses to
+          a single chip — no layout
+          shift, no empty placeholder.
+          Promo chip styling: bright
+          saturated gold gradient
+          (linear-gradient(135deg,
+          hsla(45,90%,55%,0.95) →
+          hsla(45,100%,65%,0.95))) +
+          0 0 12px hsla(45,90%,55%,0.4)
+          glow boxShadow for the
+          limited-time feel. Dark
+          hsl(36,80%,15%) icon + text
+          for max contrast against the
+          bright gradient. Sparkles
+          icon (lucide-react) —
+          deliberately distinct from
+          TrendingUp on the tier chip
+          so the two chips read as
+          separate facts rather than
+          duplicates of each other.
+          Browser-native title tooltip
+          shows promo name + friendly
+          end date (e.g. "Spring 3x
+          Weekend — ends May 12,
+          2026"). Long-press surfaces
+          it on iOS Safari.
+          fmtMultiplier helper inlined
+          (parseFloat(toFixed(2)).toString)
+          to strip trailing zeros: 3.00
+          → "3", 2.50 → "2.5", 1.27 →
+          "1.27". Same logic as the
+          admin-portal helper in
+          PromotionsTab.tsx; duplicated
+          locally to avoid coupling the
+          customer portal to admin-
+          portal helpers — promote to
+          a shared util when a third
+          caller appears.
+          fmtEndDate helper anchors
+          the YYYY-MM-DD parse at local
+          noon (`+ "T12:00:00"`) so the
+          timezone difference between
+          UTC and the customer's locale
+          never shifts the displayed
+          day backwards. Same defense
+          pattern as the PHT helpers in
+          date-utils.ts.
+      - No click action — informational
+        only. A future Phase 3.1.2
+        could add a tap-to-details
+        modal and surface tier-specific
+        qualifier text if customer
+        feedback warrants it.
+      - No SQL changes. Phase 3.1
+        already shipped the
+        bonus_multiplier column with
+        the >= 1.00 CHECK; the
+        Phase 3.1.1 schema follow-up
+        (CHECK widening for
+        multiplier-only promos) is a
+        separate, narrowly-scoped
+        constraint adjustment recorded
+        under TODAY'S DATA FIXES
+        (2026-05-08).
 
   ### 2026-04-30 — Session shipped
 
@@ -4875,6 +5033,35 @@ loyalty portal. In progress.
     though emit logic is deferred to Phase 4.2.1 — avoids a second
     migration round-trip when the milestone path lands.
 
+### TODAY'S DATA FIXES (2026-05-08)
+
+  - Phase 3.1.1 schema follow-up: widened loyalty_promos CHECK
+    constraint so multiplier-only promos can be created. The
+    legacy CHECK only permitted bonus_points > 0 — admins
+    creating a "3x Bonus Weekend" with bonus_points=0 and
+    bonus_multiplier=3 hit a check_violation at INSERT time:
+      ALTER TABLE public.loyalty_promos
+        DROP CONSTRAINT loyalty_promos_bonus_points_check;
+      ALTER TABLE public.loyalty_promos
+        ADD CONSTRAINT loyalty_promos_bonus_value_check
+          CHECK (bonus_points > 0 OR bonus_multiplier > 1.00);
+      ALTER TABLE public.loyalty_promos
+        ALTER COLUMN bonus_points SET DEFAULT 0;
+    The new constraint accepts:
+      * Flat-bonus promos      (bonus_points > 0, multiplier=1)
+      * Multiplier-only promos (bonus_points=0, multiplier>1)  ← NEW
+      * Combo promos           (bonus_points>0 AND multiplier>1)
+    Rejects:
+      * No-op promos           (bonus_points=0 AND multiplier=1)
+    Existing rows are unaffected — Phase 3.1 backfilled
+    bonus_multiplier=1.00 on every row, and every legacy promo
+    still has bonus_points > 0, so they all satisfy the new OR
+    check.
+    bonus_points DEFAULT changed from required to 0 so admin can
+    omit the field when creating a multiplier-only promo (the
+    PromoEditDialog already passes 0 by default; the DEFAULT
+    aligns the DB-level contract with the UI).
+
 ### OPERATIONAL ENHANCEMENTS
   P6: Admin audit log for manual DB changes
   P7: Invoice generator — Google Sheets +
@@ -4901,25 +5088,6 @@ loyalty portal. In progress.
      inputs; PromotionsTab shows "{N}x
      Bonus" badge. See SYSTEM STATUS
      entry above.
-  ⏳ Phase 3.1.1 — Customer portal
-     "{N}x bonus active" badge
-     Surface active multiplier promos
-     to customers via portal indicator.
-     Banner system can advertise but a
-     real-time badge would reinforce
-     engagement (e.g. a small chip on
-     the loyalty home screen reading
-     "3x BONUS WEEKEND" while an
-     applicable promo is live for the
-     viewing member's tier). Requires
-     customer-portal edge function to
-     return the matching active promo
-     (gated by tier + cap), plus a
-     small UI surface on the loyalty
-     home screen. Same matching logic
-     as award-loyalty-points (date
-     window + applicable_tiers + cap
-     not exhausted).
   ✅ Phase 3.2 — Catalog Redemption Wiring
      (LIVE 2026-05-01)
      reward_id FK + 'catalog_reward' enum
