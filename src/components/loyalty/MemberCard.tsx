@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { TrendingUp, Activity } from "lucide-react";
+import { TrendingUp, Activity, Sparkles } from "lucide-react";
 import { useLoyaltyData } from "@/components/loyalty/loyaltyData";
 
 // Scoped keyframes + overlay layers for the diagonal gold-foil shine
@@ -48,8 +48,26 @@ const STYLE_BLOCK = `
 }
 `;
 
+// Phase 3.1.1 — strip trailing zeros for the BONUS chip:
+//   3.00 → "3", 2.50 → "2.5", 1.27 → "1.27"
+// Same logic as fmtMultiplier in loyalty-admin/PromotionsTab.tsx;
+// duplicated locally to avoid coupling the customer portal to the
+// admin-portal helper file. Promote to a shared util when a third
+// caller appears.
+const fmtMultiplier = (n: number) => parseFloat(n.toFixed(2)).toString();
+
+// Format a YYYY-MM-DD end_date for the chip's tooltip. Anchored at
+// local noon so the timezone difference between UTC and the
+// customer's locale never shifts the displayed day backwards.
+const fmtEndDate = (yyyyMmDd: string) =>
+  new Date(yyyyMmDd + "T12:00:00").toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
 const MemberCard = () => {
-  const { member, tiers } = useLoyaltyData();
+  const { member, tiers, activePromo } = useLoyaltyData();
 
   if (!member || !tiers || tiers.length === 0) return null;
 
@@ -110,17 +128,38 @@ const MemberCard = () => {
                 </p>
               </div>
             </div>
-            <div
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
-              style={{ background: 'hsla(36, 30%, 15%, 0.22)' }}
-            >
-              <TrendingUp size={10} style={{ color: 'hsl(42, 80%, 70%)' }} />
-              <span
-                className="text-[11px] font-semibold tracking-wider"
-                style={{ color: 'hsl(42, 80%, 70%)' }}
+            <div className="flex items-center gap-2">
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
+                style={{ background: 'hsla(36, 30%, 15%, 0.22)' }}
               >
-                {currentTier.multiplier}x POINTS
-              </span>
+                <TrendingUp size={10} style={{ color: 'hsl(42, 80%, 70%)' }} />
+                <span
+                  className="text-[11px] font-semibold tracking-wider"
+                  style={{ color: 'hsl(42, 80%, 70%)' }}
+                >
+                  {currentTier.multiplier}x POINTS
+                </span>
+              </div>
+              {activePromo && (
+                <div
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
+                  style={{
+                    background:
+                      'linear-gradient(135deg, hsla(45, 90%, 55%, 0.95), hsla(45, 100%, 65%, 0.95))',
+                    boxShadow: '0 0 12px hsla(45, 90%, 55%, 0.4)',
+                  }}
+                  title={`${activePromo.name} — ends ${fmtEndDate(activePromo.end_date)}`}
+                >
+                  <Sparkles size={10} style={{ color: 'hsl(36, 80%, 15%)' }} />
+                  <span
+                    className="text-[11px] font-semibold tracking-wider"
+                    style={{ color: 'hsl(36, 80%, 15%)' }}
+                  >
+                    {fmtMultiplier(activePromo.bonus_multiplier)}x BONUS
+                  </span>
+                </div>
+              )}
             </div>
           </div>
           <div className="text-center mt-6 mb-2">
