@@ -1356,6 +1356,7 @@ When completing a partially_paid month:
     the dead shortcut — no Phase 0 remediation
     needed; will be addressed by Phase 6
     dead-shortcut UX handler. (2026-04-29)
+  - 66. (skipped during numbering — no associated work item)
   - 67. Dashboard restructure to account-counts-only.
     AgingBuckets D2 (TEST exclusion) and D4
     (INVARIANT 2 violation via cache columns)
@@ -1722,6 +1723,8 @@ When completing a partially_paid month:
 
     (2026-05-01)
 
+  - 78. (reserved slot — Phase A Step 3b-2 fix; reverted as part
+    of Bug #79 chain. No surviving fix to document.)
   - 79. Phase A 3b-1 frontend token redemption broke PIN
     UI transition. PIN backend verify returned 200/success,
     follow-up portal data calls fired correctly, but the
