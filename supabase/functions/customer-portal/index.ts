@@ -269,6 +269,14 @@ Deno.serve(async (req) => {
     let loyaltyRedemptions: any[] = [];
     let notifications: any[] = [];
     let unreadCount = 0;
+    // Phase 3.1.1 — active multiplier promo for the "Nx BONUS" badge.
+    // Resolution mirrors award-loyalty-points selection EXACTLY so the
+    // badge matches what the customer would actually earn.
+    let activePromo: {
+      bonus_multiplier: number;
+      name: string;
+      end_date: string;
+    } | null = null;
     if (loyaltyMemberRow) {
       const memberId = (loyaltyMemberRow as any).id;
       const nowIso = new Date().toISOString();
@@ -388,6 +396,93 @@ Deno.serve(async (req) => {
         })
         .filter((n): n is NonNullable<typeof n> => n !== null);
       unreadCount = unreadRes.count ?? 0;
+
+      // Phase 3.1.1 — resolve active multiplier promo (badge eligibility).
+      // Sequential after the parallel notifications fetch above; depends
+      // on memberId for the cap-count query so it can't be parallelized.
+      // Only emits to the payload when bonus_multiplier > 1 — flat
+      // bonus_points-only promos don't get an Nx chip because there's
+      // nothing to multiply.
+      try {
+        const today = new Date().toISOString().split("T")[0];
+        const memberTierName: string | null =
+          ((loyaltyMemberRow as any).current_tier?.name as string | undefined) ?? null;
+
+        const { data: promos, error: promoErr } = await supabase
+          .from("loyalty_promos")
+          .select(
+            "id, name, bonus_multiplier, end_date, applicable_tiers, max_per_customer, created_at",
+          )
+          .eq("is_active", true)
+          .lte("start_date", today)
+          .gte("end_date", today)
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        if (promoErr) {
+          console.error(
+            "[customer-portal] active promo query failed:",
+            promoErr,
+          );
+        }
+
+        const candidate = (promos ?? [])[0] as
+          | {
+              id: string;
+              name: string;
+              bonus_multiplier: number | string | null;
+              end_date: string;
+              applicable_tiers: string[] | null;
+              max_per_customer: number | null;
+            }
+          | undefined;
+
+        if (candidate) {
+          const multiplier = Number(candidate.bonus_multiplier ?? 1);
+          if (multiplier > 1) {
+            const tiersAllowed = candidate.applicable_tiers;
+            const tierOk =
+              !tiersAllowed ||
+              tiersAllowed.length === 0 ||
+              (memberTierName != null && tiersAllowed.includes(memberTierName));
+
+            let underCap = true;
+            if (tierOk && candidate.max_per_customer != null) {
+              const { count, error: capErr } = await supabase
+                .from("loyalty_transactions")
+                .select("id", { count: "exact", head: true })
+                .eq("member_id", memberId)
+                .eq("transaction_type", "bonus")
+                .eq("promo_id", candidate.id);
+              if (capErr) {
+                console.error(
+                  "[customer-portal] active promo cap query failed:",
+                  capErr,
+                );
+                // Fail-closed: don't show a badge we can't validate.
+                underCap = false;
+              } else {
+                underCap = (count ?? 0) < Number(candidate.max_per_customer);
+              }
+            }
+
+            if (tierOk && underCap) {
+              activePromo = {
+                bonus_multiplier: multiplier,
+                name: candidate.name,
+                end_date: candidate.end_date,
+              };
+            }
+          }
+        }
+      } catch (err) {
+        console.error(
+          "[customer-portal] active promo resolution unexpected error:",
+          err,
+        );
+        // activePromo stays null — never let this block the rest of the
+        // payload.
+      }
     }
 
     const schedulesByAccount: Record<string, any[]> = {};
@@ -613,6 +708,7 @@ Deno.serve(async (req) => {
       is_loyalty_beta: loyaltyBetaRow !== null,
       notifications,
       unread_count: unreadCount,
+      active_promo: activePromo,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
