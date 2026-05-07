@@ -3,9 +3,12 @@ import { Loader2, RefreshCw, Trash2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
+import {
+  LOYALTY_IMAGES_BUCKET,
+  loyaltyImagesPath,
+} from '@/lib/loyalty-images-path';
 import { cn } from '@/lib/utils';
 
-const BUCKET = 'loyalty-images';
 const MAX_BYTES = 5 * 1024 * 1024;
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
@@ -27,16 +30,6 @@ function getExt(file: File): string {
   if (file.type === 'image/png') return 'png';
   if (file.type === 'image/webp') return 'webp';
   return 'jpg';
-}
-
-// Returns the object key inside the loyalty-images bucket, or null if the URL
-// doesn't point to that bucket. Used to scope fire-and-forget delete to URLs
-// we own — pasted external URLs are never touched.
-function loyaltyImagesPath(url: string): string | null {
-  const match = url.match(
-    /\/storage\/v1\/object\/public\/loyalty-images\/(.+)$/,
-  );
-  return match ? match[1] : null;
 }
 
 function fileNameFromUrl(url: string): string {
@@ -77,7 +70,7 @@ export default function ImageUploadField({
     const path = loyaltyImagesPath(prevUrl);
     if (!path) return;
     try {
-      await supabase.storage.from(BUCKET).remove([path]);
+      await supabase.storage.from(LOYALTY_IMAGES_BUCKET).remove([path]);
     } catch {
       // intentionally swallowed
     }
@@ -97,14 +90,14 @@ export default function ImageUploadField({
         const ext = getExt(file);
         const filename = `${entity}-${crypto.randomUUID()}-${Date.now()}.${ext}`;
         const { error: upErr } = await supabase.storage
-          .from(BUCKET)
+          .from(LOYALTY_IMAGES_BUCKET)
           .upload(filename, file, {
             contentType: file.type,
             cacheControl: '3600',
             upsert: false,
           });
         if (upErr) throw upErr;
-        const { data } = supabase.storage.from(BUCKET).getPublicUrl(filename);
+        const { data } = supabase.storage.from(LOYALTY_IMAGES_BUCKET).getPublicUrl(filename);
         const newUrl = data.publicUrl;
 
         if (value) {
