@@ -56,223 +56,223 @@ jobs:
           version: latest
 
       - name: Deploy reconcile-account
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/reconcile-account/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/reconcile-account/')
         run: npx supabase functions deploy reconcile-account --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy daily-reconciliation
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/daily-reconciliation/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/daily-reconciliation/')
         run: npx supabase functions deploy daily-reconciliation --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy record-payment
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/record-payment/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/record-payment/')
         run: npx supabase functions deploy record-payment --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy record-multi-payment
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/record-multi-payment/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/record-multi-payment/')
         run: npx supabase functions deploy record-multi-payment --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy bulk-import
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/bulk-import/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/bulk-import/')
         run: npx supabase functions deploy bulk-import --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy bulk-send-setup-invites
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/bulk-send-setup-invites/') || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/_shared/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/bulk-send-setup-invites/') || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/_shared/')
         run: npx supabase functions deploy bulk-send-setup-invites --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy carry-over
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/carry-over/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/carry-over/')
         run: npx supabase functions deploy carry-over --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy accept-underpayment
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/accept-underpayment/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/accept-underpayment/')
         run: npx supabase functions deploy accept-underpayment --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy review-payment-submission
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/review-payment-submission/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/review-payment-submission/')
         run: npx supabase functions deploy review-payment-submission --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy manual-forfeit
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/manual-forfeit/') || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/_shared/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/manual-forfeit/') || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/_shared/')
         run: npx supabase functions deploy manual-forfeit --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy auto-forfeit-settlement
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/auto-forfeit-settlement/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/auto-forfeit-settlement/')
         run: npx supabase functions deploy auto-forfeit-settlement --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy recalculate-penalties
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/recalculate-penalties/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/recalculate-penalties/')
         run: npx supabase functions deploy recalculate-penalties --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy submit-cash-payment
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/submit-cash-payment/') || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/_shared/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/submit-cash-payment/') || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/_shared/')
         run: npx supabase functions deploy submit-cash-payment --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy submit-payment
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/submit-payment/') || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/_shared/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/submit-payment/') || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/_shared/')
         run: npx supabase functions deploy submit-payment --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy dashboard-summary
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/dashboard-summary/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/dashboard-summary/')
         run: npx supabase functions deploy dashboard-summary --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy add-service
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/add-service/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/add-service/')
         run: npx supabase functions deploy add-service --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy create-cash-order
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/create-cash-order/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/create-cash-order/')
         run: npx supabase functions deploy create-cash-order --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy customer-portal
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/customer-portal/') || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/_shared/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/customer-portal/') || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/_shared/')
         run: npx supabase functions deploy customer-portal --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy verify-portal-pin
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/verify-portal-pin/') || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/_shared/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/verify-portal-pin/') || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/_shared/')
         run: npx supabase functions deploy verify-portal-pin --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy set-portal-pin
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/set-portal-pin/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/set-portal-pin/')
         run: npx supabase functions deploy set-portal-pin --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy send-reminders
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/send-reminders/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/send-reminders/')
         run: npx supabase functions deploy send-reminders --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy send-transactional-email
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/send-transactional-email/') || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/_shared/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/send-transactional-email/') || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/_shared/')
         run: npx supabase functions deploy send-transactional-email --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy preview-transactional-email
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/preview-transactional-email/') || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/_shared/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/preview-transactional-email/') || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/_shared/')
         run: npx supabase functions deploy preview-transactional-email --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy void-cash-payment
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/void-cash-payment/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/void-cash-payment/')
         run: npx supabase functions deploy void-cash-payment --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy award-loyalty-points
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/award-loyalty-points/') || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/_shared/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/award-loyalty-points/') || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/_shared/')
         run: npx supabase functions deploy award-loyalty-points --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy sync-loyalty-to-sheet
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/sync-loyalty-to-sheet/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/sync-loyalty-to-sheet/')
         run: npx supabase functions deploy sync-loyalty-to-sheet --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy join-loyalty-program
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/join-loyalty-program/') || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/_shared/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/join-loyalty-program/') || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/_shared/')
         run: npx supabase functions deploy join-loyalty-program --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy process-loyalty-redemption
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/process-loyalty-redemption/') || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/_shared/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/process-loyalty-redemption/') || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/_shared/')
         run: npx supabase functions deploy process-loyalty-redemption --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy loyalty-inactivity-check
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/loyalty-inactivity-check/') || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/_shared/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/loyalty-inactivity-check/') || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/_shared/')
         run: npx supabase functions deploy loyalty-inactivity-check --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy auto-expire-cash-orders
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/auto-expire-cash-orders/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/auto-expire-cash-orders/')
         run: npx supabase functions deploy auto-expire-cash-orders --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy redeem-portal-token
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/redeem-portal-token/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/redeem-portal-token/')
         run: npx supabase functions deploy redeem-portal-token --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy setup-customer-account
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/setup-customer-account/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/setup-customer-account/')
         run: npx supabase functions deploy setup-customer-account --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy edit-payment-submission
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/edit-payment-submission/') || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/_shared/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/edit-payment-submission/') || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/_shared/')
         run: npx supabase functions deploy edit-payment-submission --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy send-loyalty-notification
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/send-loyalty-notification/') || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/_shared/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/send-loyalty-notification/') || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/_shared/')
         run: npx supabase functions deploy send-loyalty-notification --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy mark-loyalty-notification-read
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/mark-loyalty-notification-read/') || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/_shared/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/mark-loyalty-notification-read/') || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/_shared/')
         run: npx supabase functions deploy mark-loyalty-notification-read --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy process-loyalty-notification-queue
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/process-loyalty-notification-queue/') || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/_shared/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/process-loyalty-notification-queue/') || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/_shared/')
         run: npx supabase functions deploy process-loyalty-notification-queue --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy cleanup-loyalty-images
-        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/cleanup-loyalty-images/') || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/_shared/')
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/cleanup-loyalty-images/') || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/_shared/')
         run: npx supabase functions deploy cleanup-loyalty-images --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
