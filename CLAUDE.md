@@ -2203,9 +2203,12 @@ When completing a partially_paid month:
     daily-auto-forfeit:            00:10 UTC = 08:10 PHT ✅
     daily-reconciliation:          00:20 UTC = 08:20 PHT ✅
     loyalty-inactivity-check:      00:25 UTC = 08:25 PHT ✅
+    auto-expire-cash-orders:       00:30 UTC = 08:30 PHT ✅
     deactivate-expired-promotions: every hour            ✅
+    loyalty-notification-queue:    every hour            ✅
     fc-alert-evaluation:           every 30 minutes      ✅
     process-email-queue:           every 5 seconds       ✅
+    cleanup-loyalty-images:        Sun 03:00 UTC = Sun 11:00 PHT ✅
 
   ORDERING RULE — never violate this sequence:
     1. Reminders fire first (before penalties)
@@ -5251,6 +5254,9 @@ loyalty portal. In progress.
      remove, fire-and-forget delete on
      replace) wired into PromoEditDialog,
      RewardEditDialog, BannerEditDialog.
+     See SYSTEM STATUS entry above.
+  ✅ Phase 3.5.1 — Orphan Image Cleanup
+     (LIVE 2026-05-07).
      See SYSTEM STATUS entry above.
 
   Phase 3 series complete — full content
