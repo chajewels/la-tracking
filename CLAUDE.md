@@ -4258,6 +4258,71 @@ When completing a partially_paid month:
         constraint adjustment recorded
         under TODAY'S DATA FIXES
         (2026-05-08).
+    Phase 3.5.1 — Orphan Image Cleanup (LIVE 2026-05-07)
+      - cleanup-loyalty-images edge
+        function runs weekly to clean
+        orphaned images in the
+        loyalty-images bucket. Detects
+        images NOT referenced by any
+        loyalty_promos / loyalty_rewards /
+        loyalty_banners image_url field.
+      - Schedule: Sunday 03:00 UTC
+        (11:00 AM PHT) — jobid 20.
+      - Service role auth (verified —
+        rejects non-service-role callers
+        with 403). Calls authorized via
+        email_queue_service_role_key from
+        vault per Lovable Option 1 —
+        same key the 3 sibling crons
+        (16/17/19) were repointed to in
+        the same session.
+      - Dry-run by default via
+        system_settings.cleanup_loyalty_images_dry_run
+        (default true). Manual override
+        per-invocation via
+        ?dry_run=true|false query param.
+        Plan to flip to false after the
+        first 1-2 weekly runs are
+        reviewed.
+      - Hard cap = 50 deletes per run.
+        If exceeded, function halts
+        without deleting and writes a
+        'cleanup_halted' audit row.
+        Manual investigation required
+        before flipping the dry-run flag
+        off in any case where the cap is
+        approached.
+      - Audit log per run with sentinel
+        entity_id
+        00000000-0000-0000-0000-0000000000a2
+        (Phase 2 pattern; a1 is
+        loyalty_settings, a2
+        distinguishes loyalty_images_cleanup),
+        entity_type 'loyalty_images_cleanup',
+        action 'cleanup_dry_run' /
+        'cleanup_run' / 'cleanup_halted'.
+        new_value_json carries
+        files_scanned / orphans_detected /
+        files_deleted / dry_run /
+        safety_cap_hit / cap / elapsed_ms.
+      - Filename matching via the
+        loyaltyImagesPath helper (lifted
+        in C2 to
+        _shared/loyalty-images-path.ts +
+        src/lib/loyalty-images-path.ts —
+        same dual-file convention as
+        portal-link.ts and portal-auth.ts;
+        cross-reference comment in each
+        twin flags drift). URLs that
+        don't match the bucket pattern
+        (legacy paste-only externals)
+        correctly drop out — they're not
+        in the bucket either, so they
+        can't be orphans.
+      - Smoke test passed end-to-end:
+        200 OK in ~205 ms, 0 orphans
+        detected (empty bucket at smoke
+        time), audit row written.
 
   ### 2026-04-30 — Session shipped
 
@@ -5078,6 +5143,38 @@ loyalty portal. In progress.
     PromoEditDialog already passes 0 by default; the DEFAULT
     aligns the DB-level contract with the UI).
 
+  - Phase 3.5.1 schema: seeded
+    system_settings.cleanup_loyalty_images_dry_run = true via
+      INSERT INTO public.system_settings (key, value, description)
+      VALUES (
+        'cleanup_loyalty_images_dry_run',
+        to_jsonb(true),
+        'Phase 3.5.1 — when true, cleanup-loyalty-images logs orphans but does not delete.'
+      );
+    Default dry-run prevents accidental mass-delete on the first
+    weekly tick. Manual flip to false after the first 1-2 runs
+    are reviewed via the audit_logs entries.
+
+  - Phase 3.5.1 cron: scheduled jobid 20 cleanup-loyalty-images
+    at '0 3 * * 0' (Sunday 03:00 UTC = Sunday 11:00 AM PHT)
+    using email_queue_service_role_key from vault. Schedule
+    statement followed the loyalty-notification-queue precedent
+    (jobid 19) — vault.decrypted_secrets lookup in the command
+    body so rotating the service_role JWT does not require a
+    cron re-schedule.
+
+  - Bug fix (LATENT) — 3 broken crons repointed. jobids 16/17/19
+    (loyalty-inactivity-check, auto-expire-cash-orders,
+    loyalty-notification-queue) referenced 'service_role_key' in
+    vault, but only 'email_queue_service_role_key' exists. They
+    were sending empty Bearer tokens and only succeeding because
+    target functions deploy with --no-verify-jwt. All 3 crons
+    repointed via cron.alter_job + regexp_replace surgical swap
+    — minimal diff, idempotent (re-running matches nothing). Now
+    sending real service_role JWT, removing the silent auth
+    bypass risk if any of those target functions are ever
+    redeployed without the --no-verify-jwt flag.
+
 ### OPERATIONAL ENHANCEMENTS
   P6: Admin audit log for manual DB changes
   P7: Invoice generator — Google Sheets +
@@ -5147,29 +5244,6 @@ loyalty portal. In progress.
      replace) wired into PromoEditDialog,
      RewardEditDialog, BannerEditDialog.
      See SYSTEM STATUS entry above.
-  ⏳ Phase 3.5.1 — Orphan image cleanup
-     Periodic edge function or cron job
-     to detect images in loyalty-images
-     bucket not referenced by any
-     loyalty_promos / loyalty_rewards /
-     loyalty_banners row. The Phase 3.5
-     fire-and-forget delete on Replace /
-     Remove handles the common case
-     (admin swaps an image, original gets
-     cleaned up), but rows deleted while
-     keeping image_url do not trigger
-     storage cleanup, and rows whose
-     image_url is hand-edited via SQL
-     bypass the widget entirely.
-     Implementation sketch: list bucket
-     objects, full outer join against
-     UNION of image_url values from the
-     three tables, delete rows present in
-     bucket but missing from any table.
-     Run weekly via pg_cron + edge
-     function. Storage cost on a few
-     hundred orphan JPEGs is trivial so
-     this is hygiene, not urgent.
 
   Phase 3 series complete — full content
   management end-to-end.
