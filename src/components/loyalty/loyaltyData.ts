@@ -97,16 +97,29 @@ export interface LoyaltyTransactionData {
   tier_multiplier?: number | null;
 }
 
+// Phase 3.1.1 — currently-active multiplier promo for the "Nx BONUS"
+// badge on MemberCard. Resolved server-side by the customer-portal
+// edge function with the same selection logic as award-loyalty-points
+// (date window + tier match + cap remaining + bonus_multiplier > 1).
+// null when no applicable multiplier promo is active for this member.
+export interface LoyaltyActivePromoData {
+  bonus_multiplier: number;
+  name: string;
+  end_date: string;
+}
+
 interface LoyaltySnapshot {
   member: LoyaltyMemberData | null;
   tiers: LoyaltyTierData[];
   transactions: LoyaltyTransactionData[];
+  activePromo: LoyaltyActivePromoData | null;
 }
 
 let snapshot: LoyaltySnapshot = {
   member: null,
   tiers: [],
   transactions: [],
+  activePromo: null,
 };
 
 const listeners = new Set<() => void>();
@@ -115,15 +128,17 @@ export function setLoyaltyData(
   member: LoyaltyMemberData | null,
   tiers: LoyaltyTierData[],
   transactions: LoyaltyTransactionData[],
+  activePromo: LoyaltyActivePromoData | null = null,
 ): void {
   if (
     snapshot.member === member &&
     snapshot.tiers === tiers &&
-    snapshot.transactions === transactions
+    snapshot.transactions === transactions &&
+    snapshot.activePromo === activePromo
   ) {
     return;
   }
-  snapshot = { member, tiers, transactions };
+  snapshot = { member, tiers, transactions, activePromo };
   listeners.forEach((fn) => fn());
 }
 
