@@ -2726,7 +2726,7 @@ When completing a partially_paid month:
   Check 20: carried amount on paid row — no unconsumed carry on paid rows
   Check 21: double carry — no account has carry on multiple rows
 
-## SYSTEM STATUS (as of 2026-05-06)
+## SYSTEM STATUS (as of 2026-05-07)
 
   Phase B email/password authentication: SHIPPED ✅ (2026-05-05)
     - Customer portal supports both token-based and email/password auth
@@ -4723,7 +4723,7 @@ When completing a partially_paid month:
        Blocks any account creation or edit below the minimum.
     3. Both PHP and JPY enforced — hard block, no override
 
-## PENDING ITEMS (as of 2026-05-04)
+## PENDING ITEMS (as of 2026-05-07)
 
 ### LOYALTY PORTAL — Cha Jewels Circle Port
 Multi-phase port of Circle UI into
@@ -5721,7 +5721,7 @@ WHERE ls.status = 'partially_paid'
 -- Expected result: 0 rows. If rows appear, update db_status to paid.
 ```
 
-## AUTO-DEPLOY RULES (updated 2026-05-04)
+## AUTO-DEPLOY RULES (updated 2026-05-07)
 
 GitHub Actions auto-deploys on every push to main:
 
@@ -5740,6 +5740,7 @@ isn't auto-deployed; this list reflects the workflow as of 2026-05-04:
 - bulk-import
 - bulk-send-setup-invites
 - carry-over
+- cleanup-loyalty-images
 - create-cash-order
 - customer-portal
 - daily-reconciliation
