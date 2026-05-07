@@ -1881,6 +1881,14 @@ When completing a partially_paid month:
     minimal Section wrapper only. New rule: all transactional email
     <Button> elements MUST be wrapped in a <Section> for Yahoo Mail
     compatibility.
+    2026-05-07 verified: fix confirmed via Brenda Tuliao Yahoo Mail
+    screenshot. Same-day bulk rollout delivered fixed-template setup
+    invites to 582 customers (30 in initial partial run 09:32 UTC +
+    540 in clean drip 09:44-09:57 UTC, plus 12 in targeted cleanup
+    for pre-fix recipients). DLQ count unchanged at 89 — zero new
+    bounces. Operational learning: bulk-send-setup-invites has an
+    effective ~30 internal-call rate limit per invocation; batch_size
+    25 is the safe ceiling. Bug #82 closed end-to-end.
 
   - 83. PortalSetup got stuck on Loading screen forever after
     email verification round-trip. Surfaced 2026-05-06 during
