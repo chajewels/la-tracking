@@ -81,8 +81,10 @@ export default function PortalForgotPassword() {
             <p style={{ color: '#888', fontSize: 13, marginBottom: 24 }}>Enter your email to receive a reset link</p>
 
             <form onSubmit={handleSubmit}>
-              <label style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Email</label>
+              <label htmlFor="portal-forgot-email" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Email</label>
               <input
+                id="portal-forgot-email"
+                name="email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -94,6 +96,7 @@ export default function PortalForgotPassword() {
               <button
                 type="submit"
                 disabled={loading}
+                aria-busy={loading}
                 style={{ width: '100%', padding: 12, background: '#C9A84C', border: 'none', borderRadius: 8, color: '#0a0a0a', fontWeight: 700, fontSize: 14, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1 }}
               >
                 {loading ? 'Sending…' : 'Send Reset Email'}

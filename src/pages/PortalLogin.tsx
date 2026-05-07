@@ -59,8 +59,10 @@ export default function PortalLogin() {
         <p style={{ color: '#888', fontSize: 13, marginBottom: 24 }}>Sign in to access your accounts</p>
 
         <form onSubmit={handleLogin}>
-          <label style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Email</label>
+          <label htmlFor="portal-login-email" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Email</label>
           <input
+            id="portal-login-email"
+            name="email"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -69,8 +71,10 @@ export default function PortalLogin() {
             style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
           />
 
-          <label style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Password</label>
+          <label htmlFor="portal-login-password" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Password</label>
           <input
+            id="portal-login-password"
+            name="password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -82,6 +86,7 @@ export default function PortalLogin() {
           <button
             type="submit"
             disabled={loading}
+            aria-busy={loading}
             style={{ width: '100%', padding: 12, background: '#C9A84C', border: 'none', borderRadius: 8, color: '#0a0a0a', fontWeight: 700, fontSize: 14, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1 }}
           >
             {loading ? 'Signing in…' : 'Sign In'}

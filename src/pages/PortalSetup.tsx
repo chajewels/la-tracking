@@ -167,8 +167,10 @@ export default function PortalSetup() {
             <p style={{ color: '#888', fontSize: 13, marginBottom: 24 }}>Use the email Cha Jewels has on file for you.</p>
 
             <form onSubmit={handleSignup}>
-              <label style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Email</label>
+              <label htmlFor="portal-setup-email" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Email</label>
               <input
+                id="portal-setup-email"
+                name="email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -177,8 +179,10 @@ export default function PortalSetup() {
                 style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
               />
 
-              <label style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Password</label>
+              <label htmlFor="portal-setup-password" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Password</label>
               <input
+                id="portal-setup-password"
+                name="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -187,8 +191,10 @@ export default function PortalSetup() {
                 style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
               />
 
-              <label style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Confirm Password</label>
+              <label htmlFor="portal-setup-confirm" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Confirm Password</label>
               <input
+                id="portal-setup-confirm"
+                name="confirm"
                 type="password"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
@@ -200,6 +206,7 @@ export default function PortalSetup() {
               <button
                 type="submit"
                 disabled={loading}
+                aria-busy={loading}
                 style={{ width: '100%', padding: 12, background: '#C9A84C', border: 'none', borderRadius: 8, color: '#0a0a0a', fontWeight: 700, fontSize: 14, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1 }}
               >
                 {loading ? 'Creating account…' : 'Create Account'}
@@ -248,7 +255,7 @@ export default function PortalSetup() {
         {state === 'error-no-customer' && (
           <>
             <h2 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6 }}>Account not found</h2>
-            <p style={{ color: '#EF4444', fontSize: 13, marginBottom: 20, lineHeight: 1.6 }}>{errorMessage}</p>
+            <p role="alert" style={{ color: '#EF4444', fontSize: 13, marginBottom: 20, lineHeight: 1.6 }}>{errorMessage}</p>
             <button
               onClick={handleSignOutAndRetry}
               style={{ width: '100%', padding: 12, background: '#C9A84C', border: 'none', borderRadius: 8, color: '#0a0a0a', fontWeight: 700, fontSize: 14, cursor: 'pointer', marginBottom: 12 }}
@@ -264,7 +271,7 @@ export default function PortalSetup() {
         {state === 'error-conflict' && (
           <>
             <h2 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6 }}>Setup error</h2>
-            <p style={{ color: '#EF4444', fontSize: 13, marginBottom: 20, lineHeight: 1.6 }}>{errorMessage}</p>
+            <p role="alert" style={{ color: '#EF4444', fontSize: 13, marginBottom: 20, lineHeight: 1.6 }}>{errorMessage}</p>
             <button
               onClick={handleSignOutAndRetry}
               style={{ width: '100%', padding: 12, background: '#C9A84C', border: 'none', borderRadius: 8, color: '#0a0a0a', fontWeight: 700, fontSize: 14, cursor: 'pointer', marginBottom: 12 }}
