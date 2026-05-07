@@ -3258,6 +3258,20 @@ export type Database = {
           currency: string
         }[]
       }
+      get_bulk_setup_invite_candidates: {
+        Args: {
+          p_count_only?: boolean
+          p_limit?: number
+          p_test_codes?: string[]
+        }
+        Returns: {
+          customer_code: string
+          email: string
+          full_name: string
+          id: string
+          total_eligible: number
+        }[]
+      }
       get_collection_analytics: {
         Args: { currency_mode?: string; months_back?: number }
         Returns: Json
