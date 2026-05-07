@@ -5189,12 +5189,48 @@ loyalty portal. In progress.
     bypass risk if any of those target functions are ever
     redeployed without the --no-verify-jwt flag.
 
+  - Clarification — GitHub Actions Supabase auto-deploy
+    workflow is non-functional (missing repo secrets
+    SUPABASE_PROJECT_REF + SUPABASE_ACCESS_TOKEN).
+    Discovered via workflow_dispatch test of commit
+    44e62a3 (path-filter fix). Edge function deploys are
+    handled by Lovable inside their environment via direct
+    Supabase tooling access. Cloud Shell manual deploys
+    are Cynthia-side interventions when needed. Path-filter
+    fix remains valid preventive infrastructure for if/when
+    GitHub Actions auto-deploy gets enabled.
+
 ### OPERATIONAL ENHANCEMENTS
   P6: Admin audit log for manual DB changes
   P7: Invoice generator — Google Sheets +
       Drive (service account ready)
   P9: Invoice button — add to AccountDetail
       and CashOrderDetail pages
+
+### CI/DEPLOYMENT INFRASTRUCTURE
+  ⏳ GitHub Actions Supabase auto-deploy
+     enablement (BLOCKED on Lovable)
+
+     Currently Lovable handles all edge
+     function deploys directly. If GitHub
+     Actions auto-deploy is desired as a
+     backup mechanism or for Cynthia-side
+     commits, two GitHub repo secrets need
+     to be added:
+       - SUPABASE_PROJECT_REF
+         (value: pfoicalpzdcmyxzvwyhz)
+       - SUPABASE_ACCESS_TOKEN
+         (Personal access token from
+         Supabase Dashboard → Account →
+         Access Tokens; requires Lovable
+         to generate)
+
+     Once added, the workflow file and
+     path-filter fix (commit 44e62a3)
+     become active infrastructure.
+
+     No urgency — current Lovable
+     deployment model works.
 
 ### LOYALTY ADMIN PORTAL — phased build
   ✅ Phase 1 — Foundation (LIVE 2026-04-29)
@@ -5731,6 +5767,41 @@ WHERE ls.status = 'partially_paid'
 ```
 
 ## AUTO-DEPLOY RULES (updated 2026-05-07)
+
+  ⚠️ DEPLOYMENT MODEL (clarified
+     2026-05-08):
+
+     Edge function deployments are
+     handled by Lovable inside their
+     environment via direct Supabase
+     tooling access. Lovable owns
+     Supabase Dashboard access;
+     Cynthia does not.
+
+     Cloud Shell manual deploys are
+     used for Cynthia-side
+     interventions (e.g., when stale
+     deploys are suspected, when
+     manually verifying a fix, when
+     Lovable hasn't deployed a recent
+     commit).
+
+     GitHub Actions auto-deploy
+     workflow EXISTS but has never
+     been functional — missing repo
+     secrets SUPABASE_PROJECT_REF
+     and SUPABASE_ACCESS_TOKEN.
+     Adding them requires Supabase
+     Dashboard access (Lovable-owned)
+     to generate an access token.
+
+     The workflow file and its
+     path-filter logic (last fixed
+     2026-05-08 commit 44e62a3)
+     remain valid preventive
+     infrastructure for if/when
+     GitHub Actions auto-deploy
+     gets enabled.
 
 GitHub Actions auto-deploys on every push to main:
 
