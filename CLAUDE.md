@@ -2790,6 +2790,31 @@ When completing a partially_paid month:
       messages. Non-migrated customers continue receiving
       ?token=X URLs.
 
+  Phase 4-B2.5 — Extension request session-auth wiring: SHIPPED ✅ (2026-05-07)
+    - Commit 3741326. Frontend-only fix in
+      src/pages/CustomerPortal.tsx (+12/-4 lines).
+    - handleExtensionRequest now uses
+      getPortalAuthHeaders(portalToken):
+        * token-auth users → empty headers (anon fallback
+          unchanged)
+        * session-auth users → Bearer JWT (PostgREST sees
+          authenticated role, matches existing
+          TO authenticated WITH CHECK (true) RLS policy on
+          extension_requests)
+    - Body now writes customer_id from new AccountDetail prop
+      so admin queue can identify session-auth requesters even
+      when portal_token is null.
+    - Notification email's portalUrl now calls
+      getPortalLinkForCustomer({ auth_user_id: null,
+      portal_token: portalToken || null }, 'portal') — token URL
+      when token present, bare /portal URL when null.
+    - Unblocks customer-side extension requests for migrated
+      session-auth users without depending on RLS file 6 (which
+      contains SELECT-only policies, unrelated to the INSERT
+      path). Original "RLS policy work" diagnosis from session
+      memory was a misdiagnosis — RLS was already permissive
+      enough.
+
   PHASE B BULK ROLLOUT (added 2026-05-07)
     - Purpose: one-time broadcast to send the
       portal-setup-invite email to every eligible customer
@@ -5704,14 +5729,14 @@ Branch isolation rules (LOCKED):
   low risk.
 
   Open items (post-launch):
-    - RLS file 6: customer INSERT/UPDATE policies on payment_submissions
-      and related — apply only if 4-B2.5 extension request workflow is
-      reactivated. Currently 3 SELECT policies are live (customers,
-      layaway_accounts, cash_orders), which is sufficient for the
-      validated session-auth journey since all reads/writes go through
-      service-role edge functions.
-    - 4-B2.5: extension request via direct PostgREST insert — deferred
-      until RLS file 6 applied.
+    - RLS file 6 — 6 staged SELECT-only policies on:
+      payments, payment_submissions, loyalty_members,
+      loyalty_transactions, loyalty_redemptions,
+      loyalty_notification_recipients. Apply only if customer-side
+      direct PostgREST reads are introduced. Currently all customer
+      reads flow through service-role edge functions (which bypass
+      RLS), so file 6 is preventive infrastructure with no active
+      need.
     - Workflow path filter bug:
       .github/workflows/supabase-functions-deploy.yml uses
       contains(join(github.event.commits.*.modified, ' '), '...') only.
@@ -5719,11 +5744,20 @@ Branch isolation rules (LOCKED):
       Step 3h workflow trigger compensated by adding the file path
       explicitly, but the underlying .added bug remains for future new
       functions. Fix: add ".added" check alongside ".modified".
-    - Accessibility cleanup: PortalLogin / PortalSetup /
-      PortalForgotPassword / PortalResetPassword have form-field
-      id/name/label warnings. Cosmetic.
-    - First pilot customer migration: pick a real customer with email
-      and observe the full setup → sign-in flow before broader rollout.
+    - Accessibility cleanup on 4 portal auth pages
+      (PortalLogin, PortalSetup, PortalForgotPassword,
+      PortalResetPassword). Real WCAG 1.3.1 Level A gap:
+      missing id / htmlFor / name attributes on form labels
+      and inputs. Plus minor polish (aria-busy on submit,
+      aria-describedby on errors, type="button" on nav buttons
+      inside forms). Estimated 30-45 min mechanical fix. Not a
+      blocker — forms work for assistive tech via visual
+      proximity + sonner toasts. Standalone code commit,
+      separate from docs.
+    - Bulk migration follow-through (582 invites delivered
+      2026-05-07 via bulk-send-setup-invites). Track conversion
+      rate via auth_user_id population on customers table. No
+      active blocker — passive wait for customer signups.
 
 ### OTHER
   - Firebase signing page Steps 13-17
