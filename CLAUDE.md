@@ -2760,6 +2760,77 @@ When completing a partially_paid month:
       messages. Non-migrated customers continue receiving
       ?token=X URLs.
 
+  PHASE B BULK ROLLOUT (added 2026-05-07)
+    - Purpose: one-time broadcast to send the
+      portal-setup-invite email to every eligible customer
+      that has not yet been migrated. After Phase B's per-
+      customer admin button validated the flow, this delivers
+      Setup Links at scale (586 net-deliverable customers at
+      deploy time) without admins clicking each customer
+      individually.
+    - Edge function:
+      supabase/functions/bulk-send-setup-invites/index.ts
+    - Companion RPC: get_bulk_setup_invite_candidates
+      (supabase/migrations/20260507000001_bulk_setup_invite_candidates.sql)
+      SECURITY DEFINER, returns the next batch of eligible
+      customers + total_eligible. Two modes: count_only=true
+      returns a single row with the total; count_only=false
+      returns up to p_limit rows ordered by customer_code.
+    - Auth: admin-only. Edge function extracts Bearer JWT,
+      calls supabase.auth.getUser, then queries user_roles
+      and rejects with 403 if role !== 'admin'. Mirrors the
+      manual-forfeit pattern. The RPC also gates on
+      public.has_role(auth.uid(), 'admin'); service_role
+      callers (auth.uid() IS NULL inside the edge function)
+      pass through, but direct PostgREST calls without admin
+      role are blocked.
+    - Exclusions baked into the RPC (every condition must
+      hold for a customer to receive the invite):
+        * customers.email IS NOT NULL
+        * auth_user_id IS NULL (not yet migrated)
+        * setup_link_sent_at IS NULL (no prior invite)
+        * LOWER(email) NOT IN auth.users (staff-collision
+          exclusion — prevents the Brendalyn-style mishap)
+        * email NOT shared by 2+ unmigrated customers
+          (Cabalza-pattern exclusion — shared family inbox)
+    - Net deliverable at deploy time: 586 customers.
+    - Idempotent: each successful send stamps
+      customers.setup_link_sent_at = NOW(); subsequent runs
+      automatically skip already-sent customers via the
+      RPC's setup_link_sent_at IS NULL filter. Failed sends
+      do NOT stamp, so they remain eligible for retry on the
+      next batch.
+    - Architecture: per-candidate
+      supabase.functions.invoke('send-transactional-email')
+      with templateName 'portal-setup-invite' (matches the
+      per-customer admin button payload from
+      CustomerPortalShareMenu.tsx exactly). No in-function
+      throttle — process-email-queue (cron every 5 seconds)
+      paces actual delivery. Suppression list and unsubscribe
+      tokens are enforced by send-transactional-email so the
+      bulk function piggybacks on existing safety nets.
+    - Test mode: pass test_customer_codes (string[]) in the
+      request body to scope the candidate set to specific
+      customer_codes for targeted dry runs or pilot batches.
+      Test codes are an ADDITIONAL filter; staff-collision /
+      shared-email customers in the test list are still
+      excluded (the safety floor is non-negotiable).
+    - Dry-run mode: { dry_run: true } returns the candidate
+      preview without sending or stamping.
+    - Cloud Shell driver: while-loop calling the endpoint
+      until response.remaining_eligible === 0. Recommended
+      batch_size 50 (default; clamped to 1..100). Each
+      response also includes per-failure errors[] for audit.
+    - Workflow note: this is the function's first commit, so
+      per Bug #77 the path-trigger may not fire on initial
+      deploy (commits.*.added is not detected). The same
+      commit also touches .github/workflows + CLAUDE.md so
+      the workflow run does fire — but if for any reason the
+      Deploy bulk-send-setup-invites step skips, run a manual
+      Cloud Shell deploy:
+        npx supabase functions deploy bulk-send-setup-invites \\
+          --project-ref pfoicalpzdcmyxzvwyhz
+
   Cash Basis Plan Phase 1 (DB): COMPLETE ✅
     - cash_orders table created with 3 indexes
     - cash_payments table created with 2 indexes
@@ -5401,6 +5472,7 @@ isn't auto-deployed; this list reflects the workflow as of 2026-05-04:
 - auto-forfeit-settlement
 - award-loyalty-points
 - bulk-import
+- bulk-send-setup-invites
 - carry-over
 - create-cash-order
 - customer-portal

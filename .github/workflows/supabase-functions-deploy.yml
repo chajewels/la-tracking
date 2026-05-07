@@ -9,6 +9,7 @@ on:
       - 'supabase/functions/record-payment/**'
       - 'supabase/functions/record-multi-payment/**'
       - 'supabase/functions/bulk-import/**'
+      - 'supabase/functions/bulk-send-setup-invites/**'
       - 'supabase/functions/carry-over/**'
       - 'supabase/functions/accept-underpayment/**'
       - 'supabase/functions/review-payment-submission/**'
@@ -80,6 +81,12 @@ jobs:
       - name: Deploy bulk-import
         if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/bulk-import/')
         run: npx supabase functions deploy bulk-import --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy bulk-send-setup-invites
+        if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/bulk-send-setup-invites/') || contains(join(github.event.commits.*.modified, ' '), 'supabase/functions/_shared/')
+        run: npx supabase functions deploy bulk-send-setup-invites --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
