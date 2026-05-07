@@ -1865,6 +1865,22 @@ When completing a partially_paid month:
     Subsequent Cholita migration verified visible button.
     Shipped e0c7719 / 2026-05-06. General rule: email template
     inline CSS must use hex or rgb(), never hsl().
+    2026-05-07 update: e0c7719 HSL→hex fix did NOT fully resolve.
+    Sheryl Blaza Virtus-Lee hit same invisible-button issue today
+    even with valid hex #CEA021 after a fresh send-transactional-email
+    deploy. Root cause clarified: Yahoo Mail strips inline
+    background-color from bare <a> tags (documented behavior — Litmus
+    discussion 1393, Email on Acid Yahoo tips, ActionRocket bulletproof
+    buttons). React Email's <Button> v0.0.22 renders as a bare anchor.
+    The 25 other transactional templates work on Yahoo because their
+    <Section> wrapper renders as <table role="presentation">, which
+    Yahoo recognizes as layout context and preserves the anchor styling.
+    portal-setup-invite was the lone orphan-anchor template.
+    Fix shipped: wrapped <Button> in <Section style={{textAlign:
+    'center', margin:'24px 0'}}>. No color or button const changes —
+    minimal Section wrapper only. New rule: all transactional email
+    <Button> elements MUST be wrapped in a <Section> for Yahoo Mail
+    compatibility.
 
   - 83. PortalSetup got stuck on Loading screen forever after
     email verification round-trip. Surfaced 2026-05-06 during

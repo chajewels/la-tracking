@@ -10,6 +10,7 @@ import {
   Heading,
   Html,
   Preview,
+  Section,
   Text,
 } from 'npm:@react-email/components@0.0.22'
 
@@ -35,9 +36,11 @@ export const PortalSetupInviteEmail = ({
           Cha Jewels has set up email and password access for your customer
           portal. Click the button below to choose your password and sign in.
         </Text>
-        <Button style={button} href={setupUrl}>
-          Set Up My Portal Access
-        </Button>
+        <Section style={{ textAlign: 'center' as const, margin: '24px 0' }}>
+          <Button style={button} href={setupUrl}>
+            Set Up My Portal Access
+          </Button>
+        </Section>
         <Text style={smallText}>
           This invite was sent to <strong>{customerEmail}</strong>. After
           you set your password, you'll receive a verification email — click
