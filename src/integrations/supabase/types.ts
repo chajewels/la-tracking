@@ -1475,7 +1475,7 @@ export type Database = {
           applicable_tiers?: string[] | null
           applies_per_purchase?: boolean
           bonus_multiplier?: number
-          bonus_points: number
+          bonus_points?: number
           created_at?: string
           created_by_user_id?: string | null
           description?: string | null
