@@ -34,6 +34,7 @@ import {
 import { LocationType, parseLocation, toLocationString } from '@/lib/countries';
 import { getPHTToday } from '@/lib/date-utils';
 import { getPortalAuthHeaders } from '@/lib/portal-auth';
+import { getPortalLinkForCustomer } from '@/lib/portal-link';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -944,6 +945,7 @@ export default function CustomerPortal() {
               paymentMethods={data.payment_methods}
               portalToken={token!}
               customerName={data.customer_name}
+              customerId={data.customer_id}
               onClose={() => { setSelectedAccount(null); setInitialDetailTab('overview'); setInitialPaymentMode('single'); }}
               onRefresh={fetchPortal}
               initialTab={initialDetailTab}
@@ -1404,12 +1406,13 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
 }
 
 /* ─── Account Detail Panel ─── */
-function AccountDetail({ account, allAccounts, paymentMethods, portalToken, customerName, onClose, onRefresh, initialTab = 'overview', initialPaymentMode = 'single' }: {
+function AccountDetail({ account, allAccounts, paymentMethods, portalToken, customerName, customerId, onClose, onRefresh, initialTab = 'overview', initialPaymentMode = 'single' }: {
   account: PortalAccount;
   allAccounts: PortalAccount[];
   paymentMethods: PaymentMethod[];
   portalToken: string;
   customerName: string;
+  customerId: string;
   onClose: () => void;
   onRefresh: () => void;
   initialTab?: 'overview' | 'pay' | 'submissions';
@@ -1441,17 +1444,19 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
   const handleExtensionRequest = async () => {
     setExtSubmitting(true);
     try {
+      const authHeaders = await getPortalAuthHeaders(portalToken);
       const res = await fetch(`${SUPABASE_URL}/rest/v1/extension_requests`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          ...authHeaders,
           'Prefer': 'return=representation',
         },
         body: JSON.stringify({
           account_id: account.id,
-          portal_token: portalToken,
+          customer_id: customerId,
+          portal_token: portalToken || null,
           reason: extReason.trim() || null,
           status: 'pending',
         }),
@@ -1478,7 +1483,10 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
             reason: extReason.trim() || 'No reason provided',
             currency: account.currency,
             remainingBalance: fmt(account.remaining_balance, account.currency),
-            portalUrl: `https://portal.chajewelsjp.com/portal?token=${portalToken}`,
+            portalUrl: getPortalLinkForCustomer({
+              auth_user_id: null,
+              portal_token: portalToken || null,
+            }, 'portal'),
           },
         }),
       }).catch(() => {});
