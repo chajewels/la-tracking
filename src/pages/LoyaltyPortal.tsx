@@ -114,6 +114,17 @@ interface PortalData {
     read_at: string | null;
   }>;
   unread_count?: number;
+  /**
+   * Phase 3.1.1: currently-active multiplier promo for this member.
+   * Resolved server-side by customer-portal with the same selection
+   * logic as award-loyalty-points. null when no applicable multiplier
+   * promo is active. Drives the "Nx BONUS" badge on MemberCard.
+   */
+  active_promo?: {
+    bonus_multiplier: number;
+    name: string;
+    end_date: string;
+  } | null;
 }
 
 const tierStorageKey = (customerId: string) => `cha-jewels-last-seen-tier-${customerId}`;
@@ -297,7 +308,7 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
     [loyaltyTxs],
   );
 
-  setLoyaltyData(memberData, tiers, transactions);
+  setLoyaltyData(memberData, tiers, transactions, data.active_promo ?? null);
 
   // ── Tier celebration trigger ────────────────────────────────────
   // Compares the current tier to the value stored in localStorage
