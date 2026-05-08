@@ -1959,6 +1959,127 @@ When completing a partially_paid month:
     as Phase 5 — Tier Benefits Schema Expansion in PENDING
     ITEMS. Verified in production 2026-05-08.
 
+  - 87. Reward Detail Modal CTA hidden behind
+    LoyaltyBottomNav. The Confirm Redemption button on
+    customer portal Rewards tab → reward card → modal sat
+    flush against viewport bottom (modal had `flex
+    items-end`) with only 24px panel padding; the bottom
+    nav (~60-100px tall depending on safe-area) overlaid
+    the bottom edge. Modal overlay used `z-50`; bottom nav
+    also used `z-50` — same z-index falls back to DOM
+    paint order. LoyaltyPortal mounts BottomNav AFTER
+    RewardsScreen, so nav painted on top of CTA. Customer
+    couldn't complete the redemption flow at all on web
+    or mobile, blocking Phase 3.2.1 smoke testing. Fixed
+    in src/components/loyalty/screens/RewardsScreen.tsx
+    via two surgical className edits: overlay z-50 →
+    z-[60], inner panel + pb-[calc(env(safe-area-inset-bottom)+5.5rem)]
+    + max-h-[90dvh] + overflow-y-auto. dvh used instead
+    of vh for iOS Safari address-bar reliability.
+    Surfaced + fixed 2026-05-08. Shipped 3d8fc10.
+
+  - 88. RewardsScreen invoice placeholder showed
+    "e.g. CJ-2026-12345" — that's the customer_code
+    naming pattern (CJ-YYYY-XXXXX), NOT an invoice
+    number. Customers typing their own customer_code
+    into the field would fail backend validation
+    ("Invoice number does not match account") since
+    process-loyalty-redemption matches against
+    layaway_accounts.invoice_number /
+    cash_orders.invoice_number which are 5-digit
+    numeric values (e.g., 18857, 19012, 10001). Fixed
+    to "e.g. 19012" — matches the canonical format
+    already used in src/components/loyalty/RedemptionForm.tsx:305
+    and src/pages/NewAccount.tsx:530+. Single source of
+    truth. Surfaced + fixed 2026-05-08. Shipped 08f97fb.
+
+  - 89. process-loyalty-redemption returned 401 on
+    customer-side action='create' calls. Function used
+    raw supabase.auth.getUser(jwt) and explicitly
+    rejected non-internal roles at the create-branch
+    role gate (`!(isAdmin || isFinance || isStaff)` →
+    403, OR 401 if anon-key fallback was sent). Customer-
+    portal RewardsScreen calls the function but customer
+    has no admin role; calls failed in production
+    2026-05-08 during Phase 3.2.1 smoke test. Root cause:
+    Phase B Step 3f-2 (commit 08f1eb0, 2026-05-05) wired
+    7 portal edge functions to use the shared
+    resolvePortalAuth helper but MISSED this one — at
+    that time the function was admin-only and customer-
+    side calls hadn't been built into the customer portal
+    Rewards tab. Phase 3.2 (catalog redemption wiring,
+    2026-05-01, commit f632b5c) added the customer-side
+    action='create' calls but the auth-side counterpart
+    was never updated. Fixed by refactoring the auth
+    chain in process-loyalty-redemption: try internal-
+    role auth (admin/finance/staff via auth.getUser +
+    roles table) FIRST; for action='create', fall through
+    to resolvePortalAuth which supports Path 0 (Bearer
+    JWT → customers.auth_user_id, Phase B session-auth)
+    and Path 2 (portal_token → customer_portal_tokens.
+    is_active, legacy token-auth). approve/cancel/void
+    branches remain admin-only — their existing role
+    checks would reject customer auth anyway. Member
+    ownership check added: when customerId is set
+    (customer self-service), member_id must belong to
+    that customer (maybeSingle on loyalty_members,
+    mismatch returns 403 before any DB writes).
+    created_by_user_id changed from `user.id` to
+    `user?.id ?? null` to handle the customer self-
+    service path where user is null (column nullable per
+    schema). Companion frontend commit 02c88d6 added
+    portal_token to the supabase.functions.invoke body
+    so resolvePortalAuth Path 2 works for legacy
+    token-auth customers. Shipped d06a16e.
+
+  - 90. process-loyalty-redemption action whitelist
+    didn't include "void". Latent regression introduced
+    in commit 203b654 (Phase 3.2.1 C2 void branch). The
+    dispatch validator at the top of the handler had
+      if (!action || !["create", "approve", "cancel"]
+        .includes(action))
+        return 400 "action must be 'create', 'approve',
+        or 'cancel'";
+    so calls with action='void' hit a 400 BEFORE
+    reaching the new void branch — the entire void
+    branch was unreachable in production. Discovered
+    during Bug #89 auth refactor; the same commit that
+    wired resolvePortalAuth (d06a16e) also added 'void'
+    to the whitelist and updated the error message to
+    list all 4 actions. The void branch was never tested
+    end-to-end before this fix because the auth-401
+    blocked smoke testing.
+
+  - 91. LoyaltyMemberData type missing
+    loyalty_members.id UUID — RewardsScreen redemption
+    submit was sending JSON body without member_id,
+    backend received undefined and JSON.stringify dropped
+    the field, causing 400 "member_id is required". Root
+    cause: LoyaltyMemberData carried member_id (the
+    user-facing customer_code "CJ-YYYY-XXXXX" displayed
+    in MemberCard / ProfileScreen / etc.) but never the
+    internal loyalty_members.id UUID needed by the
+    backend. RewardsScreen tried to read member.id via
+    `(member as any).id` cast, finding undefined. The
+    `(member as any)` cast hid the bug since Phase 3.2
+    (commit f632b5c, 2026-05-01) — TypeScript would have
+    caught it immediately if the cast hadn't been there.
+    Fixed by extending LoyaltyMemberData with two new
+    UUID fields (id + customer_id) distinct from the
+    user-facing member_id field, populating them in
+    LoyaltyPortal's memberData useMemo from the non-null
+    `member: LoyaltyMember` prop (parent gates on
+    `if (!member) return <JoinPrompt />`, so the prop is
+    guaranteed non-null when memberData is built — no
+    `?? ''` fallbacks needed), and removing all 3
+    `(member as any)` casts in RewardsScreen.tsx (lines
+    106, 139, 141). Companion to backend Bug #89 +
+    portal_token frontend wiring (commit 02c88d6).
+    Shipped 57e7182. General lesson: avoid
+    `(x as any)` casts in customer-portal flow — they
+    silently disable type checking for properties that
+    don't exist, hiding real bugs from the test suite.
+
 ## Known Open Bugs
 
   Bugs that have been surfaced and triaged but not
@@ -3507,6 +3628,124 @@ When completing a partially_paid month:
           either table once the portal
           was switched to DB-driven
           rewards/banners in Phase 3.
+    Phase 3.2.1 — Cancel/Void Approved Redemption (LIVE 2026-05-08)
+      - Admin can reverse a confirmed
+        redemption via "Void Redemption"
+        button in RedemptionApprovalModal.
+        Closes the gap where confirmed
+        redemptions had no recovery path —
+        previously required manual SQL.
+      - Atomic backend operation in
+        process-loyalty-redemption new
+        action='void' branch:
+          1. Refund points — INSERT new
+             loyalty_transactions row with
+             transaction_type='refunded'
+             (new enum value, see
+             TODAY'S DATA FIXES 2026-05-08)
+             and positive points_amount
+             matching the original debit.
+             notes field carries the
+             original transaction_id for
+             forensic linkage.
+          2. UPDATE loyalty_redemptions —
+             status='cancelled',
+             cancelled_at, cancelled_by,
+             cancellation_reason. Race-
+             safe via WHERE id=X AND
+             status='confirmed'; concurrent
+             void attempts get 409 after
+             rolling back the refund tx.
+          3. UPDATE loyalty_members —
+             remaining_points += N,
+             total_points_redeemed -= N
+             (clamped at 0 for sanity).
+          4. Re-increment
+             loyalty_rewards.current_stock
+             for catalog rewards. Skip
+             silently for unlimited
+             (current_stock NULL); warn-
+             and-continue if reward row
+             missing.
+          5. audit_logs entry
+             (action='redemption_voided',
+             stock_re_incremented flag,
+             refund_transaction_id).
+          6. Phase 4.2 cancellation
+             notification emit (reuses
+             existing
+             buildRedemptionCancelledNotification
+             + emitNotification).
+      - Frontend: extended
+        RedemptionApprovalModal with
+        state-aware rendering:
+          status='confirmed' AND admin →
+          green Confirmed banner + "Void
+          Redemption" destructive button
+          + Close.
+          showVoidInput=true → reason
+          textarea (rows=3, maxLength=500)
+          + Back + Confirm Void
+          (aria-busy={voiding},
+          variant=destructive).
+          status='cancelled' → gray
+          banner with cancelled_at +
+          cancellation_reason + Close.
+          status='confirmed' AND
+          NOT admin → green banner +
+          Close only (read-only).
+      - Status enum reused (no schema
+        change). New 'refunded' value
+        added to loyalty_transaction_type
+        enum (ALTER TYPE applied via SQL
+        Editor). Action whitelist updated
+        to include 'void' alongside
+        create/approve/cancel — closes a
+        latent regression from C2 commit
+        203b654 (the void branch was
+        unreachable until this fix; see
+        Bug #90).
+      - resolvePortalAuth wiring also
+        added to the same edge function
+        in this session — closes Phase B
+        Step 3f-2 gap where this function
+        was missed in the original
+        7-function rewire on 2026-05-05.
+        See Bug #89.
+      - Smoke test PASSED end-to-end on
+        2026-05-08:
+          customer redeem (200-pt
+          Birthday Bonus) → admin
+          approve → admin void.
+        Verified all 5 expected DB
+        changes:
+          loyalty_redemptions.status =
+            'cancelled' + cancelled_at +
+            cancellation_reason populated
+          loyalty_members.remaining_points
+            restored to original
+          loyalty_transactions: new row
+            with type='refunded',
+            positive points_amount
+          audit_logs: action=
+            'redemption_voided' row
+          Customer's NotificationsScreen:
+            cancellation card visible
+      - Known limitation — email
+        asymmetry. Approve flow sends
+        both transactional email (via
+        send-transactional-email) AND
+        in-portal notification. Void flow
+        sends only the in-portal
+        notification. Customer experience
+        is asymmetric until the "Void
+        email notification" PENDING item
+        ships (see PENDING ITEMS LOYALTY
+        ADMIN PORTAL phased-build
+        tracker — small standalone fix,
+        ~2 hrs, does not depend on
+        Phase 6).
+
     Phase 3.1 — Bonus Multiplier Wiring (LIVE 2026-05-01)
       - Promos can apply a multiplier
         override in addition to flat
@@ -5271,6 +5510,24 @@ loyalty portal. In progress.
     fix remains valid preventive infrastructure for if/when
     GitHub Actions auto-deploy gets enabled.
 
+  - Phase 3.2.1 schema: added 'refunded' value to
+    loyalty_transaction_type enum via
+      ALTER TYPE public.loyalty_transaction_type
+        ADD VALUE 'refunded';
+    Used by process-loyalty-redemption void branch when
+    inserting the refund loyalty_transactions row
+    (positive points_amount; mirrors the approve-branch
+    -N debit row). Existing enum values
+    ('earned', 'bonus', 'redeemed', 'expired',
+    'tier_downgrade') unaffected.
+
+  - Phase 3.2.1 cleanup: orphan test redemption
+    REDEEM-ce0a4c5a-9a22-4d7a-95cd-9c6a6593b324 voided
+    via the new admin "Void Redemption" button as part
+    of the smoke test sequence. Status flipped to
+    cancelled, points refunded, audit row written.
+    No production fixture remains.
+
 ### OPERATIONAL ENHANCEMENTS
   P6: Admin audit log for manual DB changes
   P7: Invoice generator — Google Sheets +
@@ -5303,6 +5560,26 @@ loyalty portal. In progress.
      No urgency — current Lovable
      deployment model works.
 
+### CLEANUP TODOS
+
+  Tracked cleanup items, distinct from
+  "TODAY'S DATA FIXES" (which logs
+  completed corrective work) and from
+  proper PENDING phases. Items here are
+  reference-only — usually the work was
+  done as a side effect of something
+  else and is tracked here so the
+  history doesn't get lost.
+
+  - Orphan test redemption REDEEM-ce0a4c5a-9a22-4d7a-95cd-9c6a6593b324
+    voided 2026-05-08 as part of Phase
+    3.2.1 smoke test sequence. Status
+    flipped to cancelled, points
+    refunded, audit row written. No
+    production fixture remains.
+    (Tracking entry only — already
+    cleaned up.)
+
 ### LOYALTY ADMIN PORTAL — phased build
   ✅ Phase 1 — Foundation (LIVE 2026-04-29)
   ✅ Phase 2 — Configuration (LIVE 2026-04-29)
@@ -5329,31 +5606,9 @@ loyalty portal. In progress.
      approve + RewardsScreen real flow +
      anon RLS policies. See SYSTEM STATUS
      entry above.
-  ⏳ Phase 3.2.1 — Cancel/void of approved
-     redemption with stock re-increment
-     When an admin cancels a redemption
-     that has already been approved (and
-     therefore already decremented
-     loyalty_rewards.current_stock), the
-     stock should be re-incremented by 1
-     so the unit returns to inventory.
-     Currently the cancel branch of
-     process-loyalty-redemption carries a
-     TODO and does not touch stock —
-     approved → cancelled would silently
-     lose a unit.
-     Implementation sketch: in cancel,
-     fetch the redemption, branch on
-     prior status. If prior status was
-     'approved' and reward_id is set,
-     atomically increment current_stock
-     by 1 (mirror of the approve
-     decrement, no WHERE-clause guard
-     needed because we're going up).
-     Write a parallel audit_logs entry
-     with action='stock_reincremented'.
-     Skip when reward_id is null or
-     current_stock is null (unlimited).
+  ✅ Phase 3.2.1 — Cancel/Void Approved Redemption
+     (LIVE 2026-05-08).
+     See SYSTEM STATUS entry above.
   ✅ Phase 3.5 — Image Upload to Storage
      (LIVE 2026-05-03)
      loyalty-images public bucket (5 MB
@@ -5531,6 +5786,224 @@ loyalty portal. In progress.
      (Radiant data drift) was the
      proximate trigger for logging
      this roadmap item.
+  ⏳ Phase 6 — Redemption Model Overhaul
+     (FUTURE ROADMAP)
+
+     Investigation on 2026-05-08 surfaced a
+     fundamental architectural gap: the
+     redemption system is "obligation-only"
+     — approval debits points but does NOT
+     auto-apply discount to the linked
+     invoice. Staff fulfills manually. UI
+     implies linkage that backend doesn't
+     enforce. Documented for Phase 6
+     planning session.
+
+     Discoveries:
+
+       1. invoice_number on
+          loyalty_redemptions is
+          metadata-only — no FK, no
+          automatic application to
+          layaway_accounts or cash_orders.
+
+       2. value_applied_jpy hardcoded
+          1:1 from points_cost (no
+          separate reward.value_jpy
+          column).
+
+       3. UI says "Approve & Apply" but
+          only the points flow is
+          automated.
+
+       4. Email language ("Applied to:
+          INV #...") is misleading.
+
+     Customer business model goals (per
+     discussion 2026-05-08):
+
+       - Birthday Bonus is a POINTS BONUS
+         (not a redemption). Customer
+         claims free points on their
+         birth month (once/year). Points
+         added to balance, then spent
+         normally on services or
+         discounts.
+
+       - Bonus points need EXPIRATION
+         (1 year after claim) — requires
+         points-lots architecture
+         (loyalty_point_lots table)
+         tracking source, earned_at,
+         expires_at, consumed status.
+         FIFO or expiring-first
+         consumption order.
+
+       - Service catalog
+         admin-configurable: customer-
+         facing services like Resize,
+         Certification, Change Color,
+         etc. Customer redeems points
+         → picks service from admin
+         catalog → staff fulfills
+         manually.
+
+       - New-order discount redemption:
+         requires invoice (layaway or
+         cash order, total_paid=0) →
+         approval auto-reduces invoice
+         total_amount by
+         value_applied_jpy → void
+         reverses.
+
+       - Birthday field on customers
+         must be lockable once set
+         (admin override only) to
+         prevent abuse of birthday
+         bonus claim.
+
+       - Tier benefit rewards
+         (zero-cost) become DISPLAY
+         ONLY — Redeem button removed.
+
+     Estimated scope (per 2026-05-08
+     session):
+
+     A) Schema:
+        - loyalty_point_lots table
+        - loyalty_services catalog table
+        - loyalty_redemptions: service_id FK
+        - layaway_accounts + cash_orders:
+          loyalty_redemption_id +
+          loyalty_discount_jpy
+        - customers: birthday field with
+          lock mechanism
+        - loyalty_rewards:
+          redemption_mechanism field
+          ('new_order_discount' |
+           'service_fulfillment' |
+           'points_bonus' |
+           'tier_benefit')
+
+     B) Admin UI:
+        - Services catalog management
+        - Reward classification
+        - Birthday Bonus config
+        - Customer birthday edit
+          (admin-only)
+
+     C) Customer UI:
+        - Birthday Bonus claim button
+          (month-gated, once/year)
+        - Service redemption dropdown
+        - Discount redemption invoice
+          input
+        - Expiring points alert
+        - Birthday lock UI (read-only
+          after set)
+
+     D) Backend:
+        - Points lots: insert on earn,
+          consume on spend
+        - Birthday Bonus claim edge
+          function
+        - Daily expiration cron
+        - process-loyalty-redemption
+          refactor (split per
+          mechanism)
+        - Auto-apply discount to
+          invoice (approve)
+        - Reverse discount on void
+
+     E) Notifications:
+        - Birthday Bonus expiry
+          warnings (30, 7, 1 days
+          before)
+        - Birthday Bonus expired
+          notification
+        - Email + in-portal alignment
+          for void (currently only
+          in-portal — see Void email
+          notification PENDING item
+          below)
+        - Email language overhaul
+          (clearer fulfillment
+          language for service-type
+          rewards)
+
+     F) Migration:
+        - Backfill existing
+          transactions to
+          loyalty_point_lots
+        - Classify existing rewards
+          by mechanism
+        - Seed initial service
+          catalog (Resize,
+          Certification, Change
+          Color)
+
+     Estimated effort: 60+ hours = 6-8
+     sessions. Multi-week initiative.
+     Fresh planning session required
+     before implementation begins.
+
+     Trigger: When ready to tackle full
+     redemption model overhaul. Should
+     be planned holistically, not
+     iteratively.
+  ⏳ Void email notification (small
+     standalone fix)
+
+     Phase 3.2.1 (LIVE 2026-05-08) ships
+     in-portal notification for void via
+     buildRedemptionCancelledNotification
+     + emitNotification, but does NOT
+     send a transactional email to the
+     customer's inbox.
+
+     Approve flow sends both:
+       - Transactional email via
+         send-transactional-email
+         ("Redemption confirmed: N
+         points used")
+       - In-portal notification
+
+     Void flow only sends:
+       - In-portal notification
+         (asymmetric)
+
+     Customer experience: gets email
+     when redemption approved, but only
+     sees cancellation in portal — no
+     email when admin voids.
+
+     Fix scope (~2 hours):
+       1. Read approve email pipeline
+          (template + invocation
+          pattern)
+       2. Build "redemption_voided"
+          email template mirroring the
+          approve template's visual
+          style
+       3. Wire into void branch in
+          process-loyalty-redemption
+          after the in-portal
+          notification emit
+       4. Smoke test: void a
+          redemption → verify customer
+          receives email
+
+     Email content should include:
+       - Reward name
+       - Points refunded
+       - Cancellation reason (from
+         cancellation_reason)
+       - New points balance
+       - Link to loyalty dashboard
+
+     Self-contained — does NOT depend
+     on Phase 6 redemption overhaul.
+     Can be shipped any time.
 
 ### PWA TOKEN-TO-SESSION REDEMPTION (Phase A)
 
