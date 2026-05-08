@@ -318,7 +318,7 @@ export default function RewardsScreen() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-foreground/30 backdrop-blur-sm z-50 flex items-end justify-center"
+            className="fixed inset-0 bg-foreground/30 backdrop-blur-sm z-[60] flex items-end justify-center"
             onClick={closeModal}
           >
             <motion.div
@@ -326,7 +326,7 @@ export default function RewardsScreen() {
               animate={{ y: 0 }}
               exit={{ y: 300 }}
               transition={{ type: 'spring', damping: 25 }}
-              className="bg-card rounded-t-3xl w-full max-w-lg p-6 space-y-5"
+              className="bg-card rounded-t-3xl w-full max-w-lg p-6 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] space-y-5 max-h-[90dvh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between">
