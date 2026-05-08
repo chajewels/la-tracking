@@ -3090,6 +3090,10 @@ export type Database = {
         Returns: Json
       }
       deactivate_expired_promotions: { Args: never; Returns: undefined }
+      delete_account_atomic: {
+        Args: { p_account_id: string; p_performed_by_user_id?: string }
+        Returns: Json
+      }
       delete_email: {
         Args: { message_id: number; queue_name: string }
         Returns: boolean
@@ -3395,6 +3399,7 @@ export type Database = {
         | "redeemed"
         | "expired"
         | "adjusted"
+        | "refunded"
       penalty_fee_status: "unpaid" | "paid" | "waived"
       penalty_stage: "week1" | "week2"
       risk_level: "low" | "medium" | "high"
@@ -3569,6 +3574,7 @@ export const Constants = {
         "redeemed",
         "expired",
         "adjusted",
+        "refunded",
       ],
       penalty_fee_status: ["unpaid", "paid", "waived"],
       penalty_stage: ["week1", "week2"],
