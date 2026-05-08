@@ -588,12 +588,10 @@ Deno.serve(async (req) => {
       if (!isAdmin) {
         return json({ error: "Admin role required to cancel" }, 403);
       }
-      // TODO Phase 3.2.1: cancel only operates on status='pending', so
-      // stock has not been decremented yet — no re-increment needed
-      // here. A future "void" action that reverses an already-approved
-      // catalog redemption MUST re-increment loyalty_rewards.current_stock
-      // and write a stock_incremented audit entry. That void action
-      // does not exist today.
+      // Cancel branch handles status='pending' only.
+      // For status='confirmed' (already-approved redemptions
+      // that need reversal), use the 'void' action below — it
+      // refunds points + re-increments stock atomically.
 
       const { redemption_id, cancellation_reason } = body;
       if (!redemption_id) return json({ error: "redemption_id is required" }, 400);
@@ -657,6 +655,249 @@ Deno.serve(async (req) => {
         cancelled: true,
         redemption_id,
         cancelled_at: cancelledAt,
+      });
+    }
+
+    // ── VOID (Phase 3.2.1) ──────────────────────────────────────────
+    // Reverses an already-approved (status='confirmed') redemption:
+    // refunds points, re-increments catalog stock if applicable,
+    // audit-logs, emits Phase 4.2 cancellation notification. Race-safe
+    // via WHERE-clause status guard on the loyalty_redemptions UPDATE
+    // — concurrent void attempts cleanly fail with 409 after rolling
+    // back the refund-tx insert.
+    if (action === "void") {
+      if (!isAdmin) {
+        return json({ error: "Admin role required to void" }, 403);
+      }
+
+      const { redemption_id } = body;
+      if (!redemption_id) {
+        return json({ error: "redemption_id is required" }, 400);
+      }
+
+      const trimmedReason = String(body.void_reason ?? "").trim();
+      if (!trimmedReason) {
+        return json({ error: "void_reason is required" }, 400);
+      }
+      if (trimmedReason.length > 500) {
+        return json({ error: "void_reason exceeds 500 chars" }, 400);
+      }
+
+      // Step 1: Fetch redemption (need transaction_id, account_id,
+      // cash_order_id for refund-tx parity with the original debit).
+      const { data: redemption, error: fetchErr } = await supabase
+        .from("loyalty_redemptions")
+        .select(
+          "id, status, member_id, reward_id, redemption_type, points_redeemed, transaction_id, account_id, cash_order_id, invoice_number",
+        )
+        .eq("id", redemption_id)
+        .maybeSingle();
+      if (fetchErr) {
+        console.error("[process-loyalty-redemption] void fetch failed:", fetchErr);
+        return json({ error: "Failed to fetch redemption" }, 500);
+      }
+      if (!redemption) {
+        return json({ error: "Redemption not found" }, 404);
+      }
+      if (redemption.status !== "confirmed") {
+        return json(
+          {
+            error: `Cannot void redemption in status '${redemption.status}' — only confirmed redemptions can be voided`,
+          },
+          400,
+        );
+      }
+
+      const pointsToRefund = Number(redemption.points_redeemed);
+      if (!Number.isFinite(pointsToRefund) || pointsToRefund <= 0) {
+        return json({ error: "Invalid points_redeemed on redemption" }, 500);
+      }
+
+      // Step 2: Fetch member for current balance + tier.
+      const { data: member, error: memberErr } = await supabase
+        .from("loyalty_members")
+        .select(
+          "id, customer_id, remaining_points, total_points_redeemed, current_tier_id",
+        )
+        .eq("id", redemption.member_id)
+        .single();
+      if (memberErr || !member) {
+        console.error("[process-loyalty-redemption] void member fetch failed:", memberErr);
+        return json({ error: "Member not found" }, 404);
+      }
+
+      const { data: tier } = await supabase
+        .from("loyalty_tiers")
+        .select("name")
+        .eq("id", member.current_tier_id)
+        .single();
+      const tierName = tier?.name ?? null;
+
+      const beforeBalance = Number(member.remaining_points ?? 0);
+      const beforeRedeemedTotal = Number(member.total_points_redeemed ?? 0);
+
+      // Step 3: INSERT refund tx row with type='refunded' (enum value
+      // added by C1 SQL). invoice_number deliberately null — the
+      // refund is decoupled from the original invoice context. Notes
+      // carry the original transaction_id for forensic linkage.
+      const idShort = String(redemption.id).slice(0, 8);
+      const refundNotes = redemption.transaction_id
+        ? `Refund of voided redemption #${idShort} — original tx: ${redemption.transaction_id}`
+        : `Refund of voided redemption #${idShort}`;
+      const { data: refundTxRow, error: refundTxErr } = await supabase
+        .from("loyalty_transactions")
+        .insert({
+          member_id: member.id,
+          transaction_type: "refunded",
+          points_amount: pointsToRefund,
+          account_id: redemption.account_id,
+          cash_order_id: redemption.cash_order_id,
+          invoice_number: null,
+          tier_at_time: tierName,
+          notes: refundNotes,
+        })
+        .select("id")
+        .single();
+      if (refundTxErr || !refundTxRow) {
+        console.error(
+          "[process-loyalty-redemption] void refund tx insert failed:",
+          refundTxErr,
+        );
+        return json({ error: "Failed to record refund transaction" }, 500);
+      }
+
+      // Step 4: UPDATE redemption with race-safe lock — only flip
+      // 'confirmed' → 'cancelled'. Concurrent void attempts produce
+      // 0 affected rows on the loser; we roll back the refund tx
+      // and return 409.
+      const cancelledAt = new Date().toISOString();
+      const { data: updatedRows, error: updRedErr } = await supabase
+        .from("loyalty_redemptions")
+        .update({
+          status: "cancelled",
+          cancelled_by_user_id: user.id,
+          cancelled_at: cancelledAt,
+          cancellation_reason: trimmedReason,
+        })
+        .eq("id", redemption_id)
+        .eq("status", "confirmed")
+        .select("id");
+      if (updRedErr) {
+        console.error(
+          "[process-loyalty-redemption] void redemption update failed:",
+          updRedErr,
+        );
+        await supabase.from("loyalty_transactions").delete().eq("id", refundTxRow.id);
+        return json({ error: "Failed to update redemption" }, 500);
+      }
+      if (!updatedRows || updatedRows.length === 0) {
+        console.warn(
+          "[process-loyalty-redemption] void race detected — redemption no longer 'confirmed':",
+          { redemption_id },
+        );
+        await supabase.from("loyalty_transactions").delete().eq("id", refundTxRow.id);
+        return json(
+          {
+            error: "Redemption was voided concurrently — refresh and retry",
+            race: true,
+          },
+          409,
+        );
+      }
+
+      // Step 5: UPDATE member balance — credit back points, decrement
+      // total_points_redeemed (clamp at 0 for defensive sanity; can't
+      // underflow under normal flow but guards against historical drift).
+      const newRemaining = beforeBalance + pointsToRefund;
+      const newRedeemedTotal = Math.max(0, beforeRedeemedTotal - pointsToRefund);
+      const { error: updMemberErr } = await supabase
+        .from("loyalty_members")
+        .update({
+          remaining_points: newRemaining,
+          total_points_redeemed: newRedeemedTotal,
+        })
+        .eq("id", member.id);
+      if (updMemberErr) {
+        console.warn(
+          "[process-loyalty-redemption] void member balance update failed (manual reconcile):",
+          updMemberErr,
+        );
+      }
+
+      // Step 6: Stock re-increment for catalog rewards. Skip silently
+      // when stock is unlimited (NULL); warn-and-continue when reward
+      // row was deleted between approval and void.
+      let stockReIncremented = false;
+      if (redemption.reward_id) {
+        const { data: rewardRow, error: rewardFetchErr } = await supabase
+          .from("loyalty_rewards")
+          .select("current_stock")
+          .eq("id", redemption.reward_id)
+          .maybeSingle();
+        if (rewardFetchErr) {
+          console.warn(
+            "[process-loyalty-redemption] void reward fetch failed (skipping stock re-increment):",
+            rewardFetchErr,
+          );
+        } else if (!rewardRow) {
+          console.warn(
+            "[process-loyalty-redemption] void stock re-increment skipped — reward row missing",
+            { reward_id: redemption.reward_id },
+          );
+        } else if (rewardRow.current_stock == null) {
+          // Unlimited stock; no-op. Not a warning.
+        } else {
+          const { error: incErr } = await supabase
+            .from("loyalty_rewards")
+            .update({ current_stock: Number(rewardRow.current_stock) + 1 })
+            .eq("id", redemption.reward_id);
+          if (incErr) {
+            console.warn(
+              "[process-loyalty-redemption] void stock re-increment failed (manual reconcile):",
+              incErr,
+            );
+          } else {
+            stockReIncremented = true;
+          }
+        }
+      }
+
+      // Step 7: Audit log
+      await supabase.from("audit_logs").insert({
+        entity_type: "loyalty_redemption",
+        entity_id: redemption.id,
+        action: "redemption_voided",
+        performed_by_user_id: user.id,
+        old_value_json: {
+          status: "confirmed",
+          member_remaining_points: beforeBalance,
+        },
+        new_value_json: {
+          status: "cancelled",
+          cancellation_reason: trimmedReason,
+          member_remaining_points: newRemaining,
+          refund_transaction_id: refundTxRow.id,
+          stock_re_incremented: stockReIncremented,
+        },
+      });
+
+      // Step 8: Phase 4.2 cancellation notification (reuse the same
+      // template + emit pattern as the cancel branch).
+      const voidedRewardName = await resolveRewardName(supabase, redemption);
+      await emitNotification(supabase, redemption.member_id, {
+        category: "redemption",
+        ...buildRedemptionCancelledNotification({
+          rewardName: voidedRewardName,
+          reason: trimmedReason,
+        }),
+        link_target: "tab:points",
+      });
+
+      return json({
+        voided: true,
+        redemption_id: redemption.id,
+        points_refunded: pointsToRefund,
+        stock_re_incremented: stockReIncremented,
       });
     }
 
