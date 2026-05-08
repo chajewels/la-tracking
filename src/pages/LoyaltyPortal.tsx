@@ -243,6 +243,13 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
 
   const memberData = useMemo<LoyaltyMemberData>(
     () => ({
+      // Internal IDs — non-null guaranteed by parent gating
+      // (LoyaltyPortal returns LoyaltyJoinPrompt when data.loyalty_member
+      // is null, so MemberView renders only when member: LoyaltyMember
+      // is real). Sourced from the prop, not from loyaltyMember below,
+      // so TypeScript can enforce string (required) without fallbacks.
+      id: member.id,
+      customer_id: member.customer_id,
       customer_name: data.customer_name || 'Valued Customer',
       member_id: data.customer_code ?? '',
       current_tier: currentTierName,
@@ -269,6 +276,8 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
         : null,
     }),
     [
+      member.id,
+      member.customer_id,
       data.customer_name,
       data.customer_code,
       data.profile?.email,

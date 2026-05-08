@@ -63,8 +63,12 @@ export const TIER_STATIC: Record<TierName, TierStatic> = {
 export type ActivityStatus = 'Active' | 'Inactive';
 
 export interface LoyaltyMemberData {
+  // Internal IDs for API calls. Distinct from member_id (below) which
+  // is the user-facing customer_code displayed in the UI.
+  id: string;            // loyalty_members.id UUID
+  customer_id: string;   // customers.id UUID
   customer_name: string;
-  member_id: string;
+  member_id: string;     // user-facing CJ-YYYY-XXXXX customer_code
   current_tier: TierName;
   is_downgraded: boolean;
   available_points: number;

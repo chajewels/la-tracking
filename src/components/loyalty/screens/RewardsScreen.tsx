@@ -103,7 +103,7 @@ export default function RewardsScreen() {
         {
           body: {
             action: 'create',
-            member_id: (member as any).id,
+            member_id: member.id,
             reward_id: selectedReward.id,
             redemption_type: 'catalog_reward',
             points_redeemed: selectedReward.pointsCost,
@@ -136,9 +136,9 @@ export default function RewardsScreen() {
       // if stock dropped (only happens on approval, but doesn't hurt
       // to refetch in case admin processed quickly).
       queryClient.invalidateQueries({ queryKey: ['loyalty-rewards-catalog'] });
-      if ((member as any).customer_id) {
+      if (member.customer_id) {
         queryClient.invalidateQueries({
-          queryKey: ['customer-loyalty', (member as any).customer_id],
+          queryKey: ['customer-loyalty', member.customer_id],
         });
       }
     } catch (err: any) {
