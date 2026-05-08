@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
+import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 import {
   buildRedemptionApprovedNotification,
   buildRedemptionCancelledNotification,
@@ -69,32 +70,64 @@ Deno.serve(async (req) => {
     );
     const gate = createLoyaltyEmailGate(supabase);
 
-    // Auth
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) return json({ error: "Unauthorized" }, 401);
-    const { data: { user }, error: authErr } = await supabase.auth.getUser(
-      authHeader.replace("Bearer ", ""),
-    );
-    if (authErr || !user) return json({ error: "Unauthorized" }, 401);
-
-    const roles = await getUserRoles(supabase, user.id);
-    const isAdmin = roles.includes("admin");
-    const isFinance = roles.includes("finance");
-    const isStaff = roles.includes("staff");
-
     const body = await req.json().catch(() => ({}));
     const action = body.action as string | undefined;
 
-    if (!action || !["create", "approve", "cancel"].includes(action)) {
-      return json({ error: "action must be 'create', 'approve', or 'cancel'" }, 400);
+    if (!action || !["create", "approve", "cancel", "void"].includes(action)) {
+      return json(
+        { error: "action must be 'create', 'approve', 'cancel', or 'void'" },
+        400,
+      );
+    }
+
+    // Auth — try internal-role auth first (admin/finance/staff via
+    // Supabase Auth + roles table). For 'create', if no internal role,
+    // fall through to resolvePortalAuth so customer self-service
+    // redemptions work via Bearer JWT (Phase B session-auth) or
+    // portal_token (legacy token-auth). approve/cancel/void require
+    // a real internal user JWT — their respective branch role checks
+    // would reject customer auth anyway, so we 401 early here.
+    let user: { id: string } | null = null;
+    let roles: string[] = [];
+    let customerId: string | null = null;
+
+    if (authHeader) {
+      const { data: { user: authUser } } = await supabase.auth.getUser(
+        authHeader.replace("Bearer ", ""),
+      );
+      if (authUser) {
+        user = authUser;
+        roles = await getUserRoles(supabase, authUser.id);
+      }
+    }
+    const isAdmin = roles.includes("admin");
+    const isFinance = roles.includes("finance");
+    const isStaff = roles.includes("staff");
+    const isInternal = isAdmin || isFinance || isStaff;
+
+    if (!isInternal && action === "create") {
+      // Customer self-service path
+      try {
+        const auth = await resolvePortalAuth(supabase, {
+          authHeader,
+          portal_token: body.portal_token,
+          session_id: body.session_id,
+        });
+        customerId = auth.customer_id;
+      } catch {
+        return json({ error: "Unauthorized" }, 401);
+      }
+    } else if (!user) {
+      // approve/cancel/void or unauthenticated 'create' caller
+      return json({ error: "Unauthorized" }, 401);
     }
 
     // ── CREATE ──────────────────────────────────────────────────────
+    // Customer self-service (resolvePortalAuth → customerId set) OR
+    // internal user (admin/finance/staff). When customerId is set,
+    // member_id ownership is verified below before any DB writes.
     if (action === "create") {
-      if (!(isAdmin || isFinance || isStaff)) {
-        return json({ error: "Admin, finance, or staff role required" }, 403);
-      }
-
       const {
         member_id,
         redemption_type: rawRedemptionType,
@@ -130,6 +163,23 @@ Deno.serve(async (req) => {
       const pts = Number(points_redeemed);
       if (!Number.isFinite(pts) || pts <= 0) {
         return json({ error: "points_redeemed must be > 0" }, 400);
+      }
+
+      // Customer self-service ownership check — member_id must belong
+      // to the authenticated customer. Internal users bypass this
+      // (admin/staff act on behalf of any member).
+      if (customerId) {
+        const { data: memberCheck } = await supabase
+          .from("loyalty_members")
+          .select("id, customer_id")
+          .eq("id", member_id)
+          .maybeSingle();
+        if (!memberCheck || memberCheck.customer_id !== customerId) {
+          return json(
+            { error: "Member does not belong to authenticated customer" },
+            403,
+          );
+        }
       }
 
       // Validate reward (catalog redemption path)
@@ -263,7 +313,7 @@ Deno.serve(async (req) => {
           reward_id: reward_id ?? null,
           status: "pending",
           notes: notes ?? null,
-          created_by_user_id: user.id,
+          created_by_user_id: user?.id ?? null,
         })
         .select("id")
         .single();
