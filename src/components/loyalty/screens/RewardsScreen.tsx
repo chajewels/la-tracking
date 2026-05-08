@@ -373,7 +373,7 @@ export default function RewardsScreen() {
                   type="text"
                   value={invoiceInput}
                   onChange={(e) => setInvoiceInput(e.target.value)}
-                  placeholder="e.g. CJ-2026-12345"
+                  placeholder="e.g. 19012"
                   disabled={submitting}
                   className="w-full px-3 py-2.5 bg-background border border-input rounded-lg text-sm font-body text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
                 />
