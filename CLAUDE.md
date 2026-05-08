@@ -1945,6 +1945,20 @@ When completing a partially_paid month:
     Known Open Bugs). All 3 smoke tests passed in production
     SQL Editor before commit. Shipped 35c5c4a / 2026-05-08.
 
+  - 86. Loyalty Tier "Radiant" had free_shipping_min_items
+    = 4 stored in DB despite Radiant not being eligible for
+    free shipping. Surfaced in Loyalty Admin → Tiers tab
+    where Radiant card showed "Free shipping on 4+
+    qualifying items" alongside "2x points". Component
+    rendering logic was correct (purely DB-driven); only
+    the data was wrong. Fixed via SQL UPDATE setting
+    free_shipping_min_items = NULL on Radiant tier. Audit
+    log entry written with action='tier_data_fix'. Schema
+    gap that allowed the drift (only 3 benefit columns
+    modelled vs richer customer-portal TIER_STATIC) tracked
+    as Phase 5 — Tier Benefits Schema Expansion in PENDING
+    ITEMS. Verified in production 2026-05-08.
+
 ## Known Open Bugs
 
   Bugs that have been surfaced and triaged but not
@@ -5446,6 +5460,77 @@ loyalty portal. In progress.
      opt-out requirement) or admin-spam
      pressure shows up in customer
      complaints.
+  ⏳ Phase 5 — Tier Benefits Schema
+     Expansion (FUTURE ROADMAP)
+     Currently the loyalty_tiers schema
+     models only 3 benefit columns:
+     points_multiplier,
+     free_shipping_min_items,
+     mystery_gift. Customer portal
+     TIER_STATIC in
+     src/components/loyalty/loyaltyData.ts
+     references richer benefits not in
+     schema:
+       - "min ¥8,000/item" (purchase
+         value floor)
+       - "2% discount per ¥50,000 order"
+         (Radiant + Elite)
+       - "3% discount per ¥50,000 order"
+         (Crown VIP)
+       - "Mystery gift with every
+         shipment" (Crown VIP) — differs
+         from current DB "Mystery gift on
+         tier-up" label
+     These are display-only static
+     copy. Admin cannot edit them via
+     TierEditDialog. To make them
+     editable would require:
+       1. Schema additions to
+          loyalty_tiers:
+            - discount_percent numeric
+            - discount_threshold_jpy int
+            - min_item_value_jpy int
+            - mystery_gift_cadence text
+              (replaces boolean:
+              'tier_up', 'every_order',
+              'monthly', NULL)
+            - Optional: extra_benefits
+              jsonb for future
+              extensibility
+       2. Migration to seed existing
+          tiers with TIER_STATIC values
+       3. TierEditDialog form expansion
+          (~4 new fields)
+       4. TiersTab dynamic benefit
+          rendering (loop over benefit
+          columns instead of 3 hardcoded
+          spans)
+       5. Customer portal — replace
+          TIER_STATIC with DB-sourced
+          tier benefits
+     SEPARATE FROM display expansion:
+     ENFORCEMENT is its own project.
+     Currently free_shipping is
+     display-only (no edge function
+     enforces it). Future enforcement
+     work would touch:
+       - record-payment /
+         record-multi-payment (apply
+         discount to grand total)
+       - cash-order pricing logic
+     Estimated effort: ~5 hours
+     display-side expansion.
+     Enforcement deferred to its own
+     scope.
+     Trigger: When admin requests
+     ability to edit benefits beyond
+     the 3 currently supported, OR
+     when business rules change such
+     that hardcoded TIER_STATIC values
+     drift from reality. Bug #86
+     (Radiant data drift) was the
+     proximate trigger for logging
+     this roadmap item.
 
 ### PWA TOKEN-TO-SESSION REDEMPTION (Phase A)
 
