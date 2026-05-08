@@ -25,6 +25,10 @@ interface RedemptionFull {
   status: string;
   notes: string | null;
   created_at: string;
+  reward_id: string | null;
+  processed_at: string | null;
+  cancelled_at: string | null;
+  cancellation_reason: string | null;
   loyalty_member: {
     id: string;
     customer_id: string;
@@ -83,6 +87,10 @@ export function RedemptionApprovalModal({
   const [submitting, setSubmitting] = useState(false);
   const [showCancelInput, setShowCancelInput] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  // Phase 3.2.1 — void flow for confirmed redemptions
+  const [showVoidInput, setShowVoidInput] = useState(false);
+  const [voidReason, setVoidReason] = useState('');
+  const [voiding, setVoiding] = useState(false);
 
   // Reset internal state on each open.
   useEffect(() => {
@@ -93,6 +101,9 @@ export function RedemptionApprovalModal({
       setSubmitting(false);
       setShowCancelInput(false);
       setCancelReason('');
+      setShowVoidInput(false);
+      setVoidReason('');
+      setVoiding(false);
     }
   }, [isOpen, redemptionId]);
 
@@ -104,7 +115,7 @@ export function RedemptionApprovalModal({
       const { data, error } = await supabase
         .from('loyalty_redemptions')
         .select(
-          'id, redemption_type, points_redeemed, value_applied_jpy, value_applied_php, invoice_number, status, notes, created_at, loyalty_member:member_id(id, customer_id, cumulative_spend_jpy, remaining_points, current_tier:current_tier_id(name), customers:customer_id(full_name, customer_code))',
+          'id, redemption_type, points_redeemed, value_applied_jpy, value_applied_php, invoice_number, status, notes, created_at, reward_id, processed_at, cancelled_at, cancellation_reason, loyalty_member:member_id(id, customer_id, cumulative_spend_jpy, remaining_points, current_tier:current_tier_id(name), customers:customer_id(full_name, customer_code))',
         )
         .eq('id', redemptionId)
         .maybeSingle();
@@ -116,6 +127,8 @@ export function RedemptionApprovalModal({
   const member = redemption?.loyalty_member ?? null;
   const customer = member?.customers ?? null;
   const isPending = redemption?.status === 'pending';
+  const isConfirmed = redemption?.status === 'confirmed';
+  const isCancelled = redemption?.status === 'cancelled';
   const allChecksPassed = check1 && check2 && check3;
 
   async function invalidateAll() {
@@ -184,8 +197,51 @@ export function RedemptionApprovalModal({
     }
   }
 
+  async function handleVoid() {
+    if (!redemptionId) return;
+    const trimmed = voidReason.trim();
+    if (!trimmed) {
+      toast.error('Void reason is required');
+      return;
+    }
+    setVoiding(true);
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        'process-loyalty-redemption',
+        {
+          body: {
+            action: 'void',
+            redemption_id: redemptionId,
+            void_reason: trimmed,
+          },
+        },
+      );
+      if (error) throw error;
+      const body = (data ?? {}) as { error?: string; race?: boolean };
+      if (body.race) {
+        toast.message('Already voided by another admin. Refreshing…');
+        await invalidateAll();
+        onSuccess?.();
+        onClose();
+        return;
+      }
+      if (body.error) throw new Error(body.error);
+      toast.success('Redemption voided — points refunded');
+      await invalidateAll();
+      onSuccess?.();
+      onClose();
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not void — please try again');
+    } finally {
+      setVoiding(false);
+    }
+  }
+
   return (
-    <Dialog open={isOpen} onOpenChange={(o) => (!o && !submitting ? onClose() : undefined)}>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(o) => (!o && !submitting && !voiding ? onClose() : undefined)}
+    >
       <DialogContent className="max-w-md sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Review Redemption</DialogTitle>
@@ -254,12 +310,34 @@ export function RedemptionApprovalModal({
               )}
             </div>
 
-            {/* Status banner if not pending */}
-            {!isPending && (
-              <div className="rounded-md border border-border bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
-                Status: <span className="font-semibold uppercase">{redemption.status}</span>
-                {redemption.status !== 'pending' &&
-                  ' — already processed, no further action available.'}
+            {/* Status banner — confirmed redemptions (admins see Void affordance below) */}
+            {isConfirmed && (
+              <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-900 dark:text-emerald-200 space-y-0.5">
+                <p className="font-semibold">
+                  Status: <span className="uppercase">Confirmed</span>
+                </p>
+                {redemption.processed_at && (
+                  <p className="text-emerald-800/80 dark:text-emerald-300/80">
+                    Approved {fmtDateTime(redemption.processed_at)}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Status banner — cancelled redemptions (terminal) */}
+            {isCancelled && (
+              <div className="rounded-md border border-border bg-muted/60 px-3 py-2 text-xs text-muted-foreground space-y-0.5">
+                <p className="font-semibold">
+                  Status: <span className="uppercase">Cancelled</span>
+                </p>
+                {redemption.cancelled_at && (
+                  <p>Cancelled {fmtDateTime(redemption.cancelled_at)}</p>
+                )}
+                {redemption.cancellation_reason && (
+                  <p className="text-foreground">
+                    Reason: {redemption.cancellation_reason}
+                  </p>
+                )}
               </div>
             )}
 
@@ -328,6 +406,53 @@ export function RedemptionApprovalModal({
               </div>
             )}
 
+            {/* Void reason input (Phase 3.2.1 — admin only, confirmed status, when expanded) */}
+            {isConfirmed && isAdmin && showVoidInput && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 space-y-2">
+                <p className="text-xs font-semibold text-foreground">Void reason</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Voiding will refund{' '}
+                  <span className="font-semibold text-foreground">
+                    {Number(redemption.points_redeemed).toLocaleString()} points
+                  </span>
+                  {redemption.reward_id ? ' and re-increment catalog stock' : ''}.
+                  The customer will receive a cancellation notification.
+                </p>
+                <Textarea
+                  value={voidReason}
+                  onChange={(e) => setVoidReason(e.target.value)}
+                  rows={3}
+                  maxLength={500}
+                  placeholder="Explain why this redemption is being voided (visible in audit log + customer notification)"
+                  disabled={voiding}
+                />
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={voiding}
+                    onClick={() => {
+                      setShowVoidInput(false);
+                      setVoidReason('');
+                    }}
+                  >
+                    Back
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    disabled={voiding || !voidReason.trim()}
+                    aria-busy={voiding}
+                    onClick={handleVoid}
+                  >
+                    {voiding ? 'Voiding…' : 'Confirm Void'}
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {/* Action buttons */}
             {isPending && !showCancelInput && (
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -363,7 +488,31 @@ export function RedemptionApprovalModal({
               </div>
             )}
 
-            {!isPending && (
+            {/* Confirmed + admin: Void affordance (collapsed → expand input above) */}
+            {isConfirmed && isAdmin && !showVoidInput && (
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={onClose}
+                  disabled={voiding}
+                >
+                  Close
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowVoidInput(true)}
+                  disabled={voiding}
+                  className="border-destructive/40 text-destructive hover:bg-destructive/10"
+                >
+                  Void Redemption
+                </Button>
+              </div>
+            )}
+
+            {/* Confirmed + non-admin OR cancelled: read-only close */}
+            {((isConfirmed && !isAdmin) || isCancelled) && (
               <div className="flex justify-end">
                 <Button type="button" variant="ghost" onClick={onClose}>
                   Close
