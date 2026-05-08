@@ -89,6 +89,13 @@ export default function RewardsScreen() {
     if (member.available_points < selectedReward.pointsCost) return;
     if (!inStock(selectedReward)) return;
 
+    // Token-auth customers use legacy ?token=X URL params; backend's
+    // resolvePortalAuth Path 2 validates against customer_portal_tokens.
+    // Migrated session-auth customers don't need this (supabase.functions
+    // .invoke attaches their JWT automatically — Path 0). Empty/null
+    // token is harmless: helper falls through path-by-path.
+    const portalToken = new URLSearchParams(window.location.search).get('token');
+
     setSubmitting(true);
     try {
       const { data, error } = await supabase.functions.invoke(
@@ -101,6 +108,7 @@ export default function RewardsScreen() {
             redemption_type: 'catalog_reward',
             points_redeemed: selectedReward.pointsCost,
             invoice_number: invoiceInput.trim() || null,
+            portal_token: portalToken,
           },
         },
       );
