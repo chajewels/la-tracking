@@ -16,11 +16,11 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
+    // Validate JWT
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -29,131 +29,55 @@ Deno.serve(async (req) => {
     );
     if (authError || !user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
+    // Admin role check (security gap fix — was missing in prior version)
+    const { data: hasAdminRole, error: roleError } = await supabase.rpc('has_role', {
+      _user_id: user.id,
+      _role: 'admin',
+    });
+    if (roleError || !hasAdminRole) {
+      return new Response(JSON.stringify({ error: "Forbidden: admin role required" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Parse and validate input
     const { account_id } = await req.json();
     if (!account_id) {
       return new Response(JSON.stringify({ error: "account_id required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Verify account exists
-    const { data: account, error: accErr } = await supabase
-      .from("layaway_accounts")
-      .select("id, invoice_number")
-      .eq("id", account_id)
-      .single();
-
-    if (accErr || !account) {
-      return new Response(JSON.stringify({ error: "Account not found" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Get schedule IDs for this account
-    const { data: scheduleItems } = await supabase
-      .from("layaway_schedule")
-      .select("id")
-      .eq("account_id", account_id);
-    const scheduleIds = (scheduleItems || []).map(s => s.id);
-
-    // Get payment IDs for this account
-    const { data: payments } = await supabase
-      .from("payments")
-      .select("id")
-      .eq("account_id", account_id);
-    const paymentIds = (payments || []).map(p => p.id);
-
-    // Delete in dependency order to avoid FK constraint violations
-    // 1. Payment submission allocations (references payment_submissions + layaway_accounts)
-    await supabase.from("payment_submission_allocations").delete().eq("account_id", account_id);
-
-    // 2. Payment submissions (references layaway_accounts)
-    await supabase.from("payment_submissions").delete().eq("account_id", account_id);
-
-    // 3. Payment allocations (references payments + layaway_schedule)
-    if (paymentIds.length > 0) {
-      await supabase.from("payment_allocations").delete().in("payment_id", paymentIds);
-    }
-
-    // 4. Penalty waiver requests (references penalty_fees + layaway_schedule)
-    await supabase.from("penalty_waiver_requests").delete().eq("account_id", account_id);
-
-    // 5. Penalty fees (references layaway_schedule + layaway_accounts)
-    await supabase.from("penalty_fees").delete().eq("account_id", account_id);
-
-    // 6. CSR notifications (references layaway_accounts + layaway_schedule)
-    await supabase.from("csr_notifications").delete().eq("account_id", account_id);
-
-    // 7. Extension requests (customer extension requests for forfeited
-    //    accounts — must be explicitly deleted because the FK has
-    //    ON DELETE NO ACTION). The migration declared the FK with no
-    //    ON DELETE clause (defaults to NO ACTION). See CLAUDE.md bug #51.
-    await supabase.from("extension_requests").delete().eq("account_id", account_id);
-
-    // 8. Reminder logs (references layaway_accounts)
-    await supabase.from("reminder_logs").delete().eq("account_id", account_id);
-
-    // 9. Reconciliation log (drift reports written by reconcile-account edge
-    //    function — must be explicitly deleted because the FK has
-    //    ON DELETE NO ACTION). Table was created via SQL Editor 2026-04-20
-    //    and is not visible in repo migrations. See CLAUDE.md bug #50.
-    await supabase.from("reconciliation_log").delete().eq("account_id", account_id);
-
-    // 10. Account services (references layaway_accounts)
-    await supabase.from("account_services").delete().eq("account_id", account_id);
-
-    // 11. Final settlement records (references layaway_accounts)
-    await supabase.from("final_settlement_records").delete().eq("account_id", account_id);
-
-    // 12. Penalty cap overrides (references layaway_accounts)
-    await supabase.from("penalty_cap_overrides").delete().eq("account_id", account_id);
-
-    // 13. Statement tokens (references layaway_accounts)
-    await supabase.from("statement_tokens").delete().eq("account_id", account_id);
-
-    // 14. Payments (references layaway_accounts)
-    await supabase.from("payments").delete().eq("account_id", account_id);
-
-    // 15. Layaway schedule (references layaway_accounts)
-    await supabase.from("layaway_schedule").delete().eq("account_id", account_id);
-
-    // 16. Audit logs are PRESERVED — no delete here. Prior audit trail
-    //     (payments, penalties, schedule changes, etc.) must survive
-    //     account deletion so the account history is never lost.
-
-    // 17. Finally, the account itself
-    const { error: delErr } = await supabase.from("layaway_accounts").delete().eq("id", account_id);
-    if (delErr) {
-      console.error("Failed to delete account:", delErr);
-      return new Response(JSON.stringify({ error: "Failed to delete account: " + delErr.message }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Audit the deletion
-    await supabase.from("audit_logs").insert({
-      entity_type: "layaway_account",
-      entity_id: account_id,
-      action: "delete",
-      old_value_json: { invoice_number: account.invoice_number },
-      performed_by_user_id: user.id,
+    // Atomic delete via RPC (16 cleanup steps + audit log, single transaction)
+    // RPC body lives in supabase/migrations/<timestamp>_delete_account_atomic.sql
+    const { data, error: rpcError } = await supabase.rpc('delete_account_atomic', {
+      p_account_id: account_id,
+      p_performed_by_user_id: user.id,
     });
+
+    if (rpcError) {
+      return new Response(JSON.stringify({ error: rpcError.message }), {
+        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (data?.error) {
+      const status = data.error === 'Account not found' ? 404 : 500;
+      return new Response(JSON.stringify({ error: data.error }), {
+        status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     return new Response(JSON.stringify({ success: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (error) {
+  } catch (error: any) {
     return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });

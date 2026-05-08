@@ -2015,14 +2015,6 @@ When completing a partially_paid month:
   consistency items that remain after the
   AgingBuckets fix landed.
 
-  - delete-account edge function uses TypeScript not plpgsql,
-    so the FK cleanup operations are NOT atomic. If the function
-    crashes mid-operation, partial deletion can leave referential
-    inconsistency. Current implementation works in practice (zero
-    known incidents) but plpgsql conversion would harden against
-    crash scenarios. No customer-facing impact today; defensive
-    work only. (Logged 2026-04-30, severity Low.)
-
   - EditCustomerDialog DB-side defense-in-depth: customer_code
     field is locked at the frontend level (per Known Fixed Bug #54).
     A DB-side trigger that enforces the same lock would provide
@@ -2102,8 +2094,6 @@ When completing a partially_paid month:
   P3 — Defensive hardening (Low severity, no known bugs)
     - Session timeout 2hr (P5 in legacy numbering) — security
       hygiene.
-    - Convert delete-account to plpgsql for atomicity hardening
-      — defensive against crash mid-operation.
     - EditCustomerDialog DB-side trigger backup — defensive
       against direct SQL bypass.
 
@@ -2819,6 +2809,32 @@ When completing a partially_paid month:
       path). Original "RLS policy work" diagnosis from session
       memory was a misdiagnosis — RLS was already permissive
       enough.
+
+  delete-account → delete_account_atomic atomic RPC: SHIPPED ✅ (2026-05-08)
+    - 16-step FK cleanup + audit log wrapped in single transaction
+      (atomic). Partial failures roll back; eliminates silent
+      audit gaps from prior TypeScript implementation.
+    - Defense-in-depth admin role check at both edge function
+      and RPC layers (auth.uid() + public.has_role inside
+      SECURITY DEFINER body; Bearer JWT + supabase.rpc('has_role')
+      at edge function entry).
+    - Edge function rewritten as thin wrapper (~85 lines, down
+      from 159). Caller contract unchanged; useDeleteAccount hook
+      and AccountDetail UI button untouched.
+    - Closes prior security gap: any authenticated user could
+      previously call delete-account directly without admin role
+      check (edge function only validated JWT presence, never
+      role).
+    - All 5 smoke tests passed in production SQL Editor before
+      commit:
+        1. Pre-delete inventory baseline (1 account, 3 schedule rows)
+        2. RPC returned {"success": true} on first valid call
+        3. Cleanup verified: account=0, schedule=0, audit_logs=1
+        4. Re-call on deleted UUID returned {"error": "Account not found"}
+        5. Atomic rollback — wrong-UUID FK exception rolled back
+           all 16 deletes (audit-or-nothing semantics verified)
+    - RPC body in
+      supabase/migrations/20260508013641_delete_account_atomic.sql
 
   PHASE B BULK ROLLOUT (added 2026-05-07)
     - Purpose: one-time broadcast to send the
