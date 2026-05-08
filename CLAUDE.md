@@ -1928,6 +1928,23 @@ When completing a partially_paid month:
     the change; thereafter navigation requests always try
     fresh HTML first. Shipped 4014f97 / 2026-05-06.
 
+  - 85. EditCustomerDialog DB-side defense-in-depth shipped.
+    prevent_customer_code_change trigger blocks UPDATE of
+    customers.customer_code from direct PostgREST calls,
+    future RPCs, and manual SQL Editor mistakes. Frontend
+    lock at EditCustomerDialog (per Known Fixed Bug #54) is
+    unchanged; the trigger adds belt-and-suspenders
+    enforcement at the DB layer. Forensic repair uses
+    transaction-scoped GUC bypass:
+    SET LOCAL app.allow_customer_code_change = 'on'; before
+    UPDATE — pattern mirrors app.bypass_immutable_schedule_cols
+    and app.allow_base_edit. Migration file
+    20260508002747_prevent_customer_code_change.sql. Closes
+    the deferred P3 defensive item logged 2026-04-30 (was in
+    Dashboard restructure follow-ups + P3 Defensive list of
+    Known Open Bugs). All 3 smoke tests passed in production
+    SQL Editor before commit. Shipped 35c5c4a / 2026-05-08.
+
 ## Known Open Bugs
 
   Bugs that have been surfaced and triaged but not
@@ -2015,13 +2032,9 @@ When completing a partially_paid month:
   consistency items that remain after the
   AgingBuckets fix landed.
 
-  - EditCustomerDialog DB-side defense-in-depth: customer_code
-    field is locked at the frontend level (per Known Fixed Bug #54).
-    A DB-side trigger that enforces the same lock would provide
-    belt-and-suspenders protection against direct SQL bypassing
-    the frontend (e.g., admin SQL editor, bulk-import edge
-    function bug). No incident driving this; defensive only.
-    (Logged 2026-04-30, severity Low.)
+  (No items remaining — EditCustomerDialog
+  DB-side defense entry retired 2026-05-08;
+  see Known Fixed Bug #85.)
 
 ### Workflow gaps (surfaced 2026-05-01)
 
@@ -2094,8 +2107,6 @@ When completing a partially_paid month:
   P3 — Defensive hardening (Low severity, no known bugs)
     - Session timeout 2hr (P5 in legacy numbering) — security
       hygiene.
-    - EditCustomerDialog DB-side trigger backup — defensive
-      against direct SQL bypass.
 
   P4 — Larger features (Medium severity, real effort, not blocking)
     - PWA Phase A install routing — ABANDONED 2026-05-04,
