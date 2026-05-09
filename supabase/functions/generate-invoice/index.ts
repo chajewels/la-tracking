@@ -18,30 +18,33 @@ const MAX_ITEMS = 13;
 // Adjust here, redeploy. No DB or schema impact.
 const SHEET_NAME = "Invoice-Use this";
 const CELLS = {
-  invoice_number: `${SHEET_NAME}!B8`,
-  invoice_date: `${SHEET_NAME}!B9`,
-  order_type: `${SHEET_NAME}!B10`,
-  terms: `${SHEET_NAME}!B11`,
-  ship_to_name: `${SHEET_NAME}!B13`,
-  ship_to_address: `${SHEET_NAME}!B14`,
-  ship_to_phone: `${SHEET_NAME}!B15`,
-  // Items occupy rows 17-29
-  items_start_row: 17,
-  items_end_row: 29,
-  items_description_col: "B",
-  items_qty_col: "D",
-  items_unit_price_col: "E",
-  items_amount_col: "F",
-  // Totals block rows 31-35
-  subtotal_pretax: `${SHEET_NAME}!F31`,
-  discount: `${SHEET_NAME}!F32`,
-  tax: `${SHEET_NAME}!F33`,
-  shipping: `${SHEET_NAME}!F34`,
-  total: `${SHEET_NAME}!F35`,
-  // Bill To rows 36-38
-  bill_to_name: `${SHEET_NAME}!B36`,
-  bill_to_address: `${SHEET_NAME}!B37`,
-  bill_to_phone: `${SHEET_NAME}!B38`,
+  invoice_number: `${SHEET_NAME}!F5`,
+  invoice_date: `${SHEET_NAME}!H5`,
+  order_type: `${SHEET_NAME}!F7`,
+  terms: `${SHEET_NAME}!H7`,
+
+  ship_to_name: `${SHEET_NAME}!F12`,
+  ship_to_address_line1: `${SHEET_NAME}!F14`,
+  ship_to_address_line2: `${SHEET_NAME}!F15`,
+  ship_to_phone: `${SHEET_NAME}!F16`,
+
+  bill_to_name: `${SHEET_NAME}!A12`,
+  bill_to_address_line1: `${SHEET_NAME}!A14`,
+  bill_to_address_line2: `${SHEET_NAME}!A15`,
+  bill_to_phone: `${SHEET_NAME}!A16`,
+
+  // Items occupy rows 21-33 (13 max)
+  items_start_row: 21,
+  items_end_row: 33,
+  items_description_col: "A",
+  items_qty_col: "F",
+  items_unit_price_col: "G",
+  items_amount_col: "H",
+
+  // Discount + shipping value cells. Subtotal (H34) and final TOTAL (H37)
+  // are formulas in the Invoice-Use this template — don't write them.
+  discount: `${SHEET_NAME}!H35`,
+  shipping: `${SHEET_NAME}!H36`,
 };
 
 const MONTH_NAMES = [
@@ -71,7 +74,9 @@ interface Item {
 interface ItemComputed {
   description: string;
   qty: number;
+  unit_price_jpy_inclusive: number;
   unit_price_pretax: number;
+  amount_inclusive: number;
   amount_pretax: number;
 }
 
@@ -241,10 +246,13 @@ function computeTotals(items: Item[], discount_jpy: number, shipping_fee_jpy: nu
   const itemsComputed: ItemComputed[] = items.map((item) => {
     const unit_price_pretax = Math.round(item.unit_price_jpy_inclusive / (1 + TAX_RATE));
     const amount_pretax = unit_price_pretax * item.qty;
+    const amount_inclusive = item.unit_price_jpy_inclusive * item.qty;
     return {
       description: item.description,
       qty: item.qty,
+      unit_price_jpy_inclusive: item.unit_price_jpy_inclusive,
       unit_price_pretax,
+      amount_inclusive,
       amount_pretax,
     };
   });
@@ -453,38 +461,65 @@ Deno.serve(async (req) => {
     createdSheetId = sheetCreated.sheetId;
     createdSheetUrl = sheetCreated.sheetUrl;
 
-    // --- Build cell writes ---
-    const concatAddress = (a: Address) =>
-      [a.address_line1, a.city, a.postal_code, a.country].filter(Boolean).join(", ");
+    // Address layout per template: Line 1 = postal + city + country (header line);
+    // Line 2 = street/building (address_line1).
+    const buildAddrLine1 = (a: Address) => {
+      const parts: string[] = [];
+      const head = [a.postal_code, a.city].filter(Boolean).join(" ");
+      if (head) parts.push(head);
+      if (a.country) parts.push(a.country);
+      return parts.join(", ");
+    };
+    const buildAddrLine2 = (a: Address) => a.address_line1 || "";
+
     const cellWrites: Array<{ range: string; value: string | number }> = [
+      // Invoice meta (top right of template)
       { range: CELLS.invoice_number, value: parentInvoiceNumber },
       { range: CELLS.invoice_date, value: now.toISOString().split("T")[0] },
       { range: CELLS.order_type, value: orderType },
       { range: CELLS.terms, value: terms || "" },
+      // Ship To (column F, rows 12-16)
       { range: CELLS.ship_to_name, value: ship_to.name },
-      { range: CELLS.ship_to_address, value: concatAddress(ship_to) },
+      { range: CELLS.ship_to_address_line1, value: buildAddrLine1(ship_to) },
+      { range: CELLS.ship_to_address_line2, value: buildAddrLine2(ship_to) },
       { range: CELLS.ship_to_phone, value: ship_to.phone || "" },
+      // Bill To (column A, rows 12-16)
       { range: CELLS.bill_to_name, value: bill_to.name },
-      { range: CELLS.bill_to_address, value: concatAddress(bill_to) },
+      { range: CELLS.bill_to_address_line1, value: buildAddrLine1(bill_to) },
+      { range: CELLS.bill_to_address_line2, value: buildAddrLine2(bill_to) },
       { range: CELLS.bill_to_phone, value: bill_to.phone || "" },
-      { range: CELLS.subtotal_pretax, value: subtotal_pretax },
+      // Discount + shipping value cells (subtotal H34 and final total H37 are template formulas — not written)
       { range: CELLS.discount, value: discount_jpy },
-      { range: CELLS.tax, value: tax },
       { range: CELLS.shipping, value: shipping_fee_jpy },
-      { range: CELLS.total, value: total },
     ];
+
+    // Item rows: write tax-INCLUSIVE prices. Invoice-Use this is the data sheet;
+    // InvoiceWithTax-Print this has formulas that pull from here and compute the
+    // pretax breakdown for the customer-facing printable invoice.
     for (let i = 0; i < itemsComputed.length; i++) {
       const row = CELLS.items_start_row + i;
       const item = itemsComputed[i];
       cellWrites.push(
         { range: `${SHEET_NAME}!${CELLS.items_description_col}${row}`, value: item.description },
         { range: `${SHEET_NAME}!${CELLS.items_qty_col}${row}`, value: item.qty },
-        { range: `${SHEET_NAME}!${CELLS.items_unit_price_col}${row}`, value: item.unit_price_pretax },
-        { range: `${SHEET_NAME}!${CELLS.items_amount_col}${row}`, value: item.amount_pretax },
+        { range: `${SHEET_NAME}!${CELLS.items_unit_price_col}${row}`, value: item.unit_price_jpy_inclusive },
+        { range: `${SHEET_NAME}!${CELLS.items_amount_col}${row}`, value: item.amount_inclusive },
       );
     }
 
-    // --- Populate sheet ---
+    // Clear unused item rows beyond the user's items so any leftover sample
+    // data in the master template doesn't bleed through. The amount column has
+    // a formula in the template — don't clear that one.
+    const totalItemRows = CELLS.items_end_row - CELLS.items_start_row + 1;
+    for (let i = itemsComputed.length; i < totalItemRows; i++) {
+      const row = CELLS.items_start_row + i;
+      cellWrites.push(
+        { range: `${SHEET_NAME}!${CELLS.items_description_col}${row}`, value: "" },
+        { range: `${SHEET_NAME}!${CELLS.items_qty_col}${row}`, value: "" },
+        { range: `${SHEET_NAME}!${CELLS.items_unit_price_col}${row}`, value: "" },
+      );
+    }
+
     await populateSheet(accessToken, createdSheetId, cellWrites);
 
     // --- Persist generated_invoices row ---
