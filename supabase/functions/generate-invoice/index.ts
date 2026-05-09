@@ -16,7 +16,7 @@ const MAX_ITEMS = 13;
 // Sheet name + cell positions inside the master template.
 // CALIBRATE on first run if the master template uses different cells.
 // Adjust here, redeploy. No DB or schema impact.
-const SHEET_NAME = "Sheet1";
+const SHEET_NAME = "Invoice-Use this";
 const CELLS = {
   invoice_number: `${SHEET_NAME}!B8`,
   invoice_date: `${SHEET_NAME}!B9`,
