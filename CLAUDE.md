@@ -2873,6 +2873,114 @@ When completing a partially_paid month:
   Check 20: carried amount on paid row — no unconsumed carry on paid rows
   Check 21: double carry — no account has carry on multiple rows
 
+## INVOICE GENERATOR — IN PROGRESS
+
+  Workstream tracking the JPY-only invoice generator that creates
+  Google Sheets in Drive folder Invoice/{YYYY}/{MM}. {Month}/.
+
+  Pre-requisites confirmed 2026-05-09:
+    GOOGLE_SERVICE_ACCOUNT_JSON in Supabase secrets, service account
+    Editor on Invoice folder, Drive API enabled, Sheets API enabled.
+
+  Decision blueprint (locked 2026-05-09):
+    Auth:            Google Service Account JWT (jose library, RS256)
+    File format:     native Google Sheet (not .xlsx)
+    Currency:        JPY only (regardless of account currency)
+    Tax model:       10% reverse — staff enters tax-inclusive price,
+                     invoice shows pre-tax = price ÷ 1.1,
+                     tax = subtotal × 0.1
+    Drive root:      Invoice/ folder ID 1bMiQMq3-avl1sq5_EU3T9sIlmLOQmp7k
+    Folder convention: Invoice/{YYYY}/{MM}. {Month}/ (auto-create)
+    UI surface:      shadcn Sheet (slide-out side panel)
+    Form state:      plain useState (mirror RecordPaymentDialog pattern)
+    Trigger placement:
+                     AccountDetail — between RecordPaymentDialog
+                       and AddServiceDialog
+                     CashOrderDetail — after Record/Submit Payment,
+                       before Cancel Order
+    Role gating:     admin + finance + staff
+
+  Source template: 10% tax variant of
+    https://docs.google.com/spreadsheets/d/1J3mt1ezzZvatRBafCJt3wJoTRjiG0t_NBFRcJpXKg44/edit
+  Row layout (locked):
+    Rows 1-7    Cha Jewels header (locked content)
+    Rows 8-12   Invoice meta (Invoice # / Date / Order Type / Terms)
+    Rows 13-15  SHIP TO (name, address, phone)
+    Row 16      Item header (DESCRIPTION | QTY | UNIT PRICE | AMOUNT)
+    Rows 17-29  Up to 13 product rows (pre-tax prices)
+    Row 30      "Thank you for your business!"
+    Rows 31-35  Totals (SUBTOTAL | DISCOUNT | TAX 10% | SHIPPING | TOTAL)
+    Rows 36-38  BILL TO (defaults same-as-ship-to)
+
+  Header content (rows 1-7, locked):
+    Cha Jewels
+    124-0012 東京都葛飾区立石
+    6丁目5-1 タイムマンション301
+    080-2930-5422
+    登録番号 T7011801044120
+
+  Step 1a — SHIPPED 2026-05-09 (schema + RPC patches, SQL Editor):
+
+    Phase α — customers table:
+      Added 4 nullable columns: address_line1, city, postal_code, country
+      country backfilled from location for all 667 rows (full match)
+      3 spelling normalizations applied:
+        Hongkong → Hong Kong, UK → United Kingdom, Netherland → Netherlands
+      Korea row resolved → South Korea (single ambiguous customer)
+      No new indexes (deferred until query patterns demand them)
+
+    Phase β-1 — generated_invoices table:
+      17 columns, RLS enabled with 5 policies, 4 indexes
+      Parent FKs: account_id, cash_order_id (both ON DELETE RESTRICT)
+      CHECK constraint: exactly_one_parent (XOR on the two FKs)
+      Snapshot columns (jsonb): ship_to, bill_to, items
+      Totals (numeric(12,0)): discount_jpy, shipping_fee_jpy,
+        subtotal_pretax_jpy, tax_jpy, total_jpy
+      Drive metadata: sheet_id, sheet_url, drive_folder_path
+      Generation metadata: generated_at, generated_by_user_id
+        (FK to auth.users ON DELETE SET NULL), generated_by_name
+      No void mechanism — regeneration writes a new row,
+        latest by generated_at = current
+      RLS policies:
+        Service role: FOR ALL using true
+        Staff: FOR SELECT and FOR INSERT using is_staff(auth.uid())
+        Admin: FOR DELETE using has_role(auth.uid(), 'admin')
+        Customer: FOR SELECT via parent join to customers.auth_user_id
+
+    Phase β-2 — delete_account_atomic patched:
+      New step 16 deletes generated_invoices BEFORE the account row
+      Function comment updated: 16 explicit DELETEs → 17 explicit DELETEs
+      Step numbering: 1-15 unchanged, new step 16 = generated_invoices,
+        old step 16 (account itself) becomes step 17
+
+    Phase β-3 — audit_delete_cleanup_invariants allowlist patched:
+      Added: ('delete-account', 'layaway_accounts',
+              'generated_invoices', true, false)
+      defensive=true flag (handled in cleanup at step 16)
+
+    Phase β-4 — delete-customer/index.ts: NOT patched (intentional)
+      Pre-check at lines 67-107 blocks delete if customer has any
+      layaway_accounts OR cash_orders. Since generated_invoices
+      requires one of those as parent (exactly_one_parent CHECK),
+      the pre-check transitively guards generated_invoices.
+      No direct FK from generated_invoices to customers.
+
+  Audit baseline post-Step 1a:
+    SELECT * FROM audit_delete_cleanup_invariants();
+    Expected: 0 critical, 0 warning, 2 info rows
+      - cash_payments → cash_orders (existing preventive)
+      - generated_invoices.cash_order_id → cash_orders (new preventive)
+    Both info findings reflect the absence of a delete-cash-order RPC.
+
+  Step 1b — PENDING:
+    generate-invoice edge function with service-account JWT,
+    Drive folder auto-create, Sheet creation + formatting,
+    persistence write to generated_invoices.
+
+  Step 1c — PENDING:
+    Frontend shadcn Sheet panel + button wiring on AccountDetail
+    and CashOrderDetail.
+
 ## SYSTEM STATUS (as of 2026-05-07)
 
   Phase B email/password authentication: SHIPPED ✅ (2026-05-05)
