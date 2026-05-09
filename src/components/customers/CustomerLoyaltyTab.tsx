@@ -238,6 +238,8 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
       ? new Date(m.last_purchase_at) > sixMonthsAgo
       : false;
     return {
+      id: m.id,
+      customer_id: m.customer_id,
       customer_name: data?.customer?.full_name || 'Valued Customer',
       member_id: data?.customer?.customer_code ?? '—',
       current_tier: tierName,
