@@ -83,6 +83,10 @@ async function getServiceAccountAccessToken(): Promise<string> {
   if (!json) {
     throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON secret not set");
   }
+  const adminEmail = Deno.env.get("GOOGLE_ADMIN_EMAIL");
+  if (!adminEmail) {
+    throw new Error("GOOGLE_ADMIN_EMAIL secret not set");
+  }
   let creds: { client_email?: string; private_key?: string; token_uri?: string };
   try {
     creds = JSON.parse(json);
@@ -97,12 +101,13 @@ async function getServiceAccountAccessToken(): Promise<string> {
   const normalizedKey = private_key.replace(/\\n/g, "\n");
   const keyObj = await jose.importPKCS8(normalizedKey, "RS256");
   const now = Math.floor(Date.now() / 1000);
+  // Domain-Wide Delegation: sub = impersonated workspace user, iss = service account.
   const jwt = await new jose.SignJWT({
     scope: "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/spreadsheets",
   })
     .setProtectedHeader({ alg: "RS256", typ: "JWT" })
     .setIssuer(client_email)
-    .setSubject(client_email)
+    .setSubject(adminEmail)
     .setAudience(token_uri)
     .setIssuedAt(now)
     .setExpirationTime(now + 3600)
