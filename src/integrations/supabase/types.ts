@@ -547,7 +547,10 @@ export type Database = {
       }
       customers: {
         Row: {
+          address_line1: string | null
           auth_user_id: string | null
+          city: string | null
+          country: string | null
           created_at: string
           customer_code: string | null
           email: string | null
@@ -561,12 +564,16 @@ export type Database = {
           portal_pin_attempts: number | null
           portal_pin_hash: string | null
           portal_pin_locked_until: string | null
+          postal_code: string | null
           preferred_contact_method: string | null
           setup_link_sent_at: string | null
           updated_at: string
         }
         Insert: {
+          address_line1?: string | null
           auth_user_id?: string | null
+          city?: string | null
+          country?: string | null
           created_at?: string
           customer_code?: string | null
           email?: string | null
@@ -580,12 +587,16 @@ export type Database = {
           portal_pin_attempts?: number | null
           portal_pin_hash?: string | null
           portal_pin_locked_until?: string | null
+          postal_code?: string | null
           preferred_contact_method?: string | null
           setup_link_sent_at?: string | null
           updated_at?: string
         }
         Update: {
+          address_line1?: string | null
           auth_user_id?: string | null
+          city?: string | null
+          country?: string | null
           created_at?: string
           customer_code?: string | null
           email?: string | null
@@ -599,6 +610,7 @@ export type Database = {
           portal_pin_attempts?: number | null
           portal_pin_hash?: string | null
           portal_pin_locked_until?: string | null
+          postal_code?: string | null
           preferred_contact_method?: string | null
           setup_link_sent_at?: string | null
           updated_at?: string
@@ -905,6 +917,84 @@ export type Database = {
           metadata_json?: Json | null
         }
         Relationships: []
+      }
+      generated_invoices: {
+        Row: {
+          account_id: string | null
+          bill_to: Json
+          cash_order_id: string | null
+          discount_jpy: number
+          drive_folder_path: string
+          generated_at: string
+          generated_by_name: string | null
+          generated_by_user_id: string | null
+          id: string
+          items: Json
+          parent_invoice_number: string
+          sheet_id: string
+          sheet_url: string
+          ship_to: Json
+          shipping_fee_jpy: number
+          subtotal_pretax_jpy: number
+          tax_jpy: number
+          total_jpy: number
+        }
+        Insert: {
+          account_id?: string | null
+          bill_to: Json
+          cash_order_id?: string | null
+          discount_jpy?: number
+          drive_folder_path: string
+          generated_at?: string
+          generated_by_name?: string | null
+          generated_by_user_id?: string | null
+          id?: string
+          items: Json
+          parent_invoice_number: string
+          sheet_id: string
+          sheet_url: string
+          ship_to: Json
+          shipping_fee_jpy?: number
+          subtotal_pretax_jpy: number
+          tax_jpy: number
+          total_jpy: number
+        }
+        Update: {
+          account_id?: string | null
+          bill_to?: Json
+          cash_order_id?: string | null
+          discount_jpy?: number
+          drive_folder_path?: string
+          generated_at?: string
+          generated_by_name?: string | null
+          generated_by_user_id?: string | null
+          id?: string
+          items?: Json
+          parent_invoice_number?: string
+          sheet_id?: string
+          sheet_url?: string
+          ship_to?: Json
+          shipping_fee_jpy?: number
+          subtotal_pretax_jpy?: number
+          tax_jpy?: number
+          total_jpy?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "generated_invoices_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "generated_invoices_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       keep_fix_audit: {
         Row: {
