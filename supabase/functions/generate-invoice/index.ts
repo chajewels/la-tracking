@@ -257,9 +257,8 @@ function computeTotals(items: Item[], discount_jpy: number, shipping_fee_jpy: nu
     };
   });
   const subtotal_pretax = itemsComputed.reduce((sum, i) => sum + i.amount_pretax, 0);
-  const taxable_base = Math.max(0, subtotal_pretax - discount_jpy);
-  const tax = Math.round(taxable_base * TAX_RATE);
-  const total = taxable_base + tax + shipping_fee_jpy;
+  const tax = Math.round(subtotal_pretax * TAX_RATE);
+  const total = Math.max(0, subtotal_pretax + tax - discount_jpy + shipping_fee_jpy);
   return { itemsComputed, subtotal_pretax, tax, total };
 }
 
