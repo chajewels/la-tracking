@@ -47,35 +47,31 @@ Deno.serve(async (req) => {
     }
 
     // 2. Auth — Path A (portal_token in body) or Path B (Bearer token)
+    // Dispatch — staff/customer JWT disambiguation (2026-05-10)
+    //   1. portal_token OR session_id in body → Path A directly
+    //   2. Authorization header only:
+    //        a. validate Bearer JWT, get user
+    //        b. has_role check (admin / finance / staff)
+    //        c. user has any staff role → Path B (preserves staff
+    //           role-gated submission)
+    //        d. user has no staff role → Path A (Phase B customer
+    //           Bearer JWT — resolvePortalAuth Path 0 handles them)
+    //   3. Else (no portal_token, no session_id, no Authorization) → 401
     let pathACustomerId: string | null = null;
     let pathBUserId: string | null = null;
 
-    if (portal_token || session_id || req.headers.get('Authorization')) {
-      // Path A: customer portal (token, session_id, or Bearer JWT)
-      try {
-        const auth = await resolvePortalAuth(supabase, {
-          portal_token,
-          session_id,
-          authHeader: req.headers.get('Authorization'),
-        });
-        pathACustomerId = auth.customer_id;
-      } catch (err: any) {
-        return new Response(
-          JSON.stringify({ error: err?.message || "Invalid portal token" }),
-          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-    } else {
-      // Path B: staff bearer token
-      const authHeader = req.headers.get("Authorization");
-      if (!authHeader) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
+    const headerAuth = req.headers.get('Authorization');
+
+    // Pre-resolved Path B identity + role flags. Populated when
+    // Authorization header is present and JWT validates so the
+    // dispatch can decide between Path A (no staff role → customer
+    // JWT) and Path B (staff role) without duplicating the lookup.
+    let preResolvedUser: { id: string } | null = null;
+    let preResolvedIsStaffRole = false;
+
+    if (!portal_token && !session_id && headerAuth) {
       const { data: { user }, error: authError } = await supabase.auth.getUser(
-        authHeader.replace("Bearer ", "")
+        headerAuth.replace("Bearer ", "")
       );
       if (authError || !user) {
         return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -88,13 +84,33 @@ Deno.serve(async (req) => {
         supabase.rpc("has_role", { _user_id: user.id, _role: "finance" }),
         supabase.rpc("has_role", { _user_id: user.id, _role: "staff" }),
       ]);
-      if (!isAdmin && !isFinance && !isStaff) {
-        return new Response(JSON.stringify({ error: "Admin, finance, or staff access required" }), {
-          status: 403,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+      preResolvedUser = { id: user.id };
+      preResolvedIsStaffRole = !!(isAdmin || isFinance || isStaff);
+    }
+
+    if (portal_token || session_id || (headerAuth && !preResolvedIsStaffRole)) {
+      // Path A: customer portal (token, session_id, or Phase B customer Bearer JWT)
+      try {
+        const auth = await resolvePortalAuth(supabase, {
+          portal_token,
+          session_id,
+          authHeader: headerAuth,
         });
+        pathACustomerId = auth.customer_id;
+      } catch (err: any) {
+        return new Response(
+          JSON.stringify({ error: err?.message || "Invalid portal token" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
       }
-      pathBUserId = user.id;
+    } else if (preResolvedIsStaffRole && preResolvedUser) {
+      // Path B: staff bearer token (user + role already validated above)
+      pathBUserId = preResolvedUser.id;
+    } else {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // 3. Fetch cash order — must exist and be pending

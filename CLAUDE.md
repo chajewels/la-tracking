@@ -2085,6 +2085,14 @@ When completing a partially_paid month:
     silently disable type checking for properties that
     don't exist, hiding real bugs from the test suite.
 
+  - 92. submit-cash-payment dispatch routed staff Bearer JWTs into
+    customer portal Path A because supabase-js auto-attaches the
+    Authorization header — Path B (staff role check) never
+    reached, blocking all admin/staff cash payment submissions
+    with toast "No customer linked to this account" — fixed with
+    role-check disambiguation at the dispatch entry point
+    (2026-05-10)
+
 ## Known Open Bugs
 
   Bugs that have been surfaced and triaged but not
