@@ -109,6 +109,33 @@ Deno.serve(async (req) => {
 
     const multiplier = Number(currentTier.points_multiplier ?? 1);
 
+    // 5b. Pre-compute post-upgrade tier so the points award reflects the
+    //     ratcheted-up multiplier when the same purchase causes the upgrade.
+    //     Ratchet-up: effectiveMultiplier resolved post-tier-upgrade (Bug fix 2026-05-10)
+    //     A qualifying purchase that triggers a tier upgrade earns at the
+    //     POST-upgrade multiplier on this same award. effectiveMultiplier and
+    //     effectiveTierName flow into points computation, transaction
+    //     tier_at_time, lot p_amount (via `points`), the email payload, and
+    //     the in-portal points-earned notification.
+    const newCumulative = Number(member.cumulative_spend_jpy ?? 0) + loyaltyJpy;
+    const { data: newTierRow } = await supabase
+      .from("loyalty_tiers")
+      .select("id, name, min_spend_jpy, points_multiplier")
+      .lte("min_spend_jpy", newCumulative)
+      .order("min_spend_jpy", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const oldMin = Number(currentTier.min_spend_jpy ?? 0);
+    const newMin = Number(newTierRow?.min_spend_jpy ?? oldMin);
+    const tierUpgraded = !!newTierRow && newMin > oldMin;
+    const effectiveMultiplier = tierUpgraded
+      ? Number(newTierRow!.points_multiplier ?? 1)
+      : multiplier;
+    const effectiveTierName = tierUpgraded ? newTierRow!.name : currentTier.name;
+    const oldTierName = currentTier.name;
+    const newTierName = effectiveTierName;
+
     // 6. Check active promo
     const today = new Date().toISOString().split("T")[0];
     const { data: promos } = await supabase
@@ -142,16 +169,17 @@ Deno.serve(async (req) => {
     }
 
     // 7. Calculate points
-    // earned tx = baseUnits × 100 × tier_multiplier (tier-only, no promo)
+    // earned tx = baseUnits × 100 × effectiveMultiplier (post-upgrade if the
+    //             purchase ratchets the tier up; otherwise current tier)
     // bonus tx  = delta_from_multiplier + flat_bonus_points
-    //   delta = baseUnits × 100 × tier_multiplier × (promo_multiplier - 1)
-    // member total = earned + bonus = baseUnits × 100 × tier × promo_mult + flat
+    //   delta = baseUnits × 100 × effectiveMultiplier × (promo_multiplier - 1)
+    // member total = earned + bonus = baseUnits × 100 × effective × promo_mult + flat
     const promoMultiplier = activePromo
       ? Number(activePromo.bonus_multiplier ?? 1)
       : 1;
     const flatBonus = activePromo ? Number(activePromo.bonus_points ?? 0) : 0;
     const baseUnits = Math.floor(loyaltyJpy / 10000);
-    const points = baseUnits * 100 * multiplier;
+    const points = baseUnits * 100 * effectiveMultiplier;
     const deltaFromMultiplier = activePromo
       ? Math.round(points * (promoMultiplier - 1))
       : 0;
@@ -164,7 +192,7 @@ Deno.serve(async (req) => {
       points_amount: points,
       spend_amount_jpy: loyaltyJpy,
       invoice_number: invoiceNumber,
-      tier_at_time: currentTier.name,
+      tier_at_time: effectiveTierName,
       notes: null,
     };
     if (sourceKind === "layaway") earnedTxRow.account_id = account_id;
@@ -207,26 +235,11 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 10. Recalculate tier
+    // 10. Recalculate scalar totals (newCumulative + newTierRow + tierUpgraded
+    //     resolved earlier in step 5b for ratchet-up multiplier; reuse them).
     const totalAdded = points + bonusTxPoints;
-    const newCumulative = Number(member.cumulative_spend_jpy ?? 0) + loyaltyJpy;
     const newTotalEarned = Number(member.total_points_earned ?? 0) + totalAdded;
     const newRemaining = Number(member.remaining_points ?? 0) + totalAdded;
-
-    const { data: newTierRow } = await supabase
-      .from("loyalty_tiers")
-      .select("id, name, min_spend_jpy, points_multiplier")
-      .lte("min_spend_jpy", newCumulative)
-      .order("min_spend_jpy", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    // 11. Detect upgrade
-    const oldMin = Number(currentTier.min_spend_jpy ?? 0);
-    const newMin = Number(newTierRow?.min_spend_jpy ?? oldMin);
-    const tierUpgraded = !!newTierRow && newMin > oldMin;
-    const oldTierName = currentTier.name;
-    const newTierName = tierUpgraded ? newTierRow!.name : oldTierName;
 
     // 12. Update loyalty_member
     const memberUpdate: Record<string, unknown> = {
@@ -368,8 +381,8 @@ Deno.serve(async (req) => {
                 pointsEarned: points,
                 spendAmountJpy: loyaltyJpy,
                 invoiceNumber,
-                tierName: currentTier.name,
-                tierMultiplier: multiplier,
+                tierName: effectiveTierName,
+                tierMultiplier: effectiveMultiplier,
                 remainingPoints: newRemaining,
                 cumulativeSpendJpy: newCumulative,
                 portalUrl,

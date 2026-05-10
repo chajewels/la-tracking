@@ -2100,6 +2100,16 @@ When completing a partially_paid month:
     label, !!proofFile guard in isFormValid, and dropzone "required"
     hint (2026-05-10)
 
+  - 94. award-loyalty-points computed `points` with PRE-upgrade tier
+    multiplier, then INSERTed transaction + lot + email payload with
+    that pre-upgrade value, even when the qualifying purchase
+    triggered a tier upgrade. Per ratchet-up spec, the award should
+    use the POST-upgrade multiplier when the same purchase causes the
+    upgrade. Fixed by reordering: detect upgrade BEFORE computing
+    points, then use effectiveMultiplier/effectiveTierName throughout
+    (transaction tier_at_time, lot p_amount, email payload, in-portal
+    notification text). (2026-05-10)
+
 ## Known Open Bugs
 
   Bugs that have been surfaced and triaged but not
