@@ -2873,24 +2873,38 @@ When completing a partially_paid month:
   Check 20: carried amount on paid row — no unconsumed carry on paid rows
   Check 21: double carry — no account has carry on multiple rows
 
-## INVOICE GENERATOR — IN PROGRESS
+## INVOICE GENERATOR — STEP 1B SHIPPED, STEP 1C PENDING
 
   Workstream tracking the JPY-only invoice generator that creates
   Google Sheets in Drive folder Invoice/{YYYY}/{MM}. {Month}/.
 
-  Pre-requisites confirmed 2026-05-09:
-    GOOGLE_SERVICE_ACCOUNT_JSON in Supabase secrets, service account
-    Editor on Invoice folder, Drive API enabled, Sheets API enabled.
-
-  Decision blueprint (locked 2026-05-09):
-    Auth:            Google Service Account JWT (jose library, RS256)
+  Locked decisions:
+    Auth:            Google Service Account JWT (jose@5, RS256)
+                     Service account: firebase-deployer@cha-jewels-la-tracking.iam.gserviceaccount.com
     File format:     native Google Sheet (not .xlsx)
     Currency:        JPY only (regardless of account currency)
-    Tax model:       10% reverse — staff enters tax-inclusive price,
-                     invoice shows pre-tax = price ÷ 1.1,
-                     tax = subtotal × 0.1
-    Drive root:      Invoice/ folder ID 1bMiQMq3-avl1sq5_EU3T9sIlmLOQmp7k
+    Math model:      post-tax discount (NOT D-1a as originally proposed)
+                       tax   = round(subtotal_pretax × 0.10)
+                       total = max(0, subtotal_pretax + tax − discount + shipping)
+                     Matches master template's print-tab formulas.
+                     Customer-facing total = DB total, exactly.
+    Drive root:      Shared Drive Invoice folder
+                       (set via INVOICE_ROOT_FOLDER_ID Supabase secret)
+                     Original My Drive folder 1bMiQMq3-avl1sq5_EU3T9sIlmLOQmp7k
+                     ABANDONED due to service-account storage quota.
+    Master template: 15peyTqLv4q6rne1ois6bxV1cRoMjkXfiPk48XmAVJeo
+                       INVOICE_MASTER_TEMPLATE in Shared Drive Invoice folder
+                       set via MASTER_INVOICE_TEMPLATE_ID Supabase secret
+                     4 tabs: Invoice-Use this (data entry, tax-inclusive prices)
+                             InvoiceWithTax-Print this (customer printable)
+                             Cash Receipt, Help
+                     Function writes to Invoice-Use this only.
+                     Print tab pulls via formulas → division by 1.1 to
+                     show pretax breakdown.
     Folder convention: Invoice/{YYYY}/{MM}. {Month}/ (auto-create)
+    Filename (D-3b): {invoice_number} first;
+                     {invoice_number}-v{N+1} on regenerations
+                     (count from existing generated_invoices rows).
     UI surface:      shadcn Sheet (slide-out side panel)
     Form state:      plain useState (mirror RecordPaymentDialog pattern)
     Trigger placement:
@@ -2900,34 +2914,39 @@ When completing a partially_paid month:
                        before Cancel Order
     Role gating:     admin + finance + staff
 
-  Source template: 10% tax variant of
-    https://docs.google.com/spreadsheets/d/1J3mt1ezzZvatRBafCJt3wJoTRjiG0t_NBFRcJpXKg44/edit
-  Row layout (locked):
-    Rows 1-7    Cha Jewels header (locked content)
-    Rows 8-12   Invoice meta (Invoice # / Date / Order Type / Terms)
-    Rows 13-15  SHIP TO (name, address, phone)
-    Row 16      Item header (DESCRIPTION | QTY | UNIT PRICE | AMOUNT)
-    Rows 17-29  Up to 13 product rows (pre-tax prices)
-    Row 30      "Thank you for your business!"
-    Rows 31-35  Totals (SUBTOTAL | DISCOUNT | TAX 10% | SHIPPING | TOTAL)
-    Rows 36-38  BILL TO (defaults same-as-ship-to)
+  Pre-requisites confirmed 2026-05-09:
+    GOOGLE_SERVICE_ACCOUNT_JSON Supabase secret set
+    INVOICE_ROOT_FOLDER_ID Supabase secret set (Shared Drive folder)
+    MASTER_INVOICE_TEMPLATE_ID Supabase secret set
+    Drive API + Sheets API enabled on cha-jewels-la-tracking GCP project
+    Service account is Content Manager on Shared Drive
+    Drive API calls include supportsAllDrives=true and
+      includeItemsFromAllDrives=true for Shared Drive support
 
-  Header content (rows 1-7, locked):
-    Cha Jewels
-    124-0012 東京都葛飾区立石
-    6丁目5-1 タイムマンション301
-    080-2930-5422
-    登録番号 T7011801044120
+  Cell layout (Invoice-Use this tab) — function-locked:
+    F5  = Invoice #         H5  = Date
+    F7  = Order Type        H7  = Terms
+    A12 = Bill To name      F12 = Ship To name
+    A14 = Bill To addr 1    F14 = Ship To addr 1  (postal+city+country)
+    A15 = Bill To addr 2    F15 = Ship To addr 2  (street/building)
+    A16 = Bill To phone     F16 = Ship To phone
+    Items rows 21-33 (max 13):
+      col A = description    col F = qty
+      col G = unit price     col H = amount  (both tax-INCLUSIVE)
+    H34 = subtotal (formula — function does NOT write)
+    H35 = discount (function writes value)
+    H36 = shipping fee (function writes value)
+    H37 = final total (formula — function does NOT write)
+    Unused item rows beyond items count: A/F/G cleared by function
+    to prevent template sample data bleed-through.
 
-  Step 1a — SHIPPED 2026-05-09 (schema + RPC patches, SQL Editor):
+  Step 1a — SHIPPED 2026-05-09 (schema + RPC patches):
 
     Phase α — customers table:
       Added 4 nullable columns: address_line1, city, postal_code, country
-      country backfilled from location for all 667 rows (full match)
-      3 spelling normalizations applied:
-        Hongkong → Hong Kong, UK → United Kingdom, Netherland → Netherlands
-      Korea row resolved → South Korea (single ambiguous customer)
-      No new indexes (deferred until query patterns demand them)
+      country backfilled from location for all 667 rows
+      4 normalizations: Hongkong → Hong Kong, UK → United Kingdom,
+        Netherland → Netherlands, Korea → South Korea
 
     Phase β-1 — generated_invoices table:
       17 columns, RLS enabled with 5 policies, 4 indexes
@@ -2936,50 +2955,66 @@ When completing a partially_paid month:
       Snapshot columns (jsonb): ship_to, bill_to, items
       Totals (numeric(12,0)): discount_jpy, shipping_fee_jpy,
         subtotal_pretax_jpy, tax_jpy, total_jpy
-      Drive metadata: sheet_id, sheet_url, drive_folder_path
-      Generation metadata: generated_at, generated_by_user_id
-        (FK to auth.users ON DELETE SET NULL), generated_by_name
       No void mechanism — regeneration writes a new row,
         latest by generated_at = current
-      RLS policies:
-        Service role: FOR ALL using true
-        Staff: FOR SELECT and FOR INSERT using is_staff(auth.uid())
-        Admin: FOR DELETE using has_role(auth.uid(), 'admin')
-        Customer: FOR SELECT via parent join to customers.auth_user_id
 
     Phase β-2 — delete_account_atomic patched:
-      New step 16 deletes generated_invoices BEFORE the account row
-      Function comment updated: 16 explicit DELETEs → 17 explicit DELETEs
-      Step numbering: 1-15 unchanged, new step 16 = generated_invoices,
-        old step 16 (account itself) becomes step 17
+      New step 16 deletes generated_invoices before the account row
+      Function comment updated: 16 → 17 explicit DELETEs
 
-    Phase β-3 — audit_delete_cleanup_invariants allowlist patched:
-      Added: ('delete-account', 'layaway_accounts',
-              'generated_invoices', true, false)
-      defensive=true flag (handled in cleanup at step 16)
+    Phase β-3 — audit_delete_cleanup_invariants allowlist:
+      Added ('delete-account', 'layaway_accounts',
+             'generated_invoices', true, false)
 
     Phase β-4 — delete-customer/index.ts: NOT patched (intentional)
-      Pre-check at lines 67-107 blocks delete if customer has any
-      layaway_accounts OR cash_orders. Since generated_invoices
-      requires one of those as parent (exactly_one_parent CHECK),
-      the pre-check transitively guards generated_invoices.
-      No direct FK from generated_invoices to customers.
+      Pre-check at lines 67-107 transitively guards generated_invoices
+      via accounts/cash_orders blockers.
 
   Audit baseline post-Step 1a:
     SELECT * FROM audit_delete_cleanup_invariants();
     Expected: 0 critical, 0 warning, 2 info rows
       - cash_payments → cash_orders (existing preventive)
       - generated_invoices.cash_order_id → cash_orders (new preventive)
-    Both info findings reflect the absence of a delete-cash-order RPC.
 
-  Step 1b — PENDING:
-    generate-invoice edge function with service-account JWT,
-    Drive folder auto-create, Sheet creation + formatting,
-    persistence write to generated_invoices.
+  Step 1b — SHIPPED 2026-05-09:
+    Final commit chain on main:
+      3f6d2b1 — initial generate-invoice edge function + workflow
+      0556426 — SHEET_NAME = "Invoice-Use this", DWD setup
+      69a8338 — cell layout + tax-inclusive item prices
+      2486963 — post-tax discount math (final correction)
+
+    File: supabase/functions/generate-invoice/index.ts (~600 lines)
+    Workflow: .github/workflows/supabase-functions-deploy.yml has
+              path-trigger + deploy step (NO --no-verify-jwt)
+
+    End-to-end test (TEST-004, 13-item payload, ¥5,000 discount,
+    ¥1,500 shipping):
+      subtotal_pretax_jpy: 313,500
+      tax_jpy:              31,350
+      total_jpy:           341,350
+    DB row matches print tab cell-for-cell.
+
+    Deploy lesson learned (2026-05-09):
+      Lovable can report "deployed successfully" while the live
+      edge function stays on prior code. After every Lovable code
+      change to an edge function, force manual deploy from Cloud Shell:
+        npx supabase login   (first time or session expired)
+        npx supabase functions deploy <function-name> \
+          --project-ref pfoicalpzdcmyxzvwyhz
+      Verify by re-running the test invocation and checking values
+      of the most-recent affected row.
 
   Step 1c — PENDING:
-    Frontend shadcn Sheet panel + button wiring on AccountDetail
-    and CashOrderDetail.
+    Frontend wiring. Two surfaces:
+      AccountDetail.tsx — button between RecordPaymentDialog and
+        AddServiceDialog. shadcn Sheet (slide-out) with invoice form.
+        Pre-fills ship_to + bill_to from customer record using new
+        address columns. Items entered manually (free-form).
+      CashOrderDetail.tsx — button after Record/Submit Payment,
+        before Cancel Order. Same Sheet panel, same form.
+      Role gate: admin + finance + staff (matches edge function).
+      On success: show sheet URL with "Open in Drive" link,
+        optionally show recent-invoices list for this parent.
 
 ## SYSTEM STATUS (as of 2026-05-07)
 
