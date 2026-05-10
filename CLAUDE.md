@@ -2093,6 +2093,13 @@ When completing a partially_paid month:
     role-check disambiguation at the dispatch entry point
     (2026-05-10)
 
+  - 93. RecordCashPaymentDialog.tsx labeled Proof of Payment as
+    "(optional)" and isFormValid did not require !!proofFile, allowing
+    admin/staff cash payment submissions without proof — violated
+    PROOF OF PAYMENT locked rule — fixed with required-asterisk
+    label, !!proofFile guard in isFormValid, and dropzone "required"
+    hint (2026-05-10)
+
 ## Known Open Bugs
 
   Bugs that have been surfaced and triaged but not

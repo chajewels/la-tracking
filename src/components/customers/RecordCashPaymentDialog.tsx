@@ -103,6 +103,7 @@ export default function RecordCashPaymentDialog({
     !!paymentMethod.trim() &&
     isDateValid &&
     !!senderName.trim() &&
+    !!proofFile &&
     !proofError;
 
   const setPayFull = () => setAmountInput(String(Math.round(remaining * 100) / 100));
@@ -383,7 +384,7 @@ export default function RecordCashPaymentDialog({
 
           {/* Proof upload */}
           <div className="space-y-1.5">
-            <Label className="text-card-foreground">Proof of Payment (optional)</Label>
+            <Label className="text-card-foreground">Proof of Payment *</Label>
             <div className="flex items-center gap-2">
               <label
                 htmlFor="cash-proof-file"
@@ -391,7 +392,7 @@ export default function RecordCashPaymentDialog({
               >
                 <span className="inline-flex items-center gap-2">
                   <Upload className="h-3.5 w-3.5" />
-                  {proofFile ? proofFile.name : 'Choose image or PDF (max 5MB)'}
+                  {proofFile ? proofFile.name : 'Choose image or PDF (required, max 5MB)'}
                 </span>
               </label>
               {proofFile && (
