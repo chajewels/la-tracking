@@ -13,6 +13,7 @@ import ServicesList, { AccountService } from '@/components/services/ServicesList
 import EditAccountDialog from '@/components/accounts/EditAccountDialog';
 import AddPenaltyDialog from '@/components/penalties/AddPenaltyDialog';
 import ApplyPenaltyCapDialog from '@/components/penalties/ApplyPenaltyCapDialog';
+import InvoiceGeneratorSheet from '@/components/invoices/InvoiceGeneratorSheet';
 import AppLayout from '@/components/layout/AppLayout';
 import RefreshControl from '@/components/common/RefreshControl';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
@@ -1078,6 +1079,18 @@ export default function AccountDetail() {
                 </Button>
               </a>
             )}
+            <InvoiceGeneratorSheet
+              accountId={account.id}
+              parentInvoiceNumber={account.invoice_number}
+              prefillAddress={{
+                name: account.customers?.full_name || '',
+                address_line1: account.customers?.address_line1 ?? null,
+                city: account.customers?.city ?? null,
+                postal_code: account.customers?.postal_code ?? null,
+                country: account.customers?.country ?? null,
+                phone: account.customers?.mobile_number ?? null,
+              }}
+            />
             {isAdmin && canAddService(account.status) && can('add_service') && (
               <AddServiceDialog accountId={account.id} currency={currency} />
             )}
