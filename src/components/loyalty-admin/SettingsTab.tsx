@@ -84,6 +84,11 @@ const EMAIL_TOGGLES: Array<{
     label: 'Redemption Approved',
     description: 'Sent when a redemption request is approved',
   },
+  {
+    key: 'loyalty_email_redemption_voided',
+    label: 'Redemption Voided',
+    description: 'Sent when an approved redemption is voided (points refunded)',
+  },
 ];
 
 function SectionHeader({

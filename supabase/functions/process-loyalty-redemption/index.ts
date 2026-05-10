@@ -931,7 +931,60 @@ Deno.serve(async (req) => {
         },
       });
 
-      // Step 8: Phase 4.2 cancellation notification (reuse the same
+      // Step 8: Email — fire-and-forget transactional email parallel
+      // to the approve branch. Never throws; failures are logged.
+      // Skipped silently if the customer has no email on file or the
+      // gate 'loyalty_email_redemption_voided' is OFF.
+      try {
+        const { data: customer } = await supabase
+          .from("customers")
+          .select("id, full_name, email")
+          .eq("id", member.customer_id)
+          .single();
+        const recipientEmail = customer?.email;
+        const customerName = customer?.full_name || "Valued Customer";
+
+        if (recipientEmail) {
+          if (await gate("loyalty_email_redemption_voided")) {
+            const portalUrl = await buildPortalLinkForCustomerId(supabase, member.customer_id, 'loyalty');
+            await fetch(
+              `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                },
+                body: JSON.stringify({
+                  templateName: "loyalty-redemption-voided",
+                  recipientEmail,
+                  idempotencyKey: `loyalty-redemption-voided-${redemption.id}`,
+                  templateData: {
+                    customerName,
+                    pointsRefunded: pointsToRefund,
+                    voidReason: trimmedReason,
+                    redemptionType: redemption.redemption_type,
+                    invoiceNumber: redemption.invoice_number,
+                    newRemainingPoints: newRemaining,
+                    voidedAt: cancelledAt,
+                    portalUrl,
+                  },
+                }),
+              },
+            ).catch((e) =>
+              console.warn("[process-loyalty-redemption] void email failed:", e)
+            );
+          } else {
+            console.log(
+              "[email-gate] loyalty-redemption-voided skipped — toggle 'loyalty_email_redemption_voided' is OFF",
+            );
+          }
+        }
+      } catch (sideErr) {
+        console.warn("[process-loyalty-redemption] void email side-effects block failed:", sideErr);
+      }
+
+      // Step 9: Phase 4.2 cancellation notification (reuse the same
       // template + emit pattern as the cancel branch).
       const voidedRewardName = await resolveRewardName(supabase, redemption);
       await emitNotification(supabase, redemption.member_id, {

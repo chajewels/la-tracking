@@ -25,6 +25,7 @@ export interface LoyaltySettings {
   loyalty_email_pre_expire: boolean;
   loyalty_email_expire_deduct: boolean;
   loyalty_email_redeem: boolean;
+  loyalty_email_redemption_voided: boolean;
   loyalty_sheet_id: string;
   loyalty_sheet_service_account: string;
   loyalty_sheet_sync_frequency: LoyaltySheetFrequency;
@@ -42,6 +43,7 @@ const BOOLEAN_KEYS: ReadonlySet<LoyaltySettingKey> = new Set([
   'loyalty_email_pre_expire',
   'loyalty_email_expire_deduct',
   'loyalty_email_redeem',
+  'loyalty_email_redemption_voided',
 ]);
 
 const STRING_KEYS: ReadonlySet<LoyaltySettingKey> = new Set([
@@ -81,6 +83,7 @@ const DEFAULTS: LoyaltySettings = {
   loyalty_email_pre_expire: true,
   loyalty_email_expire_deduct: true,
   loyalty_email_redeem: true,
+  loyalty_email_redemption_voided: true,
   loyalty_sheet_id: '',
   loyalty_sheet_service_account: '',
   loyalty_sheet_sync_frequency: 'manual',
