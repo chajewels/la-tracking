@@ -2873,7 +2873,7 @@ When completing a partially_paid month:
   Check 20: carried amount on paid row — no unconsumed carry on paid rows
   Check 21: double carry — no account has carry on multiple rows
 
-## INVOICE GENERATOR — STEP 1B SHIPPED, STEP 1C PENDING
+## INVOICE GENERATOR — SHIPPED 2026-05-10
 
   Workstream tracking the JPY-only invoice generator that creates
   Google Sheets in Drive folder Invoice/{YYYY}/{MM}. {Month}/.
@@ -3004,17 +3004,70 @@ When completing a partially_paid month:
       Verify by re-running the test invocation and checking values
       of the most-recent affected row.
 
-  Step 1c — PENDING:
-    Frontend wiring. Two surfaces:
-      AccountDetail.tsx — button between RecordPaymentDialog and
-        AddServiceDialog. shadcn Sheet (slide-out) with invoice form.
-        Pre-fills ship_to + bill_to from customer record using new
-        address columns. Items entered manually (free-form).
-      CashOrderDetail.tsx — button after Record/Submit Payment,
-        before Cancel Order. Same Sheet panel, same form.
-      Role gate: admin + finance + staff (matches edge function).
-      On success: show sheet URL with "Open in Drive" link,
-        optionally show recent-invoices list for this parent.
+  Step 1c — SHIPPED 2026-05-10:
+    Frontend wiring complete on both surfaces, with count-badge polish.
+
+    Step 1c-1 — SHIPPED 2026-05-09 (commit 91c5ac5):
+      New file: src/components/invoices/InvoiceGeneratorSheet.tsx
+      Self-contained shadcn Sheet (slide-out) with invoice form.
+      Form fields: ship_to + bill_to (with "same as ship to" default ON),
+        items array (1-13), discount, shipping fee, terms.
+      Edge function call: supabase.functions.invoke('generate-invoice')
+      Two-stage UX: form → success (sheet URL + Open in Drive +
+        Generate Another + Done).
+      Internal role gate: admin / finance / staff (returns null otherwise).
+      Live total preview matches Invoice-Use this display math.
+
+    Step 1c-2 — SHIPPED 2026-05-10 (commit f0edac4):
+      Wired into src/pages/AccountDetail.tsx between Messenger link
+      and AddServiceDialog. Spot A placement — outside the
+      payment-eligibility gate, so visible regardless of account
+      status (paid, overdue, forfeited, etc.).
+      Pre-fills ship_to + bill_to from account.customers (the
+      existing useAccount hook already fetches customers(*) — no
+      extra query).
+      Tested end-to-end on TEST-004:
+        13-item payload, ¥5,000 discount, ¥1,500 shipping
+        DB row: subtotal_pretax_jpy=313,500, tax_jpy=31,350,
+                total_jpy=341,350
+        Drive sheet matches print tab cell-for-cell.
+
+    Step 1c-3 — SHIPPED 2026-05-10 (commit d775e16):
+      Wired into src/pages/CashOrderDetail.tsx in the action button
+      row (Spot B). Sits between the Submit Payment button and
+      the Cancel Order button. Outside both canRecordPayment and
+      canCancel gates — visible regardless of cash order status.
+      Required broadening the existing useCashOrderDetail hook's
+      SELECT from customers(id, full_name) to include
+      address_line1, city, postal_code, country, mobile_number.
+      CashOrderRow.customers type expanded to multi-line shape.
+      Tested end-to-end on cash order 18991 (PHP, completed):
+        DB row: account_id=NULL, cash_order_id populated,
+        subtotal_pretax_jpy=82,709, tax_jpy=8,271, shipping=1,988,
+        total_jpy=92,968.
+      Confirms exactly_one_parent CHECK constraint working.
+
+    Step 1c-4 — SHIPPED 2026-05-10 (commit 530c039):
+      Polish: prior-generation count badge on the trigger button.
+      Reads from generated_invoices via useQuery, keyed by parent.
+      Auto-bumps on successful generation via
+      queryClient.invalidateQueries.
+      Hidden when count = 0; shows secondary Badge with count when > 0.
+      Provides "wait, was this already invoiced?" signal to staff
+      without the cost of a full invoice-history list.
+
+    Final commit chain on main:
+      91c5ac5 — 1c-1 InvoiceGeneratorSheet component
+      f0edac4 — 1c-2 wire into AccountDetail
+      d775e16 — 1c-3 wire into CashOrderDetail
+      530c039 — 1c-4 count badge
+
+    Verified working surfaces:
+      AccountDetail.tsx — Generate Invoice button visible to
+        admin/finance/staff regardless of status; pre-fills from
+        customer record; count badge shows prior generations.
+      CashOrderDetail.tsx — same behavior; broadened SELECT
+        ensures all 6 address fields available for pre-fill.
 
 ## SYSTEM STATUS (as of 2026-05-07)
 
