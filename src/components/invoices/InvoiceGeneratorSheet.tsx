@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
 import {
   Sheet,
   SheetContent,
@@ -18,6 +19,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { type AppRole } from '@/lib/role-permissions';
 import { formatCurrency } from '@/lib/calculations';
 import { toast } from 'sonner';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 const MAX_ITEMS = 13;
 
@@ -118,6 +120,23 @@ export default function InvoiceGeneratorSheet({
       console.error('[InvoiceGeneratorSheet] must receive exactly one of accountId or cashOrderId');
     }
   }, [accountId, cashOrderId]);
+
+  // Count of prior generations for this parent — surfaced as a badge on the trigger
+  const queryClient = useQueryClient();
+  const parentField: 'account_id' | 'cash_order_id' = accountId ? 'account_id' : 'cash_order_id';
+  const parentId = accountId || cashOrderId;
+  const { data: invoiceCount = 0 } = useQuery({
+    queryKey: ['generated-invoice-count', parentField, parentId],
+    enabled: !!parentId && isAuthorized,
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from('generated_invoices')
+        .select('*', { count: 'exact', head: true })
+        .eq(parentField, parentId!);
+      if (error) throw error;
+      return count || 0;
+    },
+  });
 
   const updateShipTo = <K extends keyof AddressInput>(key: K, value: AddressInput[K]) => {
     setShipTo((prev) => ({ ...prev, [key]: value }));
@@ -226,6 +245,7 @@ export default function InvoiceGeneratorSheet({
       });
       setStep('success');
       toast.success(`Invoice generated · ${formatCurrency(invoice.total_jpy, 'JPY')}`);
+      queryClient.invalidateQueries({ queryKey: ['generated-invoice-count', parentField, parentId] });
       onInvoiceGenerated?.({
         sheet_url: invoice.sheet_url,
         sheet_id: invoice.sheet_id,
@@ -246,6 +266,11 @@ export default function InvoiceGeneratorSheet({
       <SheetTrigger asChild>
         <Button variant="outline" className="border-primary/30 text-primary hover:bg-primary/10">
           <FileText className="h-4 w-4 mr-1" /> Generate Invoice
+          {invoiceCount > 0 && (
+            <Badge variant="secondary" className="ml-2 h-5 px-1.5 text-xs">
+              {invoiceCount}
+            </Badge>
+          )}
         </Button>
       </SheetTrigger>
       <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
