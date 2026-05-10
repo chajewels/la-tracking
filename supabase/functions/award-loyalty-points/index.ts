@@ -254,6 +254,78 @@ Deno.serve(async (req) => {
       );
     }
 
+    // 12b. Phase 6.1 dual-mode: shadow-write to loyalty_point_lots.
+    //   Lots are shadow data; the scalar UPDATE above remains authoritative
+    //   until the loyalty_lots_enabled flag flip in a later phase. This
+    //   block does NOT branch on the flag — lots are written unconditionally.
+    //   Two lots are written when an active promo applies, per Q4.3
+    //   ("promo bonus separate" — distinct source_type from order_earn).
+    //   Skipped if scalar UPDATE failed so lots cannot diverge from scalar.
+    if (!memberUpdateErr) {
+      const earnedAt = new Date().toISOString();
+
+      // Lot 1: order_earn — base × tier multiplier (Q4.2 "no tier bonuses",
+      // tier multiplier is part of the earn amount, not a separate lot).
+      // RPC computes expires_at = earned_at + 12 months for order_earn and
+      // handles the rolling extension on prior lots (AREA 2 lines 6195-6204).
+      try {
+        const { error: lotErr } = await supabase.rpc("insert_lot_and_extend", {
+          p_member_id: member.id,
+          p_source_type: "order_earn",
+          p_source_reference: invoiceNumber,
+          p_amount: points,
+          p_earned_at: earnedAt,
+          p_expires_at: null,
+          p_notes: null,
+        });
+        if (lotErr) {
+          console.error(
+            "[award-loyalty-points] order_earn lot shadow write failed",
+            lotErr,
+          );
+          // Non-fatal: scalar update already committed. Drift caught by validation.
+        }
+      } catch (e) {
+        console.error(
+          "[award-loyalty-points] order_earn lot shadow write threw",
+          e,
+        );
+        // Non-fatal — scalar success is enough during dual-mode.
+      }
+
+      // Lot 2: promo_bonus — only when an active promo emitted a bonus tx.
+      // TODO Phase 6.x: loyalty_promos has no per-promo expiration column
+      // yet — passing null. Thread real expiration through when schema
+      // supports it (AREA 2 lines 6217-6219: "configurable per promo").
+      if (activePromo && bonusTxPoints > 0) {
+        try {
+          const { error: bonusLotErr } = await supabase.rpc(
+            "insert_lot_and_extend",
+            {
+              p_member_id: member.id,
+              p_source_type: "promo_bonus",
+              p_source_reference: invoiceNumber,
+              p_amount: bonusTxPoints,
+              p_earned_at: earnedAt,
+              p_expires_at: null,
+              p_notes: `promo_id=${activePromo.id}`,
+            },
+          );
+          if (bonusLotErr) {
+            console.error(
+              "[award-loyalty-points] promo_bonus lot shadow write failed",
+              bonusLotErr,
+            );
+          }
+        } catch (e) {
+          console.error(
+            "[award-loyalty-points] promo_bonus lot shadow write threw",
+            e,
+          );
+        }
+      }
+    }
+
     // 13. Fetch customer once for both the email block (recipient
     //     address + greeting name) and the in-portal notification
     //     block below (firstName extraction). Hoisted out of the
