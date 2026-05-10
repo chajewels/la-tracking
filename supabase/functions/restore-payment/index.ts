@@ -33,6 +33,22 @@ function scheduleStatusFor(base: number, paid: number, dueDate: string): string 
   return dueDate <= today ? "overdue" : "pending";
 }
 
+function isDownpaymentPayment(p: {
+  reference_number?: string | null;
+  remarks?: string | null;
+}): boolean {
+  if (p.reference_number && String(p.reference_number).startsWith('DP-')) {
+    return true;
+  }
+  if (p.remarks) {
+    const r = String(p.remarks).toLowerCase();
+    if (r.includes('down') || r.includes('dp')) {
+      return true;
+    }
+  }
+  return false;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
