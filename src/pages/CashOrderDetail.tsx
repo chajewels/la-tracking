@@ -20,6 +20,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import StatusBadge from '@/components/customers/StatusBadge';
 import RecordCashPaymentDialog from '@/components/customers/RecordCashPaymentDialog';
+import InvoiceGeneratorSheet from '@/components/invoices/InvoiceGeneratorSheet';
 import { Currency } from '@/lib/types';
 import { formatCurrency } from '@/lib/calculations';
 import { supabase } from '@/integrations/supabase/client';
@@ -49,7 +50,15 @@ interface CashOrderRow {
   cancelled_at?: string | null;
   cancelled_by_user_id?: string | null;
   created_at: string;
-  customers: { id: string; full_name: string } | null;
+  customers: {
+    id: string;
+    full_name: string;
+    address_line1: string | null;
+    city: string | null;
+    postal_code: string | null;
+    country: string | null;
+    mobile_number: string | null;
+  } | null;
 }
 
 interface CashPaymentRow {
@@ -102,7 +111,7 @@ function useCashOrderDetail(id: string | undefined) {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from('cash_orders')
-        .select('*, customers(id, full_name)')
+        .select('*, customers(id, full_name, address_line1, city, postal_code, country, mobile_number)')
         .eq('id', id)
         .maybeSingle();
       if (error) throw error;
@@ -594,6 +603,18 @@ export default function CashOrderDetail() {
               )}
             </Button>
           )}
+          <InvoiceGeneratorSheet
+            cashOrderId={order.id}
+            parentInvoiceNumber={order.invoice_number}
+            prefillAddress={{
+              name: order.customers?.full_name || '',
+              address_line1: order.customers?.address_line1 ?? null,
+              city: order.customers?.city ?? null,
+              postal_code: order.customers?.postal_code ?? null,
+              country: order.customers?.country ?? null,
+              phone: order.customers?.mobile_number ?? null,
+            }}
+          />
           {canCancel && (
             <Button
               variant="outline"
