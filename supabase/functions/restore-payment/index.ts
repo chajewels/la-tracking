@@ -108,6 +108,110 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ── DP RESTORATION SHORT-CIRCUIT ──
+    // DPs don't have payment_allocations rows on this schema
+    // (allocation_type enum is 'installment' | 'penalty' only).
+    // For DP restoration, just unvoid the payment and recompute
+    // account totals — do NOT run the installment waterfall.
+    if (isDownpaymentPayment(payment)) {
+      const { error: unvoidErr } = await supabase
+        .from("payments")
+        .update({
+          voided_at: null,
+          voided_by_user_id: null,
+          void_reason: null,
+        })
+        .eq("id", payment_id);
+
+      if (unvoidErr) {
+        console.error("Failed to unvoid DP payment:", unvoidErr);
+        return new Response(
+          JSON.stringify({
+            error: "Could not restore DP payment",
+            details: unvoidErr.message,
+          }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const accountId = payment.account_id;
+
+      const [paymentsRes, penaltiesRes, servicesRes, accountRes] = await Promise.all([
+        supabase.from("payments").select("amount_paid")
+          .eq("account_id", accountId).is("voided_at", null),
+        supabase.from("penalty_fees").select("penalty_amount")
+          .eq("account_id", accountId).neq("status", "waived"),
+        supabase.from("account_services" as any).select("amount").eq("account_id", accountId),
+        supabase.from("layaway_accounts").select("total_amount").eq("id", accountId).single(),
+      ]);
+
+      if (accountRes.error || !accountRes.data) {
+        return new Response(
+          JSON.stringify({ error: "Could not fetch account for recompute" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const newTotalPaid = round2(
+        (paymentsRes.data ?? []).reduce((sum: number, p: any) => sum + Number(p.amount_paid), 0)
+      );
+      const penaltyTotal = (penaltiesRes.data ?? []).reduce((sum: number, p: any) => sum + Number(p.penalty_amount), 0);
+      const serviceTotal = (servicesRes.data ?? []).reduce((sum: number, s: any) => sum + Number(s.amount), 0);
+      const totalAmount = Number(accountRes.data.total_amount ?? 0);
+
+      const newRemaining = Math.max(0, round2(
+        totalAmount + penaltyTotal + serviceTotal - newTotalPaid
+      ));
+
+      const { error: updateErr } = await supabase
+        .from("layaway_accounts")
+        .update({
+          total_paid: newTotalPaid,
+          remaining_balance: newRemaining,
+        })
+        .eq("id", accountId);
+
+      if (updateErr) {
+        return new Response(
+          JSON.stringify({
+            error: "DP unvoided but account totals update failed",
+            details: updateErr.message,
+          }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      await supabase.from("audit_logs").insert({
+        entity_type: "payment",
+        entity_id: payment_id,
+        action: "restore",
+        old_value_json: {
+          voided_at: payment.voided_at,
+          void_reason: payment.void_reason,
+          kind: "downpayment",
+        },
+        new_value_json: {
+          restored_by: user.id,
+          kind: "downpayment",
+          new_total_paid: newTotalPaid,
+          new_remaining_balance: newRemaining,
+        },
+        performed_by_user_id: user.id,
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          payment_id,
+          kind: "downpayment",
+          total_paid: newTotalPaid,
+          remaining_balance: newRemaining,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    // ── END DP SHORT-CIRCUIT ──
+
     const { data: originalAllocations } = await supabase
       .from("payment_allocations")
       .select("*")
