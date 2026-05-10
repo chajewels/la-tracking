@@ -283,15 +283,20 @@ When checking whether a user can perform an action:
 - Commit and push all changes directly to **main** branch
 - Do NOT create feature branches unless explicitly asked
 
-## TOOL OWNERSHIP RULES (updated 2026-04-29)
+## TOOL OWNERSHIP RULES (updated 2026-05-10)
 
-  Lovable → src/ AND supabase/functions/ file creation and editing
+  Lovable → src/ AND supabase/functions/ file creation and editing.
+            Lovable ALSO handles ALL Supabase edge function
+            deployments via direct Supabase Dashboard tooling access.
   Claude Code → src/ AND supabase/functions/ editing when explicitly
                 directed by Cynthia. Default mode is read-only audit
                 and diagnosis. May commit and push to git when asked.
-  Cloud Shell → npx supabase functions deploy commands ONLY
-                (and only for functions not in the auto-deploy
-                workflow — see AUTO-DEPLOY RULES list)
+  Cloud Shell → git operations only (pulls, merges, pushes, repo
+                audits). Cynthia has NO direct Supabase deployment
+                access — NEVER suggest `npx supabase functions deploy`
+                from Cloud Shell. If a function appears stale,
+                escalate to Lovable to redeploy via Supabase
+                Dashboard tooling.
   Supabase SQL Editor → database changes only (pure SQL)
 
   Practice rules (apply to both Lovable and Claude Code):
@@ -2247,7 +2252,8 @@ When completing a partially_paid month:
     - PWA Phase A install routing — ABANDONED 2026-05-04,
       see EMAIL/PASSWORD AUTH (Phase B) in PENDING ITEMS
     - Invoice generator — Google Sheets + Drive, JPY only.
-      Service account ready, code not written.
+      ✅ SHIPPED 2026-05-09 / 2026-05-10 (Steps 1a-1e in
+      INVOICE GENERATOR section)
     - Firebase signing steps 13-17 — contract signing flow
       partially built.
 
@@ -3068,6 +3074,62 @@ When completing a partially_paid month:
         customer record; count badge shows prior generations.
       CashOrderDetail.tsx — same behavior; broadened SELECT
         ensures all 6 address fields available for pre-fill.
+
+  Step 1d — SHIPPED 2026-05-10 (commit 154ac2c):
+    get-page365-order edge function fetches Page365 order data
+    from the latest CSV in the _Page365-Mirror Drive folder
+    (PAGE365_MIRROR_FOLDER_ID secret). Reads UTF-16 LE TSV,
+    filters by invoice number, returns:
+      { found, address?, phone?, shipping_fee?, discount?,
+        items?: [{ description, qty, unit_price_with_tax }] }
+
+    Implementation:
+      Extracted shared getServiceAccountAccessToken helper into
+        supabase/functions/_shared/google-auth.ts (was previously
+        inlined in generate-invoice).
+      generate-invoice refactored to import the shared helper
+        (zero behavior change, pure refactor).
+      get-page365-order: 153 lines, single POST handler.
+
+    End-to-end test (invoice 18952, Roselyn Julianda Valenzuela):
+      Returns 2 items (necklace + bracelet totaling ¥84,960),
+      Saudi Arabia address, phone — all correct.
+
+    Final commit chain on main:
+      154ac2c — feat(invoice): get-page365-order edge function +
+                extract google-auth helper
+
+  Step 1e — SHIPPED 2026-05-10 (commit 70d8491):
+    InvoiceGeneratorSheet pre-fills SHIP TO address, phone,
+    items, discount, and shipping fee from get-page365-order
+    when the dialog opens. Customer name preserved from
+    prefillAddress prop (customers table).
+
+    Implementation:
+      useQuery on ['page365-order', parentInvoiceNumber] enabled
+        when dialog open + invoice number present + user authorized.
+      useEffect on page365Error → toast.error fallback for
+        network/Drive failures.
+      useEffect on page365Data?.found === true → setShipTo,
+        setItems (mapping unit_price_with_tax →
+        unit_price_jpy_inclusive), setDiscount, setShipping.
+      "Pre-filled from Page365" Badge (variant="secondary")
+        shown next to SHIP TO heading when data loaded.
+      Page365 wins on conflict: address_line1 = full address
+        string, city/postal_code/country cleared (Page365 has
+        it all in one field), phone overridden, name preserved
+        from customers table.
+      found=false → silent fallback (no toast, dialog
+        behaves exactly as before).
+
+    End-to-end verified on invoice 18952 in production: dialog
+    opened, badge appeared, all fields auto-populated within
+    ~1 second. Invoice generated correctly via Google Sheets
+    with all pre-filled data.
+
+    Final commit chain on main:
+      70d8491 — feat(invoice): wire Page365 pre-fill into
+                InvoiceGeneratorSheet
 
 ## SYSTEM STATUS (as of 2026-05-07)
 
@@ -5726,10 +5788,6 @@ loyalty portal. In progress.
 
 ### OPERATIONAL ENHANCEMENTS
   P6: Admin audit log for manual DB changes
-  P7: Invoice generator — Google Sheets +
-      Drive (service account ready)
-  P9: Invoice button — add to AccountDetail
-      and CashOrderDetail pages
 
 ### CI/DEPLOYMENT INFRASTRUCTURE
   ⏳ GitHub Actions Supabase auto-deploy
@@ -6555,12 +6613,8 @@ Branch isolation rules (LOCKED):
   - Session timeout — auto-logout 2 hours
     inactivity (P5)
   - Admin audit log for manual DB changes (P6)
-  - Invoice generator — Google Sheets + Drive
-    (service account ready)
   - Loyalty amount field — make visible to staff
     role
-  - Invoice button — add to AccountDetail and
-    CashOrderDetail
 
 ## PERIODIC HEALTH QUERIES
 
@@ -6588,8 +6642,8 @@ WHERE ls.status = 'partially_paid'
 
 ## AUTO-DEPLOY RULES (updated 2026-05-07)
 
-  ⚠️ DEPLOYMENT MODEL (clarified
-     2026-05-08):
+  ⚠️ DEPLOYMENT MODEL (updated
+     2026-05-10):
 
      Edge function deployments are
      handled by Lovable inside their
@@ -6598,13 +6652,14 @@ WHERE ls.status = 'partially_paid'
      Supabase Dashboard access;
      Cynthia does not.
 
-     Cloud Shell manual deploys are
-     used for Cynthia-side
-     interventions (e.g., when stale
-     deploys are suspected, when
-     manually verifying a fix, when
-     Lovable hasn't deployed a recent
-     commit).
+     Cynthia has NO direct deployment
+     access — `npx supabase functions
+     deploy` from Cloud Shell is NOT
+     an option. If a function appears
+     stale or a recent commit has not
+     deployed, escalate to Lovable;
+     they redeploy via Supabase
+     Dashboard tooling.
 
      GitHub Actions auto-deploy
      workflow EXISTS but has never
@@ -6630,7 +6685,7 @@ FRONTEND: Firebase Hosting — ALL pushes trigger rebuild and deploy
 SUPABASE EDGE FUNCTIONS — these auto-deploy when their files change.
 Source of truth: .github/workflows/supabase-functions-deploy.yml.
 Always re-check the workflow file before assuming a function is or
-isn't auto-deployed; this list reflects the workflow as of 2026-05-04:
+isn't auto-deployed; this list reflects the workflow as of 2026-05-10:
 
 - accept-underpayment
 - add-service
@@ -6646,6 +6701,8 @@ isn't auto-deployed; this list reflects the workflow as of 2026-05-04:
 - daily-reconciliation
 - dashboard-summary
 - edit-payment-submission
+- generate-invoice
+- get-page365-order
 - join-loyalty-program
 - loyalty-inactivity-check
 - manual-forfeit
@@ -6681,32 +6738,30 @@ before adding new functions.
 ### review-payment-submission deploy verification
 
 review-payment-submission: verify version in Supabase logs
-after every deploy. If unchanged, manually deploy:
-
-  npx supabase functions deploy review-payment-submission \
-    --no-verify-jwt --project-ref pfoicalpzdcmyxzvwyhz
+after every deploy. If the deployed version does not match
+the latest commit, escalate to Lovable to redeploy via
+Supabase Dashboard tooling — Cynthia cannot run
+`npx supabase functions deploy` from Cloud Shell.
 
 ### IMPORTANT — STALE EDGE FUNCTION DEPLOYS
 
-GitHub Actions auto-deploy can report success while
-the deployed Supabase edge function stays stale.
-Confirmed twice:
+Edge function deploys handled by Lovable can occasionally
+lag behind the latest commit, leaving the production
+function stale. Confirmed twice:
 - Cash KPI deploy (2026-04-28)
 - D3 reminder count fix — commit 0fe7517
   (2026-04-29). Auto-deploy job reported green
   but Dashboard kept showing the capped 200
-  value until a manual deploy was issued.
+  value until a manual redeploy was issued.
 
 After ANY dashboard-summary change, verify the
 fix actually shipped (compare Supabase function
 version + spot-check a metric). If the metric
-looks stale, manually redeploy from Cloud Shell:
+looks stale, escalate to Lovable to redeploy via
+Supabase Dashboard tooling — Cynthia cannot run
+`npx supabase functions deploy` from Cloud Shell.
 
-  npx supabase functions deploy dashboard-summary \
-    --project-ref pfoicalpzdcmyxzvwyhz
-
-This forces Supabase to take the latest code.
-Same pattern applies to any other auto-deployed
-edge function whose effect is observable in the
-UI — if you can't see the fix, redeploy manually
+Same pattern applies to any other edge function
+whose effect is observable in the UI — if you
+cannot see the fix, escalate redeploy to Lovable
 before assuming the code is wrong.
