@@ -138,6 +138,79 @@ export default function InvoiceGeneratorSheet({
     },
   });
 
+  // Page365 pre-fill — fetches the source order data so staff
+  // doesn't copy-paste from Page365.
+  const { data: page365Data, error: page365Error } = useQuery({
+    queryKey: ['page365-order', parentInvoiceNumber],
+    enabled: !!parentInvoiceNumber && open && isAuthorized,
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke(
+        'get-page365-order',
+        { body: { invoice_number: parentInvoiceNumber } },
+      );
+      if (error) throw error;
+      return data as {
+        found: boolean;
+        address?: string;
+        phone?: string;
+        shipping_fee?: number;
+        discount?: number;
+        items?: Array<{
+          description: string;
+          qty: number;
+          unit_price_with_tax: number;
+        }>;
+      };
+    },
+  });
+
+  // Toast on Page365 fetch errors (network or Drive failure).
+  // found=false is NOT an error — handled silently by the pre-fill
+  // effect below.
+  useEffect(() => {
+    if (page365Error) {
+      toast.error('Could not load Page365 order data — please enter manually');
+    }
+  }, [page365Error]);
+
+  // When Page365 returns found=true, override the form with fresh
+  // per-order data. found=false leaves existing state untouched
+  // (graceful fallback to manual entry).
+  useEffect(() => {
+    if (!page365Data?.found) return;
+
+    // Address: Page365 stores the full address as one combined
+    // string. Put it into address_line1 and clear the other 3
+    // sub-fields to avoid mixing stale customer-table data with
+    // fresh Page365 data on the printed invoice.
+    setShipTo((prev) => ({
+      name: prev.name,
+      address_line1: page365Data.address || '',
+      city: '',
+      postal_code: '',
+      country: '',
+      phone: page365Data.phone || '',
+    }));
+
+    if (page365Data.items && page365Data.items.length > 0) {
+      setItems(
+        page365Data.items.map((item) => ({
+          description: item.description,
+          qty: item.qty,
+          unit_price_jpy_inclusive: item.unit_price_with_tax,
+        })),
+      );
+    }
+
+    if (typeof page365Data.discount === 'number') {
+      setDiscount(String(page365Data.discount));
+    }
+
+    if (typeof page365Data.shipping_fee === 'number') {
+      setShipping(String(page365Data.shipping_fee));
+    }
+  }, [page365Data]);
+
   const updateShipTo = <K extends keyof AddressInput>(key: K, value: AddressInput[K]) => {
     setShipTo((prev) => ({ ...prev, [key]: value }));
   };
@@ -306,7 +379,14 @@ export default function InvoiceGeneratorSheet({
             </div>
 
             <div className="space-y-3 rounded-lg border border-border p-4">
-              <h3 className="text-sm font-semibold text-card-foreground">Ship To</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-card-foreground">Ship To</h3>
+                {page365Data?.found && (
+                  <Badge variant="secondary" className="text-xs">
+                    Pre-filled from Page365
+                  </Badge>
+                )}
+              </div>
               <div className="space-y-2">
                 <Label>Name *</Label>
                 <Input
