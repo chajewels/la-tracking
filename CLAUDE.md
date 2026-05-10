@@ -6041,170 +6041,673 @@ loyalty portal. In progress.
      proximate trigger for logging
      this roadmap item.
   ⏳ Phase 6 — Redemption Model Overhaul
-     (FUTURE ROADMAP)
+     (DETAILED SPEC, locked
+     2026-05-09)
 
-     Investigation on 2026-05-08 surfaced a
-     fundamental architectural gap: the
-     redemption system is "obligation-only"
-     — approval debits points but does NOT
-     auto-apply discount to the linked
-     invoice. Staff fulfills manually. UI
-     implies linkage that backend doesn't
-     enforce. Documented for Phase 6
-     planning session.
+     Spec locked in design session
+     2026-05-09. Implementation
+     phased gradually after the
+     pre-Phase 6 loose-end cleanup
+     items below complete.
 
-     Discoveries:
+     PRE-PHASE 6 — LOOSE ENDS
+     (~5.5 hrs total):
+       - Void email notification
+         (~2 hrs) — see PENDING
+         entry below
+       - Phase 4.2.1 milestone
+         emission (~1.5 hrs)
+       - P5 admin session timeout
+         2hr (~2 hrs)
 
-       1. invoice_number on
-          loyalty_redemptions is
-          metadata-only — no FK, no
-          automatic application to
-          layaway_accounts or cash_orders.
+     ─────────────────────────────
+     AREA 1 — BIRTHDAY BONUS
+     ─────────────────────────────
 
-       2. value_applied_jpy hardcoded
-          1:1 from points_cost (no
-          separate reward.value_jpy
-          column).
+     Eligibility:
+       - Claim window: anytime
+         during customer's birth
+         MONTH
+       - Frequency: once per
+         calendar year
+       - New enrollees: immediate
+         eligibility
+       - Missed window: closes for
+         the year (cannot retro-
+         claim)
+       - Promo visibility: only to
+         customers whose birth
+         month matches current
+         month
 
-       3. UI says "Approve & Apply" but
-          only the points flow is
-          automated.
+     Bonus points (tier-based):
+       - Glimmer:    500 pts
+       - Radiant:  1,000 pts
+       - Elite:    1,500 pts
+       - Crown VIP: 2,000 pts
 
-       4. Email language ("Applied to:
-          INV #...") is misleading.
+     Expiration rule:
+       - Bonus expires LAST DAY of
+         month BEFORE next birth
+         month
+       - Example: May birthday →
+         claim May 2026 → expires
+         April 30 2027
+       - All May-birthday
+         customers expire same day
 
-     Customer business model goals (per
-     discussion 2026-05-08):
+     Expiration notifications:
+       - Single warning 1 month
+         before expiry
+       - In-portal + email
 
-       - Birthday Bonus is a POINTS BONUS
-         (not a redemption). Customer
-         claims free points on their
-         birth month (once/year). Points
-         added to balance, then spent
-         normally on services or
-         discounts.
+     ─────────────────────────────
+     AREA 1B — BIRTHDAY FIELD
+     SCHEMA
+     ─────────────────────────────
 
-       - Bonus points need EXPIRATION
-         (1 year after claim) — requires
-         points-lots architecture
-         (loyalty_point_lots table)
-         tracking source, earned_at,
-         expires_at, consumed status.
-         FIFO or expiring-first
-         consumption order.
+     Capture:
+       - Lazy capture only —
+         customer enters via
+         profile when ready
+       - Currently empty for all
+         663 customers
+       - Customer-set first; admin
+         cannot pre-populate
 
-       - Service catalog
-         admin-configurable: customer-
-         facing services like Resize,
-         Certification, Change Color,
-         etc. Customer redeems points
-         → picks service from admin
-         catalog → staff fulfills
-         manually.
+     Lock behavior:
+       - Locked immediately after
+         customer first save
+       - Customer cannot edit
+         again
+       - Admin/staff can override
+         ONCE only (correction
+         path)
+       - After admin override →
+         permanently locked
 
-       - New-order discount redemption:
-         requires invoice (layaway or
-         cash order, total_paid=0) →
-         approval auto-reduces invoice
-         total_amount by
-         value_applied_jpy → void
-         reverses.
+     Eligibility dependency:
+       - No birthday set → no
+         Birthday Bonus button
+         visible
 
-       - Birthday field on customers
-         must be lockable once set
-         (admin override only) to
-         prevent abuse of birthday
-         bonus claim.
+     Date format:
+       - Month + day only (no
+         year)
+       - birth_month smallint
+         1-12
+       - birth_day smallint 1-31
+       - DB CHECK constraint
+         validates valid month/
+         day combos
 
-       - Tier benefit rewards
-         (zero-cost) become DISPLAY
-         ONLY — Redeem button removed.
+     Schema additions on customers
+     table:
+       - birth_month smallint NULL
+       - birth_day smallint NULL
+       - birthday_set_at
+         timestamptz NULL
+       - birthday_corrected_at
+         timestamptz NULL
+       - birthday_corrected_by_user_id
+         uuid NULL
+       - birthday_correction_reason
+         text NULL
 
-     Estimated scope (per 2026-05-08
-     session):
+     Lock state (derivable):
+       - IF birthday_corrected_at
+         IS NOT NULL → permanently
+         locked
+       - ELSE IF birthday_set_at
+         IS NOT NULL → admin-
+         correctable once
+       - ELSE → empty, customer-
+         settable
 
-     A) Schema:
-        - loyalty_point_lots table
-        - loyalty_services catalog table
-        - loyalty_redemptions: service_id FK
-        - layaway_accounts + cash_orders:
-          loyalty_redemption_id +
-          loyalty_discount_jpy
-        - customers: birthday field with
-          lock mechanism
-        - loyalty_rewards:
-          redemption_mechanism field
-          ('new_order_discount' |
-           'service_fulfillment' |
-           'points_bonus' |
-           'tier_benefit')
+     ─────────────────────────────
+     AREA 2 — POINTS LOTS
+     ARCHITECTURE
+     ─────────────────────────────
 
-     B) Admin UI:
-        - Services catalog management
-        - Reward classification
-        - Birthday Bonus config
-        - Customer birthday edit
-          (admin-only)
+     New table: loyalty_point_lots
 
-     C) Customer UI:
-        - Birthday Bonus claim button
-          (month-gated, once/year)
-        - Service redemption dropdown
-        - Discount redemption invoice
-          input
-        - Expiring points alert
-        - Birthday lock UI (read-only
-          after set)
+     Columns:
+       - id uuid PK
+       - member_id uuid FK
+       - source_type enum
+         ('order_earn',
+          'birthday_bonus',
+          'promo_bonus',
+          'admin_adjust',
+          'refund_restoration')
+       - source_reference text
+       - original_amount numeric
+       - remaining_amount numeric
+       - earned_at timestamptz
+         NOT NULL
+       - expires_at timestamptz
+         NULL (NULL = no
+         expiration)
+       - consumed_at timestamptz
+         NULL
+       - expired_at timestamptz
+         NULL
+       - notes text NULL
 
-     D) Backend:
-        - Points lots: insert on earn,
-          consume on spend
-        - Birthday Bonus claim edge
-          function
-        - Daily expiration cron
-        - process-loyalty-redemption
-          refactor (split per
-          mechanism)
-        - Auto-apply discount to
-          invoice (approve)
-        - Reverse discount on void
+     Expiration rules by source:
 
-     E) Notifications:
-        - Birthday Bonus expiry
-          warnings (30, 7, 1 days
-          before)
-        - Birthday Bonus expired
-          notification
-        - Email + in-portal alignment
-          for void (currently only
-          in-portal — see Void email
-          notification PENDING item
-          below)
-        - Email language overhaul
-          (clearer fulfillment
-          language for service-type
-          rewards)
+       source_type='order_earn':
+         - expires_at: 12 months
+           from earned_at
+           INITIALLY
+         - ROLLING extension: any
+           customer purchase
+           extends ALL active
+           lots' expires_at to
+           (purchase_date + 12
+           months)
+         - "Inactivity expiration"
+           — customer must
+           purchase to keep points
+           alive
 
-     F) Migration:
-        - Backfill existing
-          transactions to
-          loyalty_point_lots
-        - Classify existing rewards
-          by mechanism
-        - Seed initial service
-          catalog (Resize,
-          Certification, Change
-          Color)
+       source_type='birthday_bonus':
+         - expires_at: last day
+           of month before next
+           birth month
+         - DOES NOT roll — fixed
+           expiry
 
-     Estimated effort: 60+ hours = 6-8
-     sessions. Multi-week initiative.
-     Fresh planning session required
-     before implementation begins.
+       source_type='promo_bonus':
+         - expires_at:
+           configurable per promo
 
-     Trigger: When ready to tackle full
-     redemption model overhaul. Should
-     be planned holistically, not
-     iteratively.
+       source_type='admin_adjust':
+         - expires_at:
+           configurable
+
+       source_type='refund_restoration':
+         - Special — restores
+           original consumed lot's
+           remaining_amount (no
+           new lot)
+
+     Consumption order:
+       - FIFO by expires_at ASC
+         NULLS LAST (expiring
+         soonest first)
+       - Within same expires_at:
+         FIFO by earned_at
+
+     New table:
+     loyalty_lot_consumption
+
+     Columns:
+       - id uuid PK
+       - redemption_id uuid FK
+       - lot_id uuid FK
+       - amount numeric
+       - consumed_at timestamptz
+         NOT NULL
+       - restored_at timestamptz
+         NULL
+       - restored_amount numeric
+         NULL
+
+     Refund rule (Q4.4):
+       - Void/cancellation
+         reversal restores
+         consumed lots
+       - Lot's remaining_amount
+         increases by amount
+         drawn
+       - Original earned_at AND
+         expires_at unchanged
+
+     Order cancellation/forfeiture:
+       - When status → cancelled/
+         forfeited:
+           * Find lots from order
+           * Reduce
+             remaining_amount
+           * Customer keeps
+             points already spent
+             (no clawback)
+           * Audit log entry
+       - Cancellation REVERSAL:
+         restore lots via Q4.4
+         path
+
+     Daily cron: expire-points
+       - Schedule: 00:30 UTC
+         (08:30 PHT)
+       - Find lots: expires_at
+         <= today AND expired_at
+         IS NULL AND
+         remaining_amount > 0
+       - Set expired_at = now()
+       - Decrement
+         member.remaining_points
+       - Set lot.remaining_amount
+         = 0
+       - Audit log per lot
+       - Send notifications
+
+     ─────────────────────────────
+     AREA 3 — SERVICE CATALOG
+     ─────────────────────────────
+
+     Initial catalog (9 services):
+       1. Resize
+       2. Certification
+       3. Change Color
+       4. Polishing
+       5. Engraving
+       6. Repair
+       7. Stone setting
+       8. Cleaning
+       9. Plating restoration
+
+     Schema:
+
+       loyalty_services:
+         - id uuid PK
+         - name text NOT NULL
+           UNIQUE
+         - description text
+         - is_active boolean
+           DEFAULT true
+         - display_order int
+           DEFAULT 0
+         - created_at, updated_at
+
+       loyalty_service_requests:
+         - id uuid PK
+         - customer_id uuid FK
+         - member_id uuid FK
+         - service_id uuid FK
+         - customer_notes text
+         - invoice_reference text
+           NULL (optional free
+           text)
+         - proposed_points_cost
+           int NULL
+         - proposed_at
+           timestamptz NULL
+         - proposed_by_user_id
+           uuid NULL
+         - status enum
+           ('requested',
+            'cost_set',
+            'cost_accepted',
+            'declined',
+            'cancelled',
+            'fulfilled')
+         - redemption_id uuid
+           NULL FK
+         - scheduled_fulfillment_date
+           date NULL (auto-set to
+           cost_accepted_at + 14
+           days; admin can extend,
+           never shorten)
+         - fulfilled_at
+           timestamptz NULL
+         - fulfilled_by_user_id
+           uuid NULL
+         - fulfillment_notes text
+           NULL
+         - created_at, updated_at
+
+     Workflow:
+
+       1. Customer browses
+          catalog (no prices
+          shown)
+       2. Customer requests
+          service with optional
+          notes + optional
+          invoice reference
+            → status='requested'
+       3. Admin/staff reviews +
+          sets cost
+            → status='cost_set'
+            → Customer notified
+       4. Customer accepts or
+          declines
+            - Accept →
+              status='cost_accepted'
+            - Redemption row
+              CREATED (first
+              time)
+            - Points debited from
+              expiring-soonest
+              lots
+            - scheduled_fulfillment_date
+              auto-set
+              TODAY + 14 days
+            - Decline →
+              status='declined'
+              (no redemption)
+       5. Admin fulfills
+            → status='fulfilled'
+            → Customer notified
+       6. Cancel paths
+            - Before
+              cost_accepted: just
+              mark cancelled
+            - After cost_accepted:
+              void redemption
+              (Phase 3.2.1) +
+              refund points
+
+     Notifications — 4 new
+     templates (all in-portal +
+     email):
+       - service_cost_proposed
+       - service_confirmed
+       - service_fulfilled
+       - service_cancelled
+
+     ─────────────────────────────
+     AREA 4 — DISCOUNT AUTO-APPLY
+     ON INVOICE
+     ─────────────────────────────
+
+     Generic "Spend Points for
+     Discount on New Order"
+     reward.
+
+     Reward model:
+       - Single generic reward in
+         catalog
+       - No fixed points cost
+       - Customer enters
+         invoice_number +
+         points_to_spend
+       - Admin approves →
+         discount auto-applied
+
+     Points-to-yen ratio:
+       - 1:1 always
+       - For PHP accounts:
+         PHP_amount =
+         JPY_amount × 0.42 rate
+
+     Invoice type constraint:
+       - Only NEW orders
+         (total_paid = 0) qualify
+       - Both layaway AND cash
+         orders
+
+     Discount application:
+       - Adds to invoice's
+         total_paid as VIRTUAL
+         PAYMENT
+       - Original total_amount
+         unchanged
+       - remaining_balance
+         recalculated
+
+     Cascade logic (when discount
+     exceeds downpayment):
+       1. Apply to downpayment
+          first
+       2. Cascade to installment
+          1 if exceeds
+       3. Continue cascading to
+          installment 2, 3...
+       4. Until discount fully
+          consumed
+
+     Examples:
+
+       Within DP:
+         Layaway: ¥30,000, DP
+         ¥6,000, 6×¥4,000
+         Redeem 3,000 pts → DP
+         ¥3,000 cash needed,
+         installments unchanged
+
+       Cascade:
+         Layaway: ¥30,000, DP
+         ¥6,000, 6×¥4,000
+         Redeem 8,000 pts → DP
+         fully covered,
+         installment 1 reduced
+         ¥4,000→¥2,000
+
+       Multi-installment cascade:
+         Redeem 12,000 pts → DP +
+         installment 1 fully
+         covered, installment 2
+         reduced ¥4,000→¥2,000
+
+     Void reciprocal (Phase
+     3.2.1 extension):
+       - Refund points to
+         original lot
+       - Reduce invoice
+         total_paid
+       - Reverse cascade —
+         restore installment
+         amounts
+       - Recalculate
+         remaining_balance
+       - Modal warning if invoice
+         has cash payments since
+         approval
+
+     Schema additions:
+       - loyalty_redemptions:
+         redemption_kind enum
+           ('catalog_reward',
+            'discount_on_order',
+            'service_request')
+       - layaway_accounts:
+         loyalty_redemption_id
+           uuid NULL FK
+         loyalty_discount_jpy
+           numeric NULL
+       - cash_orders:
+         loyalty_redemption_id
+           uuid NULL FK
+         loyalty_discount_jpy
+           numeric NULL
+
+     ─────────────────────────────
+     AREA 5 — TIER BENEFITS
+     DISPLAY-ONLY
+     ─────────────────────────────
+
+     Zero-cost rewards become
+     display-only tier perks.
+     Hide "Redeem Now" button.
+     Show "Tier Perk —
+     Automatically Applied"
+     badge.
+
+     ─────────────────────────────
+     ROLLOUT — GRADUAL
+     ─────────────────────────────
+
+     Phase 6.0 — Pre-phase loose
+     ends (~5.5 hrs)
+       - Void email notification
+       - Phase 4.2.1 milestone
+         emission
+       - P5 session timeout
+
+     Phase 6.1 — Points lots +
+     464 member migration BUNDLED
+     (~15-18 hrs)
+       - Schema:
+         loyalty_point_lots +
+         loyalty_lot_consumption
+       - award-loyalty-points
+         refactor
+       - process-loyalty-redemption
+         refactor (consume from
+         lots)
+       - Daily expiration cron
+       - 464 member migration
+         from Google Sheets
+       - Validation:
+         SUM(lot remaining) =
+         member.remaining_points
+       - Note: Production DB has
+         1 member with 200 pts
+         (Test Customer from
+         2026-05-08 smoke test)
+         — handled as edge case
+
+     Phase 6.2 — Birthday Bonus
+     (~10 hrs)
+       - Schema:
+         customers.birth_* +
+         lock fields
+       - Profile birthday capture
+         UI
+       - "Claim Birthday Bonus"
+         button (month-gated)
+       - claim-birthday-bonus
+         edge function
+       - Expiration cron +
+         notifications
+
+     Phase 6.3 — Service catalog
+     (~12 hrs)
+       - Schema:
+         loyalty_services +
+         loyalty_service_requests
+       - Admin services
+         management UI
+       - Customer service
+         request flow
+       - Cost approval workflow
+       - 4 new notification
+         templates
+
+     Phase 6.4 — Discount auto-
+     apply (~15 hrs)
+       - Schema:
+         redemption_kind,
+         loyalty_redemption_id FK
+       - New "Spend Points for
+         Discount" reward
+       - Backend approve/void
+         branches with cascade
+       - Frontend discount flow
+
+     Phase 6.5 — Tier display-
+     only (~3 hrs)
+
+     TOTAL ESTIMATE: ~60-63 hrs
+     = 6-8 sessions
+
+     ─────────────────────────────
+     BACKFILL STRATEGY
+     ─────────────────────────────
+
+     Primary source: Google
+     Sheets historical records
+     (464+ members with full
+     transaction history)
+     Secondary: DB
+     loyalty_transactions table
+
+     Process:
+       1. Extract per-member
+          transaction history
+       2. Reconstruct lots with
+          original earned_at +
+          computed expires_at
+       3. Reconstruct consumption
+          rows for spending
+          events
+       4. Validate: SUM =
+          member.remaining_points
+       5. Cutover with feature
+          flag
+
+     ─────────────────────────────
+     DESIGN DECISIONS LOG
+     ─────────────────────────────
+
+     Birthday Bonus:
+       Q1.1 = birth month window
+       Q1.2 = once per calendar
+              year
+       Q1.3 = immediate
+              eligibility
+       Q1.4 = window closes if
+              missed
+       Q2.1 = tier-based
+              500/1000/1500/2000
+       Q2.2 = last day of pre-
+              birth-month next
+              year
+       Q2.3 = 1 month warning
+
+     Birthday Field:
+       Q3.1 = lazy capture
+              customer-set
+       Q3.2 = immediate lock
+       Q3.3 = admin one
+              correction
+       Q3.4 = no birthday no
+              claim
+       Q3.5 = month+day no year
+
+     Points Lots:
+       Q4.1 = 12-month inactivity
+              rolling
+       Q4.2 = no tier bonuses
+       Q4.3 = promo bonus
+              separate
+       Q4.4 = restore original
+              lot
+       Q4.5 = expiring soonest
+              first
+
+     Service Catalog:
+       Q5.1 = 9 services
+       Q5.2 = variable cost with
+              customer approval
+       Q5.3 = status flow + 14-
+              day scheduled
+              minimum
+       Q5.4 = in-portal + email
+              all stages
+       Q5.5 = optional free-text
+              invoice ref
+
+     Discount:
+       Q6.1 = generic reward
+       Q6.2 = 1:1 ratio
+       Q6.3 = virtual payment
+              via total_paid
+       Q6.4 = NEW orders only
+       Q6.5 = both layaway +
+              cash
+       Q6.6 = auto-reversal on
+              void
+       Q6.7 = DP first then
+              cascade
+
+     Rollout:
+       Q7.1 = points lots first
+       Q7.2-Q7.3 = Google Sheets
+                   backfill
+                   bundled with
+                   464 member
+                   migration
+       Q7.4 = after loose ends
+       Q7.5 = gradual
+
+     Trigger: Phase 6.0 loose
+     ends complete + design
+     session results approved
+     for build.
   ⏳ Void email notification (small
      standalone fix)
 
