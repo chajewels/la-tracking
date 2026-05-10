@@ -2100,6 +2100,19 @@ When completing a partially_paid month:
     label, !!proofFile guard in isFormValid, and dropzone "required"
     hint (2026-05-10)
 
+  - 95. Cash Order Detail and Account Detail "Loyalty Points Preview"
+    section showed "Customer Tier (Nx multiplier)" and "Points to
+    Earn" rows that reflected the customer's CURRENT tier — but the
+    actual award uses the POST-upgrade tier per the ratchet-up spec
+    (Bug #94). Preview was misleading on any qualifying purchase
+    that crossed a tier threshold. Removed the Customer Tier row,
+    the Points to Earn row, and the "Points will be awarded once…"
+    helper text on both pages. Section now shows only the JPY
+    Loyalty Amount, which is unambiguous regardless of upgrade
+    behavior. Dead useCustomerLoyaltyTier hook deleted (zero
+    callers after cleanup). Sparkles import retained on both
+    pages — still used by the section header. (2026-05-10)
+
 ## Known Open Bugs
 
   Bugs that have been surfaced and triaged but not

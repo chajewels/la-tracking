@@ -26,7 +26,6 @@ import { formatCurrency } from '@/lib/calculations';
 import { supabase } from '@/integrations/supabase/client';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useAuth } from '@/contexts/AuthContext';
-import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
 
 interface CashOrderRow {
   id: string;
@@ -243,7 +242,6 @@ export default function CashOrderDetail() {
   const { data: cancelledByProfile } = useProfileName(
     order?.status === 'cancelled' ? order?.cancelled_by_user_id : undefined,
   );
-  const { data: loyaltyTier } = useCustomerLoyaltyTier(order?.customer_id);
 
   // Record payment dialog state
   const [recordOpen, setRecordOpen] = useState(false);
@@ -637,7 +635,7 @@ export default function CashOrderDetail() {
         </div>
 
         {/* Loyalty Points Preview */}
-        {loyaltyTier && order.loyalty_jpy_amount && Number(order.loyalty_jpy_amount) > 0 && (
+        {order.loyalty_jpy_amount && Number(order.loyalty_jpy_amount) > 0 && (
           <div className="rounded-xl border border-primary/30 bg-card p-5 space-y-3">
             <div className="flex items-center gap-2">
               <Sparkles className="text-primary" size={16} />
@@ -646,30 +644,12 @@ export default function CashOrderDetail() {
 
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Customer Tier</span>
-                <span className="font-semibold">
-                  {loyaltyTier.current_tier_name} ({loyaltyTier.current_tier_multiplier}x)
-                </span>
-              </div>
-
-              <div className="flex justify-between">
                 <span className="text-muted-foreground">Loyalty Amount</span>
                 <span className="font-semibold">
                   ¥{Number(order.loyalty_jpy_amount).toLocaleString()}
                 </span>
               </div>
-
-              <div className="flex justify-between pt-2 border-t border-border">
-                <span className="text-muted-foreground">Points to Earn</span>
-                <span className="font-bold text-primary text-base">
-                  {Math.floor(Number(order.loyalty_jpy_amount) / 10000) * 100 * loyaltyTier.current_tier_multiplier} pts
-                </span>
-              </div>
             </div>
-
-            <p className="text-xs text-muted-foreground italic">
-              Points will be awarded once the order is fully paid.
-            </p>
           </div>
         )}
 

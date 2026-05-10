@@ -33,7 +33,6 @@ import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
 import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useEditPaymentAmount, useRestorePayment, useDeleteAccount, useForfeitAccount, useAccountServices, usePenaltyCapOverride, useAccountNotes } from '@/hooks/use-supabase-data';
-import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -62,7 +61,6 @@ export default function AccountDetail() {
   const { data: services } = useAccountServices(id);
   const { data: penaltyCapOverride } = usePenaltyCapOverride(id);
   const { data: accountNotes } = useAccountNotes(id);
-  const { data: loyaltyTier } = useCustomerLoyaltyTier(account?.customer_id);
   const { data: submissionProofs } = useQuery({
     queryKey: ['submission-proofs', id],
     enabled: !!id,
@@ -1714,7 +1712,7 @@ export default function AccountDetail() {
           )}
 
           {/* Loyalty Points Preview */}
-          {loyaltyTier && account.loyalty_jpy_amount && Number(account.loyalty_jpy_amount) >= 10000 && (
+          {account.loyalty_jpy_amount && Number(account.loyalty_jpy_amount) >= 10000 && (
             <div className="rounded-xl border border-primary/30 bg-card p-5 space-y-3">
               <div className="flex items-center gap-2">
                 <Sparkles className="text-primary" size={16} />
@@ -1723,30 +1721,12 @@ export default function AccountDetail() {
 
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Customer Tier</span>
-                  <span className="font-semibold">
-                    {loyaltyTier.current_tier_name} ({loyaltyTier.current_tier_multiplier}x)
-                  </span>
-                </div>
-
-                <div className="flex justify-between">
                   <span className="text-muted-foreground">Loyalty Amount</span>
                   <span className="font-semibold">
                     ¥{Number(account.loyalty_jpy_amount).toLocaleString()}
                   </span>
                 </div>
-
-                <div className="flex justify-between pt-2 border-t border-border">
-                  <span className="text-muted-foreground">Points to Earn</span>
-                  <span className="font-bold text-primary text-base">
-                    {Math.floor(Number(account.loyalty_jpy_amount) / 10000) * 100 * loyaltyTier.current_tier_multiplier} pts
-                  </span>
-                </div>
               </div>
-
-              <p className="text-xs text-muted-foreground italic">
-                Points will be awarded once the downpayment is confirmed.
-              </p>
             </div>
           )}
 
