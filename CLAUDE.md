@@ -5260,6 +5260,131 @@ When completing a partially_paid month:
 
   No customer impact. Token-only auth working as intended.
 
+  ### 2026-05-10 — Phase 6.1 T1/T2 Smoke Test + Three-Bug Fix Workstream + Bug #97 Discovery
+
+  **Pre-test fixes shipped:**
+    - Bug #92 (PR #4, d39d660): submit-cash-payment dispatch — staff
+      Bearer JWTs were routing into customer Path A. Fixed via
+      has_role disambiguation. Deployed 15:06 UTC.
+    - Bug #93 (PR #5, 580f3c8): RecordCashPaymentDialog.tsx — Proof
+      of Payment now required (asterisk + isFormValid !!proofFile
+      guard + dropzone hint).
+
+  **Phase 6.1 T1 smoke test (Test Customer, ¥1M Test-007 cash order):**
+    - cash_order_id=0798ef13-22ed-4668-8ed9-dc1a8ae3a126
+    - Pre-state: Glimmer 1x, 200 pts, ~¥20K cumulative, lots_baseline=0
+    - Post-state observed: 20,200 pts, ¥2,020,000 cumulative
+      — drift +10,200 vs expected 200
+    - Comprehensive audit surfaced two distinct bugs (94 + 96)
+      plus UI cleanup (95)
+
+  **Three-bug fix workstream (all deployed, sequenced to avoid worsening drift):**
+    - Bug #94 (PR #6, 5bee33b): award-loyalty-points/index.ts —
+      points calc locked at pre-upgrade multiplier. Fix: 5-edit
+      reorder, detect upgrade BEFORE points calc, use
+      effectiveMultiplier/effectiveTierName ternaries throughout
+      (transaction insert, lot insert, email payload, in-portal
+      notification). Marker comment at line 114.
+    - Bug #95 (PR #7, 884458d): Loyalty Points Preview UI — admin
+      pages showed pre-upgrade tier multiplier and Points to Earn
+      calc (misleading per ratchet-up spec). Removed Customer Tier
+      row + Points to Earn row + helper text from
+      CashOrderDetail.tsx and AccountDetail.tsx. Deleted unused
+      src/hooks/useCustomerLoyaltyTier.ts. Architectural intent:
+      all loyalty UI lives in customer-facing portal, not admin.
+    - Bug #96 (deployed): Trigger + edge function double-credit
+      race.
+        - Trigger fires on cash_orders.status='completed' BEFORE
+          edge function HTTP invoke
+        - Both inserted transactions AND updated loyalty_members →
+          +¥2M cumulative, +20K pts
+        - Decision (Option B'-revised): Drop trigger member UPDATE;
+          keep trigger transaction insert as audit safety net; edge
+          function does upsert (SELECT-existing-then-UPDATE-or-
+          INSERT) on transaction.
+        - SQL DDL: redefined award_loyalty_points_on_complete()
+          removing UPDATE loyalty_members block. Note: Cynthia's
+          version dropped EXCEPTION WHEN OTHERS handler — flagged
+          non-blocking, can re-add if production issues.
+        - Edge function marker: "// Upsert: transaction may already
+          exist from DB trigger (Bug #96 2026-05-10)"
+
+  **T2 verification on existing Test Customer (TEST-008_ELITE, ¥3M layaway DP):**
+    - account_id=1d49d13e-fc33-466b-a7c8-e68ae87c137e
+    - Award math: floor(3M/10K) × 100 × 2 = 60,000 pts ✓
+    - Member post-T2: 80,200 pts, ¥5,020,000 cumulative, Elite 2x
+    - Rolling 12-month extension working (T1 lot expires_at refreshed
+      to T2 earned_at + 12mo)
+    - Notifications fired correctly (tier-upgrade + points-earned +
+      in-portal)
+    - Open anomaly: T2 transaction tier_at_time = "Radiant"
+      (pre-upgrade) instead of "Elite" — possible upsert
+      deploy-timing issue or subtle bug. Investigate next session.
+
+  **Bug #97 (NEW — discovered during void test):**
+    - Confirmed: Payment void does NOT propagate to loyalty side
+    - Test: voided ¥900,000 layaway DP on TEST-008_ELITE
+      (payment id=91630f2b-4d1f-4f14-8b29-c7f5c46c26a1) at 17:01:19
+    - Evidence:
+        - payments.voided_at populated ✓
+        - loyalty_members counters UNCHANGED (still 80,200 / 5,020,000)
+        - loyalty_point_lots UNCHANGED (consumed_at=NULL, both lots
+          full)
+        - No reversal transaction since pre_void_ts (17:00:27.454096)
+    - Production risk: voided payments leave loyalty award intact;
+      customer keeps points + cumulative_spend + tier upgrades for
+      invalidated transactions
+    - Same gap likely exists on cash payment void path (untested,
+      deferred)
+    - Pending tomorrow: restore ¥900,000 DP, observe outcome to map
+      full lifecycle, then plan fix workstream
+
+  **Tool ownership rules locked this session:**
+    - Frontend src/ edits: Claude Code (Cynthia explicit-direction
+      can include supabase/functions/)
+    - Edge function code edits: Lovable (default); Claude Code with
+      explicit direction
+    - Edge function deploys: Lovable ONLY, separate prompt from code
+      edits
+    - SQL DDL/DML: Cynthia in Supabase SQL Editor
+    - Read-only audit/diagnosis: Claude Code
+    - PR merges/branch ops: Claude Code via MCP
+
+  **Schema discovery locks (verified this session):**
+    - loyalty_members: earned_tier_id + current_tier_id (NOT
+      tier_id), is_downgraded
+    - loyalty_transactions: points_amount (NOT 'points'),
+      tier_at_time, transaction_type enum:
+      earned/bonus/redeemed/refunded
+    - loyalty_notifications: broadcast model with audience_type +
+      audience_member_ids array (no direct member_id column)
+    - cash_payments: NO status column (status lives in
+      payment_submissions); has voided_at/voided_by_user_id/
+      void_reason
+    - loyalty_promotions: does not exist in public schema
+    - Tier thresholds verified: Glimmer 0-1M / Radiant 1M-4M /
+      Elite 4M-8M / Crown VIP 8M+
+
+  **Open items for next session:**
+    1. Run ¥900,000 layaway DP restore + post-restore snapshot
+       (queries already drafted)
+    2. Plan Bug #97 fix workstream after restore lifecycle mapped
+    3. Investigate T2 transaction tier_at_time="Radiant" anomaly
+    4. Test Customer scalar drift (+10,200) — defer to historical
+       backfill or targeted SQL
+    5. Phase 6.1 step 4b/4c (process-loyalty-redemption dual-mode)
+       — Test V + Test R
+    6. 464-member historical backfill — bundled in Phase 6.1, not
+       yet executed
+    7. Stale feature branches (fix-cash-dispatch-issue-1,
+       fix-cash-dialog-proof-required-issue-2,
+       fix-award-loyalty-ratchet-up, fix-loyalty-preview-cleanup)
+       — Cynthia deletes via GitHub UI
+    8. Trigger EXCEPTION handler — re-add if production issues
+       surface
+    9. Bug #97 cash-side verification — test cash payment void path
+       symmetrically
+
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
   PIN hash storage: customers.portal_pin_hash (64-char SHA-256 hex digest)
