@@ -1364,6 +1364,51 @@ export type Database = {
           },
         ]
       }
+      loyalty_lot_consumption: {
+        Row: {
+          amount: number
+          consumed_at: string
+          id: string
+          lot_id: string
+          redemption_id: string
+          restored_amount: number | null
+          restored_at: string | null
+        }
+        Insert: {
+          amount: number
+          consumed_at?: string
+          id?: string
+          lot_id: string
+          redemption_id: string
+          restored_amount?: number | null
+          restored_at?: string | null
+        }
+        Update: {
+          amount?: number
+          consumed_at?: string
+          id?: string
+          lot_id?: string
+          redemption_id?: string
+          restored_amount?: number | null
+          restored_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loyalty_lot_consumption_lot_id_fkey"
+            columns: ["lot_id"]
+            isOneToOne: false
+            referencedRelation: "loyalty_point_lots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loyalty_lot_consumption_redemption_id_fkey"
+            columns: ["redemption_id"]
+            isOneToOne: false
+            referencedRelation: "loyalty_redemptions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       loyalty_members: {
         Row: {
           cumulative_spend_jpy: number
@@ -1541,6 +1586,62 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      loyalty_point_lots: {
+        Row: {
+          consumed_at: string | null
+          created_at: string
+          earned_at: string
+          expired_at: string | null
+          expires_at: string | null
+          id: string
+          member_id: string
+          notes: string | null
+          original_amount: number
+          remaining_amount: number
+          source_reference: string | null
+          source_type: Database["public"]["Enums"]["loyalty_lot_source_type"]
+          updated_at: string
+        }
+        Insert: {
+          consumed_at?: string | null
+          created_at?: string
+          earned_at?: string
+          expired_at?: string | null
+          expires_at?: string | null
+          id?: string
+          member_id: string
+          notes?: string | null
+          original_amount: number
+          remaining_amount: number
+          source_reference?: string | null
+          source_type: Database["public"]["Enums"]["loyalty_lot_source_type"]
+          updated_at?: string
+        }
+        Update: {
+          consumed_at?: string | null
+          created_at?: string
+          earned_at?: string
+          expired_at?: string | null
+          expires_at?: string | null
+          id?: string
+          member_id?: string
+          notes?: string | null
+          original_amount?: number
+          remaining_amount?: number
+          source_reference?: string | null
+          source_type?: Database["public"]["Enums"]["loyalty_lot_source_type"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loyalty_point_lots_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "loyalty_members"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       loyalty_promos: {
         Row: {
@@ -3179,6 +3280,10 @@ export type Database = {
         Args: { p_account_id: string; p_amount: number; p_date?: string }
         Returns: Json
       }
+      consume_lots_fifo: {
+        Args: { p_amount: number; p_member_id: string; p_redemption_id: string }
+        Returns: number
+      }
       deactivate_expired_promotions: { Args: never; Returns: undefined }
       delete_account_atomic: {
         Args: { p_account_id: string; p_performed_by_user_id?: string }
@@ -3427,6 +3532,18 @@ export type Database = {
         }
         Returns: boolean
       }
+      insert_lot_and_extend: {
+        Args: {
+          p_amount: number
+          p_earned_at?: string
+          p_expires_at?: string
+          p_member_id: string
+          p_notes?: string
+          p_source_reference: string
+          p_source_type: Database["public"]["Enums"]["loyalty_lot_source_type"]
+        }
+        Returns: string
+      }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
       move_to_dlq: {
         Args: {
@@ -3455,6 +3572,10 @@ export type Database = {
           old_total_paid: number
         }[]
       }
+      restore_lots_for_redemption: {
+        Args: { p_redemption_id: string }
+        Returns: number
+      }
       revalidate_account_from_vault: {
         Args: { p_invoice_number: string }
         Returns: Json
@@ -3477,6 +3598,12 @@ export type Database = {
       app_role: "admin" | "staff" | "finance" | "csr" | "customer"
       cash_order_status: "pending" | "completed" | "cancelled" | "expired"
       clv_tier: "bronze" | "silver" | "gold" | "vip"
+      loyalty_lot_source_type:
+        | "order_earn"
+        | "birthday_bonus"
+        | "promo_bonus"
+        | "admin_adjust"
+        | "refund_restoration"
       loyalty_redemption_status: "pending" | "confirmed" | "cancelled"
       loyalty_redemption_type:
         | "new_order_discount"
@@ -3651,6 +3778,13 @@ export const Constants = {
       app_role: ["admin", "staff", "finance", "csr", "customer"],
       cash_order_status: ["pending", "completed", "cancelled", "expired"],
       clv_tier: ["bronze", "silver", "gold", "vip"],
+      loyalty_lot_source_type: [
+        "order_earn",
+        "birthday_bonus",
+        "promo_bonus",
+        "admin_adjust",
+        "refund_restoration",
+      ],
       loyalty_redemption_status: ["pending", "confirmed", "cancelled"],
       loyalty_redemption_type: [
         "new_order_discount",
