@@ -188,6 +188,7 @@ export default function AccountDetail() {
   const [editAmountReason, setEditAmountReason] = useState('');
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<{ id: string; amount: number; date: string } | null>(null);
+  const [dpRestoreTarget, setDpRestoreTarget] = useState<{ id: string; amount: number; date: string } | null>(null);
   const [forfeitConfirmOpen, setForfeitConfirmOpen] = useState(false);
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [editScheduleAmount, setEditScheduleAmount] = useState('');
@@ -1929,7 +1930,14 @@ export default function AccountDetail() {
                           <Button variant="ghost" size="sm"
                             className="h-7 text-xs text-muted-foreground hover:text-success"
                             style={{ textDecoration: 'none' }}
-                            onClick={() => setRestoreTarget({ id: p.id, amount: Number(p.amount_paid), date: p.date_paid })}>
+                            onClick={() => {
+                              const target = { id: p.id, amount: Number(p.amount_paid), date: p.date_paid };
+                              if (isDownpaymentPayment(p)) {
+                                setDpRestoreTarget(target);
+                              } else {
+                                setRestoreTarget(target);
+                              }
+                            }}>
                             <RotateCcw className="h-3 w-3 mr-1" />
                             Restore
                           </Button>
@@ -2203,6 +2211,53 @@ export default function AccountDetail() {
           }}
           isPending={restorePayment.isPending}
         />
+
+        {/* Restore Downpayment Confirmation Dialog */}
+        {!!dpRestoreTarget && (
+          <>
+            <div
+              className="fixed inset-0 bg-black/60"
+              style={{ zIndex: 9998, pointerEvents: 'auto' }}
+              onClick={() => setDpRestoreTarget(null)}
+            />
+            <div
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md border border-border rounded-xl p-6 shadow-xl"
+              style={{ zIndex: 9999, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', color: 'var(--foreground)' }}
+            >
+              <h2 className="text-lg font-semibold text-card-foreground mb-1">Restore Downpayment</h2>
+              <p className="text-sm text-muted-foreground mb-6">
+                Restore this voided downpayment of{' '}
+                <span className="font-semibold text-success">
+                  {formatCurrency(dpRestoreTarget.amount, account.currency as Currency)}
+                </span>{' '}
+                from{' '}
+                {new Date(dpRestoreTarget.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}?
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setDpRestoreTarget(null)}>Cancel</Button>
+                <Button
+                  disabled={restorePayment.isPending}
+                  className="gold-gradient text-primary-foreground"
+                  onClick={async () => {
+                    if (!dpRestoreTarget) return;
+                    try {
+                      await restorePayment.mutateAsync({
+                        payment_id: dpRestoreTarget.id,
+                        selected_schedule_ids: [],
+                      });
+                      toast.success('Downpayment restored successfully');
+                      setDpRestoreTarget(null);
+                    } catch (err: any) {
+                      toast.error(err.message || 'Failed to restore downpayment');
+                    }
+                  }}>
+                  <RotateCcw className="mr-1 h-4 w-4" />
+                  {restorePayment.isPending ? 'Restoring…' : 'Confirm Restore'}
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Void Confirmation Dialog */}
         {!!voidTarget && (
