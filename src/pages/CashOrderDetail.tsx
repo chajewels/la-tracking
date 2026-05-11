@@ -606,6 +606,7 @@ export default function CashOrderDetail() {
           <InvoiceGeneratorSheet
             cashOrderId={order.id}
             parentInvoiceNumber={order.invoice_number}
+            defaultTerms="3 DAYS"
             prefillAddress={{
               name: order.customers?.full_name || '',
               address_line1: order.customers?.address_line1 ?? null,

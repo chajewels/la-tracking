@@ -1083,6 +1083,7 @@ export default function AccountDetail() {
             <InvoiceGeneratorSheet
               accountId={account.id}
               parentInvoiceNumber={account.invoice_number}
+              defaultTerms={`${account.payment_plan_months} Months`}
               prefillAddress={{
                 name: account.customers?.full_name || '',
                 address_line1: account.customers?.address_line1 ?? null,

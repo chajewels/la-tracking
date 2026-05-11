@@ -54,6 +54,10 @@ export interface InvoiceGeneratorSheetProps {
     country: string | null;
     phone: string | null;
   };
+  // Optional default value for the Terms field. Layaway accounts
+  // pass `${payment_plan_months} Months`; cash orders pass "3 DAYS".
+  // User can still override via the Textarea before generating.
+  defaultTerms?: string;
   // Optional success callback (parent can refresh recent-invoices, etc.).
   onInvoiceGenerated?: (invoice: {
     sheet_url: string;
@@ -82,6 +86,7 @@ export default function InvoiceGeneratorSheet({
   cashOrderId,
   parentInvoiceNumber,
   prefillAddress,
+  defaultTerms,
   onInvoiceGenerated,
 }: InvoiceGeneratorSheetProps) {
   const { roles } = useAuth();
@@ -111,7 +116,7 @@ export default function InvoiceGeneratorSheet({
   const [items, setItems] = useState<ItemInput[]>([emptyItem()]);
   const [discount, setDiscount] = useState<string>('0');
   const [shipping, setShipping] = useState<string>('0');
-  const [terms, setTerms] = useState<string>('');
+  const [terms, setTerms] = useState<string>(defaultTerms ?? '');
   const [result, setResult] = useState<{ sheet_url: string; sheet_id: string; total_jpy: number } | null>(null);
 
   // Dev-only sanity check on parent-id invariant
@@ -262,7 +267,7 @@ export default function InvoiceGeneratorSheet({
     setItems([emptyItem()]);
     setDiscount('0');
     setShipping('0');
-    setTerms('');
+    setTerms(defaultTerms ?? '');
     setResult(null);
   };
 
@@ -274,7 +279,7 @@ export default function InvoiceGeneratorSheet({
     setItems([emptyItem()]);
     setDiscount('0');
     setShipping('0');
-    setTerms('');
+    setTerms(defaultTerms ?? '');
     setResult(null);
   };
 

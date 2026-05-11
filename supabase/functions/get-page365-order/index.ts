@@ -57,7 +57,7 @@ Deno.serve(async (req) => {
     );
     listUrl.searchParams.set("orderBy", "modifiedTime desc");
     listUrl.searchParams.set("fields", "files(id, name, modifiedTime)");
-    listUrl.searchParams.set("pageSize", "1");
+    listUrl.searchParams.set("pageSize", "50");
     listUrl.searchParams.set("supportsAllDrives", "true");
     listUrl.searchParams.set("includeItemsFromAllDrives", "true");
 
@@ -75,35 +75,54 @@ Deno.serve(async (req) => {
       return jsonResponse(404, { error: "No CSV files found in Page365 mirror folder" });
     }
 
-    const file = listData.files[0];
-    console.log(`Reading file: ${file.name} (modified: ${file.modifiedTime})`);
-
-    // Download the file as binary (Page365 exports are UTF-16 LE TSV)
-    const downloadUrl =
-      `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&supportsAllDrives=true`;
-    const downloadRes = await fetch(downloadUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-
-    if (!downloadRes.ok) {
-      const errText = await downloadRes.text();
-      throw new Error(`Drive download failed (${downloadRes.status}): ${errText}`);
-    }
-
-    const buffer = await downloadRes.arrayBuffer();
-
-    // Decode UTF-16 LE → UTF-8, strip BOM if present
-    let content = new TextDecoder("utf-16le").decode(buffer);
-    if (content.charCodeAt(0) === 0xFEFF) {
-      content = content.slice(1);
-    }
-
-    // Parse as TSV (tab-separated values, with header row)
-    const rows = parse(content, { separator: "\t", skipFirstRow: true }) as Record<string, string>[];
-
-    // Filter rows where No. matches invoice_number
+    // Iterate CSVs from newest to oldest (listData.files is already
+    // sorted by orderBy=modifiedTime desc). Stop on first CSV that
+    // contains a matching invoice. Page365 exports may be partial
+    // snapshots — checking all CSVs lets us find invoices that
+    // exist in older exports but not the latest one.
     const target = String(body.invoice_number).trim();
-    const matching = rows.filter((row) => String(row["No."] ?? "").trim() === target);
+    let matching: Record<string, string>[] = [];
+    let matchedFileName = '';
+
+    for (const file of listData.files) {
+      console.log(`Reading file: ${file.name} (modified: ${file.modifiedTime})`);
+
+      // Download the file as binary (Page365 exports are UTF-16 LE TSV)
+      const downloadUrl =
+        `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&supportsAllDrives=true`;
+      const downloadRes = await fetch(downloadUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!downloadRes.ok) {
+        const errText = await downloadRes.text();
+        throw new Error(`Drive download failed (${downloadRes.status}): ${errText}`);
+      }
+
+      const buffer = await downloadRes.arrayBuffer();
+
+      // Decode UTF-16 LE → UTF-8, strip BOM if present
+      let content = new TextDecoder("utf-16le").decode(buffer);
+      if (content.charCodeAt(0) === 0xFEFF) {
+        content = content.slice(1);
+      }
+
+      // Parse as TSV (tab-separated values, with header row)
+      const rows = parse(content, { separator: "\t", skipFirstRow: true }) as Record<string, string>[];
+
+      // Filter rows where No. matches invoice_number
+      matching = rows.filter((row) => String(row["No."] ?? "").trim() === target);
+
+      if (matching.length > 0) {
+        matchedFileName = file.name;
+        console.log(`Found ${matching.length} matching row(s) in ${file.name}`);
+        break;
+      }
+    }
+
+    if (matching.length === 0) {
+      console.log(`No match for invoice ${target} in ${listData.files.length} CSV(s)`);
+    }
 
     if (matching.length === 0) {
       return jsonResponse(200, { found: false });
