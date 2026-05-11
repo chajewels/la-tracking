@@ -43,6 +43,7 @@ on:
       - 'supabase/functions/cleanup-loyalty-images/**'
       - 'supabase/functions/generate-invoice/**'
       - 'supabase/functions/get-page365-order/**'
+      - 'supabase/functions/append-cash-receipt/**'
       - 'supabase/functions/_shared/**'
   workflow_dispatch:
 
@@ -288,5 +289,11 @@ jobs:
       - name: Deploy get-page365-order
         if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/get-page365-order/')
         run: npx supabase functions deploy get-page365-order --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy append-cash-receipt
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/append-cash-receipt/')
+        run: npx supabase functions deploy append-cash-receipt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
