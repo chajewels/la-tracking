@@ -240,6 +240,7 @@ Deno.serve(async (req) => {
   let createdSheetUrl: string | null = null;
 
   try {
+    const now = new Date();
     // --- Auth ---
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
