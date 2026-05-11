@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getServiceAccountAccessToken } from "../_shared/google-auth.ts";
+import { appendManyReceipts, type CashReceiptSlot } from "../_shared/cash-receipt.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -465,6 +466,48 @@ Deno.serve(async (req) => {
 
     await populateSheet(accessToken, createdSheetId, cellWrites);
 
+    // --- Embed existing confirmed receipts into Cash Receipt tab ---
+    let embeddedReceiptCount = 0;
+    try {
+      const submissionsQuery = supabase
+        .from("payment_submissions")
+        .select("id, proof_url, payment_date, submitted_amount")
+        .eq("status", "confirmed")
+        .not("proof_url", "is", null)
+        .order("payment_date", { ascending: true })
+        .order("created_at", { ascending: true })
+        .limit(13);
+
+      if (account_id) {
+        submissionsQuery.eq("account_id", account_id);
+      } else {
+        submissionsQuery.eq("cash_order_id", cash_order_id!);
+      }
+
+      const { data: receipts, error: receiptsErr } = await submissionsQuery;
+
+      if (receiptsErr) {
+        console.warn("[generate-invoice] failed to fetch receipts (non-blocking):", receiptsErr);
+      } else if (receipts && receipts.length > 0) {
+        const slots: CashReceiptSlot[] = receipts.map((r, idx) => ({
+          slot_index: idx + 1,
+          proof_url: r.proof_url as string,
+          invoice_number: parentInvoiceNumber,
+          payment_date: r.payment_date,
+          amount: r.submitted_amount,
+        }));
+
+        const receiptResult = await appendManyReceipts(createdSheetId, slots);
+        embeddedReceiptCount = slots.length;
+        console.log(
+          `[generate-invoice] embedded ${embeddedReceiptCount} receipts into sheet ${createdSheetId}: ` +
+          `${receiptResult.cells_updated} cells updated`,
+        );
+      }
+    } catch (receiptErr) {
+      console.warn("[generate-invoice] cash-receipt embedding failed (non-blocking):", receiptErr);
+    }
+
     // --- Persist generated_invoices row ---
     const driveFolderPath = `Invoice/${year}/${monthName}`;
     const insertPayload: Record<string, unknown> = {
@@ -493,6 +536,38 @@ Deno.serve(async (req) => {
       .single();
     if (insErr || !invoice) {
       throw new Error(`Persistence failed: ${insErr?.message || "no row returned"}`);
+    }
+
+    // --- Persist cash_receipt_sheet_id on parent record ---
+    try {
+      if (account_id) {
+        const { error: parentUpdErr } = await supabase
+          .from("layaway_accounts")
+          .update({ cash_receipt_sheet_id: createdSheetId })
+          .eq("id", account_id);
+        if (parentUpdErr) {
+          console.warn(
+            "[generate-invoice] failed to update layaway_accounts.cash_receipt_sheet_id (non-blocking):",
+            parentUpdErr,
+          );
+        }
+      } else {
+        const { error: parentUpdErr } = await supabase
+          .from("cash_orders")
+          .update({ cash_receipt_sheet_id: createdSheetId })
+          .eq("id", cash_order_id!);
+        if (parentUpdErr) {
+          console.warn(
+            "[generate-invoice] failed to update cash_orders.cash_receipt_sheet_id (non-blocking):",
+            parentUpdErr,
+          );
+        }
+      }
+    } catch (parentUpdErr) {
+      console.warn(
+        "[generate-invoice] cash_receipt_sheet_id persist failed (non-blocking):",
+        parentUpdErr,
+      );
     }
 
     // --- Audit log (fire-and-forget) ---
@@ -525,6 +600,7 @@ Deno.serve(async (req) => {
         shipping_fee_jpy,
         total_jpy: total,
         generated_at: invoice.generated_at,
+        embedded_receipt_count: embeddedReceiptCount,
       },
     }), {
       status: 201,
