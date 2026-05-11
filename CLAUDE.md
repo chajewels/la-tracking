@@ -3275,6 +3275,59 @@ When completing a partially_paid month:
   - layaway_accounts.cash_receipt_sheet_id text NULL (added 2026-05-11)
   - cash_orders.cash_receipt_sheet_id text NULL (added 2026-05-11)
 
+  ### Folder logic fix (SHIPPED 2026-05-11, commit 194b13f + 5c9bff2)
+
+  Bug: generate-invoice used `new Date()` for the target Drive
+  folder, so backdated regenerations landed in the current month
+  instead of the order's month.
+
+  Fix:
+  - layaway_accounts and cash_orders SELECTs widened to include
+    `order_date`.
+  - parentOrderDate captured alongside parentInvoiceNumber.
+  - Folder resolution parses parentOrderDate as "YYYY-MM-DD"
+    (date type, no tz). MONTH_NAMES[mm - 1] gives "NN. Month".
+  - Defensive fallback to current date if order_date is null or
+    non-ISO (column is NOT NULL in schema; fallback is insurance).
+
+  Side effect: required hotfix commit 5c9bff2 to restore the
+  `const now = new Date();` declaration that was used at line 451
+  (CELLS.invoice_date) but accidentally removed in the folder fix.
+
+  ### Currency conversion conditional (SHIPPED 2026-05-11, commit 46fb78f)
+
+  Rule: payment_submissions.submitted_amount is stored in the
+  parent account's currency. Cash receipt display always shows
+  JPY. So:
+
+  - JPY accounts: submitted_amount used as-is (no conversion)
+  - PHP accounts: submitted_amount converted via Math.round(
+    amount / php_jpy_rate) — per CLAUDE.md CURRENCY CONVERSION
+    STANDARD (JPY = PHP ÷ rate)
+
+  Applies in both generate-invoice (bulk fill) and
+  review-payment-submission (cash + layaway branches).
+
+  Widened both function's parent SELECTs to include `currency`.
+  Used a ternary: `currency === "JPY" ? amount : Math.round(amount / rate)`.
+
+  ### Cleanup completed (2026-05-11)
+
+  - generated_invoices.drive_folder_path audit returns 0 misfiled
+    rows after the folder fix shipped and stale rows were DELETED.
+  - The 12 original misfiled rows from before the folder fix were
+    cleaned up via:
+      DELETE FROM generated_invoices gi USING layaway_accounts la
+      WHERE gi.account_id = la.id AND gi.drive_folder_path != ...;
+    (and the cash_orders equivalent)
+  - Drive files for those 12 invoices marked for staff
+    regeneration via the fixed generate-invoice — they'll land in
+    correct order_date folders with correct JPY amounts.
+  - Buggy 18946 row (sheet_id 1WBlOv6CoszfZxmNP_a6TCDOy2_HWGXphOIWKadZos7s,
+    generated 11:13:44 UTC, showed 60,590 JPY) deleted from
+    generated_invoices; 18946-v2 at 1erhLngGJ3y6... is the
+    canonical correct version (25,448 JPY).
+
 ## SYSTEM STATUS (as of 2026-05-07)
 
   Phase B email/password authentication: SHIPPED ✅ (2026-05-05)
@@ -7382,6 +7435,13 @@ the Lovable preview UI without a follow-up touch.
 Note: _shared/cash-receipt.ts is consumed by both
 append-cash-receipt and generate-invoice — changes to it
 require redeploying both functions.
+
+Note (updated 2026-05-11): _shared/cash-receipt.ts is
+imported directly by append-cash-receipt and generate-invoice.
+review-payment-submission does NOT import it — it triggers
+append-cash-receipt via fire-and-forget HTTP POST per the
+Ship 2B pattern. Changes to _shared/cash-receipt.ts therefore
+only require redeploying append-cash-receipt + generate-invoice.
 
 All other edge functions still require manual deploy via Cloud Shell.
 Always check .github/workflows/supabase-functions-deploy.yml
