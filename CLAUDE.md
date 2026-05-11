@@ -1361,7 +1361,29 @@ When completing a partially_paid month:
     the dead shortcut — no Phase 0 remediation
     needed; will be addressed by Phase 6
     dead-shortcut UX handler. (2026-04-29)
-  - 66. (skipped during numbering — no associated work item)
+  - 66. restore-payment DP misallocation.
+
+    Downpayment void→restore misallocated the DP amount across installment schedule rows instead of restoring cleanly. Discovered 2026-05-11 on TEST-008_ELITE 12-month JPY plan: voided ¥900,000 DP, restored, result was months 1-5 Paid (¥175,000 each) + month 6 Partial (¥25,000).
+
+    Regression introduced: commit 41ebca2 (2026-04-20, the bug #37 fix). That fix correctly changed remainingInstallmentAmount from SUM(deleted allocations) to payment.amount_paid. Side effect: the same waterfall now ran for DP payments, which previously had no allocations to spread.
+
+    Affected scope: all plan lengths for any DP void→restore between 2026-04-20 and 2026-05-11. Cohort query 2026-05-11 returned 0 rows — only TEST-008_ELITE was ever affected. No production data cleanup required.
+
+    Fix: commit 62648f5. Added isDownpaymentPayment helper + DP short-circuit in supabase/functions/restore-payment/index.ts. For DPs: clears voided fields, recomputes account totals via canonical formula, writes audit log with kind='downpayment', skips installment waterfall entirely. Manual deploy via Cloud Shell (restore-payment not in AUTO-DEPLOY RULES).
+
+    Verified on TEST-008_ELITE 2026-05-11: happy path and idempotency both pass. dp_allocation_count=0.
+
+    Schema reality clarified:
+
+    - payments has NO is_downpayment, NO payment_type columns. DP detection only via reference_number ('DP-' prefix) and remarks ('down'/'dp' substring).
+
+    - layaway_accounts has NO dp_paid column.
+
+    - payment_allocations.allocation_type enum is 'installment' | 'penalty' only.
+
+    Cash scope: cash_orders have no DPs and no restore function. Bug doesn't apply to cash.
+
+    Pending follow-ups: installment regression check + frontend Restore Payment dialog UX. (2026-05-11)
   - 67. Dashboard restructure to account-counts-only.
     AgingBuckets D2 (TEST exclusion) and D4
     (INVARIANT 2 violation via cache columns)
@@ -2276,6 +2298,10 @@ When completing a partially_paid month:
   (e.g., customer report, audit flag, regulatory deadline).
 
   (last reviewed 2026-05-04)
+
+  - Restore Payment dialog UX for DPs (2026-05-11): Dialog shows monthly due range options when restoring DP payments. Backend short-circuits correctly per bug #66 — no data risk — but UX is misleading. Fix: detect DP client-side, skip allocation chooser, show simple "Restore downpayment of ¥X?" confirmation.
+
+  - Phase X1 installment regression test pending (2026-05-11): Bug #66 added DP short-circuit but didn't modify installment waterfall path. Need to verify installment void→restore still works correctly.
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
