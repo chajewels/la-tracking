@@ -347,11 +347,12 @@ Deno.serve(async (req) => {
 
     // --- Fetch parent ---
     let parentInvoiceNumber: string;
+    let parentOrderDate: string | null = null;
     let orderType: string;
     if (account_id) {
       const { data: account, error: acctErr } = await supabase
         .from("layaway_accounts")
-        .select("invoice_number")
+        .select("invoice_number, order_date")
         .eq("id", account_id)
         .single();
       if (acctErr || !account) {
@@ -361,11 +362,12 @@ Deno.serve(async (req) => {
         });
       }
       parentInvoiceNumber = account.invoice_number;
+      parentOrderDate = account.order_date;
       orderType = "LAY AWAY";
     } else {
       const { data: cashOrder, error: coErr } = await supabase
         .from("cash_orders")
-        .select("invoice_number")
+        .select("invoice_number, order_date")
         .eq("id", cash_order_id!)
         .single();
       if (coErr || !cashOrder) {
@@ -375,6 +377,7 @@ Deno.serve(async (req) => {
         });
       }
       parentInvoiceNumber = cashOrder.invoice_number;
+      parentOrderDate = cashOrder.order_date;
       orderType = "CASH";
     }
 
@@ -389,9 +392,35 @@ Deno.serve(async (req) => {
     const accessToken = await getServiceAccountAccessToken();
 
     // --- Resolve folder chain Invoice/{YYYY}/{MM. Month}/ ---
-    const now = new Date();
-    const year = now.getUTCFullYear().toString();
-    const monthName = MONTH_NAMES[now.getUTCMonth()];
+    // Use parent.order_date so backdated invoices file under the
+    // month of the order, not the month of generation. order_date is
+    // a date column (no time, no tz) — parsing "YYYY-MM-DD" is safe
+    // across timezones. Falls back to current date if order_date is
+    // missing or malformed (NOT NULL in schema, so unexpected).
+    let year: string;
+    let monthName: string;
+    if (parentOrderDate && /^\d{4}-\d{2}-\d{2}$/.test(parentOrderDate)) {
+      const [yyyy, mm] = parentOrderDate.split("-");
+      const monthIndex = parseInt(mm, 10) - 1;
+      if (monthIndex >= 0 && monthIndex < 12) {
+        year = yyyy;
+        monthName = MONTH_NAMES[monthIndex];
+      } else {
+        console.warn(
+          `[generate-invoice] invalid month from order_date "${parentOrderDate}", falling back to current date`,
+        );
+        const now = new Date();
+        year = now.getFullYear().toString();
+        monthName = MONTH_NAMES[now.getMonth()];
+      }
+    } else {
+      console.warn(
+        `[generate-invoice] order_date missing or malformed ("${parentOrderDate}"), falling back to current date`,
+      );
+      const now = new Date();
+      year = now.getFullYear().toString();
+      monthName = MONTH_NAMES[now.getMonth()];
+    }
     const yearFolderId = await findOrCreateFolder(accessToken, INVOICE_ROOT_FOLDER_ID, year);
     const monthFolderId = await findOrCreateFolder(accessToken, yearFolderId, monthName);
 
