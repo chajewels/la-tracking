@@ -186,6 +186,7 @@ export type Database = {
           cancellation_reason: string | null
           cancelled_at: string | null
           cancelled_by_user_id: string | null
+          cash_receipt_sheet_id: string | null
           completed_at: string | null
           created_at: string
           created_by_user_id: string | null
@@ -212,6 +213,7 @@ export type Database = {
           cancellation_reason?: string | null
           cancelled_at?: string | null
           cancelled_by_user_id?: string | null
+          cash_receipt_sheet_id?: string | null
           completed_at?: string | null
           created_at?: string
           created_by_user_id?: string | null
@@ -238,6 +240,7 @@ export type Database = {
           cancellation_reason?: string | null
           cancelled_at?: string | null
           cancelled_by_user_id?: string | null
+          cash_receipt_sheet_id?: string | null
           completed_at?: string | null
           created_at?: string
           created_by_user_id?: string | null
@@ -1046,6 +1049,7 @@ export type Database = {
           accepted_by_user_id: string | null
           agreement_acceptance_date: string | null
           agreement_version: string | null
+          cash_receipt_sheet_id: string | null
           completed_at: string | null
           created_at: string
           created_by_user_id: string | null
@@ -1075,6 +1079,7 @@ export type Database = {
           accepted_by_user_id?: string | null
           agreement_acceptance_date?: string | null
           agreement_version?: string | null
+          cash_receipt_sheet_id?: string | null
           completed_at?: string | null
           created_at?: string
           created_by_user_id?: string | null
@@ -1104,6 +1109,7 @@ export type Database = {
           accepted_by_user_id?: string | null
           agreement_acceptance_date?: string | null
           agreement_version?: string | null
+          cash_receipt_sheet_id?: string | null
           completed_at?: string | null
           created_at?: string
           created_by_user_id?: string | null
