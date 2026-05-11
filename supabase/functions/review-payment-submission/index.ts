@@ -465,7 +465,7 @@ Deno.serve(async (req) => {
       // 1. Fetch cash order — must exist and be pending
       const { data: cashOrder, error: cashOrderErr } = await supabase
         .from("cash_orders")
-        .select("id, customer_id, currency, invoice_number, status, total_paid, remaining_balance, completed_at")
+        .select("id, customer_id, currency, invoice_number, status, total_paid, remaining_balance, completed_at, cash_receipt_sheet_id")
         .eq("id", submission.cash_order_id)
         .maybeSingle();
       if (cashOrderErr || !cashOrder) {
@@ -689,7 +689,74 @@ Deno.serve(async (req) => {
         }
       }
 
-      // 9. Early return — do NOT fall through to layaway logic below
+      // 9. Fire-and-forget: append-cash-receipt if invoice exists
+      if (cashOrder.cash_receipt_sheet_id && submission.proof_url) {
+        try {
+          // Compute slot_index = count of confirmed submissions
+          // for this cash_order up to (and including) the current one
+          const { count: slotIndex, error: countErr } = await supabase
+            .from("payment_submissions")
+            .select("id", { count: "exact", head: true })
+            .eq("cash_order_id", cashOrder.id)
+            .eq("status", "confirmed")
+            .not("proof_url", "is", null)
+            .lte("created_at", submission.created_at);
+
+          if (countErr || slotIndex == null) {
+            console.warn(
+              "[review-payment-submission] cash-receipt: failed to compute slot_index (non-blocking):",
+              countErr,
+            );
+          } else if (slotIndex < 1 || slotIndex > 13) {
+            console.warn(
+              `[review-payment-submission] cash-receipt: slot_index ${slotIndex} out of range (1-13), skipping append`,
+            );
+          } else {
+            // Fetch PHP→JPY rate for amount conversion
+            let phpJpyRate = 1.0;
+            const { data: rateRow } = await supabase
+              .from("system_settings")
+              .select("value")
+              .eq("key", "php_jpy_rate")
+              .single();
+            if (rateRow?.value) {
+              const parsed = parseFloat(String(rateRow.value));
+              if (!isNaN(parsed) && parsed > 0) phpJpyRate = parsed;
+            }
+
+            // Fire-and-forget POST (awaited try/catch per cash-branch precedent)
+            try {
+              await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/append-cash-receipt`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                },
+                body: JSON.stringify({
+                  sheet_id: cashOrder.cash_receipt_sheet_id,
+                  slot_index: slotIndex,
+                  proof_url: submission.proof_url,
+                  invoice_number: cashOrder.invoice_number,
+                  payment_date: submission.payment_date,
+                  amount: Math.round(submission.submitted_amount / phpJpyRate),
+                }),
+              });
+            } catch (appendErr) {
+              console.warn(
+                "[review-payment-submission] append-cash-receipt failed (non-blocking):",
+                appendErr,
+              );
+            }
+          }
+        } catch (cashReceiptErr) {
+          console.warn(
+            "[review-payment-submission] cash-receipt block failed (non-blocking):",
+            cashReceiptErr,
+          );
+        }
+      }
+
+      // 10. Early return — do NOT fall through to layaway logic below
       return new Response(JSON.stringify({
         success: true,
         status: "confirmed",
@@ -846,6 +913,95 @@ Deno.serve(async (req) => {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // Fire-and-forget: append-cash-receipt for single-allocation submissions
+    // (matches the line-834 precedent: confirmed_payment_id is only written
+    // when confirmedPaymentIds.length === 1; same rule applies here)
+    if (
+      confirmedPaymentIds.length === 1 &&
+      submission.account_id &&
+      submission.proof_url
+    ) {
+      try {
+        // Fetch parent account's cash_receipt_sheet_id + invoice_number
+        const { data: account, error: acctErr } = await supabase
+          .from("layaway_accounts")
+          .select("invoice_number, cash_receipt_sheet_id")
+          .eq("id", submission.account_id)
+          .single();
+
+        if (acctErr || !account) {
+          console.warn(
+            "[review-payment-submission] cash-receipt: failed to fetch account (non-blocking):",
+            acctErr,
+          );
+        } else if (!account.cash_receipt_sheet_id) {
+          // Invoice not yet generated — skip silently (expected case)
+          console.log(
+            "[review-payment-submission] cash-receipt: no cash_receipt_sheet_id on account, skipping append",
+          );
+        } else {
+          // Compute slot_index
+          const { count: slotIndex, error: countErr } = await supabase
+            .from("payment_submissions")
+            .select("id", { count: "exact", head: true })
+            .eq("account_id", submission.account_id)
+            .eq("status", "confirmed")
+            .not("proof_url", "is", null)
+            .lte("created_at", submission.created_at);
+
+          if (countErr || slotIndex == null) {
+            console.warn(
+              "[review-payment-submission] cash-receipt: failed to compute slot_index (non-blocking):",
+              countErr,
+            );
+          } else if (slotIndex < 1 || slotIndex > 13) {
+            console.warn(
+              `[review-payment-submission] cash-receipt: slot_index ${slotIndex} out of range (1-13), skipping append`,
+            );
+          } else {
+            // Fetch PHP→JPY rate
+            let phpJpyRate = 1.0;
+            const { data: rateRow } = await supabase
+              .from("system_settings")
+              .select("value")
+              .eq("key", "php_jpy_rate")
+              .single();
+            if (rateRow?.value) {
+              const parsed = parseFloat(String(rateRow.value));
+              if (!isNaN(parsed) && parsed > 0) phpJpyRate = parsed;
+            }
+
+            // Fire-and-forget POST (.catch() per layaway-branch precedent at line 811)
+            fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/append-cash-receipt`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+              },
+              body: JSON.stringify({
+                sheet_id: account.cash_receipt_sheet_id,
+                slot_index: slotIndex,
+                proof_url: submission.proof_url,
+                invoice_number: account.invoice_number,
+                payment_date: submission.payment_date,
+                amount: Math.round(submission.submitted_amount / phpJpyRate),
+              }),
+            }).catch((err) => {
+              console.warn(
+                "[review-payment-submission] append-cash-receipt failed (non-blocking):",
+                err,
+              );
+            });
+          }
+        }
+      } catch (cashReceiptErr) {
+        console.warn(
+          "[review-payment-submission] cash-receipt block failed (non-blocking):",
+          cashReceiptErr,
+        );
+      }
     }
 
     // Audit log

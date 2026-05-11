@@ -3231,6 +3231,50 @@ When completing a partially_paid month:
       70d8491 — feat(invoice): wire Page365 pre-fill into
                 InvoiceGeneratorSheet
 
+  ### Step 2 — Cash Receipt Auto-Population (SHIPPED 2026-05-11)
+
+  Cash Receipt tab of generated invoices is auto-populated with
+  proof-of-payment images and metadata for every confirmed
+  payment_submissions entry on the parent account/cash_order.
+
+  Architecture:
+  - _shared/cash-receipt.ts — 13-slot canonical cell map + Sheets
+    API helpers (buildSlotUpdates, appendOneReceipt,
+    appendManyReceipts). Single source of truth for slot positions
+    and =IMAGE formula construction.
+  - append-cash-receipt edge function — thin HTTP wrapper that
+    delegates to appendOneReceipt. Used for incremental writes
+    from review-payment-submission and for ad-hoc curl testing.
+  - generate-invoice extension — on Sheet creation, queries all
+    confirmed receipts for parent (ORDER BY payment_date ASC,
+    created_at ASC, LIMIT 13), embeds them in a single Sheets API
+    batchUpdate via appendManyReceipts. Persists
+    cash_receipt_sheet_id on parent table. Response gains
+    embedded_receipt_count field.
+  - review-payment-submission extension — on confirm in cash-order
+    branch, fires-and-forgets append-cash-receipt with the new
+    receipt's slot_index. Same in layaway branch for single-
+    allocation submissions only (confirmedPaymentIds.length === 1).
+
+  PHP→JPY conversion: per CLAUDE.md CURRENCY CONVERSION STANDARD,
+  amounts are converted PHP ÷ rate before display. Rate fetched
+  from system_settings.php_jpy_rate (jsonb scalar). Always
+  displays as "{amount} JPY".
+
+  Slot layout: 13 slots in the Cash Receipt tab.
+  - Column B: slots 1, 2, 3 (image B5, B58, B110 / metadata B40, B93, B145)
+  - Column I: slots 4, 5, 6 (image I5, I58, I110 / metadata I40, I93, I145)
+  - Column P: slots 7, 8, 9 (image P5, P58, P110 / metadata P40, P93, P145)
+  - Column W: slots 10, 11, 12, 13 (image W5/58/110/158 / metadata W40/93/145/191)
+
+  Failure isolation: receipt-embed errors caught and logged with
+  console.warn, never block invoice generation or payment
+  confirmation. Slot overflow (slot_index > 13) logs and skips.
+
+  Schema columns:
+  - layaway_accounts.cash_receipt_sheet_id text NULL (added 2026-05-11)
+  - cash_orders.cash_receipt_sheet_id text NULL (added 2026-05-11)
+
 ## SYSTEM STATUS (as of 2026-05-07)
 
   Phase B email/password authentication: SHIPPED ✅ (2026-05-05)
@@ -7292,6 +7336,7 @@ isn't auto-deployed; this list reflects the workflow as of 2026-05-10:
 
 - accept-underpayment
 - add-service
+- append-cash-receipt
 - auto-expire-cash-orders
 - auto-forfeit-settlement
 - award-loyalty-points
@@ -7333,6 +7378,10 @@ Note: _shared/** changes trigger redeploy of
 send-transactional-email and preview-transactional-email,
 so registry/template edits fan out to the dispatcher and
 the Lovable preview UI without a follow-up touch.
+
+Note: _shared/cash-receipt.ts is consumed by both
+append-cash-receipt and generate-invoice — changes to it
+require redeploying both functions.
 
 All other edge functions still require manual deploy via Cloud Shell.
 Always check .github/workflows/supabase-functions-deploy.yml
