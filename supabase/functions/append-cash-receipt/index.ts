@@ -10,28 +10,27 @@ interface RequestBody {
 }
 
 interface SlotCells {
-  image: string;    // e.g., "Cash Receipt!B5"
-  invoice: string;  // e.g., "Cash Receipt!B40"
-  date: string;     // e.g., "Cash Receipt!B42"
-  amount: string;   // e.g., "Cash Receipt!B44"
+  image: string;     // e.g., "Cash Receipt!B5" (merge anchor of B5:F32)
+  metadata: string;  // e.g., "Cash Receipt!B40" (merge anchor of B40:F45,
+                     //   receives multi-line INVOICE/DATE/AMOUNT text)
 }
 
 const TAB = "Cash Receipt";
 
 const SLOTS: Record<number, SlotCells> = {
-  1:  { image: `${TAB}!B5`,   invoice: `${TAB}!B40`,  date: `${TAB}!B42`,  amount: `${TAB}!B44`  },
-  2:  { image: `${TAB}!B58`,  invoice: `${TAB}!B93`,  date: `${TAB}!B95`,  amount: `${TAB}!B97`  },
-  3:  { image: `${TAB}!B110`, invoice: `${TAB}!B145`, date: `${TAB}!B147`, amount: `${TAB}!B149` },
-  4:  { image: `${TAB}!I5`,   invoice: `${TAB}!I40`,  date: `${TAB}!I42`,  amount: `${TAB}!I44`  },
-  5:  { image: `${TAB}!I58`,  invoice: `${TAB}!I93`,  date: `${TAB}!I95`,  amount: `${TAB}!I97`  },
-  6:  { image: `${TAB}!I110`, invoice: `${TAB}!I145`, date: `${TAB}!I147`, amount: `${TAB}!I149` },
-  7:  { image: `${TAB}!P5`,   invoice: `${TAB}!P40`,  date: `${TAB}!P42`,  amount: `${TAB}!P44`  },
-  8:  { image: `${TAB}!P58`,  invoice: `${TAB}!P93`,  date: `${TAB}!P95`,  amount: `${TAB}!P97`  },
-  9:  { image: `${TAB}!P110`, invoice: `${TAB}!P145`, date: `${TAB}!P147`, amount: `${TAB}!P149` },
-  10: { image: `${TAB}!W5`,   invoice: `${TAB}!W40`,  date: `${TAB}!W42`,  amount: `${TAB}!W44`  },
-  11: { image: `${TAB}!W58`,  invoice: `${TAB}!W93`,  date: `${TAB}!W95`,  amount: `${TAB}!W97`  },
-  12: { image: `${TAB}!W110`, invoice: `${TAB}!W145`, date: `${TAB}!W147`, amount: `${TAB}!W149` },
-  13: { image: `${TAB}!W158`, invoice: `${TAB}!W191`, date: `${TAB}!W193`, amount: `${TAB}!W195` },
+  1:  { image: `${TAB}!B5`,   metadata: `${TAB}!B40`  },
+  2:  { image: `${TAB}!B58`,  metadata: `${TAB}!B93`  },
+  3:  { image: `${TAB}!B110`, metadata: `${TAB}!B145` },
+  4:  { image: `${TAB}!I5`,   metadata: `${TAB}!I40`  },
+  5:  { image: `${TAB}!I58`,  metadata: `${TAB}!I93`  },
+  6:  { image: `${TAB}!I110`, metadata: `${TAB}!I145` },
+  7:  { image: `${TAB}!P5`,   metadata: `${TAB}!P40`  },
+  8:  { image: `${TAB}!P58`,  metadata: `${TAB}!P93`  },
+  9:  { image: `${TAB}!P110`, metadata: `${TAB}!P145` },
+  10: { image: `${TAB}!W5`,   metadata: `${TAB}!W40`  },
+  11: { image: `${TAB}!W58`,  metadata: `${TAB}!W93`  },
+  12: { image: `${TAB}!W110`, metadata: `${TAB}!W145` },
+  13: { image: `${TAB}!W158`, metadata: `${TAB}!W191` },
 };
 
 const corsHeaders = {
@@ -82,14 +81,23 @@ Deno.serve(async (req) => {
     const safeUrl = body.proof_url.replace(/"/g, '""');
     const imageFormula = `=IMAGE("${safeUrl}", 1)`;
 
-    // Build values:batchUpdate payload (4 cells: image + 3 metadata)
+    // Format amount with thousands separator + JPY suffix
+    // (25488 → "25,488 JPY")
+    const formattedAmount = `${body.amount.toLocaleString("en-US")} JPY`;
+
+    // Build the metadata text block. Spaced format matches the
+    // template's 6-row merged metadata cell layout.
+    const metadataText =
+      `INVOICE #: ${body.invoice_number}\n\n` +
+      `DATE: ${body.payment_date}\n\n` +
+      `AMOUNT: ${formattedAmount}`;
+
+    // Build values:batchUpdate payload (2 cells: image + combined metadata)
     const requestBody = {
       valueInputOption: "USER_ENTERED",
       data: [
-        { range: slot.image,   values: [[imageFormula]] },
-        { range: slot.invoice, values: [[body.invoice_number]] },
-        { range: slot.date,    values: [[body.payment_date]] },
-        { range: slot.amount,  values: [[body.amount]] },
+        { range: slot.image,    values: [[imageFormula]] },
+        { range: slot.metadata, values: [[metadataText]] },
       ],
     };
 
