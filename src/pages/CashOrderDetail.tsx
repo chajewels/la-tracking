@@ -130,7 +130,7 @@ function useCashPayments(orderId: string | undefined) {
         .from('cash_payments')
         .select('*')
         .eq('cash_order_id', orderId)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: true });
       if (error) throw error;
       return ((data || []) as unknown as CashPaymentRow[]);
     },

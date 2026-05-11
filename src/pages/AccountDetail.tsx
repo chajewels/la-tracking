@@ -1730,7 +1730,7 @@ export default function AccountDetail() {
               <p className="text-sm text-muted-foreground">No payments recorded yet</p>
             ) : (
               <div className="space-y-2">
-                {[...payments].sort((a: any, b: any) => new Date(a.date_paid).getTime() - new Date(b.date_paid).getTime()).map((p) => {
+                {[...payments].sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()).map((p) => {
                   const isVoided = !!(p as any).voided_at;
                   const isEditing = editingId === p.id;
 
