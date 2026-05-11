@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ArrowLeft, Banknote, RefreshCcw, Receipt, Upload, XCircle,
-  AlertTriangle, User as UserIcon, MessageCircle, Plus, Sparkles,
+  AlertTriangle, User as UserIcon, MessageCircle, Plus,
   CalendarClock, Send, Eye, CheckCircle, MessageSquare, FileText,
   Image as ImageIcon, Clock, Pencil,
 } from 'lucide-react';
@@ -636,40 +636,15 @@ export default function CashOrderDetail() {
           )}
         </div>
 
-        {/* Loyalty Points Preview */}
-        {loyaltyTier && order.loyalty_jpy_amount && Number(order.loyalty_jpy_amount) > 0 && (
-          <div className="rounded-xl border border-primary/30 bg-card p-5 space-y-3">
-            <div className="flex items-center gap-2">
-              <Sparkles className="text-primary" size={16} />
-              <h3 className="font-semibold text-sm">Loyalty Points Preview</h3>
+        {/* Loyalty Amount */}
+        {order.loyalty_jpy_amount && Number(order.loyalty_jpy_amount) > 0 && (
+          <div className="rounded-xl border border-primary/30 bg-card p-5">
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Loyalty Amount</span>
+              <span className="font-semibold">
+                ¥{Number(order.loyalty_jpy_amount).toLocaleString()}
+              </span>
             </div>
-
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Customer Tier</span>
-                <span className="font-semibold">
-                  {loyaltyTier.current_tier_name} ({loyaltyTier.current_tier_multiplier}x)
-                </span>
-              </div>
-
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Loyalty Amount</span>
-                <span className="font-semibold">
-                  ¥{Number(order.loyalty_jpy_amount).toLocaleString()}
-                </span>
-              </div>
-
-              <div className="flex justify-between pt-2 border-t border-border">
-                <span className="text-muted-foreground">Points to Earn</span>
-                <span className="font-bold text-primary text-base">
-                  {Math.floor(Number(order.loyalty_jpy_amount) / 10000) * 100 * loyaltyTier.current_tier_multiplier} pts
-                </span>
-              </div>
-            </div>
-
-            <p className="text-xs text-muted-foreground italic">
-              Points will be awarded once the order is fully paid.
-            </p>
           </div>
         )}
 

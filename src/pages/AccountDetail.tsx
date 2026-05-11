@@ -2,7 +2,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
-import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus, Loader2, Sparkles } from 'lucide-react';
+import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 
@@ -1714,40 +1714,15 @@ export default function AccountDetail() {
             </div>
           )}
 
-          {/* Loyalty Points Preview */}
-          {loyaltyTier && account.loyalty_jpy_amount && Number(account.loyalty_jpy_amount) >= 10000 && (
-            <div className="rounded-xl border border-primary/30 bg-card p-5 space-y-3">
-              <div className="flex items-center gap-2">
-                <Sparkles className="text-primary" size={16} />
-                <h3 className="font-semibold text-sm">Loyalty Points Preview</h3>
+          {/* Loyalty Amount */}
+          {account.loyalty_jpy_amount && Number(account.loyalty_jpy_amount) >= 10000 && (
+            <div className="rounded-xl border border-primary/30 bg-card p-5">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Loyalty Amount</span>
+                <span className="font-semibold">
+                  ¥{Number(account.loyalty_jpy_amount).toLocaleString()}
+                </span>
               </div>
-
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Customer Tier</span>
-                  <span className="font-semibold">
-                    {loyaltyTier.current_tier_name} ({loyaltyTier.current_tier_multiplier}x)
-                  </span>
-                </div>
-
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Loyalty Amount</span>
-                  <span className="font-semibold">
-                    ¥{Number(account.loyalty_jpy_amount).toLocaleString()}
-                  </span>
-                </div>
-
-                <div className="flex justify-between pt-2 border-t border-border">
-                  <span className="text-muted-foreground">Points to Earn</span>
-                  <span className="font-bold text-primary text-base">
-                    {Math.floor(Number(account.loyalty_jpy_amount) / 10000) * 100 * loyaltyTier.current_tier_multiplier} pts
-                  </span>
-                </div>
-              </div>
-
-              <p className="text-xs text-muted-foreground italic">
-                Points will be awarded once the downpayment is confirmed.
-              </p>
             </div>
           )}
 
