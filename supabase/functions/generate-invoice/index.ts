@@ -469,6 +469,34 @@ Deno.serve(async (req) => {
     // --- Embed existing confirmed receipts into Cash Receipt tab ---
     let embeddedReceiptCount = 0;
     try {
+      // Fetch PHP→JPY conversion rate from system settings.
+      // Per CLAUDE.md CURRENCY CONVERSION STANDARD: JPY = PHP ÷ rate.
+      // Receipts' submitted_amount values are in PHP (customer transfer
+      // currency); we display in JPY (invoice currency).
+      let phpJpyRate = 1.0; // safe fallback — no conversion if fetch fails
+      const { data: rateRow, error: rateErr } = await supabase
+        .from("system_settings")
+        .select("value")
+        .eq("key", "php_jpy_rate")
+        .single();
+      if (rateErr || !rateRow) {
+        console.warn(
+          "[generate-invoice] failed to fetch php_jpy_rate (using 1.0 fallback):",
+          rateErr,
+        );
+      } else {
+        // system_settings.value is jsonb — extract scalar via String() then parseFloat
+        const parsed = parseFloat(String(rateRow.value));
+        if (!isNaN(parsed) && parsed > 0) {
+          phpJpyRate = parsed;
+        } else {
+          console.warn(
+            "[generate-invoice] php_jpy_rate parsed invalid value, using 1.0 fallback:",
+            rateRow.value,
+          );
+        }
+      }
+
       const submissionsQuery = supabase
         .from("payment_submissions")
         .select("id, proof_url, payment_date, submitted_amount")
@@ -494,14 +522,16 @@ Deno.serve(async (req) => {
           proof_url: r.proof_url as string,
           invoice_number: parentInvoiceNumber,
           payment_date: r.payment_date,
-          amount: r.submitted_amount,
+          // Convert PHP submitted_amount to JPY for display.
+          // ₱10,705 ÷ 0.42 = ¥25,488 (per CLAUDE.md non-negotiable rule).
+          amount: Math.round(r.submitted_amount / phpJpyRate),
         }));
 
         const receiptResult = await appendManyReceipts(createdSheetId, slots);
         embeddedReceiptCount = slots.length;
         console.log(
-          `[generate-invoice] embedded ${embeddedReceiptCount} receipts into sheet ${createdSheetId}: ` +
-          `${receiptResult.cells_updated} cells updated`,
+          `[generate-invoice] embedded ${embeddedReceiptCount} receipts into sheet ${createdSheetId} ` +
+          `(rate=${phpJpyRate}): ${receiptResult.cells_updated} cells updated`,
         );
       }
     } catch (receiptErr) {
