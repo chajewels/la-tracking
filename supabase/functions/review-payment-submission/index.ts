@@ -738,7 +738,9 @@ Deno.serve(async (req) => {
                   proof_url: submission.proof_url,
                   invoice_number: cashOrder.invoice_number,
                   payment_date: submission.payment_date,
-                  amount: Math.round(submission.submitted_amount / phpJpyRate),
+                  amount: cashOrder.currency === "JPY"
+                    ? submission.submitted_amount
+                    : Math.round(submission.submitted_amount / phpJpyRate),
                 }),
               });
             } catch (appendErr) {
@@ -927,7 +929,7 @@ Deno.serve(async (req) => {
         // Fetch parent account's cash_receipt_sheet_id + invoice_number
         const { data: account, error: acctErr } = await supabase
           .from("layaway_accounts")
-          .select("invoice_number, cash_receipt_sheet_id")
+          .select("invoice_number, cash_receipt_sheet_id, currency")
           .eq("id", submission.account_id)
           .single();
 
@@ -986,7 +988,9 @@ Deno.serve(async (req) => {
                 proof_url: submission.proof_url,
                 invoice_number: account.invoice_number,
                 payment_date: submission.payment_date,
-                amount: Math.round(submission.submitted_amount / phpJpyRate),
+                amount: account.currency === "JPY"
+                  ? submission.submitted_amount
+                  : Math.round(submission.submitted_amount / phpJpyRate),
               }),
             }).catch((err) => {
               console.warn(

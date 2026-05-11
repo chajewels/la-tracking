@@ -349,11 +349,12 @@ Deno.serve(async (req) => {
     // --- Fetch parent ---
     let parentInvoiceNumber: string;
     let parentOrderDate: string | null = null;
+    let parentCurrency: string | null = null;
     let orderType: string;
     if (account_id) {
       const { data: account, error: acctErr } = await supabase
         .from("layaway_accounts")
-        .select("invoice_number, order_date")
+        .select("invoice_number, order_date, currency")
         .eq("id", account_id)
         .single();
       if (acctErr || !account) {
@@ -364,11 +365,12 @@ Deno.serve(async (req) => {
       }
       parentInvoiceNumber = account.invoice_number;
       parentOrderDate = account.order_date;
+      parentCurrency = account.currency;
       orderType = "LAY AWAY";
     } else {
       const { data: cashOrder, error: coErr } = await supabase
         .from("cash_orders")
-        .select("invoice_number, order_date")
+        .select("invoice_number, order_date, currency")
         .eq("id", cash_order_id!)
         .single();
       if (coErr || !cashOrder) {
@@ -379,6 +381,7 @@ Deno.serve(async (req) => {
       }
       parentInvoiceNumber = cashOrder.invoice_number;
       parentOrderDate = cashOrder.order_date;
+      parentCurrency = cashOrder.currency;
       orderType = "CASH";
     }
 
@@ -552,9 +555,13 @@ Deno.serve(async (req) => {
           proof_url: r.proof_url as string,
           invoice_number: parentInvoiceNumber,
           payment_date: r.payment_date,
-          // Convert PHP submitted_amount to JPY for display.
-          // ₱10,705 ÷ 0.42 = ¥25,488 (per CLAUDE.md non-negotiable rule).
-          amount: Math.round(r.submitted_amount / phpJpyRate),
+          // Conditional PHP→JPY conversion: JPY accounts skip
+          // conversion (submitted_amount already in JPY).
+          // PHP accounts (and any non-JPY) divide by rate per
+          // CLAUDE.md CURRENCY CONVERSION STANDARD.
+          amount: parentCurrency === "JPY"
+            ? r.submitted_amount
+            : Math.round(r.submitted_amount / phpJpyRate),
         }));
 
         const receiptResult = await appendManyReceipts(createdSheetId, slots);
