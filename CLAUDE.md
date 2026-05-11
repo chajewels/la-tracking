@@ -2122,6 +2122,49 @@ When completing a partially_paid month:
     label, !!proofFile guard in isFormValid, and dropzone "required"
     hint (2026-05-10)
 
+  - 94. Frontend Restore Payment dialog UX for DP payments (2026-05-11).
+    Bug #66 follow-up. Restore Payment dialog showed monthly due range
+    chooser even when restoring downpayments. Backend short-circuited
+    DPs correctly (bug #66) but UX was misleading. Fix:
+    src/pages/AccountDetail.tsx — added dpRestoreTarget state, branched
+    Restore button click via isDownpaymentPayment helper, added simple
+    "Restore Downpayment" confirmation modal matching the Void Payment
+    custom-div pattern. Installment restoration path unchanged.
+    Commit: 571f4ec.
+
+  - 95. Loyalty Points Preview simplified on layaway and cash detail
+    views (2026-05-11). Removed "Customer Tier" line, "Points to Earn"
+    line, and footnote from both src/pages/AccountDetail.tsx and
+    src/pages/CashOrderDetail.tsx. Kept only "Loyalty Amount" line with
+    same gate conditions (>=10000 for layaway, >0 for cash). Removed
+    Sparkles import from both files. Preserved useCustomerLoyaltyTier
+    hook + import for future use.
+    Commit: 91e1c51.
+
+  - 96. Loyalty Amount moved to compact metric card on layaway account
+    detail (2026-05-11). Replaced standalone simplified Loyalty Amount
+    panel with a 6th compact card in the top metric row, matching
+    TOTAL LA AMOUNT card styling. Grid already lg:grid-cols-6 so no
+    template change needed. Cash detail unchanged (keeps simplified
+    panel).
+    Commit: 59657cf.
+
+  - 97. Payment History sort order fixed to chronological on admin
+    surfaces (2026-05-11). Payment History on TEST-008_ELITE showed
+    installment above DP despite both having date_paid May 11, because
+    the comparator only used date_paid and tied rows preserved
+    server-side DESC input order. Fixed in src/pages/AccountDetail.tsx
+    line 1733 — sort comparator changed from date_paid to created_at.
+    Cash side fixed in src/pages/CashOrderDetail.tsx — useCashPayments
+    hook .order() flipped from descending to ascending by created_at.
+    created_at has microsecond precision so same-day payments are no
+    longer tied. Per CLAUDE.md Display Rules ("Payment History →
+    always show created_at"). Bug always existed but only surfaced
+    when multiple payments recorded same day. Commit: 5ca29f3.
+    Customer-facing surfaces (CustomerStatement.tsx, CustomerPortal.tsx)
+    deferred — edge function changes needed to expose created_at to
+    client payload (filed in Known Open Bugs).
+
 ## Known Open Bugs
 
   Bugs that have been surfaced and triaged but not
@@ -2299,9 +2342,25 @@ When completing a partially_paid month:
 
   (last reviewed 2026-05-04)
 
-  - Restore Payment dialog UX for DPs (2026-05-11): Dialog shows monthly due range options when restoring DP payments. Backend short-circuits correctly per bug #66 — no data risk — but UX is misleading. Fix: detect DP client-side, skip allocation chooser, show simple "Restore downpayment of ¥X?" confirmation.
+  - Customer-facing Payment History sort order (surfaced 2026-05-11):
+    src/pages/CustomerStatement.tsx and src/pages/CustomerPortal.tsx
+    Payment History sections use data projected from customer-statement
+    and customer-portal edge functions respectively. The projected
+    payment shape is { date, method, amount, ... } — no created_at
+    field exposed. Cannot fix client-side without edge function
+    changes. Fix path: modify customer-statement and customer-portal
+    edge functions to either sort by created_at ASC server-side OR
+    project created_at to response so frontend can sort. Defer until
+    customer-facing surfaces are touched for other work. Not blocking
+    — admin surfaces are correctly sorted.
 
-  - Phase X1 installment regression test pending (2026-05-11): Bug #66 added DP short-circuit but didn't modify installment waterfall path. Need to verify installment void→restore still works correctly.
+  - Audit failure during DP-voided + active-installment state (surfaced
+    2026-05-11): When DP is voided while an installment payment is
+    active, audit_account() returns all_pass=false on check "sum of
+    pending months matches remaining balance" because schedule rows
+    don't have a slot for unpaid DP. Discrepancy clears once DP is
+    restored or another DP is recorded. Edge case only during
+    transient voided-DP state. Not customer-facing. Defer.
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
