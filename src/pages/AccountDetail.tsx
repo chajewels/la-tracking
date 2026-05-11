@@ -1269,6 +1269,15 @@ export default function AccountDetail() {
               <div className="h-full rounded-full transition-all duration-500 ease-out" style={{ width: `${progress}%`, background: 'linear-gradient(90deg, hsl(43 74% 42%), hsl(43 74% 52%), hsl(43 74% 62%))' }} />
             </div>
           </div>
+          {account.loyalty_jpy_amount && Number(account.loyalty_jpy_amount) >= 10000 && (
+            <div className="group relative overflow-hidden rounded-xl border border-border bg-card p-3 sm:p-4 card-hover">
+              <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-border" />
+              <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Loyalty Amount</p>
+              <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
+                ¥{Number(account.loyalty_jpy_amount).toLocaleString()}
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1711,18 +1720,6 @@ export default function AccountDetail() {
           {accountServices.length > 0 && (
             <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
               <ServicesList services={accountServices} currency={currency} accountId={account.id} />
-            </div>
-          )}
-
-          {/* Loyalty Amount */}
-          {account.loyalty_jpy_amount && Number(account.loyalty_jpy_amount) >= 10000 && (
-            <div className="rounded-xl border border-primary/30 bg-card p-5">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Loyalty Amount</span>
-                <span className="font-semibold">
-                  ¥{Number(account.loyalty_jpy_amount).toLocaleString()}
-                </span>
-              </div>
             </div>
           )}
 
