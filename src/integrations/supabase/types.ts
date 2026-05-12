@@ -1609,6 +1609,7 @@ export type Database = {
           revoked_by_transaction_id: string | null
           source_reference: string | null
           source_type: Database["public"]["Enums"]["loyalty_lot_source_type"]
+          spend_basis_jpy: number | null
           updated_at: string
         }
         Insert: {
@@ -1626,6 +1627,7 @@ export type Database = {
           revoked_by_transaction_id?: string | null
           source_reference?: string | null
           source_type: Database["public"]["Enums"]["loyalty_lot_source_type"]
+          spend_basis_jpy?: number | null
           updated_at?: string
         }
         Update: {
@@ -1643,6 +1645,7 @@ export type Database = {
           revoked_by_transaction_id?: string | null
           source_reference?: string | null
           source_type?: Database["public"]["Enums"]["loyalty_lot_source_type"]
+          spend_basis_jpy?: number | null
           updated_at?: string
         }
         Relationships: [
