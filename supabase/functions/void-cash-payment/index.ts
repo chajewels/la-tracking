@@ -184,7 +184,6 @@ Deno.serve(async (req) => {
             source_reference: order.invoice_number,
             spend_jpy: amount,
             cash_order_id: payment.cash_order_id,
-            payment_id: payment.id,
             invoice_number: order.invoice_number,
             notes: `Cash payment voided: ${payment.id}`,
             trigger_event: "void_cash",
