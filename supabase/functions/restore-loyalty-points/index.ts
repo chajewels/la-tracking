@@ -194,10 +194,10 @@ Deno.serve(async (req) => {
           .insert({
             title: "Loyalty tier restored",
             body: `Your loyalty tier has been restored to ${postTierName}.`,
-            category: "loyalty_tier_change",
-            audience_type: "member",
+            category: "tier",
+            audience_type: "specific",
             audience_member_ids: [memberId],
-            status: "active",
+            status: "sent",
             link_target: portalUrl,
           });
         if (notifErr) {

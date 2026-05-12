@@ -267,10 +267,10 @@ Deno.serve(async (req) => {
           .insert({
             title: "Your loyalty tier has been adjusted",
             body: REASON_BODY[reason],
-            category: "loyalty_tier_change",
-            audience_type: "member",
+            category: "tier",
+            audience_type: "specific",
             audience_member_ids: [memberId],
-            status: "active",
+            status: "sent",
             link_target: portalUrl,
           });
         if (notifErr) {
