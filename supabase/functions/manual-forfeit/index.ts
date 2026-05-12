@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
     // Fetch account
     const { data: account, error: accErr } = await supabase
       .from("layaway_accounts")
-      .select("id, invoice_number, status")
+      .select("id, invoice_number, status, customer_id, currency, total_paid")
       .eq("id", account_id)
       .single();
 
@@ -149,6 +149,45 @@ Deno.serve(async (req) => {
       }
     } catch (emailErr) {
       console.warn("[manual-forfeit] email send failed (non-blocking):", emailErr);
+    }
+
+    // Bug #99 — fire-and-forget loyalty revoke for manually forfeited account
+    try {
+      let spendJpy: number = Number(account.total_paid ?? 0);
+      if (account.currency === "PHP") {
+        const { data: rateRow } = await supabase
+          .from("system_settings")
+          .select("value")
+          .eq("key", "php_jpy_rate")
+          .single();
+        const phpJpyRate = rateRow ? parseFloat(String(rateRow.value)) : NaN;
+        if (Number.isFinite(phpJpyRate) && phpJpyRate > 0) {
+          spendJpy = Math.round(Number(account.total_paid ?? 0) / phpJpyRate);
+        } else {
+          console.warn("[manual-forfeit] php_jpy_rate unusable, skipping loyalty revoke:", rateRow);
+          throw new Error("php_jpy_rate unusable");
+        }
+      }
+      if (spendJpy > 0) {
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revoke-loyalty-points`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            customer_id: account.customer_id,
+            source_reference: account.invoice_number,
+            spend_jpy: spendJpy,
+            account_id: account.id,
+            invoice_number: account.invoice_number,
+            notes: `Account forfeited (manual): ${account.invoice_number}`,
+            trigger_event: "manual_forfeit",
+          }),
+        }).catch((e) => console.warn("[manual-forfeit] revoke-loyalty-points failed (non-blocking):", e));
+      }
+    } catch (revokeErr) {
+      console.warn("[manual-forfeit] revoke block failed (non-blocking):", revokeErr);
     }
 
     return new Response(

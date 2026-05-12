@@ -199,6 +199,37 @@ Deno.serve(async (req) => {
         performed_by_user_id: user.id,
       });
 
+      // Bug #99 — fire-and-forget loyalty restore for DP restoration.
+      // Looks up the revoke transaction by payment_id; if missing (e.g. payment
+      // pre-dates loyalty enrollment), logs debug and skips.
+      try {
+        const { data: revokeTxn } = await supabase
+          .from("loyalty_transactions")
+          .select("id")
+          .eq("payment_id", payment_id)
+          .eq("transaction_type", "revoked")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (revokeTxn?.id) {
+          await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/restore-loyalty-points`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            },
+            body: JSON.stringify({
+              revoke_transaction_id: revokeTxn.id,
+              created_by_user_id: user.id,
+            }),
+          }).catch((e) => console.warn("[restore-payment] restore-loyalty-points failed (DP path, non-blocking):", e));
+        } else {
+          console.log(`[restore-payment] no revoke transaction found for DP payment ${payment_id} — skipping loyalty restore`);
+        }
+      } catch (restoreErr) {
+        console.warn("[restore-payment] DP loyalty restore block failed (non-blocking):", restoreErr);
+      }
+
       return new Response(
         JSON.stringify({
           success: true,
@@ -430,6 +461,37 @@ Deno.serve(async (req) => {
       );
     } catch (reconcileErr) {
       console.warn(`[restore-payment] reconcile-account call failed for ${payment.account_id}:`, reconcileErr);
+    }
+
+    // Bug #99 — fire-and-forget loyalty restore for installment payment.
+    // Looks up the revoke transaction by payment_id; if missing (e.g. payment
+    // pre-dates loyalty enrollment), logs debug and skips.
+    try {
+      const { data: revokeTxn } = await supabase
+        .from("loyalty_transactions")
+        .select("id")
+        .eq("payment_id", payment_id)
+        .eq("transaction_type", "revoked")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (revokeTxn?.id) {
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/restore-loyalty-points`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            revoke_transaction_id: revokeTxn.id,
+            created_by_user_id: user.id,
+          }),
+        }).catch((e) => console.warn("[restore-payment] restore-loyalty-points failed (installment path, non-blocking):", e));
+      } else {
+        console.log(`[restore-payment] no revoke transaction found for installment payment ${payment_id} — skipping loyalty restore`);
+      }
+    } catch (restoreErr) {
+      console.warn("[restore-payment] installment loyalty restore block failed (non-blocking):", restoreErr);
     }
 
     return new Response(JSON.stringify({ success: true, payment_id }), {
