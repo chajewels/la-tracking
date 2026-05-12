@@ -38,6 +38,62 @@ Deno.serve(async (req) => {
 
     const now = new Date();
 
+    // Bug #99 — fetch php_jpy_rate once, reused across the per-account loop
+    // for PHP→JPY spend conversion in the loyalty revoke calls.
+    let phpJpyRate: number = NaN;
+    try {
+      const { data: rateRow } = await supabase
+        .from("system_settings")
+        .select("value")
+        .eq("key", "php_jpy_rate")
+        .single();
+      const parsed = rateRow ? parseFloat(String(rateRow.value)) : NaN;
+      if (Number.isFinite(parsed) && parsed > 0) phpJpyRate = parsed;
+      else console.warn("[auto-forfeit] php_jpy_rate unusable, PHP revoke calls will skip:", rateRow);
+    } catch (rateErr) {
+      console.warn("[auto-forfeit] php_jpy_rate fetch failed, PHP revoke calls will skip:", rateErr);
+    }
+
+    // Bug #99 — fire-and-forget loyalty revoke for forfeited account.
+    // Called from each forfeit path; never throws (errors logged only).
+    const fireLoyaltyRevoke = async (
+      account: any,
+      triggerEvent: "auto_forfeit" | "final_forfeit",
+      notes: string,
+    ) => {
+      try {
+        let spendJpy: number;
+        if (account.currency === "PHP") {
+          if (!Number.isFinite(phpJpyRate) || phpJpyRate <= 0) {
+            console.warn(`[auto-forfeit] skipping loyalty revoke for ${account.invoice_number} — no usable php_jpy_rate`);
+            return;
+          }
+          spendJpy = Math.round(Number(account.total_paid ?? 0) / phpJpyRate);
+        } else {
+          spendJpy = Number(account.total_paid ?? 0);
+        }
+        if (!(spendJpy > 0)) return; // nothing to revoke if no payments yet
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revoke-loyalty-points`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            customer_id: account.customer_id,
+            source_reference: account.invoice_number,
+            spend_jpy: spendJpy,
+            account_id: account.id,
+            invoice_number: account.invoice_number,
+            notes,
+            trigger_event: triggerEvent,
+          }),
+        }).catch((e) => console.warn(`[auto-forfeit] revoke-loyalty-points failed for ${account.invoice_number} (non-blocking):`, e));
+      } catch (revokeErr) {
+        console.warn(`[auto-forfeit] revoke block failed for ${account.invoice_number} (non-blocking):`, revokeErr);
+      }
+    };
+
     // Helper: send account-forfeited email (fire-and-forget)
     const sendForfeitEmail = async (
       accountId: string,
@@ -165,6 +221,7 @@ Deno.serve(async (req) => {
             "Extension period has expired without payment — account permanently forfeited",
             false,
           );
+          await fireLoyaltyRevoke(account, "final_forfeit", `Final forfeit (extension expired): ${account.invoice_number}`);
           continue;
         }
         // ── Check extension month penalty cap → final_forfeit ──
@@ -224,6 +281,7 @@ Deno.serve(async (req) => {
               "Extension period has expired without payment — account permanently forfeited",
               false,
             );
+            await fireLoyaltyRevoke(account, "final_forfeit", `Final forfeit (extension expired): ${account.invoice_number}`);
             continue;
           }
         }
@@ -298,6 +356,7 @@ Deno.serve(async (req) => {
             "Account forfeited due to non-payment after extended overdue period",
             true,
           );
+          await fireLoyaltyRevoke(account, "auto_forfeit", `Auto-forfeit (penalty cap): ${account.invoice_number}`);
           continue;
         }
       }
@@ -401,6 +460,8 @@ Deno.serve(async (req) => {
           true,
         );
 
+        await fireLoyaltyRevoke(account, "auto_forfeit", `Auto-forfeit (3-month overdue): ${account.invoice_number}`);
+
         continue;
       }
 
@@ -467,6 +528,8 @@ Deno.serve(async (req) => {
           "Account has reached final settlement stage after maximum penalty events",
           false,
         );
+
+        await fireLoyaltyRevoke(account, "auto_forfeit", `Auto-final-settlement (6th penalty): ${account.invoice_number}`);
 
         await supabase.from("audit_logs").insert({
           entity_type: "layaway_account",

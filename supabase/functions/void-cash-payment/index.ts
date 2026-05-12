@@ -80,7 +80,7 @@ Deno.serve(async (req) => {
 
     const { data: order, error: orderErr } = await supabase
       .from("cash_orders")
-      .select("id, status, total_paid, remaining_balance")
+      .select("id, status, total_paid, remaining_balance, customer_id, invoice_number")
       .eq("id", payment.cash_order_id)
       .single();
     if (orderErr || !order) {
@@ -161,6 +161,30 @@ Deno.serve(async (req) => {
       },
       performed_by_user_id: user.id,
     });
+
+    // Bug #99 — fire-and-forget loyalty revoke for voided cash payment.
+    // Cash orders are JPY-native (CLAUDE.md: "Cash Orders (always JPY)").
+    try {
+      await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revoke-loyalty-points`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({
+          customer_id: order.customer_id,
+          source_reference: order.invoice_number,
+          spend_jpy: amount,
+          cash_order_id: payment.cash_order_id,
+          payment_id: payment.id,
+          invoice_number: order.invoice_number,
+          notes: `Cash payment voided: ${payment.id}`,
+          trigger_event: "void_cash",
+        }),
+      }).catch((e) => console.warn("[void-cash-payment] revoke-loyalty-points failed (non-blocking):", e));
+    } catch (revokeErr) {
+      console.warn("[void-cash-payment] revoke block failed (non-blocking):", revokeErr);
+    }
 
     // 8. Return updated records
     return new Response(JSON.stringify({

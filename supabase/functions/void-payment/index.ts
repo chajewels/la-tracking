@@ -283,6 +283,44 @@ Deno.serve(async (req) => {
       console.warn("[void-payment] email send failed (non-blocking):", emailErr);
     }
 
+    // Bug #99 — fire-and-forget loyalty revoke for voided payment
+    try {
+      let spendJpy: number = Number(payment.amount_paid);
+      if (account.currency === "PHP") {
+        const { data: rateRow } = await supabase
+          .from("system_settings")
+          .select("value")
+          .eq("key", "php_jpy_rate")
+          .single();
+        const phpJpyRate = rateRow ? parseFloat(String(rateRow.value)) : NaN;
+        if (Number.isFinite(phpJpyRate) && phpJpyRate > 0) {
+          spendJpy = Math.round(Number(payment.amount_paid) / phpJpyRate);
+        } else {
+          console.warn("[void-payment] php_jpy_rate unusable, skipping loyalty revoke:", rateRow);
+          throw new Error("php_jpy_rate unusable");
+        }
+      }
+      await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revoke-loyalty-points`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({
+          customer_id: account.customer_id,
+          source_reference: account.invoice_number,
+          spend_jpy: spendJpy,
+          account_id: payment.account_id,
+          payment_id: payment.id,
+          invoice_number: account.invoice_number,
+          notes: `Layaway payment voided: ${payment.id}`,
+          trigger_event: "void_layaway",
+        }),
+      }).catch((e) => console.warn("[void-payment] revoke-loyalty-points failed (non-blocking):", e));
+    } catch (revokeErr) {
+      console.warn("[void-payment] revoke block failed (non-blocking):", revokeErr);
+    }
+
     return new Response(JSON.stringify({ success: true, payment_id }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
