@@ -6,7 +6,7 @@ import {
   ArrowLeft, Banknote, RefreshCcw, Receipt, Upload, XCircle,
   AlertTriangle, User as UserIcon, MessageCircle, Plus,
   CalendarClock, Send, Eye, CheckCircle, MessageSquare, FileText,
-  Image as ImageIcon, Clock, Pencil,
+  Image as ImageIcon, Clock, Pencil, RotateCcw,
 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,7 @@ import { formatCurrency } from '@/lib/calculations';
 import { supabase } from '@/integrations/supabase/client';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePermissions } from '@/contexts/PermissionsContext';
 import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
 
 interface CashOrderRow {
@@ -225,6 +226,7 @@ export default function CashOrderDetail() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { roles, loading: authLoading } = useAuth();
+  const { can } = usePermissions();
   const rolesArr = roles as any[];
   const isAdmin = rolesArr.includes('admin');
   const isFinance = rolesArr.includes('finance');
@@ -393,6 +395,34 @@ export default function CashOrderDetail() {
     }
   }, [voidPaymentId, voidReason, qc, id]);
 
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+
+  const handleRestoreCashPayment = useCallback(async (cashPaymentId: string) => {
+    setRestoringId(cashPaymentId);
+    try {
+      const { error } = await supabase.functions.invoke('restore-cash-payment', {
+        body: { cash_payment_id: cashPaymentId },
+      });
+      if (error) {
+        let msg = error.message || 'Failed to restore payment';
+        try {
+          if ('context' in error && (error as any).context?.body) {
+            const body = await new Response((error as any).context.body).json();
+            if (body?.error) msg = body.error;
+          }
+        } catch { /* ignore */ }
+        throw new Error(msg);
+      }
+      toast.success('Payment restored');
+      qc.invalidateQueries({ queryKey: ['cash-order', id] });
+      qc.invalidateQueries({ queryKey: ['cash-payments', id] });
+    } catch (err: unknown) {
+      toast.error((err as Error).message || 'Failed to restore payment');
+    } finally {
+      setRestoringId(null);
+    }
+  }, [qc, id]);
+
   const nonVoidedPayments = useMemo(
     () => (payments || []).filter(p => !p.voided_at),
     [payments],
@@ -430,6 +460,7 @@ export default function CashOrderDetail() {
   const canRecordPayment = (isAdmin || isFinance || isStaff) && order.status === 'pending';
   const canCancel = isAdmin && order.status === 'pending';
   const canVoid = isAdmin || isFinance;
+  const canRestore = can('restore_payment');
 
   return (
     <AppLayout>
@@ -706,6 +737,19 @@ export default function CashOrderDetail() {
                             <p className="text-[10px] text-muted-foreground">
                               Voided {p.voided_at ? new Date(p.voided_at).toLocaleString() : ''}
                             </p>
+                            {canRestore && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                disabled={restoringId === p.id}
+                                onClick={() => handleRestoreCashPayment(p.id)}
+                                className="text-muted-foreground hover:text-primary mt-1 h-7 text-[11px]"
+                              >
+                                <RotateCcw className="h-3.5 w-3.5 mr-1" />
+                                {restoringId === p.id ? 'Restoring…' : 'Restore'}
+                              </Button>
+                            )}
                           </div>
                         )}
                       </div>
