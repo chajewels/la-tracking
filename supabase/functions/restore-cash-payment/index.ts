@@ -160,19 +160,35 @@ Deno.serve(async (req) => {
     // --- Fire-and-forget: loyalty restore if order is now completed ---
     if (becomesCompleted) {
       try {
-        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/restore-loyalty-points`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-          },
-          body: JSON.stringify({
-            cash_order_id: cashOrder.id,
-            customer_id: cashOrder.customer_id,
-          }),
-        });
+        // Look up the most recent revoke transaction for this cash_order
+        // (created when the cash payment was previously voided)
+        const { data: revokeTxn } = await supabase
+          .from("loyalty_transactions")
+          .select("id")
+          .eq("cash_order_id", cashOrder.id)
+          .eq("transaction_type", "revoked")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (revokeTxn) {
+          await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/restore-loyalty-points`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            },
+            body: JSON.stringify({
+              revoke_transaction_id: revokeTxn.id,
+            }),
+          }).catch((loyaltyErr) =>
+            console.warn("[restore-cash-payment] loyalty restore failed (non-blocking):", loyaltyErr)
+          );
+        } else {
+          console.log(`[restore-cash-payment] no revoke transaction found for cash_order ${cashOrder.id} — skipping loyalty restore`);
+        }
       } catch (loyaltyErr) {
-        console.warn("[restore-cash-payment] loyalty restore failed (non-blocking):", loyaltyErr);
+        console.warn("[restore-cash-payment] loyalty restore block failed (non-blocking):", loyaltyErr);
       }
     }
 
