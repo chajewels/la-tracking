@@ -164,26 +164,35 @@ Deno.serve(async (req) => {
 
     // Bug #99 — fire-and-forget loyalty revoke for voided cash payment.
     // Cash orders are JPY-native (CLAUDE.md: "Cash Orders (always JPY)").
-    try {
-      await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revoke-loyalty-points`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-        },
-        body: JSON.stringify({
-          customer_id: order.customer_id,
-          source_reference: order.invoice_number,
-          spend_jpy: amount,
-          cash_order_id: payment.cash_order_id,
-          payment_id: payment.id,
-          invoice_number: order.invoice_number,
-          notes: `Cash payment voided: ${payment.id}`,
-          trigger_event: "void_cash",
-        }),
-      }).catch((e) => console.warn("[void-cash-payment] revoke-loyalty-points failed (non-blocking):", e));
-    } catch (revokeErr) {
-      console.warn("[void-cash-payment] revoke block failed (non-blocking):", revokeErr);
+    //   Guard: only revoke if the cash order was 'completed' BEFORE this void
+    //   (award fires only when isFullyPaid per review-payment-submission line
+    //   674 — partial payments don't award, so they have nothing to revoke).
+    //   Reuses the existing `wasCompleted` variable captured at line 96 BEFORE
+    //   any updates to cash_orders.status in this function.
+    if (!wasCompleted) {
+      console.log(`[void-cash-payment] order was not 'completed' pre-void, skipping loyalty revoke for cash_order ${order.id}`);
+    } else {
+      try {
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revoke-loyalty-points`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            customer_id: order.customer_id,
+            source_reference: order.invoice_number,
+            spend_jpy: amount,
+            cash_order_id: payment.cash_order_id,
+            payment_id: payment.id,
+            invoice_number: order.invoice_number,
+            notes: `Cash payment voided: ${payment.id}`,
+            trigger_event: "void_cash",
+          }),
+        }).catch((e) => console.warn("[void-cash-payment] revoke-loyalty-points failed (non-blocking):", e));
+      } catch (revokeErr) {
+        console.warn("[void-cash-payment] revoke block failed (non-blocking):", revokeErr);
+      }
     }
 
     // 8. Return updated records
