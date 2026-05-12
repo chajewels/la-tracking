@@ -30,6 +30,7 @@ import { template as loyaltyEarned } from './loyalty-earned.tsx'
 import { template as loyaltyBonus } from './loyalty-bonus.tsx'
 import { template as loyaltyTierUpgrade } from './loyalty-tier-upgrade.tsx'
 import { template as loyaltyTierDowngrade } from './loyalty-tier-downgrade.tsx'
+import { template as loyaltyTierRevoked } from './loyalty-tier-revoked.tsx'
 import { template as loyaltyPreExpire } from './loyalty-pre-expire.tsx'
 import { template as loyaltyExpireDeduct } from './loyalty-expire-deduct.tsx'
 import { template as loyaltyRedeem } from './loyalty-redeem.tsx'
@@ -59,6 +60,7 @@ export const TEMPLATES: Record<string, TemplateEntry> = {
   'loyalty-bonus': loyaltyBonus,
   'loyalty-tier-upgrade': loyaltyTierUpgrade,
   'loyalty-tier-downgrade': loyaltyTierDowngrade,
+  'loyalty-tier-revoked': loyaltyTierRevoked,
   'loyalty-pre-expire': loyaltyPreExpire,
   'loyalty-expire-deduct': loyaltyExpireDeduct,
   'loyalty-redeem': loyaltyRedeem,
