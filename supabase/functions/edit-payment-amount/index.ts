@@ -88,6 +88,22 @@ Deno.serve(async (req) => {
     }
 
     // ══════════════════════════════════════════════
+    // LOYALTY: NO-OP (Decision 7, Bug #99 — 2026-05-13)
+    // ══════════════════════════════════════════════
+    // edit-payment-amount does NOT call revoke-loyalty-points or
+    // award-loyalty-points. Loyalty award is based on account.total_amount
+    // (full layaway commitment), NOT on payment.amount_paid. Editing a
+    // payment's amount does not change:
+    //   - The loyalty lot value (lot.original_amount + lot.spend_basis_jpy)
+    //   - The payment's DP/installment classification (is_downpayment is
+    //     not touched by this function)
+    //   - cumulative_spend_jpy (sum of basis values, unchanged)
+    //   - Customer tier or multiplier
+    // Therefore no revoke or award fires here. If the award model changes
+    // in the future (e.g., award based on payment amount instead of full
+    // commitment), wire revoke + award between Phase 2 and Phase 3.
+
+    // ══════════════════════════════════════════════
     // PHASE 1: REVERSE old allocations
     // ══════════════════════════════════════════════
 

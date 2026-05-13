@@ -7489,3 +7489,62 @@ Same pattern applies to any other edge function
 whose effect is observable in the UI — if you
 cannot see the fix, escalate redeploy to Lovable
 before assuming the code is wrong.
+
+## LOYALTY LIFECYCLE INTEGRATION (Bug #99 — finalized 2026-05-13)
+
+Loyalty revoke/award is wired into all payment lifecycle events EXCEPT
+where explicitly decided otherwise.
+
+### Wired (fires revoke or award):
+  - void-payment (layaway):           revoke
+  - restore-payment (layaway):        restore (via restore_loyalty_points RPC)
+  - void-cash-payment:                revoke
+  - restore-cash-payment:             restore
+  - award-loyalty-points:             award (fires on DP confirmation for
+                                      layaway, isFullyPaid for cash)
+  - manual-forfeit:                   revoke
+  - auto-forfeit-settlement:          revoke (5 hook points — PATH 1, PATH 2,
+                                      PATH 3, extension expiry, extension cap)
+  - delete-account:                   revoke BEFORE delete_account_atomic RPC
+
+### Explicitly NOT wired:
+
+  Decision 5 — reactivate-account (no auto re-award):
+    After forfeiture, loyalty was already revoked. Reactivation does NOT
+    automatically re-award loyalty. Admin must manually trigger re-award
+    if desired. Documented inline in the edge function.
+
+  Decision 7 — edit-payment-amount (no-op):
+    Editing payment.amount_paid does not change loyalty state under the
+    current award model (award is based on account.total_amount, not
+    payment amount). No revoke or award fires. Documented inline in the
+    edge function with a Phase 0 comment block.
+
+  Decision 9 — delete-account (path-a: explicit calls):
+    Implemented via explicit fetch to revoke-loyalty-points BEFORE the
+    delete_account_atomic RPC. NOT via DB cascade trigger.
+
+### Lot schema (Bug #99 final shape):
+  - lot.original_amount       = base_points × tier_multiplier
+                                (full multiplied points stored in lot)
+  - lot.spend_basis_jpy       = loyaltyJpy (single source of truth for
+                                spend reversal)
+  - lot.tier_at_time          = tier name at award time (cosmetic; may
+                                drift if tier crossed after DP)
+  - lot.multiplier_at_time    = multiplier applied (1x/2x/3x)
+  - lot.revoked_at            = TIMESTAMPTZ when revoked
+  - lot.revoked_by_transaction_id = UUID of revoke transaction
+
+### Trigger event → reason mapping (in revoke-loyalty-points):
+  - void_layaway, void_cash      → 'payment_voided'
+  - manual_forfeit, auto_forfeit,
+    final_forfeit                → 'account_forfeited'
+  - edit_amount                  → 'payment_edited' (currently unused — see
+                                   Decision 7)
+  - delete_account               → 'account_deleted'
+
+### Email policy:
+  - Silent on routine revoke (no tier change)
+  - Email + in-portal notification on tier transition (any direction)
+  - Tier-revoked email template handles all 4 reasons in REASON_COPY map
+

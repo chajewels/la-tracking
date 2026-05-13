@@ -78,6 +78,17 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ══════════════════════════════════════════════
+    // LOYALTY: NO-OP (Decision 5, Bug #99 — 2026-05-13)
+    // ══════════════════════════════════════════════
+    // reactivate-account does NOT call award-loyalty-points. When the
+    // account was forfeited or cancelled, loyalty was already revoked
+    // via manual-forfeit or auto-forfeit-settlement. Reactivation
+    // restores account-level state (status, schedule rows, etc.) but
+    // does NOT automatically re-award the previously revoked loyalty
+    // points. If admin wants to restore loyalty, they must trigger
+    // award-loyalty-points manually via the appropriate UI/RPC.
+
     // ⛔ LOCKED: FINAL_FORFEITED can NEVER be reactivated
     if (account.status === "final_forfeited") {
       return new Response(JSON.stringify({ error: "This account is PERMANENTLY FORFEITED. No reactivation, extension, or negotiation is allowed." }), {
