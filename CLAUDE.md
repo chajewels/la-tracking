@@ -465,6 +465,8 @@ All values come from computeLayaway() in business-rules.ts
 
   TEST-004 — Split payment testing (can record payments)
   TEST-005 — Split payment testing (can record payments)
+  TEST-007 — Cash order Bug #99 smoke test (¥1M, Test Customer Glimmer→Radiant)
+  TEST-008_ELITE — Layaway DP restore lifecycle (Bug #66 + Bug #99 restore-loyalty test fixture)
 
 ## Verification Rule (updated 2026-04-12)
 
@@ -2122,17 +2124,6 @@ When completing a partially_paid month:
     label, !!proofFile guard in isFormValid, and dropzone "required"
     hint (2026-05-10)
 
-<<<<<<< HEAD
-  - 94. award-loyalty-points computed `points` with PRE-upgrade tier
-    multiplier, then INSERTed transaction + lot + email payload with
-    that pre-upgrade value, even when the qualifying purchase
-    triggered a tier upgrade. Per ratchet-up spec, the award should
-    use the POST-upgrade multiplier when the same purchase causes the
-    upgrade. Fixed by reordering: detect upgrade BEFORE computing
-    points, then use effectiveMultiplier/effectiveTierName throughout
-    (transaction tier_at_time, lot p_amount, email payload, in-portal
-    notification text). (2026-05-10)
-=======
   - 94. Frontend Restore Payment dialog UX for DP payments (2026-05-11).
     Bug #66 follow-up. Restore Payment dialog showed monthly due range
     chooser even when restoring downpayments. Backend short-circuited
@@ -2175,7 +2166,24 @@ When completing a partially_paid month:
     Customer-facing surfaces (CustomerStatement.tsx, CustomerPortal.tsx)
     deferred — edge function changes needed to expose created_at to
     client payload (filed in Known Open Bugs).
->>>>>>> origin/main
+  - 98. award-loyalty-points ratchet-up multiplier on tier-crossing
+    purchase (2026-05-12). When a qualifying purchase crossed a tier
+    threshold, the award used the PRE-upgrade multiplier instead of
+    POST-upgrade. Fixed to recompute effective tier after spend is added,
+    then apply the resulting multiplier. Shipped via PR #6 (commit
+    da5cb9c). Note: PR #6's CLAUDE.md merge conflict in this section
+    was resolved 2026-05-13.
+  - 99. Loyalty lifecycle reversal infrastructure (2026-05-13). Wires
+    revoke and award into all account/payment lifecycle events that
+    should impact loyalty. Added spend_basis_jpy column on
+    loyalty_point_lots for lot-based math + active-lots-aware
+    idempotency; deployed revoke_loyalty_points and
+    restore_loyalty_points RPCs; added loyalty-tier-revoked email
+    template; wired 11 lifecycle paths (void/restore-payment,
+    void/restore-cash-payment, manual-forfeit, auto-forfeit-settlement
+    5 hooks, delete-account); documented Decisions 5 (reactivate-account
+    no-op) and 7 (edit-payment-amount no-op). Full design + wiring in
+    LOYALTY LIFECYCLE INTEGRATION section.
 
 ## Known Open Bugs
 
@@ -2429,6 +2437,14 @@ When completing a partially_paid month:
     - delete-installment (admin only, bypass flag set)
     - add-service (admin only, bypass flag set)
     Client-side writes: NONE — all routes through edge functions
+
+  INVARIANT 10 — loyalty award basis:
+    Award amount is derived from layaway_accounts.loyalty_jpy_amount
+    (committed at account creation = full layaway commitment), NOT from
+    payment.amount_paid. Editing payment amount does not adjust loyalty.
+    Voiding an installment payment does not revoke loyalty (only DP voids
+    do, per CLAUDE.md DP detection heuristic). See LOYALTY LIFECYCLE
+    INTEGRATION section for full lifecycle wiring.
 
 ## TIMEZONE STANDARD — NON-NEGOTIABLE (updated 2026-04-25)
 
@@ -3340,7 +3356,7 @@ When completing a partially_paid month:
     generated_invoices; 18946-v2 at 1erhLngGJ3y6... is the
     canonical correct version (25,448 JPY).
 
-## SYSTEM STATUS (as of 2026-05-07)
+## SYSTEM STATUS (as of 2026-05-13)
 
   Phase B email/password authentication: SHIPPED ✅ (2026-05-05)
     - Customer portal supports both token-based and email/password auth
@@ -5506,7 +5522,7 @@ When completing a partially_paid month:
        Blocks any account creation or edit below the minimum.
     3. Both PHP and JPY enforced — hard block, no override
 
-## PENDING ITEMS (as of 2026-05-07)
+## PENDING ITEMS (as of 2026-05-13)
 
 ### LOYALTY PORTAL — Cha Jewels Circle Port
 Multi-phase port of Circle UI into
@@ -5585,6 +5601,18 @@ loyalty portal. In progress.
      crash, but award call never fired. DB
      trigger now provides safety net so future
      failures won't lose points.
+
+### BUG #99 EMPIRICAL VERIFICATION (added 2026-05-13)
+  - Manual-forfeit empirical verification: pick a clean test layaway
+    account, trigger forfeit via UI, verify revoke fires + tier
+    transition + email + in-portal notification
+  - Auto-forfeit-settlement empirical verification: synthetically
+    trigger each of 5 hook points (PATH 1 penalty cap, PATH 2 3-month
+    overdue, PATH 3 6th penalty, extension expiry, extension cap)
+    and verify revoke fires correctly at each
+  - 464-member historical loyalty backfill: migrate existing customers'
+    loyalty state to Bug #99-final lot schema (spend_basis_jpy +
+    lot-based math)
 
 ### TODAY'S DATA FIXES (completed)
   - 17636: Month 4 penalties reset from
@@ -7316,8 +7344,6 @@ Branch isolation rules (LOCKED):
       active blocker — passive wait for customer signups.
 
 ### OTHER
-  - Firebase signing page Steps 13-17
-    (separate Firebase repo, not in main repo)
   - Email wiring — wire send-transactional-email
     into send-reminders for grace_period variant
 
@@ -7352,7 +7378,7 @@ WHERE ls.status = 'partially_paid'
 -- Expected result: 0 rows. If rows appear, update db_status to paid.
 ```
 
-## AUTO-DEPLOY RULES (updated 2026-05-07)
+## AUTO-DEPLOY RULES (updated 2026-05-13)
 
   ⚠️ DEPLOYMENT MODEL (updated
      2026-05-10):
@@ -7397,7 +7423,7 @@ FRONTEND: Firebase Hosting — ALL pushes trigger rebuild and deploy
 SUPABASE EDGE FUNCTIONS — these auto-deploy when their files change.
 Source of truth: .github/workflows/supabase-functions-deploy.yml.
 Always re-check the workflow file before assuming a function is or
-isn't auto-deployed; this list reflects the workflow as of 2026-05-10:
+isn't auto-deployed; this list reflects the workflow as of 2026-05-13:
 
 - accept-underpayment
 - add-service
@@ -7429,10 +7455,14 @@ isn't auto-deployed; this list reflects the workflow as of 2026-05-10:
 - record-multi-payment
 - record-payment
 - review-payment-submission
+- restore-cash-payment
+- restore-loyalty-points
+- revoke-loyalty-points
 - send-loyalty-notification
 - send-reminders
 - send-transactional-email
 - set-portal-pin
+- setup-customer-account
 - submit-cash-payment
 - submit-payment
 - sync-loyalty-to-sheet
