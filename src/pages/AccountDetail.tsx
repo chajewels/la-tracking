@@ -2,7 +2,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
-import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus, Loader2, Sparkles } from 'lucide-react';
+import { ArrowLeft, Copy, MessageCircle, Check, AlertTriangle, Calendar, Pencil, Ban, X, Save, RotateCcw, Trash2, DollarSign, Wrench, ShieldCheck, Settings, Plus, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 
@@ -188,6 +188,7 @@ export default function AccountDetail() {
   const [editAmountReason, setEditAmountReason] = useState('');
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<{ id: string; amount: number; date: string } | null>(null);
+  const [dpRestoreTarget, setDpRestoreTarget] = useState<{ id: string; amount: number; date: string } | null>(null);
   const [forfeitConfirmOpen, setForfeitConfirmOpen] = useState(false);
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [editScheduleAmount, setEditScheduleAmount] = useState('');
@@ -1082,6 +1083,7 @@ export default function AccountDetail() {
             <InvoiceGeneratorSheet
               accountId={account.id}
               parentInvoiceNumber={account.invoice_number}
+              defaultTerms={`${account.payment_plan_months} Months`}
               prefillAddress={{
                 name: account.customers?.full_name || '',
                 address_line1: account.customers?.address_line1 ?? null,
@@ -1268,6 +1270,15 @@ export default function AccountDetail() {
               <div className="h-full rounded-full transition-all duration-500 ease-out" style={{ width: `${progress}%`, background: 'linear-gradient(90deg, hsl(43 74% 42%), hsl(43 74% 52%), hsl(43 74% 62%))' }} />
             </div>
           </div>
+          {account.loyalty_jpy_amount && Number(account.loyalty_jpy_amount) >= 10000 && (
+            <div className="group relative overflow-hidden rounded-xl border border-border bg-card p-3 sm:p-4 card-hover">
+              <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-border" />
+              <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Loyalty Amount</p>
+              <p className="text-lg sm:text-xl font-bold text-card-foreground font-display tabular-nums">
+                ¥{Number(account.loyalty_jpy_amount).toLocaleString()}
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1713,43 +1724,6 @@ export default function AccountDetail() {
             </div>
           )}
 
-          {/* Loyalty Points Preview */}
-          {loyaltyTier && account.loyalty_jpy_amount && Number(account.loyalty_jpy_amount) >= 10000 && (
-            <div className="rounded-xl border border-primary/30 bg-card p-5 space-y-3">
-              <div className="flex items-center gap-2">
-                <Sparkles className="text-primary" size={16} />
-                <h3 className="font-semibold text-sm">Loyalty Points Preview</h3>
-              </div>
-
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Customer Tier</span>
-                  <span className="font-semibold">
-                    {loyaltyTier.current_tier_name} ({loyaltyTier.current_tier_multiplier}x)
-                  </span>
-                </div>
-
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Loyalty Amount</span>
-                  <span className="font-semibold">
-                    ¥{Number(account.loyalty_jpy_amount).toLocaleString()}
-                  </span>
-                </div>
-
-                <div className="flex justify-between pt-2 border-t border-border">
-                  <span className="text-muted-foreground">Points to Earn</span>
-                  <span className="font-bold text-primary text-base">
-                    {Math.floor(Number(account.loyalty_jpy_amount) / 10000) * 100 * loyaltyTier.current_tier_multiplier} pts
-                  </span>
-                </div>
-              </div>
-
-              <p className="text-xs text-muted-foreground italic">
-                Points will be awarded once the downpayment is confirmed.
-              </p>
-            </div>
-          )}
-
           {/* Payment History */}
           <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
             <h3 className="text-sm font-semibold text-card-foreground mb-4">Payment History</h3>
@@ -1757,7 +1731,7 @@ export default function AccountDetail() {
               <p className="text-sm text-muted-foreground">No payments recorded yet</p>
             ) : (
               <div className="space-y-2">
-                {[...payments].sort((a: any, b: any) => new Date(a.date_paid).getTime() - new Date(b.date_paid).getTime()).map((p) => {
+                {[...payments].sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()).map((p) => {
                   const isVoided = !!(p as any).voided_at;
                   const isEditing = editingId === p.id;
 
@@ -1929,7 +1903,14 @@ export default function AccountDetail() {
                           <Button variant="ghost" size="sm"
                             className="h-7 text-xs text-muted-foreground hover:text-success"
                             style={{ textDecoration: 'none' }}
-                            onClick={() => setRestoreTarget({ id: p.id, amount: Number(p.amount_paid), date: p.date_paid })}>
+                            onClick={() => {
+                              const target = { id: p.id, amount: Number(p.amount_paid), date: p.date_paid };
+                              if (isDownpaymentPayment(p)) {
+                                setDpRestoreTarget(target);
+                              } else {
+                                setRestoreTarget(target);
+                              }
+                            }}>
                             <RotateCcw className="h-3 w-3 mr-1" />
                             Restore
                           </Button>
@@ -2203,6 +2184,53 @@ export default function AccountDetail() {
           }}
           isPending={restorePayment.isPending}
         />
+
+        {/* Restore Downpayment Confirmation Dialog */}
+        {!!dpRestoreTarget && (
+          <>
+            <div
+              className="fixed inset-0 bg-black/60"
+              style={{ zIndex: 9998, pointerEvents: 'auto' }}
+              onClick={() => setDpRestoreTarget(null)}
+            />
+            <div
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md border border-border rounded-xl p-6 shadow-xl"
+              style={{ zIndex: 9999, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', color: 'var(--foreground)' }}
+            >
+              <h2 className="text-lg font-semibold text-card-foreground mb-1">Restore Downpayment</h2>
+              <p className="text-sm text-muted-foreground mb-6">
+                Restore this voided downpayment of{' '}
+                <span className="font-semibold text-success">
+                  {formatCurrency(dpRestoreTarget.amount, account.currency as Currency)}
+                </span>{' '}
+                from{' '}
+                {new Date(dpRestoreTarget.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}?
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setDpRestoreTarget(null)}>Cancel</Button>
+                <Button
+                  disabled={restorePayment.isPending}
+                  className="gold-gradient text-primary-foreground"
+                  onClick={async () => {
+                    if (!dpRestoreTarget) return;
+                    try {
+                      await restorePayment.mutateAsync({
+                        payment_id: dpRestoreTarget.id,
+                        selected_schedule_ids: [],
+                      });
+                      toast.success('Downpayment restored successfully');
+                      setDpRestoreTarget(null);
+                    } catch (err: any) {
+                      toast.error(err.message || 'Failed to restore downpayment');
+                    }
+                  }}>
+                  <RotateCcw className="mr-1 h-4 w-4" />
+                  {restorePayment.isPending ? 'Restoring…' : 'Confirm Restore'}
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Void Confirmation Dialog */}
         {!!voidTarget && (

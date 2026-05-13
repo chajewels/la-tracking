@@ -23,15 +23,18 @@ export interface TierCelebrationModalProps {
   tierName: TierName;
   isOpen: boolean;
   onClose: () => void;
+  direction?: 'upgrade' | 'downgrade';
 }
 
 export function TierCelebrationModal({
   tierName,
   isOpen,
   onClose,
+  direction = 'upgrade',
 }: TierCelebrationModalProps) {
   const reduce = useReducedMotion();
   const tierStatic = TIER_STATIC[tierName];
+  const isUpgrade = direction === 'upgrade';
   const benefits = tierStatic?.benefits ?? [];
 
   const confetti = useMemo(
@@ -78,7 +81,7 @@ export function TierCelebrationModal({
           aria-modal="true"
           aria-labelledby="tier-celebration-title"
         >
-          {!reduce &&
+          {!reduce && isUpgrade &&
             confetti.map((c) => (
               <motion.span
                 key={c.id}
@@ -124,14 +127,14 @@ export function TierCelebrationModal({
               className="text-center text-xs"
               style={{ color: P.gl, letterSpacing: '0.28em', textTransform: 'uppercase' }}
             >
-              🎉 Congratulations!
+              {isUpgrade ? '🎉 Congratulations!' : 'Tier Update'}
             </div>
 
             <div
               className="mt-3 text-center text-sm italic"
               style={{ color: P.ts, fontFamily: CG }}
             >
-              You've reached
+              {isUpgrade ? "You've reached" : 'Your tier has been adjusted to'}
             </div>
 
             <h2

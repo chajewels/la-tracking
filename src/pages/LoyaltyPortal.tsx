@@ -129,6 +129,13 @@ interface PortalData {
 
 const tierStorageKey = (customerId: string) => `cha-jewels-last-seen-tier-${customerId}`;
 
+const TIER_RANK: Record<TierName, number> = {
+  Glimmer: 0,
+  Radiant: 1,
+  Elite: 2,
+  'Crown VIP': 3,
+};
+
 function FullScreenWrap({ children }: { children: React.ReactNode }) {
   return (
     <div
@@ -323,7 +330,7 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
   // Compares the current tier to the value stored in localStorage
   // under a customer-scoped key. Only fires when there's a previously
   // stored tier and it differs from the current one.
-  const [celebration, setCelebration] = useState<{ tier: TierName } | null>(null);
+  const [celebration, setCelebration] = useState<{ tier: TierName; direction: 'upgrade' | 'downgrade' } | null>(null);
 
   useEffect(() => {
     if (!currentTierName) return;
@@ -346,7 +353,10 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
     }
 
     if (lastSeen !== currentTierName) {
-      setCelebration({ tier: currentTierName });
+      const lastIdx = TIER_RANK[lastSeen as TierName] ?? 0;
+      const currentIdx = TIER_RANK[currentTierName];
+      const direction = currentIdx > lastIdx ? 'upgrade' : 'downgrade';
+      setCelebration({ tier: currentTierName, direction });
     }
   }, [currentTierName, data.customer_id]);
 
@@ -418,6 +428,7 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
         tierName={celebration?.tier ?? currentTierName}
         isOpen={celebration !== null}
         onClose={handleCelebrationClose}
+        direction={celebration?.direction ?? 'upgrade'}
       />
     </div>
   );

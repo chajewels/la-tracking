@@ -282,7 +282,7 @@ Deno.serve(async (req) => {
       // RPC computes expires_at = earned_at + 12 months for order_earn and
       // handles the rolling extension on prior lots (AREA 2 lines 6195-6204).
       try {
-        const { error: lotErr } = await supabase.rpc("insert_lot_and_extend", {
+        const { data: lotId, error: lotErr } = await supabase.rpc("insert_lot_and_extend", {
           p_member_id: member.id,
           p_source_type: "order_earn",
           p_source_reference: invoiceNumber,
@@ -297,6 +297,20 @@ Deno.serve(async (req) => {
             lotErr,
           );
           // Non-fatal: scalar update already committed. Drift caught by validation.
+        } else if (lotId) {
+          // Stamp spend_basis_jpy on the lot (RPC does not accept it as a param).
+          // points already includes tier multiplier (baseUnits × 100 × multiplier);
+          // spend_basis_jpy records the single underlying JPY spend, not doubled.
+          const { error: basisErr } = await supabase
+            .from("loyalty_point_lots")
+            .update({ spend_basis_jpy: loyaltyJpy })
+            .eq("id", lotId);
+          if (basisErr) {
+            console.warn(
+              "[award-loyalty-points] order_earn lot spend_basis_jpy stamp failed",
+              basisErr,
+            );
+          }
         }
       } catch (e) {
         console.error(

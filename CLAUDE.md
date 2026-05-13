@@ -1361,7 +1361,29 @@ When completing a partially_paid month:
     the dead shortcut — no Phase 0 remediation
     needed; will be addressed by Phase 6
     dead-shortcut UX handler. (2026-04-29)
-  - 66. (skipped during numbering — no associated work item)
+  - 66. restore-payment DP misallocation.
+
+    Downpayment void→restore misallocated the DP amount across installment schedule rows instead of restoring cleanly. Discovered 2026-05-11 on TEST-008_ELITE 12-month JPY plan: voided ¥900,000 DP, restored, result was months 1-5 Paid (¥175,000 each) + month 6 Partial (¥25,000).
+
+    Regression introduced: commit 41ebca2 (2026-04-20, the bug #37 fix). That fix correctly changed remainingInstallmentAmount from SUM(deleted allocations) to payment.amount_paid. Side effect: the same waterfall now ran for DP payments, which previously had no allocations to spread.
+
+    Affected scope: all plan lengths for any DP void→restore between 2026-04-20 and 2026-05-11. Cohort query 2026-05-11 returned 0 rows — only TEST-008_ELITE was ever affected. No production data cleanup required.
+
+    Fix: commit 62648f5. Added isDownpaymentPayment helper + DP short-circuit in supabase/functions/restore-payment/index.ts. For DPs: clears voided fields, recomputes account totals via canonical formula, writes audit log with kind='downpayment', skips installment waterfall entirely. Manual deploy via Cloud Shell (restore-payment not in AUTO-DEPLOY RULES).
+
+    Verified on TEST-008_ELITE 2026-05-11: happy path and idempotency both pass. dp_allocation_count=0.
+
+    Schema reality clarified:
+
+    - payments has NO is_downpayment, NO payment_type columns. DP detection only via reference_number ('DP-' prefix) and remarks ('down'/'dp' substring).
+
+    - layaway_accounts has NO dp_paid column.
+
+    - payment_allocations.allocation_type enum is 'installment' | 'penalty' only.
+
+    Cash scope: cash_orders have no DPs and no restore function. Bug doesn't apply to cash.
+
+    Pending follow-ups: installment regression check + frontend Restore Payment dialog UX. (2026-05-11)
   - 67. Dashboard restructure to account-counts-only.
     AgingBuckets D2 (TEST exclusion) and D4
     (INVARIANT 2 violation via cache columns)
@@ -2100,6 +2122,7 @@ When completing a partially_paid month:
     label, !!proofFile guard in isFormValid, and dropzone "required"
     hint (2026-05-10)
 
+<<<<<<< HEAD
   - 94. award-loyalty-points computed `points` with PRE-upgrade tier
     multiplier, then INSERTed transaction + lot + email payload with
     that pre-upgrade value, even when the qualifying purchase
@@ -2109,6 +2132,50 @@ When completing a partially_paid month:
     points, then use effectiveMultiplier/effectiveTierName throughout
     (transaction tier_at_time, lot p_amount, email payload, in-portal
     notification text). (2026-05-10)
+=======
+  - 94. Frontend Restore Payment dialog UX for DP payments (2026-05-11).
+    Bug #66 follow-up. Restore Payment dialog showed monthly due range
+    chooser even when restoring downpayments. Backend short-circuited
+    DPs correctly (bug #66) but UX was misleading. Fix:
+    src/pages/AccountDetail.tsx — added dpRestoreTarget state, branched
+    Restore button click via isDownpaymentPayment helper, added simple
+    "Restore Downpayment" confirmation modal matching the Void Payment
+    custom-div pattern. Installment restoration path unchanged.
+    Commit: 571f4ec.
+
+  - 95. Loyalty Points Preview simplified on layaway and cash detail
+    views (2026-05-11). Removed "Customer Tier" line, "Points to Earn"
+    line, and footnote from both src/pages/AccountDetail.tsx and
+    src/pages/CashOrderDetail.tsx. Kept only "Loyalty Amount" line with
+    same gate conditions (>=10000 for layaway, >0 for cash). Removed
+    Sparkles import from both files. Preserved useCustomerLoyaltyTier
+    hook + import for future use.
+    Commit: 91e1c51.
+
+  - 96. Loyalty Amount moved to compact metric card on layaway account
+    detail (2026-05-11). Replaced standalone simplified Loyalty Amount
+    panel with a 6th compact card in the top metric row, matching
+    TOTAL LA AMOUNT card styling. Grid already lg:grid-cols-6 so no
+    template change needed. Cash detail unchanged (keeps simplified
+    panel).
+    Commit: 59657cf.
+
+  - 97. Payment History sort order fixed to chronological on admin
+    surfaces (2026-05-11). Payment History on TEST-008_ELITE showed
+    installment above DP despite both having date_paid May 11, because
+    the comparator only used date_paid and tied rows preserved
+    server-side DESC input order. Fixed in src/pages/AccountDetail.tsx
+    line 1733 — sort comparator changed from date_paid to created_at.
+    Cash side fixed in src/pages/CashOrderDetail.tsx — useCashPayments
+    hook .order() flipped from descending to ascending by created_at.
+    created_at has microsecond precision so same-day payments are no
+    longer tied. Per CLAUDE.md Display Rules ("Payment History →
+    always show created_at"). Bug always existed but only surfaced
+    when multiple payments recorded same day. Commit: 5ca29f3.
+    Customer-facing surfaces (CustomerStatement.tsx, CustomerPortal.tsx)
+    deferred — edge function changes needed to expose created_at to
+    client payload (filed in Known Open Bugs).
+>>>>>>> origin/main
 
 ## Known Open Bugs
 
@@ -2286,6 +2353,26 @@ When completing a partially_paid month:
   (e.g., customer report, audit flag, regulatory deadline).
 
   (last reviewed 2026-05-04)
+
+  - Customer-facing Payment History sort order (surfaced 2026-05-11):
+    src/pages/CustomerStatement.tsx and src/pages/CustomerPortal.tsx
+    Payment History sections use data projected from customer-statement
+    and customer-portal edge functions respectively. The projected
+    payment shape is { date, method, amount, ... } — no created_at
+    field exposed. Cannot fix client-side without edge function
+    changes. Fix path: modify customer-statement and customer-portal
+    edge functions to either sort by created_at ASC server-side OR
+    project created_at to response so frontend can sort. Defer until
+    customer-facing surfaces are touched for other work. Not blocking
+    — admin surfaces are correctly sorted.
+
+  - Audit failure during DP-voided + active-installment state (surfaced
+    2026-05-11): When DP is voided while an installment payment is
+    active, audit_account() returns all_pass=false on check "sum of
+    pending months matches remaining balance" because schedule rows
+    don't have a slot for unpaid DP. Discrepancy clears once DP is
+    restored or another DP is recorded. Edge case only during
+    transient voided-DP state. Not customer-facing. Defer.
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
@@ -3155,6 +3242,103 @@ When completing a partially_paid month:
     Final commit chain on main:
       70d8491 — feat(invoice): wire Page365 pre-fill into
                 InvoiceGeneratorSheet
+
+  ### Step 2 — Cash Receipt Auto-Population (SHIPPED 2026-05-11)
+
+  Cash Receipt tab of generated invoices is auto-populated with
+  proof-of-payment images and metadata for every confirmed
+  payment_submissions entry on the parent account/cash_order.
+
+  Architecture:
+  - _shared/cash-receipt.ts — 13-slot canonical cell map + Sheets
+    API helpers (buildSlotUpdates, appendOneReceipt,
+    appendManyReceipts). Single source of truth for slot positions
+    and =IMAGE formula construction.
+  - append-cash-receipt edge function — thin HTTP wrapper that
+    delegates to appendOneReceipt. Used for incremental writes
+    from review-payment-submission and for ad-hoc curl testing.
+  - generate-invoice extension — on Sheet creation, queries all
+    confirmed receipts for parent (ORDER BY payment_date ASC,
+    created_at ASC, LIMIT 13), embeds them in a single Sheets API
+    batchUpdate via appendManyReceipts. Persists
+    cash_receipt_sheet_id on parent table. Response gains
+    embedded_receipt_count field.
+  - review-payment-submission extension — on confirm in cash-order
+    branch, fires-and-forgets append-cash-receipt with the new
+    receipt's slot_index. Same in layaway branch for single-
+    allocation submissions only (confirmedPaymentIds.length === 1).
+
+  PHP→JPY conversion: per CLAUDE.md CURRENCY CONVERSION STANDARD,
+  amounts are converted PHP ÷ rate before display. Rate fetched
+  from system_settings.php_jpy_rate (jsonb scalar). Always
+  displays as "{amount} JPY".
+
+  Slot layout: 13 slots in the Cash Receipt tab.
+  - Column B: slots 1, 2, 3 (image B5, B58, B110 / metadata B40, B93, B145)
+  - Column I: slots 4, 5, 6 (image I5, I58, I110 / metadata I40, I93, I145)
+  - Column P: slots 7, 8, 9 (image P5, P58, P110 / metadata P40, P93, P145)
+  - Column W: slots 10, 11, 12, 13 (image W5/58/110/158 / metadata W40/93/145/191)
+
+  Failure isolation: receipt-embed errors caught and logged with
+  console.warn, never block invoice generation or payment
+  confirmation. Slot overflow (slot_index > 13) logs and skips.
+
+  Schema columns:
+  - layaway_accounts.cash_receipt_sheet_id text NULL (added 2026-05-11)
+  - cash_orders.cash_receipt_sheet_id text NULL (added 2026-05-11)
+
+  ### Folder logic fix (SHIPPED 2026-05-11, commit 194b13f + 5c9bff2)
+
+  Bug: generate-invoice used `new Date()` for the target Drive
+  folder, so backdated regenerations landed in the current month
+  instead of the order's month.
+
+  Fix:
+  - layaway_accounts and cash_orders SELECTs widened to include
+    `order_date`.
+  - parentOrderDate captured alongside parentInvoiceNumber.
+  - Folder resolution parses parentOrderDate as "YYYY-MM-DD"
+    (date type, no tz). MONTH_NAMES[mm - 1] gives "NN. Month".
+  - Defensive fallback to current date if order_date is null or
+    non-ISO (column is NOT NULL in schema; fallback is insurance).
+
+  Side effect: required hotfix commit 5c9bff2 to restore the
+  `const now = new Date();` declaration that was used at line 451
+  (CELLS.invoice_date) but accidentally removed in the folder fix.
+
+  ### Currency conversion conditional (SHIPPED 2026-05-11, commit 46fb78f)
+
+  Rule: payment_submissions.submitted_amount is stored in the
+  parent account's currency. Cash receipt display always shows
+  JPY. So:
+
+  - JPY accounts: submitted_amount used as-is (no conversion)
+  - PHP accounts: submitted_amount converted via Math.round(
+    amount / php_jpy_rate) — per CLAUDE.md CURRENCY CONVERSION
+    STANDARD (JPY = PHP ÷ rate)
+
+  Applies in both generate-invoice (bulk fill) and
+  review-payment-submission (cash + layaway branches).
+
+  Widened both function's parent SELECTs to include `currency`.
+  Used a ternary: `currency === "JPY" ? amount : Math.round(amount / rate)`.
+
+  ### Cleanup completed (2026-05-11)
+
+  - generated_invoices.drive_folder_path audit returns 0 misfiled
+    rows after the folder fix shipped and stale rows were DELETED.
+  - The 12 original misfiled rows from before the folder fix were
+    cleaned up via:
+      DELETE FROM generated_invoices gi USING layaway_accounts la
+      WHERE gi.account_id = la.id AND gi.drive_folder_path != ...;
+    (and the cash_orders equivalent)
+  - Drive files for those 12 invoices marked for staff
+    regeneration via the fixed generate-invoice — they'll land in
+    correct order_date folders with correct JPY amounts.
+  - Buggy 18946 row (sheet_id 1WBlOv6CoszfZxmNP_a6TCDOy2_HWGXphOIWKadZos7s,
+    generated 11:13:44 UTC, showed 60,590 JPY) deleted from
+    generated_invoices; 18946-v2 at 1erhLngGJ3y6... is the
+    canonical correct version (25,448 JPY).
 
 ## SYSTEM STATUS (as of 2026-05-07)
 
@@ -7217,6 +7401,7 @@ isn't auto-deployed; this list reflects the workflow as of 2026-05-10:
 
 - accept-underpayment
 - add-service
+- append-cash-receipt
 - auto-expire-cash-orders
 - auto-forfeit-settlement
 - award-loyalty-points
@@ -7258,6 +7443,17 @@ Note: _shared/** changes trigger redeploy of
 send-transactional-email and preview-transactional-email,
 so registry/template edits fan out to the dispatcher and
 the Lovable preview UI without a follow-up touch.
+
+Note: _shared/cash-receipt.ts is consumed by both
+append-cash-receipt and generate-invoice — changes to it
+require redeploying both functions.
+
+Note (updated 2026-05-11): _shared/cash-receipt.ts is
+imported directly by append-cash-receipt and generate-invoice.
+review-payment-submission does NOT import it — it triggers
+append-cash-receipt via fire-and-forget HTTP POST per the
+Ship 2B pattern. Changes to _shared/cash-receipt.ts therefore
+only require redeploying append-cash-receipt + generate-invoice.
 
 All other edge functions still require manual deploy via Cloud Shell.
 Always check .github/workflows/supabase-functions-deploy.yml

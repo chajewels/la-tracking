@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getServiceAccountAccessToken } from "../_shared/google-auth.ts";
+import { appendManyReceipts, type CashReceiptSlot } from "../_shared/cash-receipt.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -239,6 +240,7 @@ Deno.serve(async (req) => {
   let createdSheetUrl: string | null = null;
 
   try {
+    const now = new Date();
     // --- Auth ---
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
@@ -346,11 +348,13 @@ Deno.serve(async (req) => {
 
     // --- Fetch parent ---
     let parentInvoiceNumber: string;
+    let parentOrderDate: string | null = null;
+    let parentCurrency: string | null = null;
     let orderType: string;
     if (account_id) {
       const { data: account, error: acctErr } = await supabase
         .from("layaway_accounts")
-        .select("invoice_number")
+        .select("invoice_number, order_date, currency")
         .eq("id", account_id)
         .single();
       if (acctErr || !account) {
@@ -360,11 +364,13 @@ Deno.serve(async (req) => {
         });
       }
       parentInvoiceNumber = account.invoice_number;
+      parentOrderDate = account.order_date;
+      parentCurrency = account.currency;
       orderType = "LAY AWAY";
     } else {
       const { data: cashOrder, error: coErr } = await supabase
         .from("cash_orders")
-        .select("invoice_number")
+        .select("invoice_number, order_date, currency")
         .eq("id", cash_order_id!)
         .single();
       if (coErr || !cashOrder) {
@@ -374,6 +380,8 @@ Deno.serve(async (req) => {
         });
       }
       parentInvoiceNumber = cashOrder.invoice_number;
+      parentOrderDate = cashOrder.order_date;
+      parentCurrency = cashOrder.currency;
       orderType = "CASH";
     }
 
@@ -388,9 +396,35 @@ Deno.serve(async (req) => {
     const accessToken = await getServiceAccountAccessToken();
 
     // --- Resolve folder chain Invoice/{YYYY}/{MM. Month}/ ---
-    const now = new Date();
-    const year = now.getUTCFullYear().toString();
-    const monthName = MONTH_NAMES[now.getUTCMonth()];
+    // Use parent.order_date so backdated invoices file under the
+    // month of the order, not the month of generation. order_date is
+    // a date column (no time, no tz) — parsing "YYYY-MM-DD" is safe
+    // across timezones. Falls back to current date if order_date is
+    // missing or malformed (NOT NULL in schema, so unexpected).
+    let year: string;
+    let monthName: string;
+    if (parentOrderDate && /^\d{4}-\d{2}-\d{2}$/.test(parentOrderDate)) {
+      const [yyyy, mm] = parentOrderDate.split("-");
+      const monthIndex = parseInt(mm, 10) - 1;
+      if (monthIndex >= 0 && monthIndex < 12) {
+        year = yyyy;
+        monthName = MONTH_NAMES[monthIndex];
+      } else {
+        console.warn(
+          `[generate-invoice] invalid month from order_date "${parentOrderDate}", falling back to current date`,
+        );
+        const now = new Date();
+        year = now.getFullYear().toString();
+        monthName = MONTH_NAMES[now.getMonth()];
+      }
+    } else {
+      console.warn(
+        `[generate-invoice] order_date missing or malformed ("${parentOrderDate}"), falling back to current date`,
+      );
+      const now = new Date();
+      year = now.getFullYear().toString();
+      monthName = MONTH_NAMES[now.getMonth()];
+    }
     const yearFolderId = await findOrCreateFolder(accessToken, INVOICE_ROOT_FOLDER_ID, year);
     const monthFolderId = await findOrCreateFolder(accessToken, yearFolderId, monthName);
 
@@ -465,6 +499,82 @@ Deno.serve(async (req) => {
 
     await populateSheet(accessToken, createdSheetId, cellWrites);
 
+    // --- Embed existing confirmed receipts into Cash Receipt tab ---
+    let embeddedReceiptCount = 0;
+    try {
+      // Fetch PHP→JPY conversion rate from system settings.
+      // Per CLAUDE.md CURRENCY CONVERSION STANDARD: JPY = PHP ÷ rate.
+      // Receipts' submitted_amount values are in PHP (customer transfer
+      // currency); we display in JPY (invoice currency).
+      let phpJpyRate = 1.0; // safe fallback — no conversion if fetch fails
+      const { data: rateRow, error: rateErr } = await supabase
+        .from("system_settings")
+        .select("value")
+        .eq("key", "php_jpy_rate")
+        .single();
+      if (rateErr || !rateRow) {
+        console.warn(
+          "[generate-invoice] failed to fetch php_jpy_rate (using 1.0 fallback):",
+          rateErr,
+        );
+      } else {
+        // system_settings.value is jsonb — extract scalar via String() then parseFloat
+        const parsed = parseFloat(String(rateRow.value));
+        if (!isNaN(parsed) && parsed > 0) {
+          phpJpyRate = parsed;
+        } else {
+          console.warn(
+            "[generate-invoice] php_jpy_rate parsed invalid value, using 1.0 fallback:",
+            rateRow.value,
+          );
+        }
+      }
+
+      const submissionsQuery = supabase
+        .from("payment_submissions")
+        .select("id, proof_url, payment_date, submitted_amount")
+        .eq("status", "confirmed")
+        .not("proof_url", "is", null)
+        .order("payment_date", { ascending: true })
+        .order("created_at", { ascending: true })
+        .limit(13);
+
+      if (account_id) {
+        submissionsQuery.eq("account_id", account_id);
+      } else {
+        submissionsQuery.eq("cash_order_id", cash_order_id!);
+      }
+
+      const { data: receipts, error: receiptsErr } = await submissionsQuery;
+
+      if (receiptsErr) {
+        console.warn("[generate-invoice] failed to fetch receipts (non-blocking):", receiptsErr);
+      } else if (receipts && receipts.length > 0) {
+        const slots: CashReceiptSlot[] = receipts.map((r, idx) => ({
+          slot_index: idx + 1,
+          proof_url: r.proof_url as string,
+          invoice_number: parentInvoiceNumber,
+          payment_date: r.payment_date,
+          // Conditional PHP→JPY conversion: JPY accounts skip
+          // conversion (submitted_amount already in JPY).
+          // PHP accounts (and any non-JPY) divide by rate per
+          // CLAUDE.md CURRENCY CONVERSION STANDARD.
+          amount: parentCurrency === "JPY"
+            ? r.submitted_amount
+            : Math.round(r.submitted_amount / phpJpyRate),
+        }));
+
+        const receiptResult = await appendManyReceipts(createdSheetId, slots);
+        embeddedReceiptCount = slots.length;
+        console.log(
+          `[generate-invoice] embedded ${embeddedReceiptCount} receipts into sheet ${createdSheetId} ` +
+          `(rate=${phpJpyRate}): ${receiptResult.cells_updated} cells updated`,
+        );
+      }
+    } catch (receiptErr) {
+      console.warn("[generate-invoice] cash-receipt embedding failed (non-blocking):", receiptErr);
+    }
+
     // --- Persist generated_invoices row ---
     const driveFolderPath = `Invoice/${year}/${monthName}`;
     const insertPayload: Record<string, unknown> = {
@@ -493,6 +603,38 @@ Deno.serve(async (req) => {
       .single();
     if (insErr || !invoice) {
       throw new Error(`Persistence failed: ${insErr?.message || "no row returned"}`);
+    }
+
+    // --- Persist cash_receipt_sheet_id on parent record ---
+    try {
+      if (account_id) {
+        const { error: parentUpdErr } = await supabase
+          .from("layaway_accounts")
+          .update({ cash_receipt_sheet_id: createdSheetId })
+          .eq("id", account_id);
+        if (parentUpdErr) {
+          console.warn(
+            "[generate-invoice] failed to update layaway_accounts.cash_receipt_sheet_id (non-blocking):",
+            parentUpdErr,
+          );
+        }
+      } else {
+        const { error: parentUpdErr } = await supabase
+          .from("cash_orders")
+          .update({ cash_receipt_sheet_id: createdSheetId })
+          .eq("id", cash_order_id!);
+        if (parentUpdErr) {
+          console.warn(
+            "[generate-invoice] failed to update cash_orders.cash_receipt_sheet_id (non-blocking):",
+            parentUpdErr,
+          );
+        }
+      }
+    } catch (parentUpdErr) {
+      console.warn(
+        "[generate-invoice] cash_receipt_sheet_id persist failed (non-blocking):",
+        parentUpdErr,
+      );
     }
 
     // --- Audit log (fire-and-forget) ---
@@ -525,6 +667,7 @@ Deno.serve(async (req) => {
         shipping_fee_jpy,
         total_jpy: total,
         generated_at: invoice.generated_at,
+        embedded_receipt_count: embeddedReceiptCount,
       },
     }), {
       status: 201,

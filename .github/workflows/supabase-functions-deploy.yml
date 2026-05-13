@@ -28,6 +28,7 @@ on:
       - 'supabase/functions/send-transactional-email/**'
       - 'supabase/functions/preview-transactional-email/**'
       - 'supabase/functions/void-cash-payment/**'
+      - 'supabase/functions/restore-cash-payment/**'
       - 'supabase/functions/award-loyalty-points/**'
       - 'supabase/functions/sync-loyalty-to-sheet/**'
       - 'supabase/functions/join-loyalty-program/**'
@@ -43,6 +44,9 @@ on:
       - 'supabase/functions/cleanup-loyalty-images/**'
       - 'supabase/functions/generate-invoice/**'
       - 'supabase/functions/get-page365-order/**'
+      - 'supabase/functions/append-cash-receipt/**'
+      - 'supabase/functions/revoke-loyalty-points/**'
+      - 'supabase/functions/restore-loyalty-points/**'
       - 'supabase/functions/_shared/**'
   workflow_dispatch:
 
@@ -201,6 +205,12 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
+      - name: Deploy restore-cash-payment
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/restore-cash-payment/')
+        run: npx supabase functions deploy restore-cash-payment --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
       - name: Deploy award-loyalty-points
         if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/award-loyalty-points/') || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/_shared/')
         run: npx supabase functions deploy award-loyalty-points --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
@@ -288,5 +298,23 @@ jobs:
       - name: Deploy get-page365-order
         if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/get-page365-order/')
         run: npx supabase functions deploy get-page365-order --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy append-cash-receipt
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/append-cash-receipt/')
+        run: npx supabase functions deploy append-cash-receipt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy revoke-loyalty-points
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/revoke-loyalty-points/') || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/_shared/')
+        run: npx supabase functions deploy revoke-loyalty-points --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy restore-loyalty-points
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/restore-loyalty-points/') || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/_shared/')
+        run: npx supabase functions deploy restore-loyalty-points --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

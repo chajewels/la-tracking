@@ -186,6 +186,7 @@ export type Database = {
           cancellation_reason: string | null
           cancelled_at: string | null
           cancelled_by_user_id: string | null
+          cash_receipt_sheet_id: string | null
           completed_at: string | null
           created_at: string
           created_by_user_id: string | null
@@ -212,6 +213,7 @@ export type Database = {
           cancellation_reason?: string | null
           cancelled_at?: string | null
           cancelled_by_user_id?: string | null
+          cash_receipt_sheet_id?: string | null
           completed_at?: string | null
           created_at?: string
           created_by_user_id?: string | null
@@ -238,6 +240,7 @@ export type Database = {
           cancellation_reason?: string | null
           cancelled_at?: string | null
           cancelled_by_user_id?: string | null
+          cash_receipt_sheet_id?: string | null
           completed_at?: string | null
           created_at?: string
           created_by_user_id?: string | null
@@ -1046,6 +1049,7 @@ export type Database = {
           accepted_by_user_id: string | null
           agreement_acceptance_date: string | null
           agreement_version: string | null
+          cash_receipt_sheet_id: string | null
           completed_at: string | null
           created_at: string
           created_by_user_id: string | null
@@ -1075,6 +1079,7 @@ export type Database = {
           accepted_by_user_id?: string | null
           agreement_acceptance_date?: string | null
           agreement_version?: string | null
+          cash_receipt_sheet_id?: string | null
           completed_at?: string | null
           created_at?: string
           created_by_user_id?: string | null
@@ -1104,6 +1109,7 @@ export type Database = {
           accepted_by_user_id?: string | null
           agreement_acceptance_date?: string | null
           agreement_version?: string | null
+          cash_receipt_sheet_id?: string | null
           completed_at?: string | null
           created_at?: string
           created_by_user_id?: string | null
@@ -1599,8 +1605,11 @@ export type Database = {
           notes: string | null
           original_amount: number
           remaining_amount: number
+          revoked_at: string | null
+          revoked_by_transaction_id: string | null
           source_reference: string | null
           source_type: Database["public"]["Enums"]["loyalty_lot_source_type"]
+          spend_basis_jpy: number | null
           updated_at: string
         }
         Insert: {
@@ -1614,8 +1623,11 @@ export type Database = {
           notes?: string | null
           original_amount: number
           remaining_amount: number
+          revoked_at?: string | null
+          revoked_by_transaction_id?: string | null
           source_reference?: string | null
           source_type: Database["public"]["Enums"]["loyalty_lot_source_type"]
+          spend_basis_jpy?: number | null
           updated_at?: string
         }
         Update: {
@@ -1629,8 +1641,11 @@ export type Database = {
           notes?: string | null
           original_amount?: number
           remaining_amount?: number
+          revoked_at?: string | null
+          revoked_by_transaction_id?: string | null
           source_reference?: string | null
           source_type?: Database["public"]["Enums"]["loyalty_lot_source_type"]
+          spend_basis_jpy?: number | null
           updated_at?: string
         }
         Relationships: [
@@ -1639,6 +1654,13 @@ export type Database = {
             columns: ["member_id"]
             isOneToOne: false
             referencedRelation: "loyalty_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loyalty_point_lots_revoked_by_transaction_id_fkey"
+            columns: ["revoked_by_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "loyalty_transactions"
             referencedColumns: ["id"]
           },
         ]
@@ -3576,9 +3598,27 @@ export type Database = {
         Args: { p_redemption_id: string }
         Returns: number
       }
+      restore_loyalty_points: {
+        Args: { p_created_by_user_id?: string; p_revoke_transaction_id: string }
+        Returns: string
+      }
       revalidate_account_from_vault: {
         Args: { p_invoice_number: string }
         Returns: Json
+      }
+      revoke_loyalty_points: {
+        Args: {
+          p_account_id?: string
+          p_cash_order_id?: string
+          p_created_by_user_id?: string
+          p_invoice_number?: string
+          p_member_id: string
+          p_notes?: string
+          p_payment_id?: string
+          p_source_reference: string
+          p_spend_jpy: number
+        }
+        Returns: string
       }
       validate_bulk_import: { Args: { p_rows: Json }; Returns: Json }
     }
@@ -3617,6 +3657,7 @@ export type Database = {
         | "expired"
         | "adjusted"
         | "refunded"
+        | "revoked"
       penalty_fee_status: "unpaid" | "paid" | "waived"
       penalty_stage: "week1" | "week2"
       risk_level: "low" | "medium" | "high"
@@ -3799,6 +3840,7 @@ export const Constants = {
         "expired",
         "adjusted",
         "refunded",
+        "revoked",
       ],
       penalty_fee_status: ["unpaid", "paid", "waived"],
       penalty_stage: ["week1", "week2"],
