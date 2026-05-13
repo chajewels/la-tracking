@@ -52,6 +52,41 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Fetch account details for loyalty revoke (Bug #99 — Decision 9 path-a)
+    const { data: account } = await supabase
+      .from("layaway_accounts")
+      .select("id, invoice_number, customer_id, status")
+      .eq("id", account_id)
+      .maybeSingle();
+
+    if (!account) {
+      return new Response(JSON.stringify({ error: "Account not found" }), {
+        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Bug #99 — fire-and-forget loyalty revoke BEFORE deletion (Decision 9 path-a)
+    try {
+      await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revoke-loyalty-points`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({
+          customer_id: account.customer_id,
+          source_reference: account.invoice_number,
+          account_id: account.id,
+          invoice_number: account.invoice_number,
+          notes: `Account deleted: ${account.invoice_number}`,
+          trigger_event: "delete_account",
+          spend_jpy: 0,
+        }),
+      }).catch((e) => console.warn("[delete-account] revoke-loyalty-points failed (non-blocking):", e));
+    } catch (revokeErr) {
+      console.warn("[delete-account] revoke block failed (non-blocking):", revokeErr);
+    }
+
     // Atomic delete via RPC (16 cleanup steps + audit log, single transaction)
     // RPC body lives in supabase/migrations/<timestamp>_delete_account_atomic.sql
     const { data, error: rpcError } = await supabase.rpc('delete_account_atomic', {
