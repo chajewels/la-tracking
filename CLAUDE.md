@@ -2122,6 +2122,17 @@ When completing a partially_paid month:
     label, !!proofFile guard in isFormValid, and dropzone "required"
     hint (2026-05-10)
 
+<<<<<<< HEAD
+  - 94. award-loyalty-points computed `points` with PRE-upgrade tier
+    multiplier, then INSERTed transaction + lot + email payload with
+    that pre-upgrade value, even when the qualifying purchase
+    triggered a tier upgrade. Per ratchet-up spec, the award should
+    use the POST-upgrade multiplier when the same purchase causes the
+    upgrade. Fixed by reordering: detect upgrade BEFORE computing
+    points, then use effectiveMultiplier/effectiveTierName throughout
+    (transaction tier_at_time, lot p_amount, email payload, in-portal
+    notification text). (2026-05-10)
+=======
   - 94. Frontend Restore Payment dialog UX for DP payments (2026-05-11).
     Bug #66 follow-up. Restore Payment dialog showed monthly due range
     chooser even when restoring downpayments. Backend short-circuited
@@ -2164,6 +2175,7 @@ When completing a partially_paid month:
     Customer-facing surfaces (CustomerStatement.tsx, CustomerPortal.tsx)
     deferred — edge function changes needed to expose created_at to
     client payload (filed in Known Open Bugs).
+>>>>>>> origin/main
 
 ## Known Open Bugs
 
