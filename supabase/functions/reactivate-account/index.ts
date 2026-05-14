@@ -272,6 +272,10 @@ Deno.serve(async (req) => {
             e,
           )
         );
+
+        console.log(
+          `[reactivate-account] restore-loyalty-points invoked for ${account.invoice_number} with revoke_tx ${revokeTx.id}`,
+        );
       } else {
         console.log(
           `[reactivate-account] no prior revoke transaction found for account ${account.id} — nothing to restore`,
