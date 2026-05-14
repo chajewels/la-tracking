@@ -2184,6 +2184,15 @@ When completing a partially_paid month:
     5 hooks, delete-account); documented Decisions 5 (reactivate-account
     no-op) and 7 (edit-payment-amount no-op). Full design + wiring in
     LOYALTY LIFECYCLE INTEGRATION section.
+100. Loyalty revoke in-portal notification recipient gap (2026-05-14).
+revoke-loyalty-points was inserting into loyalty_notifications (master row)
+only, skipping the loyalty_notification_recipients table. Customer portal
+uses INNER JOIN on recipients — meaning revoke tier-transition notifications
+never surfaced to customers, even when email + master row fired correctly.
+Surfaced during Bug #99 empirical verification prep. Fixed by replacing
+inline insert at revoke-loyalty-points/index.ts lines 254-272 with shared
+emitNotification helper (matches award-loyalty-points pattern, writes both
+rows). Affects all 11 lifecycle paths that pipe through revoke-loyalty-points.
 
 ## Known Open Bugs
 
@@ -7577,4 +7586,7 @@ where explicitly decided otherwise.
   - Silent on routine revoke (no tier change)
   - Email + in-portal notification on tier transition (any direction)
   - Tier-revoked email template handles all 4 reasons in REASON_COPY map
+  - In-portal notifications use shared emitNotification helper (writes both
+    loyalty_notifications master row + loyalty_notification_recipients row;
+    required for customer portal INNER JOIN visibility — Bug #100, 2026-05-14)
 
