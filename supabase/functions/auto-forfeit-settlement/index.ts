@@ -529,7 +529,12 @@ Deno.serve(async (req) => {
           false,
         );
 
-        await fireLoyaltyRevoke(account, "auto_forfeit", `Auto-final-settlement (6th penalty): ${account.invoice_number}`);
+        // Bug #101 — PATH 3 transitions account to final_settlement, not
+        // forfeited. Per business rule, only forfeited / final_forfeited
+        // statuses trigger loyalty revoke. final_settlement preserves loyalty
+        // (lots stay active). If the account is later actually forfeited via
+        // extension expiry/cap or manual forfeit, loyalty will be revoked at
+        // that point.
 
         await supabase.from("audit_logs").insert({
           entity_type: "layaway_account",

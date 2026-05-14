@@ -79,15 +79,13 @@ Deno.serve(async (req) => {
     }
 
     // ══════════════════════════════════════════════
-    // LOYALTY: NO-OP (Decision 5, Bug #99 — 2026-05-13)
+    // LOYALTY: AUTO-RESTORE (Decision 5 — UPDATED via Bug #101, 2026-05-14)
     // ══════════════════════════════════════════════
-    // reactivate-account does NOT call award-loyalty-points. When the
-    // account was forfeited or cancelled, loyalty was already revoked
-    // via manual-forfeit or auto-forfeit-settlement. Reactivation
-    // restores account-level state (status, schedule rows, etc.) but
-    // does NOT automatically re-award the previously revoked loyalty
-    // points. If admin wants to restore loyalty, they must trigger
-    // award-loyalty-points manually via the appropriate UI/RPC.
+    // reactivate-account now AUTO-RESTORES loyalty by calling
+    // restore-loyalty-points on the most recent revoke transaction
+    // for this account. Reverses the original Bug #99 Decision 5
+    // (was "no auto re-award"). See restore block placed after the
+    // successful status transition below — fire-and-forget pattern.
 
     // ⛔ LOCKED: FINAL_FORFEITED can NEVER be reactivated
     if (account.status === "final_forfeited") {
@@ -239,6 +237,51 @@ Deno.serve(async (req) => {
       }
     } catch (emailErr) {
       console.warn("[reactivate-account] email send failed (non-blocking):", emailErr);
+    }
+
+    // Bug #101 — auto-restore loyalty for reactivated account.
+    // Find the most recent revoke transaction tied to this account and
+    // invoke restore-loyalty-points. Fire-and-forget; failures never
+    // block reactivation.
+    try {
+      const { data: revokeTx } = await supabase
+        .from("loyalty_transactions")
+        .select("id")
+        .eq("account_id", account_id)
+        .eq("transaction_type", "revoked")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (revokeTx?.id) {
+        await fetch(
+          `${Deno.env.get("SUPABASE_URL")}/functions/v1/restore-loyalty-points`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            },
+            body: JSON.stringify({
+              revoke_transaction_id: revokeTx.id,
+            }),
+          },
+        ).catch((e) =>
+          console.warn(
+            `[reactivate-account] restore-loyalty-points failed for ${account.invoice_number} (non-blocking):`,
+            e,
+          )
+        );
+      } else {
+        console.log(
+          `[reactivate-account] no prior revoke transaction found for account ${account.id} — nothing to restore`,
+        );
+      }
+    } catch (restoreErr) {
+      console.warn(
+        `[reactivate-account] restore block failed for ${account.invoice_number} (non-blocking):`,
+        restoreErr,
+      );
     }
 
     return new Response(JSON.stringify({

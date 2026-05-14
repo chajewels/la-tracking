@@ -2193,6 +2193,17 @@ Surfaced during Bug #99 empirical verification prep. Fixed by replacing
 inline insert at revoke-loyalty-points/index.ts lines 254-272 with shared
 emitNotification helper (matches award-loyalty-points pattern, writes both
 rows). Affects all 11 lifecycle paths that pipe through revoke-loyalty-points.
+101. Loyalty revoke/restore lifecycle business rule correction (2026-05-14).
+Per business owner decision, loyalty revoke is restricted to actual
+forfeiture statuses only (forfeited, final_forfeited). PATH 3 →
+final_settlement now preserves loyalty (lots stay active).
+reactivate-account now auto-restores loyalty by calling restore-loyalty-points
+on the most recent revoke transaction. Reverses Bug #99's Decision 5 (was
+"no auto re-award"). Surfaced during auto-forfeit empirical verification
+on test fixture CJ-2026-FORFEIT-P3 (PATH 3 incorrectly revoked customer's
+lot even though account went to final_settlement, not forfeited).
+Cancel-account documented as future requirement — no code path writes
+account.status = 'cancelled' today.
 
 ## Known Open Bugs
 
@@ -7542,16 +7553,22 @@ where explicitly decided otherwise.
   - award-loyalty-points:             award (fires on DP confirmation for
                                       layaway, isFullyPaid for cash)
   - manual-forfeit:                   revoke
-  - auto-forfeit-settlement:          revoke (5 hook points — PATH 1, PATH 2,
-                                      PATH 3, extension expiry, extension cap)
+  - auto-forfeit-settlement:          revoke (4 hook points — PATH 1, PATH 2,
+                                      extension expiry, extension cap;
+                                      PATH 3 final_settlement does NOT revoke
+                                      per Bug #101, 2026-05-14)
+  - reactivate-account:               restore (via restore-loyalty-points
+                                      edge function — Bug #101, 2026-05-14)
   - delete-account:                   revoke BEFORE delete_account_atomic RPC
 
 ### Explicitly NOT wired:
 
-  Decision 5 — reactivate-account (no auto re-award):
-    After forfeiture, loyalty was already revoked. Reactivation does NOT
-    automatically re-award loyalty. Admin must manually trigger re-award
-    if desired. Documented inline in the edge function.
+  Decision 5 — UPDATED via Bug #101 (2026-05-14) — reactivate-account
+  now AUTO-RESTORES loyalty:
+    reactivate-account auto-restores loyalty by calling restore-loyalty-points
+    on the most recent revoke transaction tied to the account. Reverses
+    the original Bug #99 decision (was "no auto re-award"). Documented
+    inline in the edge function.
 
   Decision 7 — edit-payment-amount (no-op):
     Editing payment.amount_paid does not change loyalty state under the
@@ -7589,4 +7606,23 @@ where explicitly decided otherwise.
   - In-portal notifications use shared emitNotification helper (writes both
     loyalty_notifications master row + loyalty_notification_recipients row;
     required for customer portal INNER JOIN visibility — Bug #100, 2026-05-14)
+
+### Status transition revoke matrix (Bug #101 — 2026-05-14):
+  Loyalty revoke fires ONLY when account.status transitions into these
+  terminal states:
+    - forfeited       (via manual-forfeit OR auto-forfeit PATH 1/2)
+    - final_forfeited (via auto-forfeit extension expiry/cap)
+    - cancelled       (FUTURE — no current write path exists; documented
+                       business rule for if/when cancel-account is built)
+
+  Loyalty is NOT revoked on these statuses:
+    - final_settlement (PATH 3) — loyalty preserved; if customer later
+                                  recovers, lots stay intact
+    - extension_active            — intermediate state, no terminal effect
+    - completed                   — successful payoff, loyalty preserved
+    - reactivated                 — restoration path; auto-restores via
+                                    reactivate-account
+
+  Loyalty is RESTORED on reactivate-account when a prior revoke transaction
+  exists for the account.
 
