@@ -735,6 +735,15 @@ All values come from computeLayaway() in business-rules.ts
   info finding (preventive, unchanged because no
   delete-cash-order function exists yet).
 
+### email_send_log table
+
+  Tracks every transactional email attempt with status
+  (pending → sent / failed / suppressed / dlq), template_name,
+  recipient_email, error_message. Use as ground-truth for
+  email delivery diagnostics. NOTE: prior session notes
+  referenced a "transactional_email_log" table — that name
+  is incorrect; the actual table is email_send_log.
+
 ## Payment Recording Rules
 
 Every payment operation must update ALL 3 tables atomically:
@@ -2401,6 +2410,39 @@ account.status = 'cancelled' today.
     don't have a slot for unpaid DP. Discrepancy clears once DP is
     restored or another DP is recorded. Edge case only during
     transient voided-DP state. Not customer-facing. Defer.
+
+### Open workstreams (added 2026-05-14)
+
+  - Bug #103 candidate: Loyalty Tier Restored email template missing.
+    Template registry currently has Loyalty Tier Upgrade, Loyalty Tier
+    Downgrade, and Loyalty Tier Revoked but no symmetric counterpart
+    for restoration. When restore-loyalty-points causes a tier transition
+    upward via reactivate-account (or future revoke reversal flows),
+    there is no dedicated message — would fall back to Loyalty Tier
+    Upgrade which is semantically wrong (it implies new achievement,
+    not restoration of prior state).
+    Scope: new template file, registry entry, conditional send wiring
+    in restore-loyalty-points mirroring how revoke-loyalty-points sends
+    loyalty-tier-revoked on tier transition. Defer empirical test until
+    paired with the PATH 3 fixture work below.
+
+  - Bug #101 PATH 3 no-revoke empirical verification pending.
+    Code change shipped 2026-05-14 (commit 326cc4d) removed
+    fireLoyaltyRevoke from PATH 3 branch of auto-forfeit-settlement.
+    Logic-only verification done; needs empirical fixture that triggers
+    PATH 3 (6th penalty occurrence → status transition to final_settlement)
+    and confirms loyalty lot stays ACTIVE with no revoke transaction
+    logged. Fresh fixture required since CJ-2026-FORFEIT-P3 is already
+    in final_settlement state with manually-restored lot.
+
+  - Session lesson 2026-05-14: Bug #100 auto-deploy staleness incident
+    recurred during Bug #101 deployment. Workflow reported success at
+    326cc4d merge time; production function continued running pre-Bug #101
+    code until forced redeploy via trivial whitespace change. Pattern is
+    reproducible. Defense: empirical retest is the only proof of deployed
+    code; never trust workflow success alone. For high-confidence deploys,
+    request Lovable bundles a trivial change with the substantive change
+    to guarantee the deployment hash differs.
 
 ## SYSTEM INVARIANTS (permanent — never violate)
 
