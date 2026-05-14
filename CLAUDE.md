@@ -2213,6 +2213,28 @@ on test fixture CJ-2026-FORFEIT-P3 (PATH 3 incorrectly revoked customer's
 lot even though account went to final_settlement, not forfeited).
 Cancel-account documented as future requirement — no code path writes
 account.status = 'cancelled' today.
+102. iCloud email deliverability — investigated and filed as won't-fix at our layer (2026-05-14).
+During Bug #99/100/101 empirical verification, user reported zero emails arriving at
+efrhyll.largo@icloud.com despite all upstream functions returning success. Investigation:
+  - suppressed_emails table: email NOT on suppression list
+  - email_send_log: 6 emails between 03:10-04:21 UTC all reached status='sent'
+    (3× account-forfeited, 1× loyalty-tier-revoked, 2× extension-granted)
+  - No error_message rows, no DLQ moves, no failed retries
+  - Each followed pending → sent lifecycle cleanly via pgmq + @lovable.dev/email-js
+  - Same-day test inbox chajewelsjapan@gmail.com received emails normally
+    (TEST-008_ELITE forfeit at 01:53 UTC arrived in both account-forfeited + tier-revoked)
+Root cause: deliverability failure is downstream of our system. Either Lovable's email
+infrastructure silently drops iCloud-bound mail, or iCloud silently filters by sender
+reputation of notify.chajewelsjp.com. iCloud is well-documented for this behavior — no
+bounce, no error, mail simply doesn't arrive. Not a codebase bug; we have no visibility
+into Lovable's per-recipient delivery attempts.
+Mitigation paths (none code-side):
+  1. Verify SPF/DKIM/DMARC alignment for notify.chajewelsjp.com (Lovable manages, confirm)
+  2. Open Lovable support ticket for delivery-state diagnostics beyond 'sent'
+  3. Sender reputation hardening over time (volume, low complaint rate)
+  4. Capture backup non-iCloud contact channel for business-critical recipients
+Closing out as our system is functioning correctly per design and per its observable
+contract with the email service.
 
 ## Known Open Bugs
 
