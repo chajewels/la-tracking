@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
+import { emitNotification } from "../_shared/emit-notification.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -260,31 +261,18 @@ Deno.serve(async (req) => {
         );
       }
 
-      // 9b. In-portal notification (fire-and-forget)
-      try {
-        const { error: notifErr } = await supabase
-          .from("loyalty_notifications")
-          .insert({
-            title: "Your loyalty tier has been adjusted",
-            body: REASON_BODY[reason],
-            category: "tier",
-            audience_type: "specific",
-            audience_member_ids: [memberId],
-            status: "sent",
-            link_target: portalUrl,
-          });
-        if (notifErr) {
-          console.warn(
-            "[revoke-loyalty-points] notification insert failed:",
-            notifErr,
-          );
-        }
-      } catch (notifErr) {
-        console.warn(
-          "[revoke-loyalty-points] notification block failed:",
-          notifErr,
-        );
-      }
+      // 9b. In-portal notification — uses shared emitNotification helper.
+      // Writes both loyalty_notifications master row AND
+      // loyalty_notification_recipients row. Required for customer portal
+      // INNER JOIN visibility — direct master-only inserts get orphaned.
+      // Email handled separately by step 9a above; send_email=false here.
+      void emitNotification(supabase, memberId, {
+        category: "tier",
+        title: "Your loyalty tier has been adjusted",
+        body: REASON_BODY[reason],
+        link_target: portalUrl,
+        send_email: false,
+      });
     }
 
     // 10. Return
