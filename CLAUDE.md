@@ -2250,6 +2250,11 @@ to emitNotification helper. Updated reactivate-account to pass
 trigger_event="account_reactivated" in restore fetch. Added new email gate
 loyalty_email_tier_restored.
 
+   Empirically verified 2026-05-15 03:19:58 UTC — email_send_log row sent
+   (template_name='loyalty-tier-restored'), loyalty_notifications master +
+   recipient rows present, tier transition Glimmer→Radiant, restore transaction
+   ledger entry created.
+
 ## Known Open Bugs
 
   Bugs that have been surfaced and triaged but not
@@ -2448,19 +2453,6 @@ loyalty_email_tier_restored.
     transient voided-DP state. Not customer-facing. Defer.
 
 ### Open workstreams (added 2026-05-14)
-
-  - Bug #103 candidate: Loyalty Tier Restored email template missing.
-    Template registry currently has Loyalty Tier Upgrade, Loyalty Tier
-    Downgrade, and Loyalty Tier Revoked but no symmetric counterpart
-    for restoration. When restore-loyalty-points causes a tier transition
-    upward via reactivate-account (or future revoke reversal flows),
-    there is no dedicated message — would fall back to Loyalty Tier
-    Upgrade which is semantically wrong (it implies new achievement,
-    not restoration of prior state).
-    Scope: new template file, registry entry, conditional send wiring
-    in restore-loyalty-points mirroring how revoke-loyalty-points sends
-    loyalty-tier-revoked on tier transition. Defer empirical test until
-    paired with the PATH 3 fixture work below.
 
   - Bug #101 PATH 3 no-revoke empirical verification pending.
     Code change shipped 2026-05-14 (commit 326cc4d) removed
@@ -4056,6 +4048,15 @@ loyalty_email_tier_restored.
         key off in /loyalty/admin?tab=settings
         now actually suppresses the
         corresponding sends.
+
+    ### Loyalty email gates
+
+    All loyalty_email_* keys in system_settings default to TRUE when the row
+    is missing. Explicit FALSE row required to disable. Shipping a new
+    transactional email gate does not require a manual system_settings INSERT
+    for activation — but inserting an explicit row provides admin UI visibility
+    and an auditable enable/disable history.
+
     Phase 3 — Content Management (LIVE 2026-04-29)
       - Promotions tab: full CRUD with stats
         per promo (uses, unique customers,
@@ -7631,6 +7632,44 @@ whose effect is observable in the UI — if you
 cannot see the fix, escalate redeploy to Lovable
 before assuming the code is wrong.
 
+### Known broken: GitHub Actions auto-deploy (as of 2026-05-15)
+
+SUPABASE_ACCESS_TOKEN and SUPABASE_PROJECT_REF repo secrets are NOT
+configured in the GitHub Actions environment. Empirical evidence:
+
+- Push events: workflow runs in ~7-14s, every deploy step silently skips
+  (status "-")
+- workflow_dispatch: workflow fails at first deploy step with
+  "flag needs an argument: --project-ref"
+- Conclusion: no edge function actually deploys via the workflow as of this date
+
+Workaround: every edge function deploy must go through Lovable until secrets
+are added.
+
+Fix: add SUPABASE_ACCESS_TOKEN (generate at supabase.com/dashboard/account/tokens)
+and SUPABASE_PROJECT_REF (value: pfoicalpzdcmyxzvwyhz) at
+github.com/chajewels/la-tracking/settings/secrets/actions.
+
+### Shared template registry coupling
+
+The _shared/transactional-email-templates/registry.ts is bundled into every
+edge function that imports it. send-transactional-email is the primary consumer
+and performs all template lookups for transactional emails.
+
+When a new template is added to _shared/transactional-email-templates/:
+
+- The producing function (e.g. restore-loyalty-points referencing the new
+template) must be deployed
+- send-transactional-email MUST ALSO be deployed, or the call fails silently
+with "Template not found in registry" at runtime. This is NOT optional.
+- Any other consumer of the registry must be redeployed too
+
+Empirical proof from Bug #103: deploying restore-loyalty-points alone was
+insufficient — send-transactional-email needed a separate deploy to pick up
+the new loyalty-tier-restored template entry. The auto-deploy workflow's
+_shared/** path filter is designed to handle this automatically but is currently
+disabled by the secrets issue (see Known broken above).
+
 ## LOYALTY LIFECYCLE INTEGRATION (Bug #99 — finalized 2026-05-13)
 
 Loyalty revoke/award is wired into all payment lifecycle events EXCEPT
@@ -7725,4 +7764,3 @@ where explicitly decided otherwise.
 
   Loyalty is RESTORED on reactivate-account when a prior revoke transaction
   exists for the account.
-
