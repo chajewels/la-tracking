@@ -264,6 +264,7 @@ Deno.serve(async (req) => {
             },
             body: JSON.stringify({
               revoke_transaction_id: revokeTx.id,
+              trigger_event: "account_reactivated",
             }),
           },
         ).catch((e) =>

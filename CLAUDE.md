@@ -2213,6 +2213,19 @@ on test fixture CJ-2026-FORFEIT-P3 (PATH 3 incorrectly revoked customer's
 lot even though account went to final_settlement, not forfeited).
 Cancel-account documented as future requirement — no code path writes
 account.status = 'cancelled' today.
+103. Loyalty Tier Restored email template + restore-loyalty-points wiring (2026-05-15).
+restore-loyalty-points was sending loyalty-tier-upgrade template on tier transition
+after restoration — semantically wrong (upgrade implies new achievement, restoration is
+recovery of prior state). Added new loyalty-tier-restored template (gold-accented,
+restorative tone, 3 reason variants: account_reactivated, payment_restored,
+manual_restore). Wired into restore-loyalty-points via new trigger_event parameter
+(mirror of revoke-loyalty-points TriggerEvent pattern). Also fixed a Bug #100-style
+recurrence: restore-loyalty-points was using direct loyalty_notifications insert
+instead of shared emitNotification helper, so in-portal bell notifications never
+surfaced to customers via the INNER JOIN on loyalty_notification_recipients. Switched
+to emitNotification helper. Updated reactivate-account to pass
+trigger_event="account_reactivated" in restore fetch. Added new email gate
+loyalty_email_tier_restored.
 
 ## Known Open Bugs
 
@@ -2743,10 +2756,23 @@ account.status = 'cancelled' today.
              AND last non-voided payment > 90 days ago (safety guard)
   Effect: account status → 'forfeited', unpaid schedule rows → 'cancelled'
 
+### 90-day payment safety guard (clarified 2026-05-15):
+  The safety guard "last non-voided payment > 90 days ago" applies to BOTH PATH 2
+  AND PATH 3 (not just PATH 2 as originally documented). Implementation puts this
+  guard in the per-account loop BEFORE either path check, so any account with a
+  payment within 90 days is skipped entirely. This is intentional — keeps recently-
+  paying customers out of auto-forfeit regardless of overdue duration or penalty count.
+
 ### PATH 3 — 6th penalty occurrence → final_settlement:
   Condition: total penalty_fees rows (unpaid + paid) across all unpaid months >= 6
              AND no existing final_settlement_records for this account
+             AND last non-voided payment > 90 days ago (shared safety guard with PATH 2)
   Effect: creates final_settlement_records, account status → 'final_settlement'
+          Schedule rows are NOT cancelled (stay in 'overdue' status) — only PATH 1
+          and PATH 2 (true forfeits) cancel unpaid schedule rows.
+  Empirical verification: confirmed 2026-05-15 on fixture CJ-2026-FORFEIT-PATH3-NEW.
+  Loyalty preserved per Bug #101 fix — lot stays ACTIVE, no revoke transaction
+  logged, cumulative_spend_jpy unchanged.
 
 ### After forfeiture:
   - Admin can grant ONE-TIME extension → status = 'extension_active'
@@ -7641,13 +7667,22 @@ where explicitly decided otherwise.
                                    Decision 7)
   - delete_account               → 'account_deleted'
 
+### Restore trigger event → reason mapping (in restore-loyalty-points, Bug #103 — 2026-05-15):
+  - account_reactivated  → 'account_reactivated' (default; via reactivate-account)
+  - payment_restored     → 'payment_restored'    (future; via restore-payment)
+  - manual_restore       → 'manual_restore'      (future; admin direct restore)
+
 ### Email policy:
-  - Silent on routine revoke (no tier change)
+  - Silent on routine revoke or restore (no tier change)
   - Email + in-portal notification on tier transition (any direction)
-  - Tier-revoked email template handles all 4 reasons in REASON_COPY map
-  - In-portal notifications use shared emitNotification helper (writes both
-    loyalty_notifications master row + loyalty_notification_recipients row;
-    required for customer portal INNER JOIN visibility — Bug #100, 2026-05-14)
+  - Tier-revoked email template handles 4 revoke reasons in REASON_COPY map
+  - Tier-restored email template handles 3 restore reasons in REASON_COPY map
+    (added Bug #103, 2026-05-15)
+  - In-portal notifications use shared emitNotification helper for BOTH revoke
+    and restore paths (writes both loyalty_notifications master row +
+    loyalty_notification_recipients row; required for customer portal INNER
+    JOIN visibility — Bug #100 fixed revoke side 2026-05-14, Bug #103 fixed
+    restore side 2026-05-15)
 
 ### Status transition revoke matrix (Bug #101 — 2026-05-14):
   Loyalty revoke fires ONLY when account.status transitions into these
