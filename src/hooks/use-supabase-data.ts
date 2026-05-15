@@ -79,12 +79,28 @@ export function useAccounts() {
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('layaway_accounts')
-        .select('*, customers(full_name, messenger_link)')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      return data as AccountWithCustomer[];
+      // Paginated fetch — PostgREST default cap is 1000 rows,
+      // and layaway_accounts has exceeded that. Without this
+      // loop the oldest rows are silently dropped.
+      const PAGE_SIZE = 1000;
+      const MAX_PAGES = 20; // safety: stops at 20,000 rows
+      let allData: AccountWithCustomer[] = [];
+      let page = 0;
+      while (page < MAX_PAGES) {
+        const from = page * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
+        const { data, error } = await supabase
+          .from('layaway_accounts')
+          .select('*, customers(full_name, messenger_link)')
+          .order('created_at', { ascending: false })
+          .range(from, to);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        allData = allData.concat(data as AccountWithCustomer[]);
+        if (data.length < PAGE_SIZE) break;
+        page++;
+      }
+      return allData;
     },
   });
 }
@@ -105,14 +121,30 @@ export function useAccountsLight() {
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('layaway_accounts')
-        .select(
-          'id, customer_id, status, currency, invoice_number, total_amount, total_paid, remaining_balance, payment_plan_months, created_at, updated_at, created_by_user_id',
-        )
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      return data;
+      // Paginated fetch — PostgREST default cap is 1000 rows,
+      // and layaway_accounts has exceeded that. Without this
+      // loop the oldest rows are silently dropped.
+      const PAGE_SIZE = 1000;
+      const MAX_PAGES = 20; // safety: stops at 20,000 rows
+      let allData: any[] = [];
+      let page = 0;
+      while (page < MAX_PAGES) {
+        const from = page * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
+        const { data, error } = await supabase
+          .from('layaway_accounts')
+          .select(
+            'id, customer_id, status, currency, invoice_number, total_amount, total_paid, remaining_balance, payment_plan_months, created_at, updated_at, created_by_user_id',
+          )
+          .order('created_at', { ascending: false })
+          .range(from, to);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        allData = allData.concat(data);
+        if (data.length < PAGE_SIZE) break;
+        page++;
+      }
+      return allData;
     },
   });
 }
