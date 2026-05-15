@@ -2175,24 +2175,24 @@ When completing a partially_paid month:
     Customer-facing surfaces (CustomerStatement.tsx, CustomerPortal.tsx)
     deferred — edge function changes needed to expose created_at to
     client payload (filed in Known Open Bugs).
-  - 98. award-loyalty-points ratchet-up multiplier on tier-crossing
-    purchase (2026-05-12). When a qualifying purchase crossed a tier
-    threshold, the award used the PRE-upgrade multiplier instead of
-    POST-upgrade. Fixed to recompute effective tier after spend is added,
-    then apply the resulting multiplier. Shipped via PR #6 (commit
-    da5cb9c). Note: PR #6's CLAUDE.md merge conflict in this section
-    was resolved 2026-05-13.
-  - 99. Loyalty lifecycle reversal infrastructure (2026-05-13). Wires
-    revoke and award into all account/payment lifecycle events that
-    should impact loyalty. Added spend_basis_jpy column on
-    loyalty_point_lots for lot-based math + active-lots-aware
-    idempotency; deployed revoke_loyalty_points and
-    restore_loyalty_points RPCs; added loyalty-tier-revoked email
-    template; wired 11 lifecycle paths (void/restore-payment,
-    void/restore-cash-payment, manual-forfeit, auto-forfeit-settlement
-    5 hooks, delete-account); documented Decisions 5 (reactivate-account
-    no-op) and 7 (edit-payment-amount no-op). Full design + wiring in
-    LOYALTY LIFECYCLE INTEGRATION section.
+98. award-loyalty-points ratchet-up multiplier on tier-crossing
+purchase (2026-05-12). When a qualifying purchase crossed a tier
+threshold, the award used the PRE-upgrade multiplier instead of
+POST-upgrade. Fixed to recompute effective tier after spend is added,
+then apply the resulting multiplier. Shipped via PR #6 (commit
+da5cb9c). Note: PR #6's CLAUDE.md merge conflict in this section
+was resolved 2026-05-13.
+99. Loyalty lifecycle reversal infrastructure (2026-05-13). Wires
+revoke and award into all account/payment lifecycle events that
+should impact loyalty. Added spend_basis_jpy column on
+loyalty_point_lots for lot-based math + active-lots-aware
+idempotency; deployed revoke_loyalty_points and
+restore_loyalty_points RPCs; added loyalty-tier-revoked email
+template; wired 11 lifecycle paths (void/restore-payment,
+void/restore-cash-payment, manual-forfeit, auto-forfeit-settlement
+5 hooks, delete-account); documented Decisions 5 (reactivate-account
+no-op) and 7 (edit-payment-amount no-op). Full design + wiring in
+LOYALTY LIFECYCLE INTEGRATION section.
 100. Loyalty revoke in-portal notification recipient gap (2026-05-14).
 revoke-loyalty-points was inserting into loyalty_notifications (master row)
 only, skipping the loyalty_notification_recipients table. Customer portal
@@ -2254,6 +2254,9 @@ loyalty_email_tier_restored.
    (template_name='loyalty-tier-restored'), loyalty_notifications master +
    recipient rows present, tier transition Glimmer→Radiant, restore transaction
    ledger entry created.
+
+104. PostgREST 1000-row cap dropping oldest accounts in useAccounts/useAccountsLight hooks (2026-05-15).
+Default PostgREST page limit silently truncated query results in src/hooks/use-supabase-data.ts, causing the oldest active accounts to disappear from admin views as the account count grew past 1000. Fixed by paginating queries with multi-page fetching (commit 67ad485, 02:02 UTC), then raising MAX_PAGES from 20 to 1000 in a follow-up tweak (commit c22ec23, 02:10 UTC) to accommodate the full active account set.
 
 ## Known Open Bugs
 
@@ -2424,8 +2427,6 @@ loyalty_email_tier_restored.
     - Invoice generator — Google Sheets + Drive, JPY only.
       ✅ SHIPPED 2026-05-09 / 2026-05-10 (Steps 1a-1e in
       INVOICE GENERATOR section)
-    - Firebase signing steps 13-17 — contract signing flow
-      partially built.
 
   No P0 work today. Triage triggered when an item escalates
   (e.g., customer report, audit flag, regulatory deadline).
