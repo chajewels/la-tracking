@@ -2250,6 +2250,11 @@ to emitNotification helper. Updated reactivate-account to pass
 trigger_event="account_reactivated" in restore fetch. Added new email gate
 loyalty_email_tier_restored.
 
+   Empirically verified 2026-05-15 03:19:58 UTC — email_send_log row sent
+   (template_name='loyalty-tier-restored'), loyalty_notifications master +
+   recipient rows present, tier transition Glimmer→Radiant, restore transaction
+   ledger entry created.
+
 ## Known Open Bugs
 
   Bugs that have been surfaced and triaged but not
