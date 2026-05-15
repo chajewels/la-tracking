@@ -281,7 +281,7 @@ Deno.serve(async (req) => {
               "Extension period has expired without payment — account permanently forfeited",
               false,
             );
-            await fireLoyaltyRevoke(account, "final_forfeit", `Final forfeit (extension expired): ${account.invoice_number}`);
+            await fireLoyaltyRevoke(account, "final_forfeit", `Final forfeit (extension month penalty cap): ${account.invoice_number}`);
             continue;
           }
         }
