@@ -83,7 +83,7 @@ export function useAccounts() {
       // and layaway_accounts has exceeded that. Without this
       // loop the oldest rows are silently dropped.
       const PAGE_SIZE = 1000;
-      const MAX_PAGES = 20; // safety: stops at 20,000 rows
+      const MAX_PAGES = 1000; // safety: stops at 1,000,000 rows
       let allData: AccountWithCustomer[] = [];
       let page = 0;
       while (page < MAX_PAGES) {
@@ -125,7 +125,7 @@ export function useAccountsLight() {
       // and layaway_accounts has exceeded that. Without this
       // loop the oldest rows are silently dropped.
       const PAGE_SIZE = 1000;
-      const MAX_PAGES = 20; // safety: stops at 20,000 rows
+      const MAX_PAGES = 1000; // safety: stops at 1,000,000 rows
       let allData: any[] = [];
       let page = 0;
       while (page < MAX_PAGES) {
