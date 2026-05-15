@@ -4048,6 +4048,14 @@ loyalty_email_tier_restored.
         key off in /loyalty/admin?tab=settings
         now actually suppresses the
         corresponding sends.
+
+    ### Loyalty email gates
+
+    All loyalty_email_* keys in system_settings default to TRUE when the row
+    is missing. Explicit FALSE row required to disable. Shipping a new
+    transactional email gate does not require a manual system_settings INSERT
+    for activation — but inserting an explicit row provides admin UI visibility
+    and an auditable enable/disable history.
     Phase 3 — Content Management (LIVE 2026-04-29)
       - Promotions tab: full CRUD with stats
         per promo (uses, unique customers,
