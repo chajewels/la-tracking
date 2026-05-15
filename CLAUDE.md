@@ -4056,6 +4056,7 @@ loyalty_email_tier_restored.
     transactional email gate does not require a manual system_settings INSERT
     for activation — but inserting an explicit row provides admin UI visibility
     and an auditable enable/disable history.
+
     Phase 3 — Content Management (LIVE 2026-04-29)
       - Promotions tab: full CRUD with stats
         per promo (uses, unique customers,
