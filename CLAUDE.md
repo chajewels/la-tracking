@@ -7471,6 +7471,7 @@ Branch isolation rules (LOCKED):
   - Admin audit log for manual DB changes (P6)
   - Loyalty amount field — make visible to staff
     role
+  - Dispatcher pattern cleanup: process-email-queue INSERTs new "sent" rows into email_send_log instead of UPDATE-ing the existing "pending" row, and doesn't store idempotency_key or provider response metadata on the sent row. Cosmetic/forensic limitation only — orphans pending rows in the log and prevents tracing provider message IDs. Not customer-impacting. Surfaced during Bug #109 investigation, 2026-05-15.
 
 ## PERIODIC HEALTH QUERIES
 
