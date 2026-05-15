@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
+import { emitNotification } from "../_shared/emit-notification.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,6 +13,22 @@ const json = (body: unknown, status = 200) =>
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+
+type TriggerEvent =
+  | "account_reactivated"
+  | "payment_restored"
+  | "manual_restore";
+
+type RestoreReason =
+  | "account_reactivated"
+  | "payment_restored"
+  | "manual_restore";
+
+const TRIGGER_TO_REASON: Record<TriggerEvent, RestoreReason> = {
+  account_reactivated: "account_reactivated",
+  payment_restored: "payment_restored",
+  manual_restore: "manual_restore",
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -41,14 +58,17 @@ Deno.serve(async (req) => {
 
     // 2. Parse + validate body
     const body = await req.json().catch(() => ({}));
-    const { revoke_transaction_id, created_by_user_id } = body as {
+    const { revoke_transaction_id, created_by_user_id, trigger_event } = body as {
       revoke_transaction_id?: string;
       created_by_user_id?: string;
+      trigger_event?: TriggerEvent;
     };
     if (!revoke_transaction_id) {
       return json({ error: "revoke_transaction_id is required" }, 400);
     }
     const finalCreatedByUserId = created_by_user_id ?? resolvedCreatedByUserId;
+    const resolvedTriggerEvent: TriggerEvent = trigger_event ?? "account_reactivated";
+    const restoreReason: RestoreReason = TRIGGER_TO_REASON[resolvedTriggerEvent];
 
     // 3. Lookup revoke transaction → member_id (verify type='revoked')
     const { data: revokeTxn, error: lookupErr } = await supabase
@@ -142,10 +162,10 @@ Deno.serve(async (req) => {
         "loyalty",
       );
 
-      // 8a. Email — REUSE existing loyalty-tier-upgrade template
+      // 8a. Email — loyalty-tier-restored template (Bug #103)
       try {
         if (recipientEmail) {
-          if (await gate("loyalty_email_tier_upgrade")) {
+          if (await gate("loyalty_email_tier_restored")) {
             const baseUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`;
             await fetch(baseUrl, {
               method: "POST",
@@ -154,29 +174,28 @@ Deno.serve(async (req) => {
                 "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
               },
               body: JSON.stringify({
-                templateName: "loyalty-tier-upgrade",
+                templateName: "loyalty-tier-restored",
                 recipientEmail,
-                // Distinct prefix from award path's natural key — allows re-notification on oscillation
-                idempotencyKey: `loyalty-tier-upgrade-restore-${memberId}-${postCurrentTierId}-${revoke_transaction_id}`,
+                idempotencyKey: `loyalty-tier-restored-${memberId}-${postCurrentTierId}-${revoke_transaction_id}`,
                 templateData: {
                   customerName,
                   oldTier: preTierName,
                   newTier: postTierName,
+                  reason: restoreReason,
                   newMultiplier: Number(postTier?.points_multiplier ?? 1),
-                  cumulativeSpendJpy,
                   remainingPoints,
                   portalUrl,
                 },
               }),
             }).catch((e) =>
               console.warn(
-                "[restore-loyalty-points] loyalty-tier-upgrade email failed:",
+                "[restore-loyalty-points] loyalty-tier-restored email failed:",
                 e,
               )
             );
           } else {
             console.log(
-              "[email-gate] loyalty-tier-upgrade skipped — toggle 'loyalty_email_tier_upgrade' is OFF",
+              "[email-gate] loyalty-tier-restored skipped — toggle 'loyalty_email_tier_restored' is OFF",
             );
           }
         }
@@ -187,28 +206,22 @@ Deno.serve(async (req) => {
         );
       }
 
-      // 8b. In-portal notification (fire-and-forget)
+      // 8b. In-portal notification via emitNotification helper.
+      // Bug #103 — switched from direct loyalty_notifications insert to
+      // emitNotification helper. Direct insert was missing the recipient
+      // row in loyalty_notification_recipients, causing INNER JOIN on
+      // customer portal to filter the notification out. Same Bug #100-
+      // style gap previously surfaced in revoke-loyalty-points.
       try {
-        const { error: notifErr } = await supabase
-          .from("loyalty_notifications")
-          .insert({
-            title: "Loyalty tier restored",
-            body: `Your loyalty tier has been restored to ${postTierName}.`,
-            category: "tier",
-            audience_type: "specific",
-            audience_member_ids: [memberId],
-            status: "sent",
-            link_target: portalUrl,
-          });
-        if (notifErr) {
-          console.warn(
-            "[restore-loyalty-points] notification insert failed:",
-            notifErr,
-          );
-        }
+        void emitNotification(supabase, memberId, {
+          title: "Loyalty tier restored",
+          body: `Your loyalty tier has been restored to ${postTierName}.`,
+          category: "tier",
+          link_target: portalUrl,
+        });
       } catch (notifErr) {
         console.warn(
-          "[restore-loyalty-points] notification block failed:",
+          "[restore-loyalty-points] emitNotification failed:",
           notifErr,
         );
       }
