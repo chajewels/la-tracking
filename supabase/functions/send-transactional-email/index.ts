@@ -297,16 +297,54 @@ Deno.serve(async (req) => {
       ? template.subject(templateData)
       : template.subject
 
+  // Idempotency check — prevent duplicate sends from retry/race (Bug #109 fix, 2026-05-15)
+  if (idempotencyKey && idempotencyKey !== messageId) {
+    const { data: existingSend } = await supabase
+      .from('email_send_log')
+      .select('id, status, message_id')
+      .eq('idempotency_key', idempotencyKey)
+      .in('status', ['pending', 'sent'])
+      .limit(1)
+      .maybeSingle();
+    if (existingSend) {
+      console.log('Email deduplicated by idempotency key', {
+        idempotencyKey,
+        existingMessageId: existingSend.message_id,
+      });
+      return new Response(
+        JSON.stringify({
+          success: true,
+          deduplicated: true,
+          existing_message_id: existingSend.message_id,
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+  }
+
   // 5. Enqueue the pre-rendered email for async processing by the dispatcher.
   // The dispatcher (process-email-queue) handles sending, retries, and rate-limit backoff.
 
   // Log pending BEFORE enqueue so we have a record even if enqueue crashes
-  await supabase.from('email_send_log').insert({
+  const { error: pendingInsertErr } = await supabase.from('email_send_log').insert({
     message_id: messageId,
+    idempotency_key: idempotencyKey,
     template_name: templateName,
     recipient_email: effectiveRecipient,
     status: 'pending',
-  })
+  });
+  if (pendingInsertErr) {
+    // Concurrent race: another simultaneous call won the idempotency race
+    if ((pendingInsertErr as { code?: string }).code === '23505') {
+      console.log('Email deduplicated at INSERT (concurrent race)', { idempotencyKey });
+      return new Response(
+        JSON.stringify({ success: true, deduplicated: true }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    console.error('Failed to log pending email', { error: pendingInsertErr });
+    throw pendingInsertErr;
+  }
 
   const { error: enqueueError } = await supabase.rpc('enqueue_email', {
     queue_name: 'transactional_emails',

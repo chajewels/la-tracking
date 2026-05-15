@@ -123,12 +123,9 @@ Deno.serve(async (req) => {
       .eq("account_id", account_id)
       .order("installment_number", { ascending: false });
 
-    const lastDueDate = schedItems && schedItems.length > 0
-      ? schedItems[0].due_date
-      : new Date().toISOString().split("T")[0];
-
-    // Extension = 1 month after the last schedule due date
-    const extDate = new Date(lastDueDate + "T00:00:00Z");
+    // Extension = 1 month from reactivation date (Bug #108 fix, 2026-05-15)
+    // Business rule: customer gets 1 month from reactivation to settle, regardless of last due date
+    const extDate = new Date();
     extDate.setUTCMonth(extDate.getUTCMonth() + 1);
     const extensionEndDate = extDate.toISOString().split("T")[0];
 
@@ -159,27 +156,17 @@ Deno.serve(async (req) => {
 
     if (updateErr) throw updateErr;
 
-    // Only create Extension Month row if all plan months are paid
-    // (forfeited by final-month penalty cap — not by 3-month overdue rule)
-    const { data: unpaidRows } = await supabase
-      .from("layaway_schedule")
-      .select("id")
-      .eq("account_id", account_id)
-      .lte("installment_number", account.payment_plan_months)
-      .not("status", "eq", "paid")
-      .not("status", "eq", "cancelled");
-
-    if (!unpaidRows || unpaidRows.length === 0) {
-      await supabase.from("layaway_schedule").insert({
-        account_id: account_id,
-        installment_number: account.payment_plan_months + 1,
-        due_date: extensionEndDate,
-        base_installment_amount: 0,
-        total_due_amount: 0,
-        currency: account.currency,
-        status: "overdue",
-      });
-    }
+    // Always create Extension Month row so penalty cap path is reachable
+    // regardless of forfeit reason (Bug #106 fix, 2026-05-15)
+    await supabase.from("layaway_schedule").insert({
+      account_id: account_id,
+      installment_number: account.payment_plan_months + 1,
+      due_date: extensionEndDate,
+      base_installment_amount: 0,
+      total_due_amount: 0,
+      currency: account.currency,
+      status: "overdue",
+    });
 
     // Fetch customer name for audit
     const { data: cust } = await supabase
