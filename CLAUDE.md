@@ -2260,7 +2260,8 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
 105. restore_loyalty_points RPC failed to increment member.remaining_points when lot.expires_at IS NULL — fixed asymmetric NULL handling in the counter IF clause (Bug #105, 2026-05-15).
 106. reactivate-account skipped Extension Month row when not all installments paid, making extension cap path unreachable for PATH 2 forfeits — fixed to always create Month 4 row (Bug #106, 2026-05-15).
 108. reactivate-account computed extension_end_date from lastDueDate + 1mo, producing past dates for severely-overdue forfeited accounts — fixed to today + 1mo per business rule (Bug #108, 2026-05-15).
-109. send-transactional-email had no idempotency check before INSERT, causing duplicate emails on fetch retry — added pre-INSERT check, idempotency_key column write, and concurrent race handler (Bug #109, 2026-05-15).
+109. send-transactional-email had no idempotency check before INSERT — added pre-INSERT check, idempotency_key column write, and concurrent race handler (2026-05-15). NOTE: The "duplicate emails" symptom was misdiagnosed during initial investigation. What appeared as 4 emails was actually 2 logical emails × 2 lifecycle rows each (pending row from send-transactional-email, sent row from process-email-queue dispatcher, sharing same message_id). The idempotency check is still beneficial as defense against genuine retry/race duplicates but did not fix what we initially thought.
+107. auto-forfeit-settlement extension cap path wrote identical revoke notes text as the extension expiry path ("Final forfeit (extension expired)"), making the two paths indistinguishable via loyalty_transactions.notes — fixed cap path to write "Final forfeit (extension month penalty cap)" for forensic clarity. audit_logs.action already differentiated them via "auto_forfeit_extension_penalty_cap" vs "final_forfeited" (2026-05-15)
 
 ## Known Open Bugs
 
@@ -7470,6 +7471,7 @@ Branch isolation rules (LOCKED):
   - Admin audit log for manual DB changes (P6)
   - Loyalty amount field — make visible to staff
     role
+  - Dispatcher pattern cleanup: process-email-queue INSERTs new "sent" rows into email_send_log instead of UPDATE-ing the existing "pending" row, and doesn't store idempotency_key or provider response metadata on the sent row. Cosmetic/forensic limitation only — orphans pending rows in the log and prevents tracing provider message IDs. Not customer-impacting. Surfaced during Bug #109 investigation, 2026-05-15.
 
 ## PERIODIC HEALTH QUERIES
 
