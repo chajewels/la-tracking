@@ -241,6 +241,7 @@ Deno.serve(async (req) => {
       { data: loyaltyMemberRow },
       { data: loyaltyTiersRows },
       { data: loyaltyBetaRow },
+      { data: loyaltyFlagRow },
     ] = await Promise.all([
       cashPaymentsPromise,
       supabase
@@ -263,7 +264,33 @@ Deno.serve(async (req) => {
         .select("id")
         .eq("customer_id", customerId)
         .maybeSingle(),
+      // loyalty_enabled flag — same RLS rationale as the beta read above.
+      // system_settings RLS is staff-only SELECT, so the browser-side
+      // useLoyaltyAccess read is blocked for portal sessions. Resolve it
+      // here with the service-role client and return it in the payload.
+      supabase
+        .from("system_settings")
+        .select("value")
+        .eq("key", "loyalty_enabled")
+        .maybeSingle(),
     ]);
+
+    let loyaltyEnabled = false;
+    {
+      const rawFlag = (loyaltyFlagRow as { value?: unknown } | null)?.value;
+      if (rawFlag != null) {
+        if (typeof rawFlag === "boolean") loyaltyEnabled = rawFlag;
+        else {
+          try {
+            const parsed = JSON.parse(String(rawFlag));
+            loyaltyEnabled = parsed === true || parsed === "true";
+          } catch {
+            loyaltyEnabled = String(rawFlag).toLowerCase() === "true";
+          }
+        }
+      }
+    }
+
 
     let loyaltyTransactions: any[] = [];
     let loyaltyRedemptions: any[] = [];
@@ -723,6 +750,7 @@ Deno.serve(async (req) => {
       loyalty_redemptions: loyaltyRedemptions,
       loyalty_lots: loyaltyLots,
       is_loyalty_beta: loyaltyBetaRow !== null,
+      loyalty_enabled: loyaltyEnabled,
       notifications,
       unread_count: unreadCount,
       active_promo: activePromo,

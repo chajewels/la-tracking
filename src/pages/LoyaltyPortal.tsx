@@ -101,6 +101,13 @@ interface PortalData {
    * silently return false for any portal-token session.
    */
   is_loyalty_beta?: boolean;
+  /**
+   * Server-resolved loyalty_enabled flag. customer-portal reads
+   * system_settings with the service role because that table's RLS is
+   * staff-only SELECT — the browser-side useLoyaltyAccess read is
+   * blocked for portal sessions and would falsely return false.
+   */
+  loyalty_enabled?: boolean;
   /** Phase 4: loyalty notifications fanned out to this member. */
   notifications?: Array<{
     id: string;
@@ -569,10 +576,13 @@ export default function LoyaltyPortal() {
   const data = portalQuery.data;
   const member = data.loyalty_member;
 
-  // The hook's access.isBeta is unreliable here — the portal-token
-  // session has no auth and RLS blocks loyalty_beta_members reads. Use
-  // the server-resolved is_loyalty_beta from customer-portal instead.
-  const hasAccess = access.isFeatureEnabled || !!data.is_loyalty_beta;
+  // Both access.isFeatureEnabled and access.isBeta are unreliable here:
+  // the portal session has no staff auth, so RLS blocks the browser-side
+  // system_settings and loyalty_beta_members reads in useLoyaltyAccess.
+  // Use the server-resolved values from customer-portal (service role)
+  // as the primary source; fall back to the hook only if absent.
+  const hasAccess =
+    (data.loyalty_enabled ?? access.isFeatureEnabled) || !!data.is_loyalty_beta;
 
   // Routing decision:
   //   - !hasAccess              → ComingSoon
