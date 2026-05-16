@@ -136,6 +136,14 @@ export default function PortalSetup() {
       toast.error('Please enter your full name');
       return;
     }
+    if (!facebookName.trim()) {
+      toast.error('Please enter your Facebook name');
+      return;
+    }
+    if (!country.trim()) {
+      toast.error('Please enter your country');
+      return;
+    }
     if (password.length < 8) {
       toast.error('Password must be at least 8 characters');
       return;
@@ -217,7 +225,7 @@ export default function PortalSetup() {
                 style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
               />
 
-              <label htmlFor="portal-setup-fullname" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Full Name</label>
+              <label htmlFor="portal-setup-fullname" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Full Name <span style={{ color: '#C9A84C' }}>*</span></label>
               <input
                 id="portal-setup-fullname"
                 name="full_name"
@@ -241,7 +249,7 @@ export default function PortalSetup() {
                 style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
               />
 
-              <label htmlFor="portal-setup-facebook" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Facebook Name <span style={{ textTransform: 'none', letterSpacing: 0, color: '#666' }}>(optional)</span></label>
+              <label htmlFor="portal-setup-facebook" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Facebook Name <span style={{ color: '#C9A84C' }}>*</span></label>
               <input
                 id="portal-setup-facebook"
                 name="facebook_name"
@@ -274,7 +282,7 @@ export default function PortalSetup() {
                 style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
               />
 
-              <label htmlFor="portal-setup-country" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Country <span style={{ textTransform: 'none', letterSpacing: 0, color: '#666' }}>(optional)</span></label>
+              <label htmlFor="portal-setup-country" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Country <span style={{ color: '#C9A84C' }}>*</span></label>
               <input
                 id="portal-setup-country"
                 name="country"
