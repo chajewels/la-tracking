@@ -71,7 +71,7 @@ Deno.serve(async (req) => {
     // 2. Fetch customer
     const { data: customer, error: custErr } = await supabase
       .from("customers")
-      .select("id, full_name, email")
+      .select("id, customer_code, full_name, email")
       .eq("id", customerId)
       .single();
     if (custErr || !customer) {
@@ -188,7 +188,15 @@ Deno.serve(async (req) => {
               full_name: customer.full_name,
               email: customer.email,
             },
-            payload: {},
+            payload: {
+              member_id: customer.customer_code ?? null,
+              current_tier: "Glimmer",
+              lifetime_spend_jpy: 0,
+              available_points: 0,
+              activity_status: "Active",
+              last_purchase_date: null,
+              notes: "New enrollment",
+            },
           }),
         },
       ).catch((e) =>

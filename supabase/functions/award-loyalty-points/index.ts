@@ -235,17 +235,21 @@ Deno.serve(async (req) => {
     if (sourceKind === "layaway") earnedTxRow.account_id = account_id;
     else earnedTxRow.cash_order_id = cash_order_id;
 
-    const { error: earnedErr } = await supabase
+    const { data: earnedTxData, error: earnedErr } = await supabase
       .from("loyalty_transactions")
-      .insert(earnedTxRow);
+      .insert(earnedTxRow)
+      .select("id")
+      .single();
     if (earnedErr) {
       console.error("[award-loyalty-points] earned tx insert failed:", earnedErr);
       return json({ error: "earned_tx_insert_failed", detail: earnedErr.message }, 500);
     }
+    const earnedTxId: string | null = (earnedTxData as { id?: string } | null)?.id ?? null;
 
     // 9. Insert bonus transaction if any bonus applies
     //    Skip when both delta_from_multiplier = 0 AND flat_bonus = 0
     //    (e.g. no active promo, or active promo with multiplier=1.00 and bonus_points=0)
+    let bonusTxId: string | null = null;
     if (activePromo && bonusTxPoints > 0) {
       let bonusNotes: string;
       if (deltaFromMultiplier > 0 && flatBonus > 0) {
@@ -256,19 +260,25 @@ Deno.serve(async (req) => {
       } else {
         bonusNotes = `Flat bonus (${flatBonus})`;
       }
-      const { error: bonusErr } = await supabase.from("loyalty_transactions").insert({
-        member_id: member.id,
-        transaction_type: "bonus",
-        points_amount: bonusTxPoints,
-        promo_id: activePromo.id,
-        invoice_number: invoiceNumber,
-        notes: bonusNotes,
-      });
+      const { data: bonusTxData, error: bonusErr } = await supabase
+        .from("loyalty_transactions")
+        .insert({
+          member_id: member.id,
+          transaction_type: "bonus",
+          points_amount: bonusTxPoints,
+          promo_id: activePromo.id,
+          invoice_number: invoiceNumber,
+          notes: bonusNotes,
+        })
+        .select("id")
+        .single();
       if (bonusErr) {
         console.warn(
           "[award-loyalty-points] bonus tx insert failed (non-blocking):",
           bonusErr,
         );
+      } else {
+        bonusTxId = (bonusTxData as { id?: string } | null)?.id ?? null;
       }
     }
 
@@ -395,11 +405,13 @@ Deno.serve(async (req) => {
     //     block below (firstName extraction). Hoisted out of the
     //     email try/catch so notifications can reuse it without a
     //     second round-trip.
-    let customer: { full_name: string | null; email: string | null } | null = null;
+    let customer:
+      | { id: string; customer_code: string | null; full_name: string | null; email: string | null }
+      | null = null;
     try {
       const { data } = await supabase
         .from("customers")
-        .select("full_name, email")
+        .select("id, customer_code, full_name, email")
         .eq("id", customerId!)
         .single();
       customer = data ?? null;
@@ -554,23 +566,107 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 15. Sync to Google Sheet — fire-and-forget
+    // 15. Sync to Google Sheet — canonical taxonomy emissions.
+    //     earned (always) → bonus (if any) → tier_changed (if upgrade).
+    //     All fire-and-forget; each isolated so one failure can't block
+    //     the others or the function return.
+    const syncSheetUrl =
+      `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-loyalty-to-sheet`;
+    const syncSheetHeaders = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+    };
+    const memberPublicId = customer?.customer_code ?? null;
+    const customerBlock = {
+      customer_id: customerId,
+      full_name: customer?.full_name ?? null,
+      email: customer?.email ?? null,
+    };
+
+    // CALL 1 — earned (always)
     try {
-      await fetch(
-        `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-loyalty-to-sheet`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+      await fetch(syncSheetUrl, {
+        method: "POST",
+        headers: syncSheetHeaders,
+        body: JSON.stringify({
+          event_type: "earned",
+          customer: customerBlock,
+          payload: {
+            member_id: memberPublicId,
+            transaction_id: earnedTxId,
+            points_amount: points,
+            spend_amount_jpy: loyaltyJpy,
+            multiplier: effectiveMultiplier,
+            tier_at_time: effectiveTierName,
+            invoice_number: invoiceNumber,
+            account_id: account_id ?? null,
+            notes: "",
+            created_by: "system",
           },
-          body: JSON.stringify({ member_id: member.id }),
-        },
-      ).catch((e) =>
-        console.warn("[award-loyalty-points] sheet sync failed:", e)
+        }),
+      }).catch((e) =>
+        console.warn("[award-loyalty-points] sheet sync (earned) failed:", e)
       );
     } catch (sheetErr) {
-      console.warn("[award-loyalty-points] sheet sync block failed:", sheetErr);
+      console.warn("[award-loyalty-points] sheet sync (earned) block failed:", sheetErr);
+    }
+
+    // CALL 2 — bonus (only when a promo bonus was awarded)
+    if (bonusTxPoints > 0) {
+      try {
+        await fetch(syncSheetUrl, {
+          method: "POST",
+          headers: syncSheetHeaders,
+          body: JSON.stringify({
+            event_type: "bonus",
+            customer: customerBlock,
+            payload: {
+              member_id: memberPublicId,
+              transaction_id: bonusTxId ?? earnedTxId,
+              points_amount: bonusTxPoints,
+              multiplier: effectiveMultiplier,
+              tier_at_time: effectiveTierName,
+              invoice_number: invoiceNumber,
+              account_id: account_id ?? null,
+              notes: `Promo bonus${activePromo?.name ? `: ${activePromo.name}` : ""}`,
+              created_by: "system",
+            },
+          }),
+        }).catch((e) =>
+          console.warn("[award-loyalty-points] sheet sync (bonus) failed:", e)
+        );
+      } catch (sheetErr) {
+        console.warn("[award-loyalty-points] sheet sync (bonus) block failed:", sheetErr);
+      }
+    }
+
+    // CALL 3 — tier_changed (only on upgrade caused by this purchase)
+    if (tierUpgraded === true) {
+      try {
+        await fetch(syncSheetUrl, {
+          method: "POST",
+          headers: syncSheetHeaders,
+          body: JSON.stringify({
+            event_type: "tier_changed",
+            customer: customerBlock,
+            payload: {
+              member_id: memberPublicId,
+              current_tier: newTierName,
+              lifetime_spend_jpy: newCumulative,
+              available_points: newRemaining,
+              activity_status: "Active",
+              last_purchase_date: today,
+              old_tier: oldTierName,
+              new_tier: newTierName,
+              notes: `${oldTierName} → ${newTierName}`,
+            },
+          }),
+        }).catch((e) =>
+          console.warn("[award-loyalty-points] sheet sync (tier_changed) failed:", e)
+        );
+      } catch (sheetErr) {
+        console.warn("[award-loyalty-points] sheet sync (tier_changed) block failed:", sheetErr);
+      }
     }
 
     // 16. Return

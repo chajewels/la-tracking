@@ -3063,6 +3063,26 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
      ASC NULLS LAST). MemberCard shows the next-expiring lot and
      a red "expiring soon" badge when within 30 days.
 
+## LOYALTY GOOGLE SHEET SYNC TAXONOMY — NON-NEGOTIABLE (added 2026-05-16)
+
+Canonical event_type values consumed by sync-loyalty-to-sheet:
+
+  Members tab events:      enrolled, tier_changed, status_changed, admin_edited
+  Transactions tab events: earned, bonus, redeemed, expired, adjusted, refunded, revoked, birthday_bonus
+
+Caller responsibilities:
+  - join-loyalty-program       → emits enrolled
+  - award-loyalty-points       → emits earned + bonus (if promo) + tier_changed (if upgrade)
+  - process-loyalty-redemption → emits redeemed (approve), revoked (void)
+  - loyalty-inactivity-check   → emits expired, tier_changed (downgrade), status_changed (if wired)
+
+Forbidden:
+  - Any caller sending event_type values outside this taxonomy
+  - Emission without member_id in the payload
+  - Sync calls that block the parent function's return (must remain fire-and-forget)
+
+Sheet ID location: system_settings.loyalty_sheet_id (configured via Loyalty Settings UI).
+
 ## PROOF OF PAYMENT (added 2026-04-13)
 
   - Stored in Supabase Storage bucket: payment-proofs

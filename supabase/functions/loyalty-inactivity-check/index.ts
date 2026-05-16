@@ -79,6 +79,10 @@ async function sendEmail(
   }
 }
 
+// TODO Substep 3 follow-up: emit status_changed when activity_status
+// transition is implemented. loyalty_members has no activity_status
+// column today and this function never sets one, so status_changed is
+// intentionally not emitted here.
 async function syncSheet(
   eventType: string,
   customer: { customer_id: string; full_name: string | null; email: string | null },
@@ -141,7 +145,7 @@ Deno.serve(async (req) => {
   const { data: members, error: membersErr } = await supabase
     .from("loyalty_members")
     .select(
-      "id, customer_id, current_tier_id, earned_tier_id, remaining_points, total_points_expired, last_purchase_at, prev_purchase_at, pre_expiry_warned_at, is_downgraded",
+      "id, customer_id, current_tier_id, earned_tier_id, remaining_points, total_points_expired, last_purchase_at, prev_purchase_at, pre_expiry_warned_at, is_downgraded, cumulative_spend_jpy",
     )
     .not("last_purchase_at", "is", null)
     .gt("remaining_points", 0);
@@ -173,7 +177,7 @@ Deno.serve(async (req) => {
 
       const { data: customer } = await supabase
         .from("customers")
-        .select("id, full_name, email")
+        .select("id, customer_code, full_name, email")
         .eq("id", member.customer_id)
         .maybeSingle();
       const customerName = customer?.full_name || "Valued Customer";
@@ -193,7 +197,7 @@ Deno.serve(async (req) => {
           : currentTier;
         const tierChanged = nextLower!.id !== currentTier.id;
 
-        const { error: txErr } = await supabase
+        const { data: expiredTxRow, error: txErr } = await supabase
           .from("loyalty_transactions")
           .insert({
             member_id: member.id,
@@ -201,8 +205,12 @@ Deno.serve(async (req) => {
             points_amount: -wasRemaining,
             tier_at_time: currentTier.name,
             notes: "Inactivity expiry: 6 months since last purchase",
-          });
+          })
+          .select("id")
+          .single();
         if (txErr) throw txErr;
+        const expiredTxId: string | null =
+          (expiredTxRow as { id?: string } | null)?.id ?? null;
 
         const { error: updErr } = await supabase
           .from("loyalty_members")
@@ -239,8 +247,11 @@ Deno.serve(async (req) => {
         }
         if (customerBlock) {
           await syncSheet("expired", customerBlock, {
+            member_id: customer?.customer_code ?? null,
+            transaction_id: expiredTxId,
             points_amount: -wasRemaining,
             notes: "Expired: 6mo inactivity",
+            created_by: "system",
           });
         }
 
@@ -370,10 +381,16 @@ Deno.serve(async (req) => {
             );
           }
           if (customerBlock) {
-            await syncSheet("tier_change", customerBlock, {
+            await syncSheet("tier_changed", customerBlock, {
+              member_id: customer?.customer_code ?? null,
+              current_tier: nextLower.name,
+              lifetime_spend_jpy: Number(member.cumulative_spend_jpy ?? 0),
+              available_points: Number(member.remaining_points ?? 0),
+              last_purchase_date: member.last_purchase_at ?? null,
               old_tier: currentTier.name,
               new_tier: nextLower.name,
               reason: "inactivity",
+              notes: `${currentTier.name} → ${nextLower.name}`,
             });
           }
 

@@ -535,7 +535,7 @@ Deno.serve(async (req) => {
       try {
         const { data: customer } = await supabase
           .from("customers")
-          .select("id, full_name, email")
+          .select("id, customer_code, full_name, email")
           .eq("id", member.customer_id)
           .single();
         const recipientEmail = customer?.email;
@@ -597,6 +597,7 @@ Deno.serve(async (req) => {
                   email: customer.email,
                 },
                 payload: {
+                  member_id: customer.customer_code ?? null,
                   points_amount: -Number(redemption.points_redeemed),
                   spend_amount_jpy: -Number(redemption.value_applied_jpy),
                   invoice_number: redemption.invoice_number,
@@ -995,6 +996,53 @@ Deno.serve(async (req) => {
         }),
         link_target: "tab:points",
       });
+
+      // Step 10: Google Sheet sync — emit "revoked" (canonical taxonomy).
+      // Fire-and-forget, isolated; never blocks the void success return.
+      try {
+        const { data: revokeCustomer } = await supabase
+          .from("customers")
+          .select("id, customer_code, full_name, email")
+          .eq("id", member.customer_id)
+          .single();
+        if (revokeCustomer) {
+          await fetch(
+            `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-loyalty-to-sheet`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+              },
+              body: JSON.stringify({
+                event_type: "revoked",
+                customer: {
+                  customer_id: revokeCustomer.id,
+                  full_name: revokeCustomer.full_name,
+                  email: revokeCustomer.email,
+                },
+                payload: {
+                  member_id: revokeCustomer.customer_code ?? null,
+                  transaction_id: refundTxRow.id,
+                  points_amount: pointsToRefund,
+                  invoice_number: redemption.invoice_number,
+                  notes: `Voided redemption refund${
+                    trimmedReason ? ` — ${trimmedReason}` : ""
+                  }`,
+                  created_by: user.email ?? "system",
+                },
+              }),
+            },
+          ).catch((e) =>
+            console.warn("[process-loyalty-redemption] sheet sync (revoked) failed:", e)
+          );
+        }
+      } catch (sheetErr) {
+        console.warn(
+          "[process-loyalty-redemption] sheet sync (revoked) block failed:",
+          sheetErr,
+        );
+      }
 
       return json({
         voided: true,
