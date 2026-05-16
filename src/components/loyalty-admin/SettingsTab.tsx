@@ -352,11 +352,16 @@ export default function SettingsTab() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="realtime">Real-time (every event)</SelectItem>
                 <SelectItem value="manual">Manual only</SelectItem>
                 <SelectItem value="hourly">Hourly</SelectItem>
                 <SelectItem value="daily">Daily</SelectItem>
               </SelectContent>
             </Select>
+            <p className="text-[11px] italic text-muted-foreground">
+              v1 syncs in real-time on every event. Other options are
+              reserved for future batched modes.
+            </p>
           </div>
 
           <div>

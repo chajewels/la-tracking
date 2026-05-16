@@ -3083,6 +3083,22 @@ Forbidden:
 
 Sheet ID location: system_settings.loyalty_sheet_id (configured via Loyalty Settings UI).
 
+### Sync function implementation (live as of 2026-05-16)
+
+- sync-loyalty-to-sheet/index.ts writes rows in real-time to the Sheet configured in system_settings.loyalty_sheet_id.
+- Sheet tabs: Members (11 cols) and Transactions (13 cols). Column order is locked — see headers in row 1 of each tab.
+- Authentication: getServiceAccountAccessToken() from _shared/google-auth.ts (same SA as invoice generator).
+- Activity Status (Members tab Col I): derived from last_purchase_at — null or <90 days = "Active", ≥90 days = "Inactive".
+- PHT timestamps (Col A both tabs): formatted via Intl.DateTimeFormat with timeZone 'Asia/Manila'.
+- Real-time only in v1. loyalty_sheet_sync_frequency setting is informational only; the function ignores it and writes every event immediately.
+- Append endpoint: spreadsheets.values.append (NOT batchUpdate) — sheet auto-finds next empty row.
+- Graceful skip: if loyalty_sheet_id is empty in system_settings, function returns { disabled: true } without erroring.
+
+Forbidden:
+- Modifying sheet column order without coordinated header update in the actual Google Sheet
+- Calling sync-loyalty-to-sheet with event_type outside the canonical taxonomy
+- Removing the activity_status derivation (Members Col I depends on it)
+
 ## PROOF OF PAYMENT (added 2026-04-13)
 
   - Stored in Supabase Storage bucket: payment-proofs

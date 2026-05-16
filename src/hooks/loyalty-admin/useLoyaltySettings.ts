@@ -13,7 +13,7 @@ import { supabase } from '@/integrations/supabase/client';
 export const LOYALTY_SETTINGS_AUDIT_ID =
   '00000000-0000-0000-0000-0000000000a1';
 
-export type LoyaltySheetFrequency = 'manual' | 'hourly' | 'daily';
+export type LoyaltySheetFrequency = 'realtime' | 'manual' | 'hourly' | 'daily';
 
 export interface LoyaltySettings {
   loyalty_enabled: boolean;
@@ -86,7 +86,7 @@ const DEFAULTS: LoyaltySettings = {
   loyalty_email_redemption_voided: true,
   loyalty_sheet_id: '',
   loyalty_sheet_service_account: '',
-  loyalty_sheet_sync_frequency: 'manual',
+  loyalty_sheet_sync_frequency: 'realtime',
 };
 
 export function useLoyaltySettings(enabled: boolean = true) {
