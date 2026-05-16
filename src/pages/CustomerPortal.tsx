@@ -183,6 +183,13 @@ interface PortalData {
    * that RLS-protected table from a portal-token context.
    */
   is_loyalty_beta?: boolean;
+  /**
+   * Server-resolved loyalty_enabled flag from system_settings. Resolved
+   * server-side by customer-portal because the browser session can't read
+   * system_settings under the staff-only RLS policy. This mirrors the
+   * field added to LoyaltyPortal.tsx PortalData at commit 52c6a76.
+   */
+  loyalty_enabled?: boolean;
 }
 
 function fmt(amount: number, currency: string): string {
@@ -765,6 +772,7 @@ export default function CustomerPortal() {
               customerId={data.customer_id}
               member={data.loyalty_member ?? null}
               isBeta={!!data.is_loyalty_beta}
+              loyaltyEnabled={data.loyalty_enabled}
               token={token!}
             />
 
@@ -1098,24 +1106,30 @@ function LoyaltyEntryCard({
   customerId,
   member,
   isBeta,
+  loyaltyEnabled,
   token,
 }: {
   authMode: 'session' | 'token' | null;
   customerId: string;
   member: PortalData['loyalty_member'];
   isBeta: boolean;
+  loyaltyEnabled?: boolean;
   token: string;
 }) {
   const navigate = useNavigate();
-  // useLoyaltyAccess still supplies isFeatureEnabled (read from
-  // system_settings, which the browser session can fetch). The beta flag
-  // it returns is unreliable in the portal-token context — RLS denies the
-  // anon read on loyalty_beta_members — so we ignore access.isBeta and use
-  // the server-resolved isBeta prop instead.
+  // Server-resolved loyaltyEnabled (from customer-portal payload) is the
+  // primary source — useLoyaltyAccess's browser-side system_settings read
+  // is RLS-blocked for portal customer sessions (staff-only SELECT policy).
+  // The hook is kept as a fallback because it remains valid for staff/admin
+  // sessions which have RLS access. The beta flag from the hook is also
+  // unreliable in the portal-token context (RLS denies the anon read on
+  // loyalty_beta_members), so we ignore access.isBeta and use the
+  // server-resolved isBeta prop instead. This mirrors the pattern shipped
+  // to LoyaltyPortal.tsx at commit 52c6a76.
   const access = useLoyaltyAccess(customerId);
   if (access.isLoading) return null;
 
-  const hasAccess = access.isFeatureEnabled || isBeta;
+  const hasAccess = (loyaltyEnabled ?? access.isFeatureEnabled) || isBeta;
 
   const goToLoyalty = () => {
     if (authMode === 'session') {
