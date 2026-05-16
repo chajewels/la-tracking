@@ -8,8 +8,6 @@ const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 type SetupState = 'form' | 'check-email' | 'linking' | 'error-no-customer' | 'error-conflict';
 
-const PROFILE_STASH_KEY = 'portal-setup-profile';
-
 export default function PortalSetup() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -41,18 +39,9 @@ export default function PortalSetup() {
         return;
       }
 
-      // The email-verification round-trip reloads the page, wiping
-      // form state, before this runs. The profile fields collected at
-      // signup are stashed in localStorage so they survive into the
-      // new-customer creation path on the edge function.
-      let profileBody: Record<string, string> = {};
-      try {
-        const stashed = localStorage.getItem(PROFILE_STASH_KEY);
-        if (stashed) profileBody = JSON.parse(stashed);
-      } catch {
-        profileBody = {};
-      }
-
+      // Profile fields travel in Supabase Auth user_metadata (set at
+      // signup); the edge function reads them server-side. No request
+      // body needed — everything is derived from the verified JWT.
       const res = await fetch(`${SUPABASE_URL}/functions/v1/setup-customer-account`, {
         method: 'POST',
         headers: {
@@ -60,7 +49,6 @@ export default function PortalSetup() {
           'Content-Type': 'application/json',
           'apikey': SUPABASE_KEY,
         },
-        body: JSON.stringify(profileBody),
         // Defensive 15s timeout to avoid stuck Linking screen if function hangs
         signal: AbortSignal.timeout(15000),
       });
@@ -68,7 +56,6 @@ export default function PortalSetup() {
       const result = await res.json();
 
       if (res.ok && result.success) {
-        try { localStorage.removeItem(PROFILE_STASH_KEY); } catch { /* ignore */ }
         toast.success('Account linked successfully');
         navigate('/portal', { replace: true });
         return;
@@ -157,24 +144,24 @@ export default function PortalSetup() {
       return;
     }
 
-    // Stash profile so it survives the email-verification page reload
-    // and reaches setup-customer-account on the new-customer path.
-    try {
-      const profile: Record<string, string> = { full_name: fullName.trim() };
-      if (mobileNumber.trim()) profile.mobile_number = mobileNumber.trim();
-      if (facebookName.trim()) profile.facebook_name = facebookName.trim();
-      if (messengerLink.trim()) profile.messenger_link = messengerLink.trim();
-      if (location.trim()) profile.location = location.trim();
-      if (country.trim()) profile.country = country.trim();
-      localStorage.setItem(PROFILE_STASH_KEY, JSON.stringify(profile));
-    } catch { /* non-fatal — link path still works for existing customers */ }
-
     setLoading(true);
+    // Profile fields ride along in Supabase Auth user_metadata so they
+    // survive the email-verification round-trip reliably (localStorage
+    // handoff was unreliable on mobile / private browsing). The
+    // setup-customer-account edge function reads them from auth metadata.
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo: `${window.location.origin}/portal/setup`,
+        data: {
+          full_name: fullName.trim(),
+          mobile_number: mobileNumber.trim() || null,
+          facebook_name: facebookName.trim(),
+          messenger_link: messengerLink.trim() || null,
+          location: location.trim() || null,
+          country: country.trim(),
+        },
       },
     });
     setLoading(false);

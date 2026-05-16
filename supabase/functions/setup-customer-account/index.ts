@@ -76,17 +76,16 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 2b. Parse optional self-signup profile fields. Used only when no
-    //     existing customer matches the email (new-customer creation
-    //     path). Linking an existing customer ignores these.
-    const reqBody = await req.json().catch(() => ({})) as {
-      full_name?: string;
-      mobile_number?: string;
-      facebook_name?: string;
-      messenger_link?: string;
-      location?: string;
-      country?: string;
-    };
+    // 2b. Self-signup profile fields come from Supabase Auth
+    //     user_metadata (set at signUp via options.data). This is
+    //     reliable across the email-verification round-trip, unlike
+    //     the prior localStorage handoff. supabase.auth.getUser(jwt)
+    //     above already resolved the auth.users row with metadata.
+    //     Used only on the new-customer creation path; linking an
+    //     existing customer ignores these.
+    const metadata = (authUser.user_metadata ?? {}) as Record<string, unknown>;
+    const metaStr = (v: unknown) =>
+      typeof v === "string" ? v.trim() : "";
 
     // 3. Look up customer by case-insensitive email match.
     // Note: ilike acts as case-insensitive equality when the
@@ -107,10 +106,28 @@ Deno.serve(async (req) => {
       // (auth_user_id + email from the verified JWT) and auto-enroll
       // into the Glimmer loyalty tier. customer_code is auto-generated
       // by the existing BEFORE INSERT trigger.
-      const fullName = (reqBody.full_name ?? "").trim();
+      const fullName = metaStr(metadata.full_name);
+      const mobileNumber = metaStr(metadata.mobile_number);
+      const facebookName = metaStr(metadata.facebook_name);
+      const messengerLink = metaStr(metadata.messenger_link);
+      const locationVal = metaStr(metadata.location);
+      const country = metaStr(metadata.country);
+
       if (!fullName) {
         return json(
           { error: "Full name is required to create your profile" },
+          400,
+        );
+      }
+      if (!facebookName) {
+        return json(
+          { error: "Facebook name is required to create your profile" },
+          400,
+        );
+      }
+      if (!country) {
+        return json(
+          { error: "Country is required to create your profile" },
           400,
         );
       }
@@ -119,22 +136,12 @@ Deno.serve(async (req) => {
         full_name: fullName,
         email: authUserEmail,
         auth_user_id: authUserId,
+        facebook_name: facebookName,
+        country,
       };
-      if (reqBody.mobile_number?.trim()) {
-        customerInsert.mobile_number = reqBody.mobile_number.trim();
-      }
-      if (reqBody.facebook_name?.trim()) {
-        customerInsert.facebook_name = reqBody.facebook_name.trim();
-      }
-      if (reqBody.messenger_link?.trim()) {
-        customerInsert.messenger_link = reqBody.messenger_link.trim();
-      }
-      if (reqBody.location?.trim()) {
-        customerInsert.location = reqBody.location.trim();
-      }
-      if (reqBody.country?.trim()) {
-        customerInsert.country = reqBody.country.trim();
-      }
+      if (mobileNumber) customerInsert.mobile_number = mobileNumber;
+      if (messengerLink) customerInsert.messenger_link = messengerLink;
+      if (locationVal) customerInsert.location = locationVal;
 
       const { data: newCustomer, error: createErr } = await supabase
         .from("customers")
