@@ -2,6 +2,7 @@ import { motion } from 'framer-motion';
 import { ArrowRight } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useLoyaltyBannersByType } from '@/hooks/loyalty-admin/useLoyaltyBanners';
+import { useLoyaltyData } from '@/components/loyalty/loyaltyData';
 import { dispatchBannerLink } from '@/components/loyalty/home/bannerLink';
 import type { LoyaltyTab } from '@/components/loyalty/LoyaltyBottomNav';
 
@@ -10,7 +11,12 @@ interface FeaturedBannerProps {
 }
 
 export default function FeaturedBanner({ setTab }: FeaturedBannerProps) {
-  const { data: banners, isLoading } = useLoyaltyBannersByType('featured');
+  const { member } = useLoyaltyData();
+  const { data: banners, isLoading } = useLoyaltyBannersByType(
+    'featured',
+    true,
+    member?.current_tier ?? null,
+  );
 
   if (isLoading) {
     return <Skeleton className="h-44 rounded-2xl" />;

@@ -130,6 +130,8 @@ interface PortalData {
   active_promo?: {
     bonus_multiplier: number;
     name: string;
+    description?: string | null;
+    image_url?: string | null;
     end_date: string;
   } | null;
   loyalty_lots?: Array<{

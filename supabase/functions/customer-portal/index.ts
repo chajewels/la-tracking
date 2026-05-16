@@ -303,6 +303,8 @@ Deno.serve(async (req) => {
     let activePromo: {
       bonus_multiplier: number;
       name: string;
+      description: string | null;
+      image_url: string | null;
       end_date: string;
     } | null = null;
     if (loyaltyMemberRow) {
@@ -454,7 +456,7 @@ Deno.serve(async (req) => {
         const { data: promos, error: promoErr } = await supabase
           .from("loyalty_promos")
           .select(
-            "id, name, bonus_multiplier, end_date, applicable_tiers, max_per_customer, created_at",
+            "id, name, description, image_url, bonus_multiplier, end_date, applicable_tiers, max_per_customer, created_at",
           )
           .eq("is_active", true)
           .lte("start_date", today)
@@ -473,6 +475,8 @@ Deno.serve(async (req) => {
           | {
               id: string;
               name: string;
+              description: string | null;
+              image_url: string | null;
               bonus_multiplier: number | string | null;
               end_date: string;
               applicable_tiers: string[] | null;
@@ -513,6 +517,8 @@ Deno.serve(async (req) => {
               activePromo = {
                 bonus_multiplier: multiplier,
                 name: candidate.name,
+                description: candidate.description,
+                image_url: candidate.image_url,
                 end_date: candidate.end_date,
               };
             }

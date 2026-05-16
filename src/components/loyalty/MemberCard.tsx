@@ -166,9 +166,20 @@ const MemberCard = () => {
                       'linear-gradient(135deg, hsla(45, 90%, 55%, 0.95), hsla(45, 100%, 65%, 0.95))',
                     boxShadow: '0 0 12px hsla(45, 90%, 55%, 0.4)',
                   }}
-                  title={`${activePromo.name} — ends ${fmtEndDate(activePromo.end_date)}`}
+                  title={`${activePromo.name}${
+                    activePromo.description ? ` — ${activePromo.description}` : ''
+                  } — ends ${fmtEndDate(activePromo.end_date)}`}
                 >
-                  <Sparkles size={10} style={{ color: 'hsl(36, 80%, 15%)' }} />
+                  {activePromo.image_url ? (
+                    <img
+                      src={activePromo.image_url}
+                      alt={activePromo.name}
+                      loading="lazy"
+                      className="w-3.5 h-3.5 rounded-full object-cover"
+                    />
+                  ) : (
+                    <Sparkles size={10} style={{ color: 'hsl(36, 80%, 15%)' }} />
+                  )}
                   <span
                     className="text-[11px] font-semibold tracking-wider"
                     style={{ color: 'hsl(36, 80%, 15%)' }}

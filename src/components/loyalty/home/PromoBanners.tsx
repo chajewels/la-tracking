@@ -2,6 +2,7 @@ import { motion } from 'framer-motion';
 import { ChevronRight } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useLoyaltyBannersByType } from '@/hooks/loyalty-admin/useLoyaltyBanners';
+import { useLoyaltyData } from '@/components/loyalty/loyaltyData';
 import { dispatchBannerLink } from '@/components/loyalty/home/bannerLink';
 import type { LoyaltyTab } from '@/components/loyalty/LoyaltyBottomNav';
 
@@ -10,7 +11,12 @@ interface PromoBannersProps {
 }
 
 export default function PromoBanners({ setTab }: PromoBannersProps) {
-  const { data: banners, isLoading } = useLoyaltyBannersByType('promo');
+  const { member } = useLoyaltyData();
+  const { data: banners, isLoading } = useLoyaltyBannersByType(
+    'promo',
+    true,
+    member?.current_tier ?? null,
+  );
 
   if (isLoading) {
     return (

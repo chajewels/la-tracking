@@ -12,6 +12,9 @@ export interface FallbackReward {
   // Phase 3.2: stock tracking from loyalty_rewards.current_stock.
   // null = unlimited; undefined when sourced from staticFallback.
   currentStock?: number | null;
+  // Admin-uploaded reward image (loyalty_rewards.image_url).
+  // null when none set; undefined when sourced from staticFallback.
+  image_url?: string | null;
 }
 
 // TODO: wire to Supabase

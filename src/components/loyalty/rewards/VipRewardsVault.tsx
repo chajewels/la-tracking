@@ -99,6 +99,14 @@ const VipRewardsVault = ({ vaultRewards, onSelectReward }: VipRewardsVaultProps)
               }`}
             >
               <div className="flex items-start justify-between">
+                {reward.image_url && (
+                  <img
+                    src={reward.image_url}
+                    alt={reward.name}
+                    loading="lazy"
+                    className="w-16 h-16 rounded-lg object-cover mr-3 shrink-0 border border-border"
+                  />
+                )}
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     {reward.isLimited && (

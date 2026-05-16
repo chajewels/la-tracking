@@ -53,13 +53,33 @@ function isWithinSchedule(b: LoyaltyBannerRow, nowMs: number): boolean {
 }
 
 /**
+ * Tier visibility: a banner is shown when its applicable_tiers is
+ * null/empty, contains 'All', or contains the customer's current tier.
+ * When currentTierName is null (caller didn't pass one) the tier filter
+ * is skipped entirely — backward compatible.
+ */
+function matchesTier(
+  b: LoyaltyBannerRow,
+  currentTierName: string | null,
+): boolean {
+  if (currentTierName == null) return true;
+  const tiers = b.applicable_tiers;
+  if (!tiers || tiers.length === 0) return true;
+  if (tiers.includes('All')) return true;
+  return tiers.includes(currentTierName);
+}
+
+/**
  * Customer-facing: only is_active banners of the given type, filtered
- * by start_at/end_at schedule. Schedule filter runs in JS because the
- * is-null-or-≤-now expression is awkward in PostgREST.
+ * by start_at/end_at schedule AND by applicable_tiers against the
+ * customer's current tier. Schedule + tier filters run in JS because
+ * the is-null-or-≤-now / array-membership expressions are awkward in
+ * PostgREST.
  */
 export function useLoyaltyBannersByType(
   type: BannerType,
   enabled: boolean = true,
+  currentTierName: string | null = null,
 ) {
   const query = useQuery<LoyaltyBannerRow[]>({
     queryKey: ['loyalty-banners-by-type', type],
@@ -81,8 +101,10 @@ export function useLoyaltyBannersByType(
   const filtered = useMemo(() => {
     if (!query.data) return [];
     const now = Date.now();
-    return query.data.filter((b) => isWithinSchedule(b, now));
-  }, [query.data]);
+    return query.data.filter(
+      (b) => isWithinSchedule(b, now) && matchesTier(b, currentTierName),
+    );
+  }, [query.data, currentTierName]);
 
   return { ...query, data: filtered };
 }
