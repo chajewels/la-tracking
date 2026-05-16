@@ -44,6 +44,7 @@ const CATEGORY_FILTERS: Array<{ value: NotificationCategory | 'all'; label: stri
   { value: 'system', label: 'System' },
   { value: 'reward', label: 'Reward' },
   { value: 'birthday', label: 'Birthday' },
+  { value: 'expiry', label: 'Expiry' },
 ];
 
 const CATEGORY_ICON: Record<NotificationCategory, typeof Megaphone> = {
@@ -53,6 +54,7 @@ const CATEGORY_ICON: Record<NotificationCategory, typeof Megaphone> = {
   system: SettingsIcon,
   reward: Gift,
   birthday: Cake,
+  expiry: Clock,
 };
 
 const STATUS_STYLES: Record<NotificationStatus, { label: string; className: string }> = {
@@ -334,8 +336,13 @@ interface NotificationCardProps {
 function NotificationCard({
   notif, onEdit, onView, onDuplicate, onCancel,
 }: NotificationCardProps) {
-  const Icon = CATEGORY_ICON[notif.category];
-  const status = STATUS_STYLES[notif.status];
+  // Defensive fallbacks: loyalty_notifications.category and .status are
+  // free-text columns (not Postgres enums), so backend processes can
+  // introduce unknown values. Without these guards, an unknown category
+  // would set Icon=undefined and crash the entire tab (React #130) since
+  // no ErrorBoundary catches it.
+  const Icon = CATEGORY_ICON[notif.category] ?? Megaphone;
+  const status = STATUS_STYLES[notif.status] ?? STATUS_STYLES.draft;
   const showStats = notif.status === 'sent' && notif.stats.total > 0;
   const readPct = showStats ? Math.round(notif.stats.read_rate * 100) : 0;
 

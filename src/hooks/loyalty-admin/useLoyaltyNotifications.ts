@@ -24,7 +24,8 @@ export type NotificationCategory =
   | 'tier'
   | 'system'
   | 'reward'
-  | 'birthday';
+  | 'birthday'
+  | 'expiry';
 
 export type AudienceType = 'all' | 'tier' | 'specific';
 
