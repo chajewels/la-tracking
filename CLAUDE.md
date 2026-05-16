@@ -3099,6 +3099,63 @@ Forbidden:
 - Calling sync-loyalty-to-sheet with event_type outside the canonical taxonomy
 - Removing the activity_status derivation (Members Col I depends on it)
 
+## SCHEMA FACTS & OPERATIONAL LEARNINGS (added 2026-05-16)
+
+### loyalty_transactions full column reference
+
+  Common-mistake column names that DO NOT exist on loyalty_transactions:
+  event_type, points_change, amount_spent_jpy, multiplier, created_by (as text).
+
+  Actual schema (verified via information_schema 2026-05-16):
+    id                  uuid       PK
+    member_id           uuid       NOT NULL, FK to loyalty_members.id
+    account_id          uuid       nullable, FK to layaway_accounts
+    cash_order_id       uuid       nullable, FK to cash_orders
+    payment_id          uuid       nullable
+    promo_id            uuid       nullable
+    transaction_type    enum       NOT NULL (loyalty_transaction_type:
+                                    earned | bonus | redeemed | expired |
+                                    adjusted | refunded | revoked |
+                                    birthday_bonus)
+    points_amount       numeric    NOT NULL — signed; negative for
+                                    redeemed/revoked/expired
+    spend_amount_jpy    numeric    nullable
+    rate_snapshot       numeric    nullable — PHP/JPY exchange rate at
+                                    transaction time
+    invoice_number      text       nullable
+    tier_at_time        text       nullable
+    notes               text       nullable
+    created_by_user_id  uuid       nullable, FK auth.users
+    created_at          timestamptz NOT NULL
+
+  The sheet's "Multiplier" column is DERIVED at sync time by sync-loyalty-to-sheet
+  via loyalty_tiers lookup keyed on tier_at_time — it is NOT stored on the
+  transaction row.
+
+### customers.email mixed-case storage (rule)
+
+  customers.email is stored mixed-case in this DB (e.g. 'Stokesmaria85@yahoo.com'
+  with capital S). Always use LOWER(c.email) = LOWER(...) when comparing by email.
+  Case-sensitive comparison via = or IN (...) will silently drop matches without
+  erroring. This rule applies to every email-keyed JOIN, WHERE, and UPDATE.
+
+  Empirical case: 2026-05-16 catch-up migration — case-sensitive A1 query missed
+  Stokesmaria85 entirely; only resurfaced via LOWER() lookup, leading to an
+  UPDATE that would have erroneously re-enrolled an existing member.
+
+### Supabase SQL Editor CSV export alphabetizes columns
+
+  Supabase SQL Editor's "Export to CSV" sorts result columns alphabetically by
+  column name, regardless of the SELECT order specified in the query. The
+  in-editor result grid also displays columns alphabetically. This is irrelevant
+  for inspection but breaks any downstream import where column position matters
+  (e.g. appending to a Google Sheet with locked column order).
+
+  Workaround: post-export reorder via Python pandas/csv module before downstream
+  use. Confirmed twice — Substep 7 backfill 2026-05-16 (475 + 372 rows) and
+  catch-up migration 2026-05-16 (6 + 6 rows). Template script lives at
+  /home/claude/build_csvs.py in the Claude sandbox during such sessions.
+
 ## PROOF OF PAYMENT (added 2026-04-13)
 
   - Stored in Supabase Storage bucket: payment-proofs
@@ -3524,7 +3581,7 @@ Forbidden:
     generated_invoices; 18946-v2 at 1erhLngGJ3y6... is the
     canonical correct version (25,448 JPY).
 
-## SYSTEM STATUS (as of 2026-05-13)
+## SYSTEM STATUS (as of 2026-05-16)
 
   Phase B email/password authentication: SHIPPED ✅ (2026-05-05)
     - Customer portal supports both token-based and email/password auth
@@ -5649,6 +5706,77 @@ Forbidden:
 
   No customer impact. Token-only auth working as intended.
 
+  ### 2026-05-15 → 2026-05-16 — GSheet loyalty backup workstream + production go-live
+
+  Full loyalty sheet sync infrastructure shipped over two days, capped by
+  the production loyalty_enabled flip:
+
+    Sheet:    1xTdtkNZ0IXWT51V1ytnpdSJnuO-nvzpY-iaDvp3xk7k
+              ("Cha Jewels Loyalty Backup")
+    Service:  cha-jewels-invoice@cha-jewels-hub.iam.gserviceaccount.com
+              (shared with invoice generator)
+
+    Caller fixes (commit 34235f8):
+      - award-loyalty-points: replaced broken payload, added 3 emissions
+        (earned + bonus if promo + tier_changed if upgrade), loyalty_enabled
+        fail-closed gate enforced server-side at step 1b
+      - process-loyalty-redemption: redeemed payload enriched, added
+        revoked emission to void action branch
+      - loyalty-inactivity-check: tier_change → tier_changed rename +
+        payload enrichment + expired emission enriched
+      - join-loyalty-program: enrolled payload enriched with customer_code
+
+    sync-loyalty-to-sheet rewrite (commit 808dda6):
+      - Stub replaced with live implementation
+      - Routing by event_type to Members (11 cols) or Transactions (13 cols) tab
+      - PHT timestamps via Intl.DateTimeFormat
+      - Activity Status derivation from last_purchase_at (null or <90 days = Active)
+      - Append endpoint (spreadsheets.values.append)
+      - Graceful skip when loyalty_sheet_id is empty
+
+    Realtime sync frequency option added to useLoyaltySettings + SettingsTab.
+
+    Historical backfill: 475 enrolled members + 372 historical
+    loyalty_transactions appended via CSV import. Cutoff timestamp
+    2026-05-16 12:13:57+00 filters out post-toggle events to avoid duplicates.
+
+    loyalty_enabled flipped TRUE at 2026-05-16 12:13:57 UTC — production go-live.
+    Live earn flow validated end-to-end with Jan Jovic (CJ-2026-00880,
+    member_uuid 87a0c878-0def-4dbc-a28f-47d039e226db): 1800→2000 pts,
+    cumulative 186,666→209,179 ¥, transaction
+    2ff4c0a5-835b-4919-819d-ad8154f8c26b synced to sheet in real-time.
+
+  ### 2026-05-16 — Loyalty migration catch-up (6 customers)
+
+  Old-system loyalty earnings for 6 customers were not captured in the
+  2026-05-16 historical backfill (per-customer aggregate gaps). Resolved
+  with consolidated per-customer earned rows matching the backfill data
+  shape (Option A — one row per customer, NULL account_id/cash_order_id):
+
+    Customer                                 Code              Pts    Spend ¥
+    stokesmaria85 (Ellen P Stokes)           CJ-2026-03560    2,400   153,332
+    mmheartie11 (Marikarr Heartie Merca)     CJ-2026-00248    1,200    63,440
+    anjcherie28 (Anj Pelijates)              CJ-2026-01608    1,000   103,980
+    mickey1504 (Shiely Sy Demalata)          CJ-2026-02472      100    13,320
+    maeserrana (Mae Serrana)                 CJ-2026-00736    2,100   211,960
+    maricaralonzo110485 (Maricar May Alonzo) CJ-2026-02464    1,400   149,940
+    TOTAL                                                     8,200   695,972
+
+  Writes: 6 loyalty_transactions INSERTs + 6 loyalty_members UPDATEs
+  (cumulative_spend_jpy, total_points_earned, remaining_points,
+  last_purchase_at). Sheet appended with 6 earned rows in Transactions tab
+  and 6 admin_edited rows in Members tab. All catch-up rows filterable via
+  notes ILIKE 'Migration catch-up from old loyalty system%'.
+
+  Session discoveries that led to SCHEMA FACTS section addition:
+  loyalty_transactions actual column names differ from common assumptions
+  (transaction_type not event_type, points_amount not points_change,
+  spend_amount_jpy not amount_spent_jpy, no multiplier column,
+  created_by_user_id uuid not created_by text); customers.email stored
+  mixed-case so LOWER() comparison required; Supabase SQL Editor CSV
+  export alphabetizes columns. See SCHEMA FACTS & OPERATIONAL LEARNINGS
+  for the documented rules.
+
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
   PIN hash storage: customers.portal_pin_hash (64-char SHA-256 hex digest)
@@ -5701,7 +5829,7 @@ Forbidden:
        Blocks any account creation or edit below the minimum.
     3. Both PHP and JPY enforced — hard block, no override
 
-## PENDING ITEMS (as of 2026-05-13)
+## PENDING ITEMS (as of 2026-05-16)
 
 ### LOYALTY PORTAL — Cha Jewels Circle Port
 Multi-phase port of Circle UI into
