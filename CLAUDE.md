@@ -5871,17 +5871,15 @@ loyalty portal. In progress.
   ⏳ Phase 8 — Profile screen
 
 ### LOYALTY DATA & MIGRATION
-  1. 464 member migration — Google Sheets
-     loyalty members → Supabase loyalty_members
-     (match by email then name, create
-     customer records for unmatched)
-  2. sync-loyalty-to-sheet — deployed as stub,
-     needs Google service account + Sheet IDs
-  3. Google Sheets GAS email notifications
+  (Items 1-2 completed 2026-05-15 → 2026-05-16: 464-member
+   base migration done with 6-customer catch-up; sync-loyalty-to-sheet
+   rewritten from stub to live real-time append. See SYSTEM STATUS
+   for workstream details.)
+  1. Google Sheets GAS email notifications
      must be turned off — Sheets becomes
      backup only (Supabase send-transactional-email
      is sole sender)
-  4. Adjust Points feature — placeholder UI
+  2. Adjust Points feature — placeholder UI
      only, no functionality yet
 
 ### BUG INVESTIGATIONS — DEFERRED
