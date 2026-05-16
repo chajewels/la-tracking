@@ -1494,6 +1494,60 @@ export type Database = {
           },
         ]
       }
+      loyalty_members_backup_pre_migration: {
+        Row: {
+          cumulative_spend_jpy: number | null
+          current_tier_id: string | null
+          customer_id: string | null
+          earned_tier_id: string | null
+          enrolled_at: string | null
+          id: string | null
+          is_downgraded: boolean | null
+          last_purchase_at: string | null
+          pre_expiry_warned_at: string | null
+          prev_purchase_at: string | null
+          remaining_points: number | null
+          total_points_earned: number | null
+          total_points_expired: number | null
+          total_points_redeemed: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          cumulative_spend_jpy?: number | null
+          current_tier_id?: string | null
+          customer_id?: string | null
+          earned_tier_id?: string | null
+          enrolled_at?: string | null
+          id?: string | null
+          is_downgraded?: boolean | null
+          last_purchase_at?: string | null
+          pre_expiry_warned_at?: string | null
+          prev_purchase_at?: string | null
+          remaining_points?: number | null
+          total_points_earned?: number | null
+          total_points_expired?: number | null
+          total_points_redeemed?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          cumulative_spend_jpy?: number | null
+          current_tier_id?: string | null
+          customer_id?: string | null
+          earned_tier_id?: string | null
+          enrolled_at?: string | null
+          id?: string | null
+          is_downgraded?: boolean | null
+          last_purchase_at?: string | null
+          pre_expiry_warned_at?: string | null
+          prev_purchase_at?: string | null
+          remaining_points?: number | null
+          total_points_earned?: number | null
+          total_points_expired?: number | null
+          total_points_redeemed?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       loyalty_notification_recipients: {
         Row: {
           created_at: string
@@ -1667,6 +1721,69 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      loyalty_point_lots_backup_pre_migration: {
+        Row: {
+          consumed_at: string | null
+          created_at: string | null
+          earned_at: string | null
+          expired_at: string | null
+          expires_at: string | null
+          id: string | null
+          member_id: string | null
+          notes: string | null
+          original_amount: number | null
+          remaining_amount: number | null
+          revoked_at: string | null
+          revoked_by_transaction_id: string | null
+          source_reference: string | null
+          source_type:
+            | Database["public"]["Enums"]["loyalty_lot_source_type"]
+            | null
+          spend_basis_jpy: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          consumed_at?: string | null
+          created_at?: string | null
+          earned_at?: string | null
+          expired_at?: string | null
+          expires_at?: string | null
+          id?: string | null
+          member_id?: string | null
+          notes?: string | null
+          original_amount?: number | null
+          remaining_amount?: number | null
+          revoked_at?: string | null
+          revoked_by_transaction_id?: string | null
+          source_reference?: string | null
+          source_type?:
+            | Database["public"]["Enums"]["loyalty_lot_source_type"]
+            | null
+          spend_basis_jpy?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          consumed_at?: string | null
+          created_at?: string | null
+          earned_at?: string | null
+          expired_at?: string | null
+          expires_at?: string | null
+          id?: string | null
+          member_id?: string | null
+          notes?: string | null
+          original_amount?: number | null
+          remaining_amount?: number | null
+          revoked_at?: string | null
+          revoked_by_transaction_id?: string | null
+          source_reference?: string | null
+          source_type?:
+            | Database["public"]["Enums"]["loyalty_lot_source_type"]
+            | null
+          spend_basis_jpy?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
       }
       loyalty_promos: {
         Row: {
@@ -2018,6 +2135,66 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      loyalty_transactions_backup_pre_migration: {
+        Row: {
+          account_id: string | null
+          cash_order_id: string | null
+          created_at: string | null
+          created_by_user_id: string | null
+          id: string | null
+          invoice_number: string | null
+          member_id: string | null
+          notes: string | null
+          payment_id: string | null
+          points_amount: number | null
+          promo_id: string | null
+          rate_snapshot: number | null
+          spend_amount_jpy: number | null
+          tier_at_time: string | null
+          transaction_type:
+            | Database["public"]["Enums"]["loyalty_transaction_type"]
+            | null
+        }
+        Insert: {
+          account_id?: string | null
+          cash_order_id?: string | null
+          created_at?: string | null
+          created_by_user_id?: string | null
+          id?: string | null
+          invoice_number?: string | null
+          member_id?: string | null
+          notes?: string | null
+          payment_id?: string | null
+          points_amount?: number | null
+          promo_id?: string | null
+          rate_snapshot?: number | null
+          spend_amount_jpy?: number | null
+          tier_at_time?: string | null
+          transaction_type?:
+            | Database["public"]["Enums"]["loyalty_transaction_type"]
+            | null
+        }
+        Update: {
+          account_id?: string | null
+          cash_order_id?: string | null
+          created_at?: string | null
+          created_by_user_id?: string | null
+          id?: string | null
+          invoice_number?: string | null
+          member_id?: string | null
+          notes?: string | null
+          payment_id?: string | null
+          points_amount?: number | null
+          promo_id?: string | null
+          rate_snapshot?: number | null
+          spend_amount_jpy?: number | null
+          tier_at_time?: string | null
+          transaction_type?:
+            | Database["public"]["Enums"]["loyalty_transaction_type"]
+            | null
+        }
+        Relationships: []
       }
       notify_loyalty_launch: {
         Row: {
