@@ -5871,15 +5871,14 @@ loyalty portal. In progress.
   ⏳ Phase 8 — Profile screen
 
 ### LOYALTY DATA & MIGRATION
-  (Items 1-2 completed 2026-05-15 → 2026-05-16: 464-member
-   base migration done with 6-customer catch-up; sync-loyalty-to-sheet
-   rewritten from stub to live real-time append. See SYSTEM STATUS
-   for workstream details.)
-  1. Google Sheets GAS email notifications
-     must be turned off — Sheets becomes
-     backup only (Supabase send-transactional-email
-     is sole sender)
-  2. Adjust Points feature — placeholder UI
+  Pre-go-live items all completed 2026-05-15 → 2026-05-16:
+    - 464-member base migration done (6-customer catch-up applied
+      2026-05-16 — see SYSTEM STATUS)
+    - sync-loyalty-to-sheet rewritten from stub to live real-time append
+    - Google Sheets GAS email notifications shut off — Sheets is backup
+      only; Supabase send-transactional-email is the sole sender
+
+  1. Adjust Points feature — placeholder UI
      only, no functionality yet
 
 ### BUG INVESTIGATIONS — DEFERRED
