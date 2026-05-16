@@ -242,6 +242,12 @@ export default function TierEditDialog({ tier, onClose }: TierEditDialogProps) {
             </div>
 
             <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-3">
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-700 flex gap-2 items-start">
+                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                <div>
+                  <strong>Phase 5 — not yet customer-visible.</strong> Edits to these benefits save to the database but the customer portal currently renders hardcoded values from TIER_STATIC. Avoid changing these fields until Phase 5 Tier Benefits Schema Expansion ships, or admin and customer views will drift out of sync.
+                </div>
+              </div>
               <div className="flex items-center justify-between">
                 <Label htmlFor="free-shipping" className="text-sm">
                   Free shipping benefit
