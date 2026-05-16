@@ -8,7 +8,6 @@ import QuickActions from '@/components/loyalty/home/QuickActions';
 import BirthdayRewardCard from '@/components/loyalty/home/BirthdayRewardCard';
 import FeaturedBanner from '@/components/loyalty/home/FeaturedBanner';
 import PromoBanners from '@/components/loyalty/home/PromoBanners';
-import ReferralSection from '@/components/loyalty/home/ReferralSection';
 import ExclusiveOffers from '@/components/loyalty/home/ExclusiveOffers';
 import MilestoneCard from '@/components/loyalty/home/MilestoneCard';
 import { Button } from '@/components/ui/button';
@@ -62,7 +61,6 @@ export default function HomeScreen({
       </Button>
 
       <RecentActivity onViewAll={() => setTab('points')} />
-      <ReferralSection />
       <ExclusiveOffers />
       <MilestoneCard setTab={setTab} />
     </div>

@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { ChevronRight, LogOut, HelpCircle, Shield, Bell, FileText, MessageCircle, Crown, Calendar, Users, X } from "lucide-react";
+import { ChevronRight, LogOut, HelpCircle, Shield, Bell, FileText, MessageCircle, Crown, Calendar, X } from "lucide-react";
 import { toast } from "sonner";
 import { useLoyaltyData } from "@/components/loyalty/loyaltyData";
 import ProfileMemberCard from "@/components/loyalty/ProfileMemberCard";
 // TODO: wire to Supabase
-import { FAQS, REFERRAL } from "@/components/loyalty/staticFallback";
+import { FAQS } from "@/components/loyalty/staticFallback";
 import chaJewelsLogo from "@/assets/cha-jewels-logo.jpeg";
 import type { LoyaltyTab } from "@/components/loyalty/LoyaltyBottomNav";
 
@@ -95,31 +95,6 @@ export default function ProfileScreen({ setTab }: ProfileScreenProps) {
             </p>
           </motion.div>
         )}
-      </div>
-
-      {/* Referral Summary */}
-      <div className="bg-card rounded-2xl shadow-card border-gold-accent p-4">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-            <Users size={14} className="text-primary" />
-          </div>
-          <div>
-            <p className="text-[13px] font-body font-semibold text-foreground">Referral Program</p>
-            <p className="text-[12px] text-muted-foreground font-body mt-0.5">
-              Code: <span className="font-semibold text-foreground">{REFERRAL.code}</span>
-            </p>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="bg-background/60 rounded-lg p-2.5 text-center border-gold-accent">
-            <p className="font-display text-lg font-bold text-foreground">{REFERRAL.friendsReferred}</p>
-            <p className="text-[10px] text-muted-foreground font-body">Friends Referred</p>
-          </div>
-          <div className="bg-background/60 rounded-lg p-2.5 text-center border-gold-accent">
-            <p className="font-display text-lg font-bold text-primary">{REFERRAL.pointsEarned}</p>
-            <p className="text-[10px] text-muted-foreground font-body">Points Earned</p>
-          </div>
-        </div>
       </div>
 
       {/* Account Details */}
