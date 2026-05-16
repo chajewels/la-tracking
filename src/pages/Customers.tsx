@@ -8,6 +8,8 @@ import AccountList from './AccountList';
 import CashOrdersList from '@/components/customers/CashOrdersList';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import { useCustomers, useAccountsLight } from '@/hooks/use-supabase-data';
 
 import { Skeleton } from '@/components/ui/skeleton';
@@ -38,6 +40,25 @@ export default function Customers() {
   }, [searchParams, setSearchParams]);
   const { data: customers, isLoading } = useCustomers();
   const { data: accounts } = useAccountsLight();
+
+  // Loyalty tier per customer (LEFT JOIN loyalty_members + current tier).
+  // Non-members simply have no map entry → no badge.
+  const { data: loyaltyTierMap } = useQuery({
+    queryKey: ['customers-loyalty-tiers'],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('loyalty_members')
+        .select('customer_id, current_tier:current_tier_id(name)');
+      if (error) throw error;
+      const map = new Map<string, string>();
+      for (const row of (data ?? []) as any[]) {
+        const name = row.current_tier?.name as string | undefined;
+        if (row.customer_id && name) map.set(row.customer_id, name);
+      }
+      return map;
+    },
+  });
   const { roles } = useAuth();
   const { can } = usePermissions();
   const [search, setSearch] = useState('');
@@ -177,6 +198,7 @@ export default function Customers() {
             customer={c}
             activeCount={stats.active}
             completedCount={stats.completed}
+            tierName={loyaltyTierMap?.get(c.id) ?? null}
             onEdit={openEdit}
           />
         );

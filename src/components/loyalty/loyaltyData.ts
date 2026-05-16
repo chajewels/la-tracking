@@ -112,11 +112,22 @@ export interface LoyaltyActivePromoData {
   end_date: string;
 }
 
+// Active point lot — non-revoked, non-consumed. Powers the
+// "next points expire on" line + expiring-soon warning on MemberCard.
+export interface LoyaltyLotData {
+  id: string;
+  original_amount: number;
+  remaining_amount: number;
+  earned_at: string;
+  expires_at: string | null;
+}
+
 interface LoyaltySnapshot {
   member: LoyaltyMemberData | null;
   tiers: LoyaltyTierData[];
   transactions: LoyaltyTransactionData[];
   activePromo: LoyaltyActivePromoData | null;
+  lots: LoyaltyLotData[];
 }
 
 let snapshot: LoyaltySnapshot = {
@@ -124,6 +135,7 @@ let snapshot: LoyaltySnapshot = {
   tiers: [],
   transactions: [],
   activePromo: null,
+  lots: [],
 };
 
 const listeners = new Set<() => void>();
@@ -133,16 +145,18 @@ export function setLoyaltyData(
   tiers: LoyaltyTierData[],
   transactions: LoyaltyTransactionData[],
   activePromo: LoyaltyActivePromoData | null = null,
+  lots: LoyaltyLotData[] = [],
 ): void {
   if (
     snapshot.member === member &&
     snapshot.tiers === tiers &&
     snapshot.transactions === transactions &&
-    snapshot.activePromo === activePromo
+    snapshot.activePromo === activePromo &&
+    snapshot.lots === lots
   ) {
     return;
   }
-  snapshot = { member, tiers, transactions, activePromo };
+  snapshot = { member, tiers, transactions, activePromo, lots };
   listeners.forEach((fn) => fn());
 }
 

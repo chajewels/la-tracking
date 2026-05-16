@@ -24,6 +24,32 @@ Deno.serve(async (req) => {
     );
     const gate = createLoyaltyEmailGate(supabase);
 
+    // 0. Server-side loyalty_enabled gate (go-live toggle). Fail-closed:
+    //    anything other than a strict true blocks enrollment with 403.
+    {
+      const { data: flagRow } = await supabase
+        .from("system_settings")
+        .select("value")
+        .eq("key", "loyalty_enabled")
+        .maybeSingle();
+      let loyaltyEnabled = false;
+      const raw = flagRow?.value;
+      if (raw != null) {
+        if (typeof raw === "boolean") loyaltyEnabled = raw;
+        else {
+          try {
+            const parsed = JSON.parse(String(raw));
+            loyaltyEnabled = parsed === true || parsed === "true";
+          } catch {
+            loyaltyEnabled = String(raw).toLowerCase() === "true";
+          }
+        }
+      }
+      if (!loyaltyEnabled) {
+        return json({ error: "Loyalty program is not currently available" }, 403);
+      }
+    }
+
     const { portal_token, session_id } = await req.json().catch(() => ({})) as {
       portal_token?: string;
       session_id?: string;

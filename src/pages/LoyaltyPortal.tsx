@@ -125,6 +125,13 @@ interface PortalData {
     name: string;
     end_date: string;
   } | null;
+  loyalty_lots?: Array<{
+    id: string;
+    original_amount: number;
+    remaining_amount: number;
+    earned_at: string;
+    expires_at: string | null;
+  }>;
 }
 
 const tierStorageKey = (customerId: string) => `cha-jewels-last-seen-tier-${customerId}`;
@@ -324,7 +331,19 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
     [loyaltyTxs],
   );
 
-  setLoyaltyData(memberData, tiers, transactions, data.active_promo ?? null);
+  setLoyaltyData(
+    memberData,
+    tiers,
+    transactions,
+    data.active_promo ?? null,
+    (data.loyalty_lots ?? []).map((l) => ({
+      id: l.id,
+      original_amount: Number(l.original_amount),
+      remaining_amount: Number(l.remaining_amount),
+      earned_at: l.earned_at,
+      expires_at: l.expires_at,
+    })),
+  );
 
   // ── Tier celebration trigger ────────────────────────────────────
   // Compares the current tier to the value stored in localStorage

@@ -8,6 +8,8 @@ const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 type SetupState = 'form' | 'check-email' | 'linking' | 'error-no-customer' | 'error-conflict';
 
+const PROFILE_STASH_KEY = 'portal-setup-profile';
+
 export default function PortalSetup() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -16,6 +18,12 @@ export default function PortalSetup() {
   const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [mobileNumber, setMobileNumber] = useState('');
+  const [facebookName, setFacebookName] = useState('');
+  const [messengerLink, setMessengerLink] = useState('');
+  const [location, setLocation] = useState('');
+  const [country, setCountry] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [submittedEmail, setSubmittedEmail] = useState('');
@@ -33,6 +41,18 @@ export default function PortalSetup() {
         return;
       }
 
+      // The email-verification round-trip reloads the page, wiping
+      // form state, before this runs. The profile fields collected at
+      // signup are stashed in localStorage so they survive into the
+      // new-customer creation path on the edge function.
+      let profileBody: Record<string, string> = {};
+      try {
+        const stashed = localStorage.getItem(PROFILE_STASH_KEY);
+        if (stashed) profileBody = JSON.parse(stashed);
+      } catch {
+        profileBody = {};
+      }
+
       const res = await fetch(`${SUPABASE_URL}/functions/v1/setup-customer-account`, {
         method: 'POST',
         headers: {
@@ -40,6 +60,7 @@ export default function PortalSetup() {
           'Content-Type': 'application/json',
           'apikey': SUPABASE_KEY,
         },
+        body: JSON.stringify(profileBody),
         // Defensive 15s timeout to avoid stuck Linking screen if function hangs
         signal: AbortSignal.timeout(15000),
       });
@@ -47,6 +68,7 @@ export default function PortalSetup() {
       const result = await res.json();
 
       if (res.ok && result.success) {
+        try { localStorage.removeItem(PROFILE_STASH_KEY); } catch { /* ignore */ }
         toast.success('Account linked successfully');
         navigate('/portal', { replace: true });
         return;
@@ -110,6 +132,10 @@ export default function PortalSetup() {
       toast.error('Please enter your email');
       return;
     }
+    if (!fullName.trim()) {
+      toast.error('Please enter your full name');
+      return;
+    }
     if (password.length < 8) {
       toast.error('Password must be at least 8 characters');
       return;
@@ -118,6 +144,18 @@ export default function PortalSetup() {
       toast.error('Passwords do not match');
       return;
     }
+
+    // Stash profile so it survives the email-verification page reload
+    // and reaches setup-customer-account on the new-customer path.
+    try {
+      const profile: Record<string, string> = { full_name: fullName.trim() };
+      if (mobileNumber.trim()) profile.mobile_number = mobileNumber.trim();
+      if (facebookName.trim()) profile.facebook_name = facebookName.trim();
+      if (messengerLink.trim()) profile.messenger_link = messengerLink.trim();
+      if (location.trim()) profile.location = location.trim();
+      if (country.trim()) profile.country = country.trim();
+      localStorage.setItem(PROFILE_STASH_KEY, JSON.stringify(profile));
+    } catch { /* non-fatal — link path still works for existing customers */ }
 
     setLoading(true);
     const { error } = await supabase.auth.signUp({
@@ -176,6 +214,75 @@ export default function PortalSetup() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
                 autoComplete="email"
+                style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
+              />
+
+              <label htmlFor="portal-setup-fullname" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Full Name</label>
+              <input
+                id="portal-setup-fullname"
+                name="full_name"
+                type="text"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Your full name"
+                autoComplete="name"
+                style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
+              />
+
+              <label htmlFor="portal-setup-mobile" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Mobile Number <span style={{ textTransform: 'none', letterSpacing: 0, color: '#666' }}>(optional)</span></label>
+              <input
+                id="portal-setup-mobile"
+                name="mobile_number"
+                type="tel"
+                value={mobileNumber}
+                onChange={(e) => setMobileNumber(e.target.value)}
+                placeholder="e.g. 09XX XXX XXXX"
+                autoComplete="tel"
+                style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
+              />
+
+              <label htmlFor="portal-setup-facebook" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Facebook Name <span style={{ textTransform: 'none', letterSpacing: 0, color: '#666' }}>(optional)</span></label>
+              <input
+                id="portal-setup-facebook"
+                name="facebook_name"
+                type="text"
+                value={facebookName}
+                onChange={(e) => setFacebookName(e.target.value)}
+                placeholder="Name on Facebook"
+                style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
+              />
+
+              <label htmlFor="portal-setup-messenger" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Messenger Link <span style={{ textTransform: 'none', letterSpacing: 0, color: '#666' }}>(optional)</span></label>
+              <input
+                id="portal-setup-messenger"
+                name="messenger_link"
+                type="text"
+                value={messengerLink}
+                onChange={(e) => setMessengerLink(e.target.value)}
+                placeholder="m.me/yourprofile"
+                style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
+              />
+
+              <label htmlFor="portal-setup-location" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Location <span style={{ textTransform: 'none', letterSpacing: 0, color: '#666' }}>(optional)</span></label>
+              <input
+                id="portal-setup-location"
+                name="location"
+                type="text"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="City / area"
+                style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
+              />
+
+              <label htmlFor="portal-setup-country" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Country <span style={{ textTransform: 'none', letterSpacing: 0, color: '#666' }}>(optional)</span></label>
+              <input
+                id="portal-setup-country"
+                name="country"
+                type="text"
+                value={country}
+                onChange={(e) => setCountry(e.target.value)}
+                placeholder="Country"
+                autoComplete="country-name"
                 style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 14, boxSizing: 'border-box', fontSize: 14 }}
               />
 

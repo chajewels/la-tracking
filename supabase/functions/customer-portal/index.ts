@@ -267,6 +267,7 @@ Deno.serve(async (req) => {
 
     let loyaltyTransactions: any[] = [];
     let loyaltyRedemptions: any[] = [];
+    let loyaltyLots: any[] = [];
     let notifications: any[] = [];
     let unreadCount = 0;
     // Phase 3.1.1 — active multiplier promo for the "Nx BONUS" badge.
@@ -320,6 +321,21 @@ Deno.serve(async (req) => {
       ]);
       loyaltyTransactions = txnsRes.data || [];
       loyaltyRedemptions = redRes.data || [];
+
+      // Active (non-revoked, non-consumed) point lots, soonest expiry
+      // first. Powers the "next points expire on" line + expiring-soon
+      // warning in the portal MemberCard.
+      const { data: lotsData, error: lotsErr } = await supabase
+        .from("loyalty_point_lots")
+        .select("id, original_amount, remaining_amount, earned_at, expires_at")
+        .eq("member_id", memberId)
+        .is("revoked_at", null)
+        .is("consumed_at", null)
+        .order("expires_at", { ascending: true, nullsFirst: false });
+      if (lotsErr) {
+        console.error("[customer-portal] loyalty lots query failed:", lotsErr);
+      }
+      loyaltyLots = lotsData || [];
 
       if (recipientsRes.error) {
         console.error(
@@ -705,6 +721,7 @@ Deno.serve(async (req) => {
       loyalty_tiers: loyaltyTiersRows ?? [],
       loyalty_transactions: loyaltyTransactions,
       loyalty_redemptions: loyaltyRedemptions,
+      loyalty_lots: loyaltyLots,
       is_loyalty_beta: loyaltyBetaRow !== null,
       notifications,
       unread_count: unreadCount,

@@ -2991,43 +2991,21 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
   - Cosmetic: "Pay by [date]" in Sheet header when
     expires_at is set
 
-## LOYALTY AWARD SYSTEM (added 2026-04-27)
+## LOYALTY AWARD SYSTEM (added 2026-04-27, updated 2026-05-16)
 
-### Award triggers:
-  Points are awarded automatically when:
-  - cash_orders.status flips to 'completed'
-  - layaway_accounts.status flips to 'completed'
-    (safety net — primary award still on DP
-    confirmation per non-negotiable rule)
-
-### Two-layer wiring:
-  Layer 1 — Edge function call (primary)
-    review-payment-submission line 615-632
-    calls award-loyalty-points edge function
-    when payment confirmation results in
-    cash order completion or DP confirmation.
-
-  Layer 2 — DB trigger (safety net, added
-            2026-04-27)
-    trg_loyalty_on_cash_order_complete
-      on cash_orders UPDATE
-    trg_loyalty_on_layaway_complete
-      on layaway_accounts UPDATE
-
-    Function: award_loyalty_points_on_complete()
-    - SECURITY DEFINER, exception-safe
-    - Idempotency check: skips if loyalty
-      transaction already exists for this
-      cash_order_id or account_id
-    - Skips if loyalty_jpy_amount < ¥10,000
-      or NULL
-    - Skips if customer not enrolled in
-      loyalty (no auto-enroll)
-    - No tier upgrade detection (edge
-      function handles)
-    - No email send (edge function handles)
-    - First writer wins; second writer sees
-      existing transaction and bails
+### Canonical award path (SOLE path — Layer-2 triggers removed 2026-05-16):
+  review-payment-submission → award-loyalty-points edge function.
+  - Layaway: awards ONLY on downpayment submission confirm
+    (submissionIsDP). Never on monthly installment confirm.
+  - Cash: awards ONLY when the confirming payment makes the
+    cash order fully paid (isFullyPaid → status 'completed').
+  The Layer-2 DB triggers (trg_loyalty_on_cash_order_complete,
+  trg_loyalty_on_layaway_complete) and function
+  award_loyalty_points_on_complete() were DROPPED via
+  migration 20260516000000_drop_layer2_loyalty_triggers.sql —
+  they only INSERTed transaction rows without updating
+  loyalty_members counters or creating point lots, producing
+  ghost audit rows. Do NOT reintroduce a DB-trigger award path.
 
 ### Points formula:
   points = floor(loyalty_jpy_amount / 10000)
@@ -3039,6 +3017,51 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
   Radiant:   2x
   Elite:     2x
   Crown VIP: 3x
+
+## LOYALTY SYSTEM RULES (locked 2026-05-16) — NON-NEGOTIABLE
+
+  1. Portal signup creates a customers row + auto-enrolls.
+     setup-customer-account: when the verified email matches no
+     existing customer, it creates the customers row (full_name
+     required; email + auth_user_id from the JWT; optional
+     mobile_number / facebook_name / messenger_link / location /
+     country; customer_code via existing trigger) AND inserts a
+     loyalty_members row at the Glimmer tier with all counters 0.
+     Existing-customer emails continue the link-only path
+     unchanged. Profile fields are collected on PortalSetup.tsx
+     and stashed in localStorage (key 'portal-setup-profile') so
+     they survive the email-verification page reload.
+
+  2. review-payment-submission is the SOLE award path.
+     Layaway → award only on downpayment confirm. Cash → award
+     only on full completion (isFullyPaid). NEVER on monthly
+     installment payments. No DB-trigger award path exists
+     (Layer-2 removed — see LOYALTY AWARD SYSTEM).
+
+  3. JPY-only awards, server-enforced. award-loyalty-points
+     checks the source row currency BEFORE the min-spend gate;
+     currency !== 'JPY' → { skipped: true, reason:
+     'wrong_currency' }. PHP accounts are always skipped.
+
+  4. loyalty_enabled is the go-live gate, enforced server-side.
+     award-loyalty-points: flag false/null →
+     { skipped: true, reason: 'loyalty_disabled' } (no tx, no
+     lot, no counter change). join-loyalty-program: flag
+     false/null → 403 { error: 'Loyalty program is not
+     currently available' }. Flag read from
+     system_settings.loyalty_enabled (jsonb scalar), fail-closed
+     (anything other than strict true = disabled). Frontend
+     useLoyaltyAccess gate is retained but is now defence-in-depth
+     only — the server is authoritative.
+
+  5. Flipping system_settings.loyalty_enabled = true is THE
+     go-live event. Cynthia flips it manually via SQL when
+     ready. No code change required to launch.
+
+  6. Lot expiry is surfaced in the portal. customer-portal
+     returns loyalty_lots (non-revoked, non-consumed, expires_at
+     ASC NULLS LAST). MemberCard shows the next-expiring lot and
+     a red "expiring soon" badge when within 30 days.
 
 ## PROOF OF PAYMENT (added 2026-04-13)
 
@@ -3863,18 +3886,20 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
   Cash order item_description: REMOVED from form ✅ (2026-04-27)
     - Column remains nullable in DB for invoice use
 
-  Loyalty award system: LIVE ✅ (2026-04-27)
-    - Two-layer wiring: edge function call +
-      DB trigger safety net
-    - DB trigger: award_loyalty_points_on_complete()
-    - trg_loyalty_on_cash_order_complete on
-      cash_orders UPDATE
-    - trg_loyalty_on_layaway_complete on
-      layaway_accounts UPDATE
-    - Idempotent (skips if transaction exists)
+  Loyalty award system: LIVE ✅ (2026-04-27,
+  Layer-2 removed 2026-05-16)
+    - Single canonical path: review-payment-submission
+      → award-loyalty-points edge function
+    - Layer-2 DB trigger safety net REMOVED
+      2026-05-16 (migration
+      20260516000000_drop_layer2_loyalty_triggers.sql) —
+      produced ghost audit rows without updating
+      counters/lots. See LOYALTY AWARD SYSTEM +
+      LOYALTY SYSTEM RULES.
     - Skips if loyalty_jpy < ¥10,000 or null
+    - Skips if currency !== 'JPY' (server-enforced)
     - Skips if customer not enrolled (no auto-enroll)
-    - Verified end-to-end with cash order #10001
+    - Skips if loyalty_enabled flag is false/null
 
   Loyalty staff visibility: LIVE ✅ (2026-04-29)
     - view_loyalty_redemptions permission key seeded in
@@ -5747,12 +5772,13 @@ loyalty portal. In progress.
     Customer for cash order #10000 (failed
     auto-award due to review-payment-submission
     500 error)
-  - Built DB trigger safety net
-    (award_loyalty_points_on_complete +
-    trg_loyalty_on_cash_order_complete +
-    trg_loyalty_on_layaway_complete)
-  - Verified trigger works end-to-end with
-    cash order #10001 (auto-awarded 100 pts)
+  - Built a DB-trigger safety net for loyalty
+    award on completion (SUPERSEDED — the
+    Layer-2 trigger path was DROPPED 2026-05-16
+    via migration
+    20260516000000_drop_layer2_loyalty_triggers.sql;
+    review-payment-submission is now the sole
+    award path. See LOYALTY SYSTEM RULES.)
   - Cash order #10001 created and completed
     successfully
 

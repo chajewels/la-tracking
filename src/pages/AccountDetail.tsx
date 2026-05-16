@@ -34,6 +34,7 @@ import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
 import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useEditPaymentAmount, useRestorePayment, useDeleteAccount, useForfeitAccount, useAccountServices, usePenaltyCapOverride, useAccountNotes } from '@/hooks/use-supabase-data';
 import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
+import LoyaltyTierBadge from '@/components/loyalty/LoyaltyTierBadge';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -1006,7 +1007,11 @@ export default function AccountDetail() {
               );
             })()}
             <p className="text-sm text-muted-foreground mt-0.5">
-              {account.customers?.full_name} · {account.payment_plan_months}-Month Plan · {currency}
+              {account.customers?.full_name}
+              {loyaltyTier?.current_tier_name && (
+                <LoyaltyTierBadge tierName={loyaltyTier.current_tier_name} className="mx-2 align-middle" />
+              )}
+              · {account.payment_plan_months}-Month Plan · {currency}
             </p>
             {penaltyCapOverride && (
               <div className="mt-1 flex items-center gap-2">

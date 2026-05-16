@@ -28,6 +28,7 @@ import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
+import LoyaltyTierBadge from '@/components/loyalty/LoyaltyTierBadge';
 
 interface CashOrderRow {
   id: string;
@@ -493,6 +494,9 @@ export default function CashOrderDetail() {
                       <UserIcon className="h-3 w-3" />
                       {order.customers.full_name}
                     </Link>
+                  )}
+                  {loyaltyTier?.current_tier_name && (
+                    <LoyaltyTierBadge tierName={loyaltyTier.current_tier_name} />
                   )}
                   {order.order_date && (
                     <span>Order date: {order.order_date}</span>

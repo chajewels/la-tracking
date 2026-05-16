@@ -2,15 +2,17 @@ import { memo } from 'react';
 import { Link } from 'react-router-dom';
 import { Pencil, MessageCircle, ChevronRight, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import LoyaltyTierBadge from '@/components/loyalty/LoyaltyTierBadge';
 
 interface CustomerCardProps {
   customer: any;
   activeCount: number;
   completedCount: number;
+  tierName?: string | null;
   onEdit: (c: any) => void;
 }
 
-const CustomerCard = memo(function CustomerCard({ customer: c, activeCount, completedCount, onEdit }: CustomerCardProps) {
+const CustomerCard = memo(function CustomerCard({ customer: c, activeCount, completedCount, tierName, onEdit }: CustomerCardProps) {
   return (
     <div className="rounded-xl border border-border bg-card p-4 sm:p-5 card-hover group animate-fade-in">
       <div className="flex items-start justify-between mb-3">
@@ -20,7 +22,8 @@ const CustomerCard = memo(function CustomerCard({ customer: c, activeCount, comp
           </div>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-card-foreground truncate group-hover:text-primary transition-colors">
-              {c.full_name}
+              <span className="align-middle">{c.full_name}</span>
+              {tierName && <LoyaltyTierBadge tierName={tierName} className="ml-2 align-middle" />}
             </p>
             {c.facebook_name && (
               <p className="text-xs text-muted-foreground truncate">@{c.facebook_name}</p>

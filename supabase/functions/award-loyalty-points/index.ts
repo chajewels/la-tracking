@@ -48,34 +48,71 @@ Deno.serve(async (req) => {
       return json({ skipped: true, reason: "missing_source" });
     }
 
+    // 1b. Server-side loyalty_enabled gate (go-live toggle).
+    //   system_settings.loyalty_enabled is a jsonb scalar. supabase-js
+    //   returns it already parsed (boolean true/false or string). Treat
+    //   anything other than a strict true as disabled (fail-closed).
+    {
+      const { data: flagRow } = await supabase
+        .from("system_settings")
+        .select("value")
+        .eq("key", "loyalty_enabled")
+        .maybeSingle();
+      let loyaltyEnabled = false;
+      const raw = flagRow?.value;
+      if (raw != null) {
+        if (typeof raw === "boolean") loyaltyEnabled = raw;
+        else {
+          try {
+            const parsed = JSON.parse(String(raw));
+            loyaltyEnabled = parsed === true || parsed === "true";
+          } catch {
+            loyaltyEnabled = String(raw).toLowerCase() === "true";
+          }
+        }
+      }
+      if (!loyaltyEnabled) {
+        return json({ skipped: true, reason: "loyalty_disabled" });
+      }
+    }
+
     // 2. Fetch source record
     let customerId: string | null = null;
     let loyaltyJpy = 0;
     let invoiceNumber = "";
     let sourceKind: "layaway" | "cash" = "layaway";
+    let sourceCurrency: string | null = null;
 
     if (account_id) {
       const { data, error } = await supabase
         .from("layaway_accounts")
-        .select("customer_id, loyalty_jpy_amount, invoice_number")
+        .select("customer_id, loyalty_jpy_amount, invoice_number, currency")
         .eq("id", account_id)
         .single();
       if (error || !data) return json({ skipped: true, reason: "account_not_found" });
       customerId = data.customer_id;
       loyaltyJpy = Number(data.loyalty_jpy_amount ?? 0);
       invoiceNumber = data.invoice_number;
+      sourceCurrency = data.currency;
       sourceKind = "layaway";
     } else {
       const { data, error } = await supabase
         .from("cash_orders")
-        .select("customer_id, loyalty_jpy_amount, invoice_number")
+        .select("customer_id, loyalty_jpy_amount, invoice_number, currency")
         .eq("id", cash_order_id!)
         .single();
       if (error || !data) return json({ skipped: true, reason: "cash_order_not_found" });
       customerId = data.customer_id;
       loyaltyJpy = Number(data.loyalty_jpy_amount ?? 0);
       invoiceNumber = data.invoice_number;
+      sourceCurrency = data.currency;
       sourceKind = "cash";
+    }
+
+    // 2b. JPY-only guard — loyalty awards are JPY-native. PHP accounts
+    //     are never awarded (checked before the min-spend gate).
+    if (sourceCurrency !== "JPY") {
+      return json({ skipped: true, reason: "wrong_currency" });
     }
 
     // 3. Validate minimum

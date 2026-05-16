@@ -76,6 +76,18 @@ Deno.serve(async (req) => {
       );
     }
 
+    // 2b. Parse optional self-signup profile fields. Used only when no
+    //     existing customer matches the email (new-customer creation
+    //     path). Linking an existing customer ignores these.
+    const reqBody = await req.json().catch(() => ({})) as {
+      full_name?: string;
+      mobile_number?: string;
+      facebook_name?: string;
+      messenger_link?: string;
+      location?: string;
+      country?: string;
+    };
+
     // 3. Look up customer by case-insensitive email match.
     // Note: ilike acts as case-insensitive equality when the
     // input contains no LIKE wildcards. Real email addresses
@@ -91,10 +103,103 @@ Deno.serve(async (req) => {
     }
 
     if (!customers || customers.length === 0) {
-      return json(
-        { error: "No customer found matching this email" },
-        404,
-      );
+      // New-customer self-signup path: create the customers row
+      // (auth_user_id + email from the verified JWT) and auto-enroll
+      // into the Glimmer loyalty tier. customer_code is auto-generated
+      // by the existing BEFORE INSERT trigger.
+      const fullName = (reqBody.full_name ?? "").trim();
+      if (!fullName) {
+        return json(
+          { error: "Full name is required to create your profile" },
+          400,
+        );
+      }
+
+      const customerInsert: Record<string, unknown> = {
+        full_name: fullName,
+        email: authUserEmail,
+        auth_user_id: authUserId,
+      };
+      if (reqBody.mobile_number?.trim()) {
+        customerInsert.mobile_number = reqBody.mobile_number.trim();
+      }
+      if (reqBody.facebook_name?.trim()) {
+        customerInsert.facebook_name = reqBody.facebook_name.trim();
+      }
+      if (reqBody.messenger_link?.trim()) {
+        customerInsert.messenger_link = reqBody.messenger_link.trim();
+      }
+      if (reqBody.location?.trim()) {
+        customerInsert.location = reqBody.location.trim();
+      }
+      if (reqBody.country?.trim()) {
+        customerInsert.country = reqBody.country.trim();
+      }
+
+      const { data: newCustomer, error: createErr } = await supabase
+        .from("customers")
+        .insert(customerInsert)
+        .select("id, customer_code, full_name, email")
+        .single();
+
+      if (createErr || !newCustomer) {
+        console.error(
+          "[setup-customer-account] customer create failed:",
+          createErr,
+        );
+        return json({ error: "Failed to create your profile" }, 500);
+      }
+
+      // Auto-enroll into Glimmer.
+      const { data: glimmer, error: tierErr } = await supabase
+        .from("loyalty_tiers")
+        .select("id")
+        .eq("name", "Glimmer")
+        .limit(1)
+        .single();
+
+      if (tierErr || !glimmer) {
+        console.error(
+          "[setup-customer-account] Glimmer tier lookup failed:",
+          tierErr,
+        );
+        return json({ error: "Loyalty tier not configured" }, 500);
+      }
+
+      const { data: member, error: memberErr } = await supabase
+        .from("loyalty_members")
+        .insert({
+          customer_id: newCustomer.id,
+          earned_tier_id: glimmer.id,
+          current_tier_id: glimmer.id,
+          is_downgraded: false,
+          cumulative_spend_jpy: 0,
+          total_points_earned: 0,
+          total_points_redeemed: 0,
+          total_points_expired: 0,
+          remaining_points: 0,
+          last_purchase_at: null,
+          prev_purchase_at: null,
+          enrolled_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+
+      if (memberErr || !member) {
+        console.error(
+          "[setup-customer-account] loyalty enroll failed:",
+          memberErr,
+        );
+        return json({ error: "Failed to enroll in loyalty program" }, 500);
+      }
+
+      return json({
+        success: true,
+        customer_id: newCustomer.id,
+        customer_code: newCustomer.customer_code,
+        created: true,
+        member_id: member.id,
+      });
     }
 
     if (customers.length > 1) {

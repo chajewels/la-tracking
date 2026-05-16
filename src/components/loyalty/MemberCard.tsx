@@ -67,9 +67,26 @@ const fmtEndDate = (yyyyMmDd: string) =>
   });
 
 const MemberCard = () => {
-  const { member, tiers, activePromo } = useLoyaltyData();
+  const { member, tiers, activePromo, lots } = useLoyaltyData();
 
   if (!member || !tiers || tiers.length === 0) return null;
+
+  // Next-expiring active lot (lots arrive sorted expires_at ASC NULLS
+  // LAST from the portal). Lots with no expiry are skipped for the
+  // expiry line. "Expiring soon" = within 30 days.
+  const nextExpiringLot = (lots ?? []).find(
+    (l) => l.expires_at && l.remaining_amount > 0,
+  );
+  let lotExpiryText: string | null = null;
+  let lotExpiringSoon = false;
+  if (nextExpiringLot && nextExpiringLot.expires_at) {
+    const exp = new Date(nextExpiringLot.expires_at);
+    const ymd = nextExpiringLot.expires_at.slice(0, 10);
+    lotExpiryText =
+      `Your next ${nextExpiringLot.remaining_amount.toLocaleString()} points expire on ${ymd}`;
+    const msLeft = exp.getTime() - Date.now();
+    lotExpiringSoon = msLeft <= 30 * 24 * 60 * 60 * 1000;
+  }
 
   const currentTier = tiers.find((t) => t.name === member.current_tier);
   if (!currentTier) return null;
@@ -178,6 +195,22 @@ const MemberCard = () => {
             >
               {member.available_points.toLocaleString()}
             </motion.p>
+            {lotExpiryText && (
+              <p
+                className="text-[12px] mt-2 font-body"
+                style={{ color: lotExpiringSoon ? 'hsl(0, 70%, 42%)' : 'hsl(36, 40%, 22%)' }}
+              >
+                {lotExpiryText}
+              </p>
+            )}
+            {lotExpiringSoon && nextExpiringLot && (
+              <span
+                className="inline-block mt-2 rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                style={{ color: 'hsl(0, 75%, 38%)', backgroundColor: 'hsl(20, 90%, 90%)' }}
+              >
+                {nextExpiringLot.remaining_amount.toLocaleString()} points expiring soon
+              </span>
+            )}
             <p
               className="text-[13px] mt-2.5 font-body leading-relaxed"
               style={{ color: 'hsl(36, 40%, 22%)' }}
