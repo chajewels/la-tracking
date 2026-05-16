@@ -552,6 +552,9 @@ export type Database = {
         Row: {
           address_line1: string | null
           auth_user_id: string | null
+          birthday: string | null
+          birthday_admin_edits_used: number | null
+          birthday_locked_at: string | null
           city: string | null
           country: string | null
           created_at: string
@@ -560,6 +563,7 @@ export type Database = {
           facebook_name: string | null
           full_name: string
           id: string
+          last_birthday_award_year: number | null
           location: string | null
           messenger_link: string | null
           mobile_number: string | null
@@ -575,6 +579,9 @@ export type Database = {
         Insert: {
           address_line1?: string | null
           auth_user_id?: string | null
+          birthday?: string | null
+          birthday_admin_edits_used?: number | null
+          birthday_locked_at?: string | null
           city?: string | null
           country?: string | null
           created_at?: string
@@ -583,6 +590,7 @@ export type Database = {
           facebook_name?: string | null
           full_name: string
           id?: string
+          last_birthday_award_year?: number | null
           location?: string | null
           messenger_link?: string | null
           mobile_number?: string | null
@@ -598,6 +606,9 @@ export type Database = {
         Update: {
           address_line1?: string | null
           auth_user_id?: string | null
+          birthday?: string | null
+          birthday_admin_edits_used?: number | null
+          birthday_locked_at?: string | null
           city?: string | null
           country?: string | null
           created_at?: string
@@ -606,6 +617,7 @@ export type Database = {
           facebook_name?: string | null
           full_name?: string
           id?: string
+          last_birthday_award_year?: number | null
           location?: string | null
           messenger_link?: string | null
           mobile_number?: string | null
@@ -2012,6 +2024,7 @@ export type Database = {
       }
       loyalty_tiers: {
         Row: {
+          birthday_bonus_points: number
           color_hex: string | null
           created_at: string
           display_order: number
@@ -2023,6 +2036,7 @@ export type Database = {
           points_multiplier: number
         }
         Insert: {
+          birthday_bonus_points?: number
           color_hex?: string | null
           created_at?: string
           display_order: number
@@ -2034,6 +2048,7 @@ export type Database = {
           points_multiplier: number
         }
         Update: {
+          birthday_bonus_points?: number
           color_hex?: string | null
           created_at?: string
           display_order?: number
