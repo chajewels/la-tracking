@@ -149,7 +149,7 @@ export default function PortalSetup() {
     // survive the email-verification round-trip reliably (localStorage
     // handoff was unreliable on mobile / private browsing). The
     // setup-customer-account edge function reads them from auth metadata.
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -180,6 +180,17 @@ export default function PortalSetup() {
       } else {
         toast.error(error.message);
       }
+      return;
+    }
+
+    // Supabase Auth returns success (no error) for an already-confirmed
+    // email but with an empty identities array and sends no email. Treat
+    // that as already-registered instead of falling through to the
+    // "Check your email" screen.
+    if (!error && data?.user?.identities && data.user.identities.length === 0) {
+      toast.error(
+        'This email is already registered. Please contact support if you need help accessing your portal account.',
+      );
       return;
     }
 
