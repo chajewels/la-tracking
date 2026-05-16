@@ -79,7 +79,7 @@ export default function PortalSetup() {
         setErrorMessage('We couldn’t find a customer record for this email. Please contact Cha Jewels for help.');
         setState('error-no-customer');
       } else if (res.status === 409) {
-        setErrorMessage(result.error || 'This email is already linked to a different account.');
+        setErrorMessage('This email is already registered for portal access. Please contact support to set up your account.');
         setState('error-conflict');
       } else {
         setErrorMessage(result.error || 'Failed to link your account. Please try again or contact support.');
@@ -128,8 +128,12 @@ export default function PortalSetup() {
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!email) {
-      toast.error('Please enter your email');
+    if (!email.trim()) {
+      toast.error('Please enter your email address');
+      return;
+    }
+    if (!/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(email.trim())) {
+      toast.error('Please enter a valid email address');
       return;
     }
     if (!fullName.trim()) {
@@ -176,7 +180,19 @@ export default function PortalSetup() {
     setLoading(false);
 
     if (error) {
-      toast.error(error.message);
+      const msg = (error.message || '').toLowerCase();
+      if (
+        msg.includes('already registered') ||
+        msg.includes('already been registered') ||
+        msg.includes('user already exists') ||
+        error.status === 422
+      ) {
+        toast.error(
+          'This email is already registered. Please contact support if you need help accessing your portal account.',
+        );
+      } else {
+        toast.error(error.message);
+      }
       return;
     }
 
@@ -213,7 +229,7 @@ export default function PortalSetup() {
             <p style={{ color: '#888', fontSize: 13, marginBottom: 24 }}>Use the email Cha Jewels has on file for you.</p>
 
             <form onSubmit={handleSignup}>
-              <label htmlFor="portal-setup-email" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Email</label>
+              <label htmlFor="portal-setup-email" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Email <span style={{ color: '#C9A84C' }}>*</span></label>
               <input
                 id="portal-setup-email"
                 name="email"
