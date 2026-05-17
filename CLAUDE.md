@@ -3372,6 +3372,49 @@ Forbidden:
                  requires zero allocations and zero carried_amount
   Every edit: requires reason, logged to schedule_audit_log
 
+## LOCKED RULE (2026-05-17): GUC bypass before write via supabase-js
+
+  When an edge function needs to bypass a BEFORE-trigger guard
+  (e.g., prevent_schedule_deletion, prevent_total_amount_change)
+  for a subsequent write operation, the bypass MUST be wrapped
+  in a SECURITY DEFINER RPC that performs both set_config and
+  the write in a single transaction.
+
+  DO NOT use the 2-HTTP-call pattern:
+    await supabase.rpc('set_config', {..., is_local: true});
+    await supabase.from(table).delete()/.update()/...;
+
+  This pattern fails Bug #39: set_config(is_local: true) is
+  SCOPED TO THE TRANSACTION of HTTP call 1. HTTP call 2 may use
+  a different connection/transaction, so the GUC does not persist.
+  The trigger fires, the write is blocked, and depending on the
+  edge function's error handling, the failure may be silent.
+
+  CORRECT pattern (single transaction guarantee):
+    CREATE FUNCTION xxx_atomic(...) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER AS $$
+    BEGIN
+      PERFORM set_config('app.your_guc', 'on', true);
+      INSERT INTO audit_table (...);  -- if applicable
+      DELETE FROM target_table WHERE ...;  -- or UPDATE/INSERT
+      RETURN jsonb_build_object('success', true);
+    END;
+    $$;
+
+    -- Edge function:
+    const { data, error } = await supabase.rpc('xxx_atomic', {...});
+    if (error) throw error;
+    if (data?.error) throw new Error(data.error);
+
+  REFERENCE IMPLEMENTATIONS:
+  - delete_schedule_row_atomic (2026-05-17, schedule row deletion)
+  - delete_account_atomic (updated 2026-05-17 to use this pattern)
+
+  AUDIT REQUIRED: any existing supabase-js 2-call GUC bypass pattern
+  (e.g., app.allow_total_amount_edit set_config followed by .update())
+  must be reviewed for Bug #39 exposure and converted to atomic RPC
+  if the same failure mode could apply.
+
 ## VOID/RESTORE RULES
 
   Void: always deletes payment_allocations by payment_id (never by schedule_id)
@@ -5983,6 +6026,16 @@ Forbidden:
   export alphabetizes columns. See SCHEMA FACTS & OPERATIONAL LEARNINGS
   for the documented rules.
 
+  ### 2026-05-17 — Phase 3 (Bug #6 Stage 2 + Bug #39 mitigation): SHIPPED
+
+  - Stage 2 BEFORE DELETE hard blocker on layaway_schedule
+  - delete_schedule_row_atomic SECURITY DEFINER RPC (Bug #39 mitigation)
+  - delete-installment edge function updated to use atomic RPC
+  - delete_account_atomic RPC updated with GUC bypass
+  - Empirical proof of Bug #39 + mitigation via TEST-004 smoke tests
+  - New locked rule: GUC bypass before write via supabase-js MUST
+    use SECURITY DEFINER RPC, never the 2-HTTP-call pattern
+
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
   PIN hash storage: customers.portal_pin_hash (64-char SHA-256 hex digest)
@@ -6099,14 +6152,34 @@ loyalty portal. In progress.
      - schedule_audit_log trigger not
        firing on DELETE
      - Direct SQL bypass
-     STATUS (2026-05-17): Stage 1 forensic visibility shipped (Bug #112).
-     Trigger log_schedule_deletion_trigger now captures every DELETE on
-     layaway_schedule to schedule_audit_log with action='forensic_delete'.
-     Hypothesis (FK CASCADE from account deletion) ready for confirmation
-     via real forensic data when next "vanished installment" report comes in.
-     Stage 2 hard blocker design drafted (BEFORE DELETE trigger with GUC
-     bypass for delete_account_atomic and delete-installment) but NOT shipped
-     pending evidence from Stage 1 to justify the wiring complexity.
+     STATUS — Bug #6 — Silent schedule deletion via FK cascade:
+     RESOLVED 2026-05-17
+       Stage 1 (Bug #112, AFTER DELETE forensic logger): shipped
+         Function: log_schedule_deletion + log_schedule_deletion_trigger
+         Captures every layaway_schedule delete to schedule_audit_log
+         with action='forensic_delete' and full row JSON for forensic
+         recovery.
+       Stage 2 (BEFORE DELETE hard blocker): shipped
+         Function: prevent_schedule_deletion +
+         prevent_schedule_deletion_trigger
+         Blocks any DELETE FROM layaway_schedule unless txn-scoped GUC
+         app.allow_schedule_delete='on' is set.
+         Legitimate bypass sites: delete_account_atomic RPC,
+         delete_schedule_row_atomic RPC.
+       Bug #39 mitigation: shipped
+         Empirical smoke test on TEST-004 (2026-05-17 15:35 UTC) proved
+         the supabase-js set_config(is_local: true) + .delete()
+         2-HTTP-call pattern fails — GUC does not persist across
+         separate HTTP requests. Evidence: 2 delete_installment audit
+         entries created, 0 forensic_delete entries fired, row not
+         deleted, UI silently reported success.
+         Replaced with delete_schedule_row_atomic SECURITY DEFINER RPC
+         (single transaction: GUC + audit + DELETE atomic).
+         Validation: TEST-004 smoke test 15:50 UTC — both
+         delete_installment AND forensic_delete rows present with
+         identical timestamps and matching schedule_id, confirming
+         DELETE executed and Stage 1 logger fired inside the same
+         transaction.
   7. RESOLVED 2026-05-17 — Empirical investigation found the
      original hypothesis was incorrect. reconcile-account has
      been report-only since Bug #34 fix (2026-04-20) and never
