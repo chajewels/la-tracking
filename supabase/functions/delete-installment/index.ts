@@ -121,6 +121,13 @@ Deno.serve(async (req) => {
       reason: reason.trim(),
     });
 
+    // Bug #6 Stage 2: bypass schedule-delete blocker (transaction-scoped)
+    await supabase.rpc('set_config', {
+      setting: 'app.allow_schedule_delete',
+      value: 'on',
+      is_local: true,
+    });
+
     await supabase
       .from("layaway_schedule")
       .delete()
