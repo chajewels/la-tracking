@@ -6063,11 +6063,44 @@ loyalty portal. In progress.
      Stage 2 hard blocker design drafted (BEFORE DELETE trigger with GUC
      bypass for delete_account_atomic and delete-installment) but NOT shipped
      pending evidence from Stage 1 to justify the wiring complexity.
-  7. reconcile-account incorrectly marks
-     penalties as 'paid' on installments
-     with paid_amount = 0 (caused 17636 bug).
-     Auto-pay penalty logic should require
-     paid_amount >= base_installment_amount.
+  7. RESOLVED 2026-05-17 — original hypothesis
+     (reconcile-account marks penalties 'paid' on
+     installments with paid_amount=0, caused 17636
+     bug) was incorrect. reconcile-account has been
+     report-only since Bug #34 (2026-04-20) and
+     never wrote to penalty_fees.
+     Diagnostic SQL across all accounts found 46
+     candidate rows (penalty.status='paid' exceeding
+     penalty-type allocations) but ZERO real
+     corruption:
+       - 38 rows: pure allocation_type categorization
+         noise — customer paid the penalty bundled
+         with base, allocation recorded as
+         'installment' type instead of split into
+         'penalty' + 'installment'. Cash totals and
+         customer-facing math correct.
+       - 8 rows: partial-payment context (live +
+         closed accounts) where penalty-first
+         waterfall fully covered penalties, with
+         remaining cash partial against base. Same
+         categorization signature; math correct.
+     Verified accounts: 17062, 17241, 17374, 17451,
+     17832 (all completed, total_paid >=
+     total_amount), 18531 (overdue, partial payment
+     in progress, math correct).
+     Current penalty writers all have correct
+     paid_amount-vs-penalty guards (record-payment,
+     record-multi-payment, review-payment-submission,
+     edit-payment-amount, restore-payment).
+     No code fix required. No data repair required.
+     FOLLOW-UP TRACKING (low priority):
+     allocation_type categorization sometimes records
+     penalty cash as 'installment' type when penalty
+     is added shortly before/during a payment cycle.
+     Internal accounting noise only — does not affect
+     customer-facing math or balance. Worth
+     investigating if revenue split reports between
+     base and penalty become important.
   8. review-payment-submission returned 500
      error on cash order #10000 confirmation.
      Cause unknown — error log not captured.
