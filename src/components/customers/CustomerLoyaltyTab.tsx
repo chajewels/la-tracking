@@ -1,7 +1,7 @@
 import { memo, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { Diamond, Sparkles, ExternalLink } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Diamond, Sparkles, ExternalLink, Calculator } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -12,6 +12,8 @@ import {
 } from '@/components/ui/tooltip';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePermissions } from '@/contexts/PermissionsContext';
+import AdjustPointsDialog from '@/components/AdjustPointsDialog';
 
 import MemberCard from '@/components/loyalty/MemberCard';
 import PointsSnapshot from '@/components/loyalty/PointsSnapshot';
@@ -206,9 +208,12 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
   const isAdmin = rolesArr.includes('admin');
   const isFinance = rolesArr.includes('finance');
 
+  const { can } = usePermissions();
+  const qc = useQueryClient();
   const { data, isLoading } = useCustomerLoyalty(customerId);
   const [filter, setFilter] = useState<ActivityFilter>('all');
   const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [adjustOpen, setAdjustOpen] = useState(false);
 
   const filteredTransactions = useMemo(() => {
     if (!data?.transactions) return [];
@@ -354,15 +359,28 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
               </p>
             </div>
           </div>
-          <span
-            className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold ${
-              isBeta
-                ? 'border-amber-500/40 bg-amber-500/10 text-amber-700'
-                : 'border-border bg-muted text-muted-foreground'
-            }`}
-          >
-            {isBeta ? 'BETA' : 'NOT IN BETA'}
-          </span>
+          <div className="flex items-center gap-2">
+            {can('loyalty_adjust_points') && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setAdjustOpen(true)}
+                className="h-7 text-xs"
+              >
+                <Calculator className="h-3.5 w-3.5 mr-1" />
+                Adjust Points
+              </Button>
+            )}
+            <span
+              className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold ${
+                isBeta
+                  ? 'border-amber-500/40 bg-amber-500/10 text-amber-700'
+                  : 'border-border bg-muted text-muted-foreground'
+              }`}
+            >
+              {isBeta ? 'BETA' : 'NOT IN BETA'}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -568,6 +586,25 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
         redemptionId={reviewingId}
         invalidateKeys={[['customer-loyalty', customerId]]}
       />
+
+      {data.customer && (
+        <AdjustPointsDialog
+          open={adjustOpen}
+          onOpenChange={setAdjustOpen}
+          customer={{
+            id: data.customer.id,
+            customer_code: data.customer.customer_code ?? null,
+            full_name: data.customer.full_name ?? null,
+          }}
+          member={{
+            id: member.id,
+            remaining_points: member.remaining_points,
+            tier_name: tierName,
+          }}
+          onSuccess={() =>
+            qc.invalidateQueries({ queryKey: ['customer-loyalty', customerId] })}
+        />
+      )}
     </div>
   );
 });

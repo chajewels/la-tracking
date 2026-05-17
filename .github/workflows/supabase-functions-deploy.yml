@@ -12,6 +12,7 @@ on:
       - 'supabase/functions/bulk-send-setup-invites/**'
       - 'supabase/functions/carry-over/**'
       - 'supabase/functions/accept-underpayment/**'
+      - 'supabase/functions/adjust-loyalty-points/**'
       - 'supabase/functions/review-payment-submission/**'
       - 'supabase/functions/manual-forfeit/**'
       - 'supabase/functions/auto-forfeit-settlement/**'
@@ -107,6 +108,12 @@ jobs:
       - name: Deploy accept-underpayment
         if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/accept-underpayment/')
         run: npx supabase functions deploy accept-underpayment --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy adjust-loyalty-points
+        if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/adjust-loyalty-points/')
+        run: npx supabase functions deploy adjust-loyalty-points --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
