@@ -3510,6 +3510,16 @@ export type Database = {
         Args: { message_id: number; queue_name: string }
         Returns: boolean
       }
+      delete_schedule_row_atomic: {
+        Args: {
+          p_account_id: string
+          p_admin_user_id: string
+          p_old_base_amount: number
+          p_reason: string
+          p_schedule_row_id: string
+        }
+        Returns: Json
+      }
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
