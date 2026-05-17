@@ -2530,17 +2530,44 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
 
   (last reviewed 2026-05-04)
 
-  - Customer-facing Payment History sort order (surfaced 2026-05-11):
-    src/pages/CustomerStatement.tsx and src/pages/CustomerPortal.tsx
-    Payment History sections use data projected from customer-statement
-    and customer-portal edge functions respectively. The projected
-    payment shape is { date, method, amount, ... } — no created_at
-    field exposed. Cannot fix client-side without edge function
-    changes. Fix path: modify customer-statement and customer-portal
-    edge functions to either sort by created_at ASC server-side OR
-    project created_at to response so frontend can sort. Defer until
-    customer-facing surfaces are touched for other work. Not blocking
-    — admin surfaces are correctly sorted.
+  - Customer-facing Payment History sort order (surfaced 2026-05-11,
+    RESOLVED 2026-05-17 via Phase 2 of A1 plan):
+    src/pages/CustomerPortal.tsx Payment History section derives from
+    customer-portal edge function. Previous state: customer-portal
+    sorted payments by date_paid DESC with no tiebreaker — same-day
+    payments had undefined order.
+
+    Empirical investigation 2026-05-17 revealed that 67% of payment
+    rows (2,960 of 4,377) are bulk-import artifacts with
+    created_at = 2026-03-20 and date_paid spanning May 2025 -
+    Aug 2025 (real payment dates). Sorting by created_at ASC (the
+    original proposed fix-path) would have clustered ~2,960 rows on
+    the bulk-import day, destroying real chronology for the majority
+    of payments.
+
+    Fix applied: composite sort date_paid PRIMARY + created_at
+    TIEBREAKER on 2 customer-portal query sites:
+      1. customer-portal payments fetch (DESC, newest first)
+      2. customer-portal cash_payments fetch (DESC, newest first)
+
+    Same-day payments now have stable deterministic order via
+    created_at tiebreaker.
+
+    SCOPE NOTE: customer-statement edge function was intentionally
+    SKIPPED. Although src/pages/CustomerStatement.tsx +
+    supabase/functions/customer-statement/index.ts still exist in
+    the repo, the admin UI to generate/share statements was
+    previously removed, no email links point to /statement, and no
+    customer access path remains. The file is effectively dead code,
+    pending formal deletion investigation (separate parked workstream
+    — see Open workstreams: customer-statement deletion).
+
+    Bulk-import semantics note: advance payments are correctly
+    recorded with date_paid = scheduled installment date (not the
+    actual entry date). This preserves installment-to-payment
+    alignment for reporting. Verified 2026-05-17 against accounts
+    18394 and 18498 — both completed and fully paid via advance
+    payment pattern.
 
   - Audit failure during DP-voided + active-installment state (surfaced
     2026-05-11): When DP is voided while an installment payment is

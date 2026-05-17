@@ -195,7 +195,7 @@ Deno.serve(async (req) => {
         ? supabase.from("layaway_schedule").select("*").in("account_id", accountIds).order("installment_number")
         : Promise.resolve({ data: [], error: null }),
       accountIds.length > 0
-        ? supabase.from("payments").select("*").in("account_id", accountIds).is("voided_at", null).order("date_paid", { ascending: false })
+        ? supabase.from("payments").select("*").in("account_id", accountIds).is("voided_at", null).order("date_paid", { ascending: false }).order("created_at", { ascending: false })
         : Promise.resolve({ data: [], error: null }),
       accountIds.length > 0
         ? supabase.from("statement_tokens").select("*").in("account_id", accountIds).eq("is_active", true)
@@ -234,6 +234,7 @@ Deno.serve(async (req) => {
           .in("cash_order_id", cashOrderIds)
           .is("voided_at", null)
           .order("date_paid", { ascending: false })
+          .order("created_at", { ascending: false })
       : Promise.resolve({ data: [] as any[] });
 
     const [
