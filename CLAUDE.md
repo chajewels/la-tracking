@@ -1826,11 +1826,29 @@ When completing a partially_paid month:
       - Reproduction guide and decision tree documented in
         Lovable session 2026-05-04
 
-    Phase A frontend status: PAUSED. Backend remains live
-    and operational. Token-only auth path continues to serve
-    all customers without issue. Reproduction work can resume
-    whenever local debugging time is available — debug branch
-    and instrumentation plan are preserved.
+  PWA Install (status verified 2026-05-17):
+    - PWA technical infrastructure: SHIPPED ✅ — vite-plugin-pwa generates
+      manifest at build time (start_url '/portal/login', scope '/', display
+      standalone, theme #D4AF37, background #000000, 192/512/maskable icons).
+      Service worker registered in production via vite-plugin-pwa autoUpdate;
+      preview environments (lovableproject.com, lovable.app, id-preview--)
+      unregister SW per src/main.tsx.
+    - Phase A (token-to-session redemption) frontend: ABANDONED 2026-05-04
+      (Bug #79 revert). Backend (customer_portal_sessions table,
+      redeem-portal-token edge function, resolvePortalAuth helper Path 1)
+      remains live but unused from frontend.
+    - Phase B (email/password auth): SHIPPED ✅ 2026-05-05 — the sanctioned
+      auth flow for installed PWA cold-opens.
+    - Known limitation: installed PWA's start_url is '/portal/login' (no
+      token). Customers who have NOT completed Phase B email/password setup
+      cannot use the installed PWA productively on cold re-open — they must
+      keep tapping the Messenger token link each time. Token-only customers
+      (per portal-link routing) need migration to Phase B for the PWA install
+      benefit to apply. Bulk-send-setup-invites edge function exists to
+      proactively migrate them.
+    - Install prompt UI (beforeinstallprompt banner): NOT PRESENT. Phase 0
+      (Bug #65) removed the broken InstallAppBanner; no replacement shipped.
+      Customers install via browser-native A2HS only.
 
   - 80. Customers menu crashed mobile Chrome on
     app.chajewelsjp.com (iOS) with "Can't open this page"
@@ -2264,6 +2282,62 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
 107. auto-forfeit-settlement extension cap path wrote identical revoke notes text as the extension expiry path ("Final forfeit (extension expired)"), making the two paths indistinguishable via loyalty_transactions.notes — fixed cap path to write "Final forfeit (extension month penalty cap)" for forensic clarity. audit_logs.action already differentiated them via "auto_forfeit_extension_penalty_cap" vs "final_forfeited" (2026-05-15)
 110. review-payment-submission award-loyalty-points calls for layaway DP (single-account ~line 830 + multi-account split ~line 873) were fire-and-forget without await. Deno Deploy suspended the worker after the parent response returned, killing in-flight fetches before they reached award-loyalty-points. Cash-order path (~line 676) already used await fetch and worked correctly (Jan Jovic invoice 19048 earned 200 pts 2026-05-16). Fixed by adding await on both layaway DP call sites. Surfaced via invoice 19046 (Nathalie Tupas, CJ-2026-00128) confirmed DP 2026-05-17 03:28:43 UTC with zero loyalty_transactions rows. (2026-05-17)
 
+  111. Loyalty tier validation on new account creation (2026-05-17).
+  Customers tagged with a loyalty tier (any non-null
+  loyalty_members.current_tier_id) now require loyalty_jpy_amount
+  on the new account creation form. Four tiers in production:
+  Glimmer (452 members), Radiant (22), Elite (1), Crown VIP (0).
+  Two-layer enforcement:
+    - Frontend (src/pages/NewAccount.tsx): imports useCustomerLoyaltyTier,
+      derives isLoyaltyAmountRequired and loyaltyAmountMissing, label turns
+      red with asterisk, inline error helper "Required for loyalty tier
+      members" appears under the input, submit button disabled when missing,
+      handleSubmit shows toast.error("This customer is a {tier_name} loyalty
+      member. Loyalty Product Amount (JPY) is required.")
+    - Backend (supabase/functions/create-layaway-account/index.ts):
+      loyalty_members lookup before INSERT, returns 400 LOYALTY_AMOUNT_REQUIRED
+      with message "Customer is a {tier} tier member. Loyalty Product Amount
+      (JPY) is required." if customer has tier and loyalty_jpy_amount is
+      null or <= 0
+  Existing accounts without loyalty_jpy_amount unaffected — rule only applies
+  at creation. Cash orders not in scope.
+  Edge function manually redeployed via Cloud Shell (NOT in auto-deploy list).
+  Commit: 2f561f8.
+
+  112. Forensic AFTER DELETE trigger on layaway_schedule (2026-05-17).
+  Stage 1 of a 2-stage blocker for unexplained schedule row deletions.
+  Symptom: monthly installments occasionally vanish from accounts with no
+  schedule_audit_log entry. Root cause investigation identified FK ON DELETE
+  CASCADE from layaway_accounts.id as the silent path — any account delete
+  (via delete_account_atomic RPC, or direct DELETE FROM layaway_accounts in
+  SQL Editor) wipes all schedule rows with zero schedule-level audit trail.
+  Stage 1 ships now (non-blocking, forensic only). Stage 2 (hard BEFORE DELETE
+  block with GUC bypass for delete_account_atomic and delete-installment)
+  deferred until forensic data confirms the pattern.
+  SQL Editor migration applied today:
+    1. ALTER TABLE schedule_audit_log ALTER COLUMN admin_user_id DROP NOT NULL
+       (cascades have no admin attribution)
+    2. CREATE FUNCTION log_schedule_deletion() — captures full OLD row data
+       as JSON (installment_number, due_date, base_installment_amount,
+       penalty_amount, total_due_amount, paid_amount, currency, status,
+       carried_amount, carried_from_schedule_id, carried_by_payment_id,
+       generated_at, updated_at, session_user, current_user), attempts to read
+       JWT 'sub' claim for admin_user_id (NULL on cascade or direct SQL)
+    3. CREATE TRIGGER log_schedule_deletion_trigger AFTER DELETE ON
+       layaway_schedule FOR EACH ROW
+  Audit row pattern:
+    - action='forensic_delete', field_changed='row_deleted'
+    - admin_user_id populated → legitimate edge function path
+    - admin_user_id NULL → cascade or direct SQL (session_user in old_value
+      JSON identifies which)
+  Legitimate delete-installment flow now produces 2 audit rows per delete
+  (existing action='delete_installment' + new action='forensic_delete').
+  Unexplained deletes produce only the forensic row.
+  Stage 2 design draft (NOT shipped): BEFORE DELETE trigger raising EXCEPTION
+  unless transaction-scoped GUC app.allow_schedule_delete='on' is set.
+  Bypass would be wired into delete_account_atomic RPC and delete-installment
+  edge function (SET LOCAL before delete). Awaiting forensic evidence.
+
 ## Known Open Bugs
 
   Bugs that have been surfaced and triaged but not
@@ -2428,8 +2502,13 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
       hygiene.
 
   P4 — Larger features (Medium severity, real effort, not blocking)
-    - PWA Phase A install routing — ABANDONED 2026-05-04,
-      see EMAIL/PASSWORD AUTH (Phase B) in PENDING ITEMS
+    - PWA Phase A install routing — ABANDONED 2026-05-04 (Bug #79 revert),
+      replaced by EMAIL/PASSWORD AUTH (Phase B). Verified 2026-05-17: Phase A
+      frontend wiring is still absent from CustomerPortal.tsx,
+      CustomerStatement.tsx, and LoyaltyPortal.tsx. The 71 no-email customers
+      and similar token-only cohorts cannot use installed PWA cold-opens
+      effectively. Action path is migration to Phase B (not reviving Phase A).
+      Not currently a code workstream; tracked as operational/support issue.
     - Invoice generator — Google Sheets + Drive, JPY only.
       ✅ SHIPPED 2026-05-09 / 2026-05-10 (Steps 1a-1e in
       INVOICE GENERATOR section)
@@ -4037,6 +4116,9 @@ Forbidden:
       so the installed shortcut resolves to the right
       customer without needing to bake the token into
       start_url.
+      NOTE (2026-05-17): superseded — canonical PWA status now
+      lives in SYSTEM STATUS → "PWA Install". Phase A abandoned
+      2026-05-04; Phase B (email/password) is the sanctioned path.
     - Customers who installed the broken admin-context PWA
       before Phase 0 still have a dead shortcut on their
       device. Phase 6 dead-shortcut UX handler (in PENDING)
@@ -5894,6 +5976,14 @@ loyalty portal. In progress.
      - schedule_audit_log trigger not
        firing on DELETE
      - Direct SQL bypass
+     STATUS (2026-05-17): Stage 1 forensic visibility shipped (Bug #112).
+     Trigger log_schedule_deletion_trigger now captures every DELETE on
+     layaway_schedule to schedule_audit_log with action='forensic_delete'.
+     Hypothesis (FK CASCADE from account deletion) ready for confirmation
+     via real forensic data when next "vanished installment" report comes in.
+     Stage 2 hard blocker design drafted (BEFORE DELETE trigger with GUC
+     bypass for delete_account_atomic and delete-installment) but NOT shipped
+     pending evidence from Stage 1 to justify the wiring complexity.
   7. reconcile-account incorrectly marks
      penalties as 'paid' on installments
      with paid_amount = 0 (caused 17636 bug).
@@ -7307,7 +7397,9 @@ loyalty portal. In progress.
 
 ### PWA TOKEN-TO-SESSION REDEMPTION (Phase A)
 
-  **STATUS: ABANDONED 2026-05-04** — replaced by
+  **STATUS: ABANDONED 2026-05-04 — preserved for historical reference only.
+  Verified still abandoned 2026-05-17 (no frontend wiring exists). See
+  SYSTEM STATUS → PWA Install for current canonical status.** Replaced by
   email/password auth workstream on
   feature/email-password-auth branch. See EMAIL/PASSWORD
   AUTH subsection below for the active replacement. The
