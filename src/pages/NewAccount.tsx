@@ -20,6 +20,7 @@ import { useQuery } from '@tanstack/react-query';
 import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
 import { Badge } from '@/components/ui/badge';
 import { useAccountDraft, clearAccountDraft } from '@/hooks/use-account-draft';
+import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
 
 type RemainingDpOption = 'split' | 'add_to_installments';
 type InstallmentMode = 'equal' | 'custom';
@@ -59,6 +60,14 @@ export default function NewAccount() {
   const { roles } = useAuth();
   const rolesArr = roles as any[];
   const canSeeLoyaltyField = rolesArr.includes('admin') || rolesArr.includes('finance') || rolesArr.includes('staff');
+
+  // Loyalty tier of the selected customer. Non-null => the customer is
+  // a loyalty member (any tier) and Loyalty Product Amount is required.
+  const { data: loyaltyTier } = useCustomerLoyaltyTier(customerId);
+  const isLoyaltyAmountRequired = !!loyaltyTier;
+  const loyaltyAmountMissing =
+    isLoyaltyAmountRequired &&
+    (!loyaltyJpyInput.trim() || !(Number(loyaltyJpyInput) > 0));
 
   // Custom installment mode
   const [installmentMode, setInstallmentMode] = useState<InstallmentMode>('equal');
@@ -326,6 +335,13 @@ export default function NewAccount() {
     e.preventDefault();
     if (!invoiceNumber || !customerId || !totalAmount || !orderDate) {
       toast.error('Please fill in all required fields');
+      return;
+    }
+
+    if (loyaltyAmountMissing) {
+      toast.error(
+        `This customer is a ${loyaltyTier?.current_tier_name} loyalty member. Loyalty Product Amount (JPY) is required.`
+      );
       return;
     }
 
@@ -1084,9 +1100,15 @@ export default function NewAccount() {
           {/* Loyalty product amount (admin/finance only) */}
           {canSeeLoyaltyField && (
             <div className="rounded-xl border border-border bg-card p-6 space-y-2">
-              <Label className="text-card-foreground">
-                Product Amount (JPY) — Loyalty Only
-              </Label>
+              {isLoyaltyAmountRequired ? (
+                <Label className="text-destructive">
+                  Loyalty Product Amount (JPY) <span className="text-destructive">*</span>
+                </Label>
+              ) : (
+                <Label className="text-card-foreground">
+                  Product Amount (JPY) — Loyalty Only
+                </Label>
+              )}
               <Input
                 type="number"
                 min={0}
@@ -1097,6 +1119,11 @@ export default function NewAccount() {
                 placeholder="e.g. 107143"
                 className="bg-background border-border"
               />
+              {loyaltyAmountMissing && (
+                <p className="text-xs text-destructive font-medium">
+                  Required for loyalty tier members
+                </p>
+              )}
               <p className="text-[10px] text-muted-foreground">
                 Product value in JPY only. Exclude shipping, service fees, and
                 insurance. Used for loyalty points — not shown to customer.
@@ -1128,8 +1155,8 @@ export default function NewAccount() {
             </Button>
             <Button
               type="submit"
-              disabled={createAccount.isPending || isBelowMinimum}
-              className={`gold-gradient text-primary-foreground font-medium ${isBelowMinimum ? 'opacity-50 cursor-not-allowed' : ''}`}
+              disabled={createAccount.isPending || isBelowMinimum || loyaltyAmountMissing}
+              className={`gold-gradient text-primary-foreground font-medium ${isBelowMinimum || loyaltyAmountMissing ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               {createAccount.isPending ? 'Creating…' : 'Create Account'}
             </Button>

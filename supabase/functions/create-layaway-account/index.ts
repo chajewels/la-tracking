@@ -112,6 +112,31 @@ Deno.serve(async (req) => {
         ? Math.round(body.loyalty_jpy_amount)
         : null;
 
+    // Loyalty enforcement: if the customer is a loyalty member (any
+    // tier), Loyalty Product Amount (JPY) is mandatory. Authoritative
+    // gate — the frontend mirror is UX only.
+    const { data: memberRow } = await supabase
+      .from("loyalty_members")
+      .select("current_tier_id, current_tier:current_tier_id(name)")
+      .eq("customer_id", customer_id)
+      .maybeSingle();
+
+    const hasLoyaltyTier = memberRow?.current_tier_id != null;
+    if (hasLoyaltyTier && (loyaltyJpyAmount === null || loyaltyJpyAmount <= 0)) {
+      return new Response(
+        JSON.stringify({
+          error: "LOYALTY_AMOUNT_REQUIRED",
+          message: `Customer is a ${
+            (memberRow.current_tier as any)?.name ?? "loyalty"
+          } tier member. Loyalty Product Amount (JPY) is required.`,
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
     // Create account — confirmed DP is treated as real paid principal, without changing fixed schedule rows
     const { data: account, error: accountError } = await supabase
       .from("layaway_accounts")
