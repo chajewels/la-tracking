@@ -135,24 +135,55 @@ export default function TransactionsDrawer({ transaction, onClose }: Props) {
                   {fmtPoints(transaction.points_amount)}
                 </span>
               </Row>
-              <Row label="Spend (¥)">
-                {fmtYen(transaction.spend_amount_jpy)}
-              </Row>
-              <Row label="Tier at time">
-                {transaction.tier_at_time ?? '—'}
-              </Row>
-              <Row label="Rate snapshot">
-                {transaction.rate_snapshot ?? '—'}
-              </Row>
-              <Row label="Invoice">
-                {transaction.invoice_number ?? '—'}
-              </Row>
+              {transaction.spend_amount_jpy != null && (
+                <Row label="Spend (¥)">
+                  {fmtYen(transaction.spend_amount_jpy)}
+                </Row>
+              )}
+              {transaction.tier_at_time != null && (
+                <Row label="Tier at time">{transaction.tier_at_time}</Row>
+              )}
+              {transaction.rate_snapshot != null && (
+                <Row label="Rate snapshot">
+                  {transaction.rate_snapshot}
+                </Row>
+              )}
+              {transaction.invoice_number != null && (
+                <Row label="Invoice">{transaction.invoice_number}</Row>
+              )}
               <Row label="Created at">
                 <span className="font-mono text-[11px]">
                   {fmtFull(transaction.created_at)}
                 </span>
               </Row>
             </div>
+
+            {/* Tier change highlight — parsed from the canonical notes
+                format emitted by award-loyalty-points:
+                "Tier upgraded: X → Y at N JPY cumulative spend".
+                Falls back silently to the Notes section if the format
+                doesn't match (parsing is best-effort, never throws). */}
+            {transaction.transaction_type === 'tier_changed' &&
+              (() => {
+                const m = transaction.notes?.match(
+                  /Tier upgraded:\s*(.+?)\s*→\s*(.+?)\s*at\s*([\d,]+)\s*JPY/i,
+                );
+                if (!m) return null;
+                return (
+                  <div className="rounded-xl border border-purple-500/30 bg-purple-500/5 p-4 space-y-1">
+                    <p className="text-[10px] uppercase tracking-wider text-purple-600 font-semibold">
+                      Tier change
+                    </p>
+                    <p className="text-sm font-semibold">
+                      {m[1]}{' '}
+                      <span className="text-purple-600">→</span> {m[2]}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      at {m[3]} JPY cumulative spend
+                    </p>
+                  </div>
+                );
+              })()}
 
             {/* Source — only non-null */}
             {(transaction.account_id ||

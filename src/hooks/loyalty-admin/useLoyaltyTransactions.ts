@@ -10,7 +10,31 @@ export type LoyaltyTransactionType =
   | 'adjusted'
   | 'refunded'
   | 'revoked'
-  | 'birthday_bonus';
+  | 'birthday_bonus'
+  | 'enrolled'
+  | 'tier_changed'
+  | 'status_changed'
+  | 'admin_edited';
+
+export type LoyaltyTransactionViewKind = 'member' | 'transactions';
+
+export const MEMBER_EVENT_TYPES = [
+  'enrolled',
+  'tier_changed',
+  'status_changed',
+  'admin_edited',
+] as const;
+
+export const TRANSACTION_EVENT_TYPES = [
+  'earned',
+  'bonus',
+  'redeemed',
+  'expired',
+  'adjusted',
+  'refunded',
+  'revoked',
+  'birthday_bonus',
+] as const;
 
 export interface LoyaltyTransactionRow {
   id: string;
@@ -31,6 +55,7 @@ export interface LoyaltyTransactionRow {
 }
 
 export interface LoyaltyTransactionFilters {
+  viewKind: LoyaltyTransactionViewKind;
   transactionType: LoyaltyTransactionType;
   memberSearch: string;
   rangeStartIso: string | null;
@@ -71,6 +96,7 @@ export function useLoyaltyTransactions(filters: LoyaltyTransactionFilters) {
   return useQuery<LoyaltyTransactionResult>({
     queryKey: [
       'loyalty-transactions',
+      filters.viewKind,
       filters.rangeStartIso,
       filters.transactionType,
       filters.memberSearch,
@@ -93,6 +119,13 @@ export function useLoyaltyTransactions(filters: LoyaltyTransactionFilters) {
 
       if (filters.transactionType !== 'all') {
         q = q.eq('transaction_type', filters.transactionType);
+      } else if (filters.viewKind === 'member') {
+        q = q.in('transaction_type', MEMBER_EVENT_TYPES as unknown as string[]);
+      } else {
+        q = q.in(
+          'transaction_type',
+          TRANSACTION_EVENT_TYPES as unknown as string[],
+        );
       }
       if (filters.rangeStartIso) {
         q = q.gte('created_at', filters.rangeStartIso);

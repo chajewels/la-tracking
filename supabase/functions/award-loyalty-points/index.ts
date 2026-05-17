@@ -644,6 +644,43 @@ Deno.serve(async (req) => {
 
     // CALL 3 — tier_changed (only on upgrade caused by this purchase)
     if (tierUpgraded === true) {
+      // Emit a 'tier_changed' loyalty_transactions row so the Member-events
+      // feed mirrors the sheet sync. Non-blocking: failure logs a warning
+      // and never rolls back the award. spend_amount_jpy is NULL here — the
+      // spend is already captured on the corresponding 'earned' row above
+      // (don't double-count). Source IDs pass through for traceability.
+      try {
+        const tierTxRow: Record<string, unknown> = {
+          member_id: member.id,
+          transaction_type: "tier_changed",
+          points_amount: 0,
+          account_id: sourceKind === "layaway" ? account_id ?? null : null,
+          cash_order_id: sourceKind === "cash" ? cash_order_id ?? null : null,
+          payment_id: null,
+          spend_amount_jpy: null,
+          rate_snapshot: null,
+          invoice_number: invoiceNumber || null,
+          tier_at_time: newTierName,
+          notes:
+            `Tier upgraded: ${oldTierName} → ${newTierName} at ${newCumulative.toLocaleString()} JPY cumulative spend`,
+          created_by_user_id: null,
+        };
+        const { error: tierTxErr } = await supabase
+          .from("loyalty_transactions")
+          .insert(tierTxRow);
+        if (tierTxErr) {
+          console.warn(
+            "[award-loyalty-points] tier_changed tx insert failed (non-blocking):",
+            tierTxErr,
+          );
+        }
+      } catch (tierTxBlockErr) {
+        console.warn(
+          "[award-loyalty-points] tier_changed tx block failed (non-blocking):",
+          tierTxBlockErr,
+        );
+      }
+
       try {
         await fetch(syncSheetUrl, {
           method: "POST",

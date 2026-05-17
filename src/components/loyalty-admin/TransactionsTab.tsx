@@ -25,6 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Tooltip,
   TooltipContent,
@@ -35,12 +36,16 @@ import {
   useLoyaltyTransactions,
   type LoyaltyTransactionType,
   type LoyaltyTransactionRow,
+  type LoyaltyTransactionViewKind,
 } from '@/hooks/loyalty-admin/useLoyaltyTransactions';
 import TransactionsDrawer from '@/components/loyalty-admin/TransactionsDrawer';
 
 type RangeKey = 'all' | 'last_7' | 'last_30' | 'last_90';
 
-const TYPE_OPTIONS: Array<{ value: LoyaltyTransactionType; label: string }> = [
+const TRANSACTION_TYPE_OPTIONS: Array<{
+  value: LoyaltyTransactionType;
+  label: string;
+}> = [
   { value: 'all', label: 'All Types' },
   { value: 'earned', label: 'Earned' },
   { value: 'bonus', label: 'Bonus' },
@@ -52,6 +57,17 @@ const TYPE_OPTIONS: Array<{ value: LoyaltyTransactionType; label: string }> = [
   { value: 'birthday_bonus', label: 'Birthday Bonus' },
 ];
 
+const MEMBER_TYPE_OPTIONS: Array<{
+  value: LoyaltyTransactionType;
+  label: string;
+}> = [
+  { value: 'all', label: 'All Member Events' },
+  { value: 'enrolled', label: 'Enrolled' },
+  { value: 'tier_changed', label: 'Tier Changed' },
+  { value: 'status_changed', label: 'Status Changed' },
+  { value: 'admin_edited', label: 'Admin Edited' },
+];
+
 const PAGE_SIZE = 25;
 
 const POSITIVE_TYPES = new Set(['earned', 'bonus', 'birthday_bonus']);
@@ -59,6 +75,23 @@ const POSITIVE_TYPES = new Set(['earned', 'bonus', 'birthday_bonus']);
 function isPositive(row: LoyaltyTransactionRow): boolean {
   if (row.transaction_type === 'adjusted') return row.points_amount >= 0;
   return POSITIVE_TYPES.has(row.transaction_type);
+}
+
+// Badge palette. Member-event types get distinct hues; value-bearing
+// types fall back to the green/red positive-negative scheme.
+const MEMBER_BADGE_CLASS: Record<string, string> = {
+  enrolled: 'border-blue-500/30 bg-blue-500/10 text-blue-600',
+  tier_changed: 'border-purple-500/30 bg-purple-500/10 text-purple-600',
+  status_changed: 'border-amber-500/30 bg-amber-500/10 text-amber-600',
+  admin_edited: 'border-muted-foreground/30 bg-muted text-muted-foreground',
+};
+
+function badgeClass(row: LoyaltyTransactionRow): string {
+  const member = MEMBER_BADGE_CLASS[row.transaction_type];
+  if (member) return member;
+  return isPositive(row)
+    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600'
+    : 'border-destructive/30 bg-destructive/10 text-destructive';
 }
 
 function rangeStartIso(range: RangeKey): string | null {
@@ -130,8 +163,14 @@ function exportCsv(rows: LoyaltyTransactionRow[]) {
   URL.revokeObjectURL(url);
 }
 
-export default function TransactionsTab() {
+function TransactionsTableView({
+  viewKind,
+}: {
+  viewKind: LoyaltyTransactionViewKind;
+}) {
   const navigate = useNavigate();
+  const typeOptions =
+    viewKind === 'member' ? MEMBER_TYPE_OPTIONS : TRANSACTION_TYPE_OPTIONS;
   const [transactionType, setTransactionType] =
     useState<LoyaltyTransactionType>('all');
   const [range, setRange] = useState<RangeKey>('last_30');
@@ -151,13 +190,14 @@ export default function TransactionsTab() {
 
   const filters = useMemo(
     () => ({
+      viewKind,
       transactionType,
       memberSearch,
       rangeStartIso: rangeStartIso(range),
       page,
       pageSize: PAGE_SIZE,
     }),
-    [transactionType, memberSearch, range, page],
+    [viewKind, transactionType, memberSearch, range, page],
   );
 
   const { data, isLoading, isError, refetch } =
@@ -203,7 +243,7 @@ export default function TransactionsTab() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {TYPE_OPTIONS.map((o) => (
+            {typeOptions.map((o) => (
               <SelectItem key={o.value} value={o.value}>
                 {o.label}
               </SelectItem>
@@ -232,7 +272,9 @@ export default function TransactionsTab() {
       <div className="text-xs text-muted-foreground tabular-nums">
         {isLoading
           ? 'Loading…'
-          : `${data?.totalCount.toLocaleString() ?? 0} transactions`}
+          : `${data?.totalCount.toLocaleString() ?? 0} ${
+              viewKind === 'member' ? 'member events' : 'transactions'
+            }`}
       </div>
 
       {/* Table */}
@@ -276,7 +318,6 @@ export default function TransactionsTab() {
               </TableHeader>
               <TableBody>
                 {data!.rows.map((r) => {
-                  const pos = isPositive(r);
                   return (
                     <TableRow
                       key={r.id}
@@ -288,11 +329,9 @@ export default function TransactionsTab() {
                       </TableCell>
                       <TableCell className="text-xs">
                         <span
-                          className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-semibold ${
-                            pos
-                              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600'
-                              : 'border-destructive/30 bg-destructive/10 text-destructive'
-                          }`}
+                          className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-semibold ${badgeClass(
+                            r,
+                          )}`}
                         >
                           {r.transaction_type}
                         </span>
@@ -407,5 +446,22 @@ export default function TransactionsTab() {
         onClose={() => setSelected(null)}
       />
     </div>
+  );
+}
+
+export default function TransactionsTab() {
+  return (
+    <Tabs defaultValue="transactions" className="space-y-4">
+      <TabsList>
+        <TabsTrigger value="member">Member</TabsTrigger>
+        <TabsTrigger value="transactions">Transactions</TabsTrigger>
+      </TabsList>
+      <TabsContent value="member">
+        <TransactionsTableView viewKind="member" />
+      </TabsContent>
+      <TabsContent value="transactions">
+        <TransactionsTableView viewKind="transactions" />
+      </TabsContent>
+    </Tabs>
   );
 }

@@ -124,6 +124,40 @@ Deno.serve(async (req) => {
       return json({ error: "Failed to enroll" }, 500);
     }
 
+    // 5b. Emit an 'enrolled' loyalty_transactions row so the Member-events
+    //     feed (LoyaltyAdmin Transactions tab) mirrors what the Google
+    //     Sheet backup records. Non-blocking: a failure here must NOT roll
+    //     back the enrollment (sheet sync below remains the parallel path).
+    try {
+      const { error: enrolledTxErr } = await supabase
+        .from("loyalty_transactions")
+        .insert({
+          member_id: member.id,
+          transaction_type: "enrolled",
+          points_amount: 0,
+          account_id: null,
+          cash_order_id: null,
+          payment_id: null,
+          spend_amount_jpy: null,
+          rate_snapshot: null,
+          invoice_number: null,
+          tier_at_time: null,
+          notes: "Enrolled in Cha Jewels Circle",
+          created_by_user_id: null,
+        });
+      if (enrolledTxErr) {
+        console.warn(
+          "[join-loyalty-program] enrolled tx insert failed (non-blocking):",
+          enrolledTxErr,
+        );
+      }
+    } catch (enrolledTxBlockErr) {
+      console.warn(
+        "[join-loyalty-program] enrolled tx block failed (non-blocking):",
+        enrolledTxBlockErr,
+      );
+    }
+
     // 6. Welcome email — fire-and-forget
     if (customer.email) {
       try {
