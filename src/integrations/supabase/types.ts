@@ -3853,6 +3853,11 @@ export type Database = {
         | "adjusted"
         | "refunded"
         | "revoked"
+        | "enrolled"
+        | "tier_changed"
+        | "status_changed"
+        | "admin_edited"
+        | "birthday_bonus"
       penalty_fee_status: "unpaid" | "paid" | "waived"
       penalty_stage: "week1" | "week2"
       risk_level: "low" | "medium" | "high"
@@ -4036,6 +4041,11 @@ export const Constants = {
         "adjusted",
         "refunded",
         "revoked",
+        "enrolled",
+        "tier_changed",
+        "status_changed",
+        "admin_edited",
+        "birthday_bonus",
       ],
       penalty_fee_status: ["unpaid", "paid", "waived"],
       penalty_stage: ["week1", "week2"],
