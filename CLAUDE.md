@@ -199,8 +199,18 @@ When checking whether a user can perform an action:
 
   reconcile-account edge function:
     Body: { account_id } or { invoice_number }
-    Steps: create missing allocations → sync schedule → auto-waive unpaid
-           penalties on paid installments → recalculate account totals
+    Behavior: REPORT-ONLY (no DB writes since Bug #34 fix 2026-04-20)
+    Steps: load data → compute canonical drift → INSERT one row to
+           reconciliation_log
+    Does NOT write to: penalty_fees, layaway_schedule, layaway_accounts
+    Drift detection currently covers: account.total_paid,
+    account.remaining_balance, account.status, schedule.status,
+    schedule.paid_amount
+    NOT yet covered (known gap, verified 2026-05-17): penalty_fees
+    status vs payment_allocations consistency — accounts can have
+    categorization noise (penalty allocations recorded as 'installment'
+    type) that this drift checker does not surface. See Resolved
+    Bug #7 entry for empirical details.
 
 ## ENUM VALUES — NON-NEGOTIABLE
 
@@ -3120,10 +3130,16 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
      installment payments. No DB-trigger award path exists
      (Layer-2 removed — see LOYALTY AWARD SYSTEM).
 
-  3. JPY-only awards, server-enforced. award-loyalty-points
-     checks the source row currency BEFORE the min-spend gate;
-     currency !== 'JPY' → { skipped: true, reason:
-     'wrong_currency' }. PHP accounts are always skipped.
+  3. Currency-agnostic awards, server-enforced via amount gate
+     (per Bug #113, 2026-05-17). award-loyalty-points reads
+     loyalty_jpy_amount from the source row (populated at account
+     creation from the "Product Amount (JPY) — Loyalty Only" form
+     input; excludes shipping, service fees, insurance) and skips
+     with reason='no_loyalty_amount' when loyalty_jpy_amount <= 0
+     or null. Both PHP and JPY accounts can earn — loyalty_jpy_amount
+     is the canonical loyalty spend basis regardless of account
+     currency. The pre-Bug #113 currency gate (currency !== 'JPY')
+     was removed.
 
   4. loyalty_enabled is the go-live gate, enforced server-side.
      award-loyalty-points: flag false/null →
@@ -4149,7 +4165,8 @@ Forbidden:
       counters/lots. See LOYALTY AWARD SYSTEM +
       LOYALTY SYSTEM RULES.
     - Skips if loyalty_jpy < ¥10,000 or null
-    - Skips if currency !== 'JPY' (server-enforced)
+    - Skips if loyalty_jpy_amount <= 0 or null (server-enforced
+      amount gate per Bug #113, currency-agnostic since 2026-05-17)
     - Skips if customer not enrolled (no auto-enroll)
     - Skips if loyalty_enabled flag is false/null
 
@@ -6063,44 +6080,42 @@ loyalty portal. In progress.
      Stage 2 hard blocker design drafted (BEFORE DELETE trigger with GUC
      bypass for delete_account_atomic and delete-installment) but NOT shipped
      pending evidence from Stage 1 to justify the wiring complexity.
-  7. RESOLVED 2026-05-17 — original hypothesis
-     (reconcile-account marks penalties 'paid' on
-     installments with paid_amount=0, caused 17636
-     bug) was incorrect. reconcile-account has been
-     report-only since Bug #34 (2026-04-20) and
-     never wrote to penalty_fees.
-     Diagnostic SQL across all accounts found 46
-     candidate rows (penalty.status='paid' exceeding
-     penalty-type allocations) but ZERO real
-     corruption:
-       - 38 rows: pure allocation_type categorization
-         noise — customer paid the penalty bundled
-         with base, allocation recorded as
-         'installment' type instead of split into
-         'penalty' + 'installment'. Cash totals and
-         customer-facing math correct.
-       - 8 rows: partial-payment context (live +
-         closed accounts) where penalty-first
-         waterfall fully covered penalties, with
-         remaining cash partial against base. Same
-         categorization signature; math correct.
-     Verified accounts: 17062, 17241, 17374, 17451,
-     17832 (all completed, total_paid >=
-     total_amount), 18531 (overdue, partial payment
-     in progress, math correct).
-     Current penalty writers all have correct
-     paid_amount-vs-penalty guards (record-payment,
-     record-multi-payment, review-payment-submission,
-     edit-payment-amount, restore-payment).
+  7. RESOLVED 2026-05-17 — Empirical investigation found the
+     original hypothesis was incorrect. reconcile-account has
+     been report-only since Bug #34 fix (2026-04-20) and never
+     wrote to penalty_fees.
+
+     Diagnostic SQL across all accounts found 46 candidate rows
+     (penalty.status='paid' exceeding penalty-type allocations)
+     but ZERO real corruption:
+     - 38 rows: pure allocation_type categorization noise —
+       customer paid penalty bundled with base, allocation
+       recorded as 'installment' type instead of split into
+       'penalty' + 'installment'. Cash totals and customer-
+       facing math correct.
+     - 8 rows: partial-payment context (live + closed accounts)
+       where penalty-first waterfall fully covered penalties,
+       with remaining cash partial against base. Same
+       categorization signature; math correct.
+
+     Verified accounts: 17062, 17241, 17374, 17451, 17832
+     (all completed, total_paid >= total_amount); 18531
+     (overdue, partial payment in progress, math correct).
+
+     Current penalty writers all have correct paid_amount-vs-
+     penalty guards: record-payment, record-multi-payment,
+     review-payment-submission, edit-payment-amount,
+     restore-payment.
+
      No code fix required. No data repair required.
-     FOLLOW-UP TRACKING (low priority):
-     allocation_type categorization sometimes records
-     penalty cash as 'installment' type when penalty
-     is added shortly before/during a payment cycle.
-     Internal accounting noise only — does not affect
-     customer-facing math or balance. Worth
-     investigating if revenue split reports between
-     base and penalty become important.
+
+     FOLLOW-UP TRACKING (low priority): allocation_type
+     categorization sometimes records penalty cash as
+     'installment' type when penalty is added shortly
+     before/during a payment cycle. Internal accounting noise
+     only — does not affect customer-facing math or balance.
+     Worth investigating if revenue split reports between base
+     and penalty become important.
   8. review-payment-submission returned 500
      error on cash order #10000 confirmation.
      Cause unknown — error log not captured.
@@ -6114,9 +6129,13 @@ loyalty portal. In progress.
     account, trigger forfeit via UI, verify revoke fires + tier
     transition + email + in-portal notification
   - Auto-forfeit-settlement empirical verification: synthetically
-    trigger each of 5 hook points (PATH 1 penalty cap, PATH 2 3-month
-    overdue, PATH 3 6th penalty, extension expiry, extension cap)
-    and verify revoke fires correctly at each
+    trigger each of 5 hook points: manual-forfeit + 4 auto-forfeit-
+    settlement paths (PATH 1 penalty cap, PATH 2 3-month overdue,
+    extension expiry, extension cap). PATH 3 → final_settlement does
+    NOT revoke per Bug #101 (2026-05-14); empirical verification of
+    PATH 3 no-revoke is a separate workstream tracked under Open
+    workstreams section.
+    Verify revoke fires correctly at each
   - 464-member historical loyalty backfill: migrate existing customers'
     loyalty state to Bug #99-final lot schema (spend_basis_jpy +
     lot-based math)
