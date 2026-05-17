@@ -110,28 +110,33 @@ Deno.serve(async (req) => {
 
     const baseAmt = Number(row.base_installment_amount);
 
-    await supabase.from("schedule_audit_log").insert({
-      account_id,
-      schedule_id: schedule_row_id,
-      admin_user_id: user.id,
-      action: "delete_installment",
-      field_changed: "base_installment_amount",
-      old_value: String(baseAmt),
-      new_value: "0",
-      reason: reason.trim(),
-    });
-
-    // Bug #6 Stage 2: bypass schedule-delete blocker (transaction-scoped)
-    await supabase.rpc('set_config', {
-      setting: 'app.allow_schedule_delete',
-      value: 'on',
-      is_local: true,
-    });
-
-    await supabase
-      .from("layaway_schedule")
-      .delete()
-      .eq("id", schedule_row_id);
+    // Bug #6 Stage 2 + Bug #39 mitigation: atomic GUC bypass + audit + DELETE
+    // via SECURITY DEFINER RPC. Replaces previous 2-HTTP-call pattern which
+    // failed Bug #39 — set_config did not persist across separate HTTP requests.
+    const { data: delResult, error: delErr } = await supabase.rpc(
+      'delete_schedule_row_atomic',
+      {
+        p_schedule_row_id: schedule_row_id,
+        p_account_id: account_id,
+        p_admin_user_id: user.id,
+        p_old_base_amount: baseAmt,
+        p_reason: reason.trim(),
+      }
+    );
+    if (delErr) {
+      console.error('delete_schedule_row_atomic failed:', delErr);
+      return new Response(
+        JSON.stringify({ error: delErr.message || 'Schedule delete failed' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    if (delResult?.error) {
+      console.error('delete_schedule_row_atomic returned error:', delResult.error);
+      return new Response(
+        JSON.stringify({ error: delResult.error }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     const newTotal = Math.max(0, Math.round((Number(account.total_amount) - baseAmt) * 100) / 100);
     const newRemaining = Math.max(0, Math.round((Number(account.remaining_balance) - baseAmt) * 100) / 100);
