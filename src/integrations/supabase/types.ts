@@ -3224,7 +3224,7 @@ export type Database = {
         Row: {
           account_id: string
           action: string
-          admin_user_id: string
+          admin_user_id: string | null
           created_at: string | null
           field_changed: string | null
           id: string
@@ -3236,7 +3236,7 @@ export type Database = {
         Insert: {
           account_id: string
           action: string
-          admin_user_id: string
+          admin_user_id?: string | null
           created_at?: string | null
           field_changed?: string | null
           id?: string
@@ -3248,7 +3248,7 @@ export type Database = {
         Update: {
           account_id?: string
           action?: string
-          admin_user_id?: string
+          admin_user_id?: string | null
           created_at?: string | null
           field_changed?: string | null
           id?: string
