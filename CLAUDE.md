@@ -3969,11 +3969,32 @@ Forbidden:
       (already part of cash plan)
 
   Loyalty Program — Known Backlog:
-    - Sheet sync (sync-loyalty-to-sheet) is a STUB —
-      needs Google service account + sheet IDs configured
-    - Adjust Points feature deferred (placeholder UI)
     - Cash payment rejection/clarification emails
       silently fail (deferred from cash plan)
+    (Sheet sync now LIVE — see 2026-05-15 → 2026-05-16
+     GSheet loyalty backup workstream. Adjust Points now
+     SHIPPED & VALIDATED — see entry below.)
+
+  Adjust Points feature: SHIPPED & VALIDATED ✅ (2026-05-17)
+    - admin/finance can manually add or deduct loyalty
+      points via UI dialog (AdjustPointsDialog.tsx +
+      CustomerLoyaltyTab.tsx, gated by
+      can('loyalty_adjust_points'))
+    - adjust-loyalty-points edge function: signed
+      points_delta, reason ≥10 chars, admin OR finance
+      has_role auth, server-side overdraw guard fires
+      BEFORE ledger/counter/audit writes (true
+      defense-in-depth)
+    - Writes loyalty_transactions (type='adjusted'),
+      updates loyalty_members counters, audit_logs entry,
+      in-portal notification (emit-notification master +
+      recipient pattern), sheet sync (adjusted event)
+    - 5/5 smoke tests + server-side guard code-review
+      pass 2026-05-17 (permission seeded; +100 / -50 to
+      Efrhyll Largo CJ-2026-05448 confirmed; overdraw
+      client + server reject with no DB change; staff
+      403 UI gate)
+    - Shipped commit 7f8ea84
 
   accept-underpayment auto-carry: REMOVED ✅
   carry-over edge function: DEPLOYED ✅
@@ -5963,8 +5984,8 @@ loyalty portal. In progress.
     - Google Sheets GAS email notifications shut off — Sheets is backup
       only; Supabase send-transactional-email is the sole sender
 
-  1. Adjust Points feature — placeholder UI
-     only, no functionality yet
+  (No pending items — Adjust Points shipped & validated
+   2026-05-17, see SYSTEM STATUS.)
 
 ### BUG INVESTIGATIONS — DEFERRED
   6. Schedule rows disappearing bug — 3
