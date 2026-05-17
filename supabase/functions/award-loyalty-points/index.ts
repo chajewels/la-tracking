@@ -109,10 +109,12 @@ Deno.serve(async (req) => {
       sourceKind = "cash";
     }
 
-    // 2b. JPY-only guard — loyalty awards are JPY-native. PHP accounts
-    //     are never awarded (checked before the min-spend gate).
-    if (sourceCurrency !== "JPY") {
-      return json({ skipped: true, reason: "wrong_currency" });
+    // 2b. Loyalty amount guard — loyalty is based on loyalty_jpy_amount
+    //     (the Product Amount (JPY) — Loyalty Only field, populated for
+    //     both PHP and JPY accounts). Skip only when no loyalty amount
+    //     is recorded (e.g., services-only or shipping-only orders).
+    if (!(loyaltyJpy > 0)) {
+      return json({ skipped: true, reason: "no_loyalty_amount" });
     }
 
     // 3. Validate minimum
