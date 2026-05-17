@@ -10,6 +10,7 @@ import BetaWhitelistTab from '@/components/loyalty-admin/BetaWhitelistTab';
 import TiersTab from '@/components/loyalty-admin/TiersTab';
 import SettingsTab from '@/components/loyalty-admin/SettingsTab';
 import AuditLogTab from '@/components/loyalty-admin/AuditLogTab';
+import TransactionsTab from '@/components/loyalty-admin/TransactionsTab';
 import PromotionsTab from '@/components/loyalty-admin/PromotionsTab';
 import RewardsTab from '@/components/loyalty-admin/RewardsTab';
 import BannersTab from '@/components/loyalty-admin/BannersTab';
@@ -24,6 +25,7 @@ type LoyaltyAdminTab =
   | 'tiers'
   | 'settings'
   | 'audit'
+  | 'transactions'
   | 'promotions'
   | 'rewards'
   | 'banners'
@@ -37,6 +39,7 @@ const VALID_TABS: ReadonlySet<LoyaltyAdminTab> = new Set([
   'tiers',
   'settings',
   'audit',
+  'transactions',
   'promotions',
   'rewards',
   'banners',
@@ -104,12 +107,12 @@ export default function LoyaltyAdmin() {
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-5">
           {/*
-            11 tabs. shadcn TabsTrigger has whitespace-nowrap so labels
+            12 tabs. shadcn TabsTrigger has whitespace-nowrap so labels
             stay on one line. Default behavior is flex + horizontal
-            scroll for narrow screens; on xl (1280+) we use an 11-column
+            scroll for narrow screens; on xl (1280+) we use a 12-column
             grid for an even split.
           */}
-          <TabsList className="flex w-full overflow-x-auto xl:grid xl:grid-cols-11">
+          <TabsList className="flex w-full overflow-x-auto xl:grid xl:grid-cols-12">
             <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
             <TabsTrigger value="members">Members</TabsTrigger>
             <TabsTrigger value="redemptions">
@@ -131,6 +134,7 @@ export default function LoyaltyAdmin() {
             <TabsTrigger value="tiers">Tiers</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
             <TabsTrigger value="audit">Audit Log</TabsTrigger>
+            <TabsTrigger value="transactions">Transactions</TabsTrigger>
             <TabsTrigger value="promotions">Promotions</TabsTrigger>
             <TabsTrigger value="rewards">Rewards</TabsTrigger>
             <TabsTrigger value="banners">Banners</TabsTrigger>
@@ -172,6 +176,10 @@ export default function LoyaltyAdmin() {
 
           <TabsContent value="audit" className="mt-0">
             <AuditLogTab />
+          </TabsContent>
+
+          <TabsContent value="transactions" className="mt-0">
+            <TransactionsTab />
           </TabsContent>
 
           <TabsContent value="promotions" className="mt-0">
