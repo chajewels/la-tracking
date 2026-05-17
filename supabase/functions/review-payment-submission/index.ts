@@ -827,7 +827,7 @@ Deno.serve(async (req) => {
         confirmedPaymentIds.push(result.paymentId);
 
         if (submissionIsDP) {
-          fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`, {
+          await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -870,7 +870,7 @@ Deno.serve(async (req) => {
           confirmedPaymentIds.push(result.paymentId);
 
           if (submissionIsDP) {
-            fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`, {
+            await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
