@@ -3195,10 +3195,10 @@ Forbidden:
     cash_order_id       uuid       nullable, FK to cash_orders
     payment_id          uuid       nullable
     promo_id            uuid       nullable
-    transaction_type    enum       NOT NULL (loyalty_transaction_type:
-                                    earned | bonus | redeemed | expired |
-                                    adjusted | refunded | revoked |
-                                    birthday_bonus)
+    transaction_type    enum       NOT NULL (loyalty_transaction_type —
+                                    12 values as of 2026-05-17; see
+                                    "loyalty_transaction_type enum
+                                    (2026-05-17 expansion)" below)
     points_amount       numeric    NOT NULL — signed; negative for
                                     redeemed/revoked/expired
     spend_amount_jpy    numeric    nullable
@@ -3213,6 +3213,38 @@ Forbidden:
   The sheet's "Multiplier" column is DERIVED at sync time by sync-loyalty-to-sheet
   via loyalty_tiers lookup keyed on tier_at_time — it is NOT stored on the
   transaction row.
+
+### loyalty_transaction_type enum (2026-05-17 expansion)
+
+  Original 7: earned, bonus, redeemed, expired, adjusted, refunded, revoked
+  Added 5:    enrolled, tier_changed, status_changed, admin_edited, birthday_bonus
+
+  (Total 12. birthday_bonus was already referenced in prior schema notes
+  but is grouped here under the 2026-05-17 ALTER TYPE expansion that
+  formally added the 5 member-event / lifecycle values. 475 historical
+  'enrolled' rows backfilled from loyalty_members.enrolled_at, one row
+  per member with non-null enrolled_at dated to actual enrollment time.)
+
+  Member-event types (enrolled, tier_changed, status_changed, admin_edited):
+    points_amount=0 by convention; spend_amount_jpy and other monetary
+    columns typically NULL. Represent non-monetary lifecycle events.
+  Transaction types (the original 7 + birthday_bonus): represent
+    points-affecting events; monetary columns populated as relevant.
+
+  Sub-tab filter convention in TransactionsTab.tsx:
+    Member view: WHERE transaction_type IN ('enrolled', 'tier_changed',
+                                            'status_changed', 'admin_edited')
+    Transactions view: WHERE transaction_type IN ('earned', 'bonus',
+                                                  'redeemed', 'expired',
+                                                  'adjusted', 'refunded',
+                                                  'revoked', 'birthday_bonus')
+
+  Going-forward emission status (2026-05-17):
+    enrolled       → wired (join-loyalty-program, non-blocking insert)
+    tier_changed   → wired (award-loyalty-points, tierUpgraded block)
+    status_changed → reserved, NOT yet emitted (future workstream)
+    admin_edited   → reserved, NOT yet emitted (future workstream)
+    birthday_bonus → reserved, NOT yet emitted (Phase 6.2)
 
 ### customers.email mixed-case storage (rule)
 
@@ -3995,6 +4027,30 @@ Forbidden:
       client + server reject with no DB change; staff
       403 UI gate)
     - Shipped commit 7f8ea84
+
+  Loyalty Transactions tab with Member/Transactions sub-tabs: SHIPPED ✅ (2026-05-17)
+    - 8th tab on LoyaltyAdmin page (between Audit Log and Promotions),
+      read-only feed of loyalty_transactions rows mirroring the Google
+      Sheet backup structure
+    - Two sub-tabs: Member (enrolled/tier_changed/status_changed/admin_edited)
+      and Transactions (earned/bonus/redeemed/expired/adjusted/refunded/
+      revoked/birthday_bonus); independent filter/page state per sub-tab
+    - Table: date, type (color-coded badge), member (clickable to Members
+      tab), points (signed/colored), spend, tier, invoice (deep-link),
+      truncated notes with tooltip
+    - Filters: date range (All / 7 / 30 / 90 days) + type dropdown
+      (adapts to active sub-tab) + member search (case-insensitive
+      client-side over customer_code + full_name); CSV export
+    - Drawer: full transaction detail with conditional field rendering,
+      "Open member profile" link, source deep-links to account/cash order,
+      regex-parsed "Tier change" highlight card for tier_changed rows
+    - 475 historical 'enrolled' rows backfilled from loyalty_members.enrolled_at
+    - Future enrollments emit 'enrolled' rows via join-loyalty-program
+    - Future tier upgrades emit 'tier_changed' rows via award-loyalty-points
+    - Commits: d636a4f (initial tab) + f5f6d98 (sub-tabs + event wiring)
+    - Edge functions deployed 2026-05-17 10:57 UTC
+    - status_changed / admin_edited / birthday_bonus enum values reserved
+      for future event emission wiring (separate workstreams)
 
   accept-underpayment auto-carry: REMOVED ✅
   carry-over edge function: DEPLOYED ✅
