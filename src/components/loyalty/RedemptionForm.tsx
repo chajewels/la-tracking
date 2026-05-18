@@ -328,7 +328,7 @@ export function RedemptionForm({
   return (
     <Dialog open={isOpen} onOpenChange={(o) => (!o && !submitting ? onClose() : undefined)}>
       <DialogContent
-        className="max-w-md sm:max-w-lg"
+        className="max-w-md sm:max-w-lg max-h-[90dvh] flex flex-col p-0 gap-0"
         style={{
           background: P.s,
           border: `1px solid ${P.br}`,
@@ -336,40 +336,49 @@ export function RedemptionForm({
         }}
       >
         {submitted ? (
-          <SuccessView />
+          <div className="px-6">
+            <SuccessView />
+          </div>
         ) : (
           <>
-            <DialogHeader>
-              <DialogTitle
-                style={{
-                  fontFamily: CG,
-                  background: P.gr,
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                  fontSize: '24px',
-                  letterSpacing: '0.02em',
-                }}
-              >
-                Redeem Your Points
-              </DialogTitle>
-              <DialogDescription style={{ color: P.ts }}>
-                You have{' '}
-                <span style={{ color: P.gl, fontWeight: 600 }}>
-                  {remainingPoints.toLocaleString()}
-                </span>{' '}
-                points available. 1 point = ¥1 value.
-              </DialogDescription>
-            </DialogHeader>
-
-            <InfoPanel redemptionType={redemptionType} />
+            {/* Sticky header */}
+            <div
+              className="px-6 pt-6 pb-4 shrink-0"
+              style={{ borderBottom: `1px solid ${P.br}` }}
+            >
+              <DialogHeader>
+                <DialogTitle
+                  style={{
+                    fontFamily: CG,
+                    background: P.gr,
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    fontSize: '24px',
+                    letterSpacing: '0.02em',
+                  }}
+                >
+                  Redeem Your Points
+                </DialogTitle>
+                <DialogDescription style={{ color: P.ts }}>
+                  You have{' '}
+                  <span style={{ color: P.gl, fontWeight: 600 }}>
+                    {remainingPoints.toLocaleString()}
+                  </span>{' '}
+                  points available. 1 point = ¥1 value.
+                </DialogDescription>
+              </DialogHeader>
+            </div>
 
             <form
-              className="space-y-5"
+              className="flex flex-col flex-1 min-h-0"
               onSubmit={(e) => {
                 e.preventDefault();
                 handleSubmit();
               }}
             >
+              {/* Scrollable body */}
+              <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+              <InfoPanel redemptionType={redemptionType} />
               {/* Redemption Type */}
               <div>
                 <Label style={{ color: P.tp }}>Redemption Type</Label>
@@ -644,8 +653,13 @@ export function RedemptionForm({
                   {errorMsg}
                 </div>
               )}
+              </div>
 
-              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              {/* Sticky footer */}
+              <div
+                className="px-6 py-4 shrink-0 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"
+                style={{ borderTop: `1px solid ${P.br}`, background: P.s }}
+              >
                 <Button
                   type="button"
                   variant="ghost"
