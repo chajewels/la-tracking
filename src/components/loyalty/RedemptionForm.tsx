@@ -57,13 +57,13 @@ const TYPE_OPTIONS: Array<{
     value: 'shipping_fee',
     icon: '📦',
     title: 'Shipping Fee',
-    description: 'Pay shipping cost on a new order',
+    description: 'Pay shipping cost on any of your orders',
   },
   {
     value: 'service_fee',
     icon: '🛠️',
     title: 'Service Fee',
-    description: 'Pay service charges on a new order',
+    description: 'Pay service charges on any of your orders',
   },
 ];
 
@@ -120,6 +120,7 @@ export function RedemptionForm({
   const [orders, setOrders] = useState<OrderOption[]>([]);
   const [loadingOrders, setLoadingOrders] = useState<boolean>(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
+  const [invoiceInput, setInvoiceInput] = useState<string>('');
 
   // Reset form whenever the dialog opens.
   useEffect(() => {
@@ -134,6 +135,7 @@ export function RedemptionForm({
       setSelectedOrderKind(null);
       setOrders([]);
       setOrdersError(null);
+      setInvoiceInput('');
     }
   }, [isOpen]);
 
@@ -147,7 +149,7 @@ export function RedemptionForm({
       try {
         const { data, error } = await supabase.functions.invoke(
           'customer-portal',
-          { body: { portal_token: portalToken } },
+          { body: { token: portalToken } },
         );
         if (error) throw error;
         const errFromBody = (data as any)?.error as string | undefined;
@@ -209,11 +211,26 @@ export function RedemptionForm({
     });
   }, [orders, redemptionType]);
 
+  const matchedOrder = useMemo<OrderOption | null>(() => {
+    if (redemptionType !== 'new_order_discount') return null;
+    const trimmed = invoiceInput.trim();
+    if (!trimmed) return null;
+    const match = orders.find((o) => o.invoice_number === trimmed);
+    if (!match) return null;
+    // Brand-new constraint for new_order_discount
+    if (match.kind === 'layaway' && Number(match.total_paid ?? 0) > 0) return null;
+    if (match.kind === 'cash' && (match.status !== 'pending' || Number(match.total_paid ?? 0) > 0)) return null;
+    return match;
+  }, [redemptionType, invoiceInput, orders]);
+
   const pointsValid = pointsNum > 0 && pointsNum <= remainingPoints;
   const typeValid = redemptionType !== '';
   const orderSelected =
     selectedOrderId !== null && selectedOrderKind !== null;
-  const formValid = pointsValid && typeValid && orderSelected;
+  const orderInputValid = redemptionType === 'new_order_discount'
+    ? matchedOrder !== null
+    : orderSelected;
+  const formValid = pointsValid && typeValid && orderInputValid;
 
   const pointsError = pointsInput && !pointsValid
     ? pointsNum <= 0
@@ -226,13 +243,24 @@ export function RedemptionForm({
     setSubmitting(true);
     setErrorMsg(null);
     try {
-      const selectedOrder = eligibleOrders.find(
-        (o) => o.id === selectedOrderId,
-      );
-      if (!selectedOrder) {
-        setErrorMsg('Please select an order');
-        setSubmitting(false);
-        return;
+      let orderForBody: OrderOption | null = null;
+      if (redemptionType === 'new_order_discount') {
+        if (!matchedOrder) {
+          setErrorMsg('Please enter a valid invoice number');
+          setSubmitting(false);
+          return;
+        }
+        orderForBody = matchedOrder;
+      } else {
+        const selectedOrder = eligibleOrders.find(
+          (o) => o.id === selectedOrderId,
+        );
+        if (!selectedOrder) {
+          setErrorMsg('Please select an order');
+          setSubmitting(false);
+          return;
+        }
+        orderForBody = selectedOrder;
       }
 
       const { data, error } = await supabase.functions.invoke(
@@ -243,13 +271,13 @@ export function RedemptionForm({
             member_id: memberId,
             redemption_type: redemptionType,
             points_redeemed: pointsNum,
-            invoice_number: selectedOrder.invoice_number,
+            invoice_number: orderForBody.invoice_number,
             notes: notes.trim() || null,
             portal_token: portalToken,
             account_id:
-              selectedOrder.kind === 'layaway' ? selectedOrder.id : null,
+              orderForBody.kind === 'layaway' ? orderForBody.id : null,
             cash_order_id:
-              selectedOrder.kind === 'cash' ? selectedOrder.id : null,
+              orderForBody.kind === 'cash' ? orderForBody.id : null,
           },
         },
       );
@@ -362,8 +390,52 @@ export function RedemptionForm({
                 </RadioGroup>
               </div>
 
-              {/* Order Picker — only after a type is chosen */}
-              {redemptionType !== '' && (
+              {/* new_order_discount — required free-text invoice */}
+              {redemptionType === 'new_order_discount' && (
+                <div>
+                  <Label htmlFor="invoice" style={{ color: P.tp }}>
+                    Invoice Number{' '}
+                    <span style={{ color: '#B85450' }}>*</span>
+                  </Label>
+                  <Input
+                    id="invoice"
+                    value={invoiceInput}
+                    onChange={(e) => setInvoiceInput(e.target.value)}
+                    placeholder="e.g. 19012"
+                    className="mt-2"
+                    style={{ background: P.s2, color: P.tp, borderColor: P.br }}
+                  />
+                  <div className="mt-1 text-xs" style={{ color: P.ts }}>
+                    Enter the invoice number your team gave you for the new order.
+                  </div>
+                  {invoiceInput.trim() && !matchedOrder && (
+                    <div className="mt-1 text-xs" style={{ color: '#B85450' }}>
+                      Invoice not found among your brand-new orders.
+                    </div>
+                  )}
+                  {matchedOrder && (
+                    <div className="mt-1 text-xs" style={{ color: P.gl }}>
+                      ✓ Found:{' '}
+                      {matchedOrder.kind === 'layaway'
+                        ? 'Layaway'
+                        : 'Cash Order'}
+                      {' — '}
+                      {matchedOrder.currency === 'PHP' ? '₱' : '¥'}
+                      {Number(matchedOrder.total_amount).toLocaleString(
+                        undefined,
+                        {
+                          maximumFractionDigits:
+                            matchedOrder.currency === 'JPY' ? 0 : 2,
+                        },
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Order Picker — shipping_fee / service_fee only */}
+              {(redemptionType === 'shipping_fee' ||
+                redemptionType === 'service_fee') && (
                 <div>
                   <Label style={{ color: P.tp }}>Select an order</Label>
                   <div className="mt-0.5 text-xs" style={{ color: P.ts }}>
@@ -591,12 +663,12 @@ export function RedemptionForm({
 function InfoPanel({ redemptionType }: { redemptionType: RedemptionType | '' }) {
   const applyLine =
     redemptionType === 'new_order_discount'
-      ? 'The discount will be applied to your selected new order'
+      ? 'The discount will be applied to the order matching your invoice number'
       : redemptionType === 'shipping_fee'
         ? 'Your shipping fee will be covered using these points'
         : redemptionType === 'service_fee'
           ? 'Your service fee will be covered using these points'
-          : 'The points will be applied to your selected order';
+          : 'The points will be applied to your order';
   return (
     <div
       className="rounded-md p-3 text-xs"
