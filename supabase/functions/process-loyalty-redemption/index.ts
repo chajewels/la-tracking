@@ -227,52 +227,91 @@ Deno.serve(async (req) => {
       const trimmedInvoice =
         typeof rawInvoiceNumber === "string" ? rawInvoiceNumber.trim() : null;
 
-      if (trimmedInvoice) {
-        if (account_id) {
-          const { data: acct } = await supabase
-            .from("layaway_accounts")
-            .select("id, currency, total_paid, invoice_number")
-            .eq("id", account_id)
-            .maybeSingle();
-          if (!acct) return json({ error: "Account not found" }, 404);
-          if (Number(acct.total_paid ?? 0) > 0) {
-            return json({ error: "Redemption only allowed on brand-new orders" }, 400);
+      // Phase B — type-aware order validation. catalog_reward passes through
+      // unchanged (skips order-link checks entirely; reward validation
+      // happened above). All non-catalog types require exactly one FK and
+      // apply type-specific brand-new/invoice rules.
+      if (redemption_type !== 'catalog_reward') {
+        if (!account_id && !cash_order_id) {
+          return json(
+            { error: "account_id or cash_order_id is required for this redemption type" },
+            400,
+          );
+        }
+        if (account_id && cash_order_id) {
+          return json(
+            { error: "Specify either account_id or cash_order_id, not both" },
+            400,
+          );
+        }
+
+        if (redemption_type === 'new_order_discount') {
+          if (!trimmedInvoice) {
+            return json(
+              { error: "invoice_number is required for new_order_discount" },
+              400,
+            );
           }
-          if (acct.invoice_number !== trimmedInvoice) {
-            return json({ error: "Invoice number does not match account" }, 400);
+          if (account_id) {
+            const { data: acct } = await supabase
+              .from("layaway_accounts")
+              .select("id, currency, total_paid, invoice_number")
+              .eq("id", account_id)
+              .maybeSingle();
+            if (!acct) return json({ error: "Account not found" }, 404);
+            if (Number(acct.total_paid ?? 0) > 0) {
+              return json(
+                { error: "new_order_discount only allowed on brand-new orders (no payments yet)" },
+                400,
+              );
+            }
+            if (acct.invoice_number !== trimmedInvoice) {
+              return json({ error: "Invoice number does not match account" }, 400);
+            }
+            orderCurrency = acct.currency;
+          } else {
+            const { data: cash } = await supabase
+              .from("cash_orders")
+              .select("id, currency, status, total_paid, invoice_number")
+              .eq("id", cash_order_id)
+              .maybeSingle();
+            if (!cash) return json({ error: "Cash order not found" }, 404);
+            if (cash.status !== 'pending' || Number(cash.total_paid ?? 0) > 0) {
+              return json(
+                { error: "new_order_discount only allowed on brand-new cash orders (status='pending', no payments yet)" },
+                400,
+              );
+            }
+            if (cash.invoice_number !== trimmedInvoice) {
+              return json({ error: "Invoice number does not match cash order" }, 400);
+            }
+            orderCurrency = cash.currency;
           }
-          orderCurrency = acct.currency;
-        } else if (cash_order_id) {
-          const { data: cash } = await supabase
-            .from("cash_orders")
-            .select("id, currency, created_at, invoice_number")
-            .eq("id", cash_order_id)
-            .maybeSingle();
-          if (!cash) return json({ error: "Cash order not found" }, 404);
-          const ageMs = Date.now() - new Date(cash.created_at).getTime();
-          if (ageMs > 5 * 60 * 1000) {
-            return json({ error: "Redemption only allowed on brand-new cash orders" }, 400);
-          }
-          if (cash.invoice_number !== trimmedInvoice) {
-            return json({ error: "Invoice number does not match cash order" }, 400);
-          }
-          orderCurrency = cash.currency;
         } else {
-          const { data: existingLa } = await supabase
-            .from("layaway_accounts")
-            .select("id")
-            .eq("invoice_number", trimmedInvoice)
-            .maybeSingle();
-          if (existingLa) {
-            return json({ error: "Invoice already exists on an in-progress layaway" }, 400);
-          }
-          const { data: existingCash } = await supabase
-            .from("cash_orders")
-            .select("id")
-            .eq("invoice_number", trimmedInvoice)
-            .maybeSingle();
-          if (existingCash) {
-            return json({ error: "Invoice already exists on an in-progress cash order" }, 400);
+          // shipping_fee or service_fee — any account/cash_order accepted regardless of state.
+          // Invoice optional; if provided, must match the target order.
+          if (account_id) {
+            const { data: acct } = await supabase
+              .from("layaway_accounts")
+              .select("id, currency, invoice_number")
+              .eq("id", account_id)
+              .maybeSingle();
+            if (!acct) return json({ error: "Account not found" }, 404);
+            if (trimmedInvoice && acct.invoice_number !== trimmedInvoice) {
+              return json({ error: "Invoice number does not match account" }, 400);
+            }
+            orderCurrency = acct.currency;
+          } else {
+            const { data: cash } = await supabase
+              .from("cash_orders")
+              .select("id, currency, invoice_number")
+              .eq("id", cash_order_id)
+              .maybeSingle();
+            if (!cash) return json({ error: "Cash order not found" }, 404);
+            if (trimmedInvoice && cash.invoice_number !== trimmedInvoice) {
+              return json({ error: "Invoice number does not match cash order" }, 400);
+            }
+            orderCurrency = cash.currency;
           }
         }
       }
@@ -454,6 +493,159 @@ Deno.serve(async (req) => {
           "[process-loyalty-redemption] member balance update failed (manual reconcile):",
           updMemberErr,
         );
+      }
+
+      // Phase B — apply discount to target order for non-catalog redemptions.
+      // Catalog rewards are handled offline by staff and do not touch the
+      // order's balance. All non-catalog types (new_order_discount,
+      // shipping_fee, service_fee) insert a synthetic payment that reduces
+      // the target order's remaining_balance via existing reconcile paths.
+      // Best-effort: failures here are logged but do NOT block the approve
+      // flow — the redemption flip and member balance update have already
+      // succeeded.
+      if (
+        redemption.redemption_type !== 'catalog_reward' &&
+        (redemption.account_id || redemption.cash_order_id)
+      ) {
+        try {
+          const submittedByType = isAdmin ? 'admin' : (isFinance ? 'finance' : 'admin');
+          const submittedByName = user.email ?? 'Admin';
+          const today = new Date().toISOString().slice(0, 10);
+          const refRef = `LOYALTY-${redemption.id}`;
+          const remarksText = `Loyalty redemption: ${Number(redemption.points_redeemed)} pts (${redemption.redemption_type})`;
+
+          if (redemption.account_id) {
+            // Layaway path
+            const { data: acct } = await supabase
+              .from("layaway_accounts")
+              .select("currency")
+              .eq("id", redemption.account_id)
+              .maybeSingle();
+            const acctCurrency = acct?.currency ?? null;
+            const paymentAmount = acctCurrency === 'PHP'
+              ? Number(redemption.value_applied_php ?? 0)
+              : Number(redemption.value_applied_jpy ?? 0);
+
+            if (paymentAmount > 0 && acctCurrency) {
+              const { error: payErr } = await supabase
+                .from("payments")
+                .insert({
+                  account_id: redemption.account_id,
+                  amount_paid: paymentAmount,
+                  currency: acctCurrency,
+                  date_paid: today,
+                  payment_method: 'loyalty_redemption',
+                  reference_number: refRef,
+                  remarks: remarksText,
+                  entered_by_user_id: user.id,
+                  submitted_by_type: submittedByType,
+                  submitted_by_name: submittedByName,
+                });
+              if (payErr) {
+                console.warn(
+                  "[process-loyalty-redemption] synthetic layaway payment INSERT failed (manual reconcile needed):",
+                  { redemption_id: redemption.id, account_id: redemption.account_id, err: payErr },
+                );
+              } else {
+                await fetch(
+                  `${Deno.env.get("SUPABASE_URL")}/functions/v1/reconcile-account`,
+                  {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                    },
+                    body: JSON.stringify({ account_id: redemption.account_id }),
+                  },
+                ).catch((e) =>
+                  console.warn(
+                    "[process-loyalty-redemption] reconcile-account call failed after layaway insert:",
+                    { redemption_id: redemption.id, err: e },
+                  )
+                );
+              }
+            } else {
+              console.warn(
+                "[process-loyalty-redemption] synthetic payment skipped — missing currency or zero amount:",
+                { redemption_id: redemption.id, acctCurrency, paymentAmount },
+              );
+            }
+          } else if (redemption.cash_order_id) {
+            // Cash path
+            const { data: cash } = await supabase
+              .from("cash_orders")
+              .select("currency, total_amount")
+              .eq("id", redemption.cash_order_id)
+              .maybeSingle();
+            const cashCurrency = cash?.currency ?? null;
+            const cashTotalAmount = Number(cash?.total_amount ?? 0);
+            const paymentAmount = cashCurrency === 'PHP'
+              ? Number(redemption.value_applied_php ?? 0)
+              : Number(redemption.value_applied_jpy ?? 0);
+
+            if (paymentAmount > 0 && cashCurrency) {
+              const { error: payErr } = await supabase
+                .from("cash_payments")
+                .insert({
+                  cash_order_id: redemption.cash_order_id,
+                  amount_paid: paymentAmount,
+                  currency: cashCurrency,
+                  date_paid: today,
+                  payment_method: 'loyalty_redemption',
+                  reference_number: refRef,
+                  remarks: remarksText,
+                  entered_by_user_id: user.id,
+                  submitted_by_type: submittedByType,
+                  submitted_by_name: submittedByName,
+                });
+              if (payErr) {
+                console.warn(
+                  "[process-loyalty-redemption] synthetic cash payment INSERT failed (manual reconcile needed):",
+                  { redemption_id: redemption.id, cash_order_id: redemption.cash_order_id, err: payErr },
+                );
+              } else {
+                const { data: sumRows } = await supabase
+                  .from("cash_payments")
+                  .select("amount_paid")
+                  .eq("cash_order_id", redemption.cash_order_id)
+                  .is("voided_at", null);
+                const newTotalPaid = (sumRows ?? []).reduce(
+                  (acc: number, r: any) => acc + Number(r.amount_paid ?? 0), 0,
+                );
+                const newRemaining = cashTotalAmount - newTotalPaid;
+                const cashUpdate: Record<string, any> = {
+                  total_paid: newTotalPaid,
+                  remaining_balance: newRemaining,
+                  updated_at: new Date().toISOString(),
+                };
+                if (newRemaining <= 0) {
+                  cashUpdate.status = 'completed';
+                  cashUpdate.completed_at = new Date().toISOString();
+                }
+                const { error: cashUpdErr } = await supabase
+                  .from("cash_orders")
+                  .update(cashUpdate)
+                  .eq("id", redemption.cash_order_id);
+                if (cashUpdErr) {
+                  console.warn(
+                    "[process-loyalty-redemption] cash_orders totals update failed:",
+                    { redemption_id: redemption.id, err: cashUpdErr },
+                  );
+                }
+              }
+            } else {
+              console.warn(
+                "[process-loyalty-redemption] synthetic cash payment skipped — missing currency or zero amount:",
+                { redemption_id: redemption.id, cashCurrency, paymentAmount },
+              );
+            }
+          }
+        } catch (applyErr) {
+          console.warn(
+            "[process-loyalty-redemption] discount application block failed (manual reconcile needed):",
+            { redemption_id: redemption.id, err: applyErr },
+          );
+        }
       }
 
       // Stock decrement for catalog rewards. Atomic via WHERE clause
@@ -873,6 +1065,134 @@ Deno.serve(async (req) => {
           "[process-loyalty-redemption] void member balance update failed (manual reconcile):",
           updMemberErr,
         );
+      }
+
+      // Phase B — reverse synthetic payment for non-catalog redemptions.
+      // Catalog rewards have no synthetic payment to reverse. Best-effort:
+      // failures here are logged but do NOT block the void flow — the
+      // redemption flip and member balance refund have already succeeded.
+      if (
+        redemption.redemption_type !== 'catalog_reward' &&
+        (redemption.account_id || redemption.cash_order_id)
+      ) {
+        try {
+          const refRef = `LOYALTY-${redemption.id}`;
+          const truncatedVoidReason = trimmedReason.slice(0, 250);
+          const voidNotes = `Loyalty redemption voided: ${truncatedVoidReason}`;
+
+          if (redemption.account_id) {
+            const { data: existingPay } = await supabase
+              .from("payments")
+              .select("id, voided_at")
+              .eq("reference_number", refRef)
+              .maybeSingle();
+            if (existingPay && !existingPay.voided_at) {
+              const { error: voidPayErr } = await supabase
+                .from("payments")
+                .update({
+                  voided_at: new Date().toISOString(),
+                  voided_by_user_id: user.id,
+                  void_reason: voidNotes,
+                })
+                .eq("id", existingPay.id);
+              if (voidPayErr) {
+                console.warn(
+                  "[process-loyalty-redemption] synthetic layaway payment void UPDATE failed:",
+                  { redemption_id: redemption.id, payment_id: existingPay.id, err: voidPayErr },
+                );
+              } else {
+                await fetch(
+                  `${Deno.env.get("SUPABASE_URL")}/functions/v1/reconcile-account`,
+                  {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                    },
+                    body: JSON.stringify({ account_id: redemption.account_id }),
+                  },
+                ).catch((e) =>
+                  console.warn(
+                    "[process-loyalty-redemption] reconcile-account call failed after layaway void:",
+                    { redemption_id: redemption.id, err: e },
+                  )
+                );
+              }
+            } else if (!existingPay) {
+              console.warn(
+                "[process-loyalty-redemption] synthetic layaway payment not found for void (legacy redemption?):",
+                { redemption_id: redemption.id, ref: refRef },
+              );
+            }
+          } else if (redemption.cash_order_id) {
+            const { data: existingPay } = await supabase
+              .from("cash_payments")
+              .select("id, voided_at")
+              .eq("reference_number", refRef)
+              .maybeSingle();
+            if (existingPay && !existingPay.voided_at) {
+              const { error: voidPayErr } = await supabase
+                .from("cash_payments")
+                .update({
+                  voided_at: new Date().toISOString(),
+                  voided_by_user_id: user.id,
+                  void_reason: voidNotes,
+                })
+                .eq("id", existingPay.id);
+              if (voidPayErr) {
+                console.warn(
+                  "[process-loyalty-redemption] synthetic cash payment void UPDATE failed:",
+                  { redemption_id: redemption.id, payment_id: existingPay.id, err: voidPayErr },
+                );
+              } else {
+                const { data: sumRows } = await supabase
+                  .from("cash_payments")
+                  .select("amount_paid")
+                  .eq("cash_order_id", redemption.cash_order_id)
+                  .is("voided_at", null);
+                const newTotalPaid = (sumRows ?? []).reduce(
+                  (acc: number, r: any) => acc + Number(r.amount_paid ?? 0), 0,
+                );
+                const { data: orderRow } = await supabase
+                  .from("cash_orders")
+                  .select("total_amount, status")
+                  .eq("id", redemption.cash_order_id)
+                  .maybeSingle();
+                const cashTotalAmount = Number(orderRow?.total_amount ?? 0);
+                const newRemaining = cashTotalAmount - newTotalPaid;
+                const cashUpdate: Record<string, any> = {
+                  total_paid: newTotalPaid,
+                  remaining_balance: newRemaining,
+                  updated_at: new Date().toISOString(),
+                };
+                if (orderRow?.status === 'completed' && newRemaining > 0) {
+                  cashUpdate.status = 'pending';
+                  cashUpdate.completed_at = null;
+                }
+                const { error: cashUpdErr } = await supabase
+                  .from("cash_orders")
+                  .update(cashUpdate)
+                  .eq("id", redemption.cash_order_id);
+                if (cashUpdErr) {
+                  console.warn(
+                    "[process-loyalty-redemption] cash_orders totals update failed after void:",
+                    { redemption_id: redemption.id, err: cashUpdErr },
+                  );
+                }
+              }
+            } else if (!existingPay) {
+              console.warn(
+                "[process-loyalty-redemption] synthetic cash payment not found for void (legacy redemption?):",
+                { redemption_id: redemption.id, ref: refRef },
+              );
+            }
+          }
+        } catch (revErr) {
+          console.warn(
+            "[process-loyalty-redemption] discount reversal block failed (manual reconcile needed):",
+            { redemption_id: redemption.id, err: revErr },
+          );
+        }
       }
 
       // Step 6: Stock re-increment for catalog rewards. Skip silently
