@@ -530,7 +530,7 @@ Deno.serve(async (req) => {
               : Number(redemption.value_applied_jpy ?? 0);
 
             if (paymentAmount > 0 && acctCurrency) {
-              const { error: payErr } = await supabase
+              const { data: newPayment, error: payErr } = await supabase
                 .from("payments")
                 .insert({
                   account_id: redemption.account_id,
@@ -543,8 +543,10 @@ Deno.serve(async (req) => {
                   entered_by_user_id: user.id,
                   submitted_by_type: submittedByType,
                   submitted_by_name: submittedByName,
-                });
-              if (payErr) {
+                })
+                .select("id")
+                .single();
+              if (payErr || !newPayment) {
                 // NOTE: redemption is already status='confirmed', member
                 // debited, and loyalty_transactions written above. Returning
                 // 500 here leaves that inconsistent state intact (no payment
@@ -564,22 +566,220 @@ Deno.serve(async (req) => {
                   500,
                 );
               } else {
-                await fetch(
-                  `${Deno.env.get("SUPABASE_URL")}/functions/v1/reconcile-account`,
-                  {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                // Phase B Patch 2 — inline waterfall allocation (reconcile-account is diagnostic-only
+                // per investigation 2026-05-18). Mirrors record-payment lines 374-389 pattern,
+                // simplified for synthetic redemption payments (no DP detection, no penalty split,
+                // no carry-over — straight waterfall to earliest unpaid schedule rows).
+
+                // 1. Fetch active schedule rows for this account, ordered by due_date ASC
+                const { data: scheduleRows, error: schedErr } = await supabase
+                  .from("layaway_schedule")
+                  .select("id, installment_number, total_due_amount, paid_amount, status, due_date")
+                  .eq("account_id", redemption.account_id)
+                  .in("status", ["overdue", "partially_paid", "pending"])
+                  .order("due_date", { ascending: true });
+
+                if (schedErr || !scheduleRows) {
+                  console.error(
+                    "[process-loyalty-redemption] failed to fetch schedule for allocation:",
+                    { redemption_id: redemption.id, payment_id: newPayment.id, err: schedErr },
+                  );
+                  return json(
+                    {
+                      error: "Failed to fetch schedule rows for allocation after payment insert",
+                      detail: schedErr?.message ?? "no rows returned",
+                      redemption_id: redemption.id,
+                      payment_id: newPayment.id,
+                      manual_action_required: true,
                     },
-                    body: JSON.stringify({ account_id: redemption.account_id }),
-                  },
-                ).catch((e) =>
-                  console.warn(
-                    "[process-loyalty-redemption] reconcile-account call failed after layaway insert:",
-                    { redemption_id: redemption.id, err: e },
-                  )
-                );
+                    500,
+                  );
+                }
+
+                // 2. Plan the waterfall allocation
+                let remainingToAllocate = paymentAmount;
+                const planned: Array<{
+                  schedule_id: string;
+                  alloc_amount: number;
+                  new_paid_amount: number;
+                  new_status: string;
+                }> = [];
+
+                for (const row of scheduleRows) {
+                  if (remainingToAllocate <= 0) break;
+                  const due = Number(row.total_due_amount);
+                  const paid = Number(row.paid_amount ?? 0);
+                  const rowRemaining = due - paid;
+                  if (rowRemaining <= 0) continue;
+
+                  const allocAmount = Math.min(remainingToAllocate, rowRemaining);
+                  const newPaid = paid + allocAmount;
+                  // Status rule: fully covered → paid; if was pending → partially_paid; else keep
+                  // existing status (overdue stays overdue when row is past due_date but not yet fully paid).
+                  let newStatus: string;
+                  if (newPaid >= due) {
+                    newStatus = "paid";
+                  } else if (row.status === "pending") {
+                    newStatus = "partially_paid";
+                  } else {
+                    newStatus = row.status; // keep overdue or partially_paid
+                  }
+
+                  planned.push({
+                    schedule_id: row.id,
+                    alloc_amount: allocAmount,
+                    new_paid_amount: newPaid,
+                    new_status: newStatus,
+                  });
+                  remainingToAllocate -= allocAmount;
+                }
+
+                // Guard: payment exceeded total schedule capacity. Shouldn't happen if CREATE branch
+                // validates value_applied_php against remaining_balance, but hard-fail if it does.
+                if (remainingToAllocate > 0.01) {
+                  console.error(
+                    "[process-loyalty-redemption] payment exceeds total schedule capacity:",
+                    {
+                      redemption_id: redemption.id,
+                      payment_id: newPayment.id,
+                      leftover: remainingToAllocate,
+                    },
+                  );
+                  return json(
+                    {
+                      error: "Payment amount exceeds total schedule remaining capacity",
+                      leftover: remainingToAllocate,
+                      redemption_id: redemption.id,
+                      payment_id: newPayment.id,
+                      manual_action_required: true,
+                    },
+                    500,
+                  );
+                }
+
+                // 3. INSERT allocations + UPDATE schedule rows (sequential per row for clear error attribution)
+                for (const p of planned) {
+                  const { error: allocErr } = await supabase
+                    .from("payment_allocations")
+                    .insert({
+                      payment_id: newPayment.id,
+                      schedule_id: p.schedule_id,
+                      allocation_type: "installment",
+                      allocated_amount: p.alloc_amount,
+                    });
+
+                  if (allocErr) {
+                    console.error(
+                      "[process-loyalty-redemption] payment_allocations INSERT failed:",
+                      { redemption_id: redemption.id, payment_id: newPayment.id, schedule_id: p.schedule_id, err: allocErr },
+                    );
+                    return json(
+                      {
+                        error: "payment_allocations INSERT failed",
+                        detail: allocErr.message,
+                        redemption_id: redemption.id,
+                        payment_id: newPayment.id,
+                        manual_action_required: true,
+                      },
+                      500,
+                    );
+                  }
+
+                  const { error: schedUpdErr } = await supabase
+                    .from("layaway_schedule")
+                    .update({ paid_amount: p.new_paid_amount, status: p.new_status })
+                    .eq("id", p.schedule_id);
+
+                  if (schedUpdErr) {
+                    console.error(
+                      "[process-loyalty-redemption] schedule UPDATE failed:",
+                      { redemption_id: redemption.id, payment_id: newPayment.id, schedule_id: p.schedule_id, err: schedUpdErr },
+                    );
+                    return json(
+                      {
+                        error: "Schedule UPDATE failed after allocation",
+                        detail: schedUpdErr.message,
+                        redemption_id: redemption.id,
+                        payment_id: newPayment.id,
+                        manual_action_required: true,
+                      },
+                      500,
+                    );
+                  }
+                }
+
+                // 4. UPDATE account totals (canonical formula: total_paid = SUM non-voided payments;
+                //    we just inserted a new payment of paymentAmount, so simply increment).
+                const { data: acctNow, error: acctReadErr } = await supabase
+                  .from("layaway_accounts")
+                  .select("total_paid, remaining_balance, status")
+                  .eq("id", redemption.account_id)
+                  .single();
+
+                if (acctReadErr || !acctNow) {
+                  console.error(
+                    "[process-loyalty-redemption] failed to read account for totals update:",
+                    { redemption_id: redemption.id, payment_id: newPayment.id, err: acctReadErr },
+                  );
+                  return json(
+                    {
+                      error: "Failed to read account for totals update",
+                      detail: acctReadErr?.message ?? "no row returned",
+                      redemption_id: redemption.id,
+                      payment_id: newPayment.id,
+                      manual_action_required: true,
+                    },
+                    500,
+                  );
+                }
+
+                const newTotalPaid = Number(acctNow.total_paid) + paymentAmount;
+                const newRemaining = Number(acctNow.remaining_balance) - paymentAmount;
+
+                // Status: completed if fully paid; overdue → active if no overdue rows remain.
+                // All other status transitions (active, forfeited, etc.) are out of scope here.
+                let newAccountStatus = acctNow.status;
+                if (newRemaining <= 0.01) {
+                  newAccountStatus = "completed";
+                } else if (acctNow.status === "overdue") {
+                  const { data: stillOverdue } = await supabase
+                    .from("layaway_schedule")
+                    .select("id")
+                    .eq("account_id", redemption.account_id)
+                    .eq("status", "overdue")
+                    .limit(1);
+                  if (!stillOverdue || stillOverdue.length === 0) {
+                    newAccountStatus = "active";
+                  }
+                }
+
+                const { error: acctUpdErr } = await supabase
+                  .from("layaway_accounts")
+                  .update({
+                    total_paid: newTotalPaid,
+                    remaining_balance: newRemaining,
+                    status: newAccountStatus,
+                  })
+                  .eq("id", redemption.account_id);
+
+                if (acctUpdErr) {
+                  console.error(
+                    "[process-loyalty-redemption] account totals UPDATE failed:",
+                    { redemption_id: redemption.id, payment_id: newPayment.id, err: acctUpdErr },
+                  );
+                  return json(
+                    {
+                      error: "Account totals UPDATE failed",
+                      detail: acctUpdErr.message,
+                      redemption_id: redemption.id,
+                      payment_id: newPayment.id,
+                      manual_action_required: true,
+                    },
+                    500,
+                  );
+                }
+
+                // Allocation chain complete — synthetic payment is now reflected on the account.
               }
             } else {
               console.warn(
