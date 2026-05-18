@@ -6238,6 +6238,27 @@ Forbidden:
     free flush-left number) per the no-duplicate-numbering rule.
   - No SQL changes. Edge function code change only.
 
+  ### 2026-05-18 — Phase 8 (P10 milestone notification emission): CLOSED as already implemented
+
+  - Investigation-first SOP applied: schema verification + 30-day email_send_log query + source code review of 4 loyalty edge functions
+  - Empirical evidence (email_send_log, 30-day window):
+      - loyalty-tier-upgrade: 7 emails sent, all paired pending+sent rows
+      - Distribution: 2026-05-17 (1), 2026-05-14 (1), 2026-05-12 (3), 2026-05-10 (2)
+      - Zero delivery failures
+  - Source code wiring confirmed:
+      - award-loyalty-points/index.ts fires loyalty-tier-upgrade on tier crossing
+      - loyalty-inactivity-check/index.ts fires loyalty-tier-downgrade on inactivity
+      - restore-loyalty-points/index.ts fires loyalty-tier-restored on lifecycle restore
+      - revoke-loyalty-points/index.ts fires loyalty-tier-revoked on lifecycle revoke
+  - Implementation history reconciled — feature was completed via:
+      - Bug #98 (2026-05-12): ratchet-up multiplier on tier-crossing purchase
+      - Bug #99 (2026-05-13): full loyalty lifecycle integration including tier_changed event taxonomy
+      - Bug #103 (2026-05-15): loyalty-tier-restored template
+  - Anomaly investigation: 2026-05-12 showed 3 tier-upgrade emails to chajewelsjapan@gmail.com (test fixture). Decoded as legitimate test fixture activity — pre-Bug #103 restore path used loyalty-tier-upgrade template (the very issue Bug #103 fixed). All 7 emails map to real state transitions; zero duplicate-email bugs found.
+  - LOYALTY EVENT TAXONOMY (line 3266 of CLAUDE.md) explicitly documents: "award-loyalty-points → emits earned + bonus (if promo) + tier_changed (if upgrade)" — consistent with empirical observation.
+  - No CLAUDE.md text edits required — there is no specific stale roadmap line in CLAUDE.md (unlike Phase 6 which had a stale "OTHER" section). The P10 entry existed only in session-level severity ranking.
+  - No code, SQL, or edge function changes
+
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
   PIN hash storage: customers.portal_pin_hash (64-char SHA-256 hex digest)
