@@ -804,7 +804,9 @@ Issue C (filed 2026-05-18 from Phase 6 investigation): email-channel due_today r
   Investigation query designed (per-day per-channel due_today breakdown
   with customer email presence) — pending execution.
 
-  Severity: HIGH if (b); LOW if (a). Cannot determine without running query.
+  RESOLVED 2026-05-18: confirmed (b) — Supabase Edge Function fetch
+  rate limit caused all due_today fetches to fail silently. Fixed as
+  Bug #110 same day (see Known Fixed Bugs and Phase 7 changelog).
 
 ## Known Fixed Bugs (do not reintroduce)
 
@@ -2372,6 +2374,43 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
   edge function (SET LOCAL before delete). Awaiting forensic evidence.
 
   113. award-loyalty-points used account/cash_order.currency as a JPY-only gate, discarding the loyalty_jpy_amount field that the schema deliberately stores as the loyalty spend basis. Effect: all PHP-currency accounts (the majority of customers) were silently excluded from earning loyalty points; their loyalty_jpy_amount field (populated at account creation from the Product Amount (JPY) — Loyalty Only form input) was dead data. Fixed by replacing the currency gate with an amount gate: `if (!(loyaltyJpy > 0))` skip with reason="no_loyalty_amount". Both PHP and JPY accounts now earn correctly using loyalty_jpy_amount as the canonical basis (excludes shipping, service fees, insurance per design). Bug surfaced via invoice 19046 (Nathalie Tupas) on 2026-05-17 — manual invocation returned {"reason":"wrong_currency","skipped":true} after the fire-and-forget bug #110 was already shipped. (2026-05-17)
+
+  114. send-reminders RateLimitError silent failure (fixed
+  2026-05-18): Supabase Edge Function per-invocation outbound fetch
+  is rate-limited; when send-reminders processes 30+ fetches in quick
+  succession, subsequent calls throw RateLimitError. The catch block
+  at lines 277-280 swallowed the error without retrying, causing all
+  due_today alerts (positional 31-35 in iteration order: penalty +
+  grace-period first, then due_today, then due_3_days, due_7_days) to
+  fail in both daily cron runs since 2026-05-12 — with 100% failure
+  rate from 2026-05-16 through 2026-05-18 (volume/timing alignment).
+  reminder_logs system rows were created (template_type='due_today',
+  channel='system', delivery_status='generated') but email_send_log
+  received no pending rows, and reminder_logs UPDATE to
+  channel='email' never fired.
+  Fix: added fetchWithRetryOnRateLimit helper at top of
+  supabase/functions/send-reminders/index.ts (3 retries with
+  retryAfterMs+50ms backoff). Used at lines 197 (grace branch) and
+  line 239 (regular branch).
+  Root cause confirmed empirically: curl test of
+  send-transactional-email with type='due_today' payload returned
+  {success:true,queued:true}, ruling out template/render/INSERT
+  failure. Edge function logs at 2026-05-18 00:03:00 UTC showed
+  RateLimitError from ext:deno_fetch: "Rate limit exceeded for trace
+  019e3863... Retry after 93ms" at send-reminders index.ts:197:32.
+  Customer impact: ~17 customers across 2026-05-16/17/18 missed
+  on-the-day due_today reminders; received other-stage reminders
+  (due_7_days, due_3_days, grace-period, penalty if applicable)
+  before and after. No backfill or outreach (per Cynthia 2026-05-18 —
+  fix prevents recurrence; missed reminders were single-occurrence
+  per customer).
+  Deployment: manual via Lovable (auto-deploy broken since
+  2026-05-15).
+  (Numbering note: this fix is "Bug #110" in the Phase 7 task brief
+  and commit message; #110 was already taken by the 2026-05-17
+  review-payment-submission await fix, so it is recorded here as
+  #114 — the next free flush-left number — per the established
+  no-duplicate-numbering rule.)
 
 ## Known Open Bugs
 
@@ -6142,6 +6181,62 @@ Forbidden:
   - Documented quirks (no fix needed):
       - reminder_logs.template_type records classifyAlert stage (penalty/overdue/etc.), not email variant; grace-period emails logged under template_type='overdue' or template_type='penalty' (day-7 edge). Customer-facing impact zero; reporting impact only.
       - Day-7 morning edge case before penalty engine runs: stage='penalty' but isGracePeriod=true; correct grace-period email sent, but log records template_type='penalty'. Cosmetic log/email mismatch only.
+
+  ### 2026-05-18 — Phase 7 (Issue C / Bug #110 send-reminders rate limit): FIXED
+
+  - Investigation-first SOP applied with empirical validation at each step:
+      - reminder_logs schema verified + 14-day activity query (1,620 emails,
+        zero failures, but zero due_today entries since 2026-05-15)
+      - email_send_log schema + indexes verified (idx_email_send_log_idempotency_active
+        UNIQUE partial index confirmed Bug #109 dispatcher pattern infrastructure)
+      - email_send_log raw dump for 2026-05-18 revealed exact 12-second gap
+        between grace-period (00:00:52) and due_3_days (00:01:04)
+      - send-transactional-email full source review (397 lines): idempotency
+        check at lines 301-323, INSERT at line 329 — verified neither would
+        block due_today payloads
+      - process-email-queue full source review (361 lines): no template-name
+        filtering, confirmed Bug #109 sent-row INSERT pattern (no idempotency_key
+        on sent rows)
+      - Direct curl reproduction with type='due_today' payload: returned
+        {success: true, queued: true} — definitively ruled out
+        template/render/INSERT failure in send-transactional-email
+      - Affected accounts data inspection: no malformed inputs, all 5
+        due_today accounts on 2026-05-18 had normal data (PHP currency,
+        pending status, zero unpaid penalties, no non-printable chars)
+      - Edge function logs for send-reminders at 2026-05-18 00:03:00 UTC
+        revealed RateLimitError from Deno fetch runtime at index.ts:197:32
+        with retryAfterMs=93
+  - Root cause: Supabase Edge Function per-invocation outbound fetch rate
+    limit. send-reminders accumulates 30+ fetches in quick succession
+    (19 penalty + 11 grace-period on 2026-05-18); rate limit kicks in
+    just as due_today processing begins (positional 31-35). The catch
+    block at lines 277-280 caught RateLimitError but did not retry,
+    causing all 5 due_today fetches to fail silently per cron run.
+    By the time iteration reached due_3_days, the rate limit window had
+    reopened (catch + 500ms sleep adds ~600ms per failed fetch,
+    totaling >3 seconds of recovery).
+  - Fix: added fetchWithRetryOnRateLimit helper to send-reminders/index.ts
+    (3 retries with retryAfterMs+50ms backoff). Replaced direct fetch
+    calls at lines 197 (grace branch) and 239 (regular branch). No other
+    changes. Deployed manually via Lovable (auto-deploy broken).
+  - Verification plan: monitor 2026-05-19 00:00 UTC cron run; expect
+    reminder_logs email-channel entries for due_today template_type,
+    email_send_log entries with idempotency_key matching
+    reminder-%-due_today-%. Report results next session.
+  - Customer mitigation: skip (per Cynthia 2026-05-18). ~17 customers
+    across 2026-05-16/17/18 missed only the on-the-day due_today reminder;
+    they received other-stage reminders before and after. Fix prevents
+    recurrence.
+  - Stale documentation cleanup: Phase 6 close-out (commit e33a439) had
+    filed Issue C as pending investigation with severity HIGH if (b) /
+    LOW if (a) — confirmed (b) and fixed in same day. Update the
+    PENDING INVESTIGATIONS entry to reflect closure (or leave it as a
+    historical note — Phase 7 changelog supersedes).
+  - Numbering note: the Phase 7 brief refers to this as "Bug #110";
+    #110 was already assigned (2026-05-17 review-payment-submission
+    await fix), so the Known Fixed Bugs entry is recorded as #114 (next
+    free flush-left number) per the no-duplicate-numbering rule.
+  - No SQL changes. Edge function code change only.
 
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
