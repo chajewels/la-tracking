@@ -1998,8 +1998,10 @@ Issue C (filed 2026-05-18 from Phase 6 investigation): email-channel due_today r
     Fix shipped 2026-05-19: all 5 affected auth templates wrapped
     <Button> in <Section style={{textAlign:'center', margin:'24px 0'}}>,
     added display:'inline-block' + margin to button style constant.
-    signup.tsx hsl(44, 72%, 47%) converted to #CEA021. Other 4
-    templates' existing hex colors preserved.
+    All 5 templates used identical hsl(44, 72%, 47%) backgroundColor
+    — all converted to #CEA021. (No template had a pre-existing
+    hex color to preserve; CHANGE C's "IF hex → preserve" branch
+    was unreached.)
 
     NEW UNIVERSAL RULE: All transactional email <Button> elements
     across BOTH email-template directories MUST be wrapped in a
