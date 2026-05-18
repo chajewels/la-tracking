@@ -508,7 +508,10 @@ Deno.serve(async (req) => {
         (redemption.account_id || redemption.cash_order_id)
       ) {
         try {
-          const submittedByType = isAdmin ? 'admin' : (isFinance ? 'finance' : 'admin');
+          // payments table has CHECK constraint limiting submitted_by_type to {'customer','staff'}.
+          // cash_payments has no such constraint but we normalize both branches to 'staff' for consistency.
+          // Audit trail of the actual approver is preserved via entered_by_user_id + submitted_by_name.
+          const submittedByType = 'staff';
           const submittedByName = user.email ?? 'Admin';
           const today = new Date().toISOString().slice(0, 10);
           const refRef = `LOYALTY-${redemption.id}`;
@@ -542,9 +545,23 @@ Deno.serve(async (req) => {
                   submitted_by_name: submittedByName,
                 });
               if (payErr) {
-                console.warn(
-                  "[process-loyalty-redemption] synthetic layaway payment INSERT failed (manual reconcile needed):",
+                // NOTE: redemption is already status='confirmed', member
+                // debited, and loyalty_transactions written above. Returning
+                // 500 here leaves that inconsistent state intact (no payment
+                // row, no reconcile). Admin sees the error in the UI; full
+                // atomic rollback is a separate phase.
+                console.error(
+                  "[process-loyalty-redemption] synthetic layaway payment INSERT failed:",
                   { redemption_id: redemption.id, account_id: redemption.account_id, err: payErr },
+                );
+                return json(
+                  {
+                    error: "Synthetic payment INSERT failed after redemption approval",
+                    detail: payErr.message ?? String(payErr),
+                    redemption_id: redemption.id,
+                    manual_action_required: true,
+                  },
+                  500,
                 );
               } else {
                 await fetch(
@@ -599,9 +616,23 @@ Deno.serve(async (req) => {
                   submitted_by_name: submittedByName,
                 });
               if (payErr) {
-                console.warn(
-                  "[process-loyalty-redemption] synthetic cash payment INSERT failed (manual reconcile needed):",
+                // NOTE: redemption is already status='confirmed', member
+                // debited, and loyalty_transactions written above. Returning
+                // 500 here leaves that inconsistent state intact (no payment
+                // row, no recompute). Admin sees the error in the UI; full
+                // atomic rollback is a separate phase.
+                console.error(
+                  "[process-loyalty-redemption] synthetic cash payment INSERT failed:",
                   { redemption_id: redemption.id, cash_order_id: redemption.cash_order_id, err: payErr },
+                );
+                return json(
+                  {
+                    error: "Synthetic payment INSERT failed after redemption approval",
+                    detail: payErr.message ?? String(payErr),
+                    redemption_id: redemption.id,
+                    manual_action_required: true,
+                  },
+                  500,
                 );
               } else {
                 const { data: sumRows } = await supabase
