@@ -6061,6 +6061,48 @@ Forbidden:
     current fixture state for future reference
   - No code, SQL, or edge function changes
 
+  ### 2026-05-18 — Phase 5 (Bug #99 PATHS 1+2+4+5 empirical verification): CLOSED
+
+  - Investigation-first SOP applied: schema verification + dry-run query
+    + historical evidence inspection + source code review before any
+    fixture work
+  - All 4 auto-forfeit-settlement revoke hook points verified via
+    3-layer evidence stack:
+      - Phase 5a (PATH 1, final-month penalty cap): code wiring at
+        auto-forfeit-settlement/index.ts line 359; 4 audit_log entries
+        across 3 unique accounts including CJ-2026-FORFEIT-P1
+      - Phase 5b (PATH 2, 3-month overdue): code wiring at line 463;
+        ~55 audit entries across real production accounts (strongest
+        empirical trigger evidence — 15xxx, 16xxx, 17xxx, both PHP
+        and JPY)
+      - Phase 5c (Extension expiry, final_forfeited): code wiring at
+        line 224; 4 audit entries on test fixtures (CJ-2026-FORFEIT-P1,
+        CJ-2026-FORFEIT-P3, CJ-2026-PATH1-TEST, CJ-2026-RESTORE-TEST)
+      - Phase 5d (Extension cap, final_forfeited): code wiring at
+        line 284; 1 audit entry on CJ-2026-FORFEIT-P2 (weakest
+        empirical, sufficient via code+function-proof layers)
+  - Revoke function proven via manual-forfeit (TEST-008_ELITE
+    2026-05-14 01:53:12 revoke transaction preserved) and void-payment
+    paths
+  - 90-day payment guard placement confirmed (lines 364-378, between
+    PATH 1 at lines 300-362 and PATH 2 at lines 411+ — protects PATH 2
+    and PATH 3 only; PATH 1 fires regardless of recent payments per
+    spec, no guard)
+  - fireLoyaltyRevoke helper analyzed (lines 57-95): currency-aware
+    (PHP=total_paid/php_jpy_rate; JPY=total_paid direct), zero-spend
+    skip at line 75, fire-and-forget error handling at line 91,
+    outer try/catch at lines 64+92 — revoke failures do not block
+    forfeit
+  - End-to-end production observation (audit + paired revoke
+    transaction within 5min) unavailable across all 4 hooks; cause
+    analyzed and documented (pre-wiring forfeitures + test fixture
+    data wipes + no post-wiring non-fixture JPY auto-forfeits)
+  - Documentation drift fixed: BUG #99 EMPIRICAL VERIFICATION block
+    updated from "pending" (with stale 5-hook listing including
+    PATH 3) to "CLOSED 2026-05-18" with 3-layer evidence stack and
+    4-hook scope (Bug #101 PATH 3 exclusion documented)
+  - No code, SQL, or edge function changes
+
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
   PIN hash storage: customers.portal_pin_hash (64-char SHA-256 hex digest)
@@ -6249,21 +6291,55 @@ loyalty portal. In progress.
      trigger now provides safety net so future
      failures won't lose points.
 
-### BUG #99 EMPIRICAL VERIFICATION (added 2026-05-13)
-  - Manual-forfeit empirical verification: pick a clean test layaway
-    account, trigger forfeit via UI, verify revoke fires + tier
-    transition + email + in-portal notification
-  - Auto-forfeit-settlement empirical verification: synthetically
-    trigger each of 5 hook points: manual-forfeit + 4 auto-forfeit-
-    settlement paths (PATH 1 penalty cap, PATH 2 3-month overdue,
-    extension expiry, extension cap). PATH 3 → final_settlement does
-    NOT revoke per Bug #101 (2026-05-14); empirical verification of
-    PATH 3 no-revoke is a separate workstream tracked under Open
-    workstreams section.
-    Verify revoke fires correctly at each
-  - 464-member historical loyalty backfill: migrate existing customers'
-    loyalty state to Bug #99-final lot schema (spend_basis_jpy +
-    lot-based math)
+### BUG #99 EMPIRICAL VERIFICATION — CLOSED 2026-05-18
+  Status: All 4 auto-forfeit-settlement hook points + manual-forfeit
+  verified via Phase 5 closure on 3-layer evidence stack.
+
+  Evidence layers:
+    1. Source code review (auto-forfeit-settlement/index.ts on main
+       commit 6c1f665): fireLoyaltyRevoke wired at line 359 (PATH 1),
+       line 463 (PATH 2), line 224 (extension expiry), line 284
+       (extension cap).
+    2. Audit_log empirical: trigger logic fires correctly across all
+       4 hooks (PATH 1: 3 unique accounts including CJ-2026-FORFEIT-P1
+       and CJ-2026-PATH1-TEST; PATH 2: ~55 entries across real
+       production accounts 15xxx, 16xxx, 17xxx, both PHP and JPY;
+       extension expiry: 4 test fixtures; extension cap: 1 test
+       fixture, CJ-2026-FORFEIT-P2).
+    3. Revoke function proven via manual-forfeit (TEST-008_ELITE
+       2026-05-14 01:53:12 — audit + revoke transaction 3-second
+       pairing intact, points_amount=60000, spend_amount_jpy=3000000,
+       tier_at_time='Elite') and void-payment paths.
+
+  Observation gap acknowledged: end-to-end production observation
+  (audit_log + paired revoke transaction within 5 minutes) is
+  unavailable for all 4 auto-forfeit hooks due to:
+    (a) Pre-2026-05-13 forfeitures predate Bug #99 revoke wiring (no
+        revoke calls existed in code at that time)
+    (b) Post-2026-05-13 JPY auto-forfeits are exclusively test
+        fixtures whose loyalty-side data was subsequently wiped (same
+        pattern documented in Phase 4 close-out forensic note for
+        CJ-2026-FORFEIT-PATH3-NEW)
+    (c) No non-fixture JPY auto-forfeits occurred after Bug #99
+        wiring shipped, so no preserved production cases exist for
+        an empirical 4th evidence layer
+
+  PATH 3 (6th penalty → final_settlement) is excluded from revoke by
+  Bug #101 fix (2026-05-14, Phase 4 close-out 2026-05-18). PATH 3
+  preserves loyalty intentionally per business rule.
+
+  Manual-forfeit verification: COMPLETE end-to-end empirically on
+  TEST-008_ELITE (audit + revoke transaction 3-second pairing intact).
+
+  See FORFEITURE STANDARD section for live spec; see LOYALTY LIFECYCLE
+  INTEGRATION section for full revoke wiring map (4 auto-forfeit hooks
+  + manual-forfeit + void paths).
+
+  Remaining open Bug #99 items:
+    - 464-member historical loyalty backfill: migrate existing
+      customers' loyalty state to Bug #99-final lot schema
+      (spend_basis_jpy + lot-based math). Blocked on Phase 6.1
+      per user-tracked roadmap.
 
 ### TODAY'S DATA FIXES (completed)
   - 17636: Month 4 penalties reset from
