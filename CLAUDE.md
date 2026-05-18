@@ -6410,8 +6410,90 @@ loyalty portal. In progress.
     encoded in loyalty_members.{cumulative_spend_jpy,
     total_points_earned, remaining_points, total_points_redeemed}.
 
-  (No pending items — Adjust Points shipped & validated
+  (No pending items for migration — Adjust Points shipped & validated
    2026-05-17, see SYSTEM STATUS.)
+
+### KNOWN OPEN ITEMS — Redemption wiring gap (filed 2026-05-18, Phase 11)
+
+  The redemption flow is half-built. Discovered during 2026-05-18
+  process-loyalty-redemption investigation. Member points get debited
+  on approve, but the discount never lands on the order, and lot
+  consumption is never tracked.
+
+  Issue 1 — Create-time: redemption can detach from real order
+    process-loyalty-redemption create branch allows account_id = NULL
+    AND cash_order_id = NULL as long as invoice_number string is
+    provided. Stored redemption row carries only free-text invoice
+    with no FK to a real order record. Discount has no place to land.
+    Reference: process-loyalty-redemption/index.ts lines 261-277.
+
+  Issue 2 — Approve-time: no discount application anywhere
+    NO edge function reads loyalty_redemptions or value_applied_jpy/php.
+    Confirmed by grep across create-cash-order, create-layaway-account,
+    record-payment, record-multi-payment, review-payment-submission
+    → ZERO matches. The discount value_applied_jpy stored on the
+    redemption row is never applied to cash_orders.total_amount,
+    layaway_accounts.total_amount, or any payments row.
+
+  Issue 3 — Lot consumption: loyalty_lot_consumption table unused
+    Schema designed with full lifecycle support:
+      - id uuid PK
+      - redemption_id uuid NOT NULL (FK to loyalty_redemptions)
+      - lot_id uuid NOT NULL (FK to loyalty_point_lots)
+      - amount integer NOT NULL
+      - consumed_at timestamptz NOT NULL DEFAULT now()
+      - restored_at timestamptz (for void path)
+      - restored_amount integer (for void path)
+    But process-loyalty-redemption approve branch never INSERTs
+    into this table. Points are decremented only from the aggregate
+    loyalty_members.remaining_points. Future revoke/refund flows
+    cannot determine which specific lot's points were consumed.
+
+  Issue 4 — Layaway portal redemption broken (reported, not yet investigated)
+    Symptom: customer attempting to redeem points against a layaway
+    account order in the loyalty customer portal cannot complete
+    the redemption (error or option unavailable). Cash-order
+    redemptions may or may not work — needs verification.
+    Files to investigate next session:
+      - src/components/loyalty/RedemptionForm.tsx
+      - src/components/loyalty/screens/RewardsScreen.tsx
+      - src/hooks/loyalty-admin/useLoyaltyRedemptionsAdmin.ts
+      - supabase/functions/customer-portal/index.ts
+
+  Empirical state (2026-05-18)
+    Only 1 confirmed redemption in production:
+      Brendalyn Tuliao (member)
+      redemption_id: 34714ffc-d322-4d5f-bb3f-2d0be1a3d918
+      type: new_order_discount
+      points: 500, value: ¥500
+      account_id: NULL, cash_order_id: NULL
+      invoice: "#INV Test"
+      processed: 2026-05-18 08:35:52 UTC
+    The redemption flow has barely been exercised in production —
+    customer impact of this wiring gap is currently zero, but
+    becomes material the moment real customers start redeeming.
+
+  Suggested fix scope (fresh-session work, est. 15-25 hrs)
+    1. Design decision: where to apply discount
+       - At order creation (modify create-cash-order, create-layaway-account)
+       - At first payment (modify record-payment / record-multi-payment)
+       - As virtual payment (insert into payments table on approve)
+       - Manual workflow (staff applies discount, document SOP)
+    2. Wire loyalty_lot_consumption with FIFO logic
+       (ORDER BY expires_at NULLS LAST, earned_at ASC)
+    3. Wire restore-on-void for both consumption and discount
+    4. Add reconciliation invariant:
+       SUM(loyalty_lot_consumption.amount WHERE restored_at IS NULL)
+       per member ≤ member.total_points_redeemed
+    5. Tighten create validation: require account_id OR cash_order_id
+       OR explicit catalog_reward (no detached free-text invoice)
+    6. Fix layaway portal redemption UI (Issue 4)
+    7. Test thoroughly with TEST-001 / TEST-002 / TEST-003
+
+  Until fixed: do NOT use the redemption flow with real customers.
+  The 1 test redemption (Brendalyn) can be voided via the existing
+  void action in process-loyalty-redemption to restore the 500 pts
+  whenever cleanup is needed — harmless test data otherwise.
 
 ### BUG INVESTIGATIONS — DEFERRED
   6. Schedule rows disappearing bug — 3
@@ -7722,10 +7804,13 @@ loyalty portal. In progress.
 
      Phase 6.1 — Points lots +
      464 member migration BUNDLED
-     ✅ COMPLETE 2026-05-15→16
-     (actual implementation: summary-only,
-      not per-event reconstruction — see
-      LOYALTY DATA & MIGRATION)
+     ⚠️ PARTIALLY COMPLETE
+     ✅ Migration done 2026-05-15→16 (summary-only,
+        not per-event reconstruction — see
+        LOYALTY DATA & MIGRATION)
+     ❌ process-loyalty-redemption refactor
+        (consume from lots) — NEVER BUILT
+        — see KNOWN OPEN ITEMS — Redemption wiring gap
      (originally estimated ~15-18 hrs)
        - Schema:
          loyalty_point_lots +
