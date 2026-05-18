@@ -1983,6 +1983,39 @@ Issue C (filed 2026-05-18 from Phase 6 investigation): email-channel due_today r
     bounces. Operational learning: bulk-send-setup-invites has an
     effective ~30 internal-call rate limit per invocation; batch_size
     25 is the safe ceiling. Bug #82 closed end-to-end.
+    2026-05-19 update: SECOND OCCURRENCE in a different directory.
+    Yahoo Mail recipient syge82@yahoo.com received the Supabase Auth
+    signup confirmation email today with the same invisible-button
+    defect. Investigation revealed the May 7 Section-wrap fix was
+    applied ONLY to _shared/transactional-email-templates/ — the
+    parallel _shared/email-templates/ directory (6 auth templates
+    serving Supabase Auth events) was never swept. 5 of the 6 had
+    the same untreated bare-anchor defect: signup, recovery,
+    magic-link, invite, email-change. (reauthentication has no
+    <Button> — OTP code only — unaffected.) signup.tsx additionally
+    had HSL backgroundColor never converted to hex.
+
+    Fix shipped 2026-05-19: all 5 affected auth templates wrapped
+    <Button> in <Section style={{textAlign:'center', margin:'24px 0'}}>,
+    added display:'inline-block' + margin to button style constant.
+    signup.tsx hsl(44, 72%, 47%) converted to #CEA021. Other 4
+    templates' existing hex colors preserved.
+
+    NEW UNIVERSAL RULE: All transactional email <Button> elements
+    across BOTH email-template directories MUST be wrapped in a
+    <Section> AND use hex (or rgb()) backgroundColor — never HSL.
+    Applies to:
+      supabase/functions/_shared/transactional-email-templates/*.tsx
+      supabase/functions/_shared/email-templates/*.tsx
+    Mandatory for all new templates added to either directory for
+    Yahoo Mail compatibility.
+
+    DEPLOY NOTE: auth-email-hook is NOT in
+    .github/workflows/supabase-functions-deploy.yml — changes to
+    _shared/email-templates/ require manual Lovable IDE deploy of
+    auth-email-hook. (GitHub Actions auto-deploy also non-functional
+    since 2026-05-15 due to missing SUPABASE_ACCESS_TOKEN +
+    SUPABASE_PROJECT_REF secrets.)
 
   - 83. PortalSetup got stuck on Loading screen forever after
     email verification round-trip. Surfaced 2026-05-06 during
