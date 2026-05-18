@@ -2579,15 +2579,6 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
 
 ### Open workstreams (added 2026-05-14)
 
-  - Bug #101 PATH 3 no-revoke empirical verification pending.
-    Code change shipped 2026-05-14 (commit 326cc4d) removed
-    fireLoyaltyRevoke from PATH 3 branch of auto-forfeit-settlement.
-    Logic-only verification done; needs empirical fixture that triggers
-    PATH 3 (6th penalty occurrence → status transition to final_settlement)
-    and confirms loyalty lot stays ACTIVE with no revoke transaction
-    logged. Fresh fixture required since CJ-2026-FORFEIT-P3 is already
-    in final_settlement state with manually-restored lot.
-
   - Session lesson 2026-05-14: Bug #100 auto-deploy staleness incident
     recurred during Bug #101 deployment. Workflow reported success at
     326cc4d merge time; production function continued running pre-Bug #101
@@ -2913,6 +2904,19 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
   Empirical verification: confirmed 2026-05-15 on fixture CJ-2026-FORFEIT-PATH3-NEW.
   Loyalty preserved per Bug #101 fix — lot stays ACTIVE, no revoke transaction
   logged, cumulative_spend_jpy unchanged.
+
+  Fixture forensic note (2026-05-18): the fixture's account-side state remains
+  intact and matches PATH 3 expectations. Loyalty-side data (loyalty_member,
+  loyalty_point_lot, loyalty_transactions) was subsequently removed from the
+  database between 2026-05-15 and 2026-05-18. The only migration in the
+  20260515-20260518 window (20260516010044) drops three loyalty auto-award
+  DB triggers and does not delete any rows. The data wipe was therefore not
+  migration-driven — most likely a manual SQL cleanup, edge function call, or
+  direct admin action, with no audit trail captured in session history. Admin
+  UI for customer CJ-2026-05456 ("Test Path3 Customer") confirms "Not enrolled"
+  in the Loyalty tab as of 2026-05-18. The 2026-05-15 empirical verification
+  stands as proof of record; re-verification on this fixture is not possible
+  without rebuilding the loyalty side.
 
 ### After forfeiture:
   - Admin can grant ONE-TIME extension → status = 'extension_active'
@@ -6035,6 +6039,27 @@ Forbidden:
   - Empirical proof of Bug #39 + mitigation via TEST-004 smoke tests
   - New locked rule: GUC bypass before write via supabase-js MUST
     use SECURITY DEFINER RPC, never the 2-HTTP-call pattern
+
+  ### 2026-05-18 — Phase 4 (Bug #101 PATH 3 verification reconciliation): CLOSED
+
+  - Investigation-first SOP applied: before re-verifying, checked production
+    state of fixture CJ-2026-FORFEIT-PATH3-NEW
+  - Account-side state confirmed intact (status=final_settlement, no
+    forfeited_at, 3 schedule rows still overdue/not cancelled,
+    final_settlement_record from 2026-05-15 present)
+  - Loyalty-side data found removed: no loyalty_members row for the customer,
+    zero loyalty_point_lots, zero loyalty_transactions, admin UI shows
+    "Not enrolled"
+  - Migration history check: only migration in 20260515-20260518 window
+    (20260516010044) drops loyalty auto-award DB triggers, no deletion
+    logic — wipe was not migration-driven
+  - 2026-05-15 empirical verification stands as proof of record for Bug #101
+    PATH 3 (no-revoke on final_settlement transition)
+  - Removed stale DEFERRED entry that claimed fresh fixture was needed
+    (predated 2026-05-15 verification)
+  - Added forensic note to FORFEITURE STANDARD PATH 3 entry documenting
+    current fixture state for future reference
+  - No code, SQL, or edge function changes
 
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
