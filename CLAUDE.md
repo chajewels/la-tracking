@@ -6270,7 +6270,7 @@ Forbidden:
       - 1 LEGITIMATE_SKIP: loyalty_jpy_amount below ¥10,000 minimum threshold (RoNa 19052 at ¥4,060)
       - 2 historical anomalies reconciled by business owner context:
           - Shiely Sy Demalata (PHP, 19022, 2026-05-15): pre-Bug #113 fix casualty; already manually awarded
-          - Liza Aono (JPY, 18969, 2026-05-08): pre-migration customer awarded via OLD loyalty system, falls under P7 (464-member loyalty backfill workstream), not P6
+          - Liza Aono (JPY, 18969, 2026-05-08): pre-migration customer; her loyalty state was carried over via the OLD system into cumulative_spend_jpy, total_points_earned, remaining_points per migration design (summary-only, by design — see LOYALTY DATA & MIGRATION). Not a gap, no further action needed. (Per-order earnings for pre-migration customers are intentionally NOT in loyalty_transactions per the documented migration scope.)
   - Real bug count in 30-day window: ZERO
   - Bug #113 fix (committed 2026-05-17) IS deployed in production. Confirmed empirically: Jackie Descartin (PHP, 2026-05-17 07:16 UTC) earned loyalty points correctly via the canonical path with the post-Bug #113 code. Someone manually deployed award-loyalty-points via Lovable between Bug #113 commit and Jackie's completion timestamp.
   - Original Bug #8 specific incident (cash order #10000 HTTP 500): not observable in 30-day window; appears dormant or resolved
@@ -6378,6 +6378,37 @@ loyalty portal. In progress.
     - sync-loyalty-to-sheet rewritten from stub to live real-time append
     - Google Sheets GAS email notifications shut off — Sheets is backup
       only; Supabase send-transactional-email is the sole sender
+
+  Migration scope (locked 2026-05-15, reaffirmed 2026-05-18) — NON-NEGOTIABLE:
+    SUMMARY-ONLY BY DESIGN. Migrated fields per member:
+      - cumulative_spend_jpy
+      - total_points_earned
+      - remaining_points
+      - total_points_redeemed
+      - enrollment_date (= first purchase date from Google Sheets)
+    Each migrated member received ONE consolidated lot with
+    spend_basis_jpy = cumulative_spend_jpy representing the
+    member's ENTIRE pre-migration lifetime.
+
+    NOT migrated by design:
+      - Per-order purchase history (individual order earnings)
+      - Per-account redemption history (which account a redemption was applied to)
+
+    These details remain in Google Sheets if ever needed but are
+    NOT required for operational use. Cynthia approved this scope
+    explicitly 2026-05-15 (LOYALTY BUILD 3 chat).
+
+  Lot reconciliation rule — NON-NEGOTIABLE:
+    When auditing lot integrity, ONLY investigate lots with
+    earned_at > '2026-05-16'. Pre-migration consolidated lots
+    represent aggregate lifetime spend and have no source event
+    to reconcile against — they exist by design.
+
+    A member without lots is not a bug — it's an edge case in the
+    deliberately-scoped migration. DO NOT flag missing per-order
+    lots or "orphan" members as gaps. Their loyalty state is fully
+    encoded in loyalty_members.{cumulative_spend_jpy,
+    total_points_earned, remaining_points, total_points_redeemed}.
 
   (No pending items — Adjust Points shipped & validated
    2026-05-17, see SYSTEM STATUS.)
@@ -6510,11 +6541,12 @@ loyalty portal. In progress.
   INTEGRATION section for full revoke wiring map (4 auto-forfeit hooks
   + manual-forfeit + void paths).
 
-  Remaining open Bug #99 items:
-    - 464-member historical loyalty backfill: migrate existing
-      customers' loyalty state to Bug #99-final lot schema
-      (spend_basis_jpy + lot-based math). Blocked on Phase 6.1
-      per user-tracked roadmap.
+  Bug #99: COMPLETE. No remaining items. Historical loyalty data
+  carried into the lot-based system via the 2026-05-15→16
+  summary-only migration (cumulative_spend_jpy + consolidated lot
+  per member). Per-order purchase/redemption history NOT migrated
+  — by design. See LOYALTY DATA & MIGRATION for migration scope
+  and lot reconciliation rule.
 
 ### TODAY'S DATA FIXES (completed)
   - 17636: Month 4 penalties reset from
@@ -7670,6 +7702,17 @@ loyalty portal. In progress.
      ROLLOUT — GRADUAL
      ─────────────────────────────
 
+     HISTORICAL PRE-IMPLEMENTATION PLANNING.
+     Actual implementation of Phase 6.1
+     (Points lots + 464 member migration)
+     diverged from this plan on 2026-05-15
+     (Cynthia decision): summary-only
+     migration instead of per-event
+     reconstruction. For canonical migration
+     design + lot reconciliation rule, see
+     the LOYALTY DATA & MIGRATION section.
+     ─────────────────────────────
+
      Phase 6.0 — Pre-phase loose
      ends (~5.5 hrs)
        - Void email notification
@@ -7679,7 +7722,11 @@ loyalty portal. In progress.
 
      Phase 6.1 — Points lots +
      464 member migration BUNDLED
-     (~15-18 hrs)
+     ✅ COMPLETE 2026-05-15→16
+     (actual implementation: summary-only,
+      not per-event reconstruction — see
+      LOYALTY DATA & MIGRATION)
+     (originally estimated ~15-18 hrs)
        - Schema:
          loyalty_point_lots +
          loyalty_lot_consumption
@@ -7745,7 +7792,9 @@ loyalty portal. In progress.
      = 6-8 sessions
 
      ─────────────────────────────
-     BACKFILL STRATEGY
+     BACKFILL STRATEGY ⚠️ SUPERSEDED
+     (actual implementation was summary-only,
+      see LOYALTY DATA & MIGRATION)
      ─────────────────────────────
 
      Primary source: Google
