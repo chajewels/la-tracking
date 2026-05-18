@@ -783,6 +783,29 @@ When completing a partially_paid month:
     - reference_number starts with 'DP-'
     - remarks contains 'down' or 'dp' (case-insensitive)
 
+### PENDING INVESTIGATIONS
+
+Issue C (filed 2026-05-18 from Phase 6 investigation): email-channel due_today reminder logs apparently stopped on 2026-05-15.
+
+  Symptoms (from 14-day reminder_logs query 2026-05-05 → 2026-05-18):
+    - email/due_today: 85 entries, last_seen 2026-05-15
+    - system/due_today: 137 entries, last_seen 2026-05-18 (continuing normally)
+    - All other email stages (penalty, overdue, due_7_days, due_3_days) continue through 2026-05-18
+
+  Possible causes:
+    (a) Coincidence — no email-equipped customers had due_today on 2026-05-16/17/18
+        (statistically unlikely given 7.7 emails/day average for 11 prior days)
+    (b) Regression — email branch silently failing for due_today only
+
+  Correlation: 2026-05-15 is the same date auto-deploy broke
+  (SUPABASE_ACCESS_TOKEN + SUPABASE_PROJECT_REF unset). send-reminders is in
+  auto-deploy workflow list but Lovable hasn't touched it since 2026-05-15.
+
+  Investigation query designed (per-day per-channel due_today breakdown
+  with customer email presence) — pending execution.
+
+  Severity: HIGH if (b); LOW if (a). Cannot determine without running query.
+
 ## Known Fixed Bugs (do not reintroduce)
 
   - DP must never be counted twice in totalPaid
@@ -6103,6 +6126,23 @@ Forbidden:
     4-hook scope (Bug #101 PATH 3 exclusion documented)
   - No code, SQL, or edge function changes
 
+  ### 2026-05-18 — Phase 6 (P12 send-reminders grace_period wiring): CLOSED as stale documentation
+
+  - Investigation-first SOP applied: read send-reminders/index.ts, payment-reminder.tsx template, registry.ts, and reminder_logs schema; ran 14-day empirical SQL on reminder_logs before any judgement
+  - send-reminders/index.ts already calls send-transactional-email for grace-period branch (lines 188-237):
+      - isGracePeriod = daysOverdue >= 1 && daysOverdue <= 7 && !hasPenalties
+      - templateName: "payment-reminder" with templateData.type: "grace_period"
+      - graceEndDate computed as due_date + 7 days
+      - idempotencyKey: `grace-period-${scheduleId}-${today}`
+  - payment-reminder.tsx fully handles type='grace_period' (lines 16, 35, 41-43, 49-50, 57-58, 93-99, 116) including dedicated subject "⏳ Grace Period Reminder — INV #X" at line 151
+  - 'payment-grace-period' registry entry is a preview-UI alias; production behavior identical to 'payment-reminder' when called with type='grace_period'
+  - 14-day empirical reminder_logs query (2026-05-05 → 2026-05-18) confirmed 1,620 emails sent across all stages, zero delivery_status='failed' rows. Customers in grace period are receiving correctly-themed emails in production.
+  - CLAUDE.md "### OTHER" section line 7767-7769 was stale; removed
+  - No code, SQL, or edge function changes
+  - Documented quirks (no fix needed):
+      - reminder_logs.template_type records classifyAlert stage (penalty/overdue/etc.), not email variant; grace-period emails logged under template_type='overdue' or template_type='penalty' (day-7 edge). Customer-facing impact zero; reporting impact only.
+      - Day-7 morning edge case before penalty engine runs: stage='penalty' but isGracePeriod=true; correct grace-period email sent, but log records template_type='penalty'. Cosmetic log/email mismatch only.
+
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
   PIN hash storage: customers.portal_pin_hash (64-char SHA-256 hex digest)
@@ -8072,10 +8112,6 @@ Branch isolation rules (LOCKED):
       2026-05-07 via bulk-send-setup-invites). Track conversion
       rate via auth_user_id population on customers table. No
       active blocker — passive wait for customer signups.
-
-### OTHER
-  - Email wiring — wire send-transactional-email
-    into send-reminders for grace_period variant
 
 ### SYSTEM & PRODUCT (added 2026-04-27)
   - Session timeout — auto-logout 2 hours
