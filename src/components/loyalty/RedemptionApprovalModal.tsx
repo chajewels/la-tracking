@@ -53,6 +53,7 @@ function fmtRedemptionType(t: string) {
     case 'new_order_discount': return 'New Order Discount';
     case 'shipping_fee': return 'Shipping Fee';
     case 'service_fee': return 'Service Fee';
+    case 'catalog_reward': return 'Catalog Reward';
     default: return t;
   }
 }
@@ -130,6 +131,34 @@ export function RedemptionApprovalModal({
   const isConfirmed = redemption?.status === 'confirmed';
   const isCancelled = redemption?.status === 'cancelled';
   const allChecksPassed = check1 && check2 && check3;
+
+  // Phase D — type-aware verification labels + apply verb. The locked
+  // CREATE-branch rules differ per type: new_order_discount requires a
+  // brand-new order; shipping_fee / service_fee apply to ANY order
+  // state; catalog_reward has no order link.
+  const rType = redemption?.redemption_type ?? '';
+  const isNewOrderDiscount = rType === 'new_order_discount';
+  const isShippingFee = rType === 'shipping_fee';
+  const isServiceFee = rType === 'service_fee';
+  const check1Label = isNewOrderDiscount
+    ? 'Invoice is for a NEW order (not an existing in-progress account)'
+    : isShippingFee
+      ? 'Shipping fee redemption applies to the selected order'
+      : isServiceFee
+        ? 'Service fee redemption applies to the selected order'
+        : 'Redemption target order is correct';
+  const check3Label = isNewOrderDiscount
+    ? "Redemption type matches the new order's intent"
+    : isShippingFee || isServiceFee
+      ? "Redemption type matches the customer's request"
+      : "Reward selection matches the customer's request";
+  const applyVerb = isNewOrderDiscount
+    ? 'Apply New Order Discount'
+    : isShippingFee
+      ? 'Apply Shipping Discount'
+      : isServiceFee
+        ? 'Apply Service Discount'
+        : 'Approve & Apply';
 
   async function invalidateAll() {
     await queryClient.invalidateQueries({ queryKey: ['loyalty-redemptions'] });
@@ -246,8 +275,11 @@ export function RedemptionApprovalModal({
         <DialogHeader>
           <DialogTitle>Review Redemption</DialogTitle>
           {redemption && (
-            <DialogDescription>
-              Submitted {fmtDateTime(redemption.created_at)}
+            <DialogDescription className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-primary">
+                {fmtRedemptionType(redemption.redemption_type)}
+              </span>
+              <span>Submitted {fmtDateTime(redemption.created_at)}</span>
             </DialogDescription>
           )}
         </DialogHeader>
@@ -351,7 +383,7 @@ export function RedemptionApprovalModal({
                   id="check-new-order"
                   checked={check1}
                   onChange={setCheck1}
-                  label="Invoice is for a NEW order (not an existing in-progress account)"
+                  label={check1Label}
                 />
                 <Verify
                   id="check-balance"
@@ -365,7 +397,7 @@ export function RedemptionApprovalModal({
                   id="check-type"
                   checked={check3}
                   onChange={setCheck3}
-                  label="Redemption type matches the new order's intent"
+                  label={check3Label}
                 />
               </div>
             )}
@@ -482,7 +514,7 @@ export function RedemptionApprovalModal({
                     disabled={submitting || !allChecksPassed}
                     className="gold-gradient text-primary-foreground"
                   >
-                    {submitting ? 'Approving…' : 'Approve & Apply'}
+                    {submitting ? 'Approving…' : applyVerb}
                   </Button>
                 )}
               </div>

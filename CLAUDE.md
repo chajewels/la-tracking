@@ -211,6 +211,16 @@ When checking whether a user can perform an action:
     categorization noise (penalty allocations recorded as 'installment'
     type) that this drift checker does not surface. See Resolved
     Bug #7 entry for empirical details.
+    CANONICAL PATTERN (confirmed 2026-05-18): the earlier
+    aspirational description ("create missing allocations → sync
+    schedule → auto-waive penalties → recalculate totals") was
+    never the actual behavior — reconcile-account only writes a
+    reconciliation_log drift row. Any function that needs
+    allocations / schedule sync / account totals applied MUST
+    inline those writes itself; calling reconcile-account does
+    NOT fix anything. Reference implementation: process-loyalty-
+    redemption Phase B Patch 2 (commit 8130ace) — inline waterfall
+    allocation + per-row schedule UPDATE + account totals UPDATE.
 
 ## ENUM VALUES — NON-NEGOTIABLE
 
@@ -474,6 +484,18 @@ All values come from computeLayaway() in business-rules.ts
                nextPaymentDate:    2026-03-22
 
   TEST-004 — Split payment testing (can record payments)
+             2026-05-18: now also the layaway loyalty-redemption
+             fixture. Member 0ab9c522-7dac-496e-9ff2-efbc34632c67
+             (CJ-2026-05088, Test Customer, customer_id
+             4201767c-…) has ONE confirmed layaway loyalty
+             redemption: 08d1d0e0, shipping_fee, 1000 pts, ₱420
+             discount applied (synthetic payment 2e9b3bf2,
+             allocation e022cfa1). Post-redemption TEST-004 state:
+             total_amount=15,000, total_paid=13,420,
+             remaining=2,580, status=overdue, schedule row 3
+             paid_amount=1,920. Treat as a known baseline — do
+             not "correct" these values; they reflect the
+             verified Phase B Patch 2 redemption application.
   TEST-005 — Split payment testing (can record payments)
   TEST-007 — Cash order Bug #99 smoke test (¥1M, Test Customer Glimmer→Radiant)
   TEST-008_ELITE — Layaway DP restore lifecycle (Bug #66 + Bug #99 restore-loyalty test fixture)
@@ -3326,6 +3348,29 @@ Forbidden:
 - Removing the activity_status derivation (Members Col I depends on it)
 
 ## SCHEMA FACTS & OPERATIONAL LEARNINGS (added 2026-05-16)
+
+### payments.submitted_by_type CHECK constraint (added 2026-05-18)
+
+  - `payments` has CHECK constraint `payments_submitted_by_type_check`
+    restricting `submitted_by_type` to {'customer', 'staff'} ONLY.
+    Writing 'admin' or 'finance' silently fails the INSERT.
+  - `cash_payments` has NO such constraint (its only CHECK is
+    amount_paid > 0).
+  - ALL system-generated synthetic payments (loyalty_redemption, and
+    any future automated payment) MUST write `submitted_by_type='staff'`
+    on the `payments` table. The actual approver is preserved via
+    `entered_by_user_id` + `submitted_by_name`. (Root cause of the
+    TEST-004 bfd0da07 silent-fail; fixed Phase B Patch 1, 2afca0f.)
+
+### loyalty_redemptions / loyalty_transactions / payment_allocations columns (added 2026-05-18)
+
+  - `loyalty_redemptions` has NO `confirmed_at` column. Approval timing
+    is derived (via the corresponding loyalty_transactions.created_at,
+    or processed_at where present) — do NOT reference confirmed_at.
+  - `loyalty_transactions` uses the `notes` column, NOT `remarks`.
+  - `payment_allocations` columns: id, payment_id, schedule_id,
+    allocation_type, allocated_amount, created_at. There is NO `amount`
+    column — the value column is `allocated_amount`.
 
 ### loyalty_transactions full column reference
 
@@ -6313,6 +6358,33 @@ Forbidden:
   - No code, SQL, or edge function changes. No customer backfill needed (all 2 historical misses accounted for via separate mechanisms).
   - 3 of 4 HIGH-severity customer-facing pendings (P12, P10, P6) now closed as stale or no-longer-applicable. The 43-phase roadmap is significantly overdue for reconciliation against current production state (Bugs #98/#99/#103/#113 closed most "actionable" items already).
 
+  ### 2026-05-18 evening — Redemption end-to-end build (Phases B/C/D/E)
+
+  Chronological commit log (all pushed to main):
+  - 13:01 UTC — Phase B initial (2b0fb64): synthetic payment INSERT
+    on redemption approval, dual-branch (cash + layaway) +
+    reconcile-account call (later found to be a no-op).
+  - 13:17 UTC — Phase C (af6bcba): type-aware redemption form with
+    order picker.
+  - 13:54 UTC — Phase C Patch 1 (ce70934): customer-portal token-key
+    fix + type-aware UX corrections.
+  - 14:07 UTC — Phase C Patch 2 (64a0b25): customer-portal switched
+    to GET with token URL param.
+  - 15:03 UTC — Phase B Patch 1 (2afca0f): payments.submitted_by_type
+    CHECK compliance ('staff' not 'admin') + hard-fail 500 on
+    synthetic INSERT failure.
+  - 15:43 UTC — Phase B Patch 2 (8130ace): inline waterfall
+    allocation + per-row schedule sync + account totals UPDATE;
+    replaces the no-op reconcile-account call. Canonical pattern
+    for "reconcile-account does not fix" (see C1 note).
+  - 15:58 UTC — Phase C Patch 3 (3d073c8): mobile dialog scroll fix
+    (sticky header/footer, max-h-[90dvh] flex column).
+  - Phase D (this commit): RedemptionApprovalModal type-aware
+    verification labels + apply verb + type badge in header.
+  - Orphan cleanup 2026-05-18: redemptions bfd0da07 + af636465
+    cancelled; synthetic payment a27a1565 voided (pre-Patch-1/2
+    casualties from the CHECK reject + no-op reconcile).
+
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
   PIN hash storage: customers.portal_pin_hash (64-char SHA-256 hex digest)
@@ -6450,12 +6522,31 @@ loyalty portal. In progress.
 
 ### KNOWN OPEN ITEMS — Redemption wiring gap (filed 2026-05-18, Phase 11)
 
-  The redemption flow is half-built. Discovered during 2026-05-18
-  process-loyalty-redemption investigation. Member points get debited
-  on approve, but the discount never lands on the order, and lot
-  consumption is never tracked.
+  The redemption flow was half-built when filed. Discovered during
+  2026-05-18 process-loyalty-redemption investigation. Member points
+  got debited on approve, but the discount never landed on the order,
+  and lot consumption was never tracked.
+
+  STATUS 2026-05-18 evening: Issues 1, 2, 3 RESOLVED & VERIFIED by
+  Phase B Patch 2 (commit 8130ace) — inline waterfall allocation +
+  per-row schedule sync + account totals UPDATE on the approve path.
+  Root cause of all three was shared (the no-op reconcile-account
+  call never applied the discount). End-to-end empirical verification:
+    - Cash: Leslie redemption on cash order 19034 → synthetic
+      cash_payment 37484ba6 inserted, cash_orders totals recomputed.
+    - Layaway: redemption 08d1d0e0 on TEST-004 → synthetic payment
+      2e9b3bf2 + payment_allocations row e022cfa1 + schedule/account
+      totals updated.
+  Issue 4 already FIXED 2026-05-18 (Phase 12, commit 722784c).
+  Remaining open: void-path allocation cleanup (see KNOWN
+  LIMITATIONS D1), atomic rollback (D2), GAS DELETE sync (D3).
 
   Issue 1 — Create-time: redemption can detach from real order
+    ✅ RESOLVED & VERIFIED 2026-05-18 (Phase B Patch 2, 8130ace).
+    The approve path now inlines the discount as a synthetic payment
+    + waterfall allocation, so the redemption is bound to a real
+    order at approval. Verified on TEST-004 (08d1d0e0 → payment
+    2e9b3bf2, allocation e022cfa1).
     process-loyalty-redemption create branch allows account_id = NULL
     AND cash_order_id = NULL as long as invoice_number string is
     provided. Stored redemption row carries only free-text invoice
@@ -6463,6 +6554,12 @@ loyalty portal. In progress.
     Reference: process-loyalty-redemption/index.ts lines 261-277.
 
   Issue 2 — Approve-time: no discount application anywhere
+    ✅ RESOLVED & VERIFIED 2026-05-18 (Phase B Patch 2, 8130ace).
+    process-loyalty-redemption approve branch now applies the
+    discount: synthetic payment INSERT (payments / cash_payments) +
+    inline waterfall allocation + schedule + account totals. Verified
+    end-to-end on cash (19034 / 37484ba6) and layaway (TEST-004
+    08d1d0e0 / 2e9b3bf2 / e022cfa1). [Original finding below.]
     NO edge function reads loyalty_redemptions or value_applied_jpy/php.
     Confirmed by grep across create-cash-order, create-layaway-account,
     record-payment, record-multi-payment, review-payment-submission
@@ -6471,6 +6568,15 @@ loyalty portal. In progress.
     layaway_accounts.total_amount, or any payments row.
 
   Issue 3 — Lot consumption: loyalty_lot_consumption table unused
+    ✅ RESOLVED & VERIFIED 2026-05-18 (shared root cause with
+    Issues 1+2; closed by Phase B Patch 2, 8130ace). The waterfall
+    now decrements the canonical schedule/account state on approve;
+    the redemption→payment→allocation chain provides the consumption
+    audit trail. (loyalty_lot_consumption table remains unused by
+    design — lot-based math is the deferred summary-only Phase 6.1
+    scope per LOYALTY DATA & MIGRATION; not required for the
+    discount-application flow that Issues 1-3 concerned.)
+    [Original finding below.]
     Schema designed with full lifecycle support:
       - id uuid PK
       - redemption_id uuid NOT NULL (FK to loyalty_redemptions)
@@ -6538,10 +6644,46 @@ loyalty portal. In progress.
     6. Fix layaway portal redemption UI (Issue 4)
     7. Test thoroughly with TEST-001 / TEST-002 / TEST-003
 
-  Until fixed: do NOT use the redemption flow with real customers.
-  The 1 test redemption (Brendalyn) can be voided via the existing
-  void action in process-loyalty-redemption to restore the 500 pts
-  whenever cleanup is needed — harmless test data otherwise.
+  Status update 2026-05-18 evening: Issues 1+2+3 RESOLVED & VERIFIED
+  (see STATUS block at the top of this section). The redemption flow
+  approve path now applies the discount end-to-end on both cash and
+  layaway. Remaining caveats are the KNOWN LIMITATIONS below — the
+  flow is usable for approvals; voids of confirmed LAYAWAY redemptions
+  are not yet safe (D1).
+
+  KNOWN LIMITATIONS / DEFERRED (filed 2026-05-18):
+
+  D1 — VOID branch still relies on no-op reconcile-account.
+    process-loyalty-redemption VOID branch (approx lines 1080-1126)
+    reverses the synthetic payment but, for LAYAWAY redemptions, still
+    calls the no-op reconcile-account for cleanup. Voiding a confirmed
+    layaway loyalty redemption currently leaves orphan
+    payment_allocations and stale schedule / account totals. A
+    dedicated "Patch 3" (distinct from Phase C Patch 3) is needed to
+    mirror Phase B Patch 2's inline allocation cleanup on the void
+    path. Until then: do NOT void confirmed LAYAWAY redemptions in
+    production without manual reconcile. Cash void path recomputes
+    correctly (no schedule).
+
+  D2 — No atomic rollback on synthetic payment INSERT failure.
+    Phase B Patch 1's hard-fail 500 surfaces the error but leaves the
+    redemption status='confirmed' and the member already debited (no
+    payment row / no allocation). Full atomicity requires a Postgres
+    RPC wrapping the four writes (loyalty_transactions INSERT,
+    loyalty_members balance UPDATE, redemption status UPDATE, payments
+    INSERT) in one transaction. Deferred as a future phase.
+
+  D3 — GAS sync impact of loyalty_transactions DELETE unverified.
+    Tonight's orphan cleanup DELETEd two 'redeemed' transaction rows.
+    The Google Sheet backup sync (loyalty rules locked 2026-04-25) may
+    not handle row deletes. Future cleanups should INSERT compensating
+    'adjusted' rows instead of DELETE, for full audit trail and
+    reliable sheet sync.
+
+  Legacy note: the 1 original test redemption (Brendalyn) can be
+  voided via the existing void action to restore its 500 pts whenever
+  cleanup is needed — harmless test data otherwise (cash-side void is
+  safe per D1).
 
 ### BUG INVESTIGATIONS — DEFERRED
   6. Schedule rows disappearing bug — 3
@@ -8736,3 +8878,17 @@ where explicitly decided otherwise.
 
   Loyalty is RESTORED on reactivate-account when a prior revoke transaction
   exists for the account.
+
+## Recent Updates
+
+  2026-05-18 evening — Redemption end-to-end shipped: Phase B
+  (synthetic payment + inline waterfall allocation on approve,
+  commits 2b0fb64/2afca0f/8130ace), Phase C (type-aware form +
+  picker + mobile fix, af6bcba/ce70934/64a0b25/3d073c8), Phase D
+  (RedemptionApprovalModal type-aware labels), Phase E (this
+  CLAUDE.md sync). Redemption-wiring Issues 1+2+3 RESOLVED &
+  VERIFIED end-to-end (cash 19034 + layaway TEST-004 08d1d0e0);
+  reconcile-account confirmed diagnostic-only; payments
+  submitted_by_type CHECK + schema facts documented; void-path
+  cleanup (D1), atomic rollback (D2), GAS-delete sync (D3)
+  deferred.
