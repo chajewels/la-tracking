@@ -6449,16 +6449,29 @@ loyalty portal. In progress.
     loyalty_members.remaining_points. Future revoke/refund flows
     cannot determine which specific lot's points were consumed.
 
-  Issue 4 — Layaway portal redemption broken (reported, not yet investigated)
-    Symptom: customer attempting to redeem points against a layaway
-    account order in the loyalty customer portal cannot complete
-    the redemption (error or option unavailable). Cash-order
-    redemptions may or may not work — needs verification.
-    Files to investigate next session:
-      - src/components/loyalty/RedemptionForm.tsx
-      - src/components/loyalty/screens/RewardsScreen.tsx
-      - src/hooks/loyalty-admin/useLoyaltyRedemptionsAdmin.ts
-      - supabase/functions/customer-portal/index.ts
+  Issue 4 — Layaway portal redemption broken: ✅ FIXED 2026-05-18 (Phase 12)
+    Symptom (resolved): customer attempting to redeem points from
+    the loyalty portal received HTTP 401 from
+    process-loyalty-redemption. Empirically confirmed via
+    2026-05-18 10:51:04 UTC log (POST returned 401 in 254ms after
+    CORS preflight succeeded).
+    Root cause: src/components/loyalty/RedemptionForm.tsx defined
+    `portalToken: string` in its RedemptionFormProps interface
+    (line 64) but the function destructure (lines 68-72) omitted
+    it. portalToken was therefore undefined in the function body,
+    so the request to process-loyalty-redemption contained no
+    portal_token, and resolvePortalAuth threw → 401.
+    The 3 other loyalty portal components (RewardsScreen,
+    NotificationsScreen, LoyaltyJoinPrompt) already followed the
+    correct pattern.
+    Fix: 2-line addition to RedemptionForm.tsx — added portalToken
+    to function destructure + added portal_token: portalToken to
+    request body. Frontend-only change.
+    Issues 1, 2, 3 in this section remain OPEN. Customer can now
+    submit redemption + admin can approve + points debited, but
+    discount still does NOT auto-apply to the order (Issue 2) and
+    loyalty_lot_consumption table still unused (Issue 3). Do NOT
+    use redemption flow with real customers until Issues 1-3 fixed.
 
   Empirical state (2026-05-18)
     Only 1 confirmed redemption in production:

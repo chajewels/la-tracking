@@ -72,6 +72,7 @@ export function RedemptionForm({
   onClose,
   remainingPoints,
   memberId,
+  portalToken,
   onSuccess,
 }: RedemptionFormProps) {
   const [redemptionType, setRedemptionType] = useState<RedemptionType | ''>('');
@@ -126,6 +127,7 @@ export function RedemptionForm({
             points_redeemed: pointsNum,
             invoice_number: invoiceNumber.trim(),
             notes: notes.trim() || null,
+            portal_token: portalToken,
           },
         },
       );
