@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Skeleton } from '@/components/ui/skeleton';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -28,6 +29,17 @@ const P = {
 } as const;
 
 type RedemptionType = 'new_order_discount' | 'shipping_fee' | 'service_fee';
+
+interface OrderOption {
+  id: string;
+  kind: 'layaway' | 'cash';
+  invoice_number: string;
+  currency: 'PHP' | 'JPY';
+  total_amount: number;
+  total_paid: number;
+  remaining_balance: number;
+  status: string;
+}
 
 const TYPE_OPTIONS: Array<{
   value: RedemptionType;
@@ -57,6 +69,25 @@ const TYPE_OPTIONS: Array<{
 
 const QUICK_AMOUNTS = [500, 1000, 2000];
 
+// Currency-formatted amount per CLAUDE.md display rules:
+// PHP → "₱" + comma separators; JPY → "¥" + no decimals; drop .00 on whole.
+function fmtMoney(amount: number, currency: 'PHP' | 'JPY'): string {
+  const n = Number(amount ?? 0);
+  if (currency === 'JPY') {
+    return `¥${Math.round(n).toLocaleString('en-US')}`;
+  }
+  const whole = Number.isInteger(n);
+  return `₱${n.toLocaleString('en-US', {
+    minimumFractionDigits: whole ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function titleCaseStatus(status: string): string {
+  if (!status) return '';
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
 export interface RedemptionFormProps {
   isOpen: boolean;
   onClose: () => void;
@@ -77,34 +108,112 @@ export function RedemptionForm({
 }: RedemptionFormProps) {
   const [redemptionType, setRedemptionType] = useState<RedemptionType | ''>('');
   const [pointsInput, setPointsInput] = useState<string>('');
-  const [invoiceNumber, setInvoiceNumber] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [selectedOrderKind, setSelectedOrderKind] = useState<
+    'layaway' | 'cash' | null
+  >(null);
+  const [orders, setOrders] = useState<OrderOption[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState<boolean>(false);
+  const [ordersError, setOrdersError] = useState<string | null>(null);
 
   // Reset form whenever the dialog opens.
   useEffect(() => {
     if (isOpen) {
       setRedemptionType('');
       setPointsInput('');
-      setInvoiceNumber('');
       setNotes('');
       setSubmitting(false);
       setSubmitted(false);
       setErrorMsg(null);
+      setSelectedOrderId(null);
+      setSelectedOrderKind(null);
+      setOrders([]);
+      setOrdersError(null);
     }
   }, [isOpen]);
+
+  // Fetch the customer's orders once per dialog open.
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    (async () => {
+      setLoadingOrders(true);
+      setOrdersError(null);
+      try {
+        const { data, error } = await supabase.functions.invoke(
+          'customer-portal',
+          { body: { portal_token: portalToken } },
+        );
+        if (error) throw error;
+        const errFromBody = (data as any)?.error as string | undefined;
+        if (errFromBody) throw new Error(errFromBody);
+
+        const layaway: OrderOption[] = (((data as any)?.accounts ?? []) as any[]).map(
+          (a) => ({
+            id: a.id,
+            kind: 'layaway' as const,
+            invoice_number: a.invoice_number,
+            currency: a.currency,
+            total_amount: Number(a.total_amount ?? 0),
+            total_paid: Number(a.total_paid ?? 0),
+            remaining_balance: Number(a.remaining_balance ?? 0),
+            status: a.status,
+          }),
+        );
+        const cash: OrderOption[] = (((data as any)?.cash_orders ?? []) as any[]).map(
+          (o) => ({
+            id: o.id,
+            kind: 'cash' as const,
+            invoice_number: o.invoice_number,
+            currency: o.currency,
+            total_amount: Number(o.total_amount ?? 0),
+            total_paid: Number(o.total_paid ?? 0),
+            remaining_balance: Number(o.remaining_balance ?? 0),
+            status: o.status,
+          }),
+        );
+        if (!cancelled) setOrders([...layaway, ...cash]);
+      } catch (err: any) {
+        if (!cancelled) {
+          setOrdersError(
+            err?.message || 'Could not load your orders — please try again',
+          );
+        }
+      } finally {
+        if (!cancelled) setLoadingOrders(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, portalToken]);
 
   const pointsNum = useMemo(() => {
     const n = Number(pointsInput);
     return Number.isFinite(n) ? Math.floor(n) : 0;
   }, [pointsInput]);
 
+  const eligibleOrders = useMemo<OrderOption[]>(() => {
+    if (!redemptionType) return [];
+    return orders.filter((o) => {
+      if (redemptionType === 'new_order_discount') {
+        if (o.kind === 'layaway') return Number(o.total_paid ?? 0) === 0;
+        return o.status === 'pending' && Number(o.total_paid ?? 0) === 0;
+      }
+      return true; // shipping_fee / service_fee — no filter
+    });
+  }, [orders, redemptionType]);
+
   const pointsValid = pointsNum > 0 && pointsNum <= remainingPoints;
-  const invoiceValid = invoiceNumber.trim().length > 0;
   const typeValid = redemptionType !== '';
-  const formValid = pointsValid && invoiceValid && typeValid;
+  const orderSelected =
+    selectedOrderId !== null && selectedOrderKind !== null;
+  const formValid = pointsValid && typeValid && orderSelected;
 
   const pointsError = pointsInput && !pointsValid
     ? pointsNum <= 0
@@ -117,6 +226,15 @@ export function RedemptionForm({
     setSubmitting(true);
     setErrorMsg(null);
     try {
+      const selectedOrder = eligibleOrders.find(
+        (o) => o.id === selectedOrderId,
+      );
+      if (!selectedOrder) {
+        setErrorMsg('Please select an order');
+        setSubmitting(false);
+        return;
+      }
+
       const { data, error } = await supabase.functions.invoke(
         'process-loyalty-redemption',
         {
@@ -125,9 +243,13 @@ export function RedemptionForm({
             member_id: memberId,
             redemption_type: redemptionType,
             points_redeemed: pointsNum,
-            invoice_number: invoiceNumber.trim(),
+            invoice_number: selectedOrder.invoice_number,
             notes: notes.trim() || null,
             portal_token: portalToken,
+            account_id:
+              selectedOrder.kind === 'layaway' ? selectedOrder.id : null,
+            cash_order_id:
+              selectedOrder.kind === 'cash' ? selectedOrder.id : null,
           },
         },
       );
@@ -149,6 +271,15 @@ export function RedemptionForm({
       setSubmitting(false);
     }
   }
+
+  const pickerSubtitle =
+    redemptionType === 'new_order_discount'
+      ? 'Brand-new orders only'
+      : 'Any of your orders';
+  const emptyMsg =
+    redemptionType === 'new_order_discount'
+      ? 'No brand-new orders found. Please create a new order with our team first, then come back to redeem.'
+      : 'No orders found.';
 
   return (
     <Dialog open={isOpen} onOpenChange={(o) => (!o && !submitting ? onClose() : undefined)}>
@@ -186,7 +317,7 @@ export function RedemptionForm({
               </DialogDescription>
             </DialogHeader>
 
-            <InfoPanel />
+            <InfoPanel redemptionType={redemptionType} />
 
             <form
               className="space-y-5"
@@ -230,6 +361,108 @@ export function RedemptionForm({
                   ))}
                 </RadioGroup>
               </div>
+
+              {/* Order Picker — only after a type is chosen */}
+              {redemptionType !== '' && (
+                <div>
+                  <Label style={{ color: P.tp }}>Select an order</Label>
+                  <div className="mt-0.5 text-xs" style={{ color: P.ts }}>
+                    {pickerSubtitle}
+                  </div>
+
+                  {loadingOrders ? (
+                    <Skeleton
+                      className="mt-2 h-20 w-full rounded-md"
+                      style={{ background: P.s2 }}
+                    />
+                  ) : ordersError ? (
+                    <div
+                      className="mt-2 rounded-md px-3 py-2 text-sm"
+                      style={{
+                        background: '#3b1414',
+                        border: '1px solid #B85450',
+                        color: '#F5C9C9',
+                      }}
+                    >
+                      {ordersError}
+                    </div>
+                  ) : eligibleOrders.length === 0 ? (
+                    <div
+                      className="mt-2 rounded-md px-3 py-2 text-xs"
+                      style={{
+                        background: P.s2,
+                        border: `1px solid ${P.br}`,
+                        color: P.gl,
+                      }}
+                    >
+                      {emptyMsg}
+                    </div>
+                  ) : (
+                    <RadioGroup
+                      value={selectedOrderId ?? ''}
+                      onValueChange={(v) => {
+                        const picked = eligibleOrders.find((o) => o.id === v);
+                        setSelectedOrderId(v);
+                        setSelectedOrderKind(picked ? picked.kind : null);
+                      }}
+                      className="mt-2 space-y-2"
+                      style={{
+                        maxHeight: '260px',
+                        overflowY: 'auto',
+                        paddingRight: '4px',
+                      }}
+                    >
+                      {eligibleOrders.map((o) => {
+                        const sel = selectedOrderId === o.id;
+                        return (
+                          <label
+                            key={`${o.kind}-${o.id}`}
+                            htmlFor={`ord-${o.kind}-${o.id}`}
+                            className="flex cursor-pointer items-start gap-3 rounded-md p-3"
+                            style={{
+                              background: sel ? P.s2 : 'transparent',
+                              border: `1px solid ${sel ? P.gp : P.br}`,
+                            }}
+                          >
+                            <RadioGroupItem
+                              id={`ord-${o.kind}-${o.id}`}
+                              value={o.id}
+                            />
+                            <div className="flex-1">
+                              <div
+                                style={{
+                                  color: P.tp,
+                                  fontFamily: CG,
+                                  fontSize: '15px',
+                                }}
+                              >
+                                #{o.invoice_number}
+                              </div>
+                              <div
+                                className="mt-0.5 text-xs"
+                                style={{ color: P.ts }}
+                              >
+                                {o.kind === 'layaway' ? 'Layaway' : 'Cash Order'}
+                                {' • '}
+                                {titleCaseStatus(o.status)}
+                              </div>
+                              <div
+                                className="mt-0.5 text-xs"
+                                style={{ color: P.ts }}
+                              >
+                                Total {fmtMoney(o.total_amount, o.currency)}
+                                {' • '}
+                                Remaining{' '}
+                                {fmtMoney(o.remaining_balance, o.currency)}
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </RadioGroup>
+                  )}
+                </div>
+              )}
 
               {/* Points to Redeem */}
               <div>
@@ -295,35 +528,6 @@ export function RedemptionForm({
                 )}
               </div>
 
-              {/* Invoice Number */}
-              <div>
-                <Label htmlFor="invoice" style={{ color: P.tp }}>
-                  Invoice Number
-                </Label>
-                <Input
-                  id="invoice"
-                  value={invoiceNumber}
-                  onChange={(e) => setInvoiceNumber(e.target.value)}
-                  placeholder="e.g. 19012"
-                  className="mt-2"
-                  style={{ background: P.s2, color: P.tp, borderColor: P.br }}
-                />
-                <div className="mt-1 text-xs" style={{ color: P.ts }}>
-                  Invoice number for the NEW order this redemption applies to
-                </div>
-                <div
-                  className="mt-2 rounded-md px-3 py-2 text-xs"
-                  style={{
-                    background: P.s2,
-                    border: `1px solid ${P.br}`,
-                    color: P.gl,
-                  }}
-                >
-                  ⚠ This must be a NEW order. Points cannot be applied to
-                  existing in-progress accounts.
-                </div>
-              </div>
-
               {/* Notes */}
               <div>
                 <Label htmlFor="notes" style={{ color: P.tp }}>
@@ -384,7 +588,15 @@ export function RedemptionForm({
   );
 }
 
-function InfoPanel() {
+function InfoPanel({ redemptionType }: { redemptionType: RedemptionType | '' }) {
+  const applyLine =
+    redemptionType === 'new_order_discount'
+      ? 'The discount will be applied to your selected new order'
+      : redemptionType === 'shipping_fee'
+        ? 'Your shipping fee will be covered using these points'
+        : redemptionType === 'service_fee'
+          ? 'Your service fee will be covered using these points'
+          : 'The points will be applied to your selected order';
   return (
     <div
       className="rounded-md p-3 text-xs"
@@ -398,7 +610,7 @@ function InfoPanel() {
       <ol className="mt-1 space-y-0.5 pl-4" style={{ color: P.ts, listStyle: 'decimal' }}>
         <li>Submit your request below</li>
         <li>Our team will review and approve</li>
-        <li>The discount will be applied to your new order</li>
+        <li>{applyLine}</li>
         <li>You'll receive a confirmation email</li>
       </ol>
     </div>
