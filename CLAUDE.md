@@ -6259,6 +6259,25 @@ Forbidden:
   - No CLAUDE.md text edits required — there is no specific stale roadmap line in CLAUDE.md (unlike Phase 6 which had a stale "OTHER" section). The P10 entry existed only in session-level severity ranking.
   - No code, SQL, or edge function changes
 
+  ### 2026-05-18 — Phase 9 (P6 / Bug #8 cash order 500): DISPROVEN as no longer applicable
+
+  - Investigation-first SOP applied: CLAUDE.md context check + schema verification + source review (award-loyalty-points/index.ts) + 30-day empirical analysis of completed cash orders
+  - KEY FINDING: The original P6 framing ("safety-net mitigation in place") was INVALIDATED by the 2026-05-16 migration. The Layer-2 DB triggers (trg_loyalty_on_cash_order_complete, trg_loyalty_on_layaway_complete) and award_loyalty_points_on_complete() function were DROPPED via migration 20260516000000_drop_layer2_loyalty_triggers.sql because they created ghost audit rows without updating loyalty_members counters or creating point lots. Awards now depend SOLELY on the canonical path: review-payment-submission → await fetch → award-loyalty-points (LOYALTY AWARD SYSTEM section, CLAUDE.md line 3179).
+  - Empirical 30-day completed cash order analysis (22 orders, 2026-04-28 → 2026-05-18):
+      - 3 EARNED: 19023 Jackie Descartin (PHP, 2026-05-17), 19048 Jan Jovic (JPY, 2026-05-16), Test-007 fixture (JPY, 2026-05-12)
+      - 14 LEGITIMATE_SKIP: cash_orders.loyalty_jpy_amount IS NULL or 0 (services/shipping-only orders)
+      - 2 LEGITIMATE_SKIP: customer not enrolled in loyalty
+      - 1 LEGITIMATE_SKIP: loyalty_jpy_amount below ¥10,000 minimum threshold (RoNa 19052 at ¥4,060)
+      - 2 historical anomalies reconciled by business owner context:
+          - Shiely Sy Demalata (PHP, 19022, 2026-05-15): pre-Bug #113 fix casualty; already manually awarded
+          - Liza Aono (JPY, 18969, 2026-05-08): pre-migration customer awarded via OLD loyalty system, falls under P7 (464-member loyalty backfill workstream), not P6
+  - Real bug count in 30-day window: ZERO
+  - Bug #113 fix (committed 2026-05-17) IS deployed in production. Confirmed empirically: Jackie Descartin (PHP, 2026-05-17 07:16 UTC) earned loyalty points correctly via the canonical path with the post-Bug #113 code. Someone manually deployed award-loyalty-points via Lovable between Bug #113 commit and Jackie's completion timestamp.
+  - Original Bug #8 specific incident (cash order #10000 HTTP 500): not observable in 30-day window; appears dormant or resolved
+  - Source code confirmation: award-loyalty-points/index.ts lines 116-118 contains the post-Bug #113 amount-gate: `if (!(loyaltyJpy > 0)) return json({ skipped: true, reason: "no_loyalty_amount" });`. Currency gate is gone.
+  - No code, SQL, or edge function changes. No customer backfill needed (all 2 historical misses accounted for via separate mechanisms).
+  - 3 of 4 HIGH-severity customer-facing pendings (P12, P10, P6) now closed as stale or no-longer-applicable. The 43-phase roadmap is significantly overdue for reconciliation against current production state (Bugs #98/#99/#103/#113 closed most "actionable" items already).
+
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
   PIN hash storage: customers.portal_pin_hash (64-char SHA-256 hex digest)
