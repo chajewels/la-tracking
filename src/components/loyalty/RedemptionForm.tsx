@@ -147,11 +147,27 @@ export function RedemptionForm({
       setLoadingOrders(true);
       setOrdersError(null);
       try {
-        const { data, error } = await supabase.functions.invoke(
-          'customer-portal',
-          { body: { token: portalToken } },
-        );
-        if (error) throw error;
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+        const url = new URL(`${supabaseUrl}/functions/v1/customer-portal`);
+        url.searchParams.set('token', portalToken);
+
+        const response = await fetch(url.toString(), {
+          method: 'GET',
+          headers: {
+            apikey: supabaseAnonKey,
+            Authorization: `Bearer ${supabaseAnonKey}`,
+          },
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(
+            `customer-portal returned ${response.status}: ${errorText}`,
+          );
+        }
+
+        const data = await response.json();
         const errFromBody = (data as any)?.error as string | undefined;
         if (errFromBody) throw new Error(errFromBody);
 
