@@ -805,7 +805,7 @@ When completing a partially_paid month:
     - reference_number starts with 'DP-'
     - remarks contains 'down' or 'dp' (case-insensitive)
 
-### PENDING INVESTIGATIONS
+### Historical / Resolved Investigations
 
 Issue C (filed 2026-05-18 from Phase 6 investigation): email-channel due_today reminder logs apparently stopped on 2026-05-15.
 
@@ -2041,6 +2041,36 @@ Issue C (filed 2026-05-18 from Phase 6 investigation): email-channel due_today r
     since 2026-05-15 due to missing SUPABASE_ACCESS_TOKEN +
     SUPABASE_PROJECT_REF secrets.)
 
+    Bug #82 THIRD occurrence — fixed 2026-05-19 via commit 9e3bd1f.
+    Yahoo verify button STILL invisible after 2026-05-18 Section+hex+inline-block fix
+    (5b3aeff). Root cause: @react-email/components@0.0.22 <Button> renders to
+    <a style='display:inline-block;background-color:#CEA021;...'>
+      <span style='display:inline-block;line-height:120%;mso-text-raise:9px'>...</span>
+    </a>. Yahoo Mail strips the inner <span>'s sizing styles, collapsing the button
+    to zero visible width. The second-occurrence fix targeted the outer anchor's
+    parent (Section + hex + inline-block on the <a>) — it never touched the inner
+    <span>, so the root cause persisted. 5b3aeff is SUPERSEDED.
+
+    FIX (9e3bd1f): bulletproof table-anchor pattern replaces <Button> across 5 auth
+    templates (signup, recovery, magic-link, invite, email-change). Pattern:
+      <table align='center' role='presentation'><tbody>
+        <tr><td bgcolor='#CEA021' style='backgroundColor:#CEA021;borderRadius:10px'>
+          <a href={url} style='display:inline-block;padding:12px 24px;color:#ffffff;
+             textDecoration:none;lineHeight:100%;...'>LABEL</a>
+        </td></tr>
+      </tbody></table>
+    No nested <span>. <td bgcolor> attribute (legacy HTML, Yahoo respects).
+    border-radius on <td>. Padding on <a>. Reauthentication.tsx unaffected
+    (OTP-only, no <Button>). auth-email-hook deployed via Lovable IDE after commit;
+    empirically verified on Yahoo at 2026-05-19 18:23 JST (recipient
+    h8redthanblue@yahoo.com — Verify Email button rendered correctly).
+
+    UNIVERSAL RULE (locked 2026-05-19): React-Email <Button> component is unreliable
+    on Yahoo Mail due to its nested <span> structure. Use hand-rolled table-anchor
+    pattern for ALL auth and transactional email buttons going forward. The earlier
+    'Section-wrap + hex/rgb, never HSL' rule from 2026-05-18 is necessary but
+    INSUFFICIENT — the table-anchor structural change is required.
+
   - 83. PortalSetup got stuck on Loading screen forever after
     email verification round-trip. Surfaced 2026-05-06 during
     Brendalyn migration after a corrupted customer email caused
@@ -2474,6 +2504,28 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
   Bugs that have been surfaced and triaged but not
   yet fixed. Each entry should describe the fix
   pattern so the next session can pick it up cleanly.
+
+### Edge function code review (surfaced 2026-05-19)
+
+  Bug #115 — restore-payment service double-counting (investigation pending).
+  LOCATION: supabase/functions/restore-payment/index.ts line 414-415.
+  CODE: const newRemainingBalance = Math.max(0, round2(
+    Number(accountData?.total_amount ?? 0) + penaltyTotal + serviceTotal - newTotalPaid
+  ));
+  CONCERN: per SERVICES RULE (added 2026-04-12, this CLAUDE.md), services are
+  already included in total_amount at the time of service creation. Adding
+  serviceTotal as a separate term double-counts services on accounts that have
+  them.
+  IMPACT SURFACE: only manifests on accounts that have applied services AND
+  subsequently have restore-payment called. Carl's account 20000 has zero
+  services; today's audit (12/12 pass) doesn't expose the bug. TEST accounts
+  also have zero services.
+  PRIORITY: LOW — narrow impact surface, restore-payment is a rare staff action.
+  NEXT STEP: read restore-payment.tsx lines 162 + 408-430 in full context to
+  confirm whether serviceTotal is being legitimately compensated elsewhere or
+  is a true double-count. If confirmed bug, fix is one-line: remove '+ serviceTotal'
+  from line 415.
+  STATUS: investigation pending. Not actively affecting production.
 
 ### Pending KPI accuracy items (surfaced 2026-04-28)
 
@@ -6784,17 +6836,14 @@ loyalty portal. In progress.
 
   KNOWN LIMITATIONS / DEFERRED (filed 2026-05-18):
 
-  D1 — VOID branch still relies on no-op reconcile-account.
-    process-loyalty-redemption VOID branch (approx lines 1080-1126)
-    reverses the synthetic payment but, for LAYAWAY redemptions, still
-    calls the no-op reconcile-account for cleanup. Voiding a confirmed
-    layaway loyalty redemption currently leaves orphan
-    payment_allocations and stale schedule / account totals. A
-    dedicated "Patch 3" (distinct from Phase C Patch 3) is needed to
-    mirror Phase B Patch 2's inline allocation cleanup on the void
-    path. Until then: do NOT void confirmed LAYAWAY redemptions in
-    production without manual reconcile. Cash void path recomputes
-    correctly (no schedule).
+  D1 — VOID branch inline reversal.
+    MARK COMPLETED 2026-05-19 via commit f6e411e — Phase B Patch 3
+    (VOID branch) ships inline reversal mirroring Patch 2's allocation
+    chain on the cancel/void path. Voiding confirmed layaway loyalty
+    redemptions is now safe in production. The chain: find synthetic
+    payment by reference_number=LOYALTY-{redemption_id}, UPDATE
+    voided_at, recompute schedule.paid_amount + account.total_paid via
+    inline writes.
 
   D2 — No atomic rollback on synthetic payment INSERT failure.
     Phase B Patch 1's hard-fail 500 surfaces the error but leaves the
@@ -6896,9 +6945,11 @@ loyalty portal. In progress.
      error on cash order #10000 confirmation.
      Cause unknown — error log not captured.
      Order status flipped to completed despite
-     crash, but award call never fired. DB
-     trigger now provides safety net so future
-     failures won't lose points.
+     crash, but award call never fired.
+     MOOT — Layer-2 award triggers were DROPPED via migration
+     20260516000000 (per SYSTEM STATUS / LOYALTY AWARD SYSTEM).
+     Safety net no longer exists. Phase 9 (2026-05-18) concluded
+     P6/Bug #8 is no longer applicable.
 
 ### BUG #99 EMPIRICAL VERIFICATION — CLOSED 2026-05-18
   Status: All 4 auto-forfeit-settlement hook points + manual-forfeit
@@ -9055,3 +9106,45 @@ where explicitly decided otherwise.
   submitted_by_type CHECK + schema facts documented; void-path
   cleanup (D1), atomic rollback (D2), GAS-delete sync (D3)
   deferred.
+
+  2026-05-19 07:34 UTC — Customers menu mobile crash fixed (commit 165c51a).
+  Option A active-letter-only grouped view. Was Bug #80 follow-up; grouped view
+  rendered all 662 CustomerCards causing iOS WebKit OOM. Mobile test confirmed.
+
+  2026-05-19 mid-session — DB UPDATE: TEST-001 status active→completed (cache
+  sync; audit 12/12 pass). TEST-004 status overdue→active (canonical audit
+  reports no rows currently overdue).
+
+  2026-05-19 07:58 UTC — RedemptionForm.tsx dead-code cleanup (commit 210dcb2).
+  -51 net lines: deleted unused state (selectedOrderId/Kind, loadingOrders,
+  ordersError), unused useMemo (eligibleOrders), unused helpers. tsc green.
+
+  2026-05-19 08:34 UTC — RedemptionForm orders-fetch dual-auth fix (commit
+  f941e6e). Phase B Step 4-B2 5th missed call site closed: orders-fetch now uses
+  getPortalAuthHeaders helper, sending Bearer JWT for session-auth (email/password)
+  customers and ?token=X for legacy token-auth. Previously sent anon key as
+  Authorization Bearer (broken for both modes — Path 0 silently rejected, no
+  fallback worked). Empirically verified: customer Carl Aurel Largo redeemed
+  new_order_discount on his account 20000.
+
+  2026-05-19 08:38–08:39 UTC — First real-customer end-to-end Phase B Patch 2
+  verification on account 20000: redemption a31bf7b1 (confirmed, 200 pts, ¥200)
+  → synthetic payment 61f354ca (ref LOYALTY-a31bf7b1) → allocation fcc68f51
+  (installment, schedule row 1, ¥200) → row 1 partially_paid (paid_amount=200)
+  → account total_paid +200. Carl then submitted ¥7,500 Rakuten Bank payment
+  (implicit DP); final state: total_paid 7,700, remaining 17,300, status active.
+  audit_account('20000') all 12 checks pass. 43-phase Issues 1+2+3 empirically
+  closed twice (TEST-004 08d1d0e0 + Carl 20000 a31bf7b1).
+
+  2026-05-19 09:09 UTC — Bug #82 THIRD occurrence (commit 9e3bd1f). Bulletproof
+  table-anchor replaces React-Email <Button> across 5 auth templates
+  (signup/recovery/magic-link/invite/email-change). Root cause: React-Email
+  Button renders nested <span> that Yahoo strips. Empirically verified on
+  h8redthanblue@yahoo.com at 18:23 JST. See Bug #82 entry for universal rule.
+
+  2026-05-19 evening — Sequence 2 (customer portal auth migration) scope
+  collapsed. feature/email-password-auth branch confirmed gone (Scenario C:
+  work shipped incrementally to main over the past 2 weeks). Original 'HIGH
+  risk, dedicated test session needed' framing no longer applicable. Remaining
+  items: P5 session timeout (LOW, ~45min), P3 loyalty staff visibility
+  (feature), P6 admin audit log (feature).
