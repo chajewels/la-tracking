@@ -1864,7 +1864,7 @@ export type Database = {
           created_at: string
           created_by_user_id: string | null
           id: string
-          invoice_number: string
+          invoice_number: string | null
           member_id: string
           notes: string | null
           points_redeemed: number
@@ -1887,7 +1887,7 @@ export type Database = {
           created_at?: string
           created_by_user_id?: string | null
           id?: string
-          invoice_number: string
+          invoice_number?: string | null
           member_id: string
           notes?: string | null
           points_redeemed: number
@@ -1910,7 +1910,7 @@ export type Database = {
           created_at?: string
           created_by_user_id?: string | null
           id?: string
-          invoice_number?: string
+          invoice_number?: string | null
           member_id?: string
           notes?: string | null
           points_redeemed?: number
