@@ -68,25 +68,6 @@ const TYPE_OPTIONS: Array<{
 
 const QUICK_AMOUNTS = [500, 1000, 2000];
 
-// Currency-formatted amount per CLAUDE.md display rules:
-// PHP → "₱" + comma separators; JPY → "¥" + no decimals; drop .00 on whole.
-function fmtMoney(amount: number, currency: 'PHP' | 'JPY'): string {
-  const n = Number(amount ?? 0);
-  if (currency === 'JPY') {
-    return `¥${Math.round(n).toLocaleString('en-US')}`;
-  }
-  const whole = Number.isInteger(n);
-  return `₱${n.toLocaleString('en-US', {
-    minimumFractionDigits: whole ? 0 : 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
-
-function titleCaseStatus(status: string): string {
-  if (!status) return '';
-  return status.charAt(0).toUpperCase() + status.slice(1);
-}
-
 export interface RedemptionFormProps {
   isOpen: boolean;
   onClose: () => void;
@@ -112,13 +93,7 @@ export function RedemptionForm({
   const [submitted, setSubmitted] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
-  const [selectedOrderKind, setSelectedOrderKind] = useState<
-    'layaway' | 'cash' | null
-  >(null);
   const [orders, setOrders] = useState<OrderOption[]>([]);
-  const [loadingOrders, setLoadingOrders] = useState<boolean>(false);
-  const [ordersError, setOrdersError] = useState<string | null>(null);
   const [invoiceInput, setInvoiceInput] = useState<string>('');
 
   // Reset form whenever the dialog opens.
@@ -130,10 +105,7 @@ export function RedemptionForm({
       setSubmitting(false);
       setSubmitted(false);
       setErrorMsg(null);
-      setSelectedOrderId(null);
-      setSelectedOrderKind(null);
       setOrders([]);
-      setOrdersError(null);
       setInvoiceInput('');
     }
   }, [isOpen]);
@@ -145,8 +117,6 @@ export function RedemptionForm({
     if (redemptionType !== 'new_order_discount') return;
     let cancelled = false;
     (async () => {
-      setLoadingOrders(true);
-      setOrdersError(null);
       try {
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -199,12 +169,11 @@ export function RedemptionForm({
         if (!cancelled) setOrders([...layaway, ...cash]);
       } catch (err: any) {
         if (!cancelled) {
-          setOrdersError(
-            err?.message || 'Could not load your orders — please try again',
+          console.error(
+            '[RedemptionForm] orders fetch failed:',
+            err?.message || err,
           );
         }
-      } finally {
-        if (!cancelled) setLoadingOrders(false);
       }
     })();
     return () => {
@@ -216,17 +185,6 @@ export function RedemptionForm({
     const n = Number(pointsInput);
     return Number.isFinite(n) ? Math.floor(n) : 0;
   }, [pointsInput]);
-
-  const eligibleOrders = useMemo<OrderOption[]>(() => {
-    if (!redemptionType) return [];
-    return orders.filter((o) => {
-      if (redemptionType === 'new_order_discount') {
-        if (o.kind === 'layaway') return Number(o.total_paid ?? 0) === 0;
-        return o.status === 'pending' && Number(o.total_paid ?? 0) === 0;
-      }
-      return true; // shipping_fee / service_fee — no filter
-    });
-  }, [orders, redemptionType]);
 
   const matchedOrder = useMemo<OrderOption | null>(() => {
     if (redemptionType !== 'new_order_discount') return null;
@@ -321,15 +279,6 @@ export function RedemptionForm({
       setSubmitting(false);
     }
   }
-
-  const pickerSubtitle =
-    redemptionType === 'new_order_discount'
-      ? 'Brand-new orders only'
-      : 'Any of your orders';
-  const emptyMsg =
-    redemptionType === 'new_order_discount'
-      ? 'No brand-new orders found. Please create a new order with our team first, then come back to redeem.'
-      : 'No orders found.';
 
   return (
     <Dialog open={isOpen} onOpenChange={(o) => (!o && !submitting ? onClose() : undefined)}>
