@@ -8991,7 +8991,7 @@ where explicitly decided otherwise.
   2026-05-19 evening — Design correction: shipping_fee and service_fee
   redemptions are now strictly points-only (no FK, no invoice_number,
   required notes). Last night's locked rules incorrectly tied these to
-  existing accounts. Phase B/C/D Patch (commit <THIS_COMMIT>):
+  existing accounts. Phase B/C/D Patch (commit fa8b6f7):
   process-loyalty-redemption CREATE/APPROVE/VOID branches type-aware,
   RedemptionForm strips order picker for shipping/service and adds
   required notes textarea, RedemptionApprovalModal displays notes
