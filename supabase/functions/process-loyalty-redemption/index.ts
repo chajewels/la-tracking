@@ -34,6 +34,30 @@ async function resolveRewardName(
   return REDEMPTION_TYPE_LABELS[redemption.redemption_type ?? ""] ?? "Your reward";
 }
 
+// Type-aware "Reward approved" bell body. new_order_discount keeps the
+// shared builder's exact output; shipping_fee / service_fee /
+// catalog_reward use an inline body that surfaces the customer's notes
+// (points-only types carry no order, so notes are the review context).
+// Local-only (no _shared change) to confine the deploy surface.
+function buildApprovedNotif(
+  redemption: { redemption_type?: string | null; notes?: string | null },
+  rewardName: string,
+  points: number,
+): { title: string; body: string } {
+  if (redemption.redemption_type === "new_order_discount") {
+    return buildRedemptionApprovedNotification({ rewardName, points });
+  }
+  const label =
+    REDEMPTION_TYPE_LABELS[redemption.redemption_type ?? ""] ?? "reward";
+  const noteText = String(redemption.notes ?? "").slice(0, 500);
+  return {
+    title: "Reward approved 🎁",
+    body:
+      `Your ${label} redemption (${points.toLocaleString("en-US")} points) was approved. ` +
+      `Note: "${noteText}". We'll be in touch about next steps.`,
+  };
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -336,12 +360,11 @@ Deno.serve(async (req) => {
         ? Math.round(pts * rate * 100) / 100
         : null;
 
-      // Catalog redemptions without a real invoice get a placeholder.
-      // We use a temp value during INSERT (column is NOT NULL), then
-      // UPDATE with REDEEM-{id} once the row has its UUID assigned so
-      // every redemption row carries a unique, traceable invoice
-      // string keyed to its own id.
-      const insertInvoice = trimmedInvoice ?? "REDEEM-PENDING";
+      // invoice_number: user-submitted for new_order_discount (always
+      // present + validated above); NULL for shipping_fee / service_fee /
+      // catalog_reward (column is nullable as of 2026-05-19 — points-only
+      // types carry no invoice). No REDEEM-{id} placeholder anymore.
+      const insertInvoice = trimmedInvoice ?? null;
 
       const { data: redemption, error: insertErr } = await supabase
         .from("loyalty_redemptions")
@@ -367,27 +390,10 @@ Deno.serve(async (req) => {
         return json({ error: "Failed to create redemption" }, 500);
       }
 
-      // Replace placeholder invoice_number with REDEEM-{redemption.id}
-      // so the value is unique and forensically traceable.
-      let finalInvoice = insertInvoice;
-      if (!trimmedInvoice) {
-        finalInvoice = `REDEEM-${redemption.id}`;
-        const { error: invUpdErr } = await supabase
-          .from("loyalty_redemptions")
-          .update({ invoice_number: finalInvoice })
-          .eq("id", redemption.id);
-        if (invUpdErr) {
-          console.warn(
-            "[process-loyalty-redemption] invoice_number patch failed (manual fix needed):",
-            invUpdErr,
-          );
-        }
-      }
-
       return json({
         created: true,
         redemption_id: redemption.id,
-        invoice_number: finalInvoice,
+        invoice_number: insertInvoice,
         status: "pending",
         value_applied_jpy: valueJpy,
       });
@@ -931,10 +937,11 @@ Deno.serve(async (req) => {
             const raceRewardName = await resolveRewardName(supabase, redemption);
             await emitNotification(supabase, redemption.member_id, {
               category: "redemption",
-              ...buildRedemptionApprovedNotification({
-                rewardName: raceRewardName,
-                points: Number(redemption.points_redeemed),
-              }),
+              ...buildApprovedNotif(
+                redemption,
+                raceRewardName,
+                Number(redemption.points_redeemed),
+              ),
               link_target: "tab:points",
             });
             return json(
@@ -999,6 +1006,7 @@ Deno.serve(async (req) => {
                       : null,
                     redemptionType: redemption.redemption_type,
                     invoiceNumber: redemption.invoice_number,
+                    notes: redemption.notes ?? null,
                     remainingPoints: newRemaining,
                     portalUrl,
                   },
@@ -1054,10 +1062,11 @@ Deno.serve(async (req) => {
       const approvedRewardName = await resolveRewardName(supabase, redemption);
       await emitNotification(supabase, redemption.member_id, {
         category: "redemption",
-        ...buildRedemptionApprovedNotification({
-          rewardName: approvedRewardName,
-          points: Number(redemption.points_redeemed),
-        }),
+        ...buildApprovedNotif(
+          redemption,
+          approvedRewardName,
+          Number(redemption.points_redeemed),
+        ),
         link_target: "tab:points",
       });
 

@@ -6600,12 +6600,12 @@ loyalty portal. In progress.
 
 ### LOYALTY REDEMPTION TYPE RULES (locked 2026-05-19) — NON-NEGOTIABLE
 
-  | Type | FK | Invoice # | Notes | Synthetic payment | Allocation chain | Member balance |
-  |------|------|-----------|-------|-------------------|------------------|----------------|
-  | new_order_discount | account_id OR cash_order_id (brand-new only) | required (free-text, must match) | optional | YES | YES (layaway only) | debit |
-  | shipping_fee | NONE | NOT accepted | **required** (max 500 chars) | NO | NO | debit ONLY |
-  | service_fee | NONE | NOT accepted | **required** (max 500 chars) | NO | NO | debit ONLY |
-  | catalog_reward | NONE | NOT accepted | optional | NO | NO | debit + catalog stock decrement |
+  | Type | FK | Invoice # input | invoice_number column | Notes | Synthetic payment | Allocation chain | Member balance |
+  |------|------|-----------|------|-------|-------------------|------------------|----------------|
+  | new_order_discount | account_id OR cash_order_id (brand-new only) | required (free-text, must match) | user-submitted value | optional | YES | YES (layaway only) | debit |
+  | shipping_fee | NONE | NOT accepted | NULL (column nullable as of 2026-05-19) | **required** (max 500 chars) | NO | NO | debit ONLY |
+  | service_fee | NONE | NOT accepted | NULL (column nullable as of 2026-05-19) | **required** (max 500 chars) | NO | NO | debit ONLY |
+  | catalog_reward | NONE | NOT accepted | NULL (column nullable as of 2026-05-19) | optional | NO | NO | debit + catalog stock decrement |
 
   STRICT RULE (locked 2026-05-19): shipping_fee and service_fee redemptions are
   points-only operations. They MUST NOT touch layaway_accounts, cash_orders,
@@ -6613,6 +6613,30 @@ loyalty portal. In progress.
   circumstance. The only DB writes on approve are: loyalty_members balance
   UPDATE + loyalty_transactions INSERT. (Supersedes the 2026-05-18 locked rules
   that incorrectly tied shipping/service to existing accounts.)
+
+  invoice_number COLUMN (locked 2026-05-19): loyalty_redemptions.invoice_number
+  is nullable (ALTER DROP NOT NULL applied 2026-05-19). new_order_discount
+  stores the user-submitted invoice. shipping_fee / service_fee /
+  catalog_reward store NULL — the old "REDEEM-{id}" placeholder pattern is
+  REMOVED, never reintroduce it. (3 historical 2026-05-18 cancelled rows with
+  "TEST-004"/"REDEEM-..." invoice values are preserved audit artifacts — do
+  not rewrite them.)
+
+  BELL NOTIFICATION (locked 2026-05-19): the in-app "Reward approved 🎁" bell
+  fires for ALL redemption types on approve — emitNotification is
+  unconditional, NO FK gating exists or should be added. Body is type-aware:
+  new_order_discount uses the shared buildRedemptionApprovedNotification
+  output unchanged; shipping_fee / service_fee / catalog_reward use an inline
+  body that includes the customer's notes inline ("…Note: \"{notes}\"…").
+  Built inline in process-loyalty-redemption (NOT in
+  _shared/loyalty-notification-templates.ts) to confine the deploy surface.
+
+  EMAIL "loyalty-redeem" line (locked 2026-05-19): renders
+  "Applied to: INV #{invoiceNumber}" for new_order_discount;
+  "Purpose: {notes}" for shipping_fee / service_fee / catalog_reward.
+  The send call passes notes in templateData; gated on redemptionType in
+  loyalty-redeem.tsx. Requires send-transactional-email redeploy on template
+  change (registry coupling, Bug #103).
 
 ### KNOWN OPEN ITEMS — Redemption wiring gap (filed 2026-05-18, Phase 11)
 
@@ -8987,6 +9011,19 @@ where explicitly decided otherwise.
   exists for the account.
 
 ## Recent Updates
+
+  2026-05-19 night — Phase B/C/D cleanup patch (commit <THIS_COMMIT>):
+  (1) CREATE writes invoice_number=NULL for shipping_fee/service_fee/
+  catalog_reward (REDEEM-{id} placeholder removed; column nullable since
+  2026-05-19). (2) APPROVE bell body now type-aware — points-only types
+  include the customer's notes inline (bell was already unconditional;
+  Gap-2 "FK gate" premise was false, nothing ungated). (3) loyalty-redeem
+  email renders "Purpose: {notes}" for points-only vs "Applied to: INV #…"
+  for new_order_discount (notes added to templateData + template prop).
+  CLAUDE.md locked type-rules table extended with invoice_number column +
+  bell + email rules. Deploy: process-loyalty-redemption +
+  send-transactional-email (registry coupling). new_order_discount paths
+  and VOID branch unchanged.
 
   2026-05-19 evening — Design correction: shipping_fee and service_fee
   redemptions are now strictly points-only (no FK, no invoice_number,

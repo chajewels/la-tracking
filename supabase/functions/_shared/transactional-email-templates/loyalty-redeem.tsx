@@ -14,6 +14,7 @@ interface Props {
   valueAppliedPhp?: number | null
   redemptionType?: 'new_order_discount' | 'shipping_fee' | 'service_fee' | string
   invoiceNumber?: string
+  notes?: string
   remainingPoints?: number
   portalUrl?: string
 }
@@ -40,6 +41,7 @@ const LoyaltyRedeemEmail = ({
   valueAppliedPhp = null,
   redemptionType = 'new_order_discount',
   invoiceNumber = '00000',
+  notes = '',
   remainingPoints = 0,
   portalUrl,
 }: Props) => {
@@ -66,7 +68,11 @@ const LoyaltyRedeemEmail = ({
                 <span style={detailSubdued}>{' '}(equivalent to ₱{fmt(valueAppliedPhp)})</span>
               )}
             </Text>
-            <Text style={detailRow}><strong>Applied to:</strong> INV #{invoiceNumber}</Text>
+            {redemptionType === 'new_order_discount' ? (
+              <Text style={detailRow}><strong>Applied to:</strong> INV #{invoiceNumber}</Text>
+            ) : (
+              <Text style={detailRow}><strong>Purpose:</strong> {notes}</Text>
+            )}
             <Text style={detailRow}><strong>Type:</strong> {formatRedemptionType(redemptionType)}</Text>
           </Section>
 
