@@ -8968,7 +8968,7 @@ where explicitly decided otherwise.
 ## Recent Updates
 
   2026-05-19 morning — Phase 7-bis: ported fetchWithRetryOnRateLimit
-  helper to daily-reconciliation (commit <THIS_COMMIT>). Fixes silent
+  helper to daily-reconciliation (commit 7ac176f). Fixes silent
   account skip on Supabase outbound rate limit (empirical: 2026-05-19
   01:00 UTC cron skipped invoice 18175 and TEST-001). Same pattern
   as Bug #114 / Phase 7 fix in send-reminders. Issue 3 resolution
