@@ -6598,6 +6598,22 @@ loyalty portal. In progress.
   (No pending items for migration — Adjust Points shipped & validated
    2026-05-17, see SYSTEM STATUS.)
 
+### LOYALTY REDEMPTION TYPE RULES (locked 2026-05-19) — NON-NEGOTIABLE
+
+  | Type | FK | Invoice # | Notes | Synthetic payment | Allocation chain | Member balance |
+  |------|------|-----------|-------|-------------------|------------------|----------------|
+  | new_order_discount | account_id OR cash_order_id (brand-new only) | required (free-text, must match) | optional | YES | YES (layaway only) | debit |
+  | shipping_fee | NONE | NOT accepted | **required** (max 500 chars) | NO | NO | debit ONLY |
+  | service_fee | NONE | NOT accepted | **required** (max 500 chars) | NO | NO | debit ONLY |
+  | catalog_reward | NONE | NOT accepted | optional | NO | NO | debit + catalog stock decrement |
+
+  STRICT RULE (locked 2026-05-19): shipping_fee and service_fee redemptions are
+  points-only operations. They MUST NOT touch layaway_accounts, cash_orders,
+  payments, cash_payments, payment_allocations, or layaway_schedule under any
+  circumstance. The only DB writes on approve are: loyalty_members balance
+  UPDATE + loyalty_transactions INSERT. (Supersedes the 2026-05-18 locked rules
+  that incorrectly tied shipping/service to existing accounts.)
+
 ### KNOWN OPEN ITEMS — Redemption wiring gap (filed 2026-05-18, Phase 11)
 
   The redemption flow was half-built when filed. Discovered during
@@ -6664,6 +6680,11 @@ loyalty portal. In progress.
     business rules revoke at account level (forfeited / final_forfeited
     / cancelled), not at lot level. The loyalty_lot_consumption table
     remains in the schema but is deliberately unused — not a gap.
+    Further clarification (2026-05-19 evening): the synthetic-payment route
+    applies ONLY to new_order_discount redemptions. shipping_fee and
+    service_fee are strictly points-only — they bypass the synthetic payment
+    chain entirely. loyalty_lot_consumption table remains deliberately unused
+    across all four redemption types.
     [Original finding below.]
     Schema designed with full lifecycle support:
       - id uuid PK
@@ -8966,6 +8987,17 @@ where explicitly decided otherwise.
   exists for the account.
 
 ## Recent Updates
+
+  2026-05-19 evening — Design correction: shipping_fee and service_fee
+  redemptions are now strictly points-only (no FK, no invoice_number,
+  required notes). Last night's locked rules incorrectly tied these to
+  existing accounts. Phase B/C/D Patch (commit <THIS_COMMIT>):
+  process-loyalty-redemption CREATE/APPROVE/VOID branches type-aware,
+  RedemptionForm strips order picker for shipping/service and adds
+  required notes textarea, RedemptionApprovalModal displays notes
+  prominently. Historical cancelled redemptions referencing TEST-004
+  (08d1d0e0, af636465, bfd0da07) remain as audit artifacts of the
+  pre-correction design.
 
   2026-05-19 morning — Phase 7-bis: ported fetchWithRetryOnRateLimit
   helper to daily-reconciliation (commit 7ac176f). Fixes silent

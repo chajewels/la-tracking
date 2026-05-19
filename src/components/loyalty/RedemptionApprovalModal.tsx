@@ -130,34 +130,37 @@ export function RedemptionApprovalModal({
   const isPending = redemption?.status === 'pending';
   const isConfirmed = redemption?.status === 'confirmed';
   const isCancelled = redemption?.status === 'cancelled';
-  const allChecksPassed = check1 && check2 && check3;
 
-  // Phase D — type-aware verification labels + apply verb. The locked
-  // CREATE-branch rules differ per type: new_order_discount requires a
-  // brand-new order; shipping_fee / service_fee apply to ANY order
-  // state; catalog_reward has no order link.
+  // Phase D + design correction 2026-05-19 — type-aware display.
+  // new_order_discount: order-linked (invoice, brand-new checks, 3 checks).
+  // shipping_fee / service_fee: STRICT points-only — no invoice, no order
+  // checks; admin reviews against the customer's notes (single check).
+  // catalog_reward: existing catalog flow.
   const rType = redemption?.redemption_type ?? '';
   const isNewOrderDiscount = rType === 'new_order_discount';
   const isShippingFee = rType === 'shipping_fee';
   const isServiceFee = rType === 'service_fee';
+  const isPointsOnly = isShippingFee || isServiceFee;
+  // Points-only redemptions need only the single notes-match check.
+  const allChecksPassed = isPointsOnly
+    ? check1
+    : check1 && check2 && check3;
   const check1Label = isNewOrderDiscount
     ? 'Invoice is for a NEW order (not an existing in-progress account)'
     : isShippingFee
-      ? 'Shipping fee redemption applies to the selected order'
+      ? "Confirm shipping request matches customer's notes"
       : isServiceFee
-        ? 'Service fee redemption applies to the selected order'
+        ? "Confirm service request matches customer's notes"
         : 'Redemption target order is correct';
   const check3Label = isNewOrderDiscount
     ? "Redemption type matches the new order's intent"
-    : isShippingFee || isServiceFee
-      ? "Redemption type matches the customer's request"
-      : "Reward selection matches the customer's request";
+    : "Reward selection matches the customer's request";
   const applyVerb = isNewOrderDiscount
     ? 'Apply New Order Discount'
     : isShippingFee
-      ? 'Apply Shipping Discount'
+      ? 'Approve Shipping Fee'
       : isServiceFee
-        ? 'Apply Service Discount'
+        ? 'Approve Service Fee'
         : 'Approve & Apply';
 
   async function invalidateAll() {
@@ -330,14 +333,29 @@ export function RedemptionApprovalModal({
                       : ''
                   }`}
                 />
-                <Stat label="Invoice" value={`#${redemption.invoice_number}`} mono />
+                {redemption.invoice_number != null &&
+                  redemption.invoice_number !== '' && (
+                    <Stat
+                      label="Invoice"
+                      value={`#${redemption.invoice_number}`}
+                      mono
+                    />
+                  )}
               </div>
               {redemption.notes && (
-                <div className="mt-2 rounded-md border border-border bg-muted/40 px-2 py-1.5 text-xs">
+                <div
+                  className={`mt-2 rounded-md border px-2 py-1.5 text-xs ${
+                    isPointsOnly
+                      ? 'border-amber-500/40 bg-amber-500/10'
+                      : 'border-border bg-muted/40'
+                  }`}
+                >
                   <p className="text-[12px] uppercase tracking-wider text-muted-foreground mb-0.5">
-                    Customer notes
+                    {isPointsOnly ? 'Notes (review context)' : 'Customer notes'}
                   </p>
-                  <p className="text-foreground">{redemption.notes}</p>
+                  <p className="text-foreground whitespace-pre-wrap">
+                    {redemption.notes}
+                  </p>
                 </div>
               )}
             </div>
@@ -385,20 +403,27 @@ export function RedemptionApprovalModal({
                   onChange={setCheck1}
                   label={check1Label}
                 />
-                <Verify
-                  id="check-balance"
-                  checked={check2}
-                  onChange={setCheck2}
-                  label={`Customer has sufficient points (${Number(
-                    member?.remaining_points ?? 0,
-                  ).toLocaleString()} available)`}
-                />
-                <Verify
-                  id="check-type"
-                  checked={check3}
-                  onChange={setCheck3}
-                  label={check3Label}
-                />
+                {/* shipping_fee / service_fee are points-only — single
+                    notes-match check is sufficient (design correction
+                    2026-05-19). new_order_discount keeps all 3 checks. */}
+                {!isPointsOnly && (
+                  <>
+                    <Verify
+                      id="check-balance"
+                      checked={check2}
+                      onChange={setCheck2}
+                      label={`Customer has sufficient points (${Number(
+                        member?.remaining_points ?? 0,
+                      ).toLocaleString()} available)`}
+                    />
+                    <Verify
+                      id="check-type"
+                      checked={check3}
+                      onChange={setCheck3}
+                      label={check3Label}
+                    />
+                  </>
+                )}
               </div>
             )}
 

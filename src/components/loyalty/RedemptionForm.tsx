@@ -11,7 +11,6 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Skeleton } from '@/components/ui/skeleton';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -139,9 +138,11 @@ export function RedemptionForm({
     }
   }, [isOpen]);
 
-  // Fetch the customer's orders once per dialog open.
+  // Fetch the customer's orders only for new_order_discount (invoice→order
+  // lookup). shipping_fee / service_fee are points-only — no fetch.
   useEffect(() => {
     if (!isOpen) return;
+    if (redemptionType !== 'new_order_discount') return;
     let cancelled = false;
     (async () => {
       setLoadingOrders(true);
@@ -209,7 +210,7 @@ export function RedemptionForm({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, portalToken]);
+  }, [isOpen, portalToken, redemptionType]);
 
   const pointsNum = useMemo(() => {
     const n = Number(pointsInput);
@@ -241,11 +242,16 @@ export function RedemptionForm({
 
   const pointsValid = pointsNum > 0 && pointsNum <= remainingPoints;
   const typeValid = redemptionType !== '';
-  const orderSelected =
-    selectedOrderId !== null && selectedOrderKind !== null;
+  const isPointsOnly =
+    redemptionType === 'shipping_fee' || redemptionType === 'service_fee';
+  const notesValid = notes.trim().length > 0 && notes.length <= 500;
+  // new_order_discount → matched brand-new order required.
+  // shipping_fee / service_fee → strictly points-only, notes required.
   const orderInputValid = redemptionType === 'new_order_discount'
     ? matchedOrder !== null
-    : orderSelected;
+    : isPointsOnly
+      ? notesValid
+      : false;
   const formValid = pointsValid && typeValid && orderInputValid;
 
   const pointsError = pointsInput && !pointsValid
@@ -259,43 +265,43 @@ export function RedemptionForm({
     setSubmitting(true);
     setErrorMsg(null);
     try {
-      let orderForBody: OrderOption | null = null;
+      // Points-only types (shipping_fee / service_fee, owner rule 2026-05-19):
+      // no FK, no invoice — body is action/type/points/notes only.
+      let body: Record<string, unknown>;
       if (redemptionType === 'new_order_discount') {
         if (!matchedOrder) {
           setErrorMsg('Please enter a valid invoice number');
           setSubmitting(false);
           return;
         }
-        orderForBody = matchedOrder;
+        body = {
+          action: 'create',
+          member_id: memberId,
+          redemption_type: redemptionType,
+          points_redeemed: pointsNum,
+          invoice_number: matchedOrder.invoice_number,
+          notes: notes.trim() || null,
+          portal_token: portalToken,
+          account_id:
+            matchedOrder.kind === 'layaway' ? matchedOrder.id : null,
+          cash_order_id:
+            matchedOrder.kind === 'cash' ? matchedOrder.id : null,
+        };
       } else {
-        const selectedOrder = eligibleOrders.find(
-          (o) => o.id === selectedOrderId,
-        );
-        if (!selectedOrder) {
-          setErrorMsg('Please select an order');
-          setSubmitting(false);
-          return;
-        }
-        orderForBody = selectedOrder;
+        // shipping_fee / service_fee — strictly points-only
+        body = {
+          action: 'create',
+          member_id: memberId,
+          redemption_type: redemptionType,
+          points_redeemed: pointsNum,
+          notes: notes.trim(),
+          portal_token: portalToken,
+        };
       }
 
       const { data, error } = await supabase.functions.invoke(
         'process-loyalty-redemption',
-        {
-          body: {
-            action: 'create',
-            member_id: memberId,
-            redemption_type: redemptionType,
-            points_redeemed: pointsNum,
-            invoice_number: orderForBody.invoice_number,
-            notes: notes.trim() || null,
-            portal_token: portalToken,
-            account_id:
-              orderForBody.kind === 'layaway' ? orderForBody.id : null,
-            cash_order_id:
-              orderForBody.kind === 'cash' ? orderForBody.id : null,
-          },
-        },
+        { body },
       );
       if (error) throw error;
       const errFromBody = (data as any)?.error as string | undefined;
@@ -458,106 +464,37 @@ export function RedemptionForm({
                 </div>
               )}
 
-              {/* Order Picker — shipping_fee / service_fee only */}
+              {/* Points-only notes — shipping_fee / service_fee (required) */}
               {(redemptionType === 'shipping_fee' ||
                 redemptionType === 'service_fee') && (
                 <div>
-                  <Label style={{ color: P.tp }}>Select an order</Label>
-                  <div className="mt-0.5 text-xs" style={{ color: P.ts }}>
-                    {pickerSubtitle}
+                  <Label htmlFor="pts-notes" style={{ color: P.tp }}>
+                    Notes{' '}
+                    <span style={{ color: '#B85450' }}>
+                      (required for tracking &amp; notification)
+                    </span>
+                  </Label>
+                  <Textarea
+                    id="pts-notes"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    rows={4}
+                    maxLength={500}
+                    placeholder="Describe what this shipping fee / service fee redemption is for. The admin will see this on review."
+                    className="mt-2"
+                    style={{ background: P.s2, color: P.tp, borderColor: P.br }}
+                  />
+                  <div
+                    className="mt-1 flex justify-between text-xs"
+                    style={{ color: P.ts }}
+                  >
+                    <span>
+                      {notes.trim().length === 0
+                        ? 'Required — cannot submit without notes'
+                        : 'These points-only redemptions never touch an order.'}
+                    </span>
+                    <span>{notes.length}/500</span>
                   </div>
-
-                  {loadingOrders ? (
-                    <Skeleton
-                      className="mt-2 h-20 w-full rounded-md"
-                      style={{ background: P.s2 }}
-                    />
-                  ) : ordersError ? (
-                    <div
-                      className="mt-2 rounded-md px-3 py-2 text-sm"
-                      style={{
-                        background: '#3b1414',
-                        border: '1px solid #B85450',
-                        color: '#F5C9C9',
-                      }}
-                    >
-                      {ordersError}
-                    </div>
-                  ) : eligibleOrders.length === 0 ? (
-                    <div
-                      className="mt-2 rounded-md px-3 py-2 text-xs"
-                      style={{
-                        background: P.s2,
-                        border: `1px solid ${P.br}`,
-                        color: P.gl,
-                      }}
-                    >
-                      {emptyMsg}
-                    </div>
-                  ) : (
-                    <RadioGroup
-                      value={selectedOrderId ?? ''}
-                      onValueChange={(v) => {
-                        const picked = eligibleOrders.find((o) => o.id === v);
-                        setSelectedOrderId(v);
-                        setSelectedOrderKind(picked ? picked.kind : null);
-                      }}
-                      className="mt-2 space-y-2"
-                      style={{
-                        maxHeight: '260px',
-                        overflowY: 'auto',
-                        paddingRight: '4px',
-                      }}
-                    >
-                      {eligibleOrders.map((o) => {
-                        const sel = selectedOrderId === o.id;
-                        return (
-                          <label
-                            key={`${o.kind}-${o.id}`}
-                            htmlFor={`ord-${o.kind}-${o.id}`}
-                            className="flex cursor-pointer items-start gap-3 rounded-md p-3"
-                            style={{
-                              background: sel ? P.s2 : 'transparent',
-                              border: `1px solid ${sel ? P.gp : P.br}`,
-                            }}
-                          >
-                            <RadioGroupItem
-                              id={`ord-${o.kind}-${o.id}`}
-                              value={o.id}
-                            />
-                            <div className="flex-1">
-                              <div
-                                style={{
-                                  color: P.tp,
-                                  fontFamily: CG,
-                                  fontSize: '15px',
-                                }}
-                              >
-                                #{o.invoice_number}
-                              </div>
-                              <div
-                                className="mt-0.5 text-xs"
-                                style={{ color: P.ts }}
-                              >
-                                {o.kind === 'layaway' ? 'Layaway' : 'Cash Order'}
-                                {' • '}
-                                {titleCaseStatus(o.status)}
-                              </div>
-                              <div
-                                className="mt-0.5 text-xs"
-                                style={{ color: P.ts }}
-                              >
-                                Total {fmtMoney(o.total_amount, o.currency)}
-                                {' • '}
-                                Remaining{' '}
-                                {fmtMoney(o.remaining_balance, o.currency)}
-                              </div>
-                            </div>
-                          </label>
-                        );
-                      })}
-                    </RadioGroup>
-                  )}
                 </div>
               )}
 
@@ -625,21 +562,24 @@ export function RedemptionForm({
                 )}
               </div>
 
-              {/* Notes */}
-              <div>
-                <Label htmlFor="notes" style={{ color: P.tp }}>
-                  Notes <span style={{ color: P.ts }}>(optional)</span>
-                </Label>
-                <Textarea
-                  id="notes"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Any details for our team to know"
-                  rows={3}
-                  className="mt-2"
-                  style={{ background: P.s2, color: P.tp, borderColor: P.br }}
-                />
-              </div>
+              {/* Notes (optional) — new_order_discount only; shipping/service
+                  use the dedicated required-notes block above */}
+              {redemptionType === 'new_order_discount' && (
+                <div>
+                  <Label htmlFor="notes" style={{ color: P.tp }}>
+                    Notes <span style={{ color: P.ts }}>(optional)</span>
+                  </Label>
+                  <Textarea
+                    id="notes"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Any details for our team to know"
+                    rows={3}
+                    className="mt-2"
+                    style={{ background: P.s2, color: P.tp, borderColor: P.br }}
+                  />
+                </div>
+              )}
 
               {errorMsg && (
                 <div

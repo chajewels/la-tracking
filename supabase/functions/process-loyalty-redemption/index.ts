@@ -151,9 +151,9 @@ Deno.serve(async (req) => {
           400,
         );
       }
-      if (!reward_id && !rawInvoiceNumber) {
+      if (redemption_type === 'new_order_discount' && !rawInvoiceNumber) {
         return json(
-          { error: "invoice_number is required when reward_id is not provided" },
+          { error: "invoice_number is required for new_order_discount" },
           400,
         );
       }
@@ -227,14 +227,15 @@ Deno.serve(async (req) => {
       const trimmedInvoice =
         typeof rawInvoiceNumber === "string" ? rawInvoiceNumber.trim() : null;
 
-      // Phase B — type-aware order validation. catalog_reward passes through
-      // unchanged (skips order-link checks entirely; reward validation
-      // happened above). All non-catalog types require exactly one FK and
-      // apply type-specific brand-new/invoice rules.
-      if (redemption_type !== 'catalog_reward') {
+      // Type-aware order validation (design correction 2026-05-19):
+      //  - new_order_discount: requires exactly one brand-new FK + matching invoice
+      //  - shipping_fee / service_fee: STRICT points-only — no FK, no invoice,
+      //    notes required (owner rule 2026-05-19)
+      //  - catalog_reward: skips order-link checks (reward validated above)
+      if (redemption_type === 'new_order_discount') {
         if (!account_id && !cash_order_id) {
           return json(
-            { error: "account_id or cash_order_id is required for this redemption type" },
+            { error: "account_id or cash_order_id is required for new_order_discount" },
             400,
           );
         }
@@ -244,77 +245,82 @@ Deno.serve(async (req) => {
             400,
           );
         }
-
-        if (redemption_type === 'new_order_discount') {
-          if (!trimmedInvoice) {
+        if (!trimmedInvoice) {
+          return json(
+            { error: "invoice_number is required for new_order_discount" },
+            400,
+          );
+        }
+        if (account_id) {
+          const { data: acct } = await supabase
+            .from("layaway_accounts")
+            .select("id, currency, total_paid, invoice_number")
+            .eq("id", account_id)
+            .maybeSingle();
+          if (!acct) return json({ error: "Account not found" }, 404);
+          if (Number(acct.total_paid ?? 0) > 0) {
             return json(
-              { error: "invoice_number is required for new_order_discount" },
+              { error: "new_order_discount only allowed on brand-new orders (no payments yet)" },
               400,
             );
           }
-          if (account_id) {
-            const { data: acct } = await supabase
-              .from("layaway_accounts")
-              .select("id, currency, total_paid, invoice_number")
-              .eq("id", account_id)
-              .maybeSingle();
-            if (!acct) return json({ error: "Account not found" }, 404);
-            if (Number(acct.total_paid ?? 0) > 0) {
-              return json(
-                { error: "new_order_discount only allowed on brand-new orders (no payments yet)" },
-                400,
-              );
-            }
-            if (acct.invoice_number !== trimmedInvoice) {
-              return json({ error: "Invoice number does not match account" }, 400);
-            }
-            orderCurrency = acct.currency;
-          } else {
-            const { data: cash } = await supabase
-              .from("cash_orders")
-              .select("id, currency, status, total_paid, invoice_number")
-              .eq("id", cash_order_id)
-              .maybeSingle();
-            if (!cash) return json({ error: "Cash order not found" }, 404);
-            if (cash.status !== 'pending' || Number(cash.total_paid ?? 0) > 0) {
-              return json(
-                { error: "new_order_discount only allowed on brand-new cash orders (status='pending', no payments yet)" },
-                400,
-              );
-            }
-            if (cash.invoice_number !== trimmedInvoice) {
-              return json({ error: "Invoice number does not match cash order" }, 400);
-            }
-            orderCurrency = cash.currency;
+          if (acct.invoice_number !== trimmedInvoice) {
+            return json({ error: "Invoice number does not match account" }, 400);
           }
+          orderCurrency = acct.currency;
         } else {
-          // shipping_fee or service_fee — any account/cash_order accepted regardless of state.
-          // Invoice optional; if provided, must match the target order.
-          if (account_id) {
-            const { data: acct } = await supabase
-              .from("layaway_accounts")
-              .select("id, currency, invoice_number")
-              .eq("id", account_id)
-              .maybeSingle();
-            if (!acct) return json({ error: "Account not found" }, 404);
-            if (trimmedInvoice && acct.invoice_number !== trimmedInvoice) {
-              return json({ error: "Invoice number does not match account" }, 400);
-            }
-            orderCurrency = acct.currency;
-          } else {
-            const { data: cash } = await supabase
-              .from("cash_orders")
-              .select("id, currency, invoice_number")
-              .eq("id", cash_order_id)
-              .maybeSingle();
-            if (!cash) return json({ error: "Cash order not found" }, 404);
-            if (trimmedInvoice && cash.invoice_number !== trimmedInvoice) {
-              return json({ error: "Invoice number does not match cash order" }, 400);
-            }
-            orderCurrency = cash.currency;
+          const { data: cash } = await supabase
+            .from("cash_orders")
+            .select("id, currency, status, total_paid, invoice_number")
+            .eq("id", cash_order_id)
+            .maybeSingle();
+          if (!cash) return json({ error: "Cash order not found" }, 404);
+          if (cash.status !== 'pending' || Number(cash.total_paid ?? 0) > 0) {
+            return json(
+              { error: "new_order_discount only allowed on brand-new cash orders (status='pending', no payments yet)" },
+              400,
+            );
           }
+          if (cash.invoice_number !== trimmedInvoice) {
+            return json({ error: "Invoice number does not match cash order" }, 400);
+          }
+          orderCurrency = cash.currency;
+        }
+      } else if (redemption_type === 'shipping_fee' || redemption_type === 'service_fee') {
+        // STRICT RULE (owner 2026-05-19): shipping/service redemptions are
+        // points-only. They MUST NOT reference any account or cash order.
+        if (account_id || cash_order_id) {
+          return json(
+            {
+              error: `${redemption_type} redemptions cannot be linked to an account or cash order — they are points-only operations`,
+            },
+            400,
+          );
+        }
+        if (trimmedInvoice) {
+          return json(
+            {
+              error: `${redemption_type} redemptions cannot include invoice_number — they are points-only operations`,
+            },
+            400,
+          );
+        }
+        if (!notes || !String(notes).trim()) {
+          return json(
+            {
+              error: `notes is required for ${redemption_type} redemptions (used for tracking and customer notification)`,
+            },
+            400,
+          );
+        }
+        if (String(notes).length > 500) {
+          return json(
+            { error: `notes exceeds 500 characters` },
+            400,
+          );
         }
       }
+      // catalog_reward: no order-link validation (reward validated earlier).
 
       // Current rate
       const { data: rateSetting } = await supabase
@@ -503,8 +509,13 @@ Deno.serve(async (req) => {
       // Best-effort: failures here are logged but do NOT block the approve
       // flow — the redemption flip and member balance update have already
       // succeeded.
+      // Synthetic payment + allocation chain fires ONLY for new_order_discount
+      // with a real FK. shipping_fee/service_fee are points-only (owner rule
+      // 2026-05-19); catalog_reward never had a synthetic payment. For those
+      // types, only the member balance debit + loyalty_transactions INSERT
+      // (earlier in this handler, type-agnostic) fire.
       if (
-        redemption.redemption_type !== 'catalog_reward' &&
+        redemption.redemption_type === 'new_order_discount' &&
         (redemption.account_id || redemption.cash_order_id)
       ) {
         try {
@@ -1299,11 +1310,13 @@ Deno.serve(async (req) => {
       }
 
       // Phase B — reverse synthetic payment for non-catalog redemptions.
-      // Catalog rewards have no synthetic payment to reverse. Best-effort:
-      // failures here are logged but do NOT block the void flow — the
-      // redemption flip and member balance refund have already succeeded.
+      // Order-side reversal fires ONLY for new_order_discount with a real FK.
+      // shipping_fee/service_fee are points-only (owner rule 2026-05-19) and
+      // catalog_reward never had a synthetic payment — nothing to reverse on
+      // the order side. Member refund + loyalty_transactions reversal +
+      // redemption status flip (earlier in this handler) still fire for all.
       if (
-        redemption.redemption_type !== 'catalog_reward' &&
+        redemption.redemption_type === 'new_order_discount' &&
         (redemption.account_id || redemption.cash_order_id)
       ) {
         try {
