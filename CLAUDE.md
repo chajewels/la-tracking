@@ -9012,7 +9012,7 @@ where explicitly decided otherwise.
 
 ## Recent Updates
 
-  2026-05-19 night — Phase B/C/D cleanup patch (commit <THIS_COMMIT>):
+  2026-05-19 night — Phase B/C/D cleanup patch (commit 413bf0b):
   (1) CREATE writes invoice_number=NULL for shipping_fee/service_fee/
   catalog_reward (REDEEM-{id} placeholder removed; column nullable since
   2026-05-19). (2) APPROVE bell body now type-aware — points-only types
