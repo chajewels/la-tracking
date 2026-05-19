@@ -1314,7 +1314,7 @@ Deno.serve(async (req) => {
           if (redemption.account_id) {
             const { data: existingPay } = await supabase
               .from("payments")
-              .select("id, voided_at")
+              .select("id, voided_at, amount_paid")
               .eq("reference_number", refRef)
               .maybeSingle();
             if (existingPay && !existingPay.voided_at) {
@@ -1332,22 +1332,197 @@ Deno.serve(async (req) => {
                   { redemption_id: redemption.id, payment_id: existingPay.id, err: voidPayErr },
                 );
               } else {
-                await fetch(
-                  `${Deno.env.get("SUPABASE_URL")}/functions/v1/reconcile-account`,
-                  {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                // Phase B Patch 3 — inline reversal of Patch 2's APPROVE allocation chain.
+                // Mirror image: read allocations → revert schedule rows → delete allocations →
+                // revert account totals. Same hard-fail-on-error pattern as Patch 2.
+                // Note: existingPay carries the payment row that was just voided in the
+                // preceding UPDATE; reuse its id + amount_paid here.
+
+                // 1. Fetch all allocations linked to the voided payment
+                const { data: allocations, error: allocsFetchErr } = await supabase
+                  .from("payment_allocations")
+                  .select("id, schedule_id, allocated_amount, allocation_type")
+                  .eq("payment_id", existingPay.id);
+
+                if (allocsFetchErr) {
+                  console.error(
+                    "[process-loyalty-redemption] failed to fetch allocations for void cleanup:",
+                    { redemption_id: redemption.id, payment_id: existingPay.id, err: allocsFetchErr },
+                  );
+                  return json(
+                    {
+                      error: "Failed to fetch payment_allocations for void cleanup",
+                      detail: allocsFetchErr.message,
+                      redemption_id: redemption.id,
+                      payment_id: existingPay.id,
+                      manual_action_required: true,
                     },
-                    body: JSON.stringify({ account_id: redemption.account_id }),
-                  },
-                ).catch((e) =>
-                  console.warn(
-                    "[process-loyalty-redemption] reconcile-account call failed after layaway void:",
-                    { redemption_id: redemption.id, err: e },
-                  )
-                );
+                    500,
+                  );
+                }
+
+                // 2. For each allocation, revert the schedule row, then DELETE the allocation
+                for (const alloc of (allocations || [])) {
+                  // Read current schedule row state
+                  const { data: row, error: rowReadErr } = await supabase
+                    .from("layaway_schedule")
+                    .select("id, total_due_amount, paid_amount, status, due_date")
+                    .eq("id", alloc.schedule_id)
+                    .single();
+
+                  if (rowReadErr || !row) {
+                    console.error(
+                      "[process-loyalty-redemption] failed to read schedule row for void cleanup:",
+                      { redemption_id: redemption.id, schedule_id: alloc.schedule_id, err: rowReadErr },
+                    );
+                    return json(
+                      {
+                        error: "Failed to read schedule row for void reversal",
+                        detail: rowReadErr?.message ?? "no row",
+                        redemption_id: redemption.id,
+                        schedule_id: alloc.schedule_id,
+                        manual_action_required: true,
+                      },
+                      500,
+                    );
+                  }
+
+                  const newPaid = Math.max(0, Number(row.paid_amount) - Number(alloc.allocated_amount));
+                  const due = Number(row.total_due_amount);
+
+                  // Status reversal rule (mirror of Patch 2's status rule):
+                  //   if newPaid >= due (shouldn't normally happen on void since we're decrementing) → keep 'paid'
+                  //   else if newPaid === 0 AND due_date < today → 'overdue'
+                  //   else if newPaid === 0 → 'pending'
+                  //   else if row was 'paid' → revert to 'overdue' if past due_date, else 'partially_paid'
+                  //   else keep existing status (overdue/partially_paid stays)
+                  const todayStr = new Date().toISOString().slice(0, 10);
+                  const isOverdueDate = row.due_date < todayStr;
+                  let newStatus: string;
+                  if (newPaid >= due) {
+                    newStatus = "paid"; // edge case — shouldn't occur on void of a legitimate allocation
+                  } else if (newPaid === 0) {
+                    newStatus = isOverdueDate ? "overdue" : "pending";
+                  } else if (row.status === "paid") {
+                    newStatus = isOverdueDate ? "overdue" : "partially_paid";
+                  } else {
+                    newStatus = row.status; // overdue / partially_paid stay
+                  }
+
+                  const { error: schedUpdErr } = await supabase
+                    .from("layaway_schedule")
+                    .update({ paid_amount: newPaid, status: newStatus })
+                    .eq("id", row.id);
+
+                  if (schedUpdErr) {
+                    console.error(
+                      "[process-loyalty-redemption] schedule UPDATE failed during void cleanup:",
+                      { redemption_id: redemption.id, schedule_id: row.id, err: schedUpdErr },
+                    );
+                    return json(
+                      {
+                        error: "Schedule UPDATE failed during void reversal",
+                        detail: schedUpdErr.message,
+                        redemption_id: redemption.id,
+                        schedule_id: row.id,
+                        manual_action_required: true,
+                      },
+                      500,
+                    );
+                  }
+
+                  // DELETE the allocation row (FK is RESTRICT on schedule_id, but we're deleting
+                  // the allocation itself, not the schedule — no FK conflict)
+                  const { error: allocDelErr } = await supabase
+                    .from("payment_allocations")
+                    .delete()
+                    .eq("id", alloc.id);
+
+                  if (allocDelErr) {
+                    console.error(
+                      "[process-loyalty-redemption] payment_allocations DELETE failed during void cleanup:",
+                      { redemption_id: redemption.id, allocation_id: alloc.id, err: allocDelErr },
+                    );
+                    return json(
+                      {
+                        error: "payment_allocations DELETE failed during void reversal",
+                        detail: allocDelErr.message,
+                        redemption_id: redemption.id,
+                        allocation_id: alloc.id,
+                        manual_action_required: true,
+                      },
+                      500,
+                    );
+                  }
+                }
+
+                // 3. Revert account totals (decrement total_paid, increment remaining_balance)
+                const refundAmount = Number(existingPay.amount_paid ?? 0);
+                const { data: acctNow, error: acctReadErr } = await supabase
+                  .from("layaway_accounts")
+                  .select("total_paid, remaining_balance, status")
+                  .eq("id", redemption.account_id)
+                  .single();
+
+                if (acctReadErr || !acctNow) {
+                  console.error(
+                    "[process-loyalty-redemption] failed to read account during void cleanup:",
+                    { redemption_id: redemption.id, err: acctReadErr },
+                  );
+                  return json(
+                    {
+                      error: "Failed to read account for totals reversal",
+                      detail: acctReadErr?.message ?? "no row",
+                      redemption_id: redemption.id,
+                      manual_action_required: true,
+                    },
+                    500,
+                  );
+                }
+
+                const newTotalPaid = Math.max(0, Number(acctNow.total_paid) - refundAmount);
+                const newRemaining = Number(acctNow.remaining_balance) + refundAmount;
+
+                // Account status reversal: if was 'completed' and remaining > 0 now → revert
+                // to 'active' or 'overdue' depending on any remaining overdue rows.
+                let newAccountStatus = acctNow.status;
+                if (acctNow.status === "completed" && newRemaining > 0.01) {
+                  const { data: anyOverdue } = await supabase
+                    .from("layaway_schedule")
+                    .select("id")
+                    .eq("account_id", redemption.account_id)
+                    .eq("status", "overdue")
+                    .limit(1);
+                  newAccountStatus = (anyOverdue && anyOverdue.length > 0) ? "overdue" : "active";
+                }
+
+                const { error: acctUpdErr } = await supabase
+                  .from("layaway_accounts")
+                  .update({
+                    total_paid: newTotalPaid,
+                    remaining_balance: newRemaining,
+                    status: newAccountStatus,
+                  })
+                  .eq("id", redemption.account_id);
+
+                if (acctUpdErr) {
+                  console.error(
+                    "[process-loyalty-redemption] account totals UPDATE failed during void cleanup:",
+                    { redemption_id: redemption.id, err: acctUpdErr },
+                  );
+                  return json(
+                    {
+                      error: "Account totals UPDATE failed during void reversal",
+                      detail: acctUpdErr.message,
+                      redemption_id: redemption.id,
+                      manual_action_required: true,
+                    },
+                    500,
+                  );
+                }
+
+                // Reversal chain complete — synthetic payment voided, allocations deleted,
+                // schedule rows reverted, account totals decremented.
               }
             } else if (!existingPay) {
               console.warn(
