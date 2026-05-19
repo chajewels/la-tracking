@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { parseLocation, LocationType } from '@/lib/countries';
 import { Users, Search, LayoutGrid, ListFilter, Layers } from 'lucide-react';
@@ -64,7 +64,6 @@ export default function Customers() {
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('all');
   const [activeLetter, setActiveLetter] = useState<string | null>(null);
-  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Pagination — fixes mobile OOM crash on iOS WebKit
   // (#80). Without it, all 662 cards render at once. 50
@@ -155,6 +154,18 @@ export default function Customers() {
     return groups;
   }, [searchFiltered, viewMode]);
 
+  // Grouped view mounts only the active letter (mobile OOM fix).
+  // Default to the first non-empty group when entering grouped view
+  // with no letter chosen; never overwrite the user's explicit pick.
+  useEffect(() => {
+    if (activeLetter !== null) return;
+    if (!grouped) return;
+    const firstNonEmpty = [...LETTERS, SPECIAL].find(
+      L => (grouped[L]?.length ?? 0) > 0,
+    );
+    if (firstNonEmpty) setActiveLetter(firstNonEmpty);
+  }, [grouped, activeLetter]);
+
   // Account stats lookup
   const accountStats = useMemo(() => {
     const map = new Map<string, { active: number; completed: number }>();
@@ -173,11 +184,7 @@ export default function Customers() {
 
   const handleLetterSelect = useCallback((letter: string | null) => {
     setActiveLetter(letter);
-    if (viewMode === 'grouped' && letter) {
-      const el = sectionRefs.current[letter];
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  }, [viewMode]);
+  }, []);
 
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setSearch(e.target.value);
@@ -284,30 +291,33 @@ export default function Customers() {
             {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-36 rounded-xl" />)}
           </div>
         ) : viewMode === 'grouped' && grouped && !search.trim() ? (
-          /* Grouped view */
+          /* Grouped view — only the active letter group is mounted
+             (mobile OOM fix: caps CustomerCard count from 662 → tens).
+             The A-Z rail (AlphabetNav) switches activeLetter. */
           <div className="space-y-8">
-            {[...LETTERS, SPECIAL].map(letter => {
-              const group = grouped[letter];
-              if (!group || group.length === 0) return null;
+            {activeLetter && (() => {
+              const group = grouped[activeLetter];
               return (
-                <div
-                  key={letter}
-                  ref={el => { sectionRefs.current[letter] = el; }}
-                  className="scroll-mt-24"
-                >
+                <div key={activeLetter} className="scroll-mt-24">
                   <div className="flex items-center gap-3 mb-4">
                     <div className="flex h-9 w-9 items-center justify-center rounded-full gold-gradient text-primary-foreground font-bold text-sm">
-                      {letter}
+                      {activeLetter}
                     </div>
                     <div className="h-px flex-1 bg-border" />
                     <span className="text-xs text-muted-foreground font-medium">
-                      {group.length} customer{group.length !== 1 ? 's' : ''}
+                      {(group?.length ?? 0)} customer{(group?.length ?? 0) !== 1 ? 's' : ''}
                     </span>
                   </div>
-                  {renderCards(group)}
+                  {(group?.length ?? 0) > 0 ? (
+                    renderCards(group!)
+                  ) : (
+                    <p className="text-muted-foreground py-4 text-center">
+                      No customers in this group.
+                    </p>
+                  )}
                 </div>
               );
-            })}
+            })()}
           </div>
         ) : displayed.length === 0 ? (
           <div className="rounded-xl border border-border bg-card p-12 text-center animate-fade-in">
