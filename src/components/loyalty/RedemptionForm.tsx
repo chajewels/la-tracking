@@ -12,6 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { supabase } from '@/integrations/supabase/client';
+import { getPortalAuthHeaders } from '@/lib/portal-auth';
 import { toast } from 'sonner';
 
 const CG = "'Cormorant Garamond',Georgia,serif";
@@ -120,14 +121,18 @@ export function RedemptionForm({
       try {
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+        // Dual-auth (mirrors Phase B 4-B2): token-auth → ?token=X, no
+        // Authorization; session-auth (email/password) → Bearer <session JWT>
+        // via getPortalAuthHeaders. resolvePortalAuth Path 0/2 handles both.
+        const authHeaders = await getPortalAuthHeaders(portalToken);
         const url = new URL(`${supabaseUrl}/functions/v1/customer-portal`);
-        url.searchParams.set('token', portalToken);
+        if (portalToken) url.searchParams.set('token', portalToken);
 
         const response = await fetch(url.toString(), {
           method: 'GET',
           headers: {
             apikey: supabaseAnonKey,
-            Authorization: `Bearer ${supabaseAnonKey}`,
+            ...authHeaders,
           },
         });
 
