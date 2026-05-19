@@ -6654,6 +6654,16 @@ loyalty portal. In progress.
     design — lot-based math is the deferred summary-only Phase 6.1
     scope per LOYALTY DATA & MIGRATION; not required for the
     discount-application flow that Issues 1-3 concerned.)
+    Design rationale (locked 2026-05-19): the operational gap Issue 3
+    was tracking is closed by the synthetic-payment route. The
+    reference_number = 'LOYALTY-{redemption_id}' link on the synthetic
+    payment row provides the redemption ↔ payment audit trail.
+    loyalty_lot_consumption table-level FIFO/lot tracking is NOT
+    required given (a) the summary-only migration scope already
+    established lot-level history isn't preserved, and (b) the loyalty
+    business rules revoke at account level (forfeited / final_forfeited
+    / cancelled), not at lot level. The loyalty_lot_consumption table
+    remains in the schema but is deliberately unused — not a gap.
     [Original finding below.]
     Schema designed with full lifecycle support:
       - id uuid PK
@@ -6686,11 +6696,9 @@ loyalty portal. In progress.
     Fix: 2-line addition to RedemptionForm.tsx — added portalToken
     to function destructure + added portal_token: portalToken to
     request body. Frontend-only change.
-    Issues 1, 2, 3 in this section remain OPEN. Customer can now
-    submit redemption + admin can approve + points debited, but
-    discount still does NOT auto-apply to the order (Issue 2) and
-    loyalty_lot_consumption table still unused (Issue 3). Do NOT
-    use redemption flow with real customers until Issues 1-3 fixed.
+    As of Phase B Patch 2 (2026-05-18, commit 8130ace) the redemption
+    flow is end-to-end functional for both cash and layaway. See
+    ### Recent Updates footer for the full evening's work.
 
   Empirical state (2026-05-18)
     Only 1 confirmed redemption in production:
@@ -8958,6 +8966,14 @@ where explicitly decided otherwise.
   exists for the account.
 
 ## Recent Updates
+
+  2026-05-19 morning — Phase 7-bis: ported fetchWithRetryOnRateLimit
+  helper to daily-reconciliation (commit <THIS_COMMIT>). Fixes silent
+  account skip on Supabase outbound rate limit (empirical: 2026-05-19
+  01:00 UTC cron skipped invoice 18175 and TEST-001). Same pattern
+  as Bug #114 / Phase 7 fix in send-reminders. Issue 3 resolution
+  rationale documented; stale "do not use redemption flow" warning
+  at line ~6692 removed (contradicted resolved status).
 
   2026-05-18 evening — Redemption end-to-end shipped: Phase B
   (synthetic payment + inline waterfall allocation on approve,

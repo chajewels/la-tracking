@@ -7,6 +7,38 @@ const corsHeaders = {
 
 const MAX_ACCOUNTS_PER_RUN = 800;
 
+// Helper: retry fetch on Deno runtime rate limit (RateLimitError).
+// Ported verbatim from send-reminders/index.ts (Bug #114 / Phase 7 fix,
+// commit 8ea5b2a). Duplicate-in-file per the Phase 7 pattern; future
+// cleanup can DRY both into a shared helper.
+async function fetchWithRetryOnRateLimit(
+  url: string,
+  init: RequestInit,
+  maxRetries = 3
+): Promise<Response> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fetch(url, init);
+    } catch (e) {
+      const isRateLimit =
+        e && typeof e === 'object' && 'name' in e &&
+        (e as { name: string }).name === 'RateLimitError';
+      if (!isRateLimit || attempt >= maxRetries) {
+        throw e;
+      }
+      const retryAfterMs =
+        typeof (e as { retryAfterMs?: number }).retryAfterMs === 'number'
+          ? (e as { retryAfterMs: number }).retryAfterMs
+          : 200;
+      console.warn(
+        `Rate limited at fetch, retry after ${retryAfterMs + 50}ms (attempt ${attempt + 1}/${maxRetries})`
+      );
+      await new Promise((r) => setTimeout(r, retryAfterMs + 50));
+    }
+  }
+  throw new Error('fetchWithRetryOnRateLimit: exhausted retries unexpectedly');
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -68,7 +100,7 @@ Deno.serve(async (req) => {
       let errorMsg: string | undefined;
 
       try {
-        const res = await fetch(
+        const res = await fetchWithRetryOnRateLimit(
           `${Deno.env.get("SUPABASE_URL")}/functions/v1/reconcile-account`,
           {
             method: "POST",
