@@ -4,14 +4,12 @@ import * as React from 'npm:react@18.3.1'
 
 import {
   Body,
-  Button,
   Container,
   Head,
   Heading,
   Html,
   Link,
   Preview,
-  Section,
   Text,
 } from 'npm:@react-email/components@0.0.22'
 
@@ -41,11 +39,42 @@ export const SignupEmail = ({
           </Link>
           ) by clicking the button below:
         </Text>
-        <Section style={{ textAlign: 'center' as const, margin: '24px 0' }}>
-          <Button style={button} href={confirmationUrl}>
-            Verify Email
-          </Button>
-        </Section>
+        <table
+          cellPadding={0}
+          cellSpacing={0}
+          border={0}
+          align="center"
+          role="presentation"
+          style={{ margin: '24px auto', borderCollapse: 'separate' as const }}
+        >
+          <tbody>
+            <tr>
+              <td
+                align="center"
+                bgcolor="#CEA021"
+                style={{ backgroundColor: '#CEA021', borderRadius: '10px' }}
+              >
+                <a
+                  href={confirmationUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-block',
+                    padding: '12px 24px',
+                    fontFamily: "'Montserrat', 'Inter', Arial, sans-serif",
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    color: '#ffffff',
+                    textDecoration: 'none',
+                    lineHeight: '100%',
+                  }}
+                >
+                  Verify Email
+                </a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
         <Text style={footer}>
           If you didn't create an account, you can safely ignore this email.
         </Text>
@@ -61,5 +90,4 @@ const container = { padding: '30px 25px' }
 const h1 = { fontSize: '22px', fontWeight: '600' as const, color: '#0b0b0b', margin: '0 0 20px' }
 const text = { fontSize: '14px', color: '#666666', lineHeight: '1.6', margin: '0 0 25px' }
 const link = { color: '#b8860b', textDecoration: 'underline' }
-const button = { backgroundColor: '#CEA021', color: '#ffffff', fontSize: '14px', fontWeight: '600' as const, borderRadius: '10px', padding: '12px 24px', textDecoration: 'none', display: 'inline-block', margin: '4px 0 8px' }
 const footer = { fontSize: '12px', color: '#999999', margin: '30px 0 0' }
