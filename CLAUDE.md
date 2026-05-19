@@ -6385,6 +6385,84 @@ Forbidden:
     cancelled; synthetic payment a27a1565 voided (pre-Patch-1/2
     casualties from the CHECK reject + no-op reconcile).
 
+  ### Phase 13 — Member events admin Member tab fix (2026-05-19, SQL Editor only, no commits)
+
+  **Problem:** Admin Member tab (Loyalty → Transactions → Member) was
+  missing tier_changed events and had blank Tier column on all enrolled
+  rows.
+
+  **Root causes identified via empirical investigation:**
+
+  1. tier_changed historical gap: `f5f6d98 feat(loyalty): wire
+     member-event transaction types (enrolled, tier_changed)` committed
+     2026-05-17 10:53:55 UTC. Marlene Corpuz's real tier upgrade
+     (Glimmer → Radiant) occurred 2026-05-17 09:54:01 UTC — 59 minutes
+     BEFORE the DB INSERT code was committed. Google Sheet captured it
+     (via `34235f8 sheet-sync taxonomy` wired 2026-05-16) but
+     `loyalty_transactions` did not. Same class as Bug #103 (_shared/
+     file changes need downstream redeploy) but for code that hadn't
+     existed yet.
+
+  2. enrolled rows tier_at_time NULL: The 475-row enrolled backfill
+     (executed via SQL Editor 2026-05-17 from
+     `loyalty_members.enrolled_at`) followed the SUMMARY-ONLY migration
+     design — only essential fields populated (`member_id`,
+     `transaction_type='enrolled'`, `points_amount=0`, `notes`,
+     `created_at`). `tier_at_time`, `spend_amount_jpy`,
+     `invoice_number` left NULL by design.
+
+  **Operations executed via SQL Editor 2026-05-19:**
+
+  1. INSERT 1 row — Marlene Corpuz tier_changed (id
+     `e2eaad32-4126-4daa-bfe9-50d62bb31027`)
+     - member_id: b7a5193d-dc18-4853-9f75-09a7db803670
+     - transaction_type: 'tier_changed'
+     - tier_at_time: 'Radiant'
+     - created_at: 2026-05-17 09:54:01.857797+00 (exact upgrade
+       timestamp from reconstruction)
+     - notes: includes "[BACKFILL 2026-05-19: event predated f5f6d98
+       DB INSERT deploy by 59 min; source email_send_log +
+       earned-history reconstruction]"
+     - Idempotency: WHERE NOT EXISTS guard on member_id + type +
+       1-minute window
+     - Sheet sync: NOT triggered (Marlene already in sheet via
+       2026-05-17 sync — no duplicate)
+
+  2. UPDATE 475 rows — enrolled tier_at_time NULL → 'Glimmer'
+     - Scope: transaction_type='enrolled' AND tier_at_time IS NULL
+       AND notes LIKE '%backfilled%'
+     - Rationale: Every loyalty member starts at Glimmer
+       (display_order=1, min_spend_jpy=0). Factually correct, not a
+       guess.
+     - Verification: post-UPDATE counts all 475 rows show
+       tier_at_time='Glimmer'
+
+  **UI verification:** Admin Loyalty → Transactions → Member tab now
+  shows "15 member events" (was 14). Marlene Corpuz tier_changed row
+  appears at top with Radiant tier badge. All 14 enrolled rows show
+  Glimmer in Tier column.
+
+  **Test Customer (CJ-2026-05088) tier_changed history INTENTIONALLY
+  SKIPPED:** 6 tier-upgrade events for Test Customer exist in
+  email_send_log (testing fixture with repeat upgrade/downgrade
+  cycles). Backfilling would add noise without business value.
+  Documented as Option B/C remaining if ever needed (idempotency
+  guards on future inserts will prevent duplicates).
+
+  **Going-forward verification still needed:** f5f6d98 code is
+  deployed (per 2026-05-17 10:57 UTC manual deploy via Lovable).
+  However, no natural tier upgrade has occurred since the deploy to
+  empirically prove the DB INSERT fires correctly. Next customer who
+  crosses 1M/4M/8M JPY cumulative spend will be the first proof. If a
+  tier_changed row does NOT appear in loyalty_transactions for that
+  upgrade, deeper investigation required.
+
+  **Migration design preserved (locked, NON-NEGOTIABLE):** The
+  SUMMARY-ONLY migration rule remains intact. Per-order
+  purchase/redemption history NOT restored. This backfill only
+  populated derived defaults (tier_at_time='Glimmer' for enrollment
+  events) without claiming to know historical per-purchase context.
+
 ## PORTAL PIN AUTHENTICATION (added 2026-04-21)
 
   PIN hash storage: customers.portal_pin_hash (64-char SHA-256 hex digest)
