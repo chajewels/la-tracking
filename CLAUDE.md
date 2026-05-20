@@ -2538,6 +2538,43 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
   from line 415.
   STATUS: investigation pending. Not actively affecting production.
 
+### Overpayment waterfall (surfaced 2026-05-20)
+
+  Bug #116 — Overpayment surplus stored as total_due reduction, wiped by
+  recomputes. Code fix OPEN, deferred to a separate session.
+
+  ROOT CAUSE: overpayment surplus is currently persisted ONLY as a
+  total_due_amount reduction on the downstream row — no payment_allocation,
+  no carried_amount. Any process that later recomputes
+  total_due_amount = base + penalty therefore WIPES the surplus.
+  penalty-engine/index.ts lines 384 & 406 both do this (total_due = base +
+  penalty), so a penalty landing on a row that absorbed surplus reverts the
+  row to full base+penalty and the customer's surplus disappears.
+  reconcile-account / daily-reconciliation likely share the same recompute
+  shape — confirm during the fix session.
+
+  DURABLE PATTERN: store surplus as a payment_allocation on the downstream
+  row, NOT as a total_due reduction. schedule_with_actuals computes
+  actual_remaining = GREATEST(0, total_due - allocated), so an allocation
+  survives any total_due recompute (the engine never touches `allocated`).
+  Penalty payments use allocation_type='penalty' (107 rows today);
+  installment / overpayment-surplus allocations use allocation_type
+  ='installment'.
+
+  STATUS: code fix OPEN — deferred. Blast-radius classification deferred
+  per owner. Touch points to audit at fix time: review-payment-submission
+  waterfall, record-payment, record-multi-payment, accept-underpayment /
+  carry-over (already allocation-based), penalty-engine recompute sites
+  (lines 384 & 406), reconcile-account, daily-reconciliation.
+
+  Repair log:
+    - INV #18113 (2026-05-20): Month 3 over-allocated 6001 vs base 3661;
+      the 2340 surplus had been wiped by penalty-engine that morning.
+      Re-split via SQL — capped Month 3 allocation to 3661, added 2340
+      'installment' allocation to Month 4 against the same payment,
+      synced schedule caches. Penalty left standing (correct). Month 4
+      remaining → 1320. audit_account all_pass = true.
+
 ### Pending KPI accuracy items (surfaced 2026-04-28)
 
   Audit findings from the KPI cleanup. Group D items
