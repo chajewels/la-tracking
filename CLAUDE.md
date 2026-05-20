@@ -3418,10 +3418,30 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
     - NEVER `date_paid` (customer-reported, can be backdated)
 
   Qualifying order rules:
-    - `loyalty_jpy_amount >= 10000`
+    - Layaway: `loyalty_jpy_amount >= 10000` OR `loyalty_jpy_amount IS NULL`
+      (NULL is permitted — typical when a non-member created the order;
+      derived at enrollment time, see below)
+    - Cash: `loyalty_jpy_amount >= 10000`
     - Layaway status NOT IN ('cancelled', 'forfeited',
       'final_forfeited')
     - Cash status NOT IN ('cancelled', 'expired')
+
+  NULL loyalty_jpy_amount derivation (layaway only):
+    - If the matched layaway order has `loyalty_jpy_amount IS NULL`,
+      join-loyalty-program calls
+      `derive_order_loyalty_jpy(p_account_id => row.account_id)` to
+      populate the value for THAT ONE ACCOUNT ONLY before invoking
+      award-loyalty-points.
+    - Derivation formula (inside the RPC):
+        JPY accounts → loyalty_jpy_amount = total_amount
+        PHP accounts → loyalty_jpy_amount = total_amount / php_jpy_rate
+    - NON-NEGOTIABLE: derive_order_loyalty_jpy is the ONLY write path
+      for loyalty_jpy_amount in this flow. Never bulk-update across
+      the customer's other accounts. Only the single account_id
+      returned by get_recent_qualifying_order is ever touched.
+    - award-loyalty-points re-reads the now-populated value; its
+      `>= 10000` gate still applies, so trivially small orders are
+      skipped naturally.
 
   Wiring:
     - Only fires on the NEW-member path (NOT the already_enrolled
@@ -3432,6 +3452,7 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
     - Reuses award-loyalty-points (does not reimplement award
       logic). Service-role fetch, awaited so the inner ledger
       writes complete before the function returns.
+
 
   award-loyalty-points is now IDEMPOTENT per source:
     - Step 4b (after `not_enrolled` gate, before any ledger write):
