@@ -1296,6 +1296,60 @@ export type Database = {
           },
         ]
       }
+      loyalty_award_19015_audit_20260520: {
+        Row: {
+          cumulative_spend_jpy: number | null
+          current_tier_id: string | null
+          customer_id: string | null
+          earned_tier_id: string | null
+          enrolled_at: string | null
+          id: string | null
+          is_downgraded: boolean | null
+          last_purchase_at: string | null
+          pre_expiry_warned_at: string | null
+          prev_purchase_at: string | null
+          remaining_points: number | null
+          total_points_earned: number | null
+          total_points_expired: number | null
+          total_points_redeemed: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          cumulative_spend_jpy?: number | null
+          current_tier_id?: string | null
+          customer_id?: string | null
+          earned_tier_id?: string | null
+          enrolled_at?: string | null
+          id?: string | null
+          is_downgraded?: boolean | null
+          last_purchase_at?: string | null
+          pre_expiry_warned_at?: string | null
+          prev_purchase_at?: string | null
+          remaining_points?: number | null
+          total_points_earned?: number | null
+          total_points_expired?: number | null
+          total_points_redeemed?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          cumulative_spend_jpy?: number | null
+          current_tier_id?: string | null
+          customer_id?: string | null
+          earned_tier_id?: string | null
+          enrolled_at?: string | null
+          id?: string | null
+          is_downgraded?: boolean | null
+          last_purchase_at?: string | null
+          pre_expiry_warned_at?: string | null
+          prev_purchase_at?: string | null
+          remaining_points?: number | null
+          total_points_earned?: number | null
+          total_points_expired?: number | null
+          total_points_redeemed?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       loyalty_banners: {
         Row: {
           applicable_tiers: string[] | null
@@ -1384,6 +1438,63 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      loyalty_expiry_restore_audit_20260520: {
+        Row: {
+          captured_at: string | null
+          cumulative_spend_jpy: number | null
+          current_tier_id: string | null
+          customer_id: string | null
+          earned_tier_id: string | null
+          enrolled_at: string | null
+          id: string | null
+          is_downgraded: boolean | null
+          last_purchase_at: string | null
+          pre_expiry_warned_at: string | null
+          prev_purchase_at: string | null
+          remaining_points: number | null
+          total_points_earned: number | null
+          total_points_expired: number | null
+          total_points_redeemed: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          captured_at?: string | null
+          cumulative_spend_jpy?: number | null
+          current_tier_id?: string | null
+          customer_id?: string | null
+          earned_tier_id?: string | null
+          enrolled_at?: string | null
+          id?: string | null
+          is_downgraded?: boolean | null
+          last_purchase_at?: string | null
+          pre_expiry_warned_at?: string | null
+          prev_purchase_at?: string | null
+          remaining_points?: number | null
+          total_points_earned?: number | null
+          total_points_expired?: number | null
+          total_points_redeemed?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          captured_at?: string | null
+          cumulative_spend_jpy?: number | null
+          current_tier_id?: string | null
+          customer_id?: string | null
+          earned_tier_id?: string | null
+          enrolled_at?: string | null
+          id?: string | null
+          is_downgraded?: boolean | null
+          last_purchase_at?: string | null
+          pre_expiry_warned_at?: string | null
+          prev_purchase_at?: string | null
+          remaining_points?: number | null
+          total_points_earned?: number | null
+          total_points_expired?: number | null
+          total_points_redeemed?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
       }
       loyalty_lot_consumption: {
         Row: {
