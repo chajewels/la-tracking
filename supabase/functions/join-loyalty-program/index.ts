@@ -205,7 +205,24 @@ Deno.serve(async (req) => {
         if (row && row.source_kind) {
           const awardBody: Record<string, unknown> = {};
           if (row.source_kind === "layaway") {
-            awardBody.account_id = row.account_id ?? row.source_id ?? null;
+            const accountId = row.account_id ?? row.source_id ?? null;
+            awardBody.account_id = accountId;
+            // If this single matched layaway order has no loyalty_jpy_amount
+            // (typical when a non-member created it), derive it now for
+            // THIS ONE account only via derive_order_loyalty_jpy. Never
+            // bulk-update across the customer's other accounts.
+            if (accountId && row.loyalty_jpy_amount == null) {
+              const { error: deriveErr } = await supabase.rpc(
+                "derive_order_loyalty_jpy",
+                { p_account_id: accountId },
+              );
+              if (deriveErr) {
+                console.warn(
+                  "[join-loyalty-program] derive_order_loyalty_jpy failed (non-blocking):",
+                  deriveErr,
+                );
+              }
+            }
           } else {
             awardBody.cash_order_id = row.cash_order_id ?? row.source_id ?? null;
           }
