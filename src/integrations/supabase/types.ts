@@ -3652,6 +3652,10 @@ export type Database = {
         }
         Returns: Json
       }
+      derive_order_loyalty_jpy: {
+        Args: { p_account_id: string }
+        Returns: number
+      }
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
@@ -3880,6 +3884,7 @@ export type Database = {
           invoice_number: string
           loyalty_jpy_amount: number
           source_kind: string
+          total_amount: number
         }[]
       }
       get_staff_performance: { Args: { months_back?: number }; Returns: Json }
