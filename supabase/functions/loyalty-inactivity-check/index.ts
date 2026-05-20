@@ -154,6 +154,74 @@ Deno.serve(async (req) => {
     return json({ error: "Failed to load loyalty_members" }, 500);
   }
 
+  // 2026-05-20 — per-customer most recent SUCCESSFUL order_date, used as
+  // a read-only gate input so a member with a recent real order is never
+  // warned/expired even if award-loyalty-points never fired for it. We
+  // pull all successful-order rows from both tables (paginated, no
+  // .in(customerIds) URL-length risk per Bug #59 precedent) and JS-
+  // aggregate into a per-customer max. Excluded statuses NEVER count as
+  // activity: layaway cancelled/forfeited/final_forfeited; cash
+  // cancelled/expired.
+  const LAYAWAY_SUCCESSFUL = [
+    "active",
+    "overdue",
+    "completed",
+    "extension_active",
+    "reactivated",
+  ];
+  const CASH_SUCCESSFUL = ["completed", "pending"];
+  const PAGE_SIZE = 1000;
+  const MAX_PAGES = 20;
+
+  async function fetchAllOrderDates(
+    table: "layaway_accounts" | "cash_orders",
+    statuses: string[],
+  ): Promise<Array<{ customer_id: string; order_date: string }>> {
+    const acc: Array<{ customer_id: string; order_date: string }> = [];
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const from = page * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      const { data, error } = await supabase
+        .from(table)
+        .select("customer_id, order_date")
+        .in("status", statuses)
+        .not("order_date", "is", null)
+        .range(from, to);
+      if (error) throw error;
+      const rows = (data ?? []) as Array<{
+        customer_id: string;
+        order_date: string;
+      }>;
+      acc.push(...rows);
+      if (rows.length < PAGE_SIZE) break;
+    }
+    return acc;
+  }
+
+  let mostRecentByCustomer: Map<string, Date>;
+  try {
+    const [layawayRows, cashRows] = await Promise.all([
+      fetchAllOrderDates("layaway_accounts", LAYAWAY_SUCCESSFUL),
+      fetchAllOrderDates("cash_orders", CASH_SUCCESSFUL),
+    ]);
+    mostRecentByCustomer = new Map<string, Date>();
+    for (const r of [...layawayRows, ...cashRows]) {
+      if (!r.customer_id || !r.order_date) continue;
+      const d = new Date(r.order_date);
+      if (Number.isNaN(d.getTime())) continue;
+      const existing = mostRecentByCustomer.get(r.customer_id);
+      if (!existing || d.getTime() > existing.getTime()) {
+        mostRecentByCustomer.set(r.customer_id, d);
+      }
+    }
+  } catch (e: any) {
+    console.error(
+      "[loyalty-inactivity-check] successful-order aggregation failed:",
+      e,
+    );
+    return json({ error: "Failed to aggregate successful orders" }, 500);
+  }
+
   for (const member of members) {
     summary.processed += 1;
     try {
@@ -161,7 +229,16 @@ Deno.serve(async (req) => {
       const prevPurchase = member.prev_purchase_at
         ? new Date(member.prev_purchase_at)
         : null;
-      const daysSinceLast = daysBetween(now, lastPurchase);
+      // effectiveLastPurchase = GREATEST(stored last_purchase_at,
+      // most recent successful order_date). Read-only gate input — we
+      // do NOT write it back to loyalty_members.
+      const mostRecentOrder = mostRecentByCustomer.get(member.customer_id) ??
+        null;
+      const effectiveLastPurchase =
+        mostRecentOrder && mostRecentOrder.getTime() > lastPurchase.getTime()
+          ? mostRecentOrder
+          : lastPurchase;
+      const daysSinceLast = daysBetween(now, effectiveLastPurchase);
       const gapBetweenLastTwo = prevPurchase
         ? daysBetween(lastPurchase, prevPurchase)
         : null;

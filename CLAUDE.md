@@ -3363,6 +3363,44 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
      ASC NULLS LAST). MemberCard shows the next-expiring lot and
      a red "expiring soon" badge when within 30 days.
 
+## LOYALTY INACTIVITY — last_purchase_at SOURCE OF TRUTH (added 2026-05-20)
+
+  - `loyalty_members.last_purchase_at` = order_date of the member's
+    MOST RECENT SUCCESSFUL order. Successful = layaway status IN
+    (`active`, `overdue`, `completed`, `extension_active`,
+    `reactivated`); cash status IN (`completed`, `pending`). NEVER
+    `cancelled` / `forfeited` / `final_forfeited` (layaway) or
+    `cancelled` / `expired` (cash).
+
+  - `loyalty-inactivity-check` (pg_cron job 16, 180-day) now derives
+    `effectiveLastPurchase = GREATEST(stored last_purchase_at, MAX
+    successful order_date)` per member and measures the 166-day
+    warning + 180-day expiry against it. Read-only derivation — the
+    cron does NOT write `last_purchase_at` back. This guarantees a
+    member with a recent real order is never warned or expired even
+    if `award-loyalty-points` never fired for it. The customer's
+    `order_date` source is queried in one paginated pass per table
+    (`layaway_accounts` + `cash_orders`) and JS-aggregated to a
+    per-customer `Map<customer_id, Date>` — no N+1, no `.in(customerIds)`
+    URL-length risk (Bug #59 precedent).
+
+  - `created_at` is the row INSERT/import timestamp (bulk import =
+    `2026-03-20`) — NEVER use `created_at` as an order/purchase
+    date. Use `order_date` (`layaway_accounts` & `cash_orders`)
+    and `date_paid` (`payments`).
+
+  - 2026-05-20 backfill: corrected 30 migrated members' clocks to
+    their real successful-order dates; reverted 4 forfeited-sourced
+    clocks (Judy Haitch, Shiela Trevilian, Maria Milliones Jensen,
+    Test Customer). Snapshot:
+    `loyalty_last_purchase_backfill_audit_20260520`.
+
+  - Honey Faye (CJ-2026-01672) was the sole wrongful expiry from
+    the prior gating logic: 2,700 restored + 1,600 awarded for
+    INV 19015 = 4,300 remaining_points; Google Sheet synced via 3
+    manual POSTs to sync-loyalty-to-sheet (Transactions rows 419/
+    420 + Members row 485) — Supabase and sheet match.
+
 ## LOYALTY GOOGLE SHEET SYNC TAXONOMY — NON-NEGOTIABLE (added 2026-05-16)
 
 Canonical event_type values consumed by sync-loyalty-to-sheet:
