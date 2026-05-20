@@ -120,12 +120,9 @@ export function useLoyaltyTransactions(filters: LoyaltyTransactionFilters) {
       if (filters.transactionType !== 'all') {
         q = q.eq('transaction_type', filters.transactionType);
       } else if (filters.viewKind === 'member') {
-        q = q.in('transaction_type', MEMBER_EVENT_TYPES as unknown as string[]);
+        q = q.in('transaction_type', MEMBER_EVENT_TYPES as never);
       } else {
-        q = q.in(
-          'transaction_type',
-          TRANSACTION_EVENT_TYPES as unknown as string[],
-        );
+        q = q.in('transaction_type', TRANSACTION_EVENT_TYPES as never);
       }
       if (filters.rangeStartIso) {
         q = q.gte('created_at', filters.rangeStartIso);
