@@ -3870,6 +3870,18 @@ export type Database = {
         Args: { currency_mode?: string; months_back?: number }
         Returns: Json
       }
+      get_recent_qualifying_order: {
+        Args: { p_customer_id: string; p_lookback_days?: number }
+        Returns: {
+          account_id: string
+          cash_order_id: string
+          confirmed_at: string
+          currency: string
+          invoice_number: string
+          loyalty_jpy_amount: number
+          source_kind: string
+        }[]
+      }
       get_staff_performance: { Args: { months_back?: number }; Returns: Json }
       get_top_outstanding_customers: {
         Args: never
