@@ -1496,6 +1496,27 @@ export type Database = {
         }
         Relationships: []
       }
+      loyalty_last_purchase_backfill_audit_20260520: {
+        Row: {
+          customer_id: string | null
+          last_purchase_at: string | null
+          member_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          customer_id?: string | null
+          last_purchase_at?: string | null
+          member_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          customer_id?: string | null
+          last_purchase_at?: string | null
+          member_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       loyalty_lot_consumption: {
         Row: {
           amount: number
