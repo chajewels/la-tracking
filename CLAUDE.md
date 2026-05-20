@@ -2498,6 +2498,17 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
   review-payment-submission await fix, so it is recorded here as
   #114 — the next free flush-left number — per the established
   no-duplicate-numbering rule.)
+  ROOT CAUSE UPDATE (2026-05-20): the per-invocation Deno fetch rate
+  limit was a contributing symptom, but the real driver was a
+  duplicate cron — jobid 14 'daily-payment-reminders' ('2 0 * * *')
+  fired the same /send-reminders endpoint 2 min after jobid 1
+  'daily-send-reminders' ('0 0 * * *'), doubling the midnight
+  burst (~146/hr) past Lovable's 100/hr workspace cap. Both crons
+  produced identical batches (send-reminders ignores the body
+  payload). Duplicate cron removed 2026-05-20 — the actual volume
+  fix. fetchWithRetryOnRateLimit (8ea5b2a) remains in place to
+  handle transient 429s. See EMAIL SENDING — LOVABLE WORKSPACE
+  RATE LIMIT section for full architecture + standing mitigations.
 
 ## Known Open Bugs
 
@@ -2848,7 +2859,6 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
   Jobs run in strict dependency order every morning:
 
     daily-send-reminders:          00:00 UTC = 08:00 PHT ✅
-    daily-payment-reminders:       00:02 UTC = 08:02 PHT ✅
     daily-penalty-engine:          00:05 UTC = 08:05 PHT ✅
     daily-auto-forfeit:            00:10 UTC = 08:10 PHT ✅
     daily-reconciliation:          00:20 UTC = 08:20 PHT ✅
@@ -2870,11 +2880,12 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
     6. daily-reconciliation must never be scheduled
        before 00:15 UTC
 
-  RACE CONDITION RULE:
-    daily-send-reminders and daily-payment-reminders
-    both call the send-reminders edge function.
-    They are offset by 2 minutes to prevent simultaneous
-    hits. Never schedule both at the same UTC minute.
+  RACE CONDITION RULE (RETIRED 2026-05-20):
+    The duplicate daily-payment-reminders cron was removed
+    2026-05-20 — daily-send-reminders is now the sole reminder
+    cron. The 2-minute offset rule no longer applies. NEVER
+    re-add a second cron pointing at /send-reminders — see
+    EMAIL SENDING — LOVABLE WORKSPACE RATE LIMIT for why.
 
 ## DISPLAY RULES (permanent)
 
@@ -3466,6 +3477,45 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
       the retroactive enrollment path: if review-payment-submission
       already awarded an order and the customer enrolls within the
       grace window, the retroactive call is a no-op.
+
+## EMAIL SENDING — LOVABLE WORKSPACE RATE LIMIT (added 2026-05-20)
+
+  Transactional email is sent via send-transactional-email (sole sender),
+  which uses Lovable-managed email. Subject to Lovable's workspace cap:
+    - 100 emails per HOUR per workspace (hard limit; the binding constraint)
+    - 50,000 transactional emails per MONTH included (not the bottleneck)
+    - Higher hourly limit only via Lovable Support request
+
+  Architecture: send-reminders / award flows enqueue onto the
+  'transactional_emails' pgmq queue; a queue worker calls the email API.
+    - reminder_logs.delivery_status='sent' means ENQUEUED, not provider-delivered.
+    - Provider 429 (rate_limited "High demand") occurs in the queue worker,
+      downstream of reminder_logs — so 429s do NOT appear in reminder_logs.
+    - On 429 the message stays queued and retries with backoff over the
+      following hours: no mail lost, but delivery delayed.
+
+### Reminder cron (LOCKED — do not re-add a second job)
+  Canonical: jobid 1 'daily-send-reminders', schedule '0 0 * * *' (= 8 AM PHT).
+  REMOVED 2026-05-20: jobid 14 'daily-payment-reminders' ('2 0 * * *') — a
+  DUPLICATE hitting the same /send-reminders endpoint 2 min later, doubling the
+  hourly burst (~146/hr) past the 100/hr cap. Both produced identical batches
+  (the function ignores the body payload). NEVER re-add a second reminder cron.
+
+### Bug #114 (send-reminders RateLimitError) — root cause + status
+  Root cause: the duplicate cron doubled the midnight burst past Lovable's
+  100/hr cap, returning 429 rate_limited. Code fix 8ea5b2a (retry + backoff)
+  handles transient 429s; queue redelivery prevents mail loss. Duplicate cron
+  removed 2026-05-20 — that was the real volume fix.
+
+### Standing risk + mitigations (priority order)
+  Even the deduped single reminder batch hits ~100/hr on peak days
+  (103 on 2026-05-15, 101 on 2026-05-07) before payment-confirmation emails
+  share the hour. Dedup alone is NOT sufficient.
+    1. Raise the Lovable hourly cap via Lovable Support (fastest, no code).
+    2. Consolidate reminders per RECIPIENT into one digest (cuts volume +
+       better UX) — a send-reminders change.
+    3. Pace the queue worker to <=90/hr so over-cap days spill gracefully.
+    4. Connect own Resend account to escape the workspace cap (largest lift).
 
 ## LOYALTY GOOGLE SHEET SYNC TAXONOMY — NON-NEGOTIABLE (added 2026-05-16)
 
