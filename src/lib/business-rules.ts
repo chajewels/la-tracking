@@ -24,18 +24,37 @@ export const PENALTY_CAP = {
 } as const;
 
 /**
+ * Derive plan length from a schedule. planMonths = MAX(installment_number)
+ * over NON-cancelled rows. Never count(*) — a deleted middle row must not
+ * change it. Never default to 6 — that's the historical drift bug.
+ * Callers without schedule access must pass the value sourced this way.
+ */
+export function derivePlanMonths(
+  scheduleRows: Array<{ installment_number: number; status?: string | null }>,
+): number {
+  let max = 0;
+  for (const r of scheduleRows) {
+    if (r.status === 'cancelled') continue;
+    if (r.installment_number > max) max = r.installment_number;
+  }
+  return max;
+}
+
+/**
  * Get the max penalty allowed for a given installment.
  * The FINAL installment of any plan (3-month, 6-month, etc.) is UNCAPPED
  * because it can legitimately accumulate multiple months of penalties.
  * All non-final installments are capped at PHP 1,000 / JPY 2,000.
+ *
+ * planMonths must be schedule-derived (via derivePlanMonths) — no default.
  */
-export function getPenaltyCap(currency: 'PHP' | 'JPY', installmentNumber: number, planMonths: number = 6): number {
+export function getPenaltyCap(currency: 'PHP' | 'JPY', installmentNumber: number, planMonths: number): number {
   if (installmentNumber >= planMonths) return Infinity;
   return currency === 'PHP' ? PENALTY_CAP.PHP.perInstallment : PENALTY_CAP.JPY.perInstallment;
 }
 
 /** Check if a penalty amount exceeds the cap for a given installment. */
-export function isPenaltyOverCap(currency: 'PHP' | 'JPY', installmentNumber: number, totalPenalty: number, planMonths: number = 6): boolean {
+export function isPenaltyOverCap(currency: 'PHP' | 'JPY', installmentNumber: number, totalPenalty: number, planMonths: number): boolean {
   const cap = getPenaltyCap(currency, installmentNumber, planMonths);
   return totalPenalty > cap;
 }

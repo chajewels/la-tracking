@@ -145,9 +145,26 @@ Deno.serve(async (req) => {
       value: 'true',
       is_local: true,
     });
+    // payment_plan_months is now a synced cache of MAX(non-cancelled
+    // installment_number). Deleting a middle row must NOT reduce it;
+    // deleting the final row must. Always recompute from the current
+    // schedule rather than guessing.
+    const { data: remainingRows } = await supabase
+      .from("layaway_schedule")
+      .select("installment_number")
+      .eq("account_id", account_id)
+      .neq("status", "cancelled");
+    const newPlanMonths = (remainingRows || []).reduce(
+      (max: number, r: any) => r.installment_number > max ? r.installment_number : max,
+      0,
+    );
     await supabase
       .from("layaway_accounts")
-      .update({ total_amount: newTotal, remaining_balance: newRemaining })
+      .update({
+        total_amount: newTotal,
+        remaining_balance: newRemaining,
+        payment_plan_months: newPlanMonths,
+      })
       .eq("id", account_id);
 
     await callReconcile(supabase, account_id);
