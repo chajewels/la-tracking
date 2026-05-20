@@ -3554,6 +3554,67 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
     3. Pace the queue worker to <=90/hr so over-cap days spill gracefully.
     4. Connect own Resend account to escape the workspace cap (largest lift).
 
+## PLAN DURATION — payment_plan_months IS AUTHORITATIVE (added 2026-05-20)
+
+  `layaway_accounts.payment_plan_months` is the configured PLAN DURATION
+  product attribute — NOT a cache, NOT derivable from the schedule. It is
+  sourced from `plan_configurations` and gated by a DB trigger.
+
+### Source of truth
+  `plan_configurations` table holds the allowed durations:
+    - 3, 6, 8, 10, 12 months (the only valid values)
+    - Each row carries `min_amount_php`, `min_amount_jpy`,
+      `dp_percentage`, `risk_tier`
+  `enforce_plan_minimum_amount` trigger fires BEFORE INSERT OR UPDATE on
+  `layaway_accounts` and REJECTS any `payment_plan_months` value that is
+  not a configured duration (and any total below that duration's minimum).
+  Consequence: the column can ONLY ever hold a configured duration. The
+  trigger guarantees this.
+
+### Engines read this column directly — that is correct
+  `penalty-engine`, `add-penalty`, `auto-forfeit-settlement`,
+  `finance-reconciliation`, business-rules `getPenaltyCap` /
+  `isPenaltyOverCap`, and the AccountDetail / PenaltyCapAuditPanel UI all
+  use `payment_plan_months` to identify the final installment for the
+  ₱3,000 / ¥6,000 final-month penalty cap and forfeiture logic. This is
+  the intended design.
+
+### NEVER derive plan length from the schedule
+  - `MAX(installment_number)` over non-cancelled rows is NOT the source.
+  - `count(*)` of schedule rows is NOT the source.
+  - Either can drift from the configured duration due to admin schedule
+    edits; that is an account-level anomaly, NOT a bug in the column.
+
+### NEVER write payment_plan_months from schedule operations
+  `add-installment` and `delete-installment` MUST NOT sync
+  `payment_plan_months` to the new schedule row count. Doing so:
+    1. Inverts the source of truth (configured product → derived cache).
+    2. Hits the trigger — any non-configured value (e.g. 5, 7, 9, 11)
+       is rejected, so the write fails outright and the edge function
+       returns a 500.
+  An admin who adds a 7th installment to a 6-month plan creates a
+  schedule with 7 rows but the account remains a 6-month plan. That is
+  the documented behavior.
+
+### Schedule-vs-column mismatches are admin-edit anomalies, not bugs
+  Examples where the schedule row count differs from
+  `payment_plan_months`:
+    - INV 18748 (logged delete-installment)
+    - CJ-2026-FORFEIT-P1, CJ-2026-FORFEIT-P3, CJ-2026-PATH1-TEST,
+      CJ-2026-RESTORE-TEST (test fixtures with manually-adjusted
+      schedules)
+  In every such case, `payment_plan_months` remains the correct
+  configured duration; the schedule is the anomaly. Do not "fix" by
+  rewriting the column.
+
+### Aborted-fix record
+  Commit `f113cd2` (2026-05-20) attempted to make `payment_plan_months`
+  a schedule-derived cache: engines read MAX(installment_number), and
+  add/delete-installment wrote `payment_plan_months = schedule MAX`.
+  That write hits the `enforce_plan_minimum_amount` trigger and 500s on
+  any non-configured count (e.g. deleting from 6→5 rows). Reverted in
+  commit `29505ae` (2026-05-20). DO NOT REOPEN this approach.
+
 ## LOYALTY GOOGLE SHEET SYNC TAXONOMY — NON-NEGOTIABLE (added 2026-05-16)
 
 Canonical event_type values consumed by sync-loyalty-to-sheet:
