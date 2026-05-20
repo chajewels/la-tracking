@@ -3401,6 +3401,51 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
     manual POSTs to sync-loyalty-to-sheet (Transactions rows 419/
     420 + Members row 485) — Supabase and sheet match.
 
+## RETROACTIVE ENROLLMENT AWARD (added 2026-05-20)
+
+  On enrollment, join-loyalty-program looks back
+  `system_settings.loyalty_enrollment_grace_days` (integer, default
+  3 if missing/invalid) days for the single most-recent qualifying
+  order whose DP/full payment was confirmed within that window
+  (via RPC `get_recent_qualifying_order(p_customer_id, p_lookback_days)`)
+  and awards it by invoking award-loyalty-points. Customers who
+  enroll later than the window get no retroactive award.
+
+  "Confirmed within N days" semantics:
+    - Layaway DP: `payment_submissions.updated_at` when status
+      flipped to `'confirmed'`
+    - Cash full payment: `cash_orders.completed_at`
+    - NEVER `date_paid` (customer-reported, can be backdated)
+
+  Qualifying order rules:
+    - `loyalty_jpy_amount >= 10000`
+    - Layaway status NOT IN ('cancelled', 'forfeited',
+      'final_forfeited')
+    - Cash status NOT IN ('cancelled', 'expired')
+
+  Wiring:
+    - Only fires on the NEW-member path (NOT the already_enrolled
+      early-return).
+    - Wrapped in try/catch — any failure logs but never fails
+      enrollment. The customer is already enrolled before this
+      block runs.
+    - Reuses award-loyalty-points (does not reimplement award
+      logic). Service-role fetch, awaited so the inner ledger
+      writes complete before the function returns.
+
+  award-loyalty-points is now IDEMPOTENT per source:
+    - Step 4b (after `not_enrolled` gate, before any ledger write):
+      `SELECT 1 FROM loyalty_transactions WHERE transaction_type='earned'
+       AND (account_id = $1 OR cash_order_id = $2) LIMIT 1`
+    - On hit → returns `{ skipped: true, reason: 'already_awarded' }`
+      and writes NOTHING (no txn, lot, member update, sheet, or
+      email).
+    - Invisible to existing review-payment-submission callers (each
+      order is awarded exactly once today). Becomes load-bearing for
+      the retroactive enrollment path: if review-payment-submission
+      already awarded an order and the customer enrolls within the
+      grace window, the retroactive call is a no-op.
+
 ## LOYALTY GOOGLE SHEET SYNC TAXONOMY — NON-NEGOTIABLE (added 2026-05-16)
 
 Canonical event_type values consumed by sync-loyalty-to-sheet:

@@ -158,6 +158,84 @@ Deno.serve(async (req) => {
       );
     }
 
+    // 5c. Retroactive enrollment award — if the customer's most recent
+    //   qualifying order was payment-confirmed within the grace window,
+    //   award points for it now. Reuses award-loyalty-points (whose
+    //   step 4b idempotency guard protects against double-award if
+    //   review-payment-submission later fires for the same source).
+    //   Wrapped in try/catch — any failure here must NEVER fail
+    //   enrollment. Customer is already enrolled at this point.
+    try {
+      let graceDays = 3;
+      const { data: graceRow } = await supabase
+        .from("system_settings")
+        .select("value")
+        .eq("key", "loyalty_enrollment_grace_days")
+        .maybeSingle();
+      const rawGrace = graceRow?.value;
+      if (rawGrace != null) {
+        let parsed: number = NaN;
+        if (typeof rawGrace === "number") parsed = rawGrace;
+        else {
+          try {
+            const j = JSON.parse(String(rawGrace));
+            parsed = Number(j);
+          } catch {
+            parsed = Number(rawGrace);
+          }
+        }
+        if (Number.isFinite(parsed) && parsed >= 0) {
+          graceDays = Math.floor(parsed);
+        }
+      }
+
+      const { data: recentOrder, error: rpcErr } = await supabase.rpc(
+        "get_recent_qualifying_order",
+        { p_customer_id: customerId, p_lookback_days: graceDays },
+      );
+      if (rpcErr) {
+        console.warn(
+          "[join-loyalty-program] retro lookback rpc failed (non-blocking):",
+          rpcErr,
+        );
+      } else {
+        const row: any = Array.isArray(recentOrder)
+          ? recentOrder[0]
+          : recentOrder;
+        if (row && row.source_kind) {
+          const awardBody: Record<string, unknown> = {};
+          if (row.source_kind === "layaway") {
+            awardBody.account_id = row.account_id ?? row.source_id ?? null;
+          } else {
+            awardBody.cash_order_id = row.cash_order_id ?? row.source_id ?? null;
+          }
+          if (awardBody.account_id || awardBody.cash_order_id) {
+            await fetch(
+              `${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                },
+                body: JSON.stringify(awardBody),
+              },
+            ).catch((e) =>
+              console.warn(
+                "[join-loyalty-program] retro award invoke failed (non-blocking):",
+                e,
+              )
+            );
+          }
+        }
+      }
+    } catch (retroErr) {
+      console.warn(
+        "[join-loyalty-program] retro lookback block failed (non-blocking):",
+        retroErr,
+      );
+    }
+
     // 6. Welcome email — fire-and-forget
     if (customer.email) {
       try {

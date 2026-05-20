@@ -135,6 +135,31 @@ Deno.serve(async (req) => {
       return json({ skipped: true, reason: "not_enrolled" });
     }
 
+    // 4b. Idempotency guard — skip if an 'earned' transaction already
+    //     exists for this source (account_id or cash_order_id).
+    //     Today every order is awarded exactly once via review-payment-
+    //     submission, so this is invisible to existing callers. It
+    //     becomes load-bearing for join-loyalty-program's retroactive
+    //     enrollment award (5c) where the same order could be awarded
+    //     again if the enrollment fires after the award already
+    //     happened. Write nothing on hit (no txn, lot, member update,
+    //     sheet, or email).
+    {
+      let existsQuery = supabase
+        .from("loyalty_transactions")
+        .select("id")
+        .eq("transaction_type", "earned");
+      if (sourceKind === "layaway") {
+        existsQuery = existsQuery.eq("account_id", account_id!);
+      } else {
+        existsQuery = existsQuery.eq("cash_order_id", cash_order_id!);
+      }
+      const { data: existingEarned } = await existsQuery.limit(1).maybeSingle();
+      if (existingEarned) {
+        return json({ skipped: true, reason: "already_awarded" });
+      }
+    }
+
     // 5. Current tier multiplier
     const { data: currentTier } = await supabase
       .from("loyalty_tiers")
