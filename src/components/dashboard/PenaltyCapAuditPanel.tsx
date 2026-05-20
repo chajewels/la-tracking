@@ -59,13 +59,7 @@ export default function PenaltyCapAuditPanel() {
 
     return (accounts as any[]).map((acc) => {
       const currency = acc.currency as Currency;
-      // Plan length: derive from schedule rows (MAX non-cancelled
-      // installment_number). The cached payment_plan_months column has
-      // drifted historically; the embedded layaway_schedule is the
-      // canonical source.
-      const planMonths = ((acc.layaway_schedule || []) as any[])
-        .filter((s: any) => s.status !== 'cancelled')
-        .reduce((max: number, s: any) => s.installment_number > max ? s.installment_number : max, 0);
+      const planMonths = acc.payment_plan_months || 6;
       const cap = currency === 'PHP' ? 1000 : 2000;
       const hasOverride = overrideSet.has(acc.id);
 

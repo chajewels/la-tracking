@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
     // Validate account exists
     const { data: account, error: accErr } = await supabase
       .from("layaway_accounts")
-      .select("id, invoice_number, status")
+      .select("id, invoice_number, status, payment_plan_months")
       .eq("id", account_id)
       .single();
 
@@ -61,18 +61,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Plan length: derive from schedule rows (MAX non-cancelled
-    // installment_number). Never trust the cached payment_plan_months
-    // column — it has drifted historically.
-    const { data: planRows } = await supabase
-      .from("layaway_schedule")
-      .select("installment_number")
-      .eq("account_id", account_id)
-      .neq("status", "cancelled");
-    const planMonths = (planRows || []).reduce(
-      (max: number, r: any) => r.installment_number > max ? r.installment_number : max,
-      0,
-    );
+    const planMonths = account.payment_plan_months || 6;
 
     // Validate schedule item exists
     const { data: schedItem, error: schedErr } = await supabase

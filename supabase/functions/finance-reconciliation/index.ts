@@ -189,14 +189,7 @@ Deno.serve(async (req) => {
       }
 
       // 3. Over-cap penalties (non-final installments only — final is uncapped)
-      // Plan length: derive from schedule rows (MAX non-cancelled
-      // installment_number). The cached payment_plan_months column has
-      // drifted historically; scheds is already filtered to non-cancelled
-      // upstream (line 70), so a simple max over the loaded rows is correct.
-      const planMonths = scheds.reduce(
-        (max: number, s: any) => s.installment_number > max ? s.installment_number : max,
-        0,
-      );
+      const planMonths = acct.payment_plan_months || 6;
       const penBySched: Record<string, any[]> = {};
       for (const p of pens) {
         (penBySched[p.schedule_id] ||= []).push(p);

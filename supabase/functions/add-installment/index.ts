@@ -131,16 +131,9 @@ Deno.serve(async (req) => {
       value: 'true',
       is_local: true,
     });
-    // payment_plan_months is now a synced cache of MAX(non-cancelled
-    // installment_number). The new row IS the new max (nextNumber =
-    // maxInstNumber + 1).
     await supabase
       .from("layaway_accounts")
-      .update({
-        total_amount: newTotal,
-        remaining_balance: Math.max(0, newRemaining),
-        payment_plan_months: nextNumber,
-      })
+      .update({ total_amount: newTotal, remaining_balance: Math.max(0, newRemaining) })
       .eq("id", account_id);
 
     await supabase.from("schedule_audit_log").insert({

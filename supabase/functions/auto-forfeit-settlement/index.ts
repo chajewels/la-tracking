@@ -298,11 +298,9 @@ Deno.serve(async (req) => {
       if (schedItems.length === 0) continue;
 
       // ── RULE: FORFEIT if final month penalty reaches ¥6,000/₱3,000 ──
-      // schedItems is already filtered to non-cancelled and sorted
-      // ascending by installment_number (lines 293-295), so the last
-      // element IS the true final month per the schedule. Don't trust
-      // account.payment_plan_months — it has drifted historically.
-      const finalMonthItem = schedItems[schedItems.length - 1];
+      const finalMonthItem = schedItems.find(
+        (s: any) => s.installment_number === account.payment_plan_months
+      ) || schedItems[schedItems.length - 1];
       if (finalMonthItem) {
         const finalMonthPenalties = penalties.filter((p: any) =>
           p.schedule_id === finalMonthItem.id &&

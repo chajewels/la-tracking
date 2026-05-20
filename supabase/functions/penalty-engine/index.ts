@@ -221,35 +221,11 @@ Deno.serve(async (req) => {
       console.log(`[penalty-engine] ${frozenAccountIds.size} account(s) frozen due to pending submissions — skipped`);
     }
 
-    // ── Plan length: derive from schedule rows (MAX non-cancelled
-    //   installment_number per account). Never trust the cached
-    //   layaway_accounts.payment_plan_months column — it has drifted
-    //   historically (delete-installment didn't sync it; some accounts
-    //   were mismatched at creation). NEVER count(*) — a deleted middle
-    //   row must not change the final-month identity.
-    const planMonthsByAccount = new Map<string, number>();
-    for (let i = 0; i < uniqueAccountIds.length; i += 200) {
-      const chunk = uniqueAccountIds.slice(i, i + 200);
-      const { data: planRows } = await supabase
-        .from("layaway_schedule")
-        .select("account_id, installment_number")
-        .in("account_id", chunk)
-        .neq("status", "cancelled");
-      if (planRows) {
-        for (const r of planRows) {
-          const prev = planMonthsByAccount.get(r.account_id) ?? 0;
-          if (r.installment_number > prev) {
-            planMonthsByAccount.set(r.account_id, r.installment_number);
-          }
-        }
-      }
-    }
-
     for (const item of allOverdueItems) {
       const dueDate = new Date(item.due_date + "T00:00:00Z");
       const currency = (item as any).layaway_accounts.currency;
       const accountId = (item as any).layaway_accounts.id;
-      const planMonths = planMonthsByAccount.get(accountId) ?? 0;
+      const planMonths = (item as any).layaway_accounts.payment_plan_months || 6;
       const installmentNumber = item.installment_number;
       const existingKeys = existingPenaltyMap.get(item.id) || new Set();
       const dueDayOfMonth = dueDate.getUTCDate();
@@ -260,7 +236,7 @@ Deno.serve(async (req) => {
       const currentTotal = currentPenaltyTotals.get(item.id) || 0;
       const overrideCap = overrideMap.get(accountId);
       const cap = overrideCap !== undefined
-        ? (installmentNumber === planMonths ? (currency === "PHP" ? 3000 : 6000) : overrideCap)
+        ? (installmentNumber >= planMonths ? (currency === "PHP" ? 3000 : 6000) : overrideCap)
         : getPenaltyCap(currency, installmentNumber, planMonths);
 
       if (currentTotal >= cap) continue;

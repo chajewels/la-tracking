@@ -44,7 +44,7 @@ import {
   isEffectivelyPaid, isPartiallyPaid, remainingDue, remainingPrincipalDue, computeRemainingBalance,
   getUnpaidScheduleItems, getActivePayments, accountProgress,
   ordinal, SERVICE_LABELS, getNextPaymentStatementDate,
-  isPenaltyOverCap, derivePlanMonths, isFinalSettlement, isExtensionActive, isFinalForfeited,
+  isPenaltyOverCap, isFinalSettlement, isExtensionActive, isFinalForfeited,
   getForfeitureWarning, getUpcomingFollowUpDates,
   canReactivate, canAcceptPayment, canAddService, canAddPenalty,
   computeAccountSummary,
@@ -452,11 +452,6 @@ export default function AccountDetail() {
   const currency = (account?.currency || 'PHP') as Currency;
   const principalTotal = Number(account?.total_amount || 0);
   const scheduleItems = schedule || [];
-  // Plan length: derive from schedule rows (MAX non-cancelled
-  // installment_number). The cached account.payment_plan_months column
-  // has drifted historically — never rely on it. Falls back to the
-  // synced cache only if schedule isn't loaded yet.
-  const planMonths = derivePlanMonths(scheduleItems as any) || (account?.payment_plan_months ?? 0);
   // Override DB status: account is only truly overdue if an unpaid month has a past due_date
   const todayStr = getPHTToday();
   const hasUnpaidPastDue = scheduleItems.some(
@@ -1016,7 +1011,7 @@ export default function AccountDetail() {
               {loyaltyTier?.current_tier_name && (
                 <LoyaltyTierBadge tierName={loyaltyTier.current_tier_name} className="mx-2 align-middle" />
               )}
-              · {planMonths}-Month Plan · {currency}
+              · {account.payment_plan_months}-Month Plan · {currency}
             </p>
             {penaltyCapOverride && (
               <div className="mt-1 flex items-center gap-2">
@@ -1093,7 +1088,7 @@ export default function AccountDetail() {
             <InvoiceGeneratorSheet
               accountId={account.id}
               parentInvoiceNumber={account.invoice_number}
-              defaultTerms={`${planMonths} Months`}
+              defaultTerms={`${account.payment_plan_months} Months`}
               prefillAddress={{
                 name: account.customers?.full_name || '',
                 address_line1: account.customers?.address_line1 ?? null,
@@ -1155,7 +1150,7 @@ export default function AccountDetail() {
                   invoiceNumber={account.invoice_number}
                   currency={currency}
                   hasOverride={!!penaltyCapOverride}
-                  planMonths={planMonths}
+                  planMonths={account.payment_plan_months}
                 />
                 )}
               </>
@@ -1374,7 +1369,7 @@ export default function AccountDetail() {
                 const itemRemaining = remainingDue(item);
                 const isEditingThis = editingScheduleId === item.id;
                 const canEdit = account.status !== 'forfeited' && account.status !== 'cancelled' && item.status !== 'cancelled';
-                const overCap = penaltyCapOverride && isPenaltyOverCap(currency as 'PHP' | 'JPY', item.installment_number, penaltyAmt, planMonths);
+                const overCap = penaltyCapOverride && isPenaltyOverCap(currency as 'PHP' | 'JPY', item.installment_number, penaltyAmt, account.payment_plan_months);
                 return (
                   <div key={item.id}
                     className={`group rounded-xl border p-2.5 sm:p-3 transition-all duration-200 hover:shadow-md ${
