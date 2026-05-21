@@ -483,6 +483,16 @@ All values come from computeLayaway() in business-rules.ts
                downPayment:        4,500    (remarks contains 'down')
                nextPaymentDate:    2026-03-22
 
+  BENCHMARK DRIFT NOTE (observed 2026-05-21):
+    TEST-002 and TEST-003 have drifted +2,000 each from the documented
+    "Expected verify values" above — penalty accrual on overdue
+    installments since Apr 2026 (TEST-002 remaining 4,666 → 6,666;
+    TEST-003 remaining 7,000 → 9,000). Both still PASS audit_account
+    (internally consistent; waived penalty still correctly excluded on
+    TEST-002). The documented numbers above are STALE — they are not a
+    regression. Re-baseline or update the docs — TBD; the locked
+    numbers have intentionally NOT been changed pending that decision.
+
   TEST-004 — Split payment testing (can record payments)
              2026-05-18: now also the layaway loyalty-redemption
              fixture. Member 0ab9c522-7dac-496e-9ff2-efbc34632c67
@@ -2509,6 +2519,29 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
   fix. fetchWithRetryOnRateLimit (8ea5b2a) remains in place to
   handle transient 429s. See EMAIL SENDING — LOVABLE WORKSPACE
   RATE LIMIT section for full architecture + standing mitigations.
+
+  117. total_due_amount recompute dropped carried_amount (fixed;
+  code on main from a prior session, redeployed 2026-05-21).
+  penalty-engine (Step 5 + Step 5b self-heal), add-penalty, and
+  approve-waiver recomputed total_due_amount = base + penalty,
+  overwriting the carried_amount that carry-over bakes into
+  total_due. Any carried row that went overdue and was penalized
+  lost its carry from total_due_amount, per-row remaining, and
+  sum-of-pending. Account-level totals stayed correct — the
+  canonical formula reads payments, not schedule caches — so the
+  blast radius was per-row display + sum-of-pending only.
+  Fix: all four recompute sites now compute
+  base + penalty + (carried_amount ?? 0); approve-waiver's SELECT
+  was extended to load carried_amount. The fix was already on main
+  from a prior session but undeployed — redeployed 2026-05-21 to
+  make it live. See CARRIED_AMOUNT PRESERVATION section.
+  Census 2026-05-21: 21 carried rows; 20 healthy, only INV #18693
+  (the lone overdue+penalized carried row) was wiped — no other
+  affected population. #18693 repaired (see TODAY'S DATA FIXES
+  2026-05-21).
+  (Numbering note: #115 and #116 are Known Open Bugs; this fixed
+  entry takes #117 — the next free flush-left number — per the
+  no-duplicate-numbering rule.)
 
 ## Known Open Bugs
 
@@ -7687,6 +7720,31 @@ loyalty portal. In progress.
     of the smoke test sequence. Status flipped to
     cancelled, points refunded, audit row written.
     No production fixture remains.
+
+### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
+
+  Account schedule/allocation repairs. All four accounts pass
+  audit_account all_pass post-repair.
+
+  - INV #18113: legacy overpayment-waterfall artifact. The old
+    lumping waterfall (replaced by the row-by-row atomic waterfall
+    in commit 9069ffd, 2026-04-23) had left surplus mis-stored.
+    Surplus re-split into durable payment_allocations. Census
+    confirmed no remaining affected population.
+
+  - INV #18336: payment cd26d53c was over-allocated to installment 1
+    (11,230 vs 10,000 base). Allocation capped to the base.
+
+  - INV #18445: total_amount / carry tangle — installment 4 base
+    corrupt, installment 2 overpaid, installment 3 carried a
+    waived-penalty allocation, plus a bogus 931 carry. Reconstructed
+    via allocation re-homing + base restore. Remaining unchanged at
+    29,207.
+
+  - INV #18693: carry-drop victim of Bug #117. total_due_amount
+    restored to 10,513.58 (base 9,208 + penalty 500 + carried
+    805.58) after the redeploy that made the carry-preservation fix
+    live. Durable.
 
 ### OPERATIONAL ENHANCEMENTS
   P6: Admin audit log for manual DB changes
