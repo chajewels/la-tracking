@@ -2569,12 +2569,27 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
   confirm whether serviceTotal is being legitimately compensated elsewhere or
   is a true double-count. If confirmed bug, fix is one-line: remove '+ serviceTotal'
   from line 415.
-  STATUS: investigation pending. Not actively affecting production.
+  STATUS: investigation COMPLETE 2026-05-19 — NOT a confirmed bug (see verified note).
+  VERIFIED 2026-05-19 (investigation COMPLETE — NOT a confirmed bug):
+  - TWO sites, not one: `+ serviceTotal` appears at line 163 (early recompute)
+    AND line 415 (main path). The "one-line fix" framing was incomplete.
+  - Blast radius: only 2 accounts in the DB have services (INV 17408, 17253),
+    both fully paid (remaining=0, clamped) → zero exposure either way.
+  - Neither follows the SERVICES RULE: 17408 total_amount (71,980) is BELOW
+    dp+base (73,480) by exactly the service amount (anomalous); 17253
+    total_amount ≈ dp+base (service excluded). For these legacy accounts,
+    removing `+ serviceTotal` would UNDERSTATE the obligation — NOT a safe
+    blind fix.
+  - CONCLUSION: not active, zero impact, not a one-line removal. Proper path
+    (if ever) = align restore-payment with audit_account's canonical formula
+    in a balance-consistency pass, after verifying the 2 legacy accounts'
+    total_amount. Deferred LOW. Side note: INV 17408 sub-(dp+base)
+    total_amount is a separate data anomaly worth a look.
 
 ### Overpayment waterfall (surfaced 2026-05-20)
 
   Bug #116 — Overpayment surplus stored as total_due reduction, wiped by
-  recomputes. Code fix OPEN, deferred to a separate session.
+  recomputes. STATUS DORMANT / effectively closed (verified 2026-05-19) — see verified note at end of entry.
 
   ROOT CAUSE: overpayment surplus is currently persisted ONLY as a
   total_due_amount reduction on the downstream row — no payment_allocation,
@@ -2607,6 +2622,27 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
       'installment' allocation to Month 4 against the same payment,
       synced schedule caches. Penalty left standing (correct). Month 4
       remaining → 1320. audit_account all_pass = true.
+
+  VERIFIED 2026-05-19 (investigation COMPLETE — DORMANT / effectively closed):
+  - Main waterfall (review-payment-submission 167/170/176/180, record-payment
+    265, record-multi-payment 260) cascades surplus as allocation_type=
+    'installment' ALLOCATIONS — the durable pattern this entry prescribes is
+    already implemented, NOT a total_due reduction.
+  - Keep handler (PaymentSubmissions.tsx): overpayment "Accept waterfall" =
+    allocation cascade; overpayment "Keep" = records as-is, no schedule change;
+    underpayment "Keep as Partial" = no-op. NO total_due_amount write exists
+    anywhere in the file.
+  - Empirical: ZERO schedule rows have an unbacked total_due reduction — every
+    reduced row is fully backed by a matching installment allocation.
+  - The vulnerable mechanism described above was the OLD keep approach (commit
+    217b9b8), converted to allocations (commit 3f87361). INV #18113 was that
+    old mechanism, since repaired.
+  - STALE REMNANTS to clean someday: review-payment-submission ~line 149
+    comment + ~line 153 total_due ceiling reference the retired mechanism.
+  - CONCLUSION: dormant / effectively closed; durable pattern everywhere; no
+    recurrence path; zero vulnerable rows. (Note: 1d65c7d "Fixed carry-over
+    totalDueAmount" preserves carried_amount through the penalty recompute — a
+    sibling fix, distinct from this surplus concern.)
 
 ### Pending KPI accuracy items (surfaced 2026-04-28)
 
