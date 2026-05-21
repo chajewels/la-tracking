@@ -355,6 +355,7 @@ Deno.serve(async (req) => {
         scheduleUpdates.set(item.id, {
           totalPenalty,
           baseAmount: Number(item.base_installment_amount),
+          carriedAmount: Number(item.carried_amount ?? 0),
           accountId,
         });
         accountsToMarkOverdue.add(accountId);
