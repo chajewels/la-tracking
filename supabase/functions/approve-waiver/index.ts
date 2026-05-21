@@ -149,7 +149,7 @@ Deno.serve(async (req) => {
         .from("layaway_schedule")
         .update({
           penalty_amount: totalActivePenalty,
-          total_due_amount: Number(schedItem.base_installment_amount) + totalActivePenalty,
+          total_due_amount: Number(schedItem.base_installment_amount) + totalActivePenalty + Number(schedItem.carried_amount ?? 0),
         })
         .eq("id", schedId);
 
