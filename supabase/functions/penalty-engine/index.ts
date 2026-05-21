@@ -404,7 +404,7 @@ Deno.serve(async (req) => {
       if (Math.abs(penaltySum - Number(item.penalty_amount)) > 0.01) {
         await supabase.from("layaway_schedule").update({
           penalty_amount: penaltySum,
-          total_due_amount: Number(item.base_installment_amount) + penaltySum,
+          total_due_amount: Number(item.base_installment_amount) + penaltySum + Number(item.carried_amount ?? 0),
         }).eq("id", item.id);
       }
     }
