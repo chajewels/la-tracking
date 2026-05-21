@@ -201,7 +201,7 @@ Deno.serve(async (req) => {
 
     // ── Step 3: Determine which penalties to create ──
     const penaltiesToInsert: any[] = [];
-    const scheduleUpdates = new Map<string, { totalPenalty: number; baseAmount: number; accountId: string }>();
+    const scheduleUpdates = new Map<string, { totalPenalty: number; baseAmount: number; carriedAmount: number; accountId: string }>();
     const accountsToMarkOverdue = new Set<string>();
 
     // ── Freeze guard: batch-fetch accounts with pending payment submissions ──
