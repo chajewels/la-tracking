@@ -2996,6 +2996,18 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
     - Writing carried_amount when source row paid_amount = 0
     - Adding services separately to remaining_balance (services are in total_amount)
 
+## CARRIED_AMOUNT PRESERVATION (added 2026-05-21)
+
+  total_due_amount = base_installment_amount + penalty_amount + carried_amount
+  on EVERY recompute. carried_amount is part of the row's full obligation and
+  must be re-added whenever total_due_amount is rewritten.
+
+  Recompute sites: penalty-engine (Step 5 + Step 5b self-heal), add-penalty, approve-waiver.
+
+  INVARIANT 5 ("never inflate total_due_amount") means never inflate WITHOUT a
+  backing carried_amount/allocation — including the legitimate carried_amount is REQUIRED, not forbidden.
+
+
 ## CUSTOMER CODE STANDARD (added 2026-04-19)
 
   Format: CJ-YYYY-XXXXX
