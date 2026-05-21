@@ -180,7 +180,7 @@ Deno.serve(async (req) => {
 
     // Update schedule item: add penalty to penalty_amount and total_due_amount
     const newPenaltyAmount = Number(schedItem.penalty_amount) + penalty_amount;
-    const newTotalDue = Number(schedItem.base_installment_amount) + newPenaltyAmount;
+    const newTotalDue = Number(schedItem.base_installment_amount) + newPenaltyAmount + Number(schedItem.carried_amount ?? 0);
     const isPaid = schedItem.status === "paid";
 
     // If adding penalty to a paid installment (correction), also update paid_amount

@@ -201,7 +201,7 @@ Deno.serve(async (req) => {
 
     // ── Step 3: Determine which penalties to create ──
     const penaltiesToInsert: any[] = [];
-    const scheduleUpdates = new Map<string, { totalPenalty: number; baseAmount: number; accountId: string }>();
+    const scheduleUpdates = new Map<string, { totalPenalty: number; baseAmount: number; carriedAmount: number; accountId: string }>();
     const accountsToMarkOverdue = new Set<string>();
 
     // ── Freeze guard: batch-fetch accounts with pending payment submissions ──
@@ -355,6 +355,7 @@ Deno.serve(async (req) => {
         scheduleUpdates.set(item.id, {
           totalPenalty,
           baseAmount: Number(item.base_installment_amount),
+          carriedAmount: Number(item.carried_amount ?? 0),
           accountId,
         });
         accountsToMarkOverdue.add(accountId);
@@ -381,7 +382,7 @@ Deno.serve(async (req) => {
     for (const [schedId, info] of scheduleUpdates) {
       await supabase.from("layaway_schedule").update({
         penalty_amount: info.totalPenalty,
-        total_due_amount: info.baseAmount + info.totalPenalty,
+        total_due_amount: info.baseAmount + info.totalPenalty + info.carriedAmount,
         status: "overdue",
       }).eq("id", schedId);
     }
@@ -403,7 +404,7 @@ Deno.serve(async (req) => {
       if (Math.abs(penaltySum - Number(item.penalty_amount)) > 0.01) {
         await supabase.from("layaway_schedule").update({
           penalty_amount: penaltySum,
-          total_due_amount: Number(item.base_installment_amount) + penaltySum,
+          total_due_amount: Number(item.base_installment_amount) + penaltySum + Number(item.carried_amount ?? 0),
         }).eq("id", item.id);
       }
     }

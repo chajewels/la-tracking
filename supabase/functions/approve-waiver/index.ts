@@ -134,7 +134,7 @@ Deno.serve(async (req) => {
           .not("status", "eq", "waived"),
         supabase
           .from("layaway_schedule")
-          .select("base_installment_amount")
+          .select("base_installment_amount, carried_amount")
           .eq("id", schedId)
           .single(),
       ]);
@@ -149,7 +149,7 @@ Deno.serve(async (req) => {
         .from("layaway_schedule")
         .update({
           penalty_amount: totalActivePenalty,
-          total_due_amount: Number(schedItem.base_installment_amount) + totalActivePenalty,
+          total_due_amount: Number(schedItem.base_installment_amount) + totalActivePenalty + Number(schedItem.carried_amount ?? 0),
         })
         .eq("id", schedId);
 
