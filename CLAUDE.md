@@ -2807,6 +2807,18 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
     request Lovable bundles a trivial change with the substantive change
     to guarantee the deployment hash differs.
 
+  - Session lesson 2026-05-19: HANDOVER / doc staleness. A long chat runs
+    on stale local context while Lovable commits to main in parallel, so
+    handovers and CLAUDE.md edits written from chat memory drift from
+    reality (this session the chat believed redemption Issues 1-3 and the
+    Customers mobile crash were still open — both had already shipped to
+    main). Defense: always rebuild HANDOVER from main, never from chat
+    context. `git pull origin main`, read the actual CLAUDE.md status
+    sections (Recent Updates / Known Open Bugs / PENDING ITEMS), and
+    reconcile each claim (old claim → verified state → source) before
+    writing. Do not manufacture a doc edit when investigation shows none
+    is needed.
+
 ## SYSTEM INVARIANTS (permanent — never violate)
 
   INVARIANT 1 — total_paid source:
