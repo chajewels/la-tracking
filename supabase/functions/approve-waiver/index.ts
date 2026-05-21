@@ -134,7 +134,7 @@ Deno.serve(async (req) => {
           .not("status", "eq", "waived"),
         supabase
           .from("layaway_schedule")
-          .select("base_installment_amount")
+          .select("base_installment_amount, carried_amount")
           .eq("id", schedId)
           .single(),
       ]);
