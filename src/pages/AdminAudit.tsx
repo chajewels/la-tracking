@@ -124,13 +124,26 @@ export function OverdueDebugTab() {
         .order('updated_at', { ascending: false })
         .limit(50);
       if (error) throw error;
-      return accounts;
+
+      // Canonical per-row remaining from the view (DISPLAY RULES). Helpers below still use raw rows.
+      const schedIds = (accounts || []).flatMap((a: any) => (a.layaway_schedule || []).map((s: any) => s.id));
+      let remainingById: Record<string, number> = {};
+      if (schedIds.length) {
+        const { data: sva, error: e2 } = await supabase
+          .from('schedule_with_actuals')
+          .select('id, actual_remaining')
+          .in('id', schedIds);
+        if (e2) throw e2;
+        remainingById = Object.fromEntries((sva || []).map((r: any) => [r.id, Number(r.actual_remaining ?? 0)]));
+      }
+      return { accounts: accounts || [], remainingById };
     },
   });
 
   if (isLoading) return <div className="space-y-2">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-20 rounded-lg" />)}</div>;
 
-  const accounts = data || [];
+  const accounts = data?.accounts || [];
+  const remainingById = data?.remainingById || {};
 
   // Asia/Tokyo (JST, UTC+9) was wrong — canonical timezone is PHT (UTC+8).
   const phtToday = getPHTToday();
@@ -184,12 +197,18 @@ export function OverdueDebugTab() {
             <div className="text-[10px] text-muted-foreground space-y-0.5">
               {schedules.slice(0, 8).map((s: any) => {
                 const paid = isEffectivelyPaid(s);
+                const cache = Number(s.total_due_amount);
+                const canonical = remainingById[s.id] ?? cache;
+                const drift = cache - canonical;
                 return (
                   <div key={s.id} className="flex items-center gap-2">
                     <span className={`w-2 h-2 rounded-full ${paid ? 'bg-success' : s.due_date < phtToday ? 'bg-destructive' : 'bg-muted-foreground'}`} />
                     <span>Inst #{s.installment_number}</span>
                     <span>{new Date(s.due_date + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                    <span>{formatCurrency(Number(s.total_due_amount), currency)}</span>
+                    <span>{formatCurrency(canonical, currency)}</span>
+                    {Math.abs(drift) >= 0.01 && (
+                      <span className="text-amber-500">cache {formatCurrency(cache, currency)} · drift {formatCurrency(drift, currency)}</span>
+                    )}
                     <span className={paid ? 'text-success' : 'text-destructive'}>{paid ? 'Paid' : s.status}</span>
                   </div>
                 );
