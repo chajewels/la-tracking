@@ -533,7 +533,7 @@ Deno.serve(async (req) => {
       // Operations — based on NEXT due date per account (single bucket)
       due_today_count: dueTodayAccountIds.size,
       due_3_days_count: due3DaysAccountIds.size,
-      due_7_days_count: due7Total.size,
+      due_7_days_count: due7DaysAccountIds.size,
       penalties_today_count: penaltiesTodayCount,
       penalties_today_amount: penaltiesTodayAmount,
       penalties_today_account_ids: [...penaltiesTodayAccountIds],
