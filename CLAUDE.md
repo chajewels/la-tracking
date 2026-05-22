@@ -111,7 +111,7 @@ Reference docs (read the relevant one when a task touches that area):
 
 Real accounts have purely numeric invoice numbers. All test/scaffolding accounts have non-numeric invoices (families: TEST-001..005, CJ-2026-*). The canonical exclusion applied to EVERY operational and financial surface is: keep numeric only — SQL `invoice_number ~ '^[0-9]+$'`; PostgREST `.filter('<embed>.invoice_number','match','^[0-9]+$')`. The old `TEST-%`/`TEST%` filters are INCOMPLETE (miss the CJ- family) and must be replaced by this rule.
 
-Status (2026-05-22): applied across all frontend surfaces (Dashboard, CSR Monitoring, CSR Alerts, Smart Reminders, Extensions, Audit panels) and all 18 SQL reporting RPCs (13 fc_*, get_collection_analytics, get_monthly_sales, get_forecast_6m, get_forecast_drilldown, get_top_outstanding_customers). The two correctness bugs in get_monthly_sales (no ALL-mode currency conversion) and get_collection_analytics (reads total_due_amount cache) remain open and are tracked in FIXED-BUGS #131.
+Status (2026-05-22): applied across all frontend surfaces (Dashboard, CSR Monitoring, CSR Alerts, Smart Reminders, Extensions, Audit panels) and all 18 SQL reporting RPCs (13 fc_*, get_collection_analytics, get_monthly_sales, get_forecast_6m, get_forecast_drilldown, get_top_outstanding_customers). The get_monthly_sales ALL-mode currency-conversion bug is now fixed (FIXED-BUGS #132); the get_collection_analytics total_due_amount-cache bug remains open.
 
 ## PERMISSION RESOLUTION ORDER
 

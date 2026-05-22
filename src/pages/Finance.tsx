@@ -201,7 +201,7 @@ export default function Finance() {
         total_sales_value: number;
       }>;
     },
-    enabled: tab === 'overview' && !!session,
+    enabled: (tab === 'overview' || tab === 'analytics') && !!session,
   });
 
   const thisMonthSales = useMemo(() => {
@@ -245,6 +245,20 @@ export default function Finance() {
     },
     enabled: tab === 'analytics' && !!session,
   });
+
+  const collectionsVsSales = useMemo(() => {
+    if (!collectionAnalytics?.length) return [];
+    const salesByMonth = new Map<string, number>();
+    (monthlySalesData ?? []).forEach((s) => {
+      const key = s.month.replace(/^(\w{3}) \d{2}(\d{2})$/, '$1 $2'); // "Jun 2026" -> "Jun 26"
+      salesByMonth.set(key, Number(s.total_sales_value) || 0);
+    });
+    return collectionAnalytics.map((m: any) => ({
+      month: m.month,
+      collected: Number(m.collected) || 0,
+      sales: salesByMonth.get(m.month) ?? 0,
+    }));
+  }, [collectionAnalytics, monthlySalesData]);
 
   const { data: staffPerformance, isLoading: staffLoading } = useQuery({
     queryKey: ['staff-performance'],
@@ -470,9 +484,9 @@ export default function Finance() {
           {/* ═══════ Overview Tab ═══════ */}
           <TabsContent value="overview" className="mt-5 space-y-6">
             {/* KPI Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {summaryLoading ? (
-                [...Array(6)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+                [...Array(8)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
               ) : (
                 <>
                   <StatCard title="Total Receivables" value={formatCurrency(summary?.total_receivables ?? 0, displayCurrency)} icon={DollarSign} variant="gold" />
@@ -628,6 +642,25 @@ export default function Finance() {
                           <Area type="monotone" dataKey="collected" name="Collected" stroke="#D4AF37" strokeWidth={2} fill="url(#collectedGradient)" />
                           <Area type="monotone" dataKey="expected" name="Expected" stroke="#f59e0b" strokeWidth={2} fill="url(#expectedGradient)" />
                         </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                  {collectionsVsSales.length > 0 && (
+                    <div className="rounded-xl border border-border bg-card p-5">
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Collections vs Sales</h4>
+                      <ResponsiveContainer width="100%" height={280}>
+                        <LineChart data={collectionsVsSales} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                          <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                          <Tooltip
+                            contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }}
+                            formatter={(val: number) => formatCurrency(Number(val), displayCurrency)}
+                          />
+                          <Legend wrapperStyle={{ fontSize: 10 }} />
+                          <Line type="monotone" dataKey="collected" name="Collections" stroke="#D4AF37" strokeWidth={2} dot={{ r: 3, fill: '#D4AF37' }} />
+                          <Line type="monotone" dataKey="sales" name="Sales" stroke="#34d399" strokeWidth={2} dot={{ r: 3, fill: '#34d399' }} />
+                        </LineChart>
                       </ResponsiveContainer>
                     </div>
                   )}
