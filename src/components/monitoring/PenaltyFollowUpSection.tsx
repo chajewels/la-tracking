@@ -722,7 +722,12 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
                             >
                               <MessageCircle className="h-3.5 w-3.5" />
                             </Button>
-                            {!isNotified && (
+                            {isNotified ? (
+                              <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-success/10 border border-success/20 cursor-default select-none">
+                                <CheckCircle className="h-3 w-3 text-success" />
+                                <span className="text-[10px] font-medium text-success">Notified</span>
+                              </div>
+                            ) : (
                               <Button
                                 variant="outline"
                                 size="sm"
