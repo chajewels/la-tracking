@@ -186,6 +186,7 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
         .from('layaway_schedule')
         .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, remaining_balance, customers(full_name, messenger_link))')
         .in('layaway_accounts.status', ['active', 'overdue', 'extension_active', 'final_settlement'])
+        .filter('layaway_accounts.invoice_number', 'match', '^[0-9]+$')
         .in('status', ['pending', 'overdue', 'partially_paid'])
         .gt('penalty_amount', 0)
         .lt('due_date', getPHTToday())
