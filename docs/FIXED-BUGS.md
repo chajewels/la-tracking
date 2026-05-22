@@ -1800,3 +1800,14 @@ Two independent leaks of the 11 test accounts (TEST-001..005, CJ-2026-FORFEIT-*)
     the Overview "Aging Buckets" Current count/amount. Swapped to ~ '^[0-9]+$'.
     Catalog audit (pg_get_functiondef ~* '(like|~~)\s+''TEST') then returned zero
     functions — SQL reporting side fully test-clean (20 functions).
+
+134. Finance Analytics — Collected vs Expected + Forfeited Collected cleanup (2026-05-23)
+(1) get_collection_analytics emitted fractional yen (PHP/rate, no ROUND), showing as a
+    long decimal in the Collected vs Expected tooltip. Fixed in SQL Editor: collected /
+    expected / penalties_collected now ROUND by currency scale (0 dp for ALL/JPY, 2 for PHP).
+(2) The Collected vs Expected tooltip had no formatter (bare numbers, no currency). Added
+    formatCurrency(displayCurrency).
+(3) totalForfeitedCollected ("Forfeited Collected" card) ignored the currency toggle — in
+    PHP/JPY mode it summed every forfeited account's raw total_paid, mixing currencies. Now
+    filters isAllMode || a.currency === currencyFilter (deps include currencyFilter).
+    final_settlement intentionally excluded (treated as collectible, not forfeited).

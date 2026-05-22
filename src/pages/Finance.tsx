@@ -313,12 +313,15 @@ export default function Finance() {
   const totalForfeitedCollected = useMemo(() => {
     if (!accounts?.length) return 0;
     return accounts
-      .filter((a: any) => a.status === 'forfeited' || a.status === 'final_forfeited')
+      .filter((a: any) =>
+        (a.status === 'forfeited' || a.status === 'final_forfeited') &&
+        (isAllMode || a.currency === currencyFilter)
+      )
       .reduce((sum: number, a: any) => {
         const collected = Number(a.total_paid ?? 0);
         return sum + (isAllMode ? toJpy(collected, a.currency as Currency) : collected);
       }, 0);
-  }, [accounts, isAllMode]);
+  }, [accounts, isAllMode, currencyFilter]);
 
   // ── Intelligence section data (from former Analytics.tsx) ──
   const currency = currencyFilter === 'ALL' ? undefined : currencyFilter;
@@ -643,7 +646,7 @@ export default function Finance() {
                           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                           <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
                           <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
-                          <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} />
+                          <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} />
                           <Legend wrapperStyle={{ fontSize: 10 }} />
                           <Area type="monotone" dataKey="collected" name="Collected" stroke="#D4AF37" strokeWidth={2} fill="url(#collectedGradient)" />
                           <Area type="monotone" dataKey="expected" name="Expected" stroke="#f59e0b" strokeWidth={2} fill="url(#expectedGradient)" />
