@@ -21,7 +21,7 @@ export function PenaltyAuditTab() {
       const { data, error } = await supabase
         .from('penalty_fees')
         .select('*, layaway_accounts!inner(invoice_number, currency, customers(full_name)), layaway_schedule(installment_number, due_date)')
-        .not('layaway_accounts.invoice_number', 'ilike', 'TEST-%')
+        .filter('layaway_accounts.invoice_number', 'match', '^[0-9]+$')
         .order('created_at', { ascending: false })
         .limit(100);
       if (error) throw error;
@@ -120,7 +120,7 @@ export function OverdueDebugTab() {
         .from('layaway_accounts')
         .select('*, customers(full_name), layaway_schedule(*), penalty_fees(*)')
         .eq('status', 'overdue')
-        .not('invoice_number', 'ilike', 'TEST-%')
+        .filter('invoice_number', 'match', '^[0-9]+$')
         .order('updated_at', { ascending: false })
         .limit(50);
       if (error) throw error;
@@ -265,7 +265,7 @@ export function WaiverAuditTab() {
         .from('layaway_accounts')
         .select('id, invoice_number, currency, customers(full_name)')
         .in('id', accountIds)
-        .not('invoice_number', 'ilike', 'TEST-%');
+        .filter('invoice_number', 'match', '^[0-9]+$');
       return (data || []) as any[];
     },
   });

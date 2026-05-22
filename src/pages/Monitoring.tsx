@@ -791,6 +791,7 @@ function ExtensionRequestsPanel() {
       const { data, error } = await supabase
         .from('extension_requests' as any)
         .select('*, layaway_accounts!inner(id, invoice_number, currency, remaining_balance, status, customer_id)')
+        .filter('layaway_accounts.invoice_number', 'match', '^[0-9]+$')
         .eq('status', filter === 'pending' ? 'pending' : 'approved')
         .order('requested_at', { ascending: false });
 

@@ -36,7 +36,7 @@ export default function PenaltyCapAuditPanel() {
         .from('layaway_accounts')
         .select('id, invoice_number, currency, status, payment_plan_months, customers(full_name), layaway_schedule(id, installment_number, penalty_amount, status, due_date), penalty_fees(id, penalty_amount, status, schedule_id)')
         .in('status', ['active', 'overdue'])
-        .not('invoice_number', 'ilike', 'TEST-%')
+        .filter('invoice_number', 'match', '^[0-9]+$')
         .order('created_at', { ascending: false });
       if (error) throw error;
 
