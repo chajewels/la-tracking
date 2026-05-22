@@ -86,6 +86,7 @@ interface PortalAccount {
   total_services: number;
   outstanding_penalties: number;
   current_total_payable: number;
+  total_obligation: number;
   next_due_date: string | null;
   next_due_amount: number | null;
   statement_token: string | null;
@@ -1274,10 +1275,10 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
       {/* Amounts Grid */}
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',borderTop:`1px solid ${P.br}`,borderBottom:`1px solid ${P.br}`,margin:'0 -1.5rem',padding:'0.75rem 1.5rem',gap:'0'}}>
         {[
-          { lbl: 'Total', val: fmt(account.total_amount, currency), col: P.gp },
+          { lbl: 'Total', val: fmt(account.total_obligation, currency), col: P.gp },
           { lbl: 'Paid',  val: fmt(account.total_paid, currency),   col: '#5CB86A' },
-          { lbl: (account.outstanding_penalties ?? 0) > 0 ? 'Payable' : 'Balance',
-            val: fmt((account.outstanding_penalties ?? 0) > 0 ? (account.current_total_payable ?? account.remaining_balance) : account.remaining_balance, currency),
+          { lbl: 'Balance Due',
+            val: fmt(account.remaining_balance, currency),
             col: isOverdue ? '#E74C3C' : (account.outstanding_penalties ?? 0) > 0 ? P.gl : P.gp },
         ].map((col, i) => (
           <div key={i} style={{borderRight: i < 2 ? `1px solid ${P.br}` : 'none', paddingRight: i < 2 ? '1rem' : 0, paddingLeft: i > 0 ? '1rem' : 0}}>
@@ -1547,12 +1548,11 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
 
         <div className="mt-4 grid grid-cols-2 gap-3">
           <InfoBlock label="Total Amount" value={fmt(account.total_amount, currency)} />
-          <InfoBlock label="Remaining Balance" value={fmt(account.remaining_balance, currency)} highlight={isOverdue} />
+          <InfoBlock label="Balance Due" value={fmt(account.remaining_balance, currency)} highlight={isOverdue} />
           {(account.outstanding_penalties ?? 0) > 0 && (
-            <InfoBlock label="Outstanding Penalties" value={fmt(account.outstanding_penalties, currency)} highlight />
-          )}
-          {(account.outstanding_penalties ?? 0) > 0 && (
-            <InfoBlock label="Current Total Payable" value={fmt(account.current_total_payable ?? account.remaining_balance, currency)} highlight />
+            <p style={{ fontFamily: "Inter,sans-serif", fontSize: '11px', color: P.ts, marginTop: '2px', gridColumn: '1 / -1' }}>
+              includes {fmt(account.outstanding_penalties, currency)} in late penalties
+            </p>
           )}
           <InfoBlock label="Next Due" value={account.next_due_date ? fmtDateLong(account.next_due_date) : '—'} />
           <InfoBlock label="Next Amount" value={account.next_due_amount ? fmt(account.next_due_amount, currency) : '—'} />

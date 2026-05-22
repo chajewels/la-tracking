@@ -565,15 +565,22 @@ Deno.serve(async (req) => {
       const paidInstallments = acctSchedule.filter((s: any) => s.status === 'paid').length;
       const totalInstallments = acctSchedule.filter((s: any) => s.status !== 'cancelled').length;
       const totalPayments = acctPayments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
-      const computedRemaining = Math.max(0, Number(acc.total_amount) - totalPayments);
       const totalServices = acctServices.reduce((s: number, sv: any) => s + Number(sv.amount), 0);
 
-      // Compute outstanding penalties from penalty_fees table (source of truth)
       const acctPenalties = penaltiesByAccount[acc.id] || [];
+      // Unpaid penalties only — drives outstanding_penalties + the "late penalties" caption
       const unpaidPenaltySum = acctPenalties
         .filter((p: any) => p.status === 'unpaid')
         .reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
-      const currentTotalPayable = computedRemaining + unpaidPenaltySum + totalServices;
+      // All non-waived penalties (paid + unpaid) — the canonical obligation
+      const nonWaivedPenaltySum = acctPenalties
+        .filter((p: any) => p.status !== 'waived')
+        .reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
+      // CANONICAL: total_amount already includes services; add all non-waived penalties, subtract payments.
+      // Do NOT add services separately (double-count) and do NOT re-add penalties to a principal-only base.
+      const totalObligation = Number(acc.total_amount) + nonWaivedPenaltySum;
+      const computedRemaining = Math.max(0, totalObligation - totalPayments);
+      const currentTotalPayable = computedRemaining;
 
       const today = new Date().toISOString().split('T')[0];
       const todayDate = new Date(today + 'T00:00:00Z');
@@ -595,8 +602,8 @@ Deno.serve(async (req) => {
       // For pending/overdue rows with carry-over applied: total_due_amount is already reduced.
       const nextDueAmount = nextDue ? Math.max(0, Number(nextDue.total_due_amount)) : null;
 
-      const progressPercent = Number(acc.total_amount) > 0
-        ? Math.min(100, Math.round((totalPayments / Number(acc.total_amount)) * 100))
+      const progressPercent = totalObligation > 0
+        ? Math.min(100, Math.round((totalPayments / totalObligation) * 100))
         : 0;
 
       const statusLabel =
@@ -616,6 +623,7 @@ Deno.serve(async (req) => {
         total_amount: Number(acc.total_amount),
         total_paid: totalPayments,
         remaining_balance: computedRemaining,
+        total_obligation: totalObligation,
         downpayment_amount: Number(acc.downpayment_amount || 0),
         order_date: acc.order_date,
         payment_plan_months: acc.payment_plan_months,
