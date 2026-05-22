@@ -1735,3 +1735,15 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
   expected, not stale. The monitor now flags genuine cache drift
   only on non-paid rows.
 
+120. reactivate-account stamped the Extension Month placeholder row
+     (installment = plan + 1, base 0, due 0) with status 'overdue' at creation,
+     a month before its due_date. On a zero-amount row this produced
+     db_status='overdue' vs computed_status='paid', failing audit_account CHECK 7
+     ("schedule status consistent with allocations"). Fixed three ways:
+     (a) reactivate-account now inserts the row as 'pending';
+     (b) audit_account CHECK 7 branch B exempts zero-base/zero-due rows beyond
+         plan length (installment_number > payment_plan_months) — a zero-amount
+         row is vacuously "fully covered" and was false-positiving;
+     (c) existing placeholder rows backfilled 'overdue' -> 'pending' via SQL.
+     The Extension Month row itself is intentional (Bug #106) and was NOT removed.
+     Affected: INV 17059 (live) + test fixtures CJ-2026-FORFEIT-P2, CJ-2026-PATH1-TEST.
