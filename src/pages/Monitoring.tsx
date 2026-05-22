@@ -27,7 +27,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   categorizeByDueDate, daysOverdueFromToday, remainingDue,
-  isEffectivelyPaid, getNextUnpaidDueDate, classifyAccountBucket,
+  getNextUnpaidDueDate, classifyAccountBucket,
   type AlertType, type AccountBucket,
 } from '@/lib/business-rules';
 import ReminderCard, { type AlertItem, generateReminderMessage } from '@/components/monitoring/ReminderCard';
@@ -95,10 +95,10 @@ export default function Monitoring() {
       const today = getPHTToday();
       const in7days = Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(Date.now() + 7 * 86400000));
       const past730 = Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(Date.now() - 730 * 86400000));
-      const { data, error } = await supabase.from('layaway_schedule')
+      const { data, error } = await supabase.from('schedule_with_actuals')
         .select('*, layaway_accounts!inner(id, status, currency, invoice_number, customer_id, customers(full_name, messenger_link))')
         .in('layaway_accounts.status', ['active', 'overdue', 'final_settlement', 'extension_active'])
-        .in('status', ['pending', 'partially_paid', 'overdue'])
+        .in('computed_status', ['pending', 'partially_paid', 'overdue'])
         .gte('due_date', past730).lte('due_date', in7days)
         .order('due_date', { ascending: true });
       if (error) throw error;
@@ -186,17 +186,17 @@ export default function Monitoring() {
       const ACTIVE_STATUSES = ['active', 'overdue', 'final_settlement', 'extension_active'] as const;
       const [overdueRes, upcomingRes] = await Promise.all([
         supabase
-          .from('layaway_schedule')
+          .from('schedule_with_actuals')
           .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, remaining_balance, customers(full_name, messenger_link))')
-          .in('status', ['pending', 'overdue', 'partially_paid'])
+          .in('computed_status', ['pending', 'overdue', 'partially_paid'])
           .in('layaway_accounts.status', ACTIVE_STATUSES)
           .lt('due_date', today)
           .order('due_date', { ascending: true })
           .limit(500),
         supabase
-          .from('layaway_schedule')
+          .from('schedule_with_actuals')
           .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, remaining_balance, customers(full_name, messenger_link))')
-          .in('status', ['pending', 'overdue', 'partially_paid'])
+          .in('computed_status', ['pending', 'overdue', 'partially_paid'])
           .in('layaway_accounts.status', ACTIVE_STATUSES)
           .gte('due_date', today)
           .lte('due_date', next7Str)
@@ -309,7 +309,7 @@ export default function Monitoring() {
       if (bucket === 'fully_paid' || bucket === 'future') continue;
 
       const nextItem = items
-        .filter((s: any) => !isEffectivelyPaid(s) && s.status !== 'cancelled')
+        .filter((s: any) => s.computed_status !== 'paid' && s.computed_status !== 'cancelled')
         .sort((a: any, b: any) => a.due_date.localeCompare(b.due_date))[0];
 
       if (!nextItem) continue;

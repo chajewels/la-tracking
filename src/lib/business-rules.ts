@@ -140,9 +140,13 @@ export function isPartiallyPaid(item: {
 
 /** Remaining amount due on a schedule item (never negative). */
 export function remainingDue(item: {
-  total_due_amount: number | string;
-  paid_amount: number | string;
+  total_due_amount?: number | string;
+  paid_amount?: number | string;
+  actual_remaining?: number | string | null;
 }): number {
+  // Prefer canonical actual_remaining (schedule_with_actuals) when present;
+  // fall back to the write-only cache math for raw layaway_schedule rows.
+  if (item.actual_remaining != null) return Math.max(0, Number(item.actual_remaining));
   return Math.max(0, Number(item.total_due_amount) - Number(item.paid_amount));
 }
 
@@ -757,7 +761,7 @@ export function isComputedOverdue(
   );
 }
 
-export function categorizeScheduleItems<T extends { due_date: string; total_due_amount: number | string; paid_amount: number | string }>(
+export function categorizeScheduleItems<T extends { due_date: string; total_due_amount?: number | string; paid_amount?: number | string; actual_remaining?: number | string | null }>(
   items: T[]
 ): { overdue: T[]; dueToday: T[]; upcoming: T[] } {
   const overdue: T[] = [];
