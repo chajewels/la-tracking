@@ -565,15 +565,22 @@ Deno.serve(async (req) => {
       const paidInstallments = acctSchedule.filter((s: any) => s.status === 'paid').length;
       const totalInstallments = acctSchedule.filter((s: any) => s.status !== 'cancelled').length;
       const totalPayments = acctPayments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
-      const computedRemaining = Math.max(0, Number(acc.total_amount) - totalPayments);
       const totalServices = acctServices.reduce((s: number, sv: any) => s + Number(sv.amount), 0);
 
-      // Compute outstanding penalties from penalty_fees table (source of truth)
       const acctPenalties = penaltiesByAccount[acc.id] || [];
+      // Unpaid penalties only — drives outstanding_penalties + the "late penalties" caption
       const unpaidPenaltySum = acctPenalties
         .filter((p: any) => p.status === 'unpaid')
         .reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
-      const currentTotalPayable = computedRemaining + unpaidPenaltySum + totalServices;
+      // All non-waived penalties (paid + unpaid) — the canonical obligation
+      const nonWaivedPenaltySum = acctPenalties
+        .filter((p: any) => p.status !== 'waived')
+        .reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
+      // CANONICAL: total_amount already includes services; add all non-waived penalties, subtract payments.
+      // Do NOT add services separately (double-count) and do NOT re-add penalties to a principal-only base.
+      const totalObligation = Number(acc.total_amount) + nonWaivedPenaltySum;
+      const computedRemaining = Math.max(0, totalObligation - totalPayments);
+      const currentTotalPayable = computedRemaining;
 
       const today = new Date().toISOString().split('T')[0];
       const todayDate = new Date(today + 'T00:00:00Z');
