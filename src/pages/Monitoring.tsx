@@ -81,7 +81,8 @@ export default function Monitoring() {
     queryKey: ['reminder-logs'],
     queryFn: async () => {
       const { data, error } = await supabase.from('reminder_logs')
-        .select('*, customers(full_name, messenger_link), layaway_accounts(invoice_number, currency, remaining_balance)')
+        .select('*, customers(full_name, messenger_link), layaway_accounts!inner(invoice_number, currency, remaining_balance)')
+        .filter('layaway_accounts.invoice_number', 'match', '^[0-9]+$')
         .order('created_at', { ascending: false }).limit(100);
       if (error) throw error;
       return data;
@@ -98,6 +99,7 @@ export default function Monitoring() {
       const { data, error } = await supabase.from('schedule_with_actuals')
         .select('*, layaway_accounts!inner(id, status, currency, invoice_number, customer_id, customers(full_name, messenger_link))')
         .in('layaway_accounts.status', ['active', 'overdue', 'final_settlement', 'extension_active'])
+        .filter('layaway_accounts.invoice_number', 'match', '^[0-9]+$')
         .in('computed_status', ['pending', 'partially_paid', 'overdue'])
         .gte('due_date', past730).lte('due_date', in7days)
         .order('due_date', { ascending: true });
@@ -106,7 +108,17 @@ export default function Monitoring() {
     },
   });
 
-  const remSentCount = reminderLogs?.filter((r: any) => r.delivery_status === 'sent').length || 0;
+  const { data: remSentCount = 0 } = useQuery({
+    queryKey: ['reminder-sent-count'],
+    queryFn: async () => {
+      const { count, error } = await supabase.from('reminder_logs')
+        .select('layaway_accounts!inner(invoice_number)', { count: 'exact', head: true })
+        .eq('delivery_status', 'sent')
+        .filter('layaway_accounts.invoice_number', 'match', '^[0-9]+$');
+      if (error) throw error;
+      return count ?? 0;
+    },
+  });
 
   const remCategorized = useMemo(() => {
     if (!actionableItems) return { overdue: [], dueToday: [], upcoming: [] };
