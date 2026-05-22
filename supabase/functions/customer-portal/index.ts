@@ -623,6 +623,7 @@ Deno.serve(async (req) => {
         total_amount: Number(acc.total_amount),
         total_paid: totalPayments,
         remaining_balance: computedRemaining,
+        total_obligation: totalObligation,
         downpayment_amount: Number(acc.downpayment_amount || 0),
         order_date: acc.order_date,
         payment_plan_months: acc.payment_plan_months,
