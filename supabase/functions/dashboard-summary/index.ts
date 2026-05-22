@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
 
     // ── Build all queries in parallel ──
     // Active statuses must match ACTIVE_STATUSES in business-rules.ts
-    let accountsQ = supabase.from("layaway_accounts").select("*").in("status", ["active", "overdue", "final_settlement", "extension_active"]).not("invoice_number", "like", "TEST-%");
+    let accountsQ = supabase.from("layaway_accounts").select("*").in("status", ["active", "overdue", "final_settlement", "extension_active"]).filter("invoice_number", "match", "^[0-9]+$");
     if (currencyWhere) accountsQ = accountsQ.eq("currency", currencyWhere);
 
     let todayPayQ = supabase.from("payments").select("*").eq("date_paid", today).is("voided_at", null);
@@ -114,10 +114,10 @@ Deno.serve(async (req) => {
       .eq("status", "completed")
       .gte("completed_at", monthStartPht)
       .lt("completed_at", nextMonthStartPht)
-      .not("invoice_number", "like", "TEST-%");
+      .filter("invoice_number", "match", "^[0-9]+$");
 
     // Include both forfeited and final_forfeited — both represent forfeited accounts
-    let forfeitedQ = supabase.from("layaway_accounts").select("id").in("status", ["forfeited", "final_forfeited"]).not("invoice_number", "like", "TEST-%");
+    let forfeitedQ = supabase.from("layaway_accounts").select("id").in("status", ["forfeited", "final_forfeited"]).filter("invoice_number", "match", "^[0-9]+$");
     if (currencyWhere) forfeitedQ = forfeitedQ.eq("currency", currencyWhere);
 
     // Forfeited today — accounts forfeited within the current PHT calendar
@@ -130,7 +130,7 @@ Deno.serve(async (req) => {
       .in("status", ["forfeited", "final_forfeited"])
       .gte("forfeited_at", today    + "T00:00:00+08:00")
       .lt ("forfeited_at", tomorrow + "T00:00:00+08:00")
-      .not("invoice_number", "like", "TEST-%");
+      .filter("invoice_number", "match", "^[0-9]+$");
     if (currencyWhere) forfeitedTodayQ = forfeitedTodayQ.eq("currency", currencyWhere);
 
     // All-time completed accounts
@@ -138,7 +138,7 @@ Deno.serve(async (req) => {
       .from("layaway_accounts")
       .select("id", { count: "exact", head: true })
       .eq("status", "completed")
-      .not("invoice_number", "like", "TEST-%");
+      .filter("invoice_number", "match", "^[0-9]+$");
 
     const penaltiesTodayQ = supabase
       .from("penalty_fees")
@@ -164,7 +164,7 @@ Deno.serve(async (req) => {
       .from("cash_orders")
       .select("id", { count: "exact", head: true })
       .eq("status", "pending")
-      .not("invoice_number", "like", "TEST-%");
+      .filter("invoice_number", "match", "^[0-9]+$");
 
     const cashCompletedMonthQ = supabase
       .from("cash_orders")
@@ -172,19 +172,19 @@ Deno.serve(async (req) => {
       .eq("status", "completed")
       .gte("completed_at", monthStartPht)
       .lt("completed_at", nextMonthStartPht)
-      .not("invoice_number", "like", "TEST-%");
+      .filter("invoice_number", "match", "^[0-9]+$");
 
     const cashCompletedAllQ = supabase
       .from("cash_orders")
       .select("id", { count: "exact", head: true })
       .eq("status", "completed")
-      .not("invoice_number", "like", "TEST-%");
+      .filter("invoice_number", "match", "^[0-9]+$");
 
     const cashCancelledQ = supabase
       .from("cash_orders")
       .select("id", { count: "exact", head: true })
       .eq("status", "cancelled")
-      .not("invoice_number", "like", "TEST-%");
+      .filter("invoice_number", "match", "^[0-9]+$");
 
     // Conversion rate denominators — orders CREATED this month / all time, by source
     const cashCreatedMonthQ = supabase
@@ -192,24 +192,24 @@ Deno.serve(async (req) => {
       .select("id", { count: "exact", head: true })
       .gte("created_at", monthStartPht)
       .lt("created_at", nextMonthStartPht)
-      .not("invoice_number", "like", "TEST-%");
+      .filter("invoice_number", "match", "^[0-9]+$");
 
     const cashCreatedAllQ = supabase
       .from("cash_orders")
       .select("id", { count: "exact", head: true })
-      .not("invoice_number", "like", "TEST-%");
+      .filter("invoice_number", "match", "^[0-9]+$");
 
     const layawayCreatedMonthQ = supabase
       .from("layaway_accounts")
       .select("id", { count: "exact", head: true })
       .gte("created_at", monthStartPht)
       .lt("created_at", nextMonthStartPht)
-      .not("invoice_number", "like", "TEST-%");
+      .filter("invoice_number", "match", "^[0-9]+$");
 
     const layawayCreatedAllQ = supabase
       .from("layaway_accounts")
       .select("id", { count: "exact", head: true })
-      .not("invoice_number", "like", "TEST-%");
+      .filter("invoice_number", "match", "^[0-9]+$");
 
     // Non-voided cash_payments joined to cash_orders for currency + TEST filter — single fetch covers
     // today / this month / all time aggregations (bucketed in JS to save round trips).
@@ -217,7 +217,7 @@ Deno.serve(async (req) => {
       .from("cash_payments")
       .select("amount_paid, date_paid, cash_orders!inner(currency, invoice_number)")
       .is("voided_at", null)
-      .not("cash_orders.invoice_number", "like", "TEST-%");
+      .filter("cash_orders.invoice_number", "match", "^[0-9]+$");
 
     // Non-voided layaway payments joined to layaway_accounts (TEST excluded) — basis for the split.
     // This fetch is needed for all-time figures; existing monthPayments lacks the TEST filter.
@@ -225,7 +225,7 @@ Deno.serve(async (req) => {
       .from("payments")
       .select("amount_paid, currency, date_paid, layaway_accounts!inner(invoice_number)")
       .is("voided_at", null)
-      .not("layaway_accounts.invoice_number", "like", "TEST-%");
+      .filter("layaway_accounts.invoice_number", "match", "^[0-9]+$");
 
     // ── Fetch ALL unpaid schedule items (paginated to bypass 1000-row limit) ──
     const fetchAllScheduleItems = async () => {
