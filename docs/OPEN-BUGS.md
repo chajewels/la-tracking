@@ -1,0 +1,345 @@
+## Known Open Bugs
+
+  Bugs that have been surfaced and triaged but not
+  yet fixed. Each entry should describe the fix
+  pattern so the next session can pick it up cleanly.
+
+### Edge function code review (surfaced 2026-05-19)
+
+  Bug #115 — restore-payment service double-counting (investigation pending).
+  LOCATION: supabase/functions/restore-payment/index.ts line 414-415.
+  CODE: const newRemainingBalance = Math.max(0, round2(
+    Number(accountData?.total_amount ?? 0) + penaltyTotal + serviceTotal - newTotalPaid
+  ));
+  CONCERN: per SERVICES RULE (added 2026-04-12, this CLAUDE.md), services are
+  already included in total_amount at the time of service creation. Adding
+  serviceTotal as a separate term double-counts services on accounts that have
+  them.
+  IMPACT SURFACE: only manifests on accounts that have applied services AND
+  subsequently have restore-payment called. Carl's account 20000 has zero
+  services; today's audit (12/12 pass) doesn't expose the bug. TEST accounts
+  also have zero services.
+  PRIORITY: LOW — narrow impact surface, restore-payment is a rare staff action.
+  NEXT STEP: read restore-payment.tsx lines 162 + 408-430 in full context to
+  confirm whether serviceTotal is being legitimately compensated elsewhere or
+  is a true double-count. If confirmed bug, fix is one-line: remove '+ serviceTotal'
+  from line 415.
+  STATUS: investigation COMPLETE 2026-05-19 — NOT a confirmed bug (see verified note).
+  VERIFIED 2026-05-19 (investigation COMPLETE — NOT a confirmed bug):
+  - TWO sites, not one: `+ serviceTotal` appears at line 163 (early recompute)
+    AND line 415 (main path). The "one-line fix" framing was incomplete.
+  - Blast radius: only 2 accounts in the DB have services (INV 17408, 17253),
+    both fully paid (remaining=0, clamped) → zero exposure either way.
+  - Neither follows the SERVICES RULE: 17408 total_amount (71,980) is BELOW
+    dp+base (73,480) by exactly the service amount (anomalous); 17253
+    total_amount ≈ dp+base (service excluded). For these legacy accounts,
+    removing `+ serviceTotal` would UNDERSTATE the obligation — NOT a safe
+    blind fix.
+  - CONCLUSION: not active, zero impact, not a one-line removal. Proper path
+    (if ever) = align restore-payment with audit_account's canonical formula
+    in a balance-consistency pass, after verifying the 2 legacy accounts'
+    total_amount. Deferred LOW. Side note: INV 17408 sub-(dp+base)
+    total_amount is a separate data anomaly worth a look.
+
+### Overpayment waterfall (surfaced 2026-05-20)
+
+  Bug #116 — Overpayment surplus stored as total_due reduction, wiped by
+  recomputes. STATUS DORMANT / effectively closed (verified 2026-05-19) — see verified note at end of entry.
+
+  ROOT CAUSE: overpayment surplus is currently persisted ONLY as a
+  total_due_amount reduction on the downstream row — no payment_allocation,
+  no carried_amount. Any process that later recomputes
+  total_due_amount = base + penalty therefore WIPES the surplus.
+  penalty-engine/index.ts lines 384 & 406 both do this (total_due = base +
+  penalty), so a penalty landing on a row that absorbed surplus reverts the
+  row to full base+penalty and the customer's surplus disappears.
+  reconcile-account / daily-reconciliation likely share the same recompute
+  shape — confirm during the fix session.
+
+  DURABLE PATTERN: store surplus as a payment_allocation on the downstream
+  row, NOT as a total_due reduction. schedule_with_actuals computes
+  actual_remaining = GREATEST(0, total_due - allocated), so an allocation
+  survives any total_due recompute (the engine never touches `allocated`).
+  Penalty payments use allocation_type='penalty' (107 rows today);
+  installment / overpayment-surplus allocations use allocation_type
+  ='installment'.
+
+  STATUS: code fix OPEN — deferred. Blast-radius classification deferred
+  per owner. Touch points to audit at fix time: review-payment-submission
+  waterfall, record-payment, record-multi-payment, accept-underpayment /
+  carry-over (already allocation-based), penalty-engine recompute sites
+  (lines 384 & 406), reconcile-account, daily-reconciliation.
+
+  Repair log:
+    - INV #18113 (2026-05-20): Month 3 over-allocated 6001 vs base 3661;
+      the 2340 surplus had been wiped by penalty-engine that morning.
+      Re-split via SQL — capped Month 3 allocation to 3661, added 2340
+      'installment' allocation to Month 4 against the same payment,
+      synced schedule caches. Penalty left standing (correct). Month 4
+      remaining → 1320. audit_account all_pass = true.
+
+  VERIFIED 2026-05-19 (investigation COMPLETE — DORMANT / effectively closed):
+  - Main waterfall (review-payment-submission 167/170/176/180, record-payment
+    265, record-multi-payment 260) cascades surplus as allocation_type=
+    'installment' ALLOCATIONS — the durable pattern this entry prescribes is
+    already implemented, NOT a total_due reduction.
+  - Keep handler (PaymentSubmissions.tsx): overpayment "Accept waterfall" =
+    allocation cascade; overpayment "Keep" = records as-is, no schedule change;
+    underpayment "Keep as Partial" = no-op. NO total_due_amount write exists
+    anywhere in the file.
+  - Empirical: ZERO schedule rows have an unbacked total_due reduction — every
+    reduced row is fully backed by a matching installment allocation.
+  - The vulnerable mechanism described above was the OLD keep approach (commit
+    217b9b8), converted to allocations (commit 3f87361). INV #18113 was that
+    old mechanism, since repaired.
+  - STALE REMNANTS to clean someday: review-payment-submission ~line 149
+    comment + ~line 153 total_due ceiling reference the retired mechanism.
+  - CONCLUSION: dormant / effectively closed; durable pattern everywhere; no
+    recurrence path; zero vulnerable rows. (Note: 1d65c7d "Fixed carry-over
+    totalDueAmount" preserves carried_amount through the penalty recompute — a
+    sibling fix, distinct from this surplus concern.)
+
+### Pending KPI accuracy items (surfaced 2026-04-28)
+
+  Audit findings from the KPI cleanup. Group D items
+  follow the numbering from the original audit report.
+  The HIGH-severity timestamptz items originally
+  flagged here were resolved in commit ae5a000 — see
+  Known Fixed Bug #55.
+
+  LOW / MEDIUM severity — display polish + design
+  decisions, not data accuracy:
+  - D5: Dashboard polling 30s — not a correctness
+    bug, perf footnote. Each poll runs ~22 parallel
+    SELECTs in dashboard-summary. Consider raising
+    interval to 60s or driving via supabase-realtime
+    subscription if perf becomes an issue at scale.
+  - D7: Two cards share `cash_revenue_month_jpy` field
+    (Dashboard "Revenue This Month" + Executive
+    "Cash Sales (This Month · JPY)"). Not a bug —
+    intentional reuse. If one is ever expected to
+    diverge from the other (e.g. different scope
+    rules), they need to become two separate fields.
+  - D8: Hardcoded `riskFactor = 0.85` at
+    dashboard-summary line 417 is undocumented and
+    drives Predicted (30d), Predicted (90d), and
+    Expected Next Month cards. Move to system_settings
+    table OR document the value choice in a code
+    comment + CLAUDE.md.
+  - D9: `predicted_30d_raw` subtitle wording is
+    confusing — Finance.tsx Predicted (30d) card
+    headline is risk-adjusted (×0.85) while subtitle
+    "of {raw} due" exposes the un-adjusted value.
+    Easy to misread as "predicted of X due" implying
+    X is the target. Reword subtitle to clarify
+    risk-adjustment, or surface both numbers more
+    explicitly.
+
+### AgingBuckets follow-ups (surfaced 2026-04-29)
+
+  Two low/medium issues found while verifying the
+  D2/D4 revert (commit 1b9ff78). Both will be
+  folded into the same get_aging_buckets() RPC
+  work as D2/D4.
+
+  - AgingBuckets currency-prop partially resolved (2026-04-30):
+    The component now consumes the currency prop for
+    variant='amount' (toJpy conversion when displayCurrency=JPY;
+    PHP-only filter when displayCurrency=PHP). This closed the
+    user-visible "ignored" complaint.
+
+    Optional follow-up: get_aging_buckets() RPC still does not
+    take p_currency parameter. Adding it would push the filter
+    to the SQL layer instead of the JS layer. Currently no
+    behavioral difference because the JS-layer filter is correct.
+    Defer to future session.
+
+    (originally surfaced 2026-04-29, partially resolved 2026-04-30)
+
+  - TEST-005 in Overdue & Due Soon widget:
+    Pre-existing TEST exclusion gap on the
+    Overdue & Due Soon widget (not AgingBuckets
+    — separate component). Surfaced 2026-04-29
+    during D2/D4 verification. Fix path: add
+    `.not('invoice_number', 'like', 'TEST-%')`
+    on the underlying query, mirroring the
+    pattern used elsewhere on the dashboard.
+    Verify the widget's account-id filter
+    chain stays under PostgREST URL limits
+    (do NOT repeat the de1e640 mistake — if a
+    join can't carry the TEST exclusion, push
+    the filter into a server-side RPC instead
+    of a client-side `.in()` over a large
+    UUID list).
+
+### Dashboard restructure follow-ups (surfaced 2026-04-30)
+
+  Open items surfaced during the Dashboard
+  account-counts-only restructure (Known Fixed
+  Bug #67). All are INVARIANT 2 / TEST-exclusion
+  consistency items that remain after the
+  AgingBuckets fix landed.
+
+  (No items remaining — EditCustomerDialog
+  DB-side defense entry retired 2026-05-08;
+  see Known Fixed Bug #85.)
+
+### Workflow gaps (surfaced 2026-05-01)
+
+  - 2 edge functions are completely missing from
+    .github/workflows/supabase-functions-deploy.yml:
+      - auth-email-hook (imports 6 templates from
+        _shared/email-templates/)
+      - reactivate-account (imports check-permission.ts)
+
+    These functions deploy manually only. Pre-existing
+    gap separate from bug #77 (which fixed the OR clause
+    propagation for functions already in the workflow).
+    Lower severity since manual deploys are tracked, but
+    future Lovable changes to these functions will not
+    auto-deploy.
+
+    Surfaced 2026-05-01 during workflow gap investigation
+    for bug #77.
+
+### Currency toggle behavior (surfaced 2026-04-30)
+
+  Currency toggle Dashboard behavior is mixed.
+  Investigation 2026-04-30 mapped per-widget
+  currency awareness:
+
+  Currency-aware (filter by toggle): Total
+    Customers, Total Active Accounts, Overdue
+    (status), Forfeited, Forfeited Today,
+    today/month payments, Live Collection
+    Tracker recent feed, Operations Panel
+    pills.
+
+  Currency-agnostic (always global): Plan
+    tiles, Completed (this month), All Time
+    Completed, Cash Orders (always JPY),
+    AgingBuckets, Regional Overview, AI &
+    Predictions panels.
+
+  No codified principle; split is organic.
+  Status quo held pending UX decision on
+  Path A (counts always global) vs Path B
+  (counts always filter by currency).
+
+  (2026-04-30)
+
+### Priority/severity guide (as of 2026-04-30)
+
+  Honest triage for the open bugs above + items in PENDING ITEMS.
+  Updated when severity changes or items resolve.
+
+  P0 — Customer-impacting / data integrity at risk
+    None as of 2026-04-30.
+
+  P1 — Operational gaps that affect business decisions (Medium severity)
+    - Currency toggle final decision (Path A vs B). Mixed state
+      is operationally workable but counterintuitive to new staff.
+      Decision deferred today as Option 3 (defer) per session log.
+    - Loyalty staff visibility — staff cannot see customer loyalty
+      tier when handling accounts. Resolved per bug #63 for the
+      page-access dimension; tier visibility on layaway accounts
+      may still need surfacing.
+    - Admin audit log UI (P6 in PENDING ITEMS legacy numbering) —
+      DB triggers exist on audit_logs; no admin query UI to read
+      "who changed what when." Compliance risk if dispute arises.
+
+  P2 — Hygiene / consistency (Low severity)
+    None as of 2026-05-01 (both items resolved — see bugs
+    #74 and #75).
+
+  P3 — Defensive hardening (Low severity, no known bugs)
+    - Session timeout 2hr (P5 in legacy numbering) — security
+      hygiene.
+
+  P4 — Larger features (Medium severity, real effort, not blocking)
+    - PWA Phase A install routing — ABANDONED 2026-05-04 (Bug #79 revert),
+      replaced by EMAIL/PASSWORD AUTH (Phase B). Verified 2026-05-17: Phase A
+      frontend wiring is still absent from CustomerPortal.tsx,
+      CustomerStatement.tsx, and LoyaltyPortal.tsx. The 71 no-email customers
+      and similar token-only cohorts cannot use installed PWA cold-opens
+      effectively. Action path is migration to Phase B (not reviving Phase A).
+      Not currently a code workstream; tracked as operational/support issue.
+    - Invoice generator — Google Sheets + Drive, JPY only.
+      ✅ SHIPPED 2026-05-09 / 2026-05-10 (Steps 1a-1e in
+      INVOICE GENERATOR section)
+
+  No P0 work today. Triage triggered when an item escalates
+  (e.g., customer report, audit flag, regulatory deadline).
+
+  (last reviewed 2026-05-04)
+
+  - Customer-facing Payment History sort order (surfaced 2026-05-11,
+    RESOLVED 2026-05-17 via Phase 2 of A1 plan):
+    src/pages/CustomerPortal.tsx Payment History section derives from
+    customer-portal edge function. Previous state: customer-portal
+    sorted payments by date_paid DESC with no tiebreaker — same-day
+    payments had undefined order.
+
+    Empirical investigation 2026-05-17 revealed that 67% of payment
+    rows (2,960 of 4,377) are bulk-import artifacts with
+    created_at = 2026-03-20 and date_paid spanning May 2025 -
+    Aug 2025 (real payment dates). Sorting by created_at ASC (the
+    original proposed fix-path) would have clustered ~2,960 rows on
+    the bulk-import day, destroying real chronology for the majority
+    of payments.
+
+    Fix applied: composite sort date_paid PRIMARY + created_at
+    TIEBREAKER on 2 customer-portal query sites:
+      1. customer-portal payments fetch (DESC, newest first)
+      2. customer-portal cash_payments fetch (DESC, newest first)
+
+    Same-day payments now have stable deterministic order via
+    created_at tiebreaker.
+
+    SCOPE NOTE: customer-statement edge function was intentionally
+    SKIPPED. Although src/pages/CustomerStatement.tsx +
+    supabase/functions/customer-statement/index.ts still exist in
+    the repo, the admin UI to generate/share statements was
+    previously removed, no email links point to /statement, and no
+    customer access path remains. The file is effectively dead code,
+    pending formal deletion investigation (separate parked workstream
+    — see Open workstreams: customer-statement deletion).
+
+    Bulk-import semantics note: advance payments are correctly
+    recorded with date_paid = scheduled installment date (not the
+    actual entry date). This preserves installment-to-payment
+    alignment for reporting. Verified 2026-05-17 against accounts
+    18394 and 18498 — both completed and fully paid via advance
+    payment pattern.
+
+  - Audit failure during DP-voided + active-installment state (surfaced
+    2026-05-11): When DP is voided while an installment payment is
+    active, audit_account() returns all_pass=false on check "sum of
+    pending months matches remaining balance" because schedule rows
+    don't have a slot for unpaid DP. Discrepancy clears once DP is
+    restored or another DP is recorded. Edge case only during
+    transient voided-DP state. Not customer-facing. Defer.
+
+### Open workstreams (added 2026-05-14)
+
+  - Session lesson 2026-05-14: Bug #100 auto-deploy staleness incident
+    recurred during Bug #101 deployment. Workflow reported success at
+    326cc4d merge time; production function continued running pre-Bug #101
+    code until forced redeploy via trivial whitespace change. Pattern is
+    reproducible. Defense: empirical retest is the only proof of deployed
+    code; never trust workflow success alone. For high-confidence deploys,
+    request Lovable bundles a trivial change with the substantive change
+    to guarantee the deployment hash differs.
+
+  - Session lesson 2026-05-19: HANDOVER / doc staleness. A long chat runs
+    on stale local context while Lovable commits to main in parallel, so
+    handovers and CLAUDE.md edits written from chat memory drift from
+    reality (this session the chat believed redemption Issues 1-3 and the
+    Customers mobile crash were still open — both had already shipped to
+    main). Defense: always rebuild HANDOVER from main, never from chat
+    context. `git pull origin main`, read the actual CLAUDE.md status
+    sections (Recent Updates / Known Open Bugs / PENDING ITEMS), and
+    reconcile each claim (old claim → verified state → source) before
+    writing. Do not manufacture a doc edit when investigation shows none
+    is needed.
+
