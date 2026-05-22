@@ -152,7 +152,9 @@ export function OverdueDebugTab() {
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">{accounts.length} overdue account(s)</p>
       {accounts.map((acc: any) => {
-        const schedules = (acc.layaway_schedule || []).filter((s: any) => s.status !== 'cancelled');
+        const schedules = (acc.layaway_schedule || [])
+          .filter((s: any) => s.status !== 'cancelled')
+          .sort((a: any, b: any) => Number(a.installment_number) - Number(b.installment_number));
         const penalties = acc.penalty_fees || [];
         const nextDue = getNextUnpaidDueDate(schedules);
         const overdueDays = nextDue ? daysOverdueFromToday(nextDue) : 0;
