@@ -355,10 +355,12 @@ export default function Finance() {
       if (pErr) throw pErr;
       const { data: roles, error: rErr } = await supabase.from('user_roles').select('*');
       if (rErr) throw rErr;
-      return (profiles || []).map((p: any) => ({
-        ...p,
-        role: (roles || []).find((r: any) => r.user_id === p.user_id)?.role || 'staff',
-      }));
+      return (profiles || [])
+        .map((p: any) => ({
+          ...p,
+          role: (roles || []).find((r: any) => r.user_id === p.user_id)?.role,
+        }))
+        .filter((p: any) => p.role);
     },
     enabled: tab === 'analytics' && !!session,
   });

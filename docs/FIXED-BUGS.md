@@ -1811,3 +1811,16 @@ Two independent leaks of the 11 test accounts (TEST-001..005, CJ-2026-FORFEIT-*)
     PHP/JPY mode it summed every forfeited account's raw total_paid, mixing currencies. Now
     filters isAllMode || a.currency === currencyFilter (deps include currencyFilter).
     final_settlement intentionally excluded (treated as collectible, not forfeited).
+
+135. Top 10 Outstanding Customers re-ranked (2026-05-23)
+get_top_outstanding_customers ordered by score DESC, but customers with no
+allocated payments get a NULL score (early-rate term divides by NULL), and
+Postgres sorts NULLs first under DESC — so 0%-early customers floated to #1-2.
+Changed ORDER BY to early_payment_rate DESC NULLS LAST, account_count DESC
+(early-payment % primary, account-count tiebreak). Applied in SQL Editor.
+
+136. CSR/Staff Performance included all profiles (2026-05-23)
+profilesWithRoles resolved role as `?.role || 'staff'`, defaulting the ~80
+roleless profiles (customers) to 'staff', so the list showed all 86. Fixed in
+Finance.tsx: dropped the 'staff' default and filtered to profiles with an
+assigned user_roles role (6 internal now; finance/csr auto-included later).
