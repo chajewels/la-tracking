@@ -1784,7 +1784,7 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
 
 132. get_monthly_sales summed la.total_amount with no PHP→JPY conversion in ALL mode (the first open correctness bug noted in #131), so the Finance "New Layaway Sales" KPI and consolidated sales figures mixed ₱ and ¥ raw. Fixed in the SQL Editor: total_sales_value now uses a per-row CASE that divides PHP by php_jpy_rate in ALL mode (mirroring get_collection_analytics.collected); single-currency modes unchanged; the #131 numeric test filter and the first-payment DISTINCT ON logic preserved. Verified ALL = JPY + PHP/rate per month across all 13 months. Also (frontend): fixed the Finance Overview KPI grid — 8 StatCards in lg:grid-cols-6 left a 4-column dead space and the gold-variant gradient-clip values (.gold-text) overflowed and rendered the overflow transparent ("cut off") at 1/6 width; changed to lg:grid-cols-4 (balanced 2×4, wider cards) and the loading skeleton to 8. Added a Collections vs Sales line chart (6 months, currency-aware) to the Finance Analytics tab, plotting collected vs total_sales_value. (Bug #132, 2026-05-22)
 
-## #133 — Finance dashboard test-account leak (2026-05-23)
+133. Finance dashboard test-account leak (2026-05-23)
 Two independent leaks of the 11 test accounts (TEST-001..005, CJ-2026-FORFEIT-*):
 (1) Client-side: useAccounts() has no test filter, so every Finance.tsx metric
     off the `accounts` array included them — inflated "Forfeited Collected",
@@ -1795,3 +1795,8 @@ Two independent leaks of the 11 test accounts (TEST-001..005, CJ-2026-FORFEIT-*)
     all 3 CTEs (missed the CJ- family), inflating Monthly Performance
     "Total Forfeited". Swapped to ~ '^[0-9]+$'. This RPC was missed by the
     #131 18-RPC sweep.
+(3) SQL: get_aging_buckets used the same incomplete NOT LIKE 'TEST-%' filter,
+    leaking the final_settlement test account (CJ-2026-FORFEIT-PATH3-NEW) into
+    the Overview "Aging Buckets" Current count/amount. Swapped to ~ '^[0-9]+$'.
+    Catalog audit (pg_get_functiondef ~* '(like|~~)\s+''TEST') then returned zero
+    functions — SQL reporting side fully test-clean (20 functions).
