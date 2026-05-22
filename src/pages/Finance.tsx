@@ -63,7 +63,13 @@ export default function Finance() {
     currencyFilter,
     Boolean(session) && !authLoading,
   );
-  const { data: accounts } = useAccounts();
+  const { data: rawAccounts } = useAccounts();
+  const accounts = useMemo(
+    () => (rawAccounts ?? []).filter(
+      (a: any) => /^[0-9]+$/.test(String(a.invoice_number ?? ''))
+    ),
+    [rawAccounts]
+  );
   const { data: customers } = useCustomers();
   const { data: allPayments } = usePayments();
   useAutoRefresh([
