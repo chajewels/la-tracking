@@ -1701,3 +1701,37 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
   entry takes #117 — the next free flush-left number — per the
   no-duplicate-numbering rule.)
 
+  118. Dashboard "Overdue & Due Soon" card read total_due_amount
+  cache instead of canonical actual_remaining (fixed 2026-05-22,
+  commit bb7e429). OverdueAlerts.tsx queried raw layaway_schedule
+  and displayed item.total_due_amount — a DISPLAY-RULE violation
+  (schedule caches are write-only, never read for display). On
+  drifted rows it overstated the amount: INV #17636 inst 4 showed
+  the stale ₱13,886 cache when canonical remaining was ₱1,000.
+  Fix: repointed the ['overdue-schedule'] query to
+  .from('schedule_with_actuals'), switched the status filter to
+  computed_status, and now displays Number(item.actual_remaining ?? 0).
+  Verified live: card renders via the view embed and shows canonical
+  values (#17636 → ₱1,000). Account-level totals were never affected
+  (canonical formula reads payments, not caches); blast radius was
+  this card's displayed per-row amount only. NOTE: the widget's
+  TEST-account exclusion gap is separate and still open — see
+  "AgingBuckets follow-ups" in OPEN-BUGS.
+
+  119. Admin → Audit → Overdue Debug tab read total_due_amount
+  cache (fixed 2026-05-22; commits 4b43961, 1e17317, a527827).
+  OverdueDebugTab displayed s.total_due_amount per installment —
+  same DISPLAY-RULE violation. Reworked into a drift monitor: a
+  batched .in() fetch from schedule_with_actuals builds a
+  {schedule_id → actual_remaining} map; each row shows canonical
+  actual_remaining as the primary amount with the cache value +
+  drift annotated beside it. Shared helpers (isEffectivelyPaid,
+  getNextUnpaidDueDate, remainingDue) were left untouched and still
+  receive raw rows — no business-rules change. Two refinements:
+  installments are sorted by installment_number (1e17317 — the
+  embedded array came back unordered), and the drift annotation is
+  suppressed on paid rows (a527827), where total_due_amount =
+  paid_amount and actual_remaining = 0 by design, so the gap is
+  expected, not stale. The monitor now flags genuine cache drift
+  only on non-paid rows.
+

@@ -4,6 +4,88 @@
   yet fixed. Each entry should describe the fix
   pattern so the next session can pick it up cleanly.
 
+### Dashboard wiring & realtime audit (surfaced 2026-05-22)
+
+  End-to-end audit of all four monitoring surfaces — Dashboard, CSR
+  Monitoring, Finance, Executive — checking each card/KPI for real
+  data wiring, refresh mechanism, and canonical-vs-cache source. All
+  cards are wired to real sources (no mocks). The two display-rule
+  violations this audit fixed (OverdueAlerts, OverdueDebug) are Known
+  Fixed Bugs #118 / #119. Remaining open:
+
+  DISPLAY-RULE violation still open:
+  - CSR Monitoring reads remainingDue() (= total_due_amount −
+    paid_amount, the write-only caches) for the CSR Alert card
+    amounts, ReminderCard "Installment", and Smart Reminders
+    categorization (Monitoring.tsx :115/:155/:326). DECISION PENDING
+    before fix: (A) adapt at call sites via a parallel
+    schedule_with_actuals fetch + map (helpers untouched, the
+    #118/#119 pattern), or (B) teach remainingDue / isEffectivelyPaid /
+    getNextUnpaidDueDate to accept the view shape (root-cause fix but
+    app-wide blast radius → full TEST-001/002/003 + system-audit
+    regression). Cynthia's call. (Account-level remaining_balance
+    reads elsewhere are canonical and correct.)
+
+  Cross-surface metric inconsistency (same metric computed two ways,
+  can diverge); needs a codified "which source wins" principle:
+  - Overdue count + Due Today/3d/7d: Dashboard & Finance use server
+    summary.*; Monitoring computes client-side from monitoring-schedules.
+  - Collections this month: Finance Overview = summary.collections_this_month
+    (server) vs Finance Collections tab = computeCollectionStats over
+    usePayments — on the same page.
+  - Reminders sent: Dashboard uncapped server count vs Monitoring
+    "Sent (total)" derived from reminder_logs capped at .limit(100),
+    which under-reports once logs exceed 100.
+
+  Correctness / display defects:
+  - Monitoring Extension Requests "Account" column renders
+    invoice_number, not the customer name (query doesn't fetch
+    full_name; variable misnamed customerName).
+  - PenaltyFollowUpSection.tsx:588 hardcodes "₱" regardless of
+    account currency (cosmetic).
+
+  Freshness / realtime:
+  - Only the Executive Alert Bar is true realtime (supabase.channel
+    postgres_changes). Everything else is 5-min useAutoRefresh, 30s/60s
+    react-query intervals, or STATIC (mount/manual/mutation only). The
+    Executive "Live · 30s" badge overstates this — its 16 numeric cards
+    are 30s polling and the cash cards run on a different cadence than
+    the header timestamp. STATIC cards lacking autoRefresh coverage that
+    arguably should refresh: Dashboard OverdueAlerts/OperationsPanel/
+    LiveCollectionTracker/AgingBuckets; Monitoring Penalty Follow-Up +
+    Audit sub-tabs; Finance Analytics/Intelligence/Collections tabs.
+    (See also D5.)
+
+  Unverifiable from the frontend (needs SQL Editor review):
+  - The 13 fc_* RPCs feeding the Executive Dashboard, and
+    get_monthly_sales (Finance "New Layaway Sales"), are server-side.
+    Whether they read canonical schedule_with_actuals vs the write-only
+    caches can't be confirmed from the repo — pull the bodies from
+    pg_proc and verify.
+
+### Schedule cache staleness on non-paid rows (surfaced 2026-05-22)
+
+  DATA-INTEGRITY (not display). On some pending/overdue/partially_paid
+  rows, layaway_schedule.total_due_amount diverges from canonical
+  schedule_with_actuals.actual_remaining — the cache is stale-high.
+  Found via the #118/#119 drift work:
+    INV #17921 inst 5 — cache ₱24,608 vs canonical ₱2,862
+    INV #17636 inst 4 — cache ₱13,886 vs canonical ₱1,000
+    INV #18531 inst 1 — cache ₱13,474 vs canonical ₱5,826
+    INV #18113 inst 4 — cache ₱3,660  vs canonical ₱1,320
+    TEST-004 inst 3   — cache ₱4,500  vs canonical ₱3,000
+  On NON-paid rows total_due_amount should equal actual_remaining, so
+  these are genuine stale caches — distinct from the expected
+  total_due-vs-remaining gap on PAID rows, which is not drift. User-
+  facing impact is now mitigated on the fixed surfaces (#118/#119 read
+  canonical), but the caches themselves remain stale → reconcile-account
+  / daily-reconciliation should flatten total_due_amount to canonical
+  on these rows. Investigation pending: why didn't reconciliation catch
+  them? TEST-004's gap is the loyalty redemption discount (allocation
+  applied, cache not rewritten — documented redemption behavior); #18113
+  was a prior data-fix account. The OverdueDebug drift monitor (#119)
+  now surfaces this class on non-paid rows going forward.
+
 ### Edge function code review (surfaced 2026-05-19)
 
   Bug #115 — restore-payment service double-counting (investigation pending).
