@@ -602,8 +602,8 @@ Deno.serve(async (req) => {
       // For pending/overdue rows with carry-over applied: total_due_amount is already reduced.
       const nextDueAmount = nextDue ? Math.max(0, Number(nextDue.total_due_amount)) : null;
 
-      const progressPercent = Number(acc.total_amount) > 0
-        ? Math.min(100, Math.round((totalPayments / Number(acc.total_amount)) * 100))
+      const progressPercent = totalObligation > 0
+        ? Math.min(100, Math.round((totalPayments / totalObligation) * 100))
         : 0;
 
       const statusLabel =
