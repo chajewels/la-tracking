@@ -111,6 +111,7 @@ Deno.serve(async (req) => {
       .select("id, due_date, total_due_amount, paid_amount, status, account_id, layaway_accounts!inner(id, invoice_number, currency, customer_id, status, customers!inner(id, full_name, email, messenger_link))")
       .in("status", ["pending", "overdue", "partially_paid"])
       .in("layaway_accounts.status", ["active", "overdue"])
+      .filter("layaway_accounts.invoice_number", "match", "^[0-9]+$")
       .order("due_date", { ascending: true })
       .limit(1000);
 
