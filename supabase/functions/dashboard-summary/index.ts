@@ -304,8 +304,10 @@ Deno.serve(async (req) => {
 
     const in3Str = phtDateStr(new Date(Date.now() + 3 * 86400000));
     const in7Str = phtDateStr(new Date(Date.now() + 7 * 86400000));
+    const graceFloorStr = phtDateStr(new Date(Date.now() - 6 * 86400000)); // earliest date still in grace (today - 6)
 
     const overdueAccountIds = new Set<string>();
+    const graceAccountIds = new Set<string>();
     const dueTodayAccountIds = new Set<string>();
     const due3DaysAccountIds = new Set<string>();
     const due7DaysAccountIds = new Set<string>();
@@ -315,7 +317,7 @@ Deno.serve(async (req) => {
       const acctCurrency = accountCurrencyMap.get(accountId) || "PHP";
       if (currencyWhere && acctCurrency !== currencyWhere) continue;
 
-      // Find next unpaid due date (earliest) — canonical via schedule_with_actuals
+      // Next unpaid due date (earliest) — canonical via schedule_with_actuals
       const unpaidSorted = items
         .filter((s: any) => {
           if (s.computed_status === "paid") return false;
@@ -328,13 +330,16 @@ Deno.serve(async (req) => {
 
       const nextDueDate = unpaidSorted[0].due_date;
 
-      // Classify based on next due date
+      // Canonical buckets — MUST match classifyAccountBucket() in src/lib/business-rules.ts:
+      //   grace = 1-6 days past due, overdue = 7+ days past due,
+      //   due-today = today, due-3/due-7 = EXACT day-marks (not cumulative).
       if (nextDueDate < today) {
-        overdueAccountIds.add(accountId);
-        // Sum ALL overdue amounts for this account (not just next due)
-        for (const s of items) {
-          if (s.due_date < today) {
-            if (s.computed_status !== "paid" && Number(s.actual_remaining) > 0) {
+        if (nextDueDate >= graceFloorStr) {
+          graceAccountIds.add(accountId);            // 1-6 days past due — grace, NOT overdue
+        } else {
+          overdueAccountIds.add(accountId);          // 7+ days past due
+          for (const s of items) {
+            if (s.due_date < today && s.computed_status !== "paid" && Number(s.actual_remaining) > 0) {
               const amt = Number(s.actual_remaining);
               overdueAmount += isAllMode ? toJpy(amt, acctCurrency) : amt;
             }
@@ -342,16 +347,12 @@ Deno.serve(async (req) => {
         }
       } else if (nextDueDate === today) {
         dueTodayAccountIds.add(accountId);
-      } else if (nextDueDate <= in3Str) {
+      } else if (nextDueDate === in3Str) {           // exactly 3 days before due
         due3DaysAccountIds.add(accountId);
-      } else if (nextDueDate <= in7Str) {
+      } else if (nextDueDate === in7Str) {           // exactly 7 days before due
         due7DaysAccountIds.add(accountId);
       }
     }
-
-    // Note: due_3 and due_7 are EXCLUSIVE of overdue and due_today
-    // due_7 includes due_3 accounts (cumulative for the 7-day window)
-    const due7Total = new Set([...due3DaysAccountIds, ...due7DaysAccountIds]);
 
     // ── Calculate KPI totals ──
     let totalReceivables = 0;
@@ -523,6 +524,7 @@ Deno.serve(async (req) => {
       payments_today: paymentsToday,
       collections_this_month: collectionsThisMonth,
       overdue_accounts: overdueAccountIds.size,
+      grace_accounts: graceAccountIds.size,
       overdue_amount: overdueAmount,
       completed_this_month: completedThisMonth ?? 0,
       forfeited_accounts: (forfeitedAccounts || []).length,
@@ -531,7 +533,7 @@ Deno.serve(async (req) => {
       // Operations — based on NEXT due date per account (single bucket)
       due_today_count: dueTodayAccountIds.size,
       due_3_days_count: due3DaysAccountIds.size,
-      due_7_days_count: due7Total.size,
+      due_7_days_count: due7DaysAccountIds.size,
       penalties_today_count: penaltiesTodayCount,
       penalties_today_amount: penaltiesTodayAmount,
       penalties_today_account_ids: [...penaltiesTodayAccountIds],
@@ -566,7 +568,8 @@ Deno.serve(async (req) => {
       _debug_overdue_ids: [...overdueAccountIds],
       _debug_due_today_ids: [...dueTodayAccountIds],
       _debug_due_3_ids: [...due3DaysAccountIds],
-      _debug_due_7_ids: [...due7Total],
+      _debug_due_7_ids: [...due7DaysAccountIds],
+      _debug_grace_ids: [...graceAccountIds],
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
