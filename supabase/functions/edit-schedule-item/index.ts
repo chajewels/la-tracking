@@ -70,7 +70,8 @@ Deno.serve(async (req) => {
 
     const oldBase = Number(schedItem.base_installment_amount);
     const penaltyAmount = Number(schedItem.penalty_amount);
-    const newTotalDue = new_base_amount + penaltyAmount;
+    const carriedAmount = Number(schedItem.carried_amount ?? 0);
+    const newTotalDue = new_base_amount + penaltyAmount + carriedAmount;
     const isPaid = schedItem.status === "paid";
 
     // Use SECURITY DEFINER RPC to bypass enforce_immutable_base trigger.
