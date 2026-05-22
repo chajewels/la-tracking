@@ -568,7 +568,8 @@ Deno.serve(async (req) => {
       _debug_overdue_ids: [...overdueAccountIds],
       _debug_due_today_ids: [...dueTodayAccountIds],
       _debug_due_3_ids: [...due3DaysAccountIds],
-      _debug_due_7_ids: [...due7Total],
+      _debug_due_7_ids: [...due7DaysAccountIds],
+      _debug_grace_ids: [...graceAccountIds],
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
