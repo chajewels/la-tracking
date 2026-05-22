@@ -208,7 +208,7 @@ export function OverdueDebugTab() {
                     <span>Inst #{s.installment_number}</span>
                     <span>{new Date(s.due_date + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                     <span>{formatCurrency(canonical, currency)}</span>
-                    {Math.abs(drift) >= 0.01 && (
+                    {!paid && Math.abs(drift) >= 0.01 && (
                       <span className="text-amber-500">cache {formatCurrency(cache, currency)} · drift {formatCurrency(drift, currency)}</span>
                     )}
                     <span className={paid ? 'text-success' : 'text-destructive'}>{paid ? 'Paid' : s.status}</span>
