@@ -1747,3 +1747,15 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
      (c) existing placeholder rows backfilled 'overdue' -> 'pending' via SQL.
      The Extension Month row itself is intentional (Bug #106) and was NOT removed.
      Affected: INV 17059 (live) + test fixtures CJ-2026-FORFEIT-P2, CJ-2026-PATH1-TEST.
+
+121. audit_delete_cleanup_invariants() emitted two perpetual info-level
+     "preventive_no_delete_fn" findings (cash_orders -> cash_payments and
+     cash_orders -> generated_invoices), flagging NO ACTION FKs that would block a
+     DELETE on cash_orders with no cleanup function. But cash_orders is soft-cancel
+     only — auto-expire-cash-orders soft-cancels, and delete-customer blocks customer
+     deletion when cash_orders exist (it does not hard-delete them), so no hard-delete
+     path exists. Fix: added both pairs to the audit's allowlist (delete_function
+     '(none - soft-cancel only)', defensive=false, pre_check_protected=false) so the
+     audit stops flagging a delete path that does not exist. SQL Editor RPC change
+     (CREATE OR REPLACE); inline comment dated 2026-05-22 in the function body; no
+     edge-function or src/ change. System Audit now reports "No schema drift detected".
