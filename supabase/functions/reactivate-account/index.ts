@@ -165,7 +165,7 @@ Deno.serve(async (req) => {
       base_installment_amount: 0,
       total_due_amount: 0,
       currency: account.currency,
-      status: "overdue",
+      status: "pending",
     });
 
     // Fetch customer name for audit
