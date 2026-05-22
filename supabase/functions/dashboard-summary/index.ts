@@ -524,6 +524,7 @@ Deno.serve(async (req) => {
       payments_today: paymentsToday,
       collections_this_month: collectionsThisMonth,
       overdue_accounts: overdueAccountIds.size,
+      grace_accounts: graceAccountIds.size,
       overdue_amount: overdueAmount,
       completed_this_month: completedThisMonth ?? 0,
       forfeited_accounts: (forfeitedAccounts || []).length,
