@@ -190,7 +190,7 @@ export default function Monitoring() {
           .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, remaining_balance, customers(full_name, messenger_link))')
           .in('computed_status', ['pending', 'overdue', 'partially_paid'])
           .in('layaway_accounts.status', ACTIVE_STATUSES)
-          .not('layaway_accounts.invoice_number', 'like', 'TEST-%')
+          .filter('layaway_accounts.invoice_number', 'match', '^[0-9]+$')
           .lt('due_date', today)
           .order('due_date', { ascending: true })
           .limit(500),
@@ -199,7 +199,7 @@ export default function Monitoring() {
           .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, remaining_balance, customers(full_name, messenger_link))')
           .in('computed_status', ['pending', 'overdue', 'partially_paid'])
           .in('layaway_accounts.status', ACTIVE_STATUSES)
-          .not('layaway_accounts.invoice_number', 'like', 'TEST-%')
+          .filter('layaway_accounts.invoice_number', 'match', '^[0-9]+$')
           .gte('due_date', today)
           .lte('due_date', next7Str)
           .order('due_date', { ascending: true })
