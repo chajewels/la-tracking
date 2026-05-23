@@ -111,7 +111,20 @@ Reference docs (read the relevant one when a task touches that area):
 
 Real accounts have purely numeric invoice numbers. All test/scaffolding accounts have non-numeric invoices (families: TEST-001..005, CJ-2026-*). The canonical exclusion applied to EVERY operational and financial surface is: keep numeric only — SQL `invoice_number ~ '^[0-9]+$'`; PostgREST `.filter('<embed>.invoice_number','match','^[0-9]+$')`. The old `TEST-%`/`TEST%` filters are INCOMPLETE (miss the CJ- family) and must be replaced by this rule.
 
-Status (2026-05-22): applied across all frontend surfaces (Dashboard, CSR Monitoring, CSR Alerts, Smart Reminders, Extensions, Audit panels) and all 18 SQL reporting RPCs (13 fc_*, get_collection_analytics, get_monthly_sales, get_forecast_6m, get_forecast_drilldown, get_top_outstanding_customers). The get_monthly_sales ALL-mode currency-conversion bug is now fixed (FIXED-BUGS #132); the get_collection_analytics total_due_amount-cache bug remains open.
+Status (2026-05-23): applied across all frontend surfaces (Dashboard, Finance, CSR Monitoring, CSR Alerts, Smart Reminders, Extensions, Audit panels) and all 20 SQL reporting RPCs (13 fc_*, get_collection_analytics, get_monthly_sales, get_monthly_analytics, get_aging_buckets, get_forecast_6m, get_forecast_drilldown, get_top_outstanding_customers). Also enforced in the dashboard-summary EDGE FUNCTION — every layaway_accounts query plus the cash_orders and layaway_accounts payment joins use .filter('<embed>.invoice_number','match','^[0-9]+$'); this powers all Overview headline KPIs (Total Receivables, Predicted, Collections This Month, etc.).
+
+Finance dashboard client-side cascade: useAccounts() returns rawAccounts (unfiltered); Finance.tsx derives `accounts` = rawAccounts filtered to /^[0-9]+$/.test(invoice_number). Every downstream memo inherits it — accountMap, collFiltered (via accountMap.has(p.account_id)), totalForfeitedCollected, recentCompleted. One root filter, all figures clean.
+
+Documented exception: get_staff_performance is intentionally NOT numeric-filtered — it counts confirmed payment_submissions per reviewer (a staff-activity metric), so test-account submissions are legitimately counted as real staff actions. The other unfiltered helpers (get_bulk_setup_invite_candidates, get_recent_qualifying_order, get_unpaid_schedule) are operational, not dashboard counts.
+
+Resolved this sweep: get_monthly_sales ALL-mode currency-conversion bug fixed (#132); get_monthly_analytics + get_aging_buckets numeric filters added (#133); the get_collection_analytics concern is closed — collection_rate is now a true capped efficiency = collected_due / expected, both summed from schedule_with_actuals by due-month (#137).
+
+Re-runnable audit — find any reporting function still missing the filter:
+  SELECT p.proname, (pg_get_functiondef(p.oid) LIKE '%^[0-9]+$%') AS has_numeric_filter
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname='public' AND (p.proname LIKE 'get%' OR p.proname LIKE 'fc%')
+  ORDER BY has_numeric_filter, p.proname;
+  Expected false only for the four helpers named above — none are financial dashboard counts.
 
 ## PERMISSION RESOLUTION ORDER
 
