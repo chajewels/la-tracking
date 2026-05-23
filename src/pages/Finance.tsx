@@ -630,11 +630,11 @@ export default function Finance() {
                     <StatCard title="Best Month" value={bestMonth ? `${bestMonth.collection_rate}%` : '—'} subtitle={bestMonth?.month} icon={Trophy} variant="gold" />
                     <StatCard title="Average Rate" value={`${avgRate}%`} icon={TrendingUp} variant="success" />
                     <StatCard title="Penalties Collected" value={formatCurrency(totalPenalties, displayCurrency)} icon={DollarSign} />
-                    <StatCard title="Forfeited Collected" value={formatCurrency(totalForfeitedCollected, displayCurrency)} icon={ShieldAlert} />
+                    <StatCard title="Recovered (Forfeited)" value={formatCurrency(totalForfeitedCollected, displayCurrency)} icon={ShieldAlert} />
                   </div>
                   {collectionAnalytics && collectionAnalytics.length > 0 && (
                     <div className="rounded-xl border border-border bg-card p-5">
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Collected vs Expected</h4>
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Paid vs Due</h4>
                       <ResponsiveContainer width="100%" height={280}>
                         <AreaChart data={collectionAnalytics} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                           <defs>
@@ -652,15 +652,15 @@ export default function Finance() {
                           <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
                           <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} />
                           <Legend wrapperStyle={{ fontSize: 10 }} />
-                          <Area type="monotone" dataKey="collected_due" name="Collected" stroke="#D4AF37" strokeWidth={2} fill="url(#collectedGradient)" />
-                          <Area type="monotone" dataKey="expected" name="Expected" stroke="#f59e0b" strokeWidth={2} fill="url(#expectedGradient)" />
+                          <Area type="monotone" dataKey="collected_due" name="Paid" stroke="#D4AF37" strokeWidth={2} fill="url(#collectedGradient)" />
+                          <Area type="monotone" dataKey="expected" name="Due" stroke="#f59e0b" strokeWidth={2} fill="url(#expectedGradient)" />
                         </AreaChart>
                       </ResponsiveContainer>
                     </div>
                   )}
                   {collectionsVsSales.length > 0 && (
                     <div className="rounded-xl border border-border bg-card p-5">
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Collections vs Sales</h4>
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Collected vs Sales</h4>
                       <ResponsiveContainer width="100%" height={280}>
                         <LineChart data={collectionsVsSales} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -671,7 +671,7 @@ export default function Finance() {
                             formatter={(val: number) => formatCurrency(Number(val), displayCurrency)}
                           />
                           <Legend wrapperStyle={{ fontSize: 10 }} />
-                          <Line type="monotone" dataKey="collected" name="Collections" stroke="#D4AF37" strokeWidth={2} dot={{ r: 3, fill: '#D4AF37' }} />
+                          <Line type="monotone" dataKey="collected" name="Collected" stroke="#D4AF37" strokeWidth={2} dot={{ r: 3, fill: '#D4AF37' }} />
                           <Line type="monotone" dataKey="sales" name="Sales" stroke="#34d399" strokeWidth={2} dot={{ r: 3, fill: '#34d399' }} />
                         </LineChart>
                       </ResponsiveContainer>

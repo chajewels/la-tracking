@@ -60,7 +60,7 @@ const LEGEND_COLORS: Record<string, string> = {
 const LEGEND_LABELS: Record<string, string> = {
   collected: 'Collected',
   forfeited: 'Forfeited',
-  penalties: 'Penalties Paid',
+  penalties: 'Penalties Collected',
   newSales: 'Monthly Sales',
 };
 
@@ -298,7 +298,7 @@ export default function MonthlyAnalyticsChart({ monthlySalesData }: { monthlySal
                 : undefined}
             />
             <StatCard label="Total Forfeited" value={totalForfeited} color="text-red-400"   />
-            <StatCard label="Penalties Paid"  value={totalPenalties} color="text-amber-400" />
+            <StatCard label="Penalties Collected"  value={totalPenalties} color="text-amber-400" />
             <StatCard label="Monthly Sales" value={thisMonthSalesCount} color="text-purple-400" subtitle="this month" formatValue={v => String(v)} />
           </div>
         )}
