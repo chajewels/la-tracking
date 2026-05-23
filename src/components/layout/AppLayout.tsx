@@ -34,7 +34,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <div className="min-h-screen w-full flex bg-black/72">
           <AppSidebar />
 
-          <div className="flex min-h-screen flex-1 flex-col">
+          <div className="flex min-h-screen flex-1 flex-col min-w-0">
             {/* Top Header */}
             <header className="h-14 flex items-center justify-between border-b border-[#D4AF37]/25 px-4 shrink-0 bg-black/55 backdrop-blur-md sticky top-0 z-30">
               <SidebarTrigger className="text-[#D4AF37] hover:text-white" />
