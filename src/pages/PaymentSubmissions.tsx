@@ -682,7 +682,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
               return (
                 <Card key={sub.id} className={`shadow-sm ${isPending ? 'ring-1 ring-primary/10' : ''}`}>
                   <CardContent className="p-4 sm:p-5">
-                    <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+                    <div className="flex flex-col lg:flex-row lg:items-start gap-4">
                       {/* Left: Details */}
                       <div className="flex-1 min-w-0 space-y-2.5">
                         <div className="flex items-start justify-between gap-2">
@@ -802,8 +802,45 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
 
                       </div>
 
-                      {/* Right: Proof + Actions */}
-                      <div className="w-full sm:w-64 shrink-0 flex flex-col gap-3">
+                      {/* Middle: Actions */}
+                      <div className="flex flex-row flex-wrap lg:flex-col gap-1.5 shrink-0 lg:w-40">
+                        {sub.proof_url && !sub.proof_url.match(/\.pdf$/i) && (
+                          <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setProofDialog(sub.proof_url!)}>
+                            <ImageIcon className="h-3.5 w-3.5" /> Expand
+                          </Button>
+                        )}
+                        {isPending && canModerate && (
+                          <>
+                            {canConfirm && (
+                              <Button size="sm" variant="default" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'confirmed' })}>
+                                <Check className="h-3.5 w-3.5" /> Confirm
+                              </Button>
+                            )}
+                            {canReject && (
+                              <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'rejected' })}>
+                                <XCircle className="h-3.5 w-3.5" /> Reject
+                              </Button>
+                            )}
+                            {canReview && (
+                              <Button size="sm" variant="ghost" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'needs_clarification' })}>
+                                <MessageSquare className="h-3.5 w-3.5" /> Clarify
+                              </Button>
+                            )}
+                          </>
+                        )}
+                        {isPending && !canModerate && (
+                          <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20 text-[10px]">
+                            <Clock className="h-3 w-3 mr-1" /> Pending Confirmation
+                          </Badge>
+                        )}
+                        <Link to={isCash ? `/cash-orders/${sub.cash_order_id}` : `/accounts/${sub.account_id}`}>
+                          <Button size="sm" variant="ghost" className="gap-1.5 text-xs w-full">
+                            <ExternalLink className="h-3.5 w-3.5" /> {isCash ? 'Cash Order' : 'Account'}
+                          </Button>
+                        </Link>
+                      </div>
+                      {/* Right: Proof */}
+                      <div className="w-full lg:w-80 shrink-0">
                         {(sub.proof_url && sub.proof_url.trim().length > 0) ? (
                           <div className="space-y-1.5">
                             <p className="text-[10px] text-muted-foreground font-medium">Proof of Payment</p>
@@ -821,7 +858,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                               <>
                                 <button onClick={() => setProofDialog(sub.proof_url!)} className="block w-full text-left">
                                   <ProofImage url={sub.proof_url}
-                                    className="w-full max-h-56 object-cover rounded border border-[hsl(var(--border))] hover:opacity-90 transition-opacity cursor-zoom-in" />
+                                    className="w-full max-h-72 object-cover rounded border border-[hsl(var(--border))] hover:opacity-90 transition-opacity cursor-zoom-in" />
                                 </button>
                                 <div className="flex flex-wrap gap-2">
                                   <button type="button" onClick={() => window.open(sub.proof_url!, '_blank', 'noopener,noreferrer')} className="text-[10px] text-primary underline flex items-center gap-1">
@@ -840,42 +877,6 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                         ) : (
                           <p className="text-[10px] text-destructive italic font-medium">No proof attached</p>
                         )}
-                        <div className="flex flex-row flex-wrap sm:flex-col gap-1.5">
-                          {sub.proof_url && !sub.proof_url.match(/\.pdf$/i) && (
-                            <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setProofDialog(sub.proof_url!)}>
-                              <ImageIcon className="h-3.5 w-3.5" /> Expand
-                            </Button>
-                          )}
-                          {isPending && canModerate && (
-                            <>
-                              {canConfirm && (
-                                <Button size="sm" variant="default" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'confirmed' })}>
-                                  <Check className="h-3.5 w-3.5" /> Confirm
-                                </Button>
-                              )}
-                              {canReject && (
-                                <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'rejected' })}>
-                                  <XCircle className="h-3.5 w-3.5" /> Reject
-                                </Button>
-                              )}
-                              {canReview && (
-                                <Button size="sm" variant="ghost" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'needs_clarification' })}>
-                                  <MessageSquare className="h-3.5 w-3.5" /> Clarify
-                                </Button>
-                              )}
-                            </>
-                          )}
-                          {isPending && !canModerate && (
-                            <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20 text-[10px]">
-                              <Clock className="h-3 w-3 mr-1" /> Pending Confirmation
-                            </Badge>
-                          )}
-                          <Link to={isCash ? `/cash-orders/${sub.cash_order_id}` : `/accounts/${sub.account_id}`}>
-                            <Button size="sm" variant="ghost" className="gap-1.5 text-xs w-full">
-                              <ExternalLink className="h-3.5 w-3.5" /> {isCash ? 'Cash Order' : 'Account'}
-                            </Button>
-                          </Link>
-                        </div>
                       </div>
                     </div>
                   </CardContent>
