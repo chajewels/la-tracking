@@ -126,16 +126,17 @@ export default function ExecutiveDashboard() {
 
         {/* KPI Row 1 */}
         {d.loading ? (
-          <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
           </div>
         ) : (
-          <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <KPI label="Portfolio Value" value={fmtM(d.portfolioValue)} sub="Active accounts only" />
             <KPI label="Active Gross Profit" value={fmtM(d.grossProfit?.active_gross_profit ?? 0)} sub="15% on active portfolio" />
             <KPI label="Lifetime Gross Profit" value={fmtM(d.grossProfit?.lifetime_gross_profit ?? 0)} sub="15% on all-time contracts" />
             <KPI label="Monthly Inflow" value={fmtM(d.monthlyInflow?.total_inflow ?? 0)}
               sub={`Installments ${fmtM(d.monthlyInflow?.installment_inflow ?? 0)} · Penalties ${fmtM(d.monthlyInflow?.penalty_inflow ?? 0)}`} />
+            <div className="lg:col-span-2">
             <KPI label="Net Exposure Risk" value={fmtM(d.netExposure?.net_exposure ?? 0)} danger
               sub={`${fmtM(d.netExposure?.gross_exposure ?? 0)} gross · ${fmtM(recovered)} recovered`}
               extra={d.netExposure ? (
@@ -157,7 +158,8 @@ export default function ExecutiveDashboard() {
                   </div>
                 </div>
               ) : undefined} />
-            <div className={`relative overflow-hidden rounded-xl border bg-card p-4 sm:p-5 border-l-[3px] ${coverageColor}`}>
+            </div>
+            <div className={`relative overflow-hidden rounded-xl border bg-card p-4 sm:p-5 border-l-[3px] lg:col-span-2 ${coverageColor}`}>
               <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider pl-2">Cash Flow Coverage</p>
               <p className="text-xl sm:text-2xl font-bold font-display tabular-nums pl-2 mt-1">{(d.coverageRatio?.coverage_ratio ?? 0).toFixed(2)}×</p>
               <p className={`text-[10px] pl-2 font-semibold uppercase tracking-wider ${coverageLabelColor}`}>{d.coverageRatio?.status_label ?? '—'}</p>
