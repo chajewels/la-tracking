@@ -8,7 +8,7 @@ import AppLayout from '@/components/layout/AppLayout';
 import StatCard from '@/components/dashboard/StatCard';
 import AgingBuckets from '@/components/dashboard/AgingBuckets';
 import OverdueAlerts from '@/components/dashboard/OverdueAlerts';
-import CurrencyToggle, { CurrencyFilter } from '@/components/dashboard/CurrencyToggle';
+import { CurrencyFilter } from '@/components/dashboard/CurrencyToggle';
 import GeoBreakdown from '@/components/dashboard/GeoBreakdown';
 import OperationsPanel from '@/components/dashboard/OperationsPanel';
 import LiveCollectionTracker from '@/components/dashboard/LiveCollectionTracker';
@@ -35,7 +35,7 @@ interface DriftFinding {
 }
 
 export default function Dashboard() {
-  const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
+  const currencyFilter: CurrencyFilter = 'ALL';
   const { session, loading: authLoading, profile, roles } = useAuth();
   const { can, canAccessPage } = usePermissions();
   const displayCurrency: Currency = getDisplayCurrencyForFilter(currencyFilter);
@@ -171,7 +171,6 @@ export default function Dashboard() {
                 </p>
               </div>
             </div>
-            <CurrencyToggle value={currencyFilter} onChange={setCurrencyFilter} />
           </div>
         </div>
 

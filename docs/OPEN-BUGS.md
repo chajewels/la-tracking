@@ -301,7 +301,7 @@
     Surfaced 2026-05-01 during workflow gap investigation
     for bug #77.
 
-### Currency toggle behavior (surfaced 2026-04-30)
+### Currency toggle behavior (surfaced 2026-04-30) — RESOLVED 2026-05-23
 
   Currency toggle Dashboard behavior is mixed.
   Investigation 2026-04-30 mapped per-widget
@@ -327,6 +327,12 @@
 
   (2026-04-30)
 
+  RESOLVED 2026-05-23: The Dashboard currency toggle was removed. The
+  Dashboard now shows a single combined ALL view (PHP + JPY, PHP converted
+  to JPY). The Path A vs Path B question is therefore moot — there is no
+  toggle to filter by. Finance keeps its own currency toggle; this is a
+  Dashboard-only change.
+
 ### Priority/severity guide (as of 2026-04-30)
 
   Honest triage for the open bugs above + items in PENDING ITEMS.
@@ -336,9 +342,10 @@
     None as of 2026-04-30.
 
   P1 — Operational gaps that affect business decisions (Medium severity)
-    - Currency toggle final decision (Path A vs B). Mixed state
-      is operationally workable but counterintuitive to new staff.
-      Decision deferred today as Option 3 (defer) per session log.
+    - Currency toggle final decision (Path A vs B) — RESOLVED 2026-05-23.
+      Toggle removed from the Dashboard; it now shows a single combined
+      ALL view (PHP + JPY, PHP to JPY). Path A/B is moot. Finance keeps
+      its own toggle. (Dashboard-only change.)
     - Loyalty staff visibility — staff cannot see customer loyalty
       tier when handling accounts. Resolved per bug #63 for the
       page-access dimension; tier visibility on layaway accounts
