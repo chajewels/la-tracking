@@ -1834,3 +1834,9 @@ collected_due (amount allocated to each due-month's installments, from
 schedule_with_actuals) and set collection_rate = collected_due / expected, capped
 <=100% by construction. `collected` (cash by payment date) retained for the
 Collections vs Sales chart; "Collected vs Expected" chart repointed to collected_due.
+
+138. Collections tab counted test-account payments (2026-05-23)
+The Finance Collections tab payment cards (Today/Yesterday/Week/Month/Year) and the Payment Feed read from collFiltered, which filtered only by voided_at and currency — so payments belonging to test/scaffolding accounts (TEST-*, CJ-2026-*) still counted in the totals and the feed. Fixed in Finance.tsx: collFiltered gained .filter(p => accountMap.has(p.account_id)) with accountMap added to its dependency array. Since accountMap is built from the numeric-filtered `accounts` array (/^[0-9]+$/.test(invoice_number)), test-account payments are now excluded from the cards and feed. Shipped 5f96cf5.
+
+139. Finance chart terminology standardized (2026-05-23)
+"Collected" meant two different things across the dashboard — cash received (Overview bar/stat and the Analytics "Collections vs Sales" line) versus the of-due, capped figure (the Analytics "Collected vs Expected" line) — and the penalty/forfeited labels were inconsistent between tabs. Relabeled (display only, no calc or dataKey changes): "Collections vs Sales" → "Collected vs Sales" (line "Collections" → "Collected"); "Collected vs Expected" → "Paid vs Due" (lines "Collected"/"Expected" → "Paid"/"Due"); Overview "Penalties Paid" → "Penalties Collected" (to match Analytics); Analytics "Forfeited Collected" → "Recovered (Forfeited)" to distinguish recovered cash from the Overview "Total Forfeited" loss figure. Shipped eeb80f3. Convention recorded in CLAUDE.md "## CHART TERMINOLOGY" (88f85f8): "Collected" always means cash received; the schedule-efficiency metric is "Paid vs Due".
