@@ -154,9 +154,10 @@ export default function Finance() {
     if (!allPayments) return [];
     return allPayments
       .filter(p => !p.voided_at)
+      .filter(p => accountMap.has(p.account_id))
       .filter(p => isAllMode || p.currency === currencyFilter)
       .sort((a, b) => new Date(b.date_paid).getTime() - new Date(a.date_paid).getTime() || new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  }, [allPayments, currencyFilter, isAllMode]);
+  }, [allPayments, currencyFilter, isAllMode, accountMap]);
 
   const collStats = useMemo(() => {
     const normalized = collFiltered.map(p => ({
