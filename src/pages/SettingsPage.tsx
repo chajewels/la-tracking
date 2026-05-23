@@ -133,13 +133,15 @@ export default function SettingsPage() {
       const roleMap: Record<string, string> = {};
       rolesRes.data.forEach((r) => { roleMap[r.user_id] = r.role; });
       setMembers(
-        profilesRes.data.map((p) => ({
-          user_id: p.user_id,
-          full_name: p.full_name,
-          email: p.email,
-          status: p.status,
-          role: roleMap[p.user_id] || 'unknown',
-        }))
+        profilesRes.data
+          .map((p) => ({
+            user_id: p.user_id,
+            full_name: p.full_name,
+            email: p.email,
+            status: p.status,
+            role: roleMap[p.user_id],
+          }))
+          .filter((p) => p.role)
       );
     }
     setLoadingMembers(false);
