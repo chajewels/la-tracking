@@ -951,7 +951,7 @@ export default function Finance() {
               <StatCard title="Today" value={formatCurrency(collStats.todayTotal, displayCurrency)} icon={TrendingUp} variant="gold" />
               <StatCard title="Yesterday" value={formatCurrency(collStats.yesterdayTotal, displayCurrency)} icon={TrendingUp} />
               <StatCard title="This Week" value={formatCurrency(collStats.weekTotal, displayCurrency)} icon={TrendingUp} />
-              <StatCard title="This Month" value={formatCurrency(collStats.monthTotal, displayCurrency)} icon={TrendingUp} variant="success" />
+              <StatCard title="This Month" value={formatCurrency(summary?.collections_this_month ?? 0, displayCurrency)} icon={TrendingUp} variant="success" />
               <StatCard title="This Year" value={formatCurrency(collStats.yearTotal, displayCurrency)} icon={Banknote} />
             </div>
 

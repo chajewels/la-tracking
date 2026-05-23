@@ -102,10 +102,10 @@ Deno.serve(async (req) => {
     let accountsQ = supabase.from("layaway_accounts").select("*").in("status", ["active", "overdue", "final_settlement", "extension_active"]).filter("invoice_number", "match", "^[0-9]+$");
     if (currencyWhere) accountsQ = accountsQ.eq("currency", currencyWhere);
 
-    let todayPayQ = supabase.from("payments").select("*").eq("date_paid", today).is("voided_at", null);
+    let todayPayQ = supabase.from("payments").select("*, layaway_accounts!inner(invoice_number)").eq("date_paid", today).is("voided_at", null).filter("layaway_accounts.invoice_number", "match", "^[0-9]+$");
     if (currencyWhere) todayPayQ = todayPayQ.eq("currency", currencyWhere);
 
-    let monthPayQ = supabase.from("payments").select("*").gte("date_paid", monthStartStr).is("voided_at", null);
+    let monthPayQ = supabase.from("payments").select("*, layaway_accounts!inner(invoice_number)").gte("date_paid", monthStartStr).is("voided_at", null).filter("layaway_accounts.invoice_number", "match", "^[0-9]+$");
     if (currencyWhere) monthPayQ = monthPayQ.eq("currency", currencyWhere);
 
     const completedThisMonthQ = supabase
@@ -220,7 +220,7 @@ Deno.serve(async (req) => {
       .filter("cash_orders.invoice_number", "match", "^[0-9]+$");
 
     // Non-voided layaway payments joined to layaway_accounts (TEST excluded) — basis for the split.
-    // This fetch is needed for all-time figures; existing monthPayments lacks the TEST filter.
+    // This fetch is needed for all-time figures (monthPayments only covers the current month).
     const layawayPaymentsAllTimeQ = supabase
       .from("payments")
       .select("amount_paid, currency, date_paid, layaway_accounts!inner(invoice_number)")
