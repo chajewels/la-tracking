@@ -354,6 +354,17 @@ When checking whether a user can perform an action:
     paid_amount from total_due_amount for partially_paid rows when
     summing pending months.
 
+  CACHE-STALENESS TEST (added 2026-05-23 — prevents the misdiagnosis logged in OPEN-BUGS "Schedule cache staleness"):
+    Because total_due_amount is the GROSS (above) and per-row remaining is
+    total_due_amount − paid_amount (= actual_remaining = total_due − allocated
+    in the view), total_due_amount ≠ actual_remaining on a non-paid row is
+    EXPECTED whenever any payment is allocated — that gap is the payment, NOT
+    drift. A row is genuinely stale ONLY when:
+      total_due_amount ≠ base_installment_amount + penalty_amount + carried_amount
+    Repair a genuine stale row by resetting total_due_amount to that GROSS sum
+    (leave paid_amount / allocated untouched). NEVER flatten total_due_amount to
+    actual_remaining — that overwrites the gross and breaks void/restore.
+
 ## Git Workflow
 
 - Commit and push all changes directly to **main** branch

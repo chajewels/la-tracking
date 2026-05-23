@@ -60,28 +60,49 @@
     AgingBuckets; Monitoring Penalty Follow-Up + Audit sub-tabs; Finance
     Analytics/Intelligence/Collections tabs. (See also D5.)
 
-### Schedule cache staleness on non-paid rows (surfaced 2026-05-22)
+### Schedule cache staleness on non-paid rows (surfaced 2026-05-22, RESOLVED 2026-05-23)
 
-  DATA-INTEGRITY (not display). On some pending/overdue/partially_paid
-  rows, layaway_schedule.total_due_amount diverges from canonical
-  schedule_with_actuals.actual_remaining — the cache is stale-high.
-  Found via the #118/#119 drift work:
-    INV #17921 inst 5 — cache ₱24,608 vs canonical ₱2,862
-    INV #17636 inst 4 — cache ₱13,886 vs canonical ₱1,000
-    INV #18531 inst 1 — cache ₱13,474 vs canonical ₱5,826
-    INV #18113 inst 4 — cache ₱3,660  vs canonical ₱1,320
-    TEST-004 inst 3   — cache ₱4,500  vs canonical ₱3,000
-  On NON-paid rows total_due_amount should equal actual_remaining, so
-  these are genuine stale caches — distinct from the expected
-  total_due-vs-remaining gap on PAID rows, which is not drift. User-
-  facing impact is now mitigated on the fixed surfaces (#118/#119 read
-  canonical), but the caches themselves remain stale → reconcile-account
-  / daily-reconciliation should flatten total_due_amount to canonical
-  on these rows. Investigation pending: why didn't reconciliation catch
-  them? TEST-004's gap is the loyalty redemption discount (allocation
-  applied, cache not rewritten — documented redemption behavior); #18113
-  was a prior data-fix account. The OverdueDebug drift monitor (#119)
-  now surfaces this class on non-paid rows going forward.
+  RESOLVED 2026-05-23 — the original "stale-high cache" framing was a
+  MISDIAGNOSIS. A full sweep of schedule_with_actuals across all
+  pending/overdue/partially_paid rows found ~99 rows where
+  total_due_amount diverged from actual_remaining, but in every one the
+  divergence equalled the row's `allocated` amount exactly and
+  total_due_amount equalled base+penalty+carried (the correct GROSS).
+  That is the allocation model working as designed, NOT staleness:
+    - total_due_amount holds the GROSS per-row obligation
+      (base + penalty + carried), including on partially_paid rows.
+    - allocated holds payments against the row.
+    - actual_remaining = total_due_amount − allocated (the view's
+      formula, confirmed empirically), and is the only value displayed.
+  So total_due_amount ≠ actual_remaining on a non-paid row is EXPECTED
+  whenever allocated > 0 — it is not drift. The original entry applied
+  the legacy "partially_paid = shortfall" reading to an allocation-model
+  system. (CLAUDE.md PAYMENT ALLOCATION RULES already states the gross
+  form; this session added an explicit cache-staleness test there.)
+
+  CORRECT staleness test (use this, NOT total_due vs actual_remaining):
+    stale  ⇔  total_due_amount ≠ base_installment_amount + penalty_amount + carried_amount   (on a non-paid row)
+
+  Genuine stale rows found by that test: exactly ONE.
+    INV 17325 inst 5 — total_due_amount 23,590 vs gross 23,634 (base
+    22,634 + penalty 1,000); ₱44 short — cache held ~₱956 of a ₱1,000
+    penalty (a penalty bump that didn't propagate to total_due_amount).
+    allocated was 0, so the ₱44 flowed into the displayed remaining and
+    put the per-row sum ₱44 under the account's canonical balance. Fixed
+    2026-05-23 via SQL: total_due_amount = base+penalty+carried (the
+    GROSS — NOT a flatten to actual_remaining, which would break
+    void/restore). Re-count after fix = 0.
+
+  The earlier examples (#17921, #17636, #18531, #18113, TEST-004) were
+  all the allocation-model case above, not stale: #18113 is the #116
+  surplus repair (2,340 'installment' allocation) working; TEST-004 is
+  the documented redemption-discount allocation.
+
+  Do NOT have reconcile-account / daily-reconciliation flatten
+  total_due_amount to actual_remaining — that overwrites the gross
+  obligation and breaks void/restore. If a genuine stale row recurs
+  (total_due ≠ base+penalty+carried), reset total_due_amount to the
+  gross, leaving allocated untouched.
 
 ### Edge function code review (surfaced 2026-05-19)
 
