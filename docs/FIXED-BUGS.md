@@ -1824,3 +1824,13 @@ profilesWithRoles resolved role as `?.role || 'staff'`, defaulting the ~80
 roleless profiles (customers) to 'staff', so the list showed all 86. Fixed in
 Finance.tsx: dropped the 'staff' default and filtered to profiles with an
 assigned user_roles role (6 internal now; finance/csr auto-included later).
+
+137. Collection rate redefined to a true, capped efficiency (2026-05-23)
+get_collection_analytics rate was collected (all cash received that month) / expected,
+which exceeded 100% (avg ~160%, peak 233%) because monthly cash includes advance/
+catch-up payments. Step 1 (swapping the total_due_amount cache for scheduled
+base+penalty) confirmed the inflation was structural, not the cache. Now: added
+collected_due (amount allocated to each due-month's installments, from
+schedule_with_actuals) and set collection_rate = collected_due / expected, capped
+<=100% by construction. `collected` (cash by payment date) retained for the
+Collections vs Sales chart; "Collected vs Expected" chart repointed to collected_due.

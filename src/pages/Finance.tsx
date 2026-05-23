@@ -243,6 +243,7 @@ export default function Finance() {
       return (Array.isArray(data) ? data : []) as Array<{
         month: string;
         collected: number;
+        collected_due: number;
         expected: number;
         collection_rate: number;
         forfeited: number;
@@ -650,7 +651,7 @@ export default function Finance() {
                           <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
                           <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} />
                           <Legend wrapperStyle={{ fontSize: 10 }} />
-                          <Area type="monotone" dataKey="collected" name="Collected" stroke="#D4AF37" strokeWidth={2} fill="url(#collectedGradient)" />
+                          <Area type="monotone" dataKey="collected_due" name="Collected" stroke="#D4AF37" strokeWidth={2} fill="url(#collectedGradient)" />
                           <Area type="monotone" dataKey="expected" name="Expected" stroke="#f59e0b" strokeWidth={2} fill="url(#expectedGradient)" />
                         </AreaChart>
                       </ResponsiveContainer>
