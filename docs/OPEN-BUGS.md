@@ -236,6 +236,7 @@
     (originally surfaced 2026-04-29, partially resolved 2026-04-30)
 
   - TEST-005 in Overdue & Due Soon widget:
+    RESOLVED 2026-05-23 (Bug #140): OverdueAlerts.tsx now carries the canonical numeric-only filter .filter('layaway_accounts.invoice_number','match','^[0-9]+$') on its embedded join — test accounts excluded from the widget.
     Pre-existing TEST exclusion gap on the
     Overdue & Due Soon widget (not AgingBuckets
     — separate component). Surfaced 2026-04-29
