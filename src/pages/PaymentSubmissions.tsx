@@ -688,7 +688,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <div className="flex items-center gap-2">
-                              <p className="text-base font-bold font-display text-foreground tabular-nums">
+                              <p className="text-lg font-bold font-display text-foreground tabular-nums">
                                 {formatCurrency(sub.submitted_amount, currency)}
                               </p>
                               {isSplit && (
@@ -716,7 +716,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                                 </Badge>
                               )}
                             </div>
-                            <p className="text-xs text-muted-foreground mt-0.5">
+                            <p className="text-sm text-muted-foreground mt-0.5">
                               via {sub.payment_method} · {new Date(sub.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
                             </p>
                           </div>
@@ -725,14 +725,14 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                           </Badge>
                         </div>
 
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
                           <div>
                             <p className="text-muted-foreground">Customer</p>
-                            <p className="text-foreground font-medium truncate">{customerName || '—'}</p>
+                            <p className="text-foreground font-semibold text-base truncate">{customerName || '—'}</p>
                           </div>
                           <div>
                             <p className="text-muted-foreground">Invoice</p>
-                            <p className="text-foreground font-medium">
+                            <p className="text-foreground font-semibold text-base">
                               {isSplit && allocs.length > 1
                                 ? `${allocs.length} invoices`
                                 : `#${invoiceNumber || '—'}`}
@@ -744,7 +744,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                           </div>
                           <div>
                             <p className="text-muted-foreground">Reference</p>
-                            <p className="text-foreground font-mono text-[11px]">{sub.reference_number || '—'}</p>
+                            <p className="text-foreground font-mono text-xs">{sub.reference_number || '—'}</p>
                           </div>
                         </div>
 
@@ -779,10 +779,10 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                         )}
 
                         {sub.sender_name && (
-                          <p className="text-xs text-muted-foreground">Sender: <span className="text-foreground">{sub.sender_name}</span></p>
+                          <p className="text-sm text-muted-foreground">Sender: <span className="text-foreground">{sub.sender_name}</span></p>
                         )}
                         {sub.notes && (
-                          <p className="text-xs text-muted-foreground">Notes: <span className="text-foreground">{sub.notes}</span></p>
+                          <p className="text-sm text-muted-foreground">Notes: <span className="text-foreground">{sub.notes}</span></p>
                         )}
                         {sub.customer_edited_at && isPending && (
                           <div className="flex items-center gap-1.5 p-2 rounded-md bg-warning/10 border border-warning/30">
@@ -800,9 +800,12 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                           </div>
                         )}
 
-                        {/* Inline proof preview — always shown regardless of status */}
+                      </div>
+
+                      {/* Right: Proof + Actions */}
+                      <div className="w-full sm:w-64 shrink-0 flex flex-col gap-3">
                         {(sub.proof_url && sub.proof_url.trim().length > 0) ? (
-                          <div className="mt-1 space-y-1.5">
+                          <div className="space-y-1.5">
                             <p className="text-[10px] text-muted-foreground font-medium">Proof of Payment</p>
                             {sub.proof_url.match(/\.pdf$/i) ? (
                               <div className="flex items-center gap-2 rounded border border-primary/20 bg-primary/5 p-2">
@@ -810,11 +813,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                                 <span className="text-xs text-foreground truncate flex-1" title={sub.proof_url.split('/').pop()}>
                                   {decodeURIComponent(sub.proof_url.split('/').pop() || 'proof.pdf').split('?')[0]}
                                 </span>
-                                <a
-                                  href={sub.proof_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-[10px] text-primary underline whitespace-nowrap">
+                                <a href={sub.proof_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-primary underline whitespace-nowrap">
                                   View Proof
                                 </a>
                               </div>
@@ -822,21 +821,16 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                               <>
                                 <button onClick={() => setProofDialog(sub.proof_url!)} className="block w-full text-left">
                                   <ProofImage url={sub.proof_url}
-                                    className="w-full max-h-48 object-cover rounded border border-[hsl(var(--border))] hover:opacity-90 transition-opacity cursor-zoom-in" />
+                                    className="w-full max-h-56 object-cover rounded border border-[hsl(var(--border))] hover:opacity-90 transition-opacity cursor-zoom-in" />
                                 </button>
-                                <div className="flex gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => window.open(sub.proof_url!, '_blank', 'noopener,noreferrer')}
-                                    className="text-[10px] text-primary underline flex items-center gap-1">
+                                <div className="flex flex-wrap gap-2">
+                                  <button type="button" onClick={() => window.open(sub.proof_url!, '_blank', 'noopener,noreferrer')} className="text-[10px] text-primary underline flex items-center gap-1">
                                     <ImageIcon className="h-3 w-3" /> View Proof
                                   </button>
-                                  <button onClick={() => setProofDialog(sub.proof_url!)}
-                                    className="text-[10px] text-muted-foreground underline flex items-center gap-1">
+                                  <button onClick={() => setProofDialog(sub.proof_url!)} className="text-[10px] text-muted-foreground underline flex items-center gap-1">
                                     View full size
                                   </button>
-                                  <a href={sub.proof_url} download target="_blank" rel="noopener noreferrer"
-                                    className="text-[10px] text-muted-foreground underline flex items-center gap-1">
+                                  <a href={sub.proof_url} download target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground underline flex items-center gap-1">
                                     Download
                                   </a>
                                 </div>
@@ -846,44 +840,42 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                         ) : (
                           <p className="text-[10px] text-destructive italic font-medium">No proof attached</p>
                         )}
-                      </div>
-
-                      {/* Right: Actions */}
-                      <div className="flex flex-row sm:flex-col gap-1.5 shrink-0">
-                        {sub.proof_url && !sub.proof_url.match(/\.pdf$/i) && (
-                          <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setProofDialog(sub.proof_url!)}>
-                            <ImageIcon className="h-3.5 w-3.5" /> Expand
-                          </Button>
-                        )}
-                        {isPending && canModerate && (
-                          <>
-                            {canConfirm && (
-                              <Button size="sm" variant="default" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'confirmed' })}>
-                                <Check className="h-3.5 w-3.5" /> Confirm
-                              </Button>
-                            )}
-                            {canReject && (
-                              <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'rejected' })}>
-                                <XCircle className="h-3.5 w-3.5" /> Reject
-                              </Button>
-                            )}
-                            {canReview && (
-                              <Button size="sm" variant="ghost" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'needs_clarification' })}>
-                                <MessageSquare className="h-3.5 w-3.5" /> Clarify
-                              </Button>
-                            )}
-                          </>
-                        )}
-                        {isPending && !canModerate && (
-                          <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20 text-[10px]">
-                            <Clock className="h-3 w-3 mr-1" /> Pending Confirmation
-                          </Badge>
-                        )}
-                        <Link to={isCash ? `/cash-orders/${sub.cash_order_id}` : `/accounts/${sub.account_id}`}>
-                          <Button size="sm" variant="ghost" className="gap-1.5 text-xs w-full">
-                            <ExternalLink className="h-3.5 w-3.5" /> {isCash ? 'Cash Order' : 'Account'}
-                          </Button>
-                        </Link>
+                        <div className="flex flex-row flex-wrap sm:flex-col gap-1.5">
+                          {sub.proof_url && !sub.proof_url.match(/\.pdf$/i) && (
+                            <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setProofDialog(sub.proof_url!)}>
+                              <ImageIcon className="h-3.5 w-3.5" /> Expand
+                            </Button>
+                          )}
+                          {isPending && canModerate && (
+                            <>
+                              {canConfirm && (
+                                <Button size="sm" variant="default" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'confirmed' })}>
+                                  <Check className="h-3.5 w-3.5" /> Confirm
+                                </Button>
+                              )}
+                              {canReject && (
+                                <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'rejected' })}>
+                                  <XCircle className="h-3.5 w-3.5" /> Reject
+                                </Button>
+                              )}
+                              {canReview && (
+                                <Button size="sm" variant="ghost" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'needs_clarification' })}>
+                                  <MessageSquare className="h-3.5 w-3.5" /> Clarify
+                                </Button>
+                              )}
+                            </>
+                          )}
+                          {isPending && !canModerate && (
+                            <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20 text-[10px]">
+                              <Clock className="h-3 w-3 mr-1" /> Pending Confirmation
+                            </Badge>
+                          )}
+                          <Link to={isCash ? `/cash-orders/${sub.cash_order_id}` : `/accounts/${sub.account_id}`}>
+                            <Button size="sm" variant="ghost" className="gap-1.5 text-xs w-full">
+                              <ExternalLink className="h-3.5 w-3.5" /> {isCash ? 'Cash Order' : 'Account'}
+                            </Button>
+                          </Link>
+                        </div>
                       </div>
                     </div>
                   </CardContent>
