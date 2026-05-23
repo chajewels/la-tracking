@@ -7,61 +7,58 @@
 ### Dashboard wiring & realtime audit (surfaced 2026-05-22)
 
   End-to-end audit of all four monitoring surfaces — Dashboard, CSR
-  Monitoring, Finance, Executive — checking each card/KPI for real
-  data wiring, refresh mechanism, and canonical-vs-cache source. All
-  cards are wired to real sources (no mocks). The two display-rule
-  violations this audit fixed (OverdueAlerts, OverdueDebug) are Known
-  Fixed Bugs #118 / #119. Remaining open:
+  Monitoring, Finance, Executive — checking each card/KPI for real data
+  wiring, refresh mechanism, and canonical-vs-cache source. All cards
+  are wired to real sources (no mocks).
 
-  DISPLAY-RULE violation still open:
-  - CSR Monitoring reads remainingDue() (= total_due_amount −
-    paid_amount, the write-only caches) for the CSR Alert card
-    amounts, ReminderCard "Installment", and Smart Reminders
-    categorization (Monitoring.tsx :115/:155/:326). DECISION PENDING
-    before fix: (A) adapt at call sites via a parallel
-    schedule_with_actuals fetch + map (helpers untouched, the
+  RESOLVED in the same 2026-05-22 session (do NOT re-list as open):
+  - OverdueAlerts / OverdueDebug display-rule violations — #118 / #119.
+  - Overdue + Due Today/3d/7d count divergence (Dashboard/Finance vs
+    Monitoring): dashboard-summary now mirrors classifyAccountBucket
+    (grace 1-6, overdue 7+, exact day-marks, grace_accounts exposed) — #122.
+  - Reminders "Sent (total)" .limit(100) under-count: replaced with a
+    true count(exact) query — #129.
+  - Test-account leakage across CSR Alerts / Penalty Follow-Up / Smart
+    Reminders / Extensions / Audit panels / dashboard-summary /
+    send-reminders, and the 18 reporting RPCs: swept to the canonical
+    numeric-only rule invoice_number ~ '^[0-9]+$' — #124–#131.
+  - get_monthly_sales PHP→JPY in ALL mode + Finance KPI grid relayout — #132.
+
+  STILL OPEN:
+  - DISPLAY-RULE (Cynthia's call): CSR Monitoring reads remainingDue()
+    (= total_due_amount − paid_amount, the write-only caches) for CSR
+    Alert card AMOUNTS, ReminderCard "Installment", and Smart Reminders
+    categorization (Monitoring.tsx :115/:155/:326). Counts are now
+    consistent (#122) but the amount/categorization reads still use the
+    cache. DECISION PENDING before fix: (A) adapt at call sites via a
+    parallel schedule_with_actuals fetch + map (helpers untouched, the
     #118/#119 pattern), or (B) teach remainingDue / isEffectivelyPaid /
     getNextUnpaidDueDate to accept the view shape (root-cause fix but
     app-wide blast radius → full TEST-001/002/003 + system-audit
-    regression). Cynthia's call. (Account-level remaining_balance
-    reads elsewhere are canonical and correct.)
-
-  Cross-surface metric inconsistency (same metric computed two ways,
-  can diverge); needs a codified "which source wins" principle:
-  - Overdue count + Due Today/3d/7d: Dashboard & Finance use server
-    summary.*; Monitoring computes client-side from monitoring-schedules.
-  - Collections this month: Finance Overview = summary.collections_this_month
-    (server) vs Finance Collections tab = computeCollectionStats over
-    usePayments — on the same page.
-  - Reminders sent: Dashboard uncapped server count vs Monitoring
-    "Sent (total)" derived from reminder_logs capped at .limit(100),
-    which under-reports once logs exceed 100.
-
-  Correctness / display defects:
+    regression). (Account-level remaining_balance reads elsewhere are
+    canonical and correct.)
+  - Collections this month computed two ways on the SAME Finance page:
+    Overview = summary.collections_this_month (server) vs Collections
+    tab = computeCollectionStats over usePayments. Needs a codified
+    "which source wins" principle.
+  - Canonical-vs-cache SOURCE of the 13 fc_* + get_collection_analytics
+    still unverified from the repo (test-exclusion closed via #131,
+    currency via #132). #131 flagged get_collection_analytics "expected"
+    sums the write-only total_due_amount cache — confirm against pg_proc.
   - Monitoring Extension Requests "Account" column renders
     invoice_number, not the customer name (query doesn't fetch
-    full_name; variable misnamed customerName).
-  - PenaltyFollowUpSection.tsx:588 hardcodes "₱" regardless of
-    account currency (cosmetic).
-
-  Freshness / realtime:
-  - Only the Executive Alert Bar is true realtime (supabase.channel
-    postgres_changes). Everything else is 5-min useAutoRefresh, 30s/60s
-    react-query intervals, or STATIC (mount/manual/mutation only). The
-    Executive "Live · 30s" badge overstates this — its 16 numeric cards
-    are 30s polling and the cash cards run on a different cadence than
-    the header timestamp. STATIC cards lacking autoRefresh coverage that
-    arguably should refresh: Dashboard OverdueAlerts/OperationsPanel/
-    LiveCollectionTracker/AgingBuckets; Monitoring Penalty Follow-Up +
-    Audit sub-tabs; Finance Analytics/Intelligence/Collections tabs.
-    (See also D5.)
-
-  Unverifiable from the frontend (needs SQL Editor review):
-  - The 13 fc_* RPCs feeding the Executive Dashboard, and
-    get_monthly_sales (Finance "New Layaway Sales"), are server-side.
-    Whether they read canonical schedule_with_actuals vs the write-only
-    caches can't be confirmed from the repo — pull the bodies from
-    pg_proc and verify.
+    full_name; variable misnamed customerName). [#130 added its test
+    filter only — the name-column defect is unfixed.]
+  - PenaltyFollowUpSection.tsx:588 hardcodes "₱" regardless of account
+    currency (cosmetic).
+  - Freshness: only the Executive Alert Bar is true realtime
+    (supabase.channel postgres_changes). The Executive "Live · 30s"
+    badge overstates this — its 16 numeric cards are 30s polling and the
+    cash cards run on a different cadence than the header timestamp.
+    STATIC cards lacking autoRefresh that arguably should refresh:
+    Dashboard OverdueAlerts/OperationsPanel/LiveCollectionTracker/
+    AgingBuckets; Monitoring Penalty Follow-Up + Audit sub-tabs; Finance
+    Analytics/Intelligence/Collections tabs. (See also D5.)
 
 ### Schedule cache staleness on non-paid rows (surfaced 2026-05-22)
 
