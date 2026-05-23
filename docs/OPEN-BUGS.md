@@ -35,14 +35,20 @@
     actual_remaining → all three CSR sites already return canonical. No code change
     needed; the #124/#126 migration to schedule_with_actuals plus the helper
     upgrade closed this. (Counts were already consistent via #122.)
-  - Collections this month computed two ways on the SAME Finance page:
-    Overview = summary.collections_this_month (server) vs Collections
-    tab = computeCollectionStats over usePayments. Needs a codified
-    "which source wins" principle.
-  - Canonical-vs-cache SOURCE of the 13 fc_* + get_collection_analytics
-    still unverified from the repo (test-exclusion closed via #131,
-    currency via #132). #131 flagged get_collection_analytics "expected"
-    sums the write-only total_due_amount cache — confirm against pg_proc.
+  - Collections this month dual source — RESOLVED 2026-05-23 (#142). Was a
+    no-op (both sides included test payments and agreed); the real issue was
+    dashboard-summary's payment sums (collections_this_month, payments_today)
+    having NO test filter. Fixed in #142: added the account join + numeric
+    filter to todayPayQ/monthPayQ, and pointed the Collections-tab "This Month"
+    card at server collections_this_month so it matches Overview. Residual
+    follow-up: Collections-tab Today/Yesterday/Week/Year still client-computed
+    over all payments (test-inclusive).
+  - Canonical-vs-cache SOURCE of the 13 fc_* RPCs still unverified from the
+    repo (test-exclusion closed via #131, currency via #132).
+    get_collection_analytics — RESOLVED 2026-05-23: verified against the live
+    pg_proc body; its "expected" already uses (allocated + actual_remaining)
+    from schedule_with_actuals with numeric test-exclusion, NOT the
+    total_due_amount cache #131 flagged. No change needed (no-op).
   - Monitoring Extension Requests "Account" column renders
     invoice_number, not the customer name (query doesn't fetch
     full_name; variable misnamed customerName). [#130 added its test
