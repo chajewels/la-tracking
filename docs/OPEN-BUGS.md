@@ -25,18 +25,16 @@
   - get_monthly_sales PHP→JPY in ALL mode + Finance KPI grid relayout — #132.
 
   STILL OPEN:
-  - DISPLAY-RULE (Cynthia's call): CSR Monitoring reads remainingDue()
-    (= total_due_amount − paid_amount, the write-only caches) for CSR
-    Alert card AMOUNTS, ReminderCard "Installment", and Smart Reminders
-    categorization (Monitoring.tsx :115/:155/:326). Counts are now
-    consistent (#122) but the amount/categorization reads still use the
-    cache. DECISION PENDING before fix: (A) adapt at call sites via a
-    parallel schedule_with_actuals fetch + map (helpers untouched, the
-    #118/#119 pattern), or (B) teach remainingDue / isEffectivelyPaid /
-    getNextUnpaidDueDate to accept the view shape (root-cause fix but
-    app-wide blast radius → full TEST-001/002/003 + system-audit
-    regression). (Account-level remaining_balance reads elsewhere are
-    canonical and correct.)
+  - DISPLAY-RULE (RESOLVED 2026-05-23 — already fixed; "Option A" was a no-op):
+    The premise was stale. remainingDue() (src/lib/business-rules.ts:142) now
+    prefers canonical actual_remaining when present
+    (if (item.actual_remaining != null) return Math.max(0, Number(...))), falling
+    back to the total_due−paid cache only for raw layaway_schedule rows. Every
+    Monitoring query reads schedule_with_actuals with select('*') (Monitoring.tsx
+    :99, :201, :210), so the rows passed to remainingDue at :115/:155/:326 carry
+    actual_remaining → all three CSR sites already return canonical. No code change
+    needed; the #124/#126 migration to schedule_with_actuals plus the helper
+    upgrade closed this. (Counts were already consistent via #122.)
   - Collections this month computed two ways on the SAME Finance page:
     Overview = summary.collections_this_month (server) vs Collections
     tab = computeCollectionStats over usePayments. Needs a codified
