@@ -605,6 +605,31 @@ When completing a partially_paid month:
   All pending sum logic  → sumPendingRows() from business-rules.ts
   No inline reimplementation of canonical functions permitted
 
+## CHART TERMINOLOGY (display convention — added 2026-05-23)
+
+Consistent labels across the Finance dashboard. The underlying metrics are unchanged — only the labels were standardized.
+
+  "Collected" / "Total Collected" = cash actually received, bucketed by PAYMENT DATE.
+    Source: get_monthly_analytics.collected_jpy (SUM payments by date_paid) and
+    get_collection_analytics.collected. Shown in: Overview Monthly Performance bar/stat,
+    and the Analytics "Collected vs Sales" chart.
+
+  "Paid vs Due" chart = collection efficiency against the schedule.
+    "Paid" = collected_due (payments allocated to each month's installments, bucketed by
+    DUE month, capped at expected). "Due" = expected. Drives Best Month / Average Rate.
+    (Formerly mislabeled "Collected vs Expected", which collided with the cash "Collected".)
+
+  "Penalties Collected" = penalty_fees WHERE status='paid'. Same metric on both Overview
+    and Analytics (Overview's former "Penalties Paid" was renamed to match).
+
+  Forfeited — two DIFFERENT metrics, do not conflate:
+    "Total Forfeited" (Overview) = remaining balance LOST on forfeited/final_forfeited accounts.
+    "Recovered (Forfeited)" (Analytics) = cash COLLECTED from forfeited accounts before
+    forfeiture (6-month window, excludes final_settlement).
+
+  RULE: "Collected" always means cash received. The schedule-efficiency metric is "Paid vs Due",
+  never "Collected".
+
 ## VIEW FIELD MAPPING
 
   schedule_with_actuals vs layaway_schedule (write-only cache):
