@@ -529,9 +529,9 @@ export default function Finance() {
               ) : (
                 <>
                   <StatCard title="Total Receivables" value={formatCurrency(summary?.total_receivables ?? 0, displayCurrency)} icon={DollarSign} variant="gold" />
-                  <StatCard title="Expected Next Month" value={formatCurrency(summary?.next_month_adjusted ?? 0, displayCurrency)} subtitle={`of ${formatCurrency(summary?.next_month_expected ?? 0, displayCurrency)} due`} icon={Sparkles} variant="gold" />
-                  <StatCard title="Predicted (30d)" value={formatCurrency(summary?.predicted_30d ?? 0, displayCurrency)} subtitle={`of ${formatCurrency(summary?.predicted_30d_raw ?? 0, displayCurrency)} due`} icon={TrendingUp} variant="success" />
-                  <StatCard title="Predicted (90d)" value={formatCurrency(summary?.predicted_90d ?? 0, displayCurrency)} subtitle={`of ${formatCurrency(summary?.predicted_90d_raw ?? 0, displayCurrency)} due`} icon={TrendingUp} />
+                  <StatCard title="Expected Next Month" value={formatCurrency(summary?.next_month_expected ?? 0, displayCurrency)} icon={Sparkles} variant="gold" />
+                  <StatCard title="Expected (30d)" value={formatCurrency(summary?.predicted_30d_raw ?? 0, displayCurrency)} icon={TrendingUp} variant="success" />
+                  <StatCard title="Expected (90d)" value={formatCurrency(summary?.predicted_90d_raw ?? 0, displayCurrency)} icon={TrendingUp} />
                   <StatCard title="Collections This Month" value={formatCurrency(summary?.collections_this_month ?? 0, displayCurrency)} icon={BarChart3} variant="success" />
                   <StatCard
                     title="Cash Revenue Today (JPY)"
@@ -602,20 +602,17 @@ export default function Finance() {
                         <div className="flex justify-between text-xs">
                           <span className="text-muted-foreground">{d.month}</span>
                           <div className="flex items-center gap-3">
-                            <span className="text-muted-foreground tabular-nums">Adj: {formatCurrency(d.adjusted, displayCurrency)}</span>
                             <span className="font-medium text-card-foreground tabular-nums">{formatCurrency(d.expected, displayCurrency)}</span>
                           </div>
                         </div>
                         <div className="relative h-2.5 rounded-full bg-muted overflow-hidden">
                           <div className="absolute h-full bg-primary/20 rounded-full transition-all" style={{ width: `${(d.expected / maxForecast) * 100}%` }} />
-                          <div className="absolute h-full gold-gradient rounded-full transition-all" style={{ width: `${(d.adjusted / maxForecast) * 100}%` }} />
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
                 <div className="flex items-center gap-4 mt-4 pt-3 border-t border-border">
-                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground"><div className="h-2 w-2 rounded-full gold-gradient" /> Risk-Adjusted (85%)</div>
                   <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground"><div className="h-2 w-2 rounded-full bg-primary/20" /> Expected (due)</div>
                 </div>
               </div>
@@ -829,8 +826,8 @@ export default function Finance() {
 
             {/* KPI row */}
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-              <StatCard title="Predicted (30d)" value={formatCurrency(summary?.predicted_30d ?? 0, displayCurrency)} icon={TrendingUp} variant="gold" />
-              <StatCard title="Predicted (90d)" value={formatCurrency(summary?.predicted_90d ?? 0, displayCurrency)} icon={TrendingUp} />
+              <StatCard title="Expected (30d)" value={formatCurrency(summary?.predicted_30d_raw ?? 0, displayCurrency)} icon={TrendingUp} variant="gold" />
+              <StatCard title="Expected (90d)" value={formatCurrency(summary?.predicted_90d_raw ?? 0, displayCurrency)} icon={TrendingUp} />
               <StatCard title="Avg Completion" value={`${avgCompletion}%`} icon={Target} variant="success" />
               <StatCard title="High Risk" value={highRisk.toString()} subtitle="accounts" icon={ShieldAlert} variant="danger" />
               <StatCard title="Active Accounts" value={activeAccounts.length.toString()} icon={Users} />

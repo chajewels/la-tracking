@@ -233,20 +233,15 @@
     intentional reuse. If one is ever expected to
     diverge from the other (e.g. different scope
     rules), they need to become two separate fields.
-  - D8: Hardcoded `riskFactor = 0.85` at
-    dashboard-summary line 417 is undocumented and
-    drives Predicted (30d), Predicted (90d), and
-    Expected Next Month cards. Move to system_settings
-    table OR document the value choice in a code
-    comment + CLAUDE.md.
-  - D9: `predicted_30d_raw` subtitle wording is
-    confusing — Finance.tsx Predicted (30d) card
-    headline is risk-adjusted (×0.85) while subtitle
-    "of {raw} due" exposes the un-adjusted value.
-    Easy to misread as "predicted of X due" implying
-    X is the target. Reword subtitle to clarify
-    risk-adjustment, or surface both numbers more
-    explicitly.
+  - D8 — RESOLVED 2026-05-24 (#146): the 0.85 haircut is no longer surfaced
+    on any Finance card or chart. Expected Next Month + Predicted (30d/90d)
+    cards (both clusters) repointed to the undiscounted values; the
+    6-Month Cashflow Forecast chart's gold "adjusted" bar, "Adj:" figure,
+    and "Risk-Adjusted (85%)" legend removed. The riskFactor constant
+    stays unused in dashboard-summary (optional future tidy-up).
+  - D9 — RESOLVED 2026-05-24 (#146): the confusing "of {raw} due"
+    subtitle was removed alongside the relabel of the headline cards
+    to "Expected (30d/90d)" pointing at the raw values.
 
 ### AgingBuckets follow-ups (surfaced 2026-04-29)
 
