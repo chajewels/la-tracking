@@ -3,8 +3,13 @@ import { useQueryClient, useQuery } from '@tanstack/react-query';
 import {
   Settings, UserPlus, Users, Shield, Eye, EyeOff, RotateCcw,
   DollarSign, Bell, Info, ChevronDown, ChevronUp, AlertTriangle,
-  MessageSquare, Mail, Clock, Percent, Zap, Grid3X3
+  MessageSquare, Mail, Clock, Percent, Zap, Grid3X3, UserX, UserCheck
 } from 'lucide-react';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader,
+  AlertDialogTitle, AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import PermissionMatrixTab from '@/components/settings/PermissionMatrixTab';
 import FeatureTogglesTab from '@/components/settings/FeatureTogglesTab';
 import AppLayout from '@/components/layout/AppLayout';
@@ -103,6 +108,7 @@ export default function SettingsPage() {
 
   // Team management state
   const [members, setMembers] = useState<TeamMember[]>([]);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [newEmail, setNewEmail] = useState('');
@@ -233,6 +239,21 @@ export default function SettingsPage() {
     setNewPassword('');
     setNewRole('staff');
     setShowAddDialog(false);
+    fetchMembers();
+  };
+
+  const handleToggleActive = async (m: TeamMember) => {
+    const deactivating = m.status === 'active';
+    setTogglingId(m.user_id);
+    const { data, error } = await supabase.functions.invoke('create-team-member', {
+      body: { action: deactivating ? 'deactivate' : 'reactivate', user_id: m.user_id },
+    });
+    setTogglingId(null);
+    if (error || data?.error) {
+      toast({ title: 'Error', description: data?.error || error?.message || 'Action failed', variant: 'destructive' });
+      return;
+    }
+    toast({ title: deactivating ? 'Member deactivated' : 'Member reactivated', description: `${m.full_name} is now ${deactivating ? 'inactive' : 'active'}.` });
     fetchMembers();
   };
 
@@ -606,20 +627,51 @@ export default function SettingsPage() {
                               </span>
                             </td>
                             <td className="py-2.5 px-3 text-right">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 text-xs gap-1"
-                                onClick={() => {
-                                  setResetUserId(m.user_id);
-                                  setResetUserName(m.full_name);
-                                  setResetPassword('');
-                                  setResetDialogOpen(true);
-                                }}
-                              >
-                                <RotateCcw className="h-3 w-3" />
-                                Reset Password
-                              </Button>
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 text-xs gap-1"
+                                  onClick={() => {
+                                    setResetUserId(m.user_id);
+                                    setResetUserName(m.full_name);
+                                    setResetPassword('');
+                                    setResetDialogOpen(true);
+                                  }}
+                                >
+                                  <RotateCcw className="h-3 w-3" />
+                                  Reset Password
+                                </Button>
+                                {m.status === 'active' ? (
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 text-destructive hover:text-destructive" disabled={togglingId === m.user_id}>
+                                        <UserX className="h-3 w-3" />
+                                        Deactivate
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>Deactivate {m.full_name}?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                          They'll lose access and won't be able to sign in. Their history stays intact, and you can reactivate them anytime.
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => handleToggleActive(m)}>
+                                          Deactivate
+                                        </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+                                ) : (
+                                  <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 text-emerald-400 hover:text-emerald-300" disabled={togglingId === m.user_id} onClick={() => handleToggleActive(m)}>
+                                    <UserCheck className="h-3 w-3" />
+                                    Reactivate
+                                  </Button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ))}

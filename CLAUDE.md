@@ -679,6 +679,26 @@ Consistent labels across the Finance dashboard. The underlying metrics are uncha
     - If the key isn't covered by any of the four KEY groups, add it to
       one of them (so it's swept into REALTIME_INVALIDATE_KEYS).
 
+## TEAM MEMBER LIFECYCLE (added 2026-05-24)
+
+  Members are created via create-team-member (auth user + user_roles row).
+
+  Deactivate / reactivate go through the same function:
+    action: 'deactivate' | 'reactivate'  (admin/manage_team gated)
+  - deactivate: profiles.status='inactive' + auth ban (ban_duration set);
+    user_roles row KEPT so the member stays listed and reactivatable, and
+    historical attribution (created_by_user_id, audit logs, etc.) is
+    preserved. Self-deactivation is blocked.
+  - reactivate: profiles.status='active' + auth unban.
+
+  Effect on session: re-login is blocked immediately; any live session
+  dies on next token refresh.
+
+  user_status enum = active | inactive | suspended.
+
+  There is no hard delete — it would orphan ~40 attribution columns,
+  most without FKs. Deactivate is the supported delete-equivalent.
+
 ## VIEW FIELD MAPPING
 
   schedule_with_actuals vs layaway_schedule (write-only cache):

@@ -37,6 +37,7 @@ Deno.serve(async (req) => {
     const { count } = await supabaseAdmin.from("user_roles").select("*", { count: "exact", head: true });
     const bootstrapMode = (count ?? 0) === 0;
 
+    let callerId: string | null = null;
     if (!bootstrapMode) {
       const authHeader = req.headers.get("Authorization");
       if (!authHeader) {
@@ -52,6 +53,7 @@ Deno.serve(async (req) => {
       if (!canManageTeam) {
         return new Response(JSON.stringify({ error: "Permission denied" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
+      callerId = user.id;
     }
 
     const body = await req.json();
@@ -65,6 +67,31 @@ Deno.serve(async (req) => {
       }
       const { error } = await supabaseAdmin.auth.admin.updateUserById(user_id, { password });
       if (error) throw error;
+      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // Deactivate / reactivate team member
+    if (action === "deactivate" || action === "reactivate") {
+      const { user_id } = body;
+      if (!user_id) {
+        return new Response(JSON.stringify({ error: "Missing user_id" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const deactivating = action === "deactivate";
+      if (deactivating && user_id === callerId) {
+        return new Response(JSON.stringify({ error: "You cannot deactivate your own account." }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const { error: profileErr } = await supabaseAdmin
+        .from("profiles")
+        .update({ status: deactivating ? "inactive" : "active" })
+        .eq("user_id", user_id);
+      if (profileErr) throw profileErr;
+
+      const { error: banErr } = await supabaseAdmin.auth.admin.updateUserById(user_id, {
+        ban_duration: deactivating ? "876000h" : "none",
+      });
+      if (banErr) throw banErr;
+
       return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
