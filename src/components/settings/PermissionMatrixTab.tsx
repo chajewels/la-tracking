@@ -454,11 +454,13 @@ export default function PermissionMatrixTab() {
       ]);
       const roleMap: Record<string, string> = {};
       (rolesRes.data || []).forEach((r: any) => { roleMap[r.user_id] = r.role; });
-      return (profilesRes.data || []).map((p: any) => ({
-        user_id: p.user_id,
-        full_name: p.full_name,
-        role: roleMap[p.user_id] || 'staff',
-      }));
+      return (profilesRes.data || [])
+        .map((p: any) => ({
+          user_id: p.user_id,
+          full_name: p.full_name,
+          role: roleMap[p.user_id],
+        }))
+        .filter((p: any) => p.role);
     },
   });
 
