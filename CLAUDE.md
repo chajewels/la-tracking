@@ -654,6 +654,31 @@ Consistent labels across the Finance dashboard. The underlying metrics are uncha
   RULE: "Collected" always means cash received. The schedule-efficiency metric is "Paid vs Due",
   never "Collected".
 
+## REALTIME SYNC (added 2026-05-24)
+
+  supabase_realtime publication now contains: payments,
+  payment_allocations, layaway_schedule, layaway_accounts, penalty_fees,
+  payment_submissions, account_services, financial_alerts.
+
+  useRealtimeSync (src/hooks/useRealtimeSync.ts) is rendered once at the
+  App root (inside AuthProvider/PermissionsProvider, sibling of Routes,
+  via the RealtimeSyncMount wrapper in src/App.tsx) and is gated on the
+  internal-user predicate (session && roles.length > 0 — the same signal
+  ProtectedRoute admits internal admin/staff/finance/csr users with). The
+  customer portal and unauthenticated visitors never open a channel.
+
+  On any postgres_changes event from the SYNC_TABLES it invalidates
+  REALTIME_INVALIDATE_KEYS — the union of CORE_KEYS, PAYMENT_KEYS,
+  MONITORING_KEYS, SUBMISSION_KEYS, plus 'account' and 'customer-detail'
+  — debounced 250ms so a burst of writes coalesces into one refetch
+  round. Every actively-rendered internal dashboard card refetches live
+  without a manual reload.
+
+  When adding a new mutating table or a new dashboard query key:
+    - If the table drives a card, add it to SYNC_TABLES.
+    - If the key isn't covered by any of the four KEY groups, add it to
+      one of them (so it's swept into REALTIME_INVALIDATE_KEYS).
+
 ## VIEW FIELD MAPPING
 
   schedule_with_actuals vs layaway_schedule (write-only cache):

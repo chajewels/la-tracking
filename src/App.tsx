@@ -9,6 +9,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { PermissionsProvider } from "@/contexts/PermissionsContext";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
+import { useRealtimeSync } from "@/hooks/useRealtimeSync";
 
 // Retry wrapper for lazy imports — handles stale chunks after dev server restart
 function lazyWithRetry(factory: () => Promise<{ default: ComponentType<any> }>) {
@@ -91,6 +92,11 @@ function RecoveryRedirect() {
   return null;
 }
 
+function RealtimeSyncMount() {
+  useRealtimeSync();
+  return null;
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -101,6 +107,7 @@ const App = () => (
           <PermissionsProvider>
             <Suspense fallback={<PageLoader />}>
               <RecoveryRedirect />
+              <RealtimeSyncMount />
               <Routes>
                 <Route path="/login" element={<Login />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
