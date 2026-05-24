@@ -21,6 +21,8 @@ import { getConversionRate, setConversionRate } from '@/lib/currency-converter';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePermissions } from '@/contexts/PermissionsContext';
+import { PERMISSION_MODULES, ROLES } from '@/components/settings/PermissionMatrixTab';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -101,6 +103,7 @@ const ROLE_PERMISSIONS: Record<string, { label: string; description: string; per
 
 export default function SettingsPage() {
   const { roles } = useAuth();
+  const { allPermissions } = usePermissions();
   const isAdmin = roles.includes('admin');
   const isFinance = roles.includes('finance');
   const queryClient = useQueryClient();
@@ -735,48 +738,50 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* Quick comparison */}
+            {/* Live permission comparison — read-only mirror of role_permissions */}
             <div className="rounded-xl border border-border bg-card p-6 overflow-x-auto">
-              <h3 className="text-sm font-semibold text-card-foreground mb-3">Quick Comparison</h3>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left py-2 px-2 font-medium text-muted-foreground">Capability</th>
-                    <th className="text-center py-2 px-2 font-medium text-muted-foreground">Admin</th>
-                    <th className="text-center py-2 px-2 font-medium text-muted-foreground">Staff</th>
-                    <th className="text-center py-2 px-2 font-medium text-muted-foreground">Finance</th>
-                    <th className="text-center py-2 px-2 font-medium text-muted-foreground">CSR</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[
-                    { cap: 'View Dashboard', admin: true, staff: true, finance: true, csr: true },
-                    { cap: 'View & Manage Accounts', admin: true, staff: true, finance: true, csr: true },
-                    { cap: 'Create Accounts', admin: true, staff: true, finance: false, csr: false },
-                    { cap: 'Record Payments', admin: true, staff: true, finance: false, csr: false },
-                    { cap: 'Confirm/Reject Submissions', admin: true, staff: false, finance: true, csr: false },
-                    { cap: 'Void / Restore Payments', admin: true, staff: false, finance: false, csr: false },
-                    { cap: 'Bulk Payment Import', admin: true, staff: false, finance: true, csr: false },
-                    { cap: 'Add Penalties', admin: true, staff: true, finance: false, csr: false },
-                    { cap: 'Approve Waivers', admin: true, staff: false, finance: true, csr: false },
-                    { cap: 'Request Waivers', admin: true, staff: true, finance: false, csr: true },
-                    { cap: 'CSR Monitoring & Reminders', admin: true, staff: true, finance: false, csr: true },
-                    { cap: 'Finance & Analytics', admin: true, staff: false, finance: true, csr: false },
-                    { cap: 'Promotions & Announcements', admin: true, staff: true, finance: false, csr: false },
-                    { cap: 'View Audit Logs', admin: true, staff: false, finance: true, csr: false },
-                    { cap: 'Manage Team & Settings', admin: true, staff: false, finance: false, csr: false },
-                  ].map((row) => (
-                    <tr key={row.cap} className="border-b border-border/50">
-                      <td className="py-2 px-2 text-foreground">{row.cap}</td>
-                      {[row.admin, row.staff, row.finance, row.csr].map((v, i) => (
-                        <td key={i} className="text-center py-2 px-2">
-                          {v ? <span className="text-emerald-400">✓</span> : <span className="text-muted-foreground/40">—</span>}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <h3 className="text-sm font-semibold text-card-foreground mb-1">Permission Comparison</h3>
+              <p className="text-[11px] text-muted-foreground mb-4">
+                Live from role permissions. Admins can change these in the Permission Matrix tab.
+              </p>
+              <div className="space-y-6">
+                {PERMISSION_MODULES.map((mod) => (
+                  <div key={mod.module}>
+                    <h4 className="text-xs font-bold text-primary/80 uppercase tracking-wider mb-2 flex items-center gap-2">
+                      <span className="h-px flex-1 bg-border" />
+                      {mod.module}
+                      <span className="h-px flex-1 bg-border" />
+                    </h4>
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="text-left py-2 px-2 font-medium text-muted-foreground w-[40%]">Permission</th>
+                          {ROLES.map((r) => (
+                            <th key={r} className="text-center py-2 px-2 font-medium text-muted-foreground capitalize">{r}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {mod.permissions.map((perm) => (
+                          <tr key={perm.key} className="border-b border-border/50">
+                            <td className="py-2 px-2 text-foreground">{perm.label}</td>
+                            {ROLES.map((role) => {
+                              const allowed = allPermissions.find(
+                                (p) => p.role === role && p.permission_key === perm.key
+                              )?.is_allowed ?? false;
+                              return (
+                                <td key={role} className="text-center py-2 px-2">
+                                  {allowed ? <span className="text-emerald-400">✓</span> : <span className="text-muted-foreground/40">—</span>}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+              </div>
             </div>
           </TabsContent>
 
