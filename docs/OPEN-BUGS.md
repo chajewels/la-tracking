@@ -41,8 +41,10 @@
     having NO test filter. Fixed in #142: added the account join + numeric
     filter to todayPayQ/monthPayQ, and pointed the Collections-tab "This Month"
     card at server collections_this_month so it matches Overview. Residual
-    follow-up: Collections-tab Today/Yesterday/Week/Year still client-computed
-    over all payments (test-inclusive).
+    follow-up VERIFIED 2026-05-24 — NOT an issue: collFiltered already
+    test-excludes via accountMap (#138), and useAccounts returns all accounts
+    (all statuses, fully paginated past the 1000-row cap), so the four cells
+    are complete and consistent with the server "This Month". No fix needed.
   - Canonical-vs-cache SOURCE of the 13 fc_* RPCs — RESOLVED 2026-05-24:
     verified against the live pg_proc bodies. None read the write-only schedule
     caches (total_due_amount / paid_amount); sources are canonical tables
