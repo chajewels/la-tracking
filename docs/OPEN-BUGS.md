@@ -60,8 +60,10 @@
     (#143): added customers(full_name) to the panel query and set the column to
     acct.customers.full_name (was acct.invoice_number); header relabeled
     "Account" -> "Customer". [#130 had added only the test filter.]
-  - PenaltyFollowUpSection.tsx:588 hardcodes "₱" regardless of account
-    currency (cosmetic).
+  - PenaltyFollowUpSection.tsx ₱ symbol — RESOLVED 2026-05-24 (#144):
+    the stage tooltip was both cross-currency-summed (mixing ₱ and ¥ into one
+    number) and hardcoded "₱". Split the bucket into totalPenaltiesPHP /
+    totalPenaltiesJPY and rendered with formatCurrency per currency present.
   - Freshness: only the Executive Alert Bar is true realtime
     (supabase.channel postgres_changes). The Executive "Live · 30s"
     badge overstates this — its 16 numeric cards are 30s polling and the

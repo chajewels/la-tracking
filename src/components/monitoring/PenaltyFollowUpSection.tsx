@@ -151,7 +151,8 @@ export interface PenaltyAlertItem {
 interface StageBucket {
   config: StageConfig;
   count: number;
-  totalPenalties: number;
+  totalPenaltiesPHP: number;
+  totalPenaltiesJPY: number;
   totalBalance: number;
   notified: number;
   pending: number;
@@ -311,14 +312,15 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
   // Build stage buckets with notif counts
   const stageBuckets = useMemo(() => {
     const buckets: StageBucket[] = PENALTY_STAGES.map(config => ({
-      config, count: 0, totalPenalties: 0, totalBalance: 0, notified: 0, pending: 0,
+      config, count: 0, totalPenaltiesPHP: 0, totalPenaltiesJPY: 0, totalBalance: 0, notified: 0, pending: 0,
     }));
 
     for (const alert of enrichedAlerts) {
       const idx = PENALTY_STAGES.findIndex(s => s.key === alert.stage);
       if (idx >= 0) {
         buckets[idx].count++;
-        buckets[idx].totalPenalties += alert.penaltyAmount;
+        if (alert.currency === 'JPY') buckets[idx].totalPenaltiesJPY += alert.penaltyAmount;
+        else buckets[idx].totalPenaltiesPHP += alert.penaltyAmount;
         buckets[idx].totalBalance += alert.remainingBalance;
         const isNotified = penaltyNotifMap.has(`${alert.scheduleId}_${alert.stage}`);
         if (isNotified) buckets[idx].notified++;
@@ -586,7 +588,10 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
                     <p className="text-muted-foreground">{bucket.config.minDays}–{bucket.config.maxDays === Infinity ? '∞' : bucket.config.maxDays} days overdue</p>
                     {bucket.count > 0 && (
                       <>
-                        <p className="mt-1">Penalties: ₱{bucket.totalPenalties.toLocaleString()}</p>
+                        <p className="mt-1">Penalties: {[
+                          bucket.totalPenaltiesPHP > 0 ? formatCurrency(bucket.totalPenaltiesPHP, 'PHP') : null,
+                          bucket.totalPenaltiesJPY > 0 ? formatCurrency(bucket.totalPenaltiesJPY, 'JPY') : null,
+                        ].filter(Boolean).join('  +  ')}</p>
                         <p>Tone: {bucket.config.tone}</p>
                       </>
                     )}
