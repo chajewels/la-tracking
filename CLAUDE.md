@@ -701,9 +701,10 @@ Consistent labels across the Finance dashboard. The underlying metrics are uncha
 
   create-team-member stamps user_metadata.is_team_member=true on the
   auth user; the on_auth_user_created → handle_new_user trigger inserts
-  a profiles row ONLY when that flag is present, so self-signup
-  customers (Phase B) never get a profile and never leak into team
-  lists (Bug #151).
+  a profiles row ONLY when
+  `COALESCE(NEW.raw_user_meta_data->>'is_team_member','false') = 'true'`
+  (key present AND value true), so self-signup customers (Phase B) never
+  get a profile and never leak into team lists (Bug #151).
 
 ## VIEW FIELD MAPPING
 
