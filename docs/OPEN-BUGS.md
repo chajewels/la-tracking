@@ -56,10 +56,10 @@
     pg_proc body; its "expected" already uses (allocated + actual_remaining)
     from schedule_with_actuals with numeric test-exclusion, NOT the
     total_due_amount cache #131 flagged. No change needed (no-op).
-  - Monitoring Extension Requests "Account" column renders
-    invoice_number, not the customer name (query doesn't fetch
-    full_name; variable misnamed customerName). [#130 added its test
-    filter only — the name-column defect is unfixed.]
+  - Monitoring Extension Requests "Account" column — RESOLVED 2026-05-24
+    (#143): added customers(full_name) to the panel query and set the column to
+    acct.customers.full_name (was acct.invoice_number); header relabeled
+    "Account" -> "Customer". [#130 had added only the test filter.]
   - PenaltyFollowUpSection.tsx:588 hardcodes "₱" regardless of account
     currency (cosmetic).
   - Freshness: only the Executive Alert Bar is true realtime

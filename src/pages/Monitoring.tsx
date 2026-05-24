@@ -790,7 +790,7 @@ function ExtensionRequestsPanel() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('extension_requests' as any)
-        .select('*, layaway_accounts!inner(id, invoice_number, currency, remaining_balance, status, customer_id)')
+        .select('*, layaway_accounts!inner(id, invoice_number, currency, remaining_balance, status, customer_id, customers(full_name))')
         .filter('layaway_accounts.invoice_number', 'match', '^[0-9]+$')
         .eq('status', filter === 'pending' ? 'pending' : 'approved')
         .order('requested_at', { ascending: false });
@@ -835,7 +835,7 @@ function ExtensionRequestsPanel() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30">
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Account</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Customer</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Invoice</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Reason</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">
@@ -847,7 +847,7 @@ function ExtensionRequestsPanel() {
             <tbody>
               {requests.map((req: any) => {
                 const acct = req.layaway_accounts;
-                const customerName = acct?.invoice_number || '—';
+                const customerName = acct?.customers?.full_name || '—';
                 const invoiceNumber = acct?.invoice_number || '—';
                 return (
                   <tr key={req.id} className="border-b border-border/50 hover:bg-muted/20">
