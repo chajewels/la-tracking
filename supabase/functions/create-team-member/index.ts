@@ -106,7 +106,7 @@ Deno.serve(async (req) => {
       email,
       password,
       email_confirm: true,
-      user_metadata: { full_name },
+      user_metadata: { full_name, is_team_member: true },
     });
     if (authError) throw authError;
 
