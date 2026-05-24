@@ -43,8 +43,13 @@
     card at server collections_this_month so it matches Overview. Residual
     follow-up: Collections-tab Today/Yesterday/Week/Year still client-computed
     over all payments (test-inclusive).
-  - Canonical-vs-cache SOURCE of the 13 fc_* RPCs still unverified from the
-    repo (test-exclusion closed via #131, currency via #132).
+  - Canonical-vs-cache SOURCE of the 13 fc_* RPCs — RESOLVED 2026-05-24:
+    verified against the live pg_proc bodies. None read the write-only schedule
+    caches (total_due_amount / paid_amount); sources are canonical tables
+    (payments, penalty_fees) and reconciliation-synced account fields
+    (remaining_balance, total_paid per INVARIANT 1, total_amount) used only for
+    aggregates. No fix needed (no-op). Test-exclusion closed via #131, currency
+    via #132. Scope: source verification only, not a per-RPC arithmetic re-audit.
     get_collection_analytics — RESOLVED 2026-05-23: verified against the live
     pg_proc body; its "expected" already uses (allocated + actual_remaining)
     from schedule_with_actuals with numeric test-exclusion, NOT the
