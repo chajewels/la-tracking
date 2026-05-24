@@ -250,7 +250,8 @@
   folded into the same get_aging_buckets() RPC
   work as D2/D4.
 
-  - AgingBuckets currency-prop partially resolved (2026-04-30):
+  - AgingBuckets currency-prop partially resolved (2026-04-30);
+    optional p_currency follow-up RESOLVED 2026-05-24 (won't-do):
     The component now consumes the currency prop for
     variant='amount' (toJpy conversion when displayCurrency=JPY;
     PHP-only filter when displayCurrency=PHP). This closed the
@@ -261,6 +262,18 @@
     to the SQL layer instead of the JS layer. Currently no
     behavioral difference because the JS-layer filter is correct.
     Defer to future session.
+
+    RESOLVED 2026-05-24 (won't-do):
+    - p_currency param: won't-do — redundant. AgingBuckets is the sole
+      caller; currency is handled client-side, and a server-side filter
+      would regress the Finance JPY-combined view.
+    - Aging buckets: confirmed correctly wired — canonical
+      actual_remaining, numeric test-exclusion, Asia/Manila overdue-day
+      math, correct status scopes. Per-installment bucketing is
+      intended; 29 of 639 accounts (4.5%) legitimately span buckets
+      (installments at different aging stages), accepted as-is.
+    - Finance currency toggle: confirmed correct — PHP shows PHP
+      receivables in pesos; JPY/combined shows all accounts in yen.
 
     (originally surfaced 2026-04-29, partially resolved 2026-04-30)
 
