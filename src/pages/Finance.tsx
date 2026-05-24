@@ -130,19 +130,45 @@ export default function Finance() {
     const now = new Date();
     const todayDay = now.getDate();
     const prevMonthKey = format(startOfMonth(addMonths(now, -1)), 'yyyy-MM');
-    const hasPrevMonth = !!(agg[prevMonthKey]?.count > 0);
-    const startMonth = hasPrevMonth ? startOfMonth(addMonths(now, -1)) : startOfMonth(now);
-    const length = hasPrevMonth ? 7 : 6;
-    return Array.from({ length }, (_, i) => {
-      const monthStart = addMonths(startMonth, i);
-      const key = format(monthStart, 'yyyy-MM');
+
+    // Cumulative "oldest" bucket: every still-unpaid month at or before last month.
+    let agedJpy = 0, agedCount = 0, olderCount = 0;
+    Object.keys(agg).forEach(k => {
+      if (k <= prevMonthKey) {
+        agedJpy += agg[k].jpy;
+        agedCount += agg[k].count;
+        if (k < prevMonthKey) olderCount += agg[k].count;
+      }
+    });
+
+    const labelFor = (monthStart: Date) => {
       const lastDay = endOfMonth(monthStart);
       const cardDate = new Date(monthStart.getFullYear(), monthStart.getMonth(), todayDay);
       const labelDate = cardDate > lastDay ? lastDay : cardDate;
-      const label = format(labelDate, 'MMM d');
-      const daysAway = Math.ceil((labelDate.getTime() - now.getTime()) / 86_400_000);
-      return { key, label, daysAway, ...(agg[key] ?? { jpy: 0, count: 0 }) };
-    }).map(m => ({ ...m, jpy: Math.round(m.jpy) }));
+      return { label: format(labelDate, 'MMM d'), daysAway: Math.ceil((labelDate.getTime() - now.getTime()) / 86_400_000) };
+    };
+
+    // Current month -> +5 (six individual cards)
+    const cards: any[] = Array.from({ length: 6 }, (_, i) => {
+      const monthStart = addMonths(startOfMonth(now), i);
+      const key = format(monthStart, 'yyyy-MM');
+      return { key, ...labelFor(monthStart), isOldest: false, isCurrent: i === 0, hasOlder: false, ...(agg[key] ?? { jpy: 0, count: 0 }) };
+    });
+
+    // Prepend the cumulative oldest card (last month + everything older still open), if any
+    if (agedCount > 0) {
+      cards.unshift({
+        key: `AGED:${prevMonthKey}`,
+        ...labelFor(startOfMonth(addMonths(now, -1))),
+        isOldest: true,
+        isCurrent: false,
+        hasOlder: olderCount > 0,
+        jpy: agedJpy,
+        count: agedCount,
+      });
+    }
+
+    return cards.map(m => ({ ...m, jpy: Math.round(m.jpy) }));
   }, [forecastSchedule]);
 
   const accountMap = useMemo(() => {
@@ -973,7 +999,11 @@ export default function Finance() {
                       <div className="text-xs font-semibold text-muted-foreground mb-2">{card.label}</div>
                       <div className="text-base font-bold text-foreground tabular-nums leading-tight">{formatCurrency(card.jpy, 'JPY')}</div>
                       <div className="text-xs text-muted-foreground mt-1.5">{card.count} accts</div>
-                      {i === 0 && <div className="text-[10px] font-medium text-primary mt-1">Due in {card.daysAway}d</div>}
+                      {card.isOldest ? (
+                        <div className="text-[10px] font-medium text-destructive mt-1">Overdue{card.hasOlder ? ' · incl. earlier' : ''}</div>
+                      ) : card.isCurrent ? (
+                        <div className="text-[10px] font-medium text-primary mt-1">Due in {card.daysAway}d</div>
+                      ) : null}
                     </div>
                   ))}
                 </div>
