@@ -119,7 +119,7 @@
 
 ### Edge function code review (surfaced 2026-05-19)
 
-  Bug #115 — restore-payment service double-counting (investigation pending).
+  Bug #115 — restore-payment service double-counting (investigation COMPLETE 2026-05-19 — NOT a confirmed bug; see verified note below).
   LOCATION: supabase/functions/restore-payment/index.ts line 414-415.
   CODE: const newRemainingBalance = Math.max(0, round2(
     Number(accountData?.total_amount ?? 0) + penaltyTotal + serviceTotal - newTotalPaid
@@ -177,8 +177,12 @@
   installment / overpayment-surplus allocations use allocation_type
   ='installment'.
 
-  STATUS: code fix OPEN — deferred. Blast-radius classification deferred
-  per owner. Touch points to audit at fix time: review-payment-submission
+  STATUS: DORMANT / effectively closed (verified 2026-05-19 — durable
+  allocation pattern already implemented in the main waterfall; see VERIFIED
+  note at end of entry). Residual risk DEFERRED per owner: penalty-engine
+  recompute (lines 384 & 406) can still wipe surplus if a penalty lands on a
+  surplus-absorbing row — 1 occurrence to date (INV #18113, hand-repaired
+  2026-05-20). Touch points to audit at fix time: review-payment-submission
   waterfall, record-payment, record-multi-payment, accept-underpayment /
   carry-over (already allocation-based), penalty-engine recompute sites
   (lines 384 & 406), reconcile-account, daily-reconciliation.

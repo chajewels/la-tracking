@@ -2014,6 +2014,7 @@
   6 functions, not 7. customer-statement stays on token-only
   auth indefinitely or until separately deprecated (planned
   follow-up workstream — feature confirmed unused 2026-05-01).
+  UPDATE 2026-05-25: customer-statement DELETED entirely (commit 7f38d37; see FIXED-BUGS #153). The Phase A scope discussion above is historical — this function no longer exists.
 
   Phase A status:
     - Step 1 (table): COMPLETE
