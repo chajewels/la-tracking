@@ -47,7 +47,6 @@ const LoyaltyPortal = lazyWithRetry(() => import("./pages/LoyaltyPortal"));
 const Finance = lazyWithRetry(() => import("./pages/Finance"));
 const SettingsPage = lazyWithRetry(() => import("./pages/SettingsPage"));
 const AdminAudit = lazyWithRetry(() => import("./pages/AdminAudit"));
-const CustomerStatement = lazyWithRetry(() => import("./pages/CustomerStatement"));
 const NewAccount = lazyWithRetry(() => import("./pages/NewAccount"));
 const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
 const PaymentVault = lazyWithRetry(() => import("./pages/PaymentVault"));
@@ -112,7 +111,6 @@ const App = () => (
                 <Route path="/login" element={<Login />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
-                <Route path="/statement" element={<CustomerStatement />} />
                 <Route path="/portal" element={<CustomerPortal />} />
                 <Route path="/portal/login" element={<PortalLogin />} />
                 <Route path="/portal/forgot-password" element={<PortalForgotPassword />} />

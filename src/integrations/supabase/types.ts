@@ -3391,44 +3391,6 @@ export type Database = {
         }
         Relationships: []
       }
-      statement_tokens: {
-        Row: {
-          account_id: string
-          created_at: string
-          created_by_user_id: string | null
-          expires_at: string | null
-          id: string
-          is_active: boolean
-          token: string
-        }
-        Insert: {
-          account_id: string
-          created_at?: string
-          created_by_user_id?: string | null
-          expires_at?: string | null
-          id?: string
-          is_active?: boolean
-          token?: string
-        }
-        Update: {
-          account_id?: string
-          created_at?: string
-          created_by_user_id?: string | null
-          expires_at?: string | null
-          id?: string
-          is_active?: boolean
-          token?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "statement_tokens_account_id_fkey"
-            columns: ["account_id"]
-            isOneToOne: false
-            referencedRelation: "layaway_accounts"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       suppressed_emails: {
         Row: {
           created_at: string

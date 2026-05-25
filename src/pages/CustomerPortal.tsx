@@ -38,7 +38,6 @@ import { getPortalLinkForCustomer } from '@/lib/portal-link';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-const STATEMENT_BASE = 'https://portal.chajewelsjp.com';
 
 /* ─── Types ─── */
 interface PaymentMethod {
@@ -89,7 +88,6 @@ interface PortalAccount {
   total_obligation: number;
   next_due_date: string | null;
   next_due_amount: number | null;
-  statement_token: string | null;
   schedule: Array<{
     installment_number: number;
     due_date: string;
@@ -1513,10 +1511,6 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
     }
   };
 
-  const statementUrl = account.statement_token
-    ? `${STATEMENT_BASE}/statement?token=${account.statement_token}`
-    : null;
-
   return (
     <div className="flex flex-col h-full" style={{background:P.bg}}>
       {/* Header */}
@@ -1640,7 +1634,7 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
           </div>
         )}
         {activeTab === 'overview' && (
-          <OverviewTab account={account} statementUrl={statementUrl} today={today} />
+          <OverviewTab account={account} today={today} />
         )}
         {activeTab === 'pay' && canPay && (
           <PayNowTab
@@ -1711,21 +1705,12 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
 }
 
 /* ─── Overview Tab ─── */
-function OverviewTab({ account, statementUrl, today }: {
-  account: PortalAccount; statementUrl: string | null; today: string;
+function OverviewTab({ account, today }: {
+  account: PortalAccount; today: string;
 }) {
   const currency = account.currency;
   return (
     <>
-      {statementUrl && (
-        <a href={statementUrl} target="_blank" rel="noopener noreferrer">
-          <button className="w-full flex items-center justify-center gap-2 h-10 mb-1 transition-opacity hover:opacity-80"
-            style={{background:'transparent',border:`1px solid ${P.gp}`,borderRadius:'2px',color:P.gp,fontFamily:"Inter,sans-serif",fontSize:'12px',letterSpacing:'0.1em',textTransform:'uppercase' as const,cursor:'pointer'}}>
-            <FileText className="h-4 w-4" /> View Full Statement
-          </button>
-        </a>
-      )}
-
       {/* Progress */}
       <div>
         <div className="flex justify-between mb-1.5">

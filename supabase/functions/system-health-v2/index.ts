@@ -69,7 +69,7 @@ Deno.serve(async (req) => {
     // ── Fetch all data in parallel ──
     const [accounts, schedules, penalties, payments, services, allSchedRows] = await Promise.all([
       fetchAll(supabase, "layaway_accounts",
-        "id, invoice_number, status, currency, total_amount, total_paid, remaining_balance, downpayment_amount, payment_plan_months, statement_token, customers!inner(full_name)"),
+        "id, invoice_number, status, currency, total_amount, total_paid, remaining_balance, downpayment_amount, payment_plan_months, customers!inner(full_name)"),
       fetchAll(supabase, "layaway_schedule",
         "id, account_id, installment_number, due_date, base_installment_amount, total_due_amount, paid_amount, status, carried_amount",
         q => q.neq("status", "cancelled")),
@@ -283,21 +283,8 @@ Deno.serve(async (req) => {
     // SECTION 3 — SYSTEM FUNCTIONS
     // ══════════════════════════════════════
 
-    // Check 9: Customer Portal tokens
-    {
-      const affected: CheckResult["affectedAccounts"] = [];
-      for (const acct of activeAccounts) {
-        if (!acct.statement_token) {
-          affected.push({ account_id: acct.id, invoice_number: acct.invoice_number,
-            customer_name: acct.customers?.full_name || "Unknown",
-            detail: "statement_token is null — portal link broken" });
-        }
-      }
-      checks.push({ id: 9, section: "system", label: "Customer Portal Tokens",
-        description: "All active accounts have a valid portal token (statement_token)",
-        status: affected.length === 0 ? "pass" : "fail", expected: "0 missing tokens",
-        affectedCount: affected.length, affectedAccounts: affected });
-    }
+    // Check 9: removed 2026-05-25 — customer-statement feature deleted (#153),
+    // statement_token column on layaway_accounts no longer consumed.
 
     // Check 10: Overdue Logic — no false OVERDUE flags
     {
