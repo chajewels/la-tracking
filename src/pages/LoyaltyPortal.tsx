@@ -73,6 +73,7 @@ interface PortalLoyaltyTier {
   min_spend_jpy: number;
   points_multiplier: number;
   color_hex: string | null;
+  benefits?: string[] | null;
 }
 
 interface PortalLoyaltyTx {
