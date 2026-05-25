@@ -350,6 +350,28 @@ Deno.serve(async (req) => {
             }),
             link_target: "tab:home",
           });
+          const { error: tierTxErr } = await supabase
+            .from("loyalty_transactions")
+            .insert({
+              member_id: member.id,
+              transaction_type: "tier_changed",
+              points_amount: 0,
+              tier_at_time: nextLower!.name,
+              notes: `Tier downgraded: ${currentTier.name} → ${nextLower!.name} due to 6+ months inactivity`,
+              account_id: null,
+              cash_order_id: null,
+              payment_id: null,
+              spend_amount_jpy: null,
+              rate_snapshot: null,
+              invoice_number: null,
+              created_by_user_id: null,
+            });
+          if (tierTxErr) {
+            console.warn(
+              "[loyalty-inactivity-check] expiry-path tier_changed tx insert failed (non-blocking):",
+              tierTxErr,
+            );
+          }
         }
 
         continue; // expiry replaces downgrade for this member
@@ -485,6 +507,28 @@ Deno.serve(async (req) => {
             }),
             link_target: "tab:home",
           });
+          const { error: tierTxErr } = await supabase
+            .from("loyalty_transactions")
+            .insert({
+              member_id: member.id,
+              transaction_type: "tier_changed",
+              points_amount: 0,
+              tier_at_time: nextLower.name,
+              notes: `Tier downgraded: ${currentTier.name} → ${nextLower.name} due to ${gapBetweenLastTwo}-day purchase gap`,
+              account_id: null,
+              cash_order_id: null,
+              payment_id: null,
+              spend_amount_jpy: null,
+              rate_snapshot: null,
+              invoice_number: null,
+              created_by_user_id: null,
+            });
+          if (tierTxErr) {
+            console.warn(
+              "[loyalty-inactivity-check] gap-path tier_changed tx insert failed (non-blocking):",
+              tierTxErr,
+            );
+          }
         }
       }
     } catch (memberErr: any) {
