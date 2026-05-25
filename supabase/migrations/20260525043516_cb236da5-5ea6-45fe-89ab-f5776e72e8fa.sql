@@ -1,0 +1,1 @@
+ALTER TABLE loyalty_tiers ADD COLUMN IF NOT EXISTS benefits jsonb NOT NULL DEFAULT '[]'::jsonb;
