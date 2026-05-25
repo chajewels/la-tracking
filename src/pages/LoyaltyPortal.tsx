@@ -255,6 +255,11 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
         spendRequired: t.min_spend_jpy,
         multiplier: t.points_multiplier,
         ...TIER_STATIC[t.name as TierName],
+        benefits:
+          Array.isArray(t.benefits) && t.benefits.length > 0
+            ? t.benefits
+            : TIER_STATIC[t.name as TierName].benefits,
+        accent: t.color_hex ?? TIER_STATIC[t.name as TierName].accent,
       })),
     [loyaltyTiers],
   );

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Crown, Sparkles, AlertTriangle, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
+import { Crown, Sparkles, AlertTriangle, ArrowLeft, ArrowRight, Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -33,6 +33,7 @@ interface FormState {
   free_shipping_enabled: boolean;
   free_shipping_min_items: string;
   mystery_gift: boolean;
+  benefits: string[];
 }
 
 function tierToForm(tier: LoyaltyTierRow): FormState {
@@ -45,6 +46,7 @@ function tierToForm(tier: LoyaltyTierRow): FormState {
       ? String(tier.free_shipping_min_items)
       : '',
     mystery_gift: tier.mystery_gift,
+    benefits: Array.isArray(tier.benefits) ? tier.benefits : [],
   };
 }
 
@@ -96,6 +98,12 @@ function diffFromForm(form: FormState, tier: LoyaltyTierRow): {
   if (form.mystery_gift !== tier.mystery_gift) {
     updates.mystery_gift = form.mystery_gift;
   }
+
+  const cleanBenefits = form.benefits.map((b) => b.trim()).filter((b) => b.length > 0);
+  if (JSON.stringify(cleanBenefits) !== JSON.stringify(tier.benefits ?? [])) {
+    updates.benefits = cleanBenefits;
+  }
+
 
   return {
     updates,
@@ -242,11 +250,39 @@ export default function TierEditDialog({ tier, onClose }: TierEditDialogProps) {
             </div>
 
             <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-3">
-              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-700 flex gap-2 items-start">
-                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-                <div>
-                  <strong>Phase 5 — not yet customer-visible.</strong> Edits to these benefits save to the database but the customer portal currently renders hardcoded values from TIER_STATIC. Avoid changing these fields until Phase 5 Tier Benefits Schema Expansion ships, or admin and customer views will drift out of sync.
-                </div>
+              <div className="space-y-2">
+                <Label className="text-sm">Tier Benefits (shown to customers)</Label>
+                {form.benefits.map((b, i) => (
+                  <div key={i} className="flex gap-2">
+                    <Input
+                      value={b}
+                      onChange={(e) => {
+                        const next = [...form.benefits];
+                        next[i] = e.target.value;
+                        setForm({ ...form, benefits: next });
+                      }}
+                      placeholder="e.g. Double points on all purchases"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() =>
+                        setForm({ ...form, benefits: form.benefits.filter((_, j) => j !== i) })
+                      }
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setForm({ ...form, benefits: [...form.benefits, ''] })}
+                >
+                  + Add benefit
+                </Button>
               </div>
               <div className="flex items-center justify-between">
                 <Label htmlFor="free-shipping" className="text-sm">
