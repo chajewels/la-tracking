@@ -1866,3 +1866,37 @@ The Finance Collections tab payment cards (Today/Yesterday/Week/Month/Year) and 
 151. Customers were getting profiles rows (and leaking into team-member lists) because the on_auth_user_created → handle_new_user trigger inserted a profile for EVERY auth signup — which began including customers once Phase B gave them auth accounts. Fixed at the source: create-team-member now stamps user_metadata.is_team_member=true, and handle_new_user only inserts a profile when that flag is present, so self-signup customers never get one. (Bug #151, 2026-05-24)
 
 152. Cleaned up 80 leftover role-less profiles (customer portal self-signups that the old unconditional handle_new_user trigger had created before #151 gated it). Deleted all profiles with no user_roles entry; profiles is now strictly team-members-only. FK-safe (nothing references profiles) and customer portal access is unaffected (customers authenticate via auth.users + customers, not profiles). (Bug #152, 2026-05-24)
+
+153. customer-statement feature fully deleted (2026-05-25)
+The customer statement feature was confirmed unused and was fully removed from the
+codebase. Deleted files: src/pages/CustomerStatement.tsx (527 lines),
+supabase/functions/customer-statement/ (entire 176-line function). Modified files:
+src/App.tsx (removed lazy import + /statement route), src/pages/CustomerPortal.tsx
+(removed statement_token field, statementUrl calc, View Full Statement block),
+supabase/functions/customer-portal/index.ts (removed statement_tokens query from
+Promise.all), src/integrations/supabase/types.ts (removed statement_tokens table
+type), supabase/functions/system-health-v2/index.ts (removed statement_token from
+select, deleted Check 9, replaced with historical comment). DB ops: delete_account_atomic
+RPC updated (removed statement_tokens DELETE line), audit_delete_cleanup_invariants
+RPC updated (removed statement_tokens from allowlist). statement_tokens table was
+already absent from production DB. Edge functions (customer-portal, system-health-v2)
+redeployed via Lovable IDE. Commit 7f38d37 shipped to main and auto-deployed to Firebase.
+(Bug #153, 2026-05-25)
+
+154. send-transactional-email auto-deploy confirmed working (2026-05-25)
+Bug #103 (send-transactional-email redeploy needed after _shared/transactional-email-templates/
+edits) was investigated and resolved by design — the GitHub Actions workflow
+(supabase-functions-deploy.yml L205) already contains a check for _shared/ changes and
+triggers send-transactional-email redeploy automatically on template edits. No action
+needed; the infrastructure was correct from initial setup. Verification confirmed that
+send-transactional-email IS in the auto-deploy list (L30, L204–206) and the workflow
+correctly detects _shared/ mutations. (Bug #103, 2026-05-25)
+
+155. RLS file 6 (Phase B RLS policies) already deployed (2026-05-25)
+RLS file 6 was marked deferred in PENDING.md pending merge, but investigation revealed
+the 6 RLS policies were already created and deployed via migrations 20260504000005
+(customer_rls_policies.sql) and 20260504000006 (customer_rls_policies_remainder.sql),
+both on main and live in production. The policies are: customers (SELECT/INSERT/UPDATE by staff),
+user_roles (SELECT by user, full access by admin), profiles (SELECT by staff, UPDATE by user),
+layaway_accounts (SELECT/INSERT/UPDATE by staff), layaway_schedule (SELECT/INSERT/UPDATE by staff),
+payments (SELECT by staff). No action needed; deferred note was stale. (RLS file 6, 2026-05-25)

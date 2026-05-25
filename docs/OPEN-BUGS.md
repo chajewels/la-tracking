@@ -472,3 +472,24 @@
     writing. Do not manufacture a doc edit when investigation shows none
     is needed.
 
+
+### Loyalty tier_changed emission incomplete (surfaced 2026-05-25)
+
+  The upgrade path for tier_changed emission is complete (award-loyalty-points
+  L670–705 inserts a tier_changed transaction when a member upgrades). However,
+  the downgrade path (loyalty-inactivity-check) only sends a notification
+  (emitNotification → buildTierDowngradeNotification) but does NOT insert a
+  tier_changed transaction row into loyalty_transactions.
+
+  Inconsistency: Members see downgrade notifications but the transaction ledger
+  does not record the tier_changed event. The upgrade path creates a transaction
+  (consistency, traceability); downgrade path should do the same.
+
+  Fix pattern: In loyalty-inactivity-check/index.ts ~L340 (where tierChanged is
+  true), after emitNotification, insert a tier_changed row to loyalty_transactions
+  with transaction_type='tier_changed', tier_at_time=nextLower!.name, notes
+  describing the downgrade (old→new, reason: inactivity/expiry), similar to the
+  upgrade path in award-loyalty-points.
+
+  Low priority; downgrade notifications work correctly, only the ledger entry
+  is missing.
