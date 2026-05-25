@@ -250,7 +250,7 @@ Deno.serve(async (req) => {
         .maybeSingle(),
       supabase
         .from("loyalty_tiers")
-        .select("id, name, min_spend_jpy, points_multiplier, color_hex, free_shipping_min_items, mystery_gift")
+        .select("id, name, min_spend_jpy, points_multiplier, color_hex, free_shipping_min_items, mystery_gift, benefits")
         .order("min_spend_jpy", { ascending: true }),
       // Beta whitelist read runs server-side here because the table's RLS
       // denies anon SELECT — useLoyaltyAccess on the browser would fail

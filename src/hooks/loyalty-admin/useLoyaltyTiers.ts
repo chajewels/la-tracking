@@ -10,6 +10,7 @@ export interface LoyaltyTierRow {
   display_order: number;
   free_shipping_min_items: number | null;
   mystery_gift: boolean;
+  benefits: string[];
   created_at: string;
 }
 
@@ -19,6 +20,7 @@ export interface LoyaltyTierUpdate {
   color_hex?: string | null;
   free_shipping_min_items?: number | null;
   mystery_gift?: boolean;
+  benefits?: string[];
 }
 
 export function useLoyaltyTiers(enabled: boolean = true) {
@@ -31,7 +33,7 @@ export function useLoyaltyTiers(enabled: boolean = true) {
       const { data, error } = await supabase
         .from('loyalty_tiers')
         .select(
-          'id, name, min_spend_jpy, points_multiplier, color_hex, display_order, free_shipping_min_items, mystery_gift, created_at',
+          'id, name, min_spend_jpy, points_multiplier, color_hex, display_order, free_shipping_min_items, mystery_gift, created_at, benefits',
         )
         .order('display_order', { ascending: true });
       if (error) throw error;

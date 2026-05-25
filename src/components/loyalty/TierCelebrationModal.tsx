@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-import { TIER_STATIC, type TierName } from './loyaltyData';
+import { TIER_STATIC, useLoyaltyData, type TierName } from './loyaltyData';
 
 const CG = "'Cormorant Garamond',Georgia,serif";
 
@@ -34,8 +34,10 @@ export function TierCelebrationModal({
 }: TierCelebrationModalProps) {
   const reduce = useReducedMotion();
   const tierStatic = TIER_STATIC[tierName];
+  const { tiers } = useLoyaltyData();
   const isUpgrade = direction === 'upgrade';
-  const benefits = tierStatic?.benefits ?? [];
+  const dbTier = tiers.find((t) => t.name === tierName);
+  const benefits = dbTier?.benefits ?? tierStatic?.benefits ?? [];
 
   const confetti = useMemo(
     () =>
