@@ -1900,3 +1900,17 @@ both on main and live in production. The policies are: customers (SELECT/INSERT/
 user_roles (SELECT by user, full access by admin), profiles (SELECT by staff, UPDATE by user),
 layaway_accounts (SELECT/INSERT/UPDATE by staff), layaway_schedule (SELECT/INSERT/UPDATE by staff),
 payments (SELECT by staff). No action needed; deferred note was stale. (RLS file 6, 2026-05-25)
+
+156. Loyalty tier_changed downgrade transaction insert (2026-05-25)
+The downgrade paths in loyalty-inactivity-check (expiry-triggered and gap-triggered)
+were emitting notifications and sending emails but NOT inserting tier_changed transactions
+to loyalty_transactions, leaving the member ledger incomplete. The upgrade path
+(award-loyalty-points) was correctly inserting tier_changed on tier upgrade (L670–705),
+creating an inconsistency. Fixed by adding identical tier_changed transaction inserts
+to both downgrade paths: (1) expiry path after emitNotification for tier (L364–383),
+inserting tier_changed with notes "due to 6+ months inactivity"; (2) gap path after
+emitNotification for tier (L477–496), inserting tier_changed with notes "due to
+{gapBetweenLastTwo}-day purchase gap". Both inserts are non-blocking (log warning,
+don't throw). Structure matches upgrade path (points_amount=0, tier_at_time=newTier,
+null foreign IDs, created_by_user_id=null). Deployed 2026-05-25 commit 0272587 via
+Lovable IDE. (Bug #156, 2026-05-25)
