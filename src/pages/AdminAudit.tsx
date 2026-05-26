@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Shield, Gavel, AlertTriangle, CheckCircle, XCircle, ShieldCheck, ScrollText } from 'lucide-react';
+import { Shield, Gavel, AlertTriangle, CheckCircle, XCircle, ShieldCheck } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -12,7 +12,6 @@ import { useQuery } from '@tanstack/react-query';
 import { daysOverdueFromToday, isEffectivelyPaid, getNextUnpaidDueDate } from '@/lib/business-rules';
 import { Link } from 'react-router-dom';
 import PenaltyCapAuditPanel from '@/components/dashboard/PenaltyCapAuditPanel';
-import ActivityLogTab from '@/components/admin-audit/ActivityLogTab';
 
 // ── Penalty Audit ──
 export function PenaltyAuditTab() {
@@ -417,19 +416,17 @@ export default function AdminAudit() {
         <div>
           <p className="text-xs font-semibold text-primary uppercase tracking-widest mb-1">Admin</p>
           <h1 className="text-2xl font-bold text-foreground font-display">Audit</h1>
-          <p className="text-sm text-muted-foreground mt-1">Full activity log, penalty cap audit, penalty audit, overdue diagnostics, and waiver history</p>
+          <p className="text-sm text-muted-foreground mt-1">Penalty cap audit, penalty audit, overdue diagnostics, and waiver history</p>
         </div>
 
-        <Tabs defaultValue="activity" className="space-y-4">
+        <Tabs defaultValue="penalty-cap" className="space-y-4">
           <TabsList className="bg-zinc-800 flex-wrap border border-zinc-700">
-            <TabsTrigger value="activity" className="gap-1.5"><ScrollText className="h-3.5 w-3.5" /> Activity Log</TabsTrigger>
             <TabsTrigger value="penalty-cap" className="gap-1.5"><ShieldCheck className="h-3.5 w-3.5" /> Penalty Cap Audit</TabsTrigger>
             <TabsTrigger value="penalties" className="gap-1.5"><Gavel className="h-3.5 w-3.5" /> Penalty Audit</TabsTrigger>
             <TabsTrigger value="overdue" className="gap-1.5"><AlertTriangle className="h-3.5 w-3.5" /> Overdue Debug</TabsTrigger>
             <TabsTrigger value="waivers" className="gap-1.5"><Shield className="h-3.5 w-3.5" /> Waiver History</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="activity"><ActivityLogTab /></TabsContent>
           <TabsContent value="penalty-cap"><PenaltyCapAuditPanel /></TabsContent>
           <TabsContent value="penalties"><PenaltyAuditTab /></TabsContent>
           <TabsContent value="overdue"><OverdueDebugTab /></TabsContent>

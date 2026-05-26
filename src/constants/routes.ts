@@ -9,6 +9,7 @@ export const ROUTES = {
   FINANCE: "/finance",
   WAIVERS: "/waivers",
   ADMIN_AUDIT: "/admin-audit",
+  ADMIN_ACTIVITY: "/admin-activity",
   SETTINGS: "/settings",
   PAYMENT_SUBMISSIONS: "/payment-submissions",
   PAYMENT_VAULT: "/admin/payment-vault",

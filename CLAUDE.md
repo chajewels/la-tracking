@@ -1296,13 +1296,6 @@ Forbidden:
        Blocks any account creation or edit below the minimum.
     3. Both PHP and JPY enforced — hard block, no override
 
-## ADMIN ACTIVITY LOG (added 2026-05-26)
-- Admin-only tab (default) on /admin-audit — src/components/admin-audit/ActivityLogTab.tsx
-- Browses audit_logs across ALL roles' actions: filters by entity_type / action / actor / date range + invoice-or-entity_id search, newest-first, 50/page Prev-Next, row expands to a before->after field diff (updated_at omitted from the diff)
-- Filter dropdown values come from RPC get_audit_filter_options() (plpgsql, SECURITY DEFINER, admin-gated) returning { entity_types, actions, actors:[{user_id, full_name}] }; the actors list doubles as the id->name display map
-- Access is inherited from the /admin-audit route gate (role-permissions.ts -> ['admin']); no separate guard
-- Invoice search resolves to layaway_accounts/cash_orders id and filters entity_id (catches account-level rows; payment/penalty rows keyed by their own uuid are not caught — a per-account audit panel is deferred)
-
 
 ## LOYALTY new_order_discount -> DOWNPAYMENT (added 2026-05-26)
 

@@ -12,6 +12,7 @@ import {
   Upload,
   BarChart3,
   Sparkles,
+  ScrollText,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
@@ -50,6 +51,7 @@ const menuItems: MenuItem[] = [
   { label: 'Promotions', icon: Megaphone, path: ROUTES.PROMOTIONS },
   { label: 'Loyalty', icon: Sparkles, path: ROUTES.LOYALTY_ADMIN, permPath: ROUTES.LOYALTY_ADMIN },
   { label: 'Settings', icon: Settings, path: ROUTES.SETTINGS },
+  { label: 'Admin Audit', icon: ScrollText, path: ROUTES.ADMIN_ACTIVITY, adminOnly: true },
 ];
 
 export default function AppSidebar() {

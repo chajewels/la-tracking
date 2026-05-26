@@ -47,6 +47,7 @@ const LoyaltyPortal = lazyWithRetry(() => import("./pages/LoyaltyPortal"));
 const Finance = lazyWithRetry(() => import("./pages/Finance"));
 const SettingsPage = lazyWithRetry(() => import("./pages/SettingsPage"));
 const AdminAudit = lazyWithRetry(() => import("./pages/AdminAudit"));
+const AdminActivityLog = lazyWithRetry(() => import("./pages/AdminActivityLog"));
 const NewAccount = lazyWithRetry(() => import("./pages/NewAccount"));
 const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
 const PaymentVault = lazyWithRetry(() => import("./pages/PaymentVault"));
@@ -128,6 +129,7 @@ const App = () => (
                 <Route path="/monitoring" element={<Protected><Monitoring /></Protected>} />
                 <Route path="/finance" element={<Protected><Finance /></Protected>} />
                 <Route path="/admin-audit" element={<Protected><AdminAudit /></Protected>} />
+                <Route path="/admin-activity" element={<Protected><AdminActivityLog /></Protected>} />
                 <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
                 <Route path="/payments-hub" element={<Protected><PaymentsHub /></Protected>} />
                 <Route path="/bulk-payment-import" element={<Protected><BulkPaymentImport /></Protected>} />
