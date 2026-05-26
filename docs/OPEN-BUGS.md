@@ -373,13 +373,23 @@
       Toggle removed from the Dashboard; it now shows a single combined
       ALL view (PHP + JPY, PHP to JPY). Path A/B is moot. Finance keeps
       its own toggle. (Dashboard-only change.)
-    - Loyalty staff visibility — staff cannot see customer loyalty
-      tier when handling accounts. Resolved per bug #63 for the
-      page-access dimension; tier visibility on layaway accounts
-      may still need surfacing.
+    - Loyalty staff visibility — RESOLVED 2026-05-26. Page-access
+      dimension fixed via bug #63; account-view tier badge now
+      surfaced in AccountDetail.tsx (useCustomerLoyaltyTier L66 +
+      LoyaltyTierBadge render L1011-1012).
     - Admin audit log UI (P6 in PENDING ITEMS legacy numbering) —
       DB triggers exist on audit_logs; no admin query UI to read
       "who changed what when." Compliance risk if dispute arises.
+    - Loyalty redemption approve — no atomic rollback across the
+      multi-write approve sequence. process-loyalty-redemption approve
+      does sequential writes (confirm redemption → debit member points
+      → insert synthetic payment → update account totals) with no DB
+      transaction wrapper; a mid-sequence failure leaves inconsistent
+      state (points debited but payment not recorded, or vice versa).
+      Deferred in-code: "// atomic rollback is a separate phase" at
+      process-loyalty-redemption/index.ts L590 and L724. The catalog
+      stock decrement and the void branch ARE atomic — this gap is only
+      the approve multi-write path. (added 2026-05-26)
 
   P2 — Hygiene / consistency (Low severity)
     None as of 2026-05-01 (both items resolved — see bugs
