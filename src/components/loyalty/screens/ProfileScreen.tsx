@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { ChevronRight, LogOut, HelpCircle, Shield, Bell, FileText, MessageCircle, Crown, Calendar, X } from "lucide-react";
 import { toast } from "sonner";
 import { useLoyaltyData } from "@/components/loyalty/loyaltyData";
 import ProfileMemberCard from "@/components/loyalty/ProfileMemberCard";
+import { supabase } from "@/integrations/supabase/client";
 // TODO: wire to Supabase
 import { FAQS } from "@/components/loyalty/staticFallback";
 import chaJewelsLogo from "@/assets/cha-jewels-logo.jpeg";
@@ -13,20 +14,79 @@ interface ProfileScreenProps {
   setTab: (tab: LoyaltyTab) => void;
 }
 
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+function formatBirthday(dateStr: string | null): string {
+  if (!dateStr) return '';
+  // dateStr is 'YYYY-MM-DD' (sentinel year 2000); render month + day only, no year.
+  const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(dateStr);
+  if (!m) return '';
+  const mi = Number(m[1]) - 1;
+  const d = Number(m[2]);
+  if (mi < 0 || mi > 11 || d < 1 || d > 31) return '';
+  return `${MONTHS[mi]} ${d}`;
+}
+
 export default function ProfileScreen({ setTab }: ProfileScreenProps) {
   const { member, tiers } = useLoyaltyData();
   const [showFaq, setShowFaq] = useState(false);
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
   const [showTerms, setShowTerms] = useState(false);
-  // TODO: wire birthday to Supabase (no store field yet)
-  const [birthday, setBirthday] = useState('');
+  const [savedBirthday, setSavedBirthday] = useState<string | null>(null);
+  const [locked, setLocked] = useState(false);
   const [editingBirthday, setEditingBirthday] = useState(false);
+  const [monthInput, setMonthInput] = useState<string>('');
+  const [dayInput, setDayInput] = useState<string>('');
+  const [savingBirthday, setSavingBirthday] = useState(false);
+
+  useEffect(() => {
+    const customerId = member?.customer_id;
+    if (!customerId) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('birthday, birthday_locked_at')
+        .eq('id', customerId)
+        .single();
+      if (cancelled) return;
+      if (error) {
+        console.warn('[ProfileScreen] failed to load birthday:', error);
+        return;
+      }
+      setSavedBirthday((data?.birthday as string | null) ?? null);
+      setLocked(Boolean(data?.birthday_locked_at));
+    })();
+    return () => { cancelled = true; };
+  }, [member?.customer_id]);
 
   if (!member || !tiers || tiers.length === 0) return null;
 
   const currentTier = tiers.find((t) => t.name === member.current_tier) ?? tiers[0]!;
   // TODO: wire phone to Supabase (no store field yet)
   const phone: string | null = null;
+  const formattedBirthday = formatBirthday(savedBirthday);
+
+  const handleSaveBirthday = async () => {
+    if (!monthInput || !dayInput) {
+      toast.error('Pick a month and a day');
+      return;
+    }
+    const mm = monthInput.padStart(2, '0');
+    const dd = dayInput.padStart(2, '0');
+    const p_birthday = `2000-${mm}-${dd}`;
+    setSavingBirthday(true);
+    const { error } = await supabase.rpc('set_customer_birthday', { p_birthday });
+    setSavingBirthday(false);
+    if (error) {
+      toast.error(error.message || 'Failed to save birthday');
+      return;
+    }
+    toast.success('Birthday saved');
+    setSavedBirthday(p_birthday);
+    setLocked(true);
+    setEditingBirthday(false);
+  };
 
   return (
     <div className="px-5 pt-6 pb-4 space-y-6">
@@ -66,33 +126,73 @@ export default function ProfileScreen({ setTab }: ProfileScreenProps) {
             <div>
               <p className="text-[13px] font-body font-semibold text-foreground">Birthday Rewards</p>
               <p className="text-[12px] text-muted-foreground font-body mt-0.5">
-                {birthday ? `Birthday: ${birthday}` : 'Set your birthday to unlock birthday rewards'}
+                {locked && formattedBirthday
+                  ? `Birthday: ${formattedBirthday}`
+                  : 'Set your birthday to unlock birthday rewards'}
               </p>
+              {locked && formattedBirthday && (
+                <p className="text-[11px] text-muted-foreground/60 font-body mt-1">
+                  🔒 Your birthday is set and can't be changed.
+                </p>
+              )}
             </div>
           </div>
-          <button
-            onClick={() => setEditingBirthday(!editingBirthday)}
-            className="text-[12px] text-primary font-body font-semibold"
-          >
-            {editingBirthday ? 'Done' : 'Edit'}
-          </button>
+          {!locked && !editingBirthday && (
+            <button
+              onClick={() => setEditingBirthday(true)}
+              className="text-[12px] text-primary font-body font-semibold"
+            >
+              Set Birthday
+            </button>
+          )}
         </div>
-        {editingBirthday && (
+        {!locked && editingBirthday && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             className="mt-3 pt-3 border-t border-border/50"
           >
-            <input
-              type="text"
-              value={birthday}
-              onChange={(e) => setBirthday(e.target.value)}
-              placeholder="e.g. March 15"
-              className="w-full px-3 py-2 bg-background rounded-lg border-gold-accent text-[13px] font-body text-foreground placeholder:text-muted-foreground/50"
-            />
+            <div className="flex gap-2">
+              <select
+                value={monthInput}
+                onChange={(e) => setMonthInput(e.target.value)}
+                className="flex-1 px-3 py-2 bg-background rounded-lg border-gold-accent text-[13px] font-body text-foreground"
+              >
+                <option value="">Month</option>
+                {MONTHS.map((name, i) => (
+                  <option key={name} value={String(i + 1)}>{name}</option>
+                ))}
+              </select>
+              <select
+                value={dayInput}
+                onChange={(e) => setDayInput(e.target.value)}
+                className="w-24 px-3 py-2 bg-background rounded-lg border-gold-accent text-[13px] font-body text-foreground"
+              >
+                <option value="">Day</option>
+                {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                  <option key={d} value={String(d)}>{d}</option>
+                ))}
+              </select>
+            </div>
             <p className="text-[11px] text-muted-foreground/60 font-body mt-2 italic">
-              Receive 500 bonus points + exclusive birthday perks during your birthday month.
+              Earn birthday bonus points during your birthday month — the amount scales with your tier.
             </p>
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                onClick={() => { setEditingBirthday(false); setMonthInput(''); setDayInput(''); }}
+                className="px-3 py-1.5 rounded-lg text-[12px] font-body text-muted-foreground"
+                disabled={savingBirthday}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveBirthday}
+                disabled={savingBirthday || !monthInput || !dayInput}
+                className="px-4 py-1.5 rounded-lg text-[12px] font-body font-semibold bg-primary text-primary-foreground disabled:opacity-50"
+              >
+                {savingBirthday ? 'Saving…' : 'Save'}
+              </button>
+            </div>
           </motion.div>
         )}
       </div>
@@ -104,8 +204,7 @@ export default function ProfileScreen({ setTab }: ProfileScreenProps) {
           { label: 'Email', value: member.email ?? '—' },
           // TODO: wire phone to Supabase
           { label: 'Phone', value: phone ?? '—' },
-          // TODO: wire birthday to Supabase
-          { label: 'Birthday', value: birthday || '—' },
+          { label: 'Birthday', value: formattedBirthday || '—' },
           { label: 'Member Since', value: member.join_date },
         ].map((item, i) => (
           <div key={item.label} className={`flex items-center justify-between px-4 py-3 ${i < 3 ? 'border-b border-border/50' : ''}`}>
