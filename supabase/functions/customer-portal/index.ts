@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { resolvePortalAuth } from "../_shared/portal-auth.ts";
+import { emitNotification } from "../_shared/emit-notification.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
