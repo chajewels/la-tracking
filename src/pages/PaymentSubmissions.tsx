@@ -426,17 +426,17 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
   // Helpers for waterfall partial detection
   const getConfirmPartialRow = useMemo(() => {
     if (!confirmWaterfall?.valid || confirmScheduleRows.length === 0) return null;
-    // Check if TOTAL submitted payment amount is less than the first unpaid month's ceiling.
-    // This detects underpayment based on what the customer submitted vs what is owed —
-    // not on stale actual_remaining from the view.
+    // Underpayment = this submission covers less than the row's CANONICAL remaining.
+    // row.actual_remaining (= ceiling − allocated) is freshly fetched above, so a
+    // partial already paid or waterfalled surplus on this row is NOT re-charged.
     const firstAlloc = confirmWaterfall.allocations[0];
     if (!firstAlloc) return null;
     const row = confirmScheduleRows.find(r => r.id === firstAlloc.scheduleId);
     if (!row) return null;
-    const firstRowCeiling = Number(row.base_installment_amount) + Number(row.penalty_amount || 0) + Number(row.carried_amount || 0);
+    const firstRowRemaining = Number(row.actual_remaining);
     const submittedAmount = confirmWaterfall.allocations.reduce((sum, a) => sum + a.amount, 0);
-    if (submittedAmount < firstRowCeiling - 0.01 && submittedAmount > 0) {
-      return { scheduleId: row.id, row, shortfall: Math.round((firstRowCeiling - submittedAmount) * 100) / 100 };
+    if (submittedAmount < firstRowRemaining - 0.01 && submittedAmount > 0) {
+      return { scheduleId: row.id, row, shortfall: Math.round((firstRowRemaining - submittedAmount) * 100) / 100 };
     }
     return null;
   }, [confirmWaterfall, confirmScheduleRows]);
@@ -933,10 +933,10 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Base amount due</span>
+                  <span className="text-muted-foreground">Amount due this month</span>
                   <span className="font-medium text-foreground tabular-nums">
                     {formatCurrency(
-                      Number(underpaymentModal.row.base_installment_amount) + Number(underpaymentModal.row.penalty_amount || 0) + Number(underpaymentModal.row.carried_amount || 0),
+                      Number(underpaymentModal.row.actual_remaining),
                       underpaymentModal.currency
                     )}
                   </span>
@@ -945,7 +945,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                   <span className="text-muted-foreground">Amount paid</span>
                   <span className="font-medium text-foreground tabular-nums">
                     {formatCurrency(
-                      Number(underpaymentModal.row.base_installment_amount) + Number(underpaymentModal.row.penalty_amount || 0) + Number(underpaymentModal.row.carried_amount || 0) - underpaymentModal.shortfall,
+                      Number(underpaymentModal.row.actual_remaining) - underpaymentModal.shortfall,
                       underpaymentModal.currency
                     )}
                   </span>
