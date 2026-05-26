@@ -378,8 +378,11 @@
       surfaced in AccountDetail.tsx (useCustomerLoyaltyTier L66 +
       LoyaltyTierBadge render L1011-1012).
     - Admin audit log UI (P6 in PENDING ITEMS legacy numbering) —
-      DB triggers exist on audit_logs; no admin query UI to read
-      "who changed what when." Compliance risk if dispute arises.
+      RESOLVED 2026-05-26. Standalone admin-only Admin Audit page
+      shipped at /admin-activity (AdminActivityLog.tsx + ActivityLogTab.tsx,
+      get_audit_filter_options() RPC) — paginated audit_logs browser with
+      entity/action/actor/date filters and before→after diff. Distinct
+      from the System Audit page (/admin-audit).
     - Loyalty redemption approve — no atomic rollback across the
       multi-write approve sequence. process-loyalty-redemption approve
       does sequential writes (confirm redemption → debit member points
@@ -396,8 +399,9 @@
     #74 and #75).
 
   P3 — Defensive hardening (Low severity, no known bugs)
-    - Session timeout 2hr (P5 in legacy numbering) — security
-      hygiene.
+    - Session timeout 2hr (P5 in legacy numbering) — RESOLVED 2026-05-26.
+      2h idle timeout with 5-min warning modal now applies to both the
+      staff app and the customer portal (AuthContext.tsx, commit 1adfa15).
 
   P4 — Larger features (Medium severity, real effort, not blocking)
     - PWA Phase A install routing — ABANDONED 2026-05-04 (Bug #79 revert),
