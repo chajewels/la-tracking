@@ -186,6 +186,87 @@ Deno.serve(async (req) => {
         });
       }
 
+
+      if (action === "redeem_birthday") {
+        // Award via the verified DB worker. Its atomic year-stamp guard is
+        // the gate (rejects: no birthday / not the birthday month / already
+        // claimed this year), so no separate claimability check is needed.
+        const { error: awardErr } = await supabase.rpc("_award_birthday_reward", {
+          p_customer_id: customerId,
+        });
+        if (awardErr) {
+          return new Response(
+            JSON.stringify({ error: awardErr.message || "Birthday reward is not available" }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+
+        // Side-effects: sheet sync + in-portal notification. Fire-and-forget —
+        // the award already succeeded, so these must never fail the response.
+        try {
+          const { data: cust } = await supabase
+            .from("customers")
+            .select("id, full_name, email, customer_code")
+            .eq("id", customerId)
+            .maybeSingle();
+
+          const { data: mem } = await supabase
+            .from("loyalty_members")
+            .select("id, current_tier_id")
+            .eq("customer_id", customerId)
+            .maybeSingle();
+
+          let bonus = 0;
+          let tierName: string | null = null;
+          if (mem?.current_tier_id) {
+            const { data: tier } = await supabase
+              .from("loyalty_tiers")
+              .select("name, birthday_bonus_points")
+              .eq("id", mem.current_tier_id)
+              .maybeSingle();
+            bonus = Number(tier?.birthday_bonus_points ?? 0);
+            tierName = tier?.name ?? null;
+          }
+
+          if (cust) {
+            await fetch(
+              `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-loyalty-to-sheet`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                },
+                body: JSON.stringify({
+                  event_type: "birthday_bonus",
+                  customer: { customer_id: cust.id, full_name: cust.full_name, email: cust.email },
+                  payload: {
+                    member_id: cust.customer_code ?? null,
+                    points_amount: bonus,
+                    tier_at_time: tierName,
+                  },
+                }),
+              },
+            ).catch((e) => console.warn("[customer-portal] birthday sheet sync failed:", e));
+          }
+
+          if (mem?.id) {
+            void emitNotification(supabase, mem.id, {
+              category: "birthday",
+              title: "Happy Birthday! 🎂",
+              body: `Your birthday bonus of ${bonus.toLocaleString("en-US")} points has been added to your account. Enjoy! 🎉`,
+              link_target: "tab:points",
+            });
+          }
+        } catch (sideErr) {
+          console.warn("[customer-portal] birthday side-effects failed:", sideErr);
+        }
+
+        return new Response(JSON.stringify({ success: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       return new Response(JSON.stringify({ error: "Unknown action" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
