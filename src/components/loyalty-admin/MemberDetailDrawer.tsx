@@ -1,4 +1,8 @@
 import { Link } from 'react-router-dom';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 import {
   Sheet,
   SheetContent,
@@ -14,7 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ExternalLink, Sparkles, Coins, TrendingUp, Crown, AlertTriangle } from 'lucide-react';
+import { ExternalLink, Sparkles, Coins, TrendingUp, Crown, AlertTriangle, Cake } from 'lucide-react';
 import { useLoyaltyMemberDetail } from '@/hooks/loyalty-admin/useLoyaltyMemberDetail';
 
 const TX_TYPE_LABEL: Record<string, string> = {
@@ -86,6 +90,50 @@ export default function MemberDetailDrawer({
   onClose: () => void;
 }) {
   const { data, isLoading, isError } = useLoyaltyMemberDetail(memberId);
+
+  const queryClient = useQueryClient();
+  const customerId = data?.member?.customer_id ?? null;
+  const [editing, setEditing] = useState(false);
+  const [correcting, setCorrecting] = useState(false);
+  const [monthInput, setMonthInput] = useState('');
+  const [dayInput, setDayInput] = useState('');
+
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  const { data: bday } = useQuery({
+    queryKey: ['member-birthday', customerId],
+    enabled: !!customerId,
+    queryFn: async () => {
+      const { data: row, error } = await supabase
+        .from('customers')
+        .select('birthday, birthday_locked_at, birthday_admin_edits_used')
+        .eq('id', customerId)
+        .maybeSingle();
+      if (error) throw error;
+      return row;
+    },
+  });
+
+  const fmtBday = (b: string | null | undefined) => {
+    if (!b) return 'Not set';
+    const parts = b.split('-');
+    return `${MONTHS[parseInt(parts[1], 10) - 1]} ${parseInt(parts[2], 10)}`;
+  };
+
+  const handleCorrect = async () => {
+    if (!customerId || !monthInput || !dayInput) { toast.error('Pick a month and a day'); return; }
+    const p_birthday = `2000-${monthInput.padStart(2, '0')}-${dayInput.padStart(2, '0')}`;
+    setCorrecting(true);
+    try {
+      const { error } = await supabase.rpc('admin_correct_birthday', { p_customer_id: customerId, p_birthday });
+      if (error) { toast.error(error.message || 'Correction failed'); return; }
+      toast.success('Birthday corrected');
+      setEditing(false); setMonthInput(''); setDayInput('');
+      queryClient.invalidateQueries({ queryKey: ['member-birthday', customerId] });
+    } finally {
+      setCorrecting(false);
+    }
+  };
 
   return (
     <Sheet open={!!memberId} onOpenChange={(o) => !o && onClose()}>
@@ -211,6 +259,47 @@ export default function MemberDetailDrawer({
                 <span className="text-muted-foreground">Enrolled</span>
                 <span>{fmtDate(data.member.enrolled_at)}</span>
               </div>
+            </div>
+
+            {/* Birthday — admin correction (one-time) */}
+            <div className="rounded-lg border border-border bg-background p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Cake className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium text-foreground">Birthday</span>
+                </div>
+                <span className="text-sm text-foreground">{fmtBday(bday?.birthday)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-muted-foreground">Corrections used: {bday?.birthday_admin_edits_used ?? 0}/1</span>
+                {bday?.birthday_locked_at && (bday?.birthday_admin_edits_used ?? 0) < 1 && !editing && (
+                  <button onClick={() => setEditing(true)} className="text-[12px] text-primary font-medium">Correct</button>
+                )}
+              </div>
+              {!bday?.birthday_locked_at && (
+                <p className="text-[11px] text-muted-foreground/70">Customer hasn't set their birthday yet.</p>
+              )}
+              {bday?.birthday_locked_at && (bday?.birthday_admin_edits_used ?? 0) >= 1 && (
+                <p className="text-[11px] text-muted-foreground/70">Correction limit reached.</p>
+              )}
+              {editing && (
+                <div className="space-y-2 pt-1">
+                  <div className="flex gap-2">
+                    <select value={monthInput} onChange={(e) => setMonthInput(e.target.value)} className="flex-1 px-2 py-1.5 rounded border border-border bg-background text-sm">
+                      <option value="">Month</option>
+                      {MONTHS.map((n, i) => (<option key={n} value={String(i + 1)}>{n}</option>))}
+                    </select>
+                    <select value={dayInput} onChange={(e) => setDayInput(e.target.value)} className="w-20 px-2 py-1.5 rounded border border-border bg-background text-sm">
+                      <option value="">Day</option>
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (<option key={d} value={String(d)}>{d}</option>))}
+                    </select>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button onClick={() => { setEditing(false); setMonthInput(''); setDayInput(''); }} disabled={correcting} className="px-3 py-1 rounded text-[12px] text-muted-foreground">Cancel</button>
+                    <button onClick={handleCorrect} disabled={correcting || !monthInput || !dayInput} className="px-3 py-1 rounded text-[12px] font-medium bg-primary text-primary-foreground disabled:opacity-50">{correcting ? 'Saving…' : 'Save correction'}</button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Recent transactions */}
