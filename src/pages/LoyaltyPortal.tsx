@@ -428,6 +428,9 @@ function MemberView({ data, member, portalToken, onSignOut }: MemberViewProps) {
               const first = (data.notifications ?? []).find((n) => !n.is_read);
               return first ? { title: first.title, body: first.body } : null;
             })()}
+            birthdayReward={data.birthday_reward ?? null}
+            portalToken={portalToken}
+            onClaimed={() => queryClient.invalidateQueries({ queryKey: ['portal'] })}
           />
         )}
         {tab === 'rewards' && <RewardsScreen />}
