@@ -133,6 +133,58 @@ Deno.serve(async (req) => {
         });
       }
 
+      if (action === "set_birthday") {
+        const p_birthday: unknown = body.p_birthday;
+        if (typeof p_birthday !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(p_birthday)) {
+          return new Response(JSON.stringify({ error: "p_birthday must be a 'YYYY-MM-DD' string" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        // Set-once guard — DB trigger enforces this independently; we
+        // mirror it here so the API returns a clean 400 rather than a
+        // trigger error string.
+        const { data: existing, error: readErr } = await supabase
+          .from("customers")
+          .select("birthday_locked_at")
+          .eq("id", customerId)
+          .maybeSingle();
+        if (readErr) {
+          return new Response(JSON.stringify({ error: "Failed to load customer" }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        if (existing?.birthday_locked_at) {
+          return new Response(JSON.stringify({ error: "Birthday is already set and cannot be changed" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const { error: updateErr } = await supabase
+          .from("customers")
+          .update({ birthday: p_birthday, birthday_locked_at: new Date().toISOString() })
+          .eq("id", customerId);
+        if (updateErr) {
+          return new Response(JSON.stringify({ error: updateErr.message || "Failed to set birthday" }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        // Log audit (mirrors portal_profile_update pattern)
+        await supabase.from("audit_logs").insert({
+          entity_type: "customer",
+          entity_id: customerId,
+          action: "portal_birthday_set",
+          new_value_json: { birthday: p_birthday },
+        });
+
+        return new Response(JSON.stringify({ success: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       return new Response(JSON.stringify({ error: "Unknown action" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -163,7 +215,7 @@ Deno.serve(async (req) => {
     // Fetch customer with profile fields
     const { data: customer, error: custErr } = await supabase
       .from("customers")
-      .select("id, full_name, customer_code, location, facebook_name, messenger_link, mobile_number, email, notes")
+      .select("id, full_name, customer_code, location, facebook_name, messenger_link, mobile_number, email, notes, birthday, birthday_locked_at, last_birthday_award_year")
       .eq("id", customerId)
       .maybeSingle();
 
@@ -250,7 +302,7 @@ Deno.serve(async (req) => {
         .maybeSingle(),
       supabase
         .from("loyalty_tiers")
-        .select("id, name, min_spend_jpy, points_multiplier, color_hex, free_shipping_min_items, mystery_gift, benefits")
+        .select("id, name, min_spend_jpy, points_multiplier, color_hex, free_shipping_min_items, mystery_gift, benefits, birthday_bonus_points")
         .order("min_spend_jpy", { ascending: true }),
       // Beta whitelist read runs server-side here because the table's RLS
       // denies anon SELECT — useLoyaltyAccess on the browser would fail
@@ -713,10 +765,48 @@ Deno.serve(async (req) => {
       created_at: p.created_at,
     }));
 
+    // Birthday reward computation (Asia/Manila day/month/year):
+    //  - claimable = customer has a birthday set AND it falls in the
+    //    current PHT month AND we haven't already awarded for the
+    //    current PHT year (last_birthday_award_year != current year).
+    //  - bonus_points = the customer's CURRENT tier's birthday_bonus_points,
+    //    looked up from loyalty_tiers via loyalty_members.current_tier_id.
+    const phtFmt = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Manila",
+      month: "2-digit",
+      year: "numeric",
+    });
+    const phtParts = Object.fromEntries(
+      phtFmt.formatToParts(new Date()).map((p) => [p.type, p.value]),
+    );
+    const currentPhtMonth = parseInt(phtParts.month, 10);
+    const currentPhtYear = parseInt(phtParts.year, 10);
+    const birthdayMonth =
+      typeof customer.birthday === "string" && /^\d{4}-\d{2}-\d{2}$/.test(customer.birthday)
+        ? parseInt(customer.birthday.slice(5, 7), 10)
+        : null;
+    const currentTierIdForBirthday = (loyaltyMemberRow as any)?.current_tier_id ?? null;
+    const currentTierForBirthday = currentTierIdForBirthday
+      ? (loyaltyTiersRows ?? []).find((t: any) => t.id === currentTierIdForBirthday)
+      : null;
+    const birthdayBonusPoints = Number(
+      (currentTierForBirthday as any)?.birthday_bonus_points ?? 0,
+    );
+    const birthdayClaimable =
+      !!customer.birthday &&
+      birthdayMonth === currentPhtMonth &&
+      (customer.last_birthday_award_year ?? null) !== currentPhtYear;
+
     return new Response(JSON.stringify({
       customer_name: customer.full_name,
       customer_code: customer.customer_code,
       customer_id: customer.id,
+      birthday: customer.birthday ?? null,
+      birthday_locked_at: customer.birthday_locked_at ?? null,
+      birthday_reward: {
+        bonus_points: birthdayBonusPoints,
+        claimable: birthdayClaimable,
+      },
       profile: {
         full_name: customer.full_name,
         location: customer.location,
