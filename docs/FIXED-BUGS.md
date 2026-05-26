@@ -1916,3 +1916,52 @@ emitNotification for tier (L477–496), inserting tier_changed with notes "due t
 don't throw). Structure matches upgrade path (points_amount=0, tier_at_time=newTier,
 null foreign IDs, created_by_user_id=null). Deployed 2026-05-25 commit 0272587 via
 Lovable IDE. (Bug #156, 2026-05-25)
+
+### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
+
+  Account schedule/allocation repairs. All four accounts pass
+  audit_account all_pass post-repair.
+
+  - INV #18113: legacy overpayment-waterfall artifact. The old
+    lumping waterfall (replaced by the row-by-row atomic waterfall
+    in commit 9069ffd, 2026-04-23) had left surplus mis-stored.
+    Surplus re-split into durable payment_allocations. Census
+    confirmed no remaining affected population.
+
+  - INV #18336: payment cd26d53c was over-allocated to installment 1
+    (11,230 vs 10,000 base). Allocation capped to the base.
+
+  - INV #18445: total_amount / carry tangle — installment 4 base
+    corrupt, installment 2 overpaid, installment 3 carried a
+    waived-penalty allocation, plus a bogus 931 carry. Reconstructed
+    via allocation re-homing + base restore. Remaining unchanged at
+    29,207.
+
+  - INV #18693: carry-drop victim of Bug #117. total_due_amount
+    restored to 10,513.58 (base 9,208 + penalty 500 + carried
+    805.58) after the redeploy that made the carry-preservation fix
+    live. Durable.
+
+  (Originally recorded in CLAUDE.md commit 825512b 2026-05-21; lost in
+  the lean-core trim c80ff8c; re-homed here 2026-05-26 alongside the
+  new 2026-05-26 entry below, restoring the cross-reference in Bug
+  #117.)
+
+### TODAY'S DATA FIXES (2026-05-26)
+
+  INV #17325
+  Symptom: audit_account('17325') failed check 12 (sum of pending months) by ₱44.
+  Balance, total_paid, and all other checks were correct.
+  Root cause: legacy overpayment-waterfall artifact, pre-9069ffd (Apr 23). The Apr 6
+  2026 payment (submission #add4f194 / payment 266ec018) of ₱24,000 on Month 4
+  (due 23,956 = base 22,956 + penalty 1,000) was allocated as 1,000 penalty +
+  23,000 installment — the installment ran ₱44 over base, and the surplus was never
+  cascaded to Month 5. The view floors actual_remaining to 0, hiding the 44 from the
+  per-row sum while the canonical balance counted it correctly.
+  Fix (data only, no code): reallocated the ₱44 — M4 installment allocation
+  94bc33e7 reduced 23,000 → 22,956; new M5 installment allocation of 44 added under
+  the same payment 266ec018; M4 paid_amount → 23,956 (stays paid); M5 status →
+  partially_paid, paid_amount 44 (actual_remaining 23,590).
+  Result: audit_account('17325') all_pass. total_paid and remaining_balance
+  unchanged (reallocation within one payment).
+  NOT #116/#117 — no total_due reduction, no carried_amount involved.
