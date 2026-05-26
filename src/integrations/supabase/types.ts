@@ -3546,6 +3546,10 @@ export type Database = {
     }
     Functions: {
       _award_birthday_reward: { Args: { p_customer_id: string }; Returns: Json }
+      admin_correct_birthday: {
+        Args: { p_birthday: string; p_customer_id: string }
+        Returns: undefined
+      }
       admin_keep_allocation_override: {
         Args: { p_allocation_id: string; p_amount: number }
         Returns: undefined
@@ -3915,7 +3919,6 @@ export type Database = {
           old_total_paid: number
         }[]
       }
-      redeem_birthday_reward: { Args: never; Returns: Json }
       restore_lots_for_redemption: {
         Args: { p_redemption_id: string }
         Returns: number
@@ -3942,7 +3945,6 @@ export type Database = {
         }
         Returns: string
       }
-      set_customer_birthday: { Args: { p_birthday: string }; Returns: Json }
       validate_bulk_import: { Args: { p_rows: Json }; Returns: Json }
     }
     Enums: {
