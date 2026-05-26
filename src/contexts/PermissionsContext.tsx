@@ -68,6 +68,7 @@ const PAGE_PERMISSION_MAP: Record<string, PermissionKey> = {
   '/finance': 'view_finance',
   '/payment-submissions': 'view_submissions',
   '/admin-audit': 'view_audit_logs',
+  '/admin-activity': 'view_audit_logs',
   '/settings': 'admin_settings',
   '/admin/payment-vault': 'admin_settings',
   '/bulk-payment-import': 'view_finance',
