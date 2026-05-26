@@ -1,5 +1,40 @@
 ## SYSTEM STATUS (as of 2026-05-16)
 
+### Birthday Reward (shipped 2026-05-26)
+
+  Tier-scaled birthday bonus points, claimable once per calendar year during the
+  customer's birth month. Instant credit, no staff approval.
+
+  Data (customers): birthday (sentinel year 2000 → month+day only), birthday_locked_at
+    (set-once lock), birthday_admin_edits_used (correction counter), last_birthday_award_year
+    (once-per-year guard). Per-tier amount: loyalty_tiers.birthday_bonus_points
+    (Glimmer 500 / Radiant 1000 / Elite 1500 / Crown VIP 2000).
+
+  Set-once + lock: trigger prevent_birthday_change blocks any birthday change after
+    birthday_locked_at is set and blocks clearing the lock; the only permitted post-lock
+    change is an admin correction (birthday_admin_edits_used = OLD+1, cap 1).
+
+  Customer set (portal): customer-portal edge fn action 'set_birthday' (service-role
+    UPDATE + lock + audit_logs); ProfileScreen Month/Day picker → 2000-MM-DD.
+
+  Claim (portal): Home BirthdayRewardCard shows only when birthday_reward.claimable
+    (GET payload: birthday set AND birth month = current month [PHT] AND
+    last_birthday_award_year != current year). Redeem → customer-portal action
+    'redeem_birthday' → _award_birthday_reward(uuid) worker (atomic year-stamp guard,
+    race-safe) credits remaining_points + total_points_earned and writes a birthday_bonus
+    loyalty_transaction; the action then fires sheet sync (event_type 'birthday_bonus') +
+    emitNotification (category 'birthday'). Strict no-double-redeem per year — the guard is
+    independent of the birthday date, so correcting the date does NOT re-enable a same-year claim.
+
+  Admin/staff correction: admin_correct_birthday(p_customer_id, p_birthday) SECURITY DEFINER
+    RPC, gated has_role admin OR staff, cap 1 (trigger + RPC both enforce). UI in
+    loyalty-admin MemberDetailDrawer → Birthday section.
+
+  Grants/cleanup: _award_birthday_reward(uuid) granted to service_role (called by the
+    edge fn). The original auth.uid() wrappers set_customer_birthday(date) and
+    redeem_birthday_reward() were DROPPED 2026-05-26 — superseded by the edge-fn actions
+    for dual-auth (token + session) portal compatibility.
+
   Admin Audit page: SHIPPED ✅ (2026-05-26)
     - Standalone admin-only page at /admin-activity (sidebar entry
       "Admin Audit", icon ScrollText, adminOnly via menuItem; route

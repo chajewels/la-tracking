@@ -38,7 +38,13 @@
 
 GitHub Actions auto-deploys on every push to main:
 
-FRONTEND: Firebase Hosting — ALL pushes trigger rebuild and deploy
+FRONTEND: Firebase Hosting — every push to main triggers
+.github/workflows/firebase-deploy.yml. Builds with npm on Node 22
+(actions/setup-node@v5): `npm install` + `npm run build`, then
+`firebase deploy --only hosting`. The oven-sh/setup-bun + bun steps
+were REMOVED 2026-05-26 (codeload outage made that action
+undownloadable — see FIXED-BUGS #158); no third-party action
+dependency remains for the build step.
 
 SUPABASE EDGE FUNCTIONS — these auto-deploy when their files change.
 Source of truth: .github/workflows/supabase-functions-deploy.yml.

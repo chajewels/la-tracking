@@ -1919,6 +1919,16 @@ Lovable IDE. (Bug #156, 2026-05-25)
 
 157. Loyalty portal Sign Out button was wired to setTab('home') instead of signing out — now calls supabase.auth.signOut() (session) / clears token + navigates /portal/login (both modes). Fixed 2026-05-26.
 
+#158 — Frontend deploys stalled: oven-sh/setup-bun action undownloadable (2026-05-26)
+  Symptom: "Deploy to Firebase Hosting" runs failed at the setup-bun step in ~9s
+  ("An action could not be found at the URI .../oven-sh/setup-bun/tar.gz/<sha>", E440),
+  so frontend changes (incl. the birthday Save button) never went live. actions/checkout@v5
+  and actions/setup-node@v5 downloaded fine; only oven-sh/setup-bun (both @v2 and @v1) 404'd
+  from codeload — a GitHub-side outage of that action's archive, not a version problem.
+  Fix: removed the oven-sh/setup-bun step from firebase-deploy.yml and switched install+build
+  to npm (npm install / npm run build) on the already-present setup-node@v5 (Node 22) — no
+  third-party action dependency for the build. Commit e0520bf.
+
 ### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
 
   Account schedule/allocation repairs. All four accounts pass

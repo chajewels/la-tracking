@@ -84,7 +84,14 @@
     tier_changed   → wired (award-loyalty-points, tierUpgraded block)
     status_changed → reserved, NOT yet emitted (future workstream)
     admin_edited   → reserved, NOT yet emitted (future workstream)
-    birthday_bonus → reserved, NOT yet emitted (Phase 6.2)
+    birthday_bonus → EMITTED via the Birthday Reward feature (shipped 2026-05-26; see SYSTEM-STATUS → Birthday Reward)
+
+### Birthday Reward columns (added 2026-05-26)
+
+  Birthday Reward columns (customers): birthday (date; sentinel year 2000 = month+day only),
+    birthday_locked_at (timestamptz; set-once lock), birthday_admin_edits_used (smallint;
+    admin/staff correction counter, cap 1), last_birthday_award_year (smallint; once-per-year claim guard).
+  loyalty_tiers.birthday_bonus_points (integer): Glimmer 500 / Radiant 1000 / Elite 1500 / Crown VIP 2000.
 
 ### customers.email mixed-case storage (rule)
 
