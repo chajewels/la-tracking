@@ -142,6 +142,9 @@ interface PortalData {
     earned_at: string;
     expires_at: string | null;
   }>;
+  birthday?: string | null;
+  birthday_locked_at?: string | null;
+  birthday_reward?: { bonus_points: number; claimable: boolean } | null;
 }
 
 const tierStorageKey = (customerId: string) => `cha-jewels-last-seen-tier-${customerId}`;
