@@ -18,6 +18,9 @@ interface HomeScreenProps {
   setTab: (tab: LoyaltyTab) => void;
   unreadCount: number;
   latestUnread?: HomeHeaderUnreadPreview | null;
+  birthdayReward: { bonus_points: number; claimable: boolean } | null;
+  portalToken: string;
+  onClaimed: () => void;
 }
 
 export default function HomeScreen({
@@ -26,6 +29,9 @@ export default function HomeScreen({
   setTab,
   unreadCount,
   latestUnread,
+  birthdayReward,
+  portalToken,
+  onClaimed,
 }: HomeScreenProps) {
   return (
     <div className="px-5 pt-6 pb-4 space-y-5">
@@ -39,7 +45,11 @@ export default function HomeScreen({
       <VipProgressSection onExploreTiers={() => setTab('tiers')} />
       <PointsSnapshot />
       <QuickActions setTab={setTab} />
-      <BirthdayRewardCard setTab={setTab} />
+      <BirthdayRewardCard
+        birthdayReward={birthdayReward}
+        portalToken={portalToken}
+        onClaimed={onClaimed}
+      />
       <FeaturedBanner setTab={setTab} />
       <PromoBanners setTab={setTab} />
 
