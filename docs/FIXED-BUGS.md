@@ -1701,6 +1701,8 @@ Default PostgREST page limit silently truncated query results in src/hooks/use-s
   entry takes #117 — the next free flush-left number — per the
   no-duplicate-numbering rule.)
 
+  FRONTEND FOLLOW-UP (2026-05-26): #117 was originally closed on the edge side only. Two frontend writers replicated the same carry-drop by recomputing total_due_amount = base + penalty with no carried term, via direct .update() that bypasses the fixed edge functions: src/pages/Waivers.tsx (unwaive handler, Step 2) and src/components/penalties/ApplyPenaltyCapDialog.tsx (cap-waive loop). Both fixed to base + penalty + carried (and ApplyPenaltyCapDialog's schedItems select extended to include carried_amount). #117 now closed across edge AND frontend.
+
   118. Dashboard "Overdue & Due Soon" card read total_due_amount
   cache instead of canonical actual_remaining (fixed 2026-05-22,
   commit bb7e429). OverdueAlerts.tsx queried raw layaway_schedule

@@ -69,7 +69,7 @@ export default function ApplyPenaltyCapDialog({ accountId, invoiceNumber, curren
       const lastCappedMonth = planMonths - 1;
       const { data: schedItems } = await supabase
         .from('layaway_schedule')
-        .select('id, installment_number, penalty_amount, base_installment_amount, total_due_amount, paid_amount, status')
+        .select('id, installment_number, penalty_amount, base_installment_amount, total_due_amount, paid_amount, status, carried_amount')
         .eq('account_id', accountId)
         .lte('installment_number', lastCappedMonth)
         .order('installment_number', { ascending: true });
@@ -118,7 +118,7 @@ export default function ApplyPenaltyCapDialog({ accountId, invoiceNumber, curren
                   p => p.schedule_id === sched.id && !toWaive.includes(p.id)
                 );
                 const newPenalty = activePens.reduce((s, p) => s + Number(p.penalty_amount), 0);
-                const newTotal = Number(sched.base_installment_amount) + newPenalty;
+                const newTotal = Number(sched.base_installment_amount) + newPenalty + Number(sched.carried_amount ?? 0);
 
                 await supabase
                   .from('layaway_schedule')

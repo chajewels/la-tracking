@@ -784,6 +784,8 @@ Consistent labels across the Finance dashboard. The underlying metrics are uncha
   INVARIANT 5 ("never inflate total_due_amount") means never inflate WITHOUT a
   backing carried_amount/allocation — including the legitimate carried_amount is REQUIRED, not forbidden.
 
+  FRONTEND BINDING: This rule applies to ALL total_due_amount writers, including direct frontend .update() calls (e.g. Waivers.tsx, ApplyPenaltyCapDialog.tsx) — not only edge functions. Any recompute of an EXISTING schedule row's total_due_amount MUST be base_installment_amount + penalty + carried_amount. The ONLY exemption is inserting a brand-new installment row (no carry exists yet) — e.g. EditAccountDialog "Add new installments", where total_due = base is correct.
+
 
 ## CUSTOMER CODE STANDARD (added 2026-04-19)
 

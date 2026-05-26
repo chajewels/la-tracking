@@ -139,14 +139,15 @@ export default function Waivers({ embedded = false }: { embedded?: boolean } = {
 
       const { data: scheduleRow } = await supabase
         .from('layaway_schedule')
-        .select('base_installment_amount')
+        .select('base_installment_amount, carried_amount')
         .eq('id', scheduleId)
         .single();
       const base = Number(scheduleRow?.base_installment_amount ?? 0);
+      const carried = Number(scheduleRow?.carried_amount ?? 0);
 
       const { error: e2 } = await supabase
         .from('layaway_schedule')
-        .update({ penalty_amount: totalPenalty, total_due_amount: base + totalPenalty })
+        .update({ penalty_amount: totalPenalty, total_due_amount: base + totalPenalty + carried })
         .eq('id', scheduleId);
       if (e2) { toast.error('Step 2 failed: ' + e2.message); setUnwaiving(false); return; }
 
