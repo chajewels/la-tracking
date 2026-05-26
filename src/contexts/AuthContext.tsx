@@ -1,11 +1,10 @@
 import { createContext, useContext, useEffect, useState, useRef, useCallback, ReactNode } from 'react';
-import { useLocation } from 'react-router-dom';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 
 type AppRole = 'admin' | 'staff' | 'finance' | 'csr';
 
-// Idle-timeout constants (admin/staff only — customer portal is exempt)
+// Idle-timeout constants (applies to both the internal app and the customer portal)
 const IDLE_TIMEOUT_MS = 2 * 60 * 60 * 1000;   // 2 hours
 const WARNING_BEFORE_MS = 5 * 60 * 1000;      // 5 minutes
 const ACTIVITY_EVENTS = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'] as const;
@@ -148,8 +147,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   // ── Idle-timeout (2h inactivity → auto sign-out, 5min warning modal) ──
-  const location = useLocation();
-  const isPortalRoute = location.pathname.startsWith('/portal');
   const [showIdleWarning, setShowIdleWarning] = useState(false);
   const logoutTimerRef = useRef<number | null>(null);
   const warningTimerRef = useRef<number | null>(null);
@@ -178,8 +175,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [handleIdleLogout]);
 
   useEffect(() => {
-    // Skip on customer portal routes — only apply to admin/staff
-    if (isPortalRoute) return;
     // Only arm timers while a session exists
     if (!session) return;
 
@@ -204,12 +199,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       setShowIdleWarning(false);
     };
-  }, [session, isPortalRoute, resetIdleTimer]);
+  }, [session, resetIdleTimer]);
 
   return (
     <AuthContext.Provider value={{ session, user, roles, profile, loading, signOut }}>
       {children}
-      {showIdleWarning && !isPortalRoute && session && (
+      {showIdleWarning && session && (
         <div
           onClick={resetIdleTimer}
           style={{

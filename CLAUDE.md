@@ -706,6 +706,12 @@ Consistent labels across the Finance dashboard. The underlying metrics are uncha
   (key present AND value true), so self-signup customers (Phase B) never
   get a profile and never leak into team lists (Bug #151).
 
+  Session idle-timeout (2026-05-26): 2h inactivity auto sign-out with a
+  5-minute warning modal, enforced in AuthContext for ALL authenticated
+  sessions — both the internal app and the customer portal. Resets on
+  mouse/key/click/scroll/touch. Frontend-enforced (Supabase Auth
+  otherwise keeps sessions alive via token refresh).
+
 ## VIEW FIELD MAPPING
 
   schedule_with_actuals vs layaway_schedule (write-only cache):
