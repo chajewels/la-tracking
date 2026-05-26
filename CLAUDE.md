@@ -995,6 +995,11 @@ Consistent labels across the Finance dashboard. The underlying metrics are uncha
   Elite:     2x
   Crown VIP: 3x
 
+### new_order_discount net-spend rule (2026-05-26):
+  process-loyalty-redemption reduces the target order's loyalty_jpy_amount by value_applied_jpy on approval (floored at 0) and restores it on void. award-loyalty-points is unchanged — it reads the already-net loyalty_jpy_amount, so both points and cumulative_spend_jpy accumulate on net of the discount, not gross. The cancel action (pending-only) never touches loyalty_jpy_amount.
+
+
+
 ## LOYALTY SYSTEM RULES (locked 2026-05-16) — NON-NEGOTIABLE
 
   1. Portal signup creates a customers row + auto-enrolls.
