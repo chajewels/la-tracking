@@ -1303,3 +1303,15 @@ Forbidden:
 - Access is inherited from the /admin-audit route gate (role-permissions.ts -> ['admin']); no separate guard
 - Invoice search resolves to layaway_accounts/cash_orders id and filters entity_id (catches account-level rows; payment/penalty rows keyed by their own uuid are not caught — a per-account audit panel is deferred)
 
+
+## LOYALTY new_order_discount -> DOWNPAYMENT (added 2026-05-26)
+
+- A new_order_discount redemption on a LAYAWAY account is applied to the downpayment, NOT to installment schedule rows.
+
+- process-loyalty-redemption approve handler (layaway branch): the synthetic payment is inserted with reference_number 'LOYALTY-{id}', payment_method 'loyalty_redemption', and remarks containing "downpayment" so DP detection (AccountDetail, fix-account-totals, restore-payment) classifies it as a downpayment payment. NO payment_allocations / schedule waterfall is created (downpayment payments do not allocate to schedule rows).
+
+- Account totals still update (total_paid += amount, remaining -= amount) independent of allocations.
+
+- Void path unchanged: matches reference_number 'LOYALTY-%'; its allocation-reversal loop is a no-op with no allocations; totals revert off amount_paid.
+
+- Cash (cash_order_id) branch is unchanged.

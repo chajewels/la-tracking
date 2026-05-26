@@ -3785,6 +3785,7 @@ export type Database = {
           currency: string
         }[]
       }
+      get_audit_filter_options: { Args: never; Returns: Json }
       get_bulk_setup_invite_candidates: {
         Args: {
           p_count_only?: boolean
