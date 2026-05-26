@@ -226,9 +226,10 @@ interface MemberViewProps {
   data: PortalData;
   member: LoyaltyMember;
   portalToken: string;
+  onSignOut: () => void;
 }
 
-function MemberView({ data, member, portalToken }: MemberViewProps) {
+function MemberView({ data, member, portalToken, onSignOut }: MemberViewProps) {
   const queryClient = useQueryClient();
   const [isRedemptionOpen, setIsRedemptionOpen] = useState(false);
   // 'tiers' is a hidden tab — reached via Home → QuickActions.
@@ -443,6 +444,7 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
             birthday={data.birthday ?? null}
             birthdayLocked={!!data.birthday_locked_at}
             onUpdated={() => queryClient.invalidateQueries({ queryKey: ['portal'] })}
+            onSignOut={onSignOut}
           />
         )}
         {tab === 'tiers' && <TiersScreen onBack={() => setTab('home')} />}
@@ -538,6 +540,21 @@ export default function LoyaltyPortal() {
     return () => { mounted = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  const handleSignOut = async () => {
+    try {
+      if (authMode === 'session') {
+        await supabase.auth.signOut();
+      }
+      // token-auth has no Supabase session; the token lives in the URL and is
+      // dropped by the replace-navigate below. Also clear any persisted portal
+      // session_id/token the bootstrap reads from storage, if present.
+    } catch {
+      // ignore and proceed to login regardless
+    } finally {
+      navigate('/portal/login', { replace: true });
+    }
+  };
 
   const portalQuery = useQuery({
     queryKey: ['portal', authMode, accessToken, token],
@@ -635,7 +652,7 @@ export default function LoyaltyPortal() {
   return (
     <FullScreenWrap>
       <TopBar authMode={authMode} token={token} />
-      <MemberView data={data} member={member} portalToken={token} />
+      <MemberView data={data} member={member} portalToken={token} onSignOut={handleSignOut} />
     </FullScreenWrap>
   );
 }

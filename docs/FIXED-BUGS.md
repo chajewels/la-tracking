@@ -1917,6 +1917,8 @@ don't throw). Structure matches upgrade path (points_amount=0, tier_at_time=newT
 null foreign IDs, created_by_user_id=null). Deployed 2026-05-25 commit 0272587 via
 Lovable IDE. (Bug #156, 2026-05-25)
 
+157. Loyalty portal Sign Out button was wired to setTab('home') instead of signing out — now calls supabase.auth.signOut() (session) / clears token + navigates /portal/login (both modes). Fixed 2026-05-26.
+
 ### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
 
   Account schedule/allocation repairs. All four accounts pass

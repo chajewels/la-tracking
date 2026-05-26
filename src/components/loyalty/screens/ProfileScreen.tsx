@@ -16,6 +16,7 @@ interface ProfileScreenProps {
   birthday: string | null;
   birthdayLocked: boolean;
   onUpdated: () => void;
+  onSignOut: () => void;
 }
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -31,7 +32,7 @@ function formatBirthday(dateStr: string | null): string {
   return `${MONTHS[mi]} ${d}`;
 }
 
-export default function ProfileScreen({ setTab, portalToken, birthday, birthdayLocked, onUpdated }: ProfileScreenProps) {
+export default function ProfileScreen({ setTab, portalToken, birthday, birthdayLocked, onUpdated, onSignOut }: ProfileScreenProps) {
   const { member, tiers } = useLoyaltyData();
   const [showFaq, setShowFaq] = useState(false);
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
@@ -275,7 +276,7 @@ export default function ProfileScreen({ setTab, portalToken, birthday, birthdayL
 
       {/* Sign Out */}
       <button
-        onClick={() => setTab('home')}
+        onClick={onSignOut}
         className="w-full py-3 bg-card rounded-xl shadow-card border-gold-accent flex items-center justify-center gap-2"
       >
         <LogOut size={14} className="text-destructive" />
