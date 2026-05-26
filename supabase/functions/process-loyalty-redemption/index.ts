@@ -1332,6 +1332,26 @@ Deno.serve(async (req) => {
           const refRef = `LOYALTY-${redemption.id}`;
           const truncatedVoidReason = trimmedReason.slice(0, 250);
           const voidNotes = `Loyalty redemption voided: ${truncatedVoidReason}`;
+          // Net-spend reversal (owner 2026-05-26): voiding a new_order_discount restores the
+          // order's gross loyalty eligibility. Self-fetches value_applied_jpy (the void Step-1
+          // select omits it). Runs once (void status guard WHERE status='confirmed'). Non-blocking.
+          {
+            const { data: redJpyRow } = await supabase
+              .from("loyalty_redemptions").select("value_applied_jpy").eq("id", redemption.id).maybeSingle();
+            const restoreJpy = Number(redJpyRow?.value_applied_jpy ?? 0);
+            if (restoreJpy > 0) {
+              const ljTable = redemption.account_id ? "layaway_accounts" : "cash_orders";
+              const ljId = redemption.account_id ?? redemption.cash_order_id;
+              const { data: ljOrd } = await supabase
+                .from(ljTable).select("loyalty_jpy_amount").eq("id", ljId).maybeSingle();
+              const ljNext = Number(ljOrd?.loyalty_jpy_amount ?? 0) + restoreJpy;
+              const { error: ljErr } = await supabase
+                .from(ljTable).update({ loyalty_jpy_amount: ljNext }).eq("id", ljId);
+              if (ljErr) console.warn(
+                "[process-loyalty-redemption] loyalty_jpy_amount net-restore failed (manual reconcile):",
+                { redemption_id: redemption.id, ljTable, ljId, err: ljErr });
+            }
+          }
 
           if (redemption.account_id) {
             const { data: existingPay } = await supabase
