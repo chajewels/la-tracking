@@ -436,7 +436,15 @@ function MemberView({ data, member, portalToken }: MemberViewProps) {
             onSetTab={setTab}
           />
         )}
-        {tab === 'profile' && <ProfileScreen setTab={setTab} />}
+        {tab === 'profile' && (
+          <ProfileScreen
+            setTab={setTab}
+            portalToken={portalToken}
+            birthday={data.birthday ?? null}
+            birthdayLocked={!!data.birthday_locked_at}
+            onUpdated={() => queryClient.invalidateQueries({ queryKey: ['portal'] })}
+          />
+        )}
         {tab === 'tiers' && <TiersScreen onBack={() => setTab('home')} />}
       </div>
 

@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { ChevronRight, LogOut, HelpCircle, Shield, Bell, FileText, MessageCircle, Crown, Calendar, X } from "lucide-react";
 import { toast } from "sonner";
 import { useLoyaltyData } from "@/components/loyalty/loyaltyData";
 import ProfileMemberCard from "@/components/loyalty/ProfileMemberCard";
-import { supabase } from "@/integrations/supabase/client";
+import { getPortalAuthHeaders } from "@/lib/portal-auth";
 // TODO: wire to Supabase
 import { FAQS } from "@/components/loyalty/staticFallback";
 import chaJewelsLogo from "@/assets/cha-jewels-logo.jpeg";
@@ -12,6 +12,10 @@ import type { LoyaltyTab } from "@/components/loyalty/LoyaltyBottomNav";
 
 interface ProfileScreenProps {
   setTab: (tab: LoyaltyTab) => void;
+  portalToken: string;
+  birthday: string | null;
+  birthdayLocked: boolean;
+  onUpdated: () => void;
 }
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -27,45 +31,23 @@ function formatBirthday(dateStr: string | null): string {
   return `${MONTHS[mi]} ${d}`;
 }
 
-export default function ProfileScreen({ setTab }: ProfileScreenProps) {
+export default function ProfileScreen({ setTab, portalToken, birthday, birthdayLocked, onUpdated }: ProfileScreenProps) {
   const { member, tiers } = useLoyaltyData();
   const [showFaq, setShowFaq] = useState(false);
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
   const [showTerms, setShowTerms] = useState(false);
-  const [savedBirthday, setSavedBirthday] = useState<string | null>(null);
-  const [locked, setLocked] = useState(false);
   const [editingBirthday, setEditingBirthday] = useState(false);
   const [monthInput, setMonthInput] = useState<string>('');
   const [dayInput, setDayInput] = useState<string>('');
   const [savingBirthday, setSavingBirthday] = useState(false);
-
-  useEffect(() => {
-    const customerId = member?.customer_id;
-    if (!customerId) return;
-    let cancelled = false;
-    (async () => {
-      const { data, error } = await supabase
-        .from('customers')
-        .select('birthday, birthday_locked_at')
-        .eq('id', customerId)
-        .single();
-      if (cancelled) return;
-      if (error) {
-        console.warn('[ProfileScreen] failed to load birthday:', error);
-        return;
-      }
-      setSavedBirthday((data?.birthday as string | null) ?? null);
-      setLocked(Boolean(data?.birthday_locked_at));
-    })();
-    return () => { cancelled = true; };
-  }, [member?.customer_id]);
 
   if (!member || !tiers || tiers.length === 0) return null;
 
   const currentTier = tiers.find((t) => t.name === member.current_tier) ?? tiers[0]!;
   // TODO: wire phone to Supabase (no store field yet)
   const phone: string | null = null;
-  const formattedBirthday = formatBirthday(savedBirthday);
+  const locked = birthdayLocked || birthday != null;
+  const formattedBirthday = formatBirthday(birthday);
 
   const handleSaveBirthday = async () => {
     if (!monthInput || !dayInput) {
@@ -76,16 +58,39 @@ export default function ProfileScreen({ setTab }: ProfileScreenProps) {
     const dd = dayInput.padStart(2, '0');
     const p_birthday = `2000-${mm}-${dd}`;
     setSavingBirthday(true);
-    const { error } = await supabase.rpc('set_customer_birthday', { p_birthday });
-    setSavingBirthday(false);
-    if (error) {
-      toast.error(error.message || 'Failed to save birthday');
-      return;
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      // Dual-auth (mirrors RedemptionForm): token-auth → token in body,
+      // no Authorization; session-auth (email/password) → Bearer <session JWT>
+      // via getPortalAuthHeaders. resolvePortalAuth Path 0/2 handles both.
+      const authHeaders = await getPortalAuthHeaders(portalToken);
+      const res = await fetch(`${supabaseUrl}/functions/v1/customer-portal`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: supabaseAnonKey,
+          ...authHeaders,
+        },
+        body: JSON.stringify({
+          token: portalToken || undefined,
+          action: 'set_birthday',
+          p_birthday,
+        }),
+      });
+      const payload = await res.json().catch(() => ({} as any));
+      if (!res.ok || payload?.error) {
+        toast.error(payload?.error || `Failed to save birthday (HTTP ${res.status})`);
+        return;
+      }
+      toast.success('Birthday saved');
+      setEditingBirthday(false);
+      onUpdated();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to save birthday');
+    } finally {
+      setSavingBirthday(false);
     }
-    toast.success('Birthday saved');
-    setSavedBirthday(p_birthday);
-    setLocked(true);
-    setEditingBirthday(false);
   };
 
   return (
