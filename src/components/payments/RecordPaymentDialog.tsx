@@ -506,7 +506,11 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => setPaymentType('installment')}
+                    onClick={() => {
+                      setPaymentType('installment');
+                      setPreview(null);
+                      setStep('input');
+                    }}
                     className={`flex-1 px-3 py-2 rounded-md text-xs font-medium border transition-colors ${
                       paymentType === 'installment'
                         ? 'bg-primary/15 border-primary/30 text-primary'
@@ -520,6 +524,8 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
                     onClick={() => {
                       setPaymentType('downpayment');
                       if (!amount) setAmount(String(downpaymentRemaining));
+                      setPreview(null);
+                      setStep('input');
                     }}
                     className={`flex-1 px-3 py-2 rounded-md text-xs font-medium border transition-colors ${
                       paymentType === 'downpayment'
