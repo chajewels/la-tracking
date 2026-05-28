@@ -1,5 +1,9 @@
 ## Recent Updates
 
+  2026-05-28 — record-payment rate limit: downpayment submissions now
+  5 per account per 24h (counted on downpayment submissions alone);
+  installment/other submissions unchanged at 3. Commit ec8843f.
+
   2026-05-25 — customer-statement feature fully deleted (commit 7f38d37,
   FIXED-BUGS #153): src/pages/CustomerStatement.tsx + entire
   supabase/functions/customer-statement/ directory removed. /statement

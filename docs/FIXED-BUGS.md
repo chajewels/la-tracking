@@ -1929,6 +1929,13 @@ Lovable IDE. (Bug #156, 2026-05-25)
   to npm (npm install / npm run build) on the already-present setup-node@v5 (Node 22) — no
   third-party action dependency for the build. Commit e0520bf.
 
+#159 — Record Payment dialog showed a stale preview after switching payment mode (2026-05-28)
+  After toggling Installment <-> Downpayment, the previously computed preview was not cleared,
+  so a downpayment could display an installment month breakdown (e.g. months 4/5/6) calculated
+  in the prior mode. Fixed by clearing the preview and returning to the input step on mode
+  toggle, so the breakdown always matches the selected mode. No data impact — payments saved
+  with correct is_downpayment and zero installment allocations. Commit 390f7e7.
+
 ### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
 
   Account schedule/allocation repairs. All four accounts pass
