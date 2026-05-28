@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   Receipt,
   ChevronLeft,
@@ -39,6 +38,7 @@ import {
   type LoyaltyTransactionViewKind,
 } from '@/hooks/loyalty-admin/useLoyaltyTransactions';
 import TransactionsDrawer from '@/components/loyalty-admin/TransactionsDrawer';
+import MemberDetailDrawer from '@/components/loyalty-admin/MemberDetailDrawer';
 
 type RangeKey = 'all' | 'last_7' | 'last_30' | 'last_90';
 
@@ -168,7 +168,6 @@ function TransactionsTableView({
 }: {
   viewKind: LoyaltyTransactionViewKind;
 }) {
-  const navigate = useNavigate();
   const typeOptions =
     viewKind === 'member' ? MEMBER_TYPE_OPTIONS : TRANSACTION_TYPE_OPTIONS;
   const [transactionType, setTransactionType] =
@@ -178,6 +177,7 @@ function TransactionsTableView({
   const [memberSearch, setMemberSearch] = useState('');
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<LoyaltyTransactionRow | null>(null);
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
 
   // Debounce member search
   useEffect(() => {
@@ -340,7 +340,7 @@ function TransactionsTableView({
                         className="text-xs text-primary hover:underline whitespace-nowrap"
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigate('/loyalty?tab=members');
+                          setSelectedMemberId(r.member_id);
                         }}
                       >
                         {r.customer_code ?? '—'}
@@ -444,6 +444,10 @@ function TransactionsTableView({
       <TransactionsDrawer
         transaction={selected}
         onClose={() => setSelected(null)}
+      />
+      <MemberDetailDrawer
+        memberId={selectedMemberId}
+        onClose={() => setSelectedMemberId(null)}
       />
     </div>
   );
