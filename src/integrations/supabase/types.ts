@@ -3548,7 +3548,7 @@ export type Database = {
       _award_birthday_reward: { Args: { p_customer_id: string }; Returns: Json }
       admin_correct_birthday: {
         Args: { p_birthday: string; p_customer_id: string }
-        Returns: undefined
+        Returns: Json
       }
       admin_keep_allocation_override: {
         Args: { p_allocation_id: string; p_amount: number }
