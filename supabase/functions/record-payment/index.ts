@@ -44,18 +44,31 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ── Rate limit: max 3 submissions per account per 24 hours ──
-    const { count: recentCount } = await supabase
+    // ── Rate limit per account per 24h ──
+    //    downpayment: max 5 (counted on downpayments alone)
+    //    installment/other: max 3 (unchanged)
+    const isDpSubmission =
+      submission_type === "downpayment" || is_downpayment === true;
+
+    const rlCap = isDpSubmission ? 5 : 3;
+
+    let rlQuery = supabase
       .from("payment_submissions")
       .select("*", { count: "exact", head: true })
       .eq("account_id", account_id)
       .neq("status", "rejected")
       .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
 
-    if ((recentCount ?? 0) >= 3) {
+    if (isDpSubmission) {
+      rlQuery = rlQuery.eq("submission_type", "downpayment");
+    }
+
+    const { count: recentCount } = await rlQuery;
+
+    if ((recentCount ?? 0) >= rlCap) {
       return new Response(
         JSON.stringify({
-          error: "Too many submissions. Maximum 3 payment submissions per account per 24 hours. Please wait before submitting again.",
+          error: `Too many submissions. Maximum ${rlCap} ${isDpSubmission ? "downpayment " : ""}payment submissions per account per 24 hours. Please wait before submitting again.`,
         }),
         { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
