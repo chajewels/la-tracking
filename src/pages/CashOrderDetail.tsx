@@ -261,6 +261,19 @@ export default function CashOrderDetail() {
   const { data: order, isLoading: orderLoading } = useCashOrderDetail(id);
   const { data: payments, isLoading: paymentsLoading } = useCashPayments(id);
   const { data: submissions } = useCashSubmissions(id);
+  const { data: submissionProofs } = useCashSubmissionProofs(id);
+  const proofByDate = useMemo(() => {
+    const map = new Map<string, { url: string; sender: string }>();
+    (submissionProofs || []).forEach((s) => {
+      if (s.proof_url && s.payment_date && !map.has(s.payment_date)) {
+        map.set(s.payment_date, {
+          url: s.proof_url,
+          sender: s.sender_name || 'Unknown',
+        });
+      }
+    });
+    return map;
+  }, [submissionProofs]);
   const { data: notes } = useCashOrderNotes(id);
   const { data: cancelledByProfile } = useProfileName(
     order?.status === 'cancelled' ? order?.cancelled_by_user_id : undefined,
