@@ -737,6 +737,20 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                           <Badge variant="outline" className={`text-[10px] gap-1 shrink-0 ${cfg.color}`}>
                             {cfg.icon} {cfg.label}
                           </Badge>
+                          {dupMatch && (
+                            <span
+                              title={`Matches submission by ${dupMatch.sender_name ?? 'unknown'}, submitted ${dupMinutesAgo} minute${dupMinutesAgo === 1 ? '' : 's'} ago`}
+                              className="rounded-full px-2 py-0.5 text-xs ml-2 shrink-0"
+                              style={{
+                                background: 'rgba(245,158,11,0.18)',
+                                color: '#B45309',
+                                border: '1px solid rgba(245,158,11,0.35)',
+                              }}
+                            >
+                              🔁 Possible duplicate
+                            </span>
+                          )}
+
                         </div>
 
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
