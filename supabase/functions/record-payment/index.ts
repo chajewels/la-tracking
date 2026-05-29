@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { account_id, amount_paid, date_paid, payment_method, reference_number, remarks, preview_only, is_downpayment, carry_over = false, submission_type } = body;
+    const { account_id, amount_paid, date_paid, payment_method, reference_number, remarks, preview_only, is_downpayment, carry_over = false, submission_type, force } = body;
 
     if (!account_id || !amount_paid || amount_paid <= 0) {
       return new Response(JSON.stringify({ error: "Invalid payment data" }), {
@@ -105,7 +105,45 @@ Deno.serve(async (req) => {
 
     // ── Staff/CSR: redirect to payment_submissions instead of direct payment ──
     if (!canConfirm && !preview_only) {
+      // ── Duplicate-submission soft block (bypass with force=true) ──
+      if (!force) {
+        try {
+          const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+          const { data: dupRows } = await supabase
+            .from("payment_submissions")
+            .select("id, created_at, sender_name, reference_number, submitted_amount")
+            .eq("account_id", account_id)
+            .in("status", ["submitted", "under_review"])
+            .gte("created_at", thirtyMinAgo)
+            .order("created_at", { ascending: false })
+            .limit(5);
+          const dup = (dupRows || []).find(
+            (r: any) => Math.abs(Number(r.submitted_amount) - Number(amount_paid)) < 1,
+          );
+          if (dup) {
+            const minutesAgo = Math.max(
+              1,
+              Math.round((Date.now() - new Date(dup.created_at).getTime()) / 60000),
+            );
+            return new Response(
+              JSON.stringify({
+                error: "duplicate_submission_detected",
+                message: `A ₱${Number(amount_paid).toLocaleString()} submission for this account is already pending review (submitted ${minutesAgo} minute${minutesAgo === 1 ? "" : "s"} ago by ${dup.sender_name ?? "unknown"}). If this is a different payment, add a distinguishing reference number or note, then retry with force=true.`,
+                existing_submission_id: dup.id,
+                existing_submitted_at: dup.created_at,
+                existing_sender_name: dup.sender_name,
+                existing_reference_number: dup.reference_number,
+              }),
+              { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
+        } catch (dupErr) {
+          console.warn("[record-payment] duplicate-check query failed (non-blocking):", dupErr);
+        }
+      }
+
       const { data: submission, error: subErr } = await supabase
+        .from("payment_submissions")
         .from("payment_submissions")
         .insert({
           account_id,

@@ -678,6 +678,20 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
               const isPending = ['submitted', 'under_review'].includes(sub.status);
               const isSplit = sub.submission_type === 'split';
               const allocs = getAllocsForSubmission(sub.id);
+              const dupMatch = isPending ? (submissions || [])
+                .filter(o =>
+                  o.id !== sub.id &&
+                  ['submitted', 'under_review'].includes(o.status) &&
+                  Math.abs(Number(o.submitted_amount) - Number(sub.submitted_amount)) < 1 &&
+                  ((sub.account_id && o.account_id === sub.account_id) ||
+                   (sub.cash_order_id && o.cash_order_id === sub.cash_order_id)),
+                )
+                .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
+                : null;
+              const dupMinutesAgo = dupMatch
+                ? Math.max(1, Math.round((Date.now() - new Date(dupMatch.created_at).getTime()) / 60000))
+                : 0;
+
 
               return (
                 <Card key={sub.id} className={`shadow-sm ${isPending ? 'ring-1 ring-primary/10' : ''}`}>
@@ -723,6 +737,20 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                           <Badge variant="outline" className={`text-[10px] gap-1 shrink-0 ${cfg.color}`}>
                             {cfg.icon} {cfg.label}
                           </Badge>
+                          {dupMatch && (
+                            <span
+                              title={`Matches submission by ${dupMatch.sender_name ?? 'unknown'}, submitted ${dupMinutesAgo} minute${dupMinutesAgo === 1 ? '' : 's'} ago`}
+                              className="rounded-full px-2 py-0.5 text-xs ml-2 shrink-0"
+                              style={{
+                                background: 'rgba(245,158,11,0.18)',
+                                color: '#B45309',
+                                border: '1px solid rgba(245,158,11,0.35)',
+                              }}
+                            >
+                              🔁 Possible duplicate
+                            </span>
+                          )}
+
                         </div>
 
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
