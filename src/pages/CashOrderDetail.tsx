@@ -157,6 +157,25 @@ function useCashSubmissions(orderId: string | undefined) {
   });
 }
 
+function useCashSubmissionProofs(orderId: string | undefined) {
+  return useQuery({
+    queryKey: ['cash-submission-proofs', orderId],
+    enabled: !!orderId,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('payment_submissions')
+        .select('proof_url, payment_date, sender_name')
+        .eq('cash_order_id', orderId)
+        .eq('status', 'confirmed')
+        .not('proof_url', 'is', null)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data || []) as Array<{ proof_url: string; payment_date: string; sender_name: string | null }>;
+    },
+  });
+}
+
 function useCashOrderNotes(orderId: string | undefined) {
   return useQuery({
     queryKey: ['cash-order-notes', orderId],
