@@ -74,11 +74,31 @@ Deno.serve(async (req) => {
 
     const token = await getServiceAccountAccessToken();
 
-    // 2. Read both tabs, record data rows
+    // 2. Convert-copy input into a NEW native Google Sheet
+    const copyRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}/copy`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "tracking-temp",
+          mimeType: "application/vnd.google-apps.spreadsheet",
+        }),
+      },
+    );
+    if (!copyRes.ok) {
+      throw new Error(`Drive copy failed (${copyRes.status}): ${await copyRes.text()}`);
+    }
+    const newId = (await copyRes.json()).id as string;
+
+    // 3. Read both tabs, record data rows
     type Rec = { tab: string; invoice: string; sheetRow: number };
     const records: Rec[] = [];
     for (const tab of ["Overseas", "Japan"]) {
-      const rows = await readTab(token, fileId, tab);
+      const rows = await readTab(token, newId, tab);
       for (let i = 0; i < rows.length; i++) {
         const b = rows[i]?.[1];
         if (b && /^\d{4,6}$/.test(String(b).trim())) {
@@ -87,14 +107,19 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (records.length === 0) {
-      return new Response(JSON.stringify({ ok: true, invoices: 0, cells: 0, movedTo: null }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // 4. RPC
+    const invoices = Array.from(new Set(records.map((r) => r.invoice)));
+    if (invoices.length === 0) {
+      await fetch(`https://www.googleapis.com/drive/v3/files/${newId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
       });
+      return new Response(
+        JSON.stringify({ ok: true, invoices: 0, note: "no invoice rows in column B of either tab" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
-    // 3. Call RPC
-    const invoices = Array.from(new Set(records.map((r) => r.invoice)));
     const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_tracking_for_invoices`, {
       method: "POST",
       headers: {
@@ -114,12 +139,17 @@ Deno.serve(async (req) => {
     }> = await rpcRes.json();
 
     if (tracking.length === 0) {
-      return new Response(JSON.stringify({ ok: true, invoices: invoices.length, cells: 0, movedTo: null }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      await fetch(`https://www.googleapis.com/drive/v3/files/${newId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
       });
+      return new Response(
+        JSON.stringify({ ok: true, invoices: 0, note: "no invoice rows in column B of either tab" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
-    // 4. Earliest order_date → cohort
+    // 5. Earliest order_date → cohort
     let earliest: Date | null = null;
     for (const t of tracking) {
       if (!t.order_date) continue;
@@ -132,13 +162,12 @@ Deno.serve(async (req) => {
     const cohortYear = earliest.getUTCFullYear();
     const cohortMonth = earliest.getUTCMonth() + 1;
 
-    // Map invoice -> month_paid_jpy
     const byInvoice = new Map<string, Record<string, number>>();
     for (const t of tracking) {
       if (t.month_paid_jpy) byInvoice.set(t.invoice_number, t.month_paid_jpy);
     }
 
-    // 5. Build ranges
+    // 6. Build ranges (G..N only)
     const data: Array<{ range: string; values: (string | number)[][] }> = [];
     for (const rec of records) {
       const mp = byInvoice.get(rec.invoice);
@@ -158,10 +187,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 6. batchUpdate
     if (data.length > 0) {
       const buRes = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${fileId}/values:batchUpdate`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${newId}/values:batchUpdate`,
         {
           method: "POST",
           headers: {
@@ -176,36 +204,24 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 7. Move + rename
+    // 7. Place into year/month folder
     const monthName = MONTH_NAMES[cohortMonth - 1];
     const yearId = await findOrCreateFolder(token, TRACKER_ROOT_FOLDER_ID, String(cohortYear));
     const monthId = await findOrCreateFolder(token, yearId, monthName);
 
-    const metaRes = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${fileId}?fields=parents`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-    if (!metaRes.ok) {
-      throw new Error(`Drive get parents failed (${metaRes.status}): ${await metaRes.text()}`);
-    }
-    const meta = await metaRes.json();
-    const currentParent = (meta.parents || [])[0];
-
-    if (currentParent && currentParent !== monthId) {
-      const patchRes = await fetch(
-        `https://www.googleapis.com/drive/v3/files/${fileId}?addParents=${monthId}&removeParents=${currentParent}&fields=id`,
-        {
-          method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ name: monthName }),
+    const patchRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${newId}?addParents=${monthId}&removeParents=root&fields=id`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
         },
-      );
-      if (!patchRes.ok) {
-        throw new Error(`Drive move failed (${patchRes.status}): ${await patchRes.text()}`);
-      }
+        body: JSON.stringify({ name: monthName }),
+      },
+    );
+    if (!patchRes.ok) {
+      throw new Error(`Drive move failed (${patchRes.status}): ${await patchRes.text()}`);
     }
 
     return new Response(
@@ -213,6 +229,7 @@ Deno.serve(async (req) => {
         ok: true,
         invoices: invoices.length,
         cells: data.length,
+        sheetId: newId,
         movedTo: monthId,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
