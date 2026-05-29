@@ -168,6 +168,26 @@ Deno.serve(async (req) => {
       status: "pending",
     });
 
+    // Auto-approve any pending extension request for this account
+    try {
+      const { error: extReqErr } = await supabase
+        .from('extension_requests')
+        .update({
+          status: 'approved',
+          reviewed_at: now,
+          reviewed_by: staffUserId,
+          reviewer_notes: '[Auto-approved: account reactivated to extension_active via reactivate-account edge function]'
+        })
+        .eq('account_id', account_id)
+        .eq('status', 'pending');
+
+      if (extReqErr) {
+        console.warn(`[reactivate-account] extension_requests auto-approve failed for ${account.invoice_number} (non-blocking):`, extReqErr);
+      }
+    } catch (e) {
+      console.warn(`[reactivate-account] extension_requests block threw for ${account.invoice_number} (non-blocking):`, e);
+    }
+
     // Fetch customer name for audit
     const { data: cust } = await supabase
       .from("customers")
