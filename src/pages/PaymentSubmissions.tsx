@@ -678,6 +678,20 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
               const isPending = ['submitted', 'under_review'].includes(sub.status);
               const isSplit = sub.submission_type === 'split';
               const allocs = getAllocsForSubmission(sub.id);
+              const dupMatch = isPending ? (submissions || [])
+                .filter(o =>
+                  o.id !== sub.id &&
+                  ['submitted', 'under_review'].includes(o.status) &&
+                  Math.abs(Number(o.submitted_amount) - Number(sub.submitted_amount)) < 1 &&
+                  ((sub.account_id && o.account_id === sub.account_id) ||
+                   (sub.cash_order_id && o.cash_order_id === sub.cash_order_id)),
+                )
+                .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
+                : null;
+              const dupMinutesAgo = dupMatch
+                ? Math.max(1, Math.round((Date.now() - new Date(dupMatch.created_at).getTime()) / 60000))
+                : 0;
+
 
               return (
                 <Card key={sub.id} className={`shadow-sm ${isPending ? 'ring-1 ring-primary/10' : ''}`}>
