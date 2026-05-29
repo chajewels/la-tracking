@@ -33,7 +33,9 @@ Deno.serve(async (req) => {
       installment_number,
       submission_type,    // 'single' | 'split'
       allocations,        // Array<{ account_id, invoice_number, allocated_amount }>
+      force,              // optional: bypass duplicate-submission guard
     } = body;
+
 
     // Validate required fields (auth handled below via resolvePortalAuth)
     if (!submitted_amount || !payment_date || !payment_method) {
