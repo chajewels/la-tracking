@@ -3891,6 +3891,7 @@ export type Database = {
           invoice_number: string
           month_paid_jpy: Json
           order_date: string
+          status: string
         }[]
       }
       get_unpaid_schedule: { Args: { p_account_id: string }; Returns: Json }
