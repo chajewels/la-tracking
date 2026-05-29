@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
 import { FileText, AlertTriangle, CheckCircle2, Users, ShieldAlert, Gem, Award, Flame, ShieldCheck, Loader2, Clock, CalendarCheck, Calendar } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
-import PendingSubmissionsAlert from '@/components/dashboard/PendingSubmissionsAlert';
 import NewAccountsTodayAlert from '@/components/dashboard/NewAccountsTodayAlert';
 import AppLayout from '@/components/layout/AppLayout';
 import StatCard from '@/components/dashboard/StatCard';
@@ -38,9 +37,8 @@ interface DriftFinding {
 export default function Dashboard() {
   const currencyFilter: CurrencyFilter = 'ALL';
   const { session, loading: authLoading, profile, roles } = useAuth();
-  const { can, canAccessPage } = usePermissions();
+  const { can } = usePermissions();
   const displayCurrency: Currency = getDisplayCurrencyForFilter(currencyFilter);
-  const canSeePendingSubmissions = canAccessPage('/payment-submissions');
 
   const { data: summary, isLoading: summaryLoading } = useDashboardSummary(
     currencyFilter,
@@ -204,8 +202,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Section 3 — Pending Submissions Alert */}
-        {canSeePendingSubmissions && <PendingSubmissionsAlert />}
         <NewAccountsTodayAlert />
 
         {/* Section 4 — Layaway Accounts */}
