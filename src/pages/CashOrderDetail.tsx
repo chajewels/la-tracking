@@ -157,6 +157,25 @@ function useCashSubmissions(orderId: string | undefined) {
   });
 }
 
+function useCashSubmissionProofs(orderId: string | undefined) {
+  return useQuery({
+    queryKey: ['cash-submission-proofs', orderId],
+    enabled: !!orderId,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('payment_submissions')
+        .select('proof_url, payment_date, sender_name')
+        .eq('cash_order_id', orderId)
+        .eq('status', 'confirmed')
+        .not('proof_url', 'is', null)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data || []) as Array<{ proof_url: string; payment_date: string; sender_name: string | null }>;
+    },
+  });
+}
+
 function useCashOrderNotes(orderId: string | undefined) {
   return useQuery({
     queryKey: ['cash-order-notes', orderId],
@@ -242,6 +261,19 @@ export default function CashOrderDetail() {
   const { data: order, isLoading: orderLoading } = useCashOrderDetail(id);
   const { data: payments, isLoading: paymentsLoading } = useCashPayments(id);
   const { data: submissions } = useCashSubmissions(id);
+  const { data: submissionProofs } = useCashSubmissionProofs(id);
+  const proofByDate = useMemo(() => {
+    const map = new Map<string, { url: string; sender: string }>();
+    (submissionProofs || []).forEach((s) => {
+      if (s.proof_url && s.payment_date && !map.has(s.payment_date)) {
+        map.set(s.payment_date, {
+          url: s.proof_url,
+          sender: s.sender_name || 'Unknown',
+        });
+      }
+    });
+    return map;
+  }, [submissionProofs]);
   const { data: notes } = useCashOrderNotes(id);
   const { data: cancelledByProfile } = useProfileName(
     order?.status === 'cancelled' ? order?.cancelled_by_user_id : undefined,
@@ -729,6 +761,18 @@ export default function CashOrderDetail() {
                           {p.reference_number && <span>Ref: {p.reference_number}</span>}
                           {p.submitted_by_name && <span>By: {p.submitted_by_name}</span>}
                         </div>
+                        {!voided && proofByDate.has(p.date_paid) && (
+                          <div className="mt-1">
+                            <a
+                              href={proofByDate.get(p.date_paid)!.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[11px] text-primary hover:underline"
+                            >
+                              📎 View Proof · {proofByDate.get(p.date_paid)!.sender}
+                            </a>
+                          </div>
+                        )}
                         {p.remarks && (
                           <p className="text-[11px] text-muted-foreground mt-1 italic">{p.remarks}</p>
                         )}
