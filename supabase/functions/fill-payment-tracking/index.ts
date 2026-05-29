@@ -13,6 +13,12 @@ const MONTH_NAMES = [
   "09. September", "10. October", "11. November", "12. December",
 ];
 
+// Statuses that get the red row + STATUS-cell label.
+const STATUS_FLAG: Record<string, string> = {
+  cancelled: "Cancelled",
+  final_forfeited: "Final Forfeited",
+};
+
 async function findOrCreateFolder(
   accessToken: string,
   parentId: string,
@@ -51,10 +57,24 @@ async function findOrCreateFolder(
 }
 
 async function readTab(token: string, sheetId: string, tab: string): Promise<string[][]> {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(tab + "!A1:P400")}`;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(tab + "!A1:Z400")}`;
   const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!r.ok) throw new Error(`read ${tab} failed (${r.status}): ${await r.text()}`);
   return (await r.json()).values || [];
+}
+
+function findTotalCol(rows: string[][]): number {
+  for (const row of rows) {
+    if (!row) continue;
+    for (let c = 0; c < row.length; c++) {
+      if (String(row[c] ?? "").trim().toUpperCase() === "TOTAL") return c;
+    }
+  }
+  return -1;
+}
+
+function colLetter(index: number): string {
+  return String.fromCharCode(65 + index); // 0->A, 6->G ... stays within A..Z
 }
 
 Deno.serve(async (req) => {
@@ -94,11 +114,28 @@ Deno.serve(async (req) => {
     }
     const newId = (await copyRes.json()).id as string;
 
-    // 3. Read both tabs, record data rows
+    // 2b. Map tab name -> numeric sheetId (gid) for formatting requests
+    const metaRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${newId}?fields=sheets.properties(sheetId,title)`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!metaRes.ok) {
+      throw new Error(`Sheet meta fetch failed (${metaRes.status}): ${await metaRes.text()}`);
+    }
+    const gidByTab: Record<string, number> = {};
+    for (const s of (await metaRes.json()).sheets ?? []) {
+      gidByTab[s.properties.title] = s.properties.sheetId;
+    }
+
+    // 3. Read both tabs, locate TOTAL column, record data rows
     type Rec = { tab: string; invoice: string; sheetRow: number };
     const records: Rec[] = [];
+    const totalColByTab: Record<string, number> = {};
     for (const tab of ["Overseas", "Japan"]) {
       const rows = await readTab(token, newId, tab);
+      const totalCol = findTotalCol(rows);
+      if (totalCol < 0) throw new Error(`Could not locate "TOTAL" header in tab ${tab}`);
+      totalColByTab[tab] = totalCol;
       for (let i = 0; i < rows.length; i++) {
         const b = rows[i]?.[1];
         if (b && /^\d{4,6}$/.test(String(b).trim())) {
@@ -135,6 +172,7 @@ Deno.serve(async (req) => {
     const tracking: Array<{
       invoice_number: string;
       order_date: string;
+      status: string;
       month_paid_jpy: Record<string, number> | null;
     }> = await rpcRes.json();
 
@@ -149,7 +187,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 5. Earliest order_date → cohort
+    // 5. Earliest order_date -> cohort
     let earliest: Date | null = null;
     for (const t of tracking) {
       if (!t.order_date) continue;
@@ -163,26 +201,57 @@ Deno.serve(async (req) => {
     const cohortMonth = earliest.getUTCMonth() + 1;
 
     const byInvoice = new Map<string, Record<string, number>>();
+    const statusByInvoice = new Map<string, string>();
     for (const t of tracking) {
       if (t.month_paid_jpy) byInvoice.set(t.invoice_number, t.month_paid_jpy);
+      if (t.status) statusByInvoice.set(t.invoice_number, t.status);
     }
 
-    // 6. Build ranges (G..N only)
+    // 6. Build value ranges (months + D/E + STATUS) and red-row format requests
     const data: Array<{ range: string; values: (string | number)[][] }> = [];
+    const formatReqs: Array<Record<string, unknown>> = [];
+    const FIRST_MONTH_COL = 6; // column G (0-indexed)
+
     for (const rec of records) {
+      const totalCol = totalColByTab[rec.tab];
+      const totalLetter = colLetter(totalCol);
+
+      // D (Amt Paid Posted) = this row's TOTAL cell; E (Balance) = C - D. Every invoice row.
+      data.push({ range: `${rec.tab}!D${rec.sheetRow}`, values: [[`=${totalLetter}${rec.sheetRow}`]] });
+      data.push({ range: `${rec.tab}!E${rec.sheetRow}`, values: [[`=C${rec.sheetRow}-D${rec.sheetRow}`]] });
+
+      // Month columns (G .. last month before TOTAL)
       const mp = byInvoice.get(rec.invoice);
-      if (!mp) continue;
-      for (const [ym, value] of Object.entries(mp)) {
-        const m = /^(\d{4})-(\d{2})$/.exec(ym);
-        if (!m) continue;
-        const yyyy = parseInt(m[1], 10);
-        const mm = parseInt(m[2], 10);
-        const offset = (yyyy - cohortYear) * 12 + (mm - cohortMonth);
-        if (offset < 0 || offset > 7) continue;
-        const col = String.fromCharCode(71 + offset); // G..N
-        data.push({
-          range: `${rec.tab}!${col}${rec.sheetRow}`,
-          values: [[value]],
+      if (mp) {
+        for (const [ym, value] of Object.entries(mp)) {
+          const m = /^(\d{4})-(\d{2})$/.exec(ym);
+          if (!m) continue;
+          const yyyy = parseInt(m[1], 10);
+          const mm = parseInt(m[2], 10);
+          const offset = (yyyy - cohortYear) * 12 + (mm - cohortMonth);
+          const colIndex = FIRST_MONTH_COL + offset;
+          if (offset < 0 || colIndex >= totalCol) continue; // never touch TOTAL/STATUS
+          data.push({ range: `${rec.tab}!${colLetter(colIndex)}${rec.sheetRow}`, values: [[value]] });
+        }
+      }
+
+      // Cancelled / final_forfeited -> STATUS label + red row
+      const st = statusByInvoice.get(rec.invoice);
+      if (st && STATUS_FLAG[st]) {
+        const statusCol = colLetter(totalCol + 1); // column right after TOTAL
+        data.push({ range: `${rec.tab}!${statusCol}${rec.sheetRow}`, values: [[STATUS_FLAG[st]]] });
+        formatReqs.push({
+          repeatCell: {
+            range: {
+              sheetId: gidByTab[rec.tab],
+              startRowIndex: rec.sheetRow - 1,
+              endRowIndex: rec.sheetRow,
+              startColumnIndex: 0,
+              endColumnIndex: totalCol + 2, // A .. STATUS inclusive
+            },
+            cell: { userEnteredFormat: { backgroundColor: { red: 0.96, green: 0.80, blue: 0.80 } } },
+            fields: "userEnteredFormat.backgroundColor",
+          },
         });
       }
     }
@@ -201,6 +270,24 @@ Deno.serve(async (req) => {
       );
       if (!buRes.ok) {
         throw new Error(`batchUpdate failed (${buRes.status}): ${await buRes.text()}`);
+      }
+    }
+
+    // 6b. Red-row highlighting for cancelled / final_forfeited
+    if (formatReqs.length > 0) {
+      const fmtRes = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${newId}:batchUpdate`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ requests: formatReqs }),
+        },
+      );
+      if (!fmtRes.ok) {
+        throw new Error(`format batchUpdate failed (${fmtRes.status}): ${await fmtRes.text()}`);
       }
     }
 
@@ -229,6 +316,7 @@ Deno.serve(async (req) => {
         ok: true,
         invoices: invoices.length,
         cells: data.length,
+        flagged: formatReqs.length,
         sheetId: newId,
         movedTo: monthId,
       }),
