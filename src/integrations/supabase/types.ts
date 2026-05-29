@@ -3845,6 +3845,18 @@ export type Database = {
         Args: { currency_mode?: string; months_back?: number }
         Returns: Json
       }
+      get_monthly_tracking_export: {
+        Args: { p_month: number; p_year: number }
+        Returns: {
+          currency: string
+          customer_name: string
+          invoice_number: string
+          month_paid_jpy: Json
+          order_date: string
+          payment_plan_months: number
+          total_jpy: number
+        }[]
+      }
       get_recent_qualifying_order: {
         Args: { p_customer_id: string; p_lookback_days?: number }
         Returns: {
@@ -3869,6 +3881,16 @@ export type Database = {
           penalty_count: number
           score: number
           total_paid_jpy: number
+        }[]
+      }
+      get_tracking_for_invoices: {
+        Args: { p_invoices: string[] }
+        Returns: {
+          currency: string
+          customer_name: string
+          invoice_number: string
+          month_paid_jpy: Json
+          order_date: string
         }[]
       }
       get_unpaid_schedule: { Args: { p_account_id: string }; Returns: Json }
