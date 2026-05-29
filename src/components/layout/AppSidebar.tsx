@@ -13,12 +13,10 @@ import {
   BarChart3,
   Sparkles,
   ScrollText,
-  Shield,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { useLoyaltyPendingCount } from '@/hooks/useLoyaltyPendingCount';
-import { useWaiverRequestCount } from '@/hooks/useWaiverRequestCount';
 import { cn } from '@/lib/utils';
 import {
   Sidebar,
@@ -48,7 +46,6 @@ const menuItems: MenuItem[] = [
   { label: 'Customers', icon: Users, path: ROUTES.CUSTOMERS },
   { label: 'CSR Monitoring', icon: Bell, path: ROUTES.MONITORING },
   { label: 'Finance', icon: Wallet, path: ROUTES.FINANCE },
-  { label: 'Waivers', icon: Shield, path: ROUTES.WAIVERS },
   { label: 'Executive Dashboard', icon: BarChart3, path: ROUTES.EXECUTIVE_DASHBOARD, adminOnly: true },
   { label: 'Bulk Import', icon: Upload, path: ROUTES.BULK_PAYMENT_IMPORT },
   { label: 'Promotions', icon: Megaphone, path: ROUTES.PROMOTIONS },
@@ -63,10 +60,8 @@ export default function AppSidebar() {
   const isExecAllowed = user?.email === 'sales@chajewelsjp.com';
   const { canSeeNav } = usePermissions();
   const { count: pendingRedemptions } = useLoyaltyPendingCount();
-  const { count: pendingWaivers } = useWaiverRequestCount();
   const badgeCountByPath: Record<string, number> = {
     [ROUTES.LOYALTY_ADMIN]: pendingRedemptions,
-    [ROUTES.WAIVERS]: pendingWaivers,
   };
 
   const initials = profile?.full_name

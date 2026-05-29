@@ -7,10 +7,12 @@ import { Wallet } from 'lucide-react';
 import PaymentSubmissions from './PaymentSubmissions';
 import PaymentProofs from './PaymentProofs';
 import Waivers from './Waivers';
+import { useWaiverRequestCount } from '@/hooks/useWaiverRequestCount';
 
 type TabKey = 'submissions' | 'proofs' | 'waivers';
 
 export default function PaymentsHub({ embedded = false }: { embedded?: boolean } = {}) {
+  const { count: pendingWaivers } = useWaiverRequestCount();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab: TabKey = (['proofs', 'waivers'].includes(searchParams.get('tab') || '') ? searchParams.get('tab') as TabKey : 'submissions');
   const [tab, setTab] = useState<TabKey>(initialTab);
@@ -56,7 +58,21 @@ export default function PaymentsHub({ embedded = false }: { embedded?: boolean }
           <TabsList className="grid grid-cols-3 w-full max-w-md">
             <TabsTrigger value="submissions">Submissions</TabsTrigger>
             <TabsTrigger value="proofs">Proof of Payment</TabsTrigger>
-            <TabsTrigger value="waivers">Waivers</TabsTrigger>
+            <TabsTrigger value="waivers">
+              Waivers
+              {pendingWaivers > 0 && (
+                <span
+                  className="ml-2 inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                  style={{
+                    background: 'rgba(245, 158, 11, 0.18)',
+                    color: '#B45309',
+                    border: '1px solid rgba(245, 158, 11, 0.35)',
+                  }}
+                >
+                  {pendingWaivers}
+                </span>
+              )}
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="submissions" className="mt-5" tabIndex={-1}>
