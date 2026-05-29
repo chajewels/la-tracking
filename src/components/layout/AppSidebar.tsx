@@ -13,10 +13,12 @@ import {
   BarChart3,
   Sparkles,
   ScrollText,
+  Shield,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { useLoyaltyPendingCount } from '@/hooks/useLoyaltyPendingCount';
+import { useWaiverRequestCount } from '@/hooks/useWaiverRequestCount';
 import { cn } from '@/lib/utils';
 import {
   Sidebar,
@@ -46,6 +48,7 @@ const menuItems: MenuItem[] = [
   { label: 'Customers', icon: Users, path: ROUTES.CUSTOMERS },
   { label: 'CSR Monitoring', icon: Bell, path: ROUTES.MONITORING },
   { label: 'Finance', icon: Wallet, path: ROUTES.FINANCE },
+  { label: 'Waivers', icon: Shield, path: ROUTES.WAIVERS },
   { label: 'Executive Dashboard', icon: BarChart3, path: ROUTES.EXECUTIVE_DASHBOARD, adminOnly: true },
   { label: 'Bulk Import', icon: Upload, path: ROUTES.BULK_PAYMENT_IMPORT },
   { label: 'Promotions', icon: Megaphone, path: ROUTES.PROMOTIONS },
@@ -60,6 +63,11 @@ export default function AppSidebar() {
   const isExecAllowed = user?.email === 'sales@chajewelsjp.com';
   const { canSeeNav } = usePermissions();
   const { count: pendingRedemptions } = useLoyaltyPendingCount();
+  const { count: pendingWaivers } = useWaiverRequestCount();
+  const badgeCountByPath: Record<string, number> = {
+    [ROUTES.LOYALTY_ADMIN]: pendingRedemptions,
+    [ROUTES.WAIVERS]: pendingWaivers,
+  };
 
   const initials = profile?.full_name
     ? profile.full_name
@@ -121,7 +129,7 @@ export default function AppSidebar() {
                       )}
                     />
                     <span className="flex-1">{item.label}</span>
-                    {item.path === ROUTES.LOYALTY_ADMIN && pendingRedemptions > 0 && (
+                    {(badgeCountByPath[item.path] ?? 0) > 0 && (
                       <span
                         className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
                         style={{
@@ -130,7 +138,7 @@ export default function AppSidebar() {
                           border: '1px solid rgba(245, 158, 11, 0.35)',
                         }}
                       >
-                        {pendingRedemptions}
+                        {badgeCountByPath[item.path]}
                       </span>
                     )}
                   </Link>

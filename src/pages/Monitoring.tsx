@@ -16,6 +16,7 @@ import { formatCurrency } from '@/lib/calculations';
 import RefreshControl from '@/components/common/RefreshControl';
 import { getPHTToday } from '@/lib/date-utils';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
+import { useExtensionRequestCount } from '@/hooks/useExtensionRequestCount';
 import { supabase } from '@/integrations/supabase/client';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
@@ -54,6 +55,7 @@ function bucketToStage(bucket: AccountBucket): string | null {
 }
 
 export default function Monitoring() {
+  const { count: pendingExtensions } = useExtensionRequestCount();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialFilter = (searchParams.get('filter') as FilterTab) || 'all';
   const [activeFilter, setActiveFilter] = useState<FilterTab>(initialFilter);
@@ -511,7 +513,21 @@ export default function Monitoring() {
           <TabsList className="grid grid-cols-4 w-full max-w-xl">
             <TabsTrigger value="alerts">CSR Alerts</TabsTrigger>
             <TabsTrigger value="reminders">Smart Reminders</TabsTrigger>
-            <TabsTrigger value="extensions">Extensions</TabsTrigger>
+            <TabsTrigger value="extensions">
+              Extensions
+              {pendingExtensions > 0 && (
+                <span
+                  className="ml-2 inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                  style={{
+                    background: 'rgba(245, 158, 11, 0.18)',
+                    color: '#B45309',
+                    border: '1px solid rgba(245, 158, 11, 0.35)',
+                  }}
+                >
+                  {pendingExtensions}
+                </span>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="audit">Audit</TabsTrigger>
           </TabsList>
 

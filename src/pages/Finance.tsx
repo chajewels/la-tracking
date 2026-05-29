@@ -23,6 +23,7 @@ import { useAccounts, useCustomers, usePayments, useDashboardSummary } from '@/h
 import { toJpy } from '@/lib/currency-converter';
 import { computeCollectionStats, todayStr } from '@/lib/business-rules';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
+import { usePendingSubmissionCount } from '@/hooks/use-pending-submissions';
 
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
@@ -39,6 +40,7 @@ import {
 } from '@/lib/business-rules';
 
 export default function Finance() {
+  const { data: pendingSubmissions } = usePendingSubmissionCount();
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
   const [tab, setTab] = useState<'overview' | 'analytics' | 'collections' | 'docs' | 'vault'>('overview');
   const { session, loading: authLoading } = useAuth();
@@ -516,7 +518,23 @@ export default function Finance() {
             <TabsTrigger value="overview">Overview</TabsTrigger>
             {showAnalytics && <TabsTrigger value="analytics">Analytics</TabsTrigger>}
             {showCollections && <TabsTrigger value="collections">Collections</TabsTrigger>}
-            {showDocs && <TabsTrigger value="docs">Documentation</TabsTrigger>}
+            {showDocs && (
+              <TabsTrigger value="docs">
+                Documentation
+                {(pendingSubmissions ?? 0) > 0 && (
+                  <span
+                    className="ml-2 inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                    style={{
+                      background: 'rgba(245, 158, 11, 0.18)',
+                      color: '#B45309',
+                      border: '1px solid rgba(245, 158, 11, 0.35)',
+                    }}
+                  >
+                    {pendingSubmissions}
+                  </span>
+                )}
+              </TabsTrigger>
+            )}
             {showVault && <TabsTrigger value="vault">Vault</TabsTrigger>}
           </TabsList>
 
