@@ -761,6 +761,18 @@ export default function CashOrderDetail() {
                           {p.reference_number && <span>Ref: {p.reference_number}</span>}
                           {p.submitted_by_name && <span>By: {p.submitted_by_name}</span>}
                         </div>
+                        {!voided && proofByDate.has(p.date_paid) && (
+                          <div className="mt-1">
+                            <a
+                              href={proofByDate.get(p.date_paid)!.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[11px] text-primary hover:underline"
+                            >
+                              📎 View Proof · {proofByDate.get(p.date_paid)!.sender}
+                            </a>
+                          </div>
+                        )}
                         {p.remarks && (
                           <p className="text-[11px] text-muted-foreground mt-1 italic">{p.remarks}</p>
                         )}
