@@ -4,6 +4,7 @@ import { ROUTES } from '@/constants/routes';
 import { FileText, AlertTriangle, CheckCircle2, Users, ShieldAlert, Gem, Award, Flame, ShieldCheck, Loader2, Clock, CalendarCheck, Calendar } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import PendingSubmissionsAlert from '@/components/dashboard/PendingSubmissionsAlert';
+import NewAccountsTodayAlert from '@/components/dashboard/NewAccountsTodayAlert';
 import AppLayout from '@/components/layout/AppLayout';
 import StatCard from '@/components/dashboard/StatCard';
 import AgingBuckets from '@/components/dashboard/AgingBuckets';
@@ -205,6 +206,7 @@ export default function Dashboard() {
 
         {/* Section 3 — Pending Submissions Alert */}
         {canSeePendingSubmissions && <PendingSubmissionsAlert />}
+        <NewAccountsTodayAlert />
 
         {/* Section 4 — Layaway Accounts */}
         <div>

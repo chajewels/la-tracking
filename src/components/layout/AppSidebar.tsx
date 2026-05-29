@@ -17,6 +17,11 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { useLoyaltyPendingCount } from '@/hooks/useLoyaltyPendingCount';
+import { usePendingSubmissionCount } from '@/hooks/use-pending-submissions';
+import { useWaiverRequestCount } from '@/hooks/useWaiverRequestCount';
+import { useExtensionRequestCount } from '@/hooks/useExtensionRequestCount';
+import { useNewLayawayTodayCount } from '@/hooks/useNewLayawayTodayCount';
+import { useNewCashOrdersTodayCount } from '@/hooks/useNewCashOrdersTodayCount';
 import { cn } from '@/lib/utils';
 import {
   Sidebar,
@@ -60,8 +65,17 @@ export default function AppSidebar() {
   const isExecAllowed = user?.email === 'sales@chajewelsjp.com';
   const { canSeeNav } = usePermissions();
   const { count: pendingRedemptions } = useLoyaltyPendingCount();
+  // usePendingSubmissionCount returns useQuery directly → destructure { data }
+  const { data: pendingSubmissions } = usePendingSubmissionCount();
+  const { count: pendingWaivers } = useWaiverRequestCount();
+  const { count: pendingExtensions } = useExtensionRequestCount();
+  const { count: newLayawayToday } = useNewLayawayTodayCount();
+  const { count: newCashToday } = useNewCashOrdersTodayCount();
   const badgeCountByPath: Record<string, number> = {
-    [ROUTES.LOYALTY_ADMIN]: pendingRedemptions,
+    [ROUTES.LOYALTY_ADMIN]: pendingRedemptions ?? 0,
+    [ROUTES.FINANCE]: (pendingSubmissions ?? 0) + (pendingWaivers ?? 0),
+    [ROUTES.MONITORING]: pendingExtensions ?? 0,
+    [ROUTES.DASHBOARD]: (newLayawayToday ?? 0) + (newCashToday ?? 0),
   };
 
   const initials = profile?.full_name
