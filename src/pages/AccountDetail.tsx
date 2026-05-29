@@ -1757,9 +1757,10 @@ export default function AccountDetail() {
                             <Select value={editMethod} onValueChange={setEditMethod}>
                               <SelectTrigger className="h-8 text-xs bg-background"><SelectValue /></SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="cash">Cash</SelectItem>
+                                <SelectItem value="cash">Cash Payment</SelectItem>
                                 <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
                                 <SelectItem value="gcash">GCash</SelectItem>
+                                <SelectItem value="cod">Cash on Delivery</SelectItem>
                                 <SelectItem value="other">Other</SelectItem>
                               </SelectContent>
                             </Select>

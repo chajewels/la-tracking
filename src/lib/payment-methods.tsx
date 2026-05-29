@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Building2, Smartphone, MapPin, Zap, Copy, Check } from 'lucide-react';
+import { Building2, Smartphone, MapPin, Zap, Copy, Check, Banknote, Truck } from 'lucide-react';
 
 // Portal palette — must match src/pages/CustomerPortal.tsx
 const P = {
@@ -84,6 +84,14 @@ export const CHA_PAYMENT_METHODS: ChaPaymentMethod[] = [
     accountName: 'Cesar Magsino',
     location: 'San Juan Batangas',
     phone: '0906 032 2808',
+  },
+  {
+    id: 'cash-payment', name: 'Cash Payment', group: 'PH',
+    icon: <Banknote className="h-5 w-5" />,
+  },
+  {
+    id: 'cash-on-delivery', name: 'Cash on Delivery', group: 'PH',
+    icon: <Truck className="h-5 w-5" />,
   },
   // Japan
   {

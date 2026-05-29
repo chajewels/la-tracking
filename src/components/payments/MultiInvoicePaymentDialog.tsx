@@ -683,7 +683,7 @@ export default function MultiInvoicePaymentDialog({
                     <option value="credit_card">Credit Card</option>
                     <option value="paypay">PayPay</option>
                     <option value="jp_bank">JP Bank</option>
-                    <option value="cod">COD</option>
+                    <option value="cod">Cash on Delivery</option>
                     <option value="other">Other</option>
                   </select>
                 </div>
