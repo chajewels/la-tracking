@@ -1,0 +1,11 @@
+# Cha Jewels Hub
+
+> Customer portal for Cha Jewels layaway customers to view accounts, payment schedules, submit proof of payment, and access the loyalty program.
+
+## Pages
+
+- [Customer Portal](/portal): View layaway accounts, payment schedules, and statements.
+- [Portal Login](/portal/login): Sign in to your customer account.
+- [Portal Setup](/portal/setup): Create a new customer portal account.
+- [Forgot Password](/portal/forgot-password): Reset your portal password.
+- [Loyalty Program](/loyalty): View loyalty points, tier status, and rewards.
