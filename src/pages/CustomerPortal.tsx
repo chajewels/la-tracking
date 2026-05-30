@@ -35,6 +35,7 @@ import { LocationType, parseLocation, toLocationString } from '@/lib/countries';
 import { getPHTToday } from '@/lib/date-utils';
 import { getPortalAuthHeaders } from '@/lib/portal-auth';
 import { getPortalLinkForCustomer } from '@/lib/portal-link';
+import PageMeta from '@/components/seo/PageMeta';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -591,6 +592,12 @@ export default function CustomerPortal() {
   const overdueCount = data.accounts.filter(a => a.status_label === 'Overdue').length;
 
   return (
+    <>
+      <PageMeta
+        title="My account — Cha Jewels Customer Portal"
+        description="View your Cha Jewels layaway and cash order accounts, payment schedules, promotions, and submit proof of payment in one secure place."
+        path="/portal"
+      />
     <div style={{background:P.bg,minHeight:'100vh'}}>
       {/* Header */}
       <div style={{background:P.bg,borderBottom:`1px solid ${P.gd}`}}>
@@ -1078,6 +1085,7 @@ export default function CustomerPortal() {
         </a>
       </div>
     </div>
+    </>
   );
 }
 

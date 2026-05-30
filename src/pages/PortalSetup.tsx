@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import PageMeta from '@/components/seo/PageMeta';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -216,6 +217,12 @@ export default function PortalSetup() {
   }
 
   return (
+    <>
+      <PageMeta
+        title="Create account — Cha Jewels Customer Portal"
+        description="Create your Cha Jewels customer portal account to manage layaway plans, track payments, and access your statements anytime."
+        path="/portal/setup"
+      />
     <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div style={{ background: '#111', border: '1px solid #C9A84C', borderRadius: 12, padding: 40, width: 380, boxSizing: 'border-box' }}>
         <p style={{ color: '#C9A84C', fontFamily: 'Georgia, serif', fontSize: 22, marginBottom: 4, textAlign: 'center' }}>Cha Jewels</p>
@@ -417,5 +424,6 @@ export default function PortalSetup() {
         )}
       </div>
     </div>
+    </>
   );
 }

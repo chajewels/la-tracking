@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import AdminSplashScreen from '@/components/auth/AdminSplashScreen';
+import PageMeta from '@/components/seo/PageMeta';
 
 const SPLASH_KEY = 'admin_splash_shown';
 
@@ -81,6 +82,12 @@ export default function Login() {
   };
 
   return (
+    <>
+      <PageMeta
+        title="Staff sign in — Cha Jewels Hub"
+        description="Internal staff sign in for the Cha Jewels Hub admin console. Authorized team members only — customers should use the customer portal."
+        path="/login"
+      />
     <div className="min-h-screen flex flex-col lg:flex-row" style={{ background: BG_RIGHT }}>
       {/* LEFT PANEL — 55% */}
       <div
@@ -287,5 +294,6 @@ export default function Login() {
         </div>
       </div>
     </div>
+    </>
   );
 }

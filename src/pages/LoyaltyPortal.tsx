@@ -27,6 +27,7 @@ import PointsScreen from '@/components/loyalty/screens/PointsScreen';
 import NotificationsScreen from '@/components/loyalty/screens/NotificationsScreen';
 import ProfileScreen from '@/components/loyalty/screens/ProfileScreen';
 import TiersScreen from '@/components/loyalty/screens/TiersScreen';
+import PageMeta from '@/components/seo/PageMeta';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -656,9 +657,16 @@ export default function LoyaltyPortal() {
   }
 
   return (
-    <FullScreenWrap>
-      <TopBar authMode={authMode} token={token} />
-      <MemberView data={data} member={member} portalToken={token} onSignOut={handleSignOut} />
-    </FullScreenWrap>
+    <>
+      <PageMeta
+        title="Loyalty rewards — Cha Jewels"
+        description="Track your Cha Jewels loyalty points, tier benefits, and redeem exclusive rewards from the comfort of your phone."
+        path="/loyalty"
+      />
+      <FullScreenWrap>
+        <TopBar authMode={authMode} token={token} />
+        <MemberView data={data} member={member} portalToken={token} onSignOut={handleSignOut} />
+      </FullScreenWrap>
+    </>
   );
 }

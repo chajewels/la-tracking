@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import PageMeta from '@/components/seo/PageMeta';
 
 export default function PortalLogin() {
   const navigate = useNavigate();
@@ -50,6 +51,12 @@ export default function PortalLogin() {
   }
 
   return (
+    <>
+      <PageMeta
+        title="Sign in — Cha Jewels Customer Portal"
+        description="Sign in to your Cha Jewels customer portal to view layaway accounts, payment schedules, statements, and submit proof of payment."
+        path="/portal/login"
+      />
     <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div style={{ background: '#111', border: '1px solid #C9A84C', borderRadius: 12, padding: 40, width: 380, boxSizing: 'border-box' }}>
         <p style={{ color: '#C9A84C', fontFamily: 'Georgia, serif', fontSize: 22, marginBottom: 4, textAlign: 'center' }}>Cha Jewels</p>
@@ -109,5 +116,6 @@ export default function PortalLogin() {
         </div>
       </div>
     </div>
+    </>
   );
 }
