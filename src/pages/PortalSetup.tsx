@@ -230,7 +230,7 @@ export default function PortalSetup() {
 
         {state === 'form' && (
           <>
-            <h2 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6 }}>Set up your account</h2>
+            <h1 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6, fontWeight: 400 }}>Set up your Cha Jewels Portal account</h1>
             <p style={{ color: '#888', fontSize: 13, marginBottom: 24 }}>Use the email Cha Jewels has on file for you.</p>
 
             <form onSubmit={handleSignup}>
@@ -362,7 +362,7 @@ export default function PortalSetup() {
 
         {state === 'check-email' && (
           <>
-            <h2 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6 }}>Check your email</h2>
+            <h1 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6, fontWeight: 400 }}>Check your email</h1>
             <p style={{ color: '#888', fontSize: 13, marginBottom: 12 }}>We sent a verification link to:</p>
             <p style={{ color: '#C9A84C', fontSize: 14, marginBottom: 20, wordBreak: 'break-all' }}>{submittedEmail}</p>
             <p style={{ color: '#666', fontSize: 12, marginBottom: 24, lineHeight: 1.6 }}>
@@ -382,7 +382,7 @@ export default function PortalSetup() {
 
         {state === 'linking' && (
           <>
-            <h2 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6 }}>Linking your account</h2>
+            <h1 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6, fontWeight: 400 }}>Linking your account</h1>
             <p style={{ color: '#888', fontSize: 13, marginBottom: 24 }}>Just a moment…</p>
             <p style={{ color: '#C9A84C', fontSize: 14, textAlign: 'center', padding: '20px 0' }}>Please wait</p>
           </>
@@ -390,7 +390,7 @@ export default function PortalSetup() {
 
         {state === 'error-no-customer' && (
           <>
-            <h2 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6 }}>Account not found</h2>
+            <h1 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6, fontWeight: 400 }}>Account not found</h1>
             <p role="alert" style={{ color: '#EF4444', fontSize: 13, marginBottom: 20, lineHeight: 1.6 }}>{errorMessage}</p>
             <button
               onClick={handleSignOutAndRetry}
@@ -406,7 +406,7 @@ export default function PortalSetup() {
 
         {state === 'error-conflict' && (
           <>
-            <h2 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6 }}>Setup error</h2>
+            <h1 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6, fontWeight: 400 }}>Setup error</h1>
             <p role="alert" style={{ color: '#EF4444', fontSize: 13, marginBottom: 20, lineHeight: 1.6 }}>{errorMessage}</p>
             <button
               onClick={handleSignOutAndRetry}
