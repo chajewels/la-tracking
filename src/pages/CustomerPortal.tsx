@@ -487,7 +487,7 @@ export default function CustomerPortal() {
         <div style={{ background: '#111', border: '1px solid #C9A84C', borderRadius: 12, padding: 40, width: 380, boxSizing: 'border-box', textAlign: 'center' }}>
           <p style={{ color: '#C9A84C', fontFamily: 'Georgia, serif', fontSize: 22, marginBottom: 4 }}>Cha Jewels</p>
           <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 28 }}>Customer Portal</p>
-          <h2 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 12 }}>Sign in to your portal</h2>
+          <h1 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 12, fontWeight: 400 }}>Sign in to your Cha Jewels Portal</h1>
           <p style={{ color: '#888', fontSize: 13, marginBottom: 24, lineHeight: 1.6 }}>
             Use your email and password to access your accounts.
           </p>
@@ -599,6 +599,7 @@ export default function CustomerPortal() {
         path="/portal"
       />
     <div style={{background:P.bg,minHeight:'100vh'}}>
+      <h1 className="sr-only">Cha Jewels Customer Portal — My Accounts</h1>
       {/* Header */}
       <div style={{background:P.bg,borderBottom:`1px solid ${P.gd}`}}>
         <div className="max-w-lg sm:max-w-2xl lg:max-w-5xl mx-auto px-4 py-5">

@@ -177,12 +177,12 @@ export default function Login() {
             }`}
           >
             {/* Heading */}
-            <h2
+            <h1
               className="font-display text-2xl font-light tracking-wide"
               style={{ color: '#fff' }}
             >
               Welcome Back
-            </h2>
+            </h1>
             <p
               className="text-xs font-light mb-10 mt-2"
               style={{ color: GOLD, letterSpacing: '0.2em' }}

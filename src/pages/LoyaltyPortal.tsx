@@ -664,6 +664,7 @@ export default function LoyaltyPortal() {
         path="/loyalty"
       />
       <FullScreenWrap>
+        <h1 className="sr-only">Cha Jewels Loyalty Rewards</h1>
         <TopBar authMode={authMode} token={token} />
         <MemberView data={data} member={member} portalToken={token} onSignOut={handleSignOut} />
       </FullScreenWrap>

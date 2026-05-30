@@ -60,7 +60,7 @@ export default function PortalForgotPassword() {
 
         {sent ? (
           <>
-            <h2 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6 }}>Check your inbox</h2>
+            <h1 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6, fontWeight: 400 }}>Check your inbox</h1>
             <p style={{ color: '#888', fontSize: 13, marginBottom: 12 }}>
               A password reset link has been sent to:
             </p>
@@ -77,7 +77,7 @@ export default function PortalForgotPassword() {
           </>
         ) : (
           <>
-            <h2 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6 }}>Reset password</h2>
+            <h1 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6, fontWeight: 400 }}>Reset your portal password</h1>
             <p style={{ color: '#888', fontSize: 13, marginBottom: 24 }}>Enter your email to receive a reset link</p>
 
             <form onSubmit={handleSubmit}>
