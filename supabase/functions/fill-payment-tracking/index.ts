@@ -163,6 +163,30 @@ Deno.serve(async (req) => {
     const statusByInvoice = new Map<string, string>();
     for (const t of tracking) { if (t.month_paid_jpy) byInvoice.set(t.invoice_number, t.month_paid_jpy); if (t.status) statusByInvoice.set(t.invoice_number, t.status); }
 
+    // 4b. Country lookup per invoice (layaway + cash orders)
+    const countryByInvoice = new Map<string, string>();
+    const inList = invoices.join(",");
+    const laCountryRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/layaway_accounts?select=invoice_number,customer:customers(country)&invoice_number=in.(${inList})`,
+      { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }
+    );
+    if (laCountryRes.ok) {
+      for (const r of await laCountryRes.json()) {
+        if (r.customer?.country) countryByInvoice.set(r.invoice_number, r.customer.country);
+      }
+    }
+    const coCountryRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/cash_orders?select=invoice_number,customer:customers(country)&invoice_number=in.(${inList})`,
+      { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }
+    );
+    if (coCountryRes.ok) {
+      for (const r of await coCountryRes.json()) {
+        if (r.customer?.country && !countryByInvoice.has(r.invoice_number)) {
+          countryByInvoice.set(r.invoice_number, r.customer.country);
+        }
+      }
+    }
+
     // 6. Lay roster into template + fill
     const rawData: Array<{ range: string; values: (string | number)[][] }> = [];
     const ueData: Array<{ range: string; values: (string | number)[][] }> = [];
@@ -223,10 +247,18 @@ Deno.serve(async (req) => {
           for (const c of cells) ueData.push({ range: `${tab}!${colLetter(c.col)}${row}`, values: [[c.value]] });
         }
 
+        // Country column T (Overseas tab only)
+        if (tab === "Overseas") {
+          const country = countryByInvoice.get(rr.colB);
+          if (country) {
+            rawData.push({ range: `${tab}!${colLetter(totalCol + 2)}${row}`, values: [[country]] });
+          }
+        }
+
         const st = statusByInvoice.get(rr.colB);
         if (st && STATUS_FLAG[st]) {
           rawData.push({ range: `${tab}!${colLetter(totalCol + 1)}${row}`, values: [[STATUS_FLAG[st]]] });
-          structReqs.push({ repeatCell: { range: { sheetId: gidByTab[tab], startRowIndex: r0, endRowIndex: r0 + 1, startColumnIndex: 0, endColumnIndex: totalCol + 2 }, cell: { userEnteredFormat: { backgroundColor: { red: 0.96, green: 0.80, blue: 0.80 } } }, fields: "userEnteredFormat.backgroundColor" } });
+          structReqs.push({ repeatCell: { range: { sheetId: gidByTab[tab], startRowIndex: r0, endRowIndex: r0 + 1, startColumnIndex: 0, endColumnIndex: tab === "Overseas" ? totalCol + 3 : totalCol + 2 }, cell: { userEnteredFormat: { backgroundColor: { red: 0.96, green: 0.80, blue: 0.80 } } }, fields: "userEnteredFormat.backgroundColor" } });
           flagged++;
         }
       }
