@@ -144,7 +144,6 @@ Deno.serve(async (req) => {
 
       const { data: submission, error: subErr } = await supabase
         .from("payment_submissions")
-        .from("payment_submissions")
         .insert({
           account_id,
           customer_id: account.customer_id,
