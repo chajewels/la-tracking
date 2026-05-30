@@ -3915,6 +3915,14 @@ export type Database = {
         Returns: string
       }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
+      monthly_inflow_by_plan_6m: {
+        Args: never
+        Returns: {
+          jpy_total: number
+          month: string
+          payment_plan_months: number
+        }[]
+      }
       move_to_dlq: {
         Args: {
           dlq_name: string
