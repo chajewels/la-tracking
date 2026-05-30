@@ -51,7 +51,7 @@ export default function ResetPassword() {
   return (
     <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ background: '#111', border: '1px solid #C9A84C', borderRadius: 12, padding: 40, width: 380 }}>
-        <h2 style={{ color: '#C9A84C', fontFamily: 'Georgia, serif', marginBottom: 8 }}>Set New Password</h2>
+        <h1 style={{ color: '#C9A84C', fontFamily: 'Georgia, serif', marginBottom: 8, fontWeight: 400 }}>Set a New Password</h1>
         <p style={{ color: '#888', fontSize: 13, marginBottom: 24 }}>Enter your new password below.</p>
         <input type="password" placeholder="New password (min 8 chars)" value={password}
           onChange={e => setPassword(e.target.value)}

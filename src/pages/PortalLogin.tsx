@@ -62,7 +62,7 @@ export default function PortalLogin() {
         <p style={{ color: '#C9A84C', fontFamily: 'Georgia, serif', fontSize: 22, marginBottom: 4, textAlign: 'center' }}>Cha Jewels</p>
         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, textAlign: 'center', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 28 }}>Customer Portal</p>
 
-        <h2 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6 }}>Welcome back</h2>
+        <h1 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6, fontWeight: 400 }}>Welcome back to your Cha Jewels Portal</h1>
         <p style={{ color: '#888', fontSize: 13, marginBottom: 24 }}>Sign in to access your accounts</p>
 
         <form onSubmit={handleLogin}>

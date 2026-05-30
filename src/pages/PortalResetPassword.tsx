@@ -67,7 +67,7 @@ export default function PortalResetPassword() {
         <p style={{ color: '#C9A84C', fontFamily: 'Georgia, serif', fontSize: 22, marginBottom: 4, textAlign: 'center' }}>Cha Jewels</p>
         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, textAlign: 'center', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 28 }}>Customer Portal</p>
 
-        <h2 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6 }}>Set new password</h2>
+        <h1 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6, fontWeight: 400 }}>Set a new portal password</h1>
         <p style={{ color: '#888', fontSize: 13, marginBottom: 24 }}>Enter your new password below.</p>
 
         <form onSubmit={(e) => { e.preventDefault(); handleReset(); }}>
