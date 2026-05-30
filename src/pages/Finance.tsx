@@ -32,6 +32,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Link } from 'react-router-dom';
 import PaymentsHub from './PaymentsHub';
 import PaymentVault from './PaymentVault';
+import PaymentTrackingReport from '@/components/finance/PaymentTrackingReport';
 
 const MemoPaymentsHub = memo(PaymentsHub);
 const MemoPaymentVault = memo(PaymentVault);
@@ -42,7 +43,7 @@ import {
 export default function Finance() {
   const { data: pendingSubmissions } = usePendingSubmissionCount();
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
-  const [tab, setTab] = useState<'overview' | 'analytics' | 'collections' | 'docs' | 'vault'>('overview');
+  const [tab, setTab] = useState<'overview' | 'analytics' | 'collections' | 'tracking' | 'docs' | 'vault'>('overview');
   const { session, loading: authLoading } = useAuth();
   const { can } = usePermissions();
   const isAllMode = currencyFilter === 'ALL';
@@ -50,16 +51,18 @@ export default function Finance() {
 
   const showAnalytics = can('view_analytics');
   const showCollections = can('view_collections');
+  const showTracking = can('admin_settings');
   const showDocs = can('view_submissions');
   const showVault = can('admin_settings');
-  const visibleTabCount = 1 + (showAnalytics ? 1 : 0) + (showCollections ? 1 : 0) + (showDocs ? 1 : 0) + (showVault ? 1 : 0);
+  const visibleTabCount = 1 + (showAnalytics ? 1 : 0) + (showCollections ? 1 : 0) + (showTracking ? 1 : 0) + (showDocs ? 1 : 0) + (showVault ? 1 : 0);
 
   useEffect(() => {
     if (tab === 'analytics' && !showAnalytics) setTab('overview');
     if (tab === 'collections' && !showCollections) setTab('overview');
+    if (tab === 'tracking' && !showTracking) setTab('overview');
     if (tab === 'docs' && !showDocs) setTab('overview');
     if (tab === 'vault' && !showVault) setTab('overview');
-  }, [tab, showAnalytics, showCollections, showDocs, showVault]);
+  }, [tab, showAnalytics, showCollections, showTracking, showDocs, showVault]);
 
   const { data: summary, isLoading: summaryLoading } = useDashboardSummary(
     currencyFilter,
@@ -513,11 +516,12 @@ export default function Finance() {
           <CurrencyToggle value={currencyFilter} onChange={setCurrencyFilter} />
         </div>
 
-        <Tabs value={tab} onValueChange={v => setTab(v as 'overview' | 'analytics' | 'collections' | 'docs' | 'vault')} className="w-full">
+        <Tabs value={tab} onValueChange={v => setTab(v as 'overview' | 'analytics' | 'collections' | 'tracking' | 'docs' | 'vault')} className="w-full">
           <TabsList className={`grid w-full max-w-xl`} style={{ gridTemplateColumns: `repeat(${visibleTabCount}, minmax(0, 1fr))` }}>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             {showAnalytics && <TabsTrigger value="analytics">Analytics</TabsTrigger>}
             {showCollections && <TabsTrigger value="collections">Collections</TabsTrigger>}
+            {showTracking && <TabsTrigger value="tracking">Payment Tracking</TabsTrigger>}
             {showDocs && (
               <TabsTrigger value="docs">
                 Documentation
@@ -1074,6 +1078,15 @@ export default function Finance() {
           </>) : (
             <div className="text-center text-muted-foreground py-12">You don't have permission to view this section.</div>
           )}
+          </TabsContent>
+
+          {/* ═══════ Payment Tracking Tab ═══════ */}
+          <TabsContent value="tracking" className="mt-5" tabIndex={-1}>
+            {showTracking ? (
+              <PaymentTrackingReport />
+            ) : (
+              <div className="text-center text-muted-foreground py-12">You don't have permission to view this section.</div>
+            )}
           </TabsContent>
 
           {/* ═══════ Documentation Tab ═══════ */}
