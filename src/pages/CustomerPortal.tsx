@@ -1085,6 +1085,7 @@ export default function CustomerPortal() {
         </a>
       </div>
     </div>
+    </>
   );
 }
 

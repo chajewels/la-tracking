@@ -657,9 +657,16 @@ export default function LoyaltyPortal() {
   }
 
   return (
-    <FullScreenWrap>
-      <TopBar authMode={authMode} token={token} />
-      <MemberView data={data} member={member} portalToken={token} onSignOut={handleSignOut} />
-    </FullScreenWrap>
+    <>
+      <PageMeta
+        title="Loyalty rewards — Cha Jewels"
+        description="Track your Cha Jewels loyalty points, tier benefits, and redeem exclusive rewards from the comfort of your phone."
+        path="/loyalty"
+      />
+      <FullScreenWrap>
+        <TopBar authMode={authMode} token={token} />
+        <MemberView data={data} member={member} portalToken={token} onSignOut={handleSignOut} />
+      </FullScreenWrap>
+    </>
   );
 }
