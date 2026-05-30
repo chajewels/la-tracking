@@ -592,6 +592,12 @@ export default function CustomerPortal() {
   const overdueCount = data.accounts.filter(a => a.status_label === 'Overdue').length;
 
   return (
+    <>
+      <PageMeta
+        title="My account — Cha Jewels Customer Portal"
+        description="View your Cha Jewels layaway and cash order accounts, payment schedules, promotions, and submit proof of payment in one secure place."
+        path="/portal"
+      />
     <div style={{background:P.bg,minHeight:'100vh'}}>
       {/* Header */}
       <div style={{background:P.bg,borderBottom:`1px solid ${P.gd}`}}>
