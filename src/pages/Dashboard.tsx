@@ -426,6 +426,7 @@ export default function Dashboard() {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold">System Audit</h2>
                 <button
+                  aria-label="Close system audit dialog"
                   className="text-muted-foreground hover:text-foreground text-lg leading-none px-2"
                   onClick={() => { setAuditOpen(false); setAuditResults(null); setAuditError(null); setDriftFindings(null); setDriftError(null); }}
                 >×</button>
