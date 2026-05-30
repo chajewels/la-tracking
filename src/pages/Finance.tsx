@@ -517,7 +517,7 @@ export default function Finance() {
         </div>
 
         <Tabs value={tab} onValueChange={v => setTab(v as 'overview' | 'analytics' | 'collections' | 'tracking' | 'docs' | 'vault')} className="w-full">
-          <TabsList className={`grid w-full max-w-xl`} style={{ gridTemplateColumns: `repeat(${visibleTabCount}, minmax(0, 1fr))` }}>
+          <TabsList className={`grid w-full max-w-4xl`} style={{ gridTemplateColumns: `repeat(${visibleTabCount}, minmax(0, 1fr))` }}>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             {showAnalytics && <TabsTrigger value="analytics">Analytics</TabsTrigger>}
             {showCollections && <TabsTrigger value="collections">Collections</TabsTrigger>}
