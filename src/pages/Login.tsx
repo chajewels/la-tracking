@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import AdminSplashScreen from '@/components/auth/AdminSplashScreen';
+import PageMeta from '@/components/seo/PageMeta';
 
 const SPLASH_KEY = 'admin_splash_shown';
 
