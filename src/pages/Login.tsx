@@ -82,6 +82,12 @@ export default function Login() {
   };
 
   return (
+    <>
+      <PageMeta
+        title="Staff sign in — Cha Jewels Hub"
+        description="Internal staff sign in for the Cha Jewels Hub admin console. Authorized team members only — customers should use the customer portal."
+        path="/login"
+      />
     <div className="min-h-screen flex flex-col lg:flex-row" style={{ background: BG_RIGHT }}>
       {/* LEFT PANEL — 55% */}
       <div
