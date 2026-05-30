@@ -163,10 +163,10 @@ export default function Dashboard() {
               </div>
               <div>
                 <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">
-                  {greeting}, {profile?.full_name?.split(' ')[0] || 'there'}
+                  Cha Jewels Hub Dashboard
                 </h1>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  Cha Jewels Hub
+                  {greeting}, {profile?.full_name?.split(' ')[0] || 'there'}
                 </p>
               </div>
             </div>
