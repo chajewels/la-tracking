@@ -175,7 +175,7 @@ export default function Dashboard() {
 
         {/* Section 2 — Key Metrics (counts only) */}
         <div>
-          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Key Metrics</p>
+          <h2 className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Key Metrics</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             {summaryLoading ? (
               [...Array(2)].map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)
@@ -206,7 +206,7 @@ export default function Dashboard() {
 
         {/* Section 4 — Layaway Accounts */}
         <div>
-          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-1">Layaway Accounts</p>
+          <h2 className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-1">Layaway Accounts</h2>
           <p className="text-xs text-muted-foreground mb-3">By plan tier</p>
 
           {/* 5 fixed plan tiles */}
@@ -289,7 +289,7 @@ export default function Dashboard() {
 
         {/* Section 5 — Cash Orders (counts only — revenue cards moved to Finance) */}
         <div>
-          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Cash Orders</p>
+          <h2 className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Cash Orders</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             {summaryLoading ? (
               [...Array(2)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
@@ -327,7 +327,7 @@ export default function Dashboard() {
 
         {/* Section 7 — Overdue & Due Soon (count-only) */}
         <div>
-          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Overdue & Due Soon</p>
+          <h2 className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Overdue &amp; Due Soon</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
             {summaryLoading ? (
               [...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
@@ -358,7 +358,7 @@ export default function Dashboard() {
         {/* Section 8 — Regional Overview (count-only on Dashboard) */}
         {needsGeo && (
         <div>
-          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Regional Overview</p>
+          <h2 className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Regional Overview</h2>
           <GeoBreakdown accounts={accounts || []} customers={customers || []} countOnly />
         </div>
         )}
@@ -374,7 +374,7 @@ export default function Dashboard() {
         {/* Section 10 — AI & Predictions */}
         {can('view_ai_risk') && (
         <div>
-          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">AI & Predictions</p>
+          <h2 className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">AI &amp; Predictions</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <LatePaymentRiskPanel />
             <CompletionProbabilityPanel />
@@ -386,7 +386,7 @@ export default function Dashboard() {
         {/* Sections 11 + 12 — Operations Panel + Live Collection Tracker (count-only) */}
         {(can('view_operations_panel') || can('view_live_collection')) && (
         <div>
-          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Operations & Activity</p>
+          <h2 className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Operations &amp; Activity</h2>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {can('view_operations_panel') && <OperationsPanel summary={summary} displayCurrency={displayCurrency} countOnly />}
             {can('view_live_collection') && <LiveCollectionTracker currencyFilter={currencyFilter} displayCurrency={displayCurrency} countOnly />}
@@ -398,7 +398,7 @@ export default function Dashboard() {
         {isAdmin && (
           <div>
             <div className="flex items-center justify-between mb-3">
-              <p className="text-[10px] font-semibold text-primary uppercase tracking-widest">Account Audit</p>
+              <h2 className="text-[10px] font-semibold text-primary uppercase tracking-widest">Account Audit</h2>
               <button
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-primary/30 text-primary hover:bg-primary/10 disabled:opacity-50"
                 disabled={auditLoading}
