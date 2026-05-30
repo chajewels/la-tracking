@@ -155,46 +155,25 @@ export function useMonthlyInflowByPlan() {
   const [data, setData] = useState<any[]>([]);
 
   const fetchData = useCallback(async () => {
-    const now = new Date();
-    const sixAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-    const startDate = Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(sixAgo);
+    const { data: rows, error } = await supabase.rpc('monthly_inflow_by_plan_6m');
 
-    const { data: rows } = await supabase
-      .from('payments')
-      .select('amount_paid, date_paid, currency, layaway_accounts!inner(payment_plan_months, invoice_number)')
-      .is('voided_at', null)
-      .gte('date_paid', startDate)
-      .not('layaway_accounts.invoice_number', 'like', 'TEST-%');
+    if (error || !rows) { setData([]); return; }
 
-    if (!rows) { setData([]); return; }
-
-    const { data: rateRow } = await supabase
-      .from('system_settings')
-      .select('value')
-      .eq('key', 'php_jpy_rate')
-      .single();
-    const rate = rateRow ? Number(JSON.parse(String(rateRow.value))) : 0.42;
-
-    const buckets = new Map<string, Map<number, number>>();
-    for (const p of rows as any[]) {
-      const month = p.date_paid.substring(0, 7);
-      const plan = p.layaway_accounts?.payment_plan_months ?? 0;
-      const jpy = p.currency === 'JPY' ? Number(p.amount_paid) : Math.round(Number(p.amount_paid) / rate);
-      if (!buckets.has(month)) buckets.set(month, new Map());
-      const m = buckets.get(month)!;
-      m.set(plan, (m.get(plan) || 0) + jpy);
+    // Pivot pre-aggregated rows into chart shape: one row per month with plan_X columns.
+    const byMonth = new Map<string, Record<string, any>>();
+    for (const r of rows as Array<{ month: string; payment_plan_months: number; jpy_total: number }>) {
+      if (!byMonth.has(r.month)) {
+        const d = new Date(r.month + '-01');
+        const label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+        byMonth.set(r.month, { label });
+      }
+      byMonth.get(r.month)![`plan_${r.payment_plan_months}`] = Number(r.jpy_total);
     }
 
     setData(
-      [...buckets.entries()]
+      [...byMonth.entries()]
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([month, planMap]) => {
-          const d = new Date(month + '-01');
-          const label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-          const row: Record<string, any> = { label };
-          for (const [plan, amount] of planMap) row[`plan_${plan}`] = amount;
-          return row;
-        })
+        .map(([_, row]) => row)
     );
   }, []);
 
