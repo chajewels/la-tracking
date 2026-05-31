@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo, memo } from 'react';
 import { addMonths, endOfMonth, format, startOfMonth } from 'date-fns';
-import { DollarSign, TrendingUp, BarChart3, Sparkles, CalendarClock, Trophy, Clock, AlertTriangle, ShieldAlert, Crown, UserCheck, Target, Users, Activity, Banknote, X, ShoppingBag } from 'lucide-react';
+import { DollarSign, TrendingUp, BarChart3, Sparkles, CalendarClock, Trophy, Clock, AlertTriangle, ShieldAlert, Crown, UserCheck, Target, Users, Activity, Banknote, X, ShoppingBag, RefreshCw } from 'lucide-react';
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
 } from 'recharts';
 import MonthlyAnalyticsChart from '@/components/MonthlyAnalyticsChart';
+import TradeProgramTrends from '@/components/dashboard/TradeProgramTrends';
 import AppLayout from '@/components/layout/AppLayout';
 import StatCard from '@/components/dashboard/StatCard';
 import AgingBuckets from '@/components/dashboard/AgingBuckets';
@@ -240,6 +241,37 @@ export default function Finance() {
       }>;
     },
     enabled: (tab === 'overview' || tab === 'analytics') && !!session,
+  });
+
+  const { data: tradeKpis } = useQuery({
+    queryKey: ['trade-kpis'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc('get_trade_kpis');
+      if (error) throw error;
+      return data as {
+        active_count: number;
+        total_count: number;
+        completed_count: number;
+        total_value_jpy: number;
+        share_percent: number;
+        all_accounts_count: number;
+      };
+    },
+    enabled: tab === 'overview' && !!session,
+  });
+
+  const { data: tradeMonthlyTrends } = useQuery({
+    queryKey: ['trade-monthly-trends'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc('get_trade_monthly_trends', { p_months_back: 12 });
+      if (error) throw error;
+      return (Array.isArray(data) ? data : []) as Array<{
+        month: string;
+        trade_count: number;
+        trade_value_jpy: number;
+      }>;
+    },
+    enabled: tab === 'overview' && !!session,
   });
 
   const thisMonthSales = useMemo(() => {
@@ -608,6 +640,35 @@ export default function Finance() {
               )}
             </div>
 
+            {/* Trade Program row */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {!tradeKpis ? (
+                [...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+              ) : (
+                <>
+                  <StatCard
+                    title="Trade Accounts"
+                    value={tradeKpis.total_count.toString()}
+                    subtitle={`${tradeKpis.active_count} active · ${tradeKpis.completed_count} completed`}
+                    icon={RefreshCw}
+                    variant="gold"
+                  />
+                  <StatCard
+                    title="Total Trade Value (JPY)"
+                    value={`¥ ${Math.round(tradeKpis.total_value_jpy).toLocaleString()}`}
+                    icon={Banknote}
+                    variant="gold"
+                  />
+                  <StatCard
+                    title="Trade Share"
+                    value={`${tradeKpis.share_percent.toFixed(1)}%`}
+                    subtitle={`${tradeKpis.total_count} of ${tradeKpis.all_accounts_count} accounts`}
+                    icon={Activity}
+                  />
+                </>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <AgingBuckets currency={displayCurrency} />
               {/* 6-Month Forecast */}
@@ -641,6 +702,8 @@ export default function Finance() {
             </div>
 
             <MonthlyAnalyticsChart monthlySalesData={monthlySalesData} />
+
+            <TradeProgramTrends data={tradeMonthlyTrends ?? []} />
 
             {recentCompleted.length > 0 && (
               <div className="rounded-xl border border-border bg-card p-5">
