@@ -31,6 +31,12 @@ export default function Customers() {
     return t === 'cash' || t === 'accounts' ? t : 'customers';
   })();
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
+  useEffect(() => {
+    const t = searchParams.get('tab');
+    const next: TabKey = t === 'cash' || t === 'accounts' ? t : 'customers';
+    if (next !== activeTab) setActiveTab(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const handleTabChange = useCallback((v: string) => {
     const tab = v as TabKey;
     setActiveTab(tab);

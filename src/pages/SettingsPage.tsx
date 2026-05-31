@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import {
   Settings, UserPlus, Users, Shield, Eye, EyeOff, RotateCcw,
@@ -106,6 +107,29 @@ export default function SettingsPage() {
   const { allPermissions } = usePermissions();
   const isAdmin = roles.includes('admin');
   const isFinance = roles.includes('finance');
+
+  type SettingsTabKey = 'general' | 'team' | 'roles' | 'matrix' | 'features';
+  const SETTINGS_TABS: SettingsTabKey[] = ['general', 'team', 'roles', 'matrix', 'features'];
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [settingsTab, setSettingsTabState] = useState<SettingsTabKey>(() => {
+    const urlTab = searchParams.get('tab') as SettingsTabKey | null;
+    return urlTab && SETTINGS_TABS.includes(urlTab) ? urlTab : 'general';
+  });
+  const setSettingsTab = (next: SettingsTabKey) => {
+    setSettingsTabState(next);
+    setSearchParams(prev => {
+      const params = new URLSearchParams(prev);
+      params.set('tab', next);
+      return params;
+    }, { replace: true });
+  };
+  useEffect(() => {
+    const urlTab = searchParams.get('tab') as SettingsTabKey | null;
+    if (urlTab && SETTINGS_TABS.includes(urlTab) && urlTab !== settingsTab) {
+      setSettingsTabState(urlTab);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const queryClient = useQueryClient();
   const [rate, setRate] = useState(getConversionRate().toString());
 
@@ -308,7 +332,7 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <Tabs defaultValue="general" className="w-full">
+        <Tabs value={settingsTab} onValueChange={(v) => setSettingsTab(v as SettingsTabKey)} className="w-full">
           <TabsList className="bg-muted/50 border border-border">
             <TabsTrigger value="general" className="gap-1.5 text-xs">
               <Settings className="h-3.5 w-3.5" />

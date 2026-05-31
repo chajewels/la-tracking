@@ -1,6 +1,7 @@
 
+import { useState, useEffect } from 'react';
 import { ROUTES } from "@/constants/routes";
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import {
   LayoutDashboard,
   Wallet,
@@ -12,6 +13,8 @@ import {
   BarChart3,
   Sparkles,
   ScrollText,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
@@ -30,51 +33,131 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
 } from '@/components/ui/sidebar';
+
+type SubMenuItem = {
+  label: string;
+  tab: string;
+  badgeKey?: 'finance_docs' | 'monitoring_extensions' | 'loyalty_redemptions';
+  permFilter?: (can: (key: string) => boolean) => boolean;
+};
 
 type MenuItem = {
   label: string;
   icon: any;
-  path: string;
+  path?: string;
+  parentPath?: string;
+  children?: SubMenuItem[];
   adminOnly?: boolean;
-  /**
-   * Optional path used by canSeeNav() for permission-based filtering.
-   * When set, the item is hidden if the current user's roles don't grant
-   * view access to that path in role_permissions / SIDEBAR_ACCESS.
-   */
   permPath?: string;
 };
 
 const menuItems: MenuItem[] = [
   { label: 'Dashboard', icon: LayoutDashboard, path: ROUTES.DASHBOARD },
-  { label: 'Customers', icon: Users, path: ROUTES.CUSTOMERS },
-  { label: 'CSR Monitoring', icon: Bell, path: ROUTES.MONITORING },
-  { label: 'Finance', icon: Wallet, path: ROUTES.FINANCE },
+  {
+    label: 'Customers', icon: Users, parentPath: ROUTES.CUSTOMERS,
+    children: [
+      { label: 'All Customers', tab: 'customers' },
+      { label: 'Layaway', tab: 'accounts' },
+      { label: 'Cash', tab: 'cash' },
+    ],
+  },
+  {
+    label: 'CSR Monitoring', icon: Bell, parentPath: ROUTES.MONITORING,
+    children: [
+      { label: 'CSR Alerts', tab: 'alerts' },
+      { label: 'Smart Reminders', tab: 'reminders' },
+      { label: 'Extensions', tab: 'extensions', badgeKey: 'monitoring_extensions' },
+      { label: 'Audit', tab: 'audit' },
+    ],
+  },
+  {
+    label: 'Finance', icon: Wallet, parentPath: ROUTES.FINANCE,
+    children: [
+      { label: 'Overview', tab: 'overview' },
+      { label: 'Analytics', tab: 'analytics', permFilter: (can) => can('view_analytics') },
+      { label: 'Collections', tab: 'collections', permFilter: (can) => can('view_collections') },
+      { label: 'Payment Tracking', tab: 'tracking', permFilter: (can) => can('admin_settings') },
+      { label: 'Documentation', tab: 'docs', badgeKey: 'finance_docs', permFilter: (can) => can('view_submissions') },
+      { label: 'Vault', tab: 'vault', permFilter: (can) => can('admin_settings') },
+    ],
+  },
   { label: 'Executive Dashboard', icon: BarChart3, path: ROUTES.EXECUTIVE_DASHBOARD, adminOnly: true },
-  { label: 'Promotions', icon: Megaphone, path: ROUTES.PROMOTIONS },
-  { label: 'Loyalty', icon: Sparkles, path: ROUTES.LOYALTY_ADMIN, permPath: ROUTES.LOYALTY_ADMIN },
-  { label: 'Settings', icon: Settings, path: ROUTES.SETTINGS },
+  {
+    label: 'Promotions', icon: Megaphone, parentPath: ROUTES.PROMOTIONS,
+    children: [
+      { label: 'Promos', tab: 'promos' },
+      { label: 'Categories', tab: 'categories' },
+      { label: 'Announcements', tab: 'announcements' },
+    ],
+  },
+  {
+    label: 'Loyalty', icon: Sparkles, parentPath: ROUTES.LOYALTY_ADMIN, permPath: ROUTES.LOYALTY_ADMIN,
+    children: [
+      { label: 'Dashboard', tab: 'dashboard' },
+      { label: 'Members', tab: 'members' },
+      { label: 'Redemptions', tab: 'redemptions', badgeKey: 'loyalty_redemptions' },
+      { label: 'Beta Whitelist', tab: 'beta' },
+      { label: 'Tiers', tab: 'tiers' },
+      { label: 'Settings', tab: 'settings' },
+      { label: 'Audit Log', tab: 'audit' },
+      { label: 'Transactions', tab: 'transactions' },
+      { label: 'Promotions', tab: 'promotions' },
+      { label: 'Rewards', tab: 'rewards' },
+      { label: 'Banners', tab: 'banners' },
+      { label: 'Notifications', tab: 'notifications' },
+    ],
+  },
+  {
+    label: 'Settings', icon: Settings, parentPath: ROUTES.SETTINGS,
+    children: [
+      { label: 'General', tab: 'general' },
+      { label: 'Team', tab: 'team' },
+      { label: 'Roles', tab: 'roles' },
+      { label: 'Matrix', tab: 'matrix' },
+      { label: 'Features', tab: 'features' },
+    ],
+  },
   { label: 'Admin Audit', icon: ScrollText, path: ROUTES.ADMIN_ACTIVITY, adminOnly: true },
 ];
 
 export default function AppSidebar() {
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { profile, signOut, user } = useAuth();
   const isExecAllowed = user?.email === 'sales@chajewelsjp.com';
-  const { canSeeNav } = usePermissions();
+  const { canSeeNav, can } = usePermissions();
   const { count: pendingRedemptions } = useLoyaltyPendingCount();
-  // usePendingSubmissionCount returns useQuery directly → destructure { data }
   const { data: pendingSubmissions } = usePendingSubmissionCount();
   const { count: pendingWaivers } = useWaiverRequestCount();
   const { count: pendingExtensions } = useExtensionRequestCount();
   const { count: newLayawayToday } = useNewLayawayTodayCount();
   const { count: newCashToday } = useNewCashOrdersTodayCount();
+
   const badgeCountByPath: Record<string, number> = {
     [ROUTES.LOYALTY_ADMIN]: pendingRedemptions ?? 0,
     [ROUTES.FINANCE]: (pendingSubmissions ?? 0) + (pendingWaivers ?? 0),
     [ROUTES.MONITORING]: pendingExtensions ?? 0,
     [ROUTES.DASHBOARD]: (newLayawayToday ?? 0) + (newCashToday ?? 0),
   };
+
+  const badgeBySubKey: Record<string, number> = {
+    finance_docs: (pendingSubmissions ?? 0) + (pendingWaivers ?? 0),
+    monitoring_extensions: pendingExtensions ?? 0,
+    loyalty_redemptions: pendingRedemptions ?? 0,
+  };
+
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const match = menuItems.find(m => m.parentPath && location.pathname === m.parentPath);
+    if (match) {
+      setExpanded(prev => (prev[match.label] ? prev : { ...prev, [match.label]: true }));
+    }
+  }, [location.pathname]);
 
   const initials = profile?.full_name
     ? profile.full_name
@@ -84,6 +167,16 @@ export default function AppSidebar() {
         .toUpperCase()
         .slice(0, 2)
     : 'CJ';
+
+  const visibleItems = menuItems
+    .filter(item => !item.adminOnly || isExecAllowed)
+    .filter(item => !item.permPath || canSeeNav(item.permPath))
+    .map(item => {
+      if (!item.children) return item;
+      const visibleChildren = item.children.filter(c => !c.permFilter || c.permFilter(can));
+      return { ...item, children: visibleChildren };
+    })
+    .filter(item => !item.children || item.children.length > 0);
 
   return (
     <Sidebar
@@ -110,46 +203,128 @@ export default function AppSidebar() {
 
       <SidebarContent className="px-3 py-4" style={{ background: '#1A1410' }}>
         <SidebarMenu>
-          {menuItems
-            .filter(item => !item.adminOnly || isExecAllowed)
-            .filter(item => !item.permPath || canSeeNav(item.permPath))
-            .map((item) => {
-            const isActive = location.pathname === item.path;
+          {visibleItems.map((item) => {
             const Icon = item.icon;
+
+            // Leaf item (no children) — unchanged from previous behavior
+            if (!item.children) {
+              const isActive = location.pathname === item.path;
+              return (
+                <SidebarMenuItem key={item.label}>
+                  <SidebarMenuButton
+                    asChild
+                    className={cn(
+                      'mb-1 h-11 rounded-md pl-3 pr-3 text-sm transition-all duration-200 ease-out',
+                      isActive
+                        ? 'border-l-2 border-l-[#D4AF37] bg-[#D4AF37]/10 font-medium text-[#D4AF37] hover:bg-[#D4AF37]/15 hover:text-[#D4AF37]'
+                        : 'text-white/55 hover:bg-[#D4AF37]/[0.06] hover:text-white/90'
+                    )}
+                  >
+                    <Link to={item.path!} className="flex w-full items-center gap-2">
+                      <Icon
+                        className={cn(
+                          'h-4 w-4',
+                          isActive ? 'opacity-100 text-[#D4AF37]' : 'opacity-60'
+                        )}
+                      />
+                      <span className="flex-1">{item.label}</span>
+                      {(badgeCountByPath[item.path!] ?? 0) > 0 && (
+                        <span
+                          className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                          style={{
+                            background: 'rgba(245, 158, 11, 0.18)',
+                            color: '#F59E0B',
+                            border: '1px solid rgba(245, 158, 11, 0.35)',
+                          }}
+                        >
+                          {badgeCountByPath[item.path!]}
+                        </span>
+                      )}
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              );
+            }
+
+            // Parent item with children — collapsible
+            const isOnParent = location.pathname === item.parentPath;
+            const isExpanded = !!expanded[item.label];
+            const parentBadge = badgeCountByPath[item.parentPath!] ?? 0;
+            const Chevron = isExpanded ? ChevronDown : ChevronRight;
 
             return (
               <SidebarMenuItem key={item.label}>
                 <SidebarMenuButton
-                  asChild
+                  onClick={() => setExpanded(prev => ({ ...prev, [item.label]: !prev[item.label] }))}
                   className={cn(
-                    'mb-1 h-11 rounded-md pl-3 pr-3 text-sm transition-all duration-200 ease-out',
-                    isActive
-                      ? 'border-l-2 border-l-[#D4AF37] bg-[#D4AF37]/10 font-medium text-[#D4AF37] hover:bg-[#D4AF37]/15 hover:text-[#D4AF37]'
+                    'mb-1 h-11 rounded-md pl-3 pr-3 text-sm transition-all duration-200 ease-out cursor-pointer',
+                    isOnParent
+                      ? 'border-l border-l-[#D4AF37]/40 bg-[#D4AF37]/[0.04] text-white/80 hover:bg-[#D4AF37]/[0.08]'
                       : 'text-white/55 hover:bg-[#D4AF37]/[0.06] hover:text-white/90'
                   )}
                 >
-                  <Link to={item.path} className="flex w-full items-center gap-2">
-                    <Icon
-                      className={cn(
-                        'h-4 w-4',
-                        isActive ? 'opacity-100 text-[#D4AF37]' : 'opacity-60'
-                      )}
-                    />
-                    <span className="flex-1">{item.label}</span>
-                    {(badgeCountByPath[item.path] ?? 0) > 0 && (
-                      <span
-                        className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
-                        style={{
-                          background: 'rgba(245, 158, 11, 0.18)',
-                          color: '#F59E0B',
-                          border: '1px solid rgba(245, 158, 11, 0.35)',
-                        }}
-                      >
-                        {badgeCountByPath[item.path]}
-                      </span>
+                  <Icon
+                    className={cn(
+                      'h-4 w-4',
+                      isOnParent ? 'opacity-80 text-[#D4AF37]/70' : 'opacity-60'
                     )}
-                  </Link>
+                  />
+                  <span className="flex-1 text-left">{item.label}</span>
+                  {parentBadge > 0 && (
+                    <span
+                      className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                      style={{
+                        background: 'rgba(245, 158, 11, 0.18)',
+                        color: '#F59E0B',
+                        border: '1px solid rgba(245, 158, 11, 0.35)',
+                      }}
+                    >
+                      {parentBadge}
+                    </span>
+                  )}
+                  <Chevron className="h-3.5 w-3.5 opacity-60" />
                 </SidebarMenuButton>
+
+                {isExpanded && (
+                  <SidebarMenuSub className="border-l border-l-[#D4AF37]/15 ml-4 pl-2 mt-0.5 mb-1">
+                    {item.children.map((child) => {
+                      const isChildActive =
+                        location.pathname === item.parentPath &&
+                        (searchParams.get('tab') === child.tab ||
+                          (!searchParams.get('tab') && child.tab === item.children![0].tab));
+                      const subBadge = child.badgeKey ? (badgeBySubKey[child.badgeKey] ?? 0) : 0;
+                      return (
+                        <SidebarMenuSubItem key={child.tab}>
+                          <SidebarMenuSubButton
+                            asChild
+                            className={cn(
+                              'h-8 rounded-md pl-3 pr-2 text-xs transition-all duration-200 ease-out',
+                              isChildActive
+                                ? 'bg-[#D4AF37]/10 font-medium text-[#D4AF37] hover:bg-[#D4AF37]/15 hover:text-[#D4AF37]'
+                                : 'text-white/55 hover:bg-[#D4AF37]/[0.06] hover:text-white/90'
+                            )}
+                          >
+                            <Link to={`${item.parentPath}?tab=${child.tab}`} className="flex w-full items-center gap-2">
+                              <span className="flex-1">{child.label}</span>
+                              {subBadge > 0 && (
+                                <span
+                                  className="ml-auto inline-flex min-w-[1.1rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold"
+                                  style={{
+                                    background: 'rgba(245, 158, 11, 0.18)',
+                                    color: '#F59E0B',
+                                    border: '1px solid rgba(245, 158, 11, 0.35)',
+                                  }}
+                                >
+                                  {subBadge}
+                                </span>
+                              )}
+                            </Link>
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                      );
+                    })}
+                  </SidebarMenuSub>
+                )}
               </SidebarMenuItem>
             );
           })}

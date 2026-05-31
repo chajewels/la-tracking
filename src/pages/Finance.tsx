@@ -30,7 +30,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import PaymentsHub from './PaymentsHub';
 import PaymentVault from './PaymentVault';
 import PaymentTrackingReport from '@/components/finance/PaymentTrackingReport';
@@ -44,7 +44,28 @@ import {
 export default function Finance() {
   const { data: pendingSubmissions } = usePendingSubmissionCount();
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
-  const [tab, setTab] = useState<'overview' | 'analytics' | 'collections' | 'tracking' | 'docs' | 'vault'>('overview');
+  type FinanceTabKey = 'overview' | 'analytics' | 'collections' | 'tracking' | 'docs' | 'vault';
+  const FINANCE_TABS: FinanceTabKey[] = ['overview', 'analytics', 'collections', 'tracking', 'docs', 'vault'];
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [tab, setTabState] = useState<FinanceTabKey>(() => {
+    const urlTab = searchParams.get('tab') as FinanceTabKey | null;
+    return urlTab && FINANCE_TABS.includes(urlTab) ? urlTab : 'overview';
+  });
+  const setTab = (next: FinanceTabKey) => {
+    setTabState(next);
+    setSearchParams(prev => {
+      const params = new URLSearchParams(prev);
+      params.set('tab', next);
+      return params;
+    }, { replace: true });
+  };
+  useEffect(() => {
+    const urlTab = searchParams.get('tab') as FinanceTabKey | null;
+    if (urlTab && FINANCE_TABS.includes(urlTab) && urlTab !== tab) {
+      setTabState(urlTab);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const { session, loading: authLoading } = useAuth();
   const { can } = usePermissions();
   const isAllMode = currencyFilter === 'ALL';

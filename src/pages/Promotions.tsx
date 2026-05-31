@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Megaphone, Plus, Pencil, Trash2, Upload, Image as ImageIcon, Video, ExternalLink, Tag } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -134,7 +135,28 @@ export default function Promotions() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  const [tab, setTab] = useState<'promos' | 'categories' | 'announcements'>('promos');
+  type PromotionsTabKey = 'promos' | 'categories' | 'announcements';
+  const PROMOTIONS_TABS: PromotionsTabKey[] = ['promos', 'categories', 'announcements'];
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [tab, setTabState] = useState<PromotionsTabKey>(() => {
+    const urlTab = searchParams.get('tab') as PromotionsTabKey | null;
+    return urlTab && PROMOTIONS_TABS.includes(urlTab) ? urlTab : 'promos';
+  });
+  const setTab = (next: PromotionsTabKey) => {
+    setTabState(next);
+    setSearchParams(prev => {
+      const params = new URLSearchParams(prev);
+      params.set('tab', next);
+      return params;
+    }, { replace: true });
+  };
+  useEffect(() => {
+    const urlTab = searchParams.get('tab') as PromotionsTabKey | null;
+    if (urlTab && PROMOTIONS_TABS.includes(urlTab) && urlTab !== tab) {
+      setTabState(urlTab);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Promotion | null>(null);

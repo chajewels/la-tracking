@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback, useEffect } from 'react';
 import { Bell, Send, Copy, Check, Loader2, Filter, MessageCircle, AlertTriangle, Clock, Calendar, CheckCircle, RefreshCw, Shield, ShieldCheck, Gavel } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
@@ -65,7 +65,28 @@ export default function Monitoring() {
   const [messengerDialog, setMessengerDialog] = useState<{ alert: AlertItem; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const [monitoringTab, setMonitoringTab] = useState<'alerts' | 'reminders' | 'extensions' | 'audit'>('alerts');
+  type MonitoringTabKey = 'alerts' | 'reminders' | 'extensions' | 'audit';
+  const isMonitoringTab = (v: string | null): v is MonitoringTabKey =>
+    v === 'alerts' || v === 'reminders' || v === 'extensions' || v === 'audit';
+  const [monitoringTab, setMonitoringTabState] = useState<MonitoringTabKey>(() => {
+    const urlTab = searchParams.get('tab');
+    return isMonitoringTab(urlTab) ? urlTab : 'alerts';
+  });
+  const setMonitoringTab = useCallback((next: MonitoringTabKey) => {
+    setMonitoringTabState(next);
+    setSearchParams(prev => {
+      const params = new URLSearchParams(prev);
+      params.set('tab', next);
+      return params;
+    }, { replace: true });
+  }, [setSearchParams]);
+  useEffect(() => {
+    const urlTab = searchParams.get('tab');
+    if (isMonitoringTab(urlTab) && urlTab !== monitoringTab) {
+      setMonitoringTabState(urlTab);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const queryClient = useQueryClient();
 
   const { lastRefreshedAt, refreshing, refresh } = useAutoRefresh([
