@@ -155,7 +155,9 @@ export default function AppSidebar() {
   useEffect(() => {
     const match = menuItems.find(m => m.parentPath && location.pathname === m.parentPath);
     if (match) {
-      setExpanded(prev => (prev[match.label] ? prev : { ...prev, [match.label]: true }));
+      setExpanded({ [match.label]: true });
+    } else {
+      setExpanded({});
     }
   }, [location.pathname]);
 
@@ -210,7 +212,7 @@ export default function AppSidebar() {
             if (!item.children) {
               const isActive = location.pathname === item.path;
               return (
-                <SidebarMenuItem key={item.label}>
+                <SidebarMenuItem key={item.label} onMouseEnter={() => setExpanded({})}>
                   <SidebarMenuButton
                     asChild
                     className={cn(
@@ -253,9 +255,9 @@ export default function AppSidebar() {
             const Chevron = isExpanded ? ChevronDown : ChevronRight;
 
             return (
-              <SidebarMenuItem key={item.label}>
+              <SidebarMenuItem key={item.label} onMouseEnter={() => setExpanded({ [item.label]: true })}>
                 <SidebarMenuButton
-                  onClick={() => setExpanded(prev => ({ ...prev, [item.label]: !prev[item.label] }))}
+                  onClick={() => setExpanded(prev => prev[item.label] ? {} : { [item.label]: true })}
                   className={cn(
                     'mb-1 h-11 rounded-md pl-3 pr-3 text-sm transition-all duration-200 ease-out cursor-pointer',
                     isOnParent
