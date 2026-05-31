@@ -52,6 +52,7 @@ interface CashOrderRow {
   cancelled_at?: string | null;
   cancelled_by_user_id?: string | null;
   created_at: string;
+  is_trade?: boolean;
   customers: {
     id: string;
     full_name: string;
@@ -516,7 +517,7 @@ export default function CashOrderDetail() {
                     Cash Order #{order.invoice_number}
                   </h1>
                   <StatusBadge status={order.status} />
-                  {(order as any).is_trade && (
+                  {order.is_trade && (
                     <Badge
                       variant="outline"
                       className="bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/30 dark:text-amber-200 dark:border-amber-800 text-xs"

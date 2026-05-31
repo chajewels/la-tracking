@@ -32,6 +32,7 @@ export interface LayawayAccount {
   total_paid: number;
   remaining_balance: number;
   created_at: string;
+  is_trade?: boolean;
 }
 
 export interface ScheduleItem {

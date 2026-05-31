@@ -953,7 +953,7 @@ export default function AccountDetail() {
                   🧪 TEST
                 </Badge>
               )}
-              {(account as any).is_trade && (
+              {account.is_trade && (
                 <Badge
                   variant="outline"
                   className="bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/30 dark:text-amber-200 dark:border-amber-800 text-xs"

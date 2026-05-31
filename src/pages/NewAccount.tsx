@@ -425,7 +425,7 @@ export default function NewAccount() {
         custom_installments: installmentsToSend,
         loyalty_jpy_amount: loyaltyJpyAmount,
         is_trade: isTrade,
-      } as any);
+      });
 
       // Mark as submitted to allow navigation
       submittedRef.current = true;
