@@ -65,6 +65,17 @@ Reference docs (read the relevant one when a task touches that area):
   get_forecast_6m() returns raw (month, currency, remaining) rows —
   NO conversion in SQL. Frontend calls toJpy() per row.
 
+  ⚠️ JSONB STORAGE NOTE: php_jpy_rate is stored in system_settings as a JSON STRING (not JSON number):
+    Actual storage: {"php_jpy_rate": "0.42"}  (quoted string)
+
+  Correct SQL extraction:
+    SELECT (value #>> '{}')::numeric FROM system_settings WHERE key = 'php_jpy_rate'  ✓
+
+  WRONG extraction (errors with "invalid input syntax for type numeric"):
+    SELECT (value::text)::numeric FROM ...  ✗  -- returns '"0.42"' with literal quotes, fails to cast
+
+  The #>> '{}' operator strips JSON quoting and works for both JSON string and JSON number storage. Always use this idiom for php_jpy_rate extraction in any new RPC.
+
 ## DOMAIN ARCHITECTURE — STRICT RULE (NON-NEGOTIABLE)
 
   This rule has been violated repeatedly. Anyone reading this file
@@ -952,6 +963,39 @@ Consistent labels across the Finance dashboard. The underlying metrics are uncha
   penalty-engine and auto-forfeit-settlement are INDEPENDENT
   — neither calls the other. Penalty engine creates penalties;
   auto-forfeit-settlement checks forfeiture conditions.
+
+## TRADE PROGRAM — NON-NEGOTIABLE (added 2026-05-31)
+
+### Overview
+Trade Program lets fully-paid layaway customers exchange their item for a new piece. The is_trade flag on layaway_accounts and cash_orders identifies accounts/orders that originated from a trade transaction. Policy: https://chajewelstrade.chajewelsjp.com/
+
+### is_trade flag rules
+  - Set at creation only — LOCKED after creation, never editable via app UI
+  - Admin override via SQL Editor is permitted for one-time backfills only
+  - Pure metadata — has NO effect on calculations, payments, penalties, forfeiture, or any business rule
+  - Default false on all accounts
+
+### Display
+  - "🔄 Trade" amber Badge rendered next to status pill in AccountDetail + CashOrderDetail headers
+  - Visible to all roles when is_trade=true
+  - No badge column in list tables (admin decision — keeps lists clean)
+
+### Metric definitions (Finance Overview KPI cards + trend chart)
+  - Active Trade: is_trade=true AND status IN ('active','overdue','extension_active','reactivated') — LAYAWAY ONLY (cash orders have no in-progress state, only completed/cancelled)
+  - Total Trade: is_trade=true AND status::text != 'cancelled' — layaway + cash orders combined
+  - Completed Trade: is_trade=true AND status='completed' — layaway + cash orders combined
+  - Total Trade Value (JPY): SUM(total_amount) WHERE is_trade=true AND status::text != 'cancelled', PHP converted via ÷ php_jpy_rate
+  - Trade Share %: (Total Trade count) / (All non-cancelled accounts count, layaway + cash combined) × 100
+
+### RPCs (Supabase SQL Editor)
+  - get_trade_kpis() → jsonb { active_count, total_count, completed_count, total_value_jpy, share_percent, all_accounts_count }
+  - get_trade_monthly_trends(p_months_back int DEFAULT 12) → TABLE (month text, trade_count int, trade_value_jpy numeric); date basis: COALESCE(order_date, created_at::date); excludes cancelled
+
+### UI surfaces (locked decisions)
+  - Creation: "Trade Program" checkbox in NewAccount.tsx + NewCashOrder.tsx with amber tint when checked and policy link
+  - Detail badge: amber-styled Badge next to status pill in AccountDetail.tsx + CashOrderDetail.tsx
+  - Finance > Overview: 3 KPI StatCards (Trade Accounts / Total Trade Value / Trade Share) between Cash Orders row and AgingBuckets
+  - Finance > Overview: TradeProgramTrends dual-line Recharts chart below MonthlyAnalyticsChart
 
 ## PAYMENT SUBMISSION FLOW (locked — 2026-04-13)
 
