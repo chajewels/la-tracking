@@ -55,6 +55,7 @@ Deno.serve(async (req) => {
       expires_at,
       notes,
       agreement_version,
+      is_trade, // boolean — optional, trade program flag (locked after creation)
     } = body;
 
     if (!customer_id || !invoice_number || !currency || total_amount == null || !expires_at) {
@@ -136,6 +137,7 @@ Deno.serve(async (req) => {
       total_paid: 0,
       remaining_balance: totalAmountNum,
       loyalty_jpy_amount: loyaltyJpyAmount,
+      is_trade: is_trade ?? false,
       created_by_user_id: user.id,
     };
     if (agreement_version) {

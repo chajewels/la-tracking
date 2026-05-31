@@ -48,6 +48,7 @@ export default function NewCashOrder() {
   const [expiresAt, setExpiresAt] = useState<string>('');
   const [notes, setNotes] = useState('');
   const [acceptAgreement, setAcceptAgreement] = useState(false);
+  const [isTrade, setIsTrade] = useState(false);
 
   // Customer search combobox (matches NewAccount pattern)
   const [customerSearch, setCustomerSearch] = useState('');
@@ -187,6 +188,7 @@ export default function NewCashOrder() {
       }
       if (notes.trim()) payload.notes = notes.trim();
       if (acceptAgreement) payload.agreement_version = 'v1';
+      payload.is_trade = isTrade;
 
       const { data, error } = await supabase.functions.invoke('create-cash-order', { body: payload });
 
@@ -523,6 +525,38 @@ export default function NewCashOrder() {
                   Records agreement_version='v1' and the acceptance timestamp on the cash order
                 </span>
               </Label>
+            </div>
+
+            {/* Trade Program flag (locked after creation) */}
+            <div
+              className={`flex items-start gap-3 rounded-lg border p-3 transition-colors ${
+                isTrade
+                  ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800'
+                  : 'border-border bg-background/50'
+              }`}
+            >
+              <Checkbox
+                id="is-trade"
+                checked={isTrade}
+                onCheckedChange={(checked) => { setIsTrade(checked === true); markDirty(); }}
+                className="mt-0.5"
+              />
+              <div className="flex-1 space-y-1">
+                <Label htmlFor="is-trade" className="text-sm cursor-pointer text-card-foreground font-medium leading-snug">
+                  Trade Program
+                </Label>
+                <p className="text-[11px] text-muted-foreground">
+                  This account originated from a fully-paid layaway trade-in. Cannot be changed after creation.
+                </p>
+                <a
+                  href="https://chajewelstrade.chajewelsjp.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block text-[11px] text-primary hover:underline"
+                >
+                  View Trade Program Policy →
+                </a>
+              </div>
             </div>
           </div>
 

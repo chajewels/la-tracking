@@ -55,6 +55,7 @@ export default function NewAccount() {
   const [downpaymentInput, setDownpaymentInput] = useState('');
   const [loyaltyJpyInput, setLoyaltyJpyInput] = useState('');
   const [initialNote, setInitialNote] = useState('');
+  const [isTrade, setIsTrade] = useState(false);
 
   // Loyalty-only product amount field is admin/finance only.
   const { roles } = useAuth();
@@ -423,7 +424,8 @@ export default function NewAccount() {
         lump_sum_total: enableSplitPayment ? lumpSum : undefined,
         custom_installments: installmentsToSend,
         loyalty_jpy_amount: loyaltyJpyAmount,
-      });
+        is_trade: isTrade,
+      } as any);
 
       // Mark as submitted to allow navigation
       submittedRef.current = true;
@@ -1130,6 +1132,40 @@ export default function NewAccount() {
               </p>
             </div>
           )}
+
+          {/* Trade Program flag (locked after creation) */}
+          <div
+            className={`rounded-xl border p-6 space-y-2 transition-colors ${
+              isTrade
+                ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800'
+                : 'bg-card border-border'
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <Checkbox
+                id="is-trade"
+                checked={isTrade}
+                onCheckedChange={(checked) => { setIsTrade(checked === true); markDirty(); }}
+                className="mt-1"
+              />
+              <div className="flex-1 space-y-1">
+                <Label htmlFor="is-trade" className="text-card-foreground font-medium cursor-pointer">
+                  Trade Program
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  This account originated from a fully-paid layaway trade-in. Cannot be changed after creation.
+                </p>
+                <a
+                  href="https://chajewelstrade.chajewelsjp.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block text-xs text-primary hover:underline"
+                >
+                  View Trade Program Policy →
+                </a>
+              </div>
+            </div>
+          </div>
 
           {/* Initial Note (optional) */}
           <div className="rounded-xl border border-border bg-card p-6 space-y-2">

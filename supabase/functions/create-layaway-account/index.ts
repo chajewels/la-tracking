@@ -58,6 +58,7 @@ Deno.serve(async (req) => {
       split_allocations, // Array<{ account_id: string; amount: number }> — optional
       lump_sum_total, // number — optional, total lump sum from customer
       custom_installments, // number[] — optional, exact amounts per month
+      is_trade, // boolean — optional, trade program flag (locked after creation)
     } = body;
 
     // Validation
@@ -153,6 +154,7 @@ Deno.serve(async (req) => {
         total_paid: 0,
         remaining_balance: totalAmountNum,
         notes,
+        is_trade: is_trade ?? false,
         created_by_user_id: user.id,
       })
       .select()
