@@ -117,6 +117,11 @@
   catch-up migration 2026-05-16 (6 + 6 rows). Template script lives at
   /home/claude/build_csvs.py in the Claude sandbox during such sessions.
 
+### Trade Program columns (added 2026-05-31)
+
+  - layaway_accounts: is_trade BOOLEAN NOT NULL DEFAULT false — locked at creation, indicates Trade Program origin, pure metadata (no calculation effect)
+  - cash_orders: is_trade BOOLEAN NOT NULL DEFAULT false — same semantics as layaway_accounts.is_trade
+
 ## PROOF OF PAYMENT (added 2026-04-13)
 
   - Stored in Supabase Storage bucket: payment-proofs

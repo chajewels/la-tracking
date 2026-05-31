@@ -1,5 +1,10 @@
 ## SYSTEM STATUS (as of 2026-05-16)
 
+### Trade Program (shipped 2026-05-31)
+
+  Trade Program Phase 1 (is_trade flag + creation + display): SHIPPED 2026-05-31 ✅
+  Trade Program Phase 2 (KPI cards + monthly trend chart on Finance Overview): SHIPPED 2026-05-31 ✅
+
 ### Birthday Reward (shipped 2026-05-26)
 
   Tier-scaled birthday bonus points, claimable once per calendar year during the
