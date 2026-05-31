@@ -997,6 +997,53 @@ Trade Program lets fully-paid layaway customers exchange their item for a new pi
   - Finance > Overview: 3 KPI StatCards (Trade Accounts / Total Trade Value / Trade Share) between Cash Orders row and AgingBuckets
   - Finance > Overview: TradeProgramTrends dual-line Recharts chart below MonthlyAnalyticsChart
 
+## SIDEBAR ARCHITECTURE — NON-NEGOTIABLE (added 2026-05-31)
+
+### Item types
+Two kinds of sidebar items in src/components/layout/AppSidebar.tsx:
+- **Leaf items** (Dashboard, Executive Dashboard, Admin Audit): direct Link to path
+- **Parent items with sub-menus** (Customers, CSR Monitoring, Finance, Promotions, Loyalty, Settings): collapsible group with children that navigate via ?tab= query param
+
+### MenuItem type contract
+  type SubMenuItem = { label, tab, badgeKey?, permFilter? }
+  type MenuItem = { label, icon, path? (leaf), parentPath? (parent), children?, adminOnly?, permPath? }
+
+### Navigation convention
+- Sub-item links: `${parentPath}?tab=${child.tab}`
+- Each parent page reads ?tab from URL via useSearchParams and switches active tab
+- Refresh, deep links, browser back/forward all stay in sync with active tab
+- Sub-item label is text-only (no icons) — keeps Loyalty's 12 sub-items readable
+
+### Tab URL sync pattern (applied to all 6 parent pages)
+Customers, Monitoring, Finance, Promotions, LoyaltyAdmin, SettingsPage all use this pattern:
+  - Initialize tab state from searchParams.get('tab') with fallback to default
+  - setTab wraps both local state update + setSearchParams(..., { replace: true })
+  - useEffect on [searchParams] mirrors external URL changes to local state
+LoyaltyAdmin reads directly from searchParams each render (alternative pattern, equivalent effect).
+
+### Accordion behavior
+- Hover-based: only one parent expanded at a time
+- Hover on parent → that parent expands, all others collapse
+- Hover on leaf → all parents collapse
+- Click on parent → toggles (close if open; open + close others if closed)
+- Auto-expand on path match: navigating to /parentPath opens that parent automatically
+
+### Permission gating
+- `adminOnly` on MenuItem hides whole parent
+- `permPath` on MenuItem uses canSeeNav()
+- `permFilter` on SubMenuItem uses can() — gates individual sub-items
+- If all sub-items of a parent are gated out, the parent itself is hidden
+
+### Badges
+- Parent aggregate badge: badgeCountByPath (path → count)
+- Sub-item specific badge: badgeBySubKey (badgeKey → count)
+- Both visible simultaneously — Finance parent shows submissions + waivers total, Documentation sub-item shows the same count
+
+### Locked UI decisions
+- Parent "inside" indicator: subtle border-l-[#D4AF37]/40 when location.pathname === parentPath
+- Active sub-item: full gold accent (matches leaf active styling)
+- No hover delay (immediate accordion switch) — can be revisited if jitter becomes an issue
+
 ## PAYMENT SUBMISSION FLOW (locked — 2026-04-13)
 
   ALL payments regardless of submitter must go through
