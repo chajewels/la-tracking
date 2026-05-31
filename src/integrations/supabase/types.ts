@@ -196,6 +196,7 @@ export type Database = {
           expires_at: string | null
           id: string
           invoice_number: string
+          is_trade: boolean
           item_description: string | null
           loyalty_jpy_amount: number | null
           notes: string | null
@@ -223,6 +224,7 @@ export type Database = {
           expires_at?: string | null
           id?: string
           invoice_number: string
+          is_trade?: boolean
           item_description?: string | null
           loyalty_jpy_amount?: number | null
           notes?: string | null
@@ -250,6 +252,7 @@ export type Database = {
           expires_at?: string | null
           id?: string
           invoice_number?: string
+          is_trade?: boolean
           item_description?: string | null
           loyalty_jpy_amount?: number | null
           notes?: string | null
@@ -1077,6 +1080,7 @@ export type Database = {
           id: string
           invoice_number: string
           is_reactivated: boolean
+          is_trade: boolean
           loyalty_jpy_amount: number | null
           notes: string | null
           order_date: string
@@ -1107,6 +1111,7 @@ export type Database = {
           id?: string
           invoice_number: string
           is_reactivated?: boolean
+          is_trade?: boolean
           loyalty_jpy_amount?: number | null
           notes?: string | null
           order_date: string
@@ -1137,6 +1142,7 @@ export type Database = {
           id?: string
           invoice_number?: string
           is_reactivated?: boolean
+          is_trade?: boolean
           loyalty_jpy_amount?: number | null
           notes?: string | null
           order_date?: string
