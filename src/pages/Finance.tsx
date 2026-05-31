@@ -772,8 +772,8 @@ export default function Finance() {
                               <stop offset="95%" stopColor="#D4AF37" stopOpacity={0} />
                             </linearGradient>
                             <linearGradient id="paidVsDueGradient2" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.6} />
-                              <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                              <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.6} />
+                              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                             </linearGradient>
                           </defs>
                           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -782,7 +782,7 @@ export default function Finance() {
                           <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} />
                           <Legend wrapperStyle={{ fontSize: 10 }} />
                           <Area type="monotone" dataKey="collected_due" name="Paid" stroke="#D4AF37" strokeWidth={2} fill="url(#paidVsDueGradient1)" />
-                          <Area type="monotone" dataKey="expected" name="Due" stroke="#f59e0b" strokeWidth={2} fill="url(#paidVsDueGradient2)" />
+                          <Area type="monotone" dataKey="expected" name="Due" stroke="#3b82f6" strokeWidth={2} fill="url(#paidVsDueGradient2)" />
                           <Brush dataKey="month" height={30} stroke="#D4AF37" travellerWidth={10} />
                         </AreaChart>
                       </ResponsiveContainer>
