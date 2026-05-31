@@ -3,7 +3,7 @@ import { addMonths, endOfMonth, format, startOfMonth } from 'date-fns';
 import { DollarSign, TrendingUp, BarChart3, Sparkles, CalendarClock, Trophy, Clock, AlertTriangle, ShieldAlert, Crown, UserCheck, Target, Users, Activity, Banknote, X, ShoppingBag, RefreshCw } from 'lucide-react';
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend,
+  ResponsiveContainer, Legend, Brush,
 } from 'recharts';
 import MonthlyAnalyticsChart from '@/components/MonthlyAnalyticsChart';
 import TradeProgramTrends from '@/components/dashboard/TradeProgramTrends';
@@ -322,7 +322,7 @@ export default function Finance() {
     queryFn: async () => {
       const { data, error } = await (supabase as any).rpc('get_collection_analytics', {
         currency_mode: currencyFilter,
-        months_back: 6,
+        months_back: 12,
       });
       if (error) throw error;
       return (Array.isArray(data) ? data : []) as Array<{
@@ -767,13 +767,13 @@ export default function Finance() {
                       <ResponsiveContainer width="100%" height={280}>
                         <AreaChart data={collectionAnalytics} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                           <defs>
-                            <linearGradient id="collectedGradient" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.5} />
-                              <stop offset="95%" stopColor="#D4AF37" stopOpacity={0.05} />
+                            <linearGradient id="paidVsDueGradient1" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.6} />
+                              <stop offset="95%" stopColor="#D4AF37" stopOpacity={0} />
                             </linearGradient>
-                            <linearGradient id="expectedGradient" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
-                              <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.02} />
+                            <linearGradient id="paidVsDueGradient2" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.6} />
+                              <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
                             </linearGradient>
                           </defs>
                           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -781,8 +781,9 @@ export default function Finance() {
                           <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
                           <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} />
                           <Legend wrapperStyle={{ fontSize: 10 }} />
-                          <Area type="monotone" dataKey="collected_due" name="Paid" stroke="#D4AF37" strokeWidth={2} fill="url(#collectedGradient)" />
-                          <Area type="monotone" dataKey="expected" name="Due" stroke="#f59e0b" strokeWidth={2} fill="url(#expectedGradient)" />
+                          <Area type="monotone" dataKey="collected_due" name="Paid" stroke="#D4AF37" strokeWidth={2} fill="url(#paidVsDueGradient1)" />
+                          <Area type="monotone" dataKey="expected" name="Due" stroke="#f59e0b" strokeWidth={2} fill="url(#paidVsDueGradient2)" />
+                          <Brush dataKey="month" height={30} stroke="#D4AF37" travellerWidth={10} />
                         </AreaChart>
                       </ResponsiveContainer>
                     </div>
@@ -791,7 +792,17 @@ export default function Finance() {
                     <div className="rounded-xl border border-border bg-card p-5">
                       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Collected vs Sales</h4>
                       <ResponsiveContainer width="100%" height={280}>
-                        <LineChart data={collectionsVsSales} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                        <AreaChart data={collectionsVsSales} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="collectedVsSalesGradient1" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.6} />
+                              <stop offset="95%" stopColor="#D4AF37" stopOpacity={0} />
+                            </linearGradient>
+                            <linearGradient id="collectedVsSalesGradient2" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#34d399" stopOpacity={0.6} />
+                              <stop offset="95%" stopColor="#34d399" stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
                           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                           <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
                           <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
@@ -800,9 +811,10 @@ export default function Finance() {
                             formatter={(val: number) => formatCurrency(Number(val), displayCurrency)}
                           />
                           <Legend wrapperStyle={{ fontSize: 10 }} />
-                          <Line type="monotone" dataKey="collected" name="Collected" stroke="#D4AF37" strokeWidth={2} dot={{ r: 3, fill: '#D4AF37' }} />
-                          <Line type="monotone" dataKey="sales" name="Sales" stroke="#34d399" strokeWidth={2} dot={{ r: 3, fill: '#34d399' }} />
-                        </LineChart>
+                          <Area type="monotone" dataKey="collected" name="Collected" stroke="#D4AF37" strokeWidth={2} dot={{ r: 3, fill: '#D4AF37' }} fill="url(#collectedVsSalesGradient1)" />
+                          <Area type="monotone" dataKey="sales" name="Sales" stroke="#34d399" strokeWidth={2} dot={{ r: 3, fill: '#34d399' }} fill="url(#collectedVsSalesGradient2)" />
+                          <Brush dataKey="month" height={30} stroke="#D4AF37" travellerWidth={10} />
+                        </AreaChart>
                       </ResponsiveContainer>
                     </div>
                   )}
