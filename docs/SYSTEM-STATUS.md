@@ -1,5 +1,11 @@
 ## SYSTEM STATUS (as of 2026-05-16)
 
+### Shipped 2026-06-01
+
+  - HUB Help Center Phase 1 — /help route, page component, markdown rendering pipeline (react-markdown + remark-gfm), role-aware filtering, sidebar leaf entry, sample Welcome section: SHIPPED 2026-06-01 ✅ (commit `ff6548b`)
+  - Permission system: admin short-circuit in can() + PUBLIC_AUTHENTICATED_PATHS escape valve for universally-accessible routes (fixes /help access-denied + prevents recurring "new menu denied for admin" pattern; matches CLAUDE.md rule 3): SHIPPED 2026-06-01 ✅ (commit `b98d6c2`)
+  - HUB Help Center Welcome content: renamed "Layaway Tracking System" → "Cha Jewels HUB", removed stray external link: SHIPPED 2026-06-01 ✅ (commit `bf7840e`)
+
 ### Trade Program (shipped 2026-05-31)
 
   Trade Program Phase 1 (is_trade flag + creation + display): SHIPPED 2026-05-31 ✅
