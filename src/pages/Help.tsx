@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet';
 import { Separator } from '@/components/ui/separator';
+import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import {
@@ -135,6 +137,37 @@ const markdownComponents: Parameters<typeof ReactMarkdown>[0]['components'] = {
     <th className="px-3 py-2 text-left font-semibold text-foreground">{children}</th>
   ),
   td: ({ children }) => <td className="px-3 py-2 text-foreground/85">{children}</td>,
+  img: ({ src, alt }) => {
+    if (!src) return null;
+    const isAbsolute =
+      src.startsWith('http://') ||
+      src.startsWith('https://') ||
+      src.startsWith('/');
+    const resolvedSrc = isAbsolute
+      ? src
+      : supabase.storage.from('help-images').getPublicUrl(src).data.publicUrl;
+
+    return (
+      <Dialog>
+        <DialogTrigger asChild>
+          <button type="button" className="block w-full my-4 cursor-zoom-in">
+            <img
+              src={resolvedSrc}
+              alt={alt ?? ''}
+              className="max-w-full rounded-lg border border-border shadow-md hover:border-[#D4AF37]/40 transition-colors"
+            />
+          </button>
+        </DialogTrigger>
+        <DialogContent className="max-w-[95vw] max-h-[95vh] w-fit h-fit p-0 bg-zinc-950/95 border border-border">
+          <img
+            src={resolvedSrc}
+            alt={alt ?? ''}
+            className="max-w-full max-h-[90vh] w-auto h-auto rounded-lg object-contain"
+          />
+        </DialogContent>
+      </Dialog>
+    );
+  },
 };
 
 export default function Help() {

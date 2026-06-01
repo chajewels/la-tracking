@@ -1,4 +1,5 @@
 import welcomeContent from './welcome.md?raw';
+import quickStartAdminContent from './quick-start-admin.md?raw';
 
 export type HelpRole = 'admin' | 'finance' | 'staff' | 'csr' | 'customer';
 export type HelpCategory = 'quick-start' | 'hub' | 'portal' | 'meta';
@@ -27,6 +28,14 @@ export const HELP_SECTIONS: HelpSection[] = [
     order: 1,
     roles: ['admin', 'finance', 'staff', 'csr', 'customer'],
     content: welcomeContent,
+  },
+  {
+    slug: 'quick-start-admin',
+    title: 'For Admins',
+    category: 'quick-start',
+    order: 2,
+    roles: ['admin'],
+    content: quickStartAdminContent,
   },
 ];
 
