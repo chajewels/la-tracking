@@ -145,7 +145,7 @@ const markdownComponents: Parameters<typeof ReactMarkdown>[0]['components'] = {
       src.startsWith('/');
     const resolvedSrc = isAbsolute
       ? src
-      : supabase.storage.from('help-images').getPublicUrl(src).data.publicUrl;
+      : supabase.storage.from('brand-assets').getPublicUrl(src).data.publicUrl;
 
     return (
       <Dialog>

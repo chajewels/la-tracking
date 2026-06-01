@@ -178,7 +178,7 @@ role_permissions.
 
 ## HELP CENTER SCREENSHOTS — NON-NEGOTIABLE (added 2026-06-01)
 
-Help Center screenshots live in the Supabase Storage bucket `help-images` (public read). They are NOT committed to the repo.
+Help Center screenshots live in the Supabase Storage bucket `brand-assets` (public read). They are NOT committed to the repo.
 
 Markdown files in src/help-content/ reference screenshots by filename only:
 
@@ -186,14 +186,14 @@ Markdown files in src/help-content/ reference screenshots by filename only:
 
 Help.tsx's `img` component override on ReactMarkdown resolves relative filenames to the bucket's public URL via:
 
-  supabase.storage.from('help-images').getPublicUrl(filename).data.publicUrl
+  supabase.storage.from('brand-assets').getPublicUrl(filename).data.publicUrl
 
 Absolute URLs (http://, https://, or /) pass through unchanged.
 
 All images are wrapped in a click-to-zoom lightbox (shadcn Dialog, 95vw/95vh max).
 
 To add a new screenshot for any Help section:
-  1. Upload the PNG to the `help-images` bucket via Supabase Storage UI
+  1. Upload the PNG to the `brand-assets` bucket via Supabase Storage UI
   2. Reference it in markdown using just the filename
   3. No code change required for the image to render
 
