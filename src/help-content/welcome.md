@@ -1,6 +1,6 @@
 # Welcome to the Cha Jewels HUB
 
-This is the in-app help center for the Cha Jewels Layaway Tracking System. It covers both the internal HUB at **app.chajewelsjp.com** and the customer portal at **portal.chajewelsjp.com**.
+This is the in-app help center for the **Cha Jewels HUB**. It covers both the internal HUB at **app.chajewelsjp.com** and the customer portal at **portal.chajewelsjp.com**.
 
 ## What you'll find here
 
@@ -26,8 +26,6 @@ Content is filtered by your role. You'll see only the sections relevant to your 
 ## Getting started
 
 Pick a section from the left sidebar to begin. If you're new to the HUB, start with the **Quick Start** for your role.
-
-For visual examples, see the [Cha Jewels website](https://chajewelsjp.com).
 
 ---
 
