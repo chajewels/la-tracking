@@ -8,7 +8,7 @@ Welcome, admin. This guide covers your daily workflow on the Cha Jewels HUB. For
 2. Sign in with your admin email and password
 3. You'll land on the Dashboard
 
-![Cha Jewels Hub sign-in page](admin-signin.png)
+![Cha Jewels Hub sign-in page](Signin_Page)
 
 ---
 
@@ -16,7 +16,7 @@ Welcome, admin. This guide covers your daily workflow on the Cha Jewels HUB. For
 
 After signing in you land on the Dashboard — your starting point every morning. The sidebar exposes everything else; badge counts surface anything pending.
 
-![Cha Jewels Hub Dashboard](admin-dashboard.png)
+![Cha Jewels Hub Dashboard](Landing_page)
 
 ---
 
@@ -45,7 +45,7 @@ Scan these five places every morning to surface anything that needs attention:
 
 The submission moves out of the queue, appears in the Proof of Payment subtab, and the account schedule + totals are updated automatically.
 
-![Submission review with Confirm / Reject / Clarify buttons](admin-submission-review.png)
+![Sidebar with badge counts highlighting pending submissions](Sidebar_Badge)
 
 ---
 
@@ -86,7 +86,7 @@ For per-account audits — useful when you suspect totals or schedule rows are s
 3. The modal runs 12 invariant checks across totals, allocations, schedule rows, penalties, and carry-over
 4. All should be green ✅; if any check fails, the panel shows expected vs stored values for investigation
 
-![Per-account Check Health modal showing all 12 checks passing](admin-account-health.png)
+![Per-account Check Health modal showing all 12 checks passing](Account_health)
 
 ---
 
@@ -99,7 +99,7 @@ For sweeping checks across all accounts — useful after any change to calculati
 3. Toggle between **Failed Only** and **All** to filter results
 4. If any accounts fail, open them individually and run **Check Health** for detailed diagnosis
 
-![System Audit modal showing no schema drift and all accounts passing](admin-system-audit.png)
+![System Audit modal showing no schema drift and all accounts passing](System_audit)
 
 ---
 

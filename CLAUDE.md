@@ -176,13 +176,15 @@ can() returns true unconditionally — matches the documented rule "admin role
 denials on newly-added permission keys that haven't yet been seeded in
 role_permissions.
 
-## HELP CENTER SCREENSHOTS — NON-NEGOTIABLE (added 2026-06-01)
+## HELP CENTER SCREENSHOTS — NON-NEGOTIABLE (updated 2026-06-01)
 
 Help Center screenshots live in the Supabase Storage bucket `brand-assets` (public read). They are NOT committed to the repo.
 
+Files in this bucket are stored WITHOUT file extensions (e.g. `Signin_Page`, `Landing_page`, not `Signin_Page.png`). Markdown references must also omit the extension.
+
 Markdown files in src/help-content/ reference screenshots by filename only:
 
-  ![alt text](admin-dashboard.png)
+  ![alt text](Landing_page)
 
 Help.tsx's `img` component override on ReactMarkdown resolves relative filenames to the bucket's public URL via:
 
@@ -193,8 +195,8 @@ Absolute URLs (http://, https://, or /) pass through unchanged.
 All images are wrapped in a click-to-zoom lightbox (shadcn Dialog, 95vw/95vh max).
 
 To add a new screenshot for any Help section:
-  1. Upload the PNG to the `brand-assets` bucket via Supabase Storage UI
-  2. Reference it in markdown using just the filename
+  1. Upload the file to the `brand-assets` bucket via Supabase Storage UI (no file extension)
+  2. Reference it in markdown using just the filename (no extension)
   3. No code change required for the image to render
 
 ## total_amount DEFINITION — NON-NEGOTIABLE (updated 2026-04-12)
