@@ -45,7 +45,9 @@ The new customer appears in the Customers list and is ready to be linked to a la
 2. Choose plan tier (3, 6, 8, 10, or 12 months), enter total amount, set downpayment amount
 3. Choose currency (PHP or JPY) and start date
 4. Add any services (optional)
-5. Click **Create**
+5. **Product Amount (JPY)** — enter the bare item value in JPY, excluding shipping, service fees, and insurance. Required if the customer is a loyalty member (used to calculate their loyalty points; not shown to the customer)
+6. If this order is part of the **Trade Program**, toggle the Trade Program checkbox — the box turns amber when active
+7. Click **Create**
 
 The account is created in `active` status with a generated installment schedule. The downpayment is NOT yet marked paid — that happens only after a payment submission is reviewed and confirmed by admin or finance.
 
@@ -60,7 +62,9 @@ For immediate purchases or cash-on-delivery orders that don't follow a layaway s
 1. Click **Customers → Cash → New Cash Order**
 2. Select the customer, enter total amount and currency
 3. Choose payment method
-4. Click **Create**
+4. **Product Amount (JPY)** — enter the bare item value in JPY, excluding shipping, service fees, and insurance. Required if the customer is a loyalty member (used to calculate their loyalty points; not shown to the customer)
+5. If this order is part of the **Trade Program**, toggle the Trade Program checkbox
+6. Click **Create**
 
 ![New Cash Order form](New_Cash_Order_form)
 
