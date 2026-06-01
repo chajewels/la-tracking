@@ -59,6 +59,7 @@ const LoyaltyAdmin = lazyWithRetry(() => import("./pages/LoyaltyAdmin"));
 const ExecutiveDashboard = lazyWithRetry(() => import("./pages/ExecutiveDashboard"));
 const NewCashOrder = lazyWithRetry(() => import("./pages/NewCashOrder"));
 const CashOrderDetail = lazyWithRetry(() => import("./pages/CashOrderDetail"));
+const Help = lazyWithRetry(() => import("./pages/Help"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -145,6 +146,7 @@ const App = () => (
                 <Route path="/payment-submissions" element={<Navigate to="/payments-hub" replace />} />
                 <Route path="/payment-proofs" element={<Navigate to="/payments-hub?tab=proofs" replace />} />
                 <Route path="/admin/payment-vault" element={<Protected><PaymentVault /></Protected>} />
+                <Route path="/help" element={<Protected><Help /></Protected>} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>

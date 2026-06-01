@@ -15,6 +15,7 @@ import {
   ScrollText,
   ChevronDown,
   ChevronRight,
+  HelpCircle,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
@@ -122,6 +123,7 @@ const menuItems: MenuItem[] = [
     ],
   },
   { label: 'Admin Audit', icon: ScrollText, path: ROUTES.ADMIN_ACTIVITY, adminOnly: true },
+  { label: 'Help', icon: HelpCircle, path: '/help' },
 ];
 
 export default function AppSidebar() {
