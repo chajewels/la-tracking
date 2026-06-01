@@ -83,6 +83,10 @@ const PAGE_FEATURE_MAP: Record<string, string> = {
   '/payment-submissions': 'payment_submissions',
 };
 
+// Paths accessible to ANY authenticated user — no permission check required.
+// Use this for Help, Glossary, FAQ, Changelog, and other universally-accessible content.
+const PUBLIC_AUTHENTICATED_PATHS = ['/help'];
+
 // Sidebar nav paths (same as PAGE_PERMISSION_MAP minus dynamic routes)
 const NAV_PATHS = ['/', '/customers', '/cash-orders', '/monitoring', '/finance', '/bulk-payment-import', '/admin-audit', '/settings', '/promotions'];
 
@@ -145,6 +149,8 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
 
   const can = useCallback((permissionKey: PermissionKey): boolean => {
     if (roles.length === 0) return false;
+    // Admin always has full access regardless of any override (CLAUDE.md rule)
+    if (roles.includes('admin')) return true;
     // 1. Check user_permission_overrides first
     const override = userOverrides.find(o => o.permission_key === permissionKey);
     if (override) return override.granted;
@@ -161,6 +167,9 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
   }, [featureToggles]);
 
   const canAccessPage = useCallback((path: string): boolean => {
+    // Public to all authenticated users — bypass permission lookup
+    if (PUBLIC_AUTHENTICATED_PATHS.includes(path)) return roles.length > 0;
+
     // Check feature toggle first
     const featureKey = PAGE_FEATURE_MAP[path];
     if (featureKey && !isFeatureEnabled(featureKey)) return false;
@@ -176,7 +185,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       else return false;
     }
     return can(permKey);
-  }, [can, isFeatureEnabled]);
+  }, [can, isFeatureEnabled, roles]);
 
   const canSeeNav = useCallback((path: string): boolean => {
     return canAccessPage(path);

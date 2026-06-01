@@ -151,6 +151,31 @@ When checking whether a user can perform an action:
   Managed via Settings → Permission Matrix → By Member view
   RLS: admins only (has_role(auth.uid(), 'admin'))
 
+## ADDING NEW MENU ITEMS / ROUTES — NON-NEGOTIABLE (added 2026-06-01)
+
+When adding a new route to App.tsx + a sidebar entry to AppSidebar.tsx, the
+route must be granted access via ONE of these two paths:
+
+  1. PERM-GATED ROUTE (most common):
+     a. Add an entry to PAGE_PERMISSION_MAP in src/contexts/PermissionsContext.tsx
+        mapping the path → permission_key (e.g. `'/my-new-page': 'view_my_thing'`)
+     b. Seed rows in role_permissions table for each role that should have access
+        (admin still gets a row even though admin short-circuits — keep DB consistent)
+
+  2. UNIVERSALLY-ACCESSIBLE ROUTE (any authenticated user, no perm check):
+     Add the path to PUBLIC_AUTHENTICATED_PATHS in PermissionsContext.tsx.
+     Use this for Help, Glossary, FAQ, Changelog, or any content intended
+     for ALL authenticated users regardless of role.
+
+Without either entry, canAccessPage returns false and ProtectedRoute renders
+"Access Denied" — including for admins on perm keys that don't yet have DB rows.
+
+Admin short-circuit in can(): if the current user has the 'admin' role,
+can() returns true unconditionally — matches the documented rule "admin role
+→ always full access regardless of any override". This prevents access
+denials on newly-added permission keys that haven't yet been seeded in
+role_permissions.
+
 ## total_amount DEFINITION — NON-NEGOTIABLE (updated 2026-04-12)
 
   layaway_accounts.total_amount = TOTAL ACCOUNT OBLIGATION.
