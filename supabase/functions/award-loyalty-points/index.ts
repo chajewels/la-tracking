@@ -36,6 +36,35 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+
+    // Auth: require service_role JWT (inter-function calls) or
+    // an authenticated admin/finance user. Reject anon / customer JWTs.
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return json({ error: "Unauthorized" }, 401);
+    }
+    const token = authHeader.replace("Bearer ", "");
+    let authorized = false;
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      if (payload?.role === "service_role") {
+        authorized = true;
+      }
+    } catch (_) { /* fall through to user check */ }
+    if (!authorized) {
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !user) {
+        return json({ error: "Unauthorized" }, 401);
+      }
+      const [{ data: isAdmin }, { data: isFinance }] = await Promise.all([
+        supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
+        supabase.rpc("has_role", { _user_id: user.id, _role: "finance" }),
+      ]);
+      if (!isAdmin && !isFinance) {
+        return json({ error: "Forbidden" }, 403);
+      }
+    }
+
     const gate = createLoyaltyEmailGate(supabase);
 
     const body = await req.json().catch(() => ({}));
