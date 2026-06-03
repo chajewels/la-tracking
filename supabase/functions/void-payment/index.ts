@@ -32,6 +32,17 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Role check: only admin or finance may void payments
+    const [{ data: isAdmin }, { data: isFinance }] = await Promise.all([
+      supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
+      supabase.rpc("has_role", { _user_id: user.id, _role: "finance" }),
+    ]);
+    if (!isAdmin && !isFinance) {
+      return new Response(JSON.stringify({ error: "Admin or finance role required" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const { payment_id, reason } = await req.json();
     if (!payment_id) {
       return new Response(JSON.stringify({ error: "payment_id is required" }), {
