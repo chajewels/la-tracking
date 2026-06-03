@@ -151,6 +151,29 @@ When checking whether a user can perform an action:
   Managed via Settings → Permission Matrix → By Member view
   RLS: admins only (has_role(auth.uid(), 'admin'))
 
+## PAYMENT SUBMISSION RATE LIMITS
+
+  Per account per rolling 24 hours (excludes rejected status):
+
+  - Downpayment on trade account (is_trade=true): max 10
+  - Downpayment on non-trade account:             max 5
+  - Installment / other:                          max 3
+
+  Implemented in record-payment/index.ts. DP caps filter the count by
+  submission_type='downpayment' so DP and non-DP caps are independent
+  (hitting the DP cap does not consume installment headroom and vice
+  versa).
+
+  submit-payment/index.ts uses a flat 3-cap for all submissions (no
+  DP branch, no trade branch). Customer-portal DP submissions hit
+  this cap at attempt 4 regardless of trade status.
+
+  record-multi-payment/index.ts is uncapped (intentional — staff
+  batch entry path).
+
+  HTTP 429 returned on cap exceeded. Frontend handler in
+  RecordPaymentDialog.tsx parses error.message containing 'Too many'.
+
 ## ADDING NEW MENU ITEMS / ROUTES — NON-NEGOTIABLE (added 2026-06-01)
 
 When adding a new route to App.tsx + a sidebar entry to AppSidebar.tsx, the

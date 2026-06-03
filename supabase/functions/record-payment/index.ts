@@ -44,13 +44,36 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Fetch account
+    const { data: account, error: accErr } = await supabase
+      .from("layaway_accounts")
+      .select("*")
+      .eq("id", account_id)
+      .single();
+
+    if (accErr || !account) {
+      return new Response(JSON.stringify({ error: "Account not found" }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // ── Rate limit per account per 24h ──
-    //    downpayment: max 5 (counted on downpayments alone)
-    //    installment/other: max 3 (unchanged)
+    //    downpayment on trade account (is_trade=true): max 10
+    //    downpayment on non-trade account:             max 5
+    //    installment / other:                          max 3
     const isDpSubmission =
       submission_type === "downpayment" || is_downpayment === true;
+    const isTradeAccount = account?.is_trade === true;
 
-    const rlCap = isDpSubmission ? 5 : 3;
+    let rlCap: number;
+    if (isDpSubmission && isTradeAccount) {
+      rlCap = 10;
+    } else if (isDpSubmission) {
+      rlCap = 5;
+    } else {
+      rlCap = 3;
+    }
 
     let rlQuery = supabase
       .from("payment_submissions")
@@ -80,20 +103,6 @@ Deno.serve(async (req) => {
       supabase.rpc("has_role", { _user_id: user.id, _role: "finance" }),
     ]);
     const canConfirm = isAdmin || isFinance;
-
-    // Fetch account
-    const { data: account, error: accErr } = await supabase
-      .from("layaway_accounts")
-      .select("*")
-      .eq("id", account_id)
-      .single();
-
-    if (accErr || !account) {
-      return new Response(JSON.stringify({ error: "Account not found" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
 
     const payableStatuses = ["active", "overdue", "extension_active", "reactivated", "final_settlement"];
     if (!payableStatuses.includes(account.status)) {
