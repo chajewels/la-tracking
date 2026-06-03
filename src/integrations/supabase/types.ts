@@ -3900,6 +3900,15 @@ export type Database = {
           status: string
         }[]
       }
+      get_trade_kpis: { Args: never; Returns: Json }
+      get_trade_monthly_trends: {
+        Args: { p_months_back?: number }
+        Returns: {
+          month: string
+          trade_count: number
+          trade_value_jpy: number
+        }[]
+      }
       get_unpaid_schedule: { Args: { p_account_id: string }; Returns: Json }
       has_role: {
         Args: {
