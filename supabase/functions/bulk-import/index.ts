@@ -120,6 +120,17 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+      // Role check: only admin or staff may bulk-import
+      const [{ data: isAdmin }, { data: isStaff }] = await Promise.all([
+        supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
+        supabase.rpc("has_role", { _user_id: user.id, _role: "staff" }),
+      ]);
+      if (!isAdmin && !isStaff) {
+        return new Response(JSON.stringify({ error: "Admin or staff role required" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       userId = user.id;
     }
 
