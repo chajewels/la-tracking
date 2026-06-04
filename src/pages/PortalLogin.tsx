@@ -61,11 +61,11 @@ export default function PortalLogin() {
           src={PORTAL_HERO}
           alt=""
           aria-hidden="true"
-          className="absolute inset-0 w-full h-full object-contain"
+          className="absolute inset-0 w-full h-full object-cover lg:object-contain"
         />
         <div
           className="absolute inset-0"
-          style={{ background: 'rgba(10,8,6,0.85)' }}
+          style={{ background: 'rgba(10,8,6,0.70)' }}
         />
         <p className="relative z-10 text-primary text-sm tracking-[0.2em] uppercase">Loading…</p>
       </div>
@@ -85,11 +85,11 @@ export default function PortalLogin() {
           src={PORTAL_HERO}
           alt=""
           aria-hidden="true"
-          className="absolute inset-0 w-full h-full object-contain"
+          className="absolute inset-0 w-full h-full object-cover lg:object-contain"
         />
         <div
           className="absolute inset-0"
-          style={{ background: 'rgba(10,8,6,0.85)' }}
+          style={{ background: 'rgba(10,8,6,0.70)' }}
         />
 
         {/* Centered card */}

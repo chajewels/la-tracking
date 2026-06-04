@@ -121,7 +121,7 @@
 @layer components {
   /* Glass luxury panels */
   .glass-panel {
-    background: rgba(10, 10, 10, 0.75);
+    background: rgba(10, 10, 10, 0.42);
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
     border: 1px solid rgba(212, 175, 55, 0.2);
