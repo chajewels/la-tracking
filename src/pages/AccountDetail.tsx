@@ -70,9 +70,10 @@ export default function AccountDetail() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('payment_submissions')
-        .select('id, proof_url, payment_date, submitted_amount, sender_name, status, installment_number, reference_number, created_at')
+        .select('id, proof_url, payment_date, submitted_amount, sender_name, status, installment_number, reference_number, created_at, confirmed_payment_id')
         .eq('account_id', id!)
         .not('proof_url', 'is', null)
+        .not('confirmed_payment_id', 'is', null)
         .order('created_at', { ascending: false });
       if (error) throw error;
       return data as any[];
@@ -83,13 +84,15 @@ export default function AccountDetail() {
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteFormOpen, setNoteFormOpen] = useState(false);
 
-  // Build a lookup of proof info by payment_date for inline display in Payment History.
-  // If multiple submissions share a date, the most recent one wins (they come back ordered DESC).
-  const proofByDate = useMemo(() => {
+  // Build a lookup of proof info by confirmed_payment_id for inline display
+  // in Payment History. Each confirmed submission produces exactly one payment
+  // (per CLAUDE.md PAYMENT SUBMISSION FLOW), so the mapping is 1:1 by design —
+  // no date collisions, no first-write-wins. See Bug #161 in docs/FIXED-BUGS.md.
+  const proofByPaymentId = useMemo(() => {
     const map = new Map<string, { url: string; sender: string }>();
     (submissionProofs || []).forEach((s: any) => {
-      if (s.proof_url && s.payment_date && !map.has(s.payment_date)) {
-        map.set(s.payment_date, {
+      if (s.proof_url && s.confirmed_payment_id && !map.has(s.confirmed_payment_id)) {
+        map.set(s.confirmed_payment_id, {
           url: s.proof_url as string,
           sender: s.sender_name || 'Unknown',
         });
@@ -1873,7 +1876,7 @@ export default function AccountDetail() {
                           {isVoided && ` · VOIDED${(p as any).void_reason ? `: ${(p as any).void_reason}` : ''}`}
                         </p>
                         {(() => {
-                          const proof = proofByDate.get(p.date_paid);
+                          const proof = proofByPaymentId.get(p.id);
                           if (!proof) return null;
                           return (
                             <div className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">

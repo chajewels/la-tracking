@@ -1984,6 +1984,24 @@ Lovable IDE. (Bug #156, 2026-05-25)
 
 **Permissions**: `reject_submission` controls both rejection AND restore. If finer-grained control is needed later, split into a new `restore_submission` permission key without backend changes (just adjust `permissionByAction`).
 
+### Bug #161 — View Proof in Payment History collapsed same-day payments to one proof (2026-06-04)
+
+**Symptom**: In Payment History on `AccountDetail.tsx`, the inline "📎 View Proof · {sender}" link displayed the same proof image for every payment that shared a `payment_date` with another payment on the account. Affected ALL accounts with multiple payments recorded on the same calendar day — multi-tranche DP submissions (e.g. #19105: 5 DP payments on 2026-06-02 all showing the first one's proof, 2 DP payments on 2026-06-03 sharing another), same-day installment-plus-penalty payments, bulk catch-up payments, or any other case where two confirmed payments shared a date. The standalone `/payments-hub` Submissions & Proofs view in finance was unaffected because it reads `proof_url` directly off each `payment_submissions` row without any joining or deduplication.
+
+**Root cause**: The `proofByDate` lookup in `src/pages/AccountDetail.tsx` keyed the proof map by `s.payment_date` with a first-write-wins guard (`!map.has(s.payment_date)`). The render then looked up by `p.date_paid`. The `payment_date` field is not a 1:1 key — a customer can have multiple submissions with the same payment_date on the same account (especially common for multi-tranche DP submissions, where a single DP obligation is paid in segments on the same day or two adjacent days). When multiple submissions shared a date, all payments on that date displayed the same proof URL — whichever submission was first in the DESC-ordered result set.
+
+**Discovery (operational chain)**: This bug was the *upstream operational trigger* for Bug #160 (edit-payment-amount DP guard). Staff viewing the Payment History for #19105 saw the same proof image associated with multiple DP payments and believed the payment amounts were mismatched. They manually edited the rakuten DP payment amounts via the Payment History UI to "align" the records with what the (wrong) inline preview suggested. That manual edit invoked `edit-payment-amount` on DP payments, which had no DP guard (Bug #160), which produced the M1+M2 misallocations on #19105. Fixing Bug #160 closed the misallocation class structurally; fixing this bug (#161) closes the operational mistake path upstream of it.
+
+**Fix**: Rekey the proof lookup by `confirmed_payment_id` instead of `payment_date`:
+1. Added `confirmed_payment_id` to the SELECT in the `submissionProofs` query.
+2. Added `.not('confirmed_payment_id', 'is', null)` filter so rejected/submitted/under-review rows (which never produce a payment) don't pollute the lookup.
+3. Renamed `proofByDate` → `proofByPaymentId`; map keyed by `s.confirmed_payment_id` with the same first-write-wins guard (now defensive, since the mapping is 1:1 by construction).
+4. Render at L1884 looks up by `p.id` instead of `p.date_paid`.
+
+**Why `confirmed_payment_id` is the right key**: per CLAUDE.md PAYMENT SUBMISSION FLOW, every confirmed submission produces exactly one payment (`review-payment-submission` writes `confirmed_payment_id` on the submission row when creating the payment via `allocatePaymentToAccount`). The relationship is 1:1 by construction — no date collisions, no first-write-wins behavior, no cross-payment proof leakage.
+
+**Not changed**: The `/payments-hub` Submissions & Proofs page in finance is unaffected — it uses a different rendering path that reads `proof_url` directly off each submission row, not joined through payments. Database schema unchanged. Backend edge functions unchanged. No data fix needed (the proof URLs in `payment_submissions` rows are already correct; only the rendering join was wrong).
+
 ### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
 
   Account schedule/allocation repairs. All four accounts pass
