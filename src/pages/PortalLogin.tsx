@@ -9,7 +9,7 @@ const GOLD_HOVER = '#E8C547';
 const INPUT_BORDER = 'rgba(255,255,255,0.08)';
 
 const PORTAL_HERO =
-  'https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets/IMG_3197.jpeg';
+  'https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets/IMG_4761.jpeg';
 
 export default function PortalLogin() {
   const navigate = useNavigate();

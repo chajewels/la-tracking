@@ -1,4 +1,3 @@
-import luxuryHero from '@/assets/luxury-jewelry-hero.jpg';
 import { ReactNode } from 'react';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { Link } from 'react-router-dom';
@@ -29,7 +28,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     <SidebarProvider>
       <div
         className="min-h-screen flex w-full text-white bg-cover bg-center bg-no-repeat"
-        style={{ backgroundImage: `url(${luxuryHero})` }}
+        style={{ backgroundImage: "url('https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets/IMG_4761.jpeg')" }}
       >
         <div className="min-h-screen w-full flex bg-black/72">
           <AppSidebar />
