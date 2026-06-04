@@ -2022,6 +2022,53 @@ Variable name `countryByInvoice` retained (it represents the column-T VALUE, reg
 
 **Going-forward consideration**: The `customers.country` column exists but is not actively populated by any UI path. Either (a) backfill `customers.country` from `customers.location` and pick one canonical column going forward, or (b) drop `customers.country` if confirmed unused. Either decision is outside the scope of this fix and parked for a future schema-cleanup pass.
 
+### Bug #163 — award-loyalty-points auth block silently rejected service-role calls, suppressing all DP loyalty awards for ~30 hours (2026-06-04)
+
+**Symptom**: From 2026-06-03 04:03 UTC until the fix deployed (~30 hours), every DP confirmation in `review-payment-submission` silently failed to award loyalty points. The fire-and-forget fetch from review-payment-submission resolved successfully (HTTP-wise) but with a 401 status, which the `.catch()` did not see (`.catch()` on fetch only catches network errors, not non-2xx HTTP responses). No warning logged, no error surfaced.
+
+Customers confirmed affected via diagnostic SQL:
+- Sarah Arcibal-Ponting #19060 — DP ₱4,322 confirmed 2026-06-04 08:06:42 — expected ~700 pts (Glimmer 1× × floor(73,980/10,000) × 100)
+- Suzette Tupaz #19108 — DP ₱31,194 confirmed 2026-06-04 08:08:53 — expected ~1,000 pts (Glimmer 1× × floor(103,980/10,000) × 100)
+
+Additional DPs confirmed in the 2026-06-03 04:03 → 2026-06-04 (fix deploy) window are likely also affected. Catch-up via SQL backfill or manual award-loyalty-points POST per account, scheduled after the deploy lands.
+
+**Root cause**: Commit `56ddae1` ("Changes", authored by gpt-engineer-app[bot] on 2026-06-03 04:03:11 UTC) added a 29-line authentication block to `supabase/functions/award-loyalty-points/index.ts`. The service-role JWT detection used `atob(token.split(".")[1])` to decode the JWT payload, but `atob` decodes standard base64 — JWT payloads are **base64URL**, which uses `-` and `_` instead of `+` and `/`. When the actual service role JWT's payload base64URL contains any `-` or `_` character (depends on the encoded bytes), `atob` throws `InvalidCharacterError`. The surrounding `try { ... } catch (_) { /* fall through to user check */ }` swallows the error silently → `authorized` stays false → control falls through to `supabase.auth.getUser(token)`, which fails because service-role tokens are not user tokens → returns 401.
+
+**Why it slipped through**:
+1. Commit message was the auto-generated "Changes" — no descriptive intent, no scoping.
+2. Committed by `gpt-engineer-app[bot]` (Lovable session edit) without a corresponding bug entry, plan confirmation, or SOP investigation. The change bypassed the standard `investigate → analyze → user-confirm → implement → ship → itemized verify → docs update` cycle.
+3. The downstream caller in `review-payment-submission` (around L795-805 — the DP fire-and-forget block) uses `.catch()` for fetch error handling, which only catches network-level errors, not non-2xx HTTP responses. So 401 responses leave no trace.
+4. No deploy-time smoke test was performed after the auth-block deploy to verify award-loyalty-points still received valid inter-function calls.
+
+Last successful award before the break: 2026-06-03 03:19:16 UTC, invoice 19106 (Radiant tier, 4,600 pts). Every DP confirmation after 2026-06-03 04:03:11 UTC was silently denied points until this fix.
+
+**Fix**: Replace the JWT decode in `award-loyalty-points/index.ts` with direct service-role-key equality against the `SUPABASE_SERVICE_ROLE_KEY` environment variable:
+
+```js
+// FROM:
+let authorized = false;
+try {
+  const payload = JSON.parse(atob(token.split(".")[1]));
+  if (payload?.role === "service_role") {
+    authorized = true;
+  }
+} catch (_) { /* fall through to user check */ }
+
+// TO:
+let authorized = false;
+if (token === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) {
+  authorized = true;
+}
+```
+
+The function knows its own service role key from env, so direct string equality is the simplest, most reliable inter-function authorization mechanism. Avoids JWT parsing pitfalls entirely. The admin/finance user-check fallback below the service-role check remains intact — direct user calls (with a user JWT instead of the service role key) still go through `supabase.auth.getUser` + `has_role` checks.
+
+**Catch-up plan** (post-deploy, separate work):
+1. Query for all DP payments confirmed in the affected window (2026-06-03 04:03 UTC → fix-deploy time).
+2. For each affected account, either (a) POST to `/functions/v1/award-loyalty-points` with the account_id to replay the award (once the auth fix is live), or (b) write loyalty_transactions backfill rows directly via SQL based on each account's `loyalty_jpy_amount` and the customer's current tier multiplier. Option (a) is cleaner since it goes through the canonical award path.
+
+**Process note (locked lesson)**: Lovable-only auto-commits to security-critical edge functions (auth, payments, loyalty) that bypass the SOP gate can ship silent breaking changes. Going forward, ANY change to those functions should be planned and confirmed before shipping — no exceptions. The "Changes" auto-message pattern is a red flag indicating a session edit without proper documentation; future audits should treat such commits with extra scrutiny.
+
 ### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
 
   Account schedule/allocation repairs. All four accounts pass
