@@ -36,15 +36,15 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
           <div className="flex min-h-screen flex-1 flex-col min-w-0">
             {/* Top Header */}
-            <header className="h-14 flex items-center justify-between border-b border-[#D4AF37]/25 px-4 shrink-0 bg-black/55 backdrop-blur-md sticky top-0 z-30">
-              <SidebarTrigger className="text-[#D4AF37] hover:text-white" />
+            <header className="h-14 flex items-center justify-between border-b border-primary/25 px-4 shrink-0 bg-black/55 backdrop-blur-md sticky top-0 z-30">
+              <SidebarTrigger className="text-primary hover:text-white" />
 
               <div className="flex items-center gap-3">
                 <Link to={ROUTES.MONITORING}>
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 text-[#D4AF37] hover:text-white hover:bg-white/10 relative"
+                    className="h-8 w-8 text-primary hover:text-white hover:bg-white/10 relative"
                   >
                     <Bell className="h-4 w-4" />
                     <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500" />
@@ -52,7 +52,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 </Link>
 
                 <div className="flex items-center gap-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#F7E7A1] via-[#D4AF37] to-[#8C6A00] text-black text-[10px] font-bold shadow-md">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#F7E7A1] via-primary to-[#8C6A00] text-black text-[10px] font-bold shadow-md">
                     {initials}
                   </div>
 
@@ -60,7 +60,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                     <span className="text-sm font-semibold text-white">
                       {profile?.full_name || 'User'}
                     </span>
-                    <span className="text-[11px] text-[#E7D7A2]">
+                    <span className="text-[11px] text-gold-light">
                       {roleLabel}
                     </span>
                   </div>
@@ -69,7 +69,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                     variant="ghost"
                     size="icon"
                     onClick={signOut}
-                    className="h-8 w-8 text-[#D4AF37] hover:text-red-400 hover:bg-white/10"
+                    className="h-8 w-8 text-primary hover:text-red-400 hover:bg-white/10"
                   >
                     <LogOut className="h-4 w-4" />
                   </Button>

@@ -220,15 +220,15 @@ export default function AppSidebar() {
                     className={cn(
                       'mb-1 h-11 rounded-md pl-3 pr-3 text-sm transition-all duration-200 ease-out',
                       isActive
-                        ? 'border-l-2 border-l-[#D4AF37] bg-[#D4AF37]/10 font-medium text-[#D4AF37] hover:bg-[#D4AF37]/15 hover:text-[#D4AF37]'
-                        : 'text-white/55 hover:bg-[#D4AF37]/[0.06] hover:text-white/90'
+                        ? 'border-l-2 border-l-primary bg-primary/10 font-medium text-primary hover:bg-primary/15 hover:text-primary'
+                        : 'text-white/55 hover:bg-primary/[0.06] hover:text-white/90'
                     )}
                   >
                     <Link to={item.path!} className="flex w-full items-center gap-2">
                       <Icon
                         className={cn(
                           'h-4 w-4',
-                          isActive ? 'opacity-100 text-[#D4AF37]' : 'opacity-60'
+                          isActive ? 'opacity-100 text-primary' : 'opacity-60'
                         )}
                       />
                       <span className="flex-1">{item.label}</span>
@@ -263,14 +263,14 @@ export default function AppSidebar() {
                   className={cn(
                     'mb-1 h-11 rounded-md pl-3 pr-3 text-sm transition-all duration-200 ease-out cursor-pointer',
                     isOnParent
-                      ? 'border-l border-l-[#D4AF37]/40 bg-[#D4AF37]/[0.04] text-white/80 hover:bg-[#D4AF37]/[0.08]'
-                      : 'text-white/55 hover:bg-[#D4AF37]/[0.06] hover:text-white/90'
+                      ? 'border-l border-l-primary/40 bg-primary/[0.04] text-white/80 hover:bg-primary/[0.08]'
+                      : 'text-white/55 hover:bg-primary/[0.06] hover:text-white/90'
                   )}
                 >
                   <Icon
                     className={cn(
                       'h-4 w-4',
-                      isOnParent ? 'opacity-80 text-[#D4AF37]/70' : 'opacity-60'
+                      isOnParent ? 'opacity-80 text-primary/70' : 'opacity-60'
                     )}
                   />
                   <span className="flex-1 text-left">{item.label}</span>
@@ -290,7 +290,7 @@ export default function AppSidebar() {
                 </SidebarMenuButton>
 
                 {isExpanded && (
-                  <SidebarMenuSub className="border-l border-l-[#D4AF37]/15 ml-4 pl-2 mt-0.5 mb-1">
+                  <SidebarMenuSub className="border-l border-l-primary/15 ml-4 pl-2 mt-0.5 mb-1">
                     {item.children.map((child) => {
                       const isChildActive =
                         location.pathname === item.parentPath &&
@@ -304,8 +304,8 @@ export default function AppSidebar() {
                             className={cn(
                               'h-8 rounded-md pl-3 pr-2 text-xs transition-all duration-200 ease-out',
                               isChildActive
-                                ? 'bg-[#D4AF37]/10 font-medium text-[#D4AF37] hover:bg-[#D4AF37]/15 hover:text-[#D4AF37]'
-                                : 'text-white/55 hover:bg-[#D4AF37]/[0.06] hover:text-white/90'
+                                ? 'bg-primary/10 font-medium text-primary hover:bg-primary/15 hover:text-primary'
+                                : 'text-white/55 hover:bg-primary/[0.06] hover:text-white/90'
                             )}
                           >
                             <Link to={`${item.parentPath}?tab=${child.tab}`} className="flex w-full items-center gap-2">
@@ -343,7 +343,7 @@ export default function AppSidebar() {
         }}
       >
         <div className="mb-3 flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#F7E7A1] via-[#D4AF37] to-[#8C6A00] text-xs font-bold text-black">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#F7E7A1] via-primary to-[#8C6A00] text-xs font-bold text-black">
             {initials}
           </div>
 
@@ -351,7 +351,7 @@ export default function AppSidebar() {
             <div className="truncate text-sm font-medium text-white/80">
               {profile?.full_name || 'Cha Jewels'}
             </div>
-            <div className="text-xs text-[#D4AF37]">Admin</div>
+            <div className="text-xs text-primary">Admin</div>
           </div>
         </div>
 

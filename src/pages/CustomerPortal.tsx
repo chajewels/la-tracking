@@ -233,7 +233,7 @@ const P = {
 const CG = "'Cormorant Garamond',Georgia,serif";
 
 const statusColor: Record<string, string> = {
-  'Active':          'text-[#C9A84C] border-[#C9A84C]/50 bg-transparent',
+  'Active':          'text-primary border-primary/50 bg-transparent',
   'Fully Paid':      'text-[#5CB86A] border-[#5CB86A]/40 bg-transparent',
   'Overdue':         'text-[#E74C3C] border-[#E74C3C]/50 bg-transparent',
   'Final Settlement':'text-[#E8C96D] border-[#C9A84C]/40 bg-transparent',

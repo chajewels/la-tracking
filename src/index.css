@@ -15,7 +15,7 @@
     --popover: 0 0% 8%;
     --popover-foreground: 48 100% 97%;
 
-    --primary: 43 74% 52%;
+    --primary: 46 65% 52%;
     --primary-foreground: 0 0% 5%;
 
     --secondary: 0 0% 12%;
@@ -24,26 +24,30 @@
     --muted: 0 0% 10%;
     --muted-foreground: 40 30% 75%;
 
-    --accent: 43 74% 52%;
+    --accent: 46 65% 52%;
     --accent-foreground: 0 0% 5%;
 
     --destructive: 0 72% 55%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 43 45% 28%;
+    --border: 46 45% 28%;
     --input: 0 0% 11%;
-    --ring: 43 74% 52%;
+    --ring: 46 65% 52%;
 
     --radius: 1rem;
 
     --sidebar-background: 22 24% 8%;
     --sidebar-foreground: 48 100% 96%;
-    --sidebar-primary: 43 74% 52%;
+    --sidebar-primary: 46 65% 52%;
     --sidebar-primary-foreground: 0 0% 5%;
     --sidebar-accent: 0 0% 10%;
     --sidebar-accent-foreground: 48 100% 96%;
-    --sidebar-border: 43 45% 28%;
-    --sidebar-ring: 43 74% 52%;
+    --sidebar-border: 46 45% 28%;
+    --sidebar-ring: 46 65% 52%;
+
+    --gold: 46 65% 52%;
+    --gold-light: 46 59% 77%;
+    --gold-dark: 45 100% 27%;
   }
 
   .dark {
@@ -56,7 +60,7 @@
     --popover: 0 0% 8%;
     --popover-foreground: 48 100% 97%;
 
-    --primary: 43 74% 52%;
+    --primary: 46 65% 52%;
     --primary-foreground: 0 0% 5%;
 
     --secondary: 0 0% 12%;
@@ -65,24 +69,28 @@
     --muted: 0 0% 10%;
     --muted-foreground: 40 30% 75%;
 
-    --accent: 43 74% 52%;
+    --accent: 46 65% 52%;
     --accent-foreground: 0 0% 5%;
 
     --destructive: 0 72% 55%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 43 45% 28%;
+    --border: 46 45% 28%;
     --input: 0 0% 11%;
-    --ring: 43 74% 52%;
+    --ring: 46 65% 52%;
 
     --sidebar-background: 22 24% 8%;
     --sidebar-foreground: 48 100% 96%;
-    --sidebar-primary: 43 74% 52%;
+    --sidebar-primary: 46 65% 52%;
     --sidebar-primary-foreground: 0 0% 5%;
     --sidebar-accent: 0 0% 10%;
     --sidebar-accent-foreground: 48 100% 96%;
-    --sidebar-border: 43 45% 28%;
-    --sidebar-ring: 43 74% 52%;
+    --sidebar-border: 46 45% 28%;
+    --sidebar-ring: 46 65% 52%;
+
+    --gold: 46 65% 52%;
+    --gold-light: 46 59% 77%;
+    --gold-dark: 45 100% 27%;
   }
 
   * {
@@ -99,6 +107,7 @@
 
     /* Luxury dark overlay base */
     background:
+      radial-gradient(1200px 600px at 50% -10%, hsl(46 65% 52% / 0.06), transparent 60%),
       linear-gradient(rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0.78)),
       hsl(var(--background));
   }
@@ -175,7 +184,7 @@
 
   /* Progress bar gold gradient */
   .progress-gold > div {
-    background: linear-gradient(90deg, hsl(43 74% 42%), hsl(43 74% 52%), hsl(43 74% 62%));
+    background: linear-gradient(90deg, hsl(46 65% 42%), hsl(46 65% 52%), hsl(46 65% 62%));
   }
 }
 

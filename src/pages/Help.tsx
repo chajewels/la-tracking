@@ -55,8 +55,8 @@ function TocList({
                     className={cn(
                       'w-full text-left text-sm px-3 py-1.5 rounded-md transition-colors',
                       isActive
-                        ? 'border-l-2 border-l-[#D4AF37] bg-[#D4AF37]/10 font-medium text-[#D4AF37]'
-                        : 'text-foreground/70 hover:bg-[#D4AF37]/[0.06] hover:text-foreground'
+                        ? 'border-l-2 border-l-primary bg-primary/10 font-medium text-primary'
+                        : 'text-foreground/70 hover:bg-primary/[0.06] hover:text-foreground'
                     )}
                   >
                     {item.title}
@@ -85,10 +85,10 @@ const markdownComponents: Parameters<typeof ReactMarkdown>[0]['components'] = {
     <p className="text-sm leading-7 text-foreground/85 my-3">{children}</p>
   ),
   ul: ({ children }) => (
-    <ul className="list-disc pl-6 my-3 space-y-1 text-sm leading-7 text-foreground/85 marker:text-[#D4AF37]/60">{children}</ul>
+    <ul className="list-disc pl-6 my-3 space-y-1 text-sm leading-7 text-foreground/85 marker:text-primary/60">{children}</ul>
   ),
   ol: ({ children }) => (
-    <ol className="list-decimal pl-6 my-3 space-y-1 text-sm leading-7 text-foreground/85 marker:text-[#D4AF37]/60">{children}</ol>
+    <ol className="list-decimal pl-6 my-3 space-y-1 text-sm leading-7 text-foreground/85 marker:text-primary/60">{children}</ol>
   ),
   li: ({ children }) => <li>{children}</li>,
   a: ({ href, children }) => (
@@ -96,7 +96,7 @@ const markdownComponents: Parameters<typeof ReactMarkdown>[0]['components'] = {
       href={href}
       target={href?.startsWith('http') ? '_blank' : undefined}
       rel={href?.startsWith('http') ? 'noopener noreferrer' : undefined}
-      className="text-[#D4AF37] no-underline hover:underline"
+      className="text-primary no-underline hover:underline"
     >
       {children}
     </a>
@@ -105,7 +105,7 @@ const markdownComponents: Parameters<typeof ReactMarkdown>[0]['components'] = {
   em: ({ children }) => <em className="italic text-foreground/80">{children}</em>,
   hr: () => <hr className="my-8 border-border" />,
   blockquote: ({ children }) => (
-    <blockquote className="my-4 border-l-2 border-[#D4AF37]/50 pl-4 text-sm text-foreground/70 italic">
+    <blockquote className="my-4 border-l-2 border-primary/50 pl-4 text-sm text-foreground/70 italic">
       {children}
     </blockquote>
   ),
@@ -154,7 +154,7 @@ const markdownComponents: Parameters<typeof ReactMarkdown>[0]['components'] = {
             <img
               src={resolvedSrc}
               alt={alt ?? ''}
-              className="max-w-full rounded-lg border border-border shadow-md hover:border-[#D4AF37]/40 transition-colors"
+              className="max-w-full rounded-lg border border-border shadow-md hover:border-primary/40 transition-colors"
             />
           </button>
         </DialogTrigger>

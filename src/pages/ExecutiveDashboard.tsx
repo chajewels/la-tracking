@@ -205,7 +205,7 @@ export default function ExecutiveDashboard() {
                 </p>
               ) : undefined} />
             {/* Penalty-Driven Accounts */}
-            <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4 sm:p-5 border-l-[3px] border-l-[#D4AF37]">
+            <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4 sm:p-5 border-l-[3px] border-l-primary">
               <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider pl-2">Penalty-Driven Accounts</p>
               <p className="text-xl sm:text-2xl font-bold font-display tabular-nums pl-2 mt-1">{d.penaltyDriven?.penalty_driven_count ?? 0} <span className="text-sm font-normal text-muted-foreground">accounts</span></p>
               <p className="text-[10px] text-muted-foreground pl-2 mt-0.5">{(d.penaltyDriven?.pct_of_active ?? 0).toFixed(1)}% of active</p>
@@ -564,7 +564,7 @@ export default function ExecutiveDashboard() {
 
 function KPI({ label, value, sub, danger, extra }: { label: string; value: string; sub?: string; danger?: boolean; extra?: ReactNode }) {
   return (
-    <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4 sm:p-5 border-l-[3px] border-l-[#D4AF37]">
+    <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4 sm:p-5 border-l-[3px] border-l-primary">
       <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider pl-2">{label}</p>
       <p className={`text-xl sm:text-2xl font-bold font-display tabular-nums pl-2 mt-1 ${danger ? 'text-destructive' : 'text-card-foreground'}`}>{value}</p>
       {sub && <p className="text-[10px] text-muted-foreground pl-2 mt-0.5">{sub}</p>}

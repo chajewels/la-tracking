@@ -273,18 +273,18 @@ export default function Login() {
             <div className="flex items-center justify-between mt-5">
               <button
                 className="text-[11px] tracking-wide transition-colors duration-300"
-                style={{ color: 'rgba(255,255,255,0.3)' }}
+                style={{ color: 'rgba(255,255,255,0.5)' }}
                 onMouseEnter={(e) => (e.currentTarget.style.color = GOLD)}
-                onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255,255,255,0.3)')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}
                 onClick={() => navigate('/forgot-password')}
               >
                 Forgot Password?
               </button>
               <button
                 className="text-[11px] tracking-wide transition-colors duration-300"
-                style={{ color: 'rgba(255,255,255,0.3)' }}
+                style={{ color: 'rgba(255,255,255,0.5)' }}
                 onMouseEnter={(e) => (e.currentTarget.style.color = GOLD)}
-                onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255,255,255,0.3)')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}
                 onClick={() => window.open('https://m.me/chajewelsjapan', '_blank')}
               >
                 Contact Support
