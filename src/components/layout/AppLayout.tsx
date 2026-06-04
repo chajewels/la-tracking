@@ -30,7 +30,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         className="min-h-screen flex w-full text-white bg-cover bg-center bg-no-repeat"
         style={{ backgroundImage: "url('https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets/IMG_4761.jpeg')" }}
       >
-        <div className="min-h-screen w-full flex bg-black/72">
+        <div className="min-h-screen w-full flex bg-gradient-to-b from-black/90 via-black/80 to-black/72">
           <AppSidebar />
 
           <div className="flex min-h-screen flex-1 flex-col min-w-0">
