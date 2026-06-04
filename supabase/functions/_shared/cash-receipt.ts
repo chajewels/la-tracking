@@ -2,10 +2,10 @@ import { getServiceAccountAccessToken } from "./google-auth.ts";
 
 /**
  * Single cash receipt slot data — used by both append-cash-receipt
- * (1 slot at a time) and generate-invoice (up to 13 slots in bulk).
+ * (1 slot at a time) and generate-invoice (up to 24 slots in bulk).
  */
 export interface CashReceiptSlot {
-  slot_index: number;       // 1-13
+  slot_index: number;       // 1-24
   proof_url: string;        // public URL of receipt image
   invoice_number: string;
   payment_date: string;     // formatted display string (e.g., "May 2, 2026")
@@ -20,26 +20,52 @@ interface SlotCells {
 export const TAB = "Cash Receipt";
 
 /**
- * 13-slot cell map. Each slot has 2 merged cells:
+ * 24-slot cell map. Each slot has 2 merged cells:
  * - image: receives =IMAGE() formula
  * - metadata: receives multi-line "INVOICE #: ... DATE: ... AMOUNT: ..." text
  *
- * Layout: 4 columns (B, I, P, W) × 3 rows for B/I/P + 4 rows for W = 13 slots.
+ * Layout: 4 columns (B, I, P, W) × 6 bands = 24 slots, numbered
+ * ROW-MAJOR (left-to-right across each band, then down) so that
+ * receipts — filled in chronological order — read in correct
+ * sequence when the Cash Receipt tab is printed.
+ *
+ * Band anchor rows (image/metadata): 5/40, 58/93, 110/145,
+ * 163/198, 216/251, 269/304. Image cell = anchor + 27 rows × 5
+ * cols; metadata cell = anchor + 5 rows × 5 cols. (Band 2→3
+ * pitch is 52 not 53 — a historical quirk in the template; this
+ * explicit map absorbs it.)
  */
 export const SLOTS: Record<number, SlotCells> = {
+  // Band 1
   1:  { image: `${TAB}!B5`,   metadata: `${TAB}!B40`  },
-  2:  { image: `${TAB}!B58`,  metadata: `${TAB}!B93`  },
-  3:  { image: `${TAB}!B110`, metadata: `${TAB}!B145` },
-  4:  { image: `${TAB}!I5`,   metadata: `${TAB}!I40`  },
-  5:  { image: `${TAB}!I58`,  metadata: `${TAB}!I93`  },
-  6:  { image: `${TAB}!I110`, metadata: `${TAB}!I145` },
-  7:  { image: `${TAB}!P5`,   metadata: `${TAB}!P40`  },
-  8:  { image: `${TAB}!P58`,  metadata: `${TAB}!P93`  },
-  9:  { image: `${TAB}!P110`, metadata: `${TAB}!P145` },
-  10: { image: `${TAB}!W5`,   metadata: `${TAB}!W40`  },
-  11: { image: `${TAB}!W58`,  metadata: `${TAB}!W93`  },
+  2:  { image: `${TAB}!I5`,   metadata: `${TAB}!I40`  },
+  3:  { image: `${TAB}!P5`,   metadata: `${TAB}!P40`  },
+  4:  { image: `${TAB}!W5`,   metadata: `${TAB}!W40`  },
+  // Band 2
+  5:  { image: `${TAB}!B58`,  metadata: `${TAB}!B93`  },
+  6:  { image: `${TAB}!I58`,  metadata: `${TAB}!I93`  },
+  7:  { image: `${TAB}!P58`,  metadata: `${TAB}!P93`  },
+  8:  { image: `${TAB}!W58`,  metadata: `${TAB}!W93`  },
+  // Band 3
+  9:  { image: `${TAB}!B110`, metadata: `${TAB}!B145` },
+  10: { image: `${TAB}!I110`, metadata: `${TAB}!I145` },
+  11: { image: `${TAB}!P110`, metadata: `${TAB}!P145` },
   12: { image: `${TAB}!W110`, metadata: `${TAB}!W145` },
-  13: { image: `${TAB}!W158`, metadata: `${TAB}!W191` },
+  // Band 4
+  13: { image: `${TAB}!B163`, metadata: `${TAB}!B198` },
+  14: { image: `${TAB}!I163`, metadata: `${TAB}!I198` },
+  15: { image: `${TAB}!P163`, metadata: `${TAB}!P198` },
+  16: { image: `${TAB}!W163`, metadata: `${TAB}!W198` },
+  // Band 5
+  17: { image: `${TAB}!B216`, metadata: `${TAB}!B251` },
+  18: { image: `${TAB}!I216`, metadata: `${TAB}!I251` },
+  19: { image: `${TAB}!P216`, metadata: `${TAB}!P251` },
+  20: { image: `${TAB}!W216`, metadata: `${TAB}!W251` },
+  // Band 6
+  21: { image: `${TAB}!B269`, metadata: `${TAB}!B304` },
+  22: { image: `${TAB}!I269`, metadata: `${TAB}!I304` },
+  23: { image: `${TAB}!P269`, metadata: `${TAB}!P304` },
+  24: { image: `${TAB}!W269`, metadata: `${TAB}!W304` },
 };
 
 /**
@@ -52,8 +78,8 @@ export const SLOTS: Record<number, SlotCells> = {
 export function buildSlotUpdates(
   slot: CashReceiptSlot,
 ): Array<{ range: string; values: string[][] }> {
-  if (!Number.isInteger(slot.slot_index) || slot.slot_index < 1 || slot.slot_index > 13) {
-    throw new Error(`Invalid slot_index: ${slot.slot_index} (must be 1-13)`);
+  if (!Number.isInteger(slot.slot_index) || slot.slot_index < 1 || slot.slot_index > 24) {
+    throw new Error(`Invalid slot_index: ${slot.slot_index} (must be 1-24)`);
   }
 
   const cells = SLOTS[slot.slot_index];

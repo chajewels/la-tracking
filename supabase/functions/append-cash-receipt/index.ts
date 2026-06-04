@@ -37,8 +37,8 @@ Deno.serve(async (req) => {
     if (!body.invoice_number) {
       return jsonResponse(400, { error: "invoice_number is required" });
     }
-    if (!Number.isInteger(body.slot_index) || body.slot_index < 1 || body.slot_index > 13) {
-      return jsonResponse(400, { error: "slot_index must be an integer between 1 and 13" });
+    if (!Number.isInteger(body.slot_index) || body.slot_index < 1 || body.slot_index > 24) {
+      return jsonResponse(400, { error: "slot_index must be an integer between 1 and 24" });
     }
     if (typeof body.amount !== "number" || isNaN(body.amount)) {
       return jsonResponse(400, { error: "amount must be a valid number" });

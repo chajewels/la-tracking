@@ -537,7 +537,7 @@ Deno.serve(async (req) => {
         .not("proof_url", "is", null)
         .order("payment_date", { ascending: true })
         .order("created_at", { ascending: true })
-        .limit(13);
+        .limit(24);
 
       if (account_id) {
         submissionsQuery.eq("account_id", account_id);
