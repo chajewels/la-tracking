@@ -1936,6 +1936,31 @@ Lovable IDE. (Bug #156, 2026-05-25)
   toggle, so the breakdown always matches the selected mode. No data impact — payments saved
   with correct is_downpayment and zero installment allocations. Commit 390f7e7.
 
+### Bug #160 — edit-payment-amount missing DP guard caused #19105 misallocation (2026-06-04)
+
+**Symptom**: Two DP payments on layaway account #19105 (Kaila Daniela Catilo) had `payment_allocations` rows created against schedule rows M1 and M2. Payment 68819874 (₱40,000) split 33,670 → M1 + 6,330 → M2. Payment 7c37314f (₱15,000) split 5,333 → M1 + 9,667 → M2. Account audit failed on remaining-balance drift; M1 was wrongly marked 'paid', M2 wrongly 'partially_paid'.
+
+**Root cause**: `supabase/functions/edit-payment-amount/index.ts` Phase 3 ran an unguarded waterfall to recreate `payment_allocations` from scratch on every amount edit, with no DP detection at runtime. The only DP reference in the function was a comment at L98 (which was about loyalty no-op, not allocation control). When staff manually edited the two rakuten DP payment amounts via the Payment History UI — believing them mismatched because of a separate "View Proof shows one image for every payment" preview bug — the function went through Phase 1 (reversed nothing, no existing allocations), Phase 2 (updated amount), and then Phase 3 ran the waterfall blindly, allocating the full DP amounts into M1 and M2 as installment payments.
+
+**Why review-payment-submission was ruled out**: Git blame on `supabase/functions/review-payment-submission/index.ts` L775-790 confirms the DP gate at L778 was added by commit `8bbb93eb` on 2026-03-26, finalized by commit `70c91c45` on 2026-03-30 — over two months before the 2026-06-03 misallocations. The DP-skip inside `allocatePaymentToAccount` correctly produces empty `allocations` / `scheduleUpdates` / `penaltyUpdates` arrays when `isDownpayment=true`, so no installment inserts can be produced by this function for any DP payment.
+
+**Why reconcile-account was ruled out**: File header explicitly states *"Reconcile a single layaway account — REPORT ONLY (no DB writes)."* The function reads, computes canonical values, returns a drift report. It does not write to `payment_allocations` at all.
+
+**Why record-payment / record-multi-payment were ruled out**: Both have DP guards via the `is_downpayment` boolean flag (record-payment L243; record-multi-payment L184). The misallocated payments' remarks format (`"Payment submitted: Downpayment. Submission #..."`) matches review-payment-submission, not record-payment, confirming neither function processed these payments.
+
+**Fix**: Added two-condition DP gate at the top of Phase 3 in `edit-payment-amount/index.ts` (ref_number startsWith 'DP-' OR remarks regex match for `\bdown(payment)?\b|\bdp\b`). Wrapped the entire Phase 3 body in `if (!isDP) { ... }`. Phase 1 (allocation reversal), Phase 2 (amount update), and Phase 4 (canonical totals recompute via INVARIANT 1) continue to run for all payment types. This gives a self-heal property: re-editing a previously misallocated DP payment will now reverse the bad allocations (Phase 1) and skip the re-allocation (Phase 3 wrapped), with totals corrected in Phase 4.
+
+**Heuristic notes**: DP detection at the `payments` table layer omits the `submission_type` check used at L778 of review-payment-submission because per CLAUDE.md schema notes, the `payments` table has no `payment_type` or `is_downpayment` columns — DP is identified solely by reference_number prefix or remarks regex. All 7 of #19105's DP payments satisfy both conditions of this gate (verified empirically against payment_submissions data prior to the fix).
+
+**Not the cause**:
+- review-payment-submission (DP gate live since 2026-03-30 per git blame)
+- reconcile-account (REPORT-ONLY)
+- record-payment / record-multi-payment (DP guards present, did not process these payments)
+- fix-account-totals (has remarks-based DP guard at L196-198 that catches "downpayment" substring; would have skipped these payments)
+- bulk-import (DP-aware, handles downpayment as separate field)
+- restore-payment (has `isDownpaymentPayment()` helper at L36-40)
+- penalty-engine (only writes `'penalty'` allocations, never `'installment'`)
+
 ### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
 
   Account schedule/allocation repairs. All four accounts pass
@@ -1984,3 +2009,15 @@ Lovable IDE. (Bug #156, 2026-05-25)
   Result: audit_account('17325') all_pass. total_paid and remaining_balance
   unchanged (reallocation within one payment).
   NOT #116/#117 — no total_due reduction, no carried_amount involved.
+
+### TODAY'S DATA FIXES (2026-06-04)
+
+**Account #19105 — Kaila Daniela Catilo — DP misallocation cleanup**
+
+**Symptom**: Audit check 2 (remaining_balance drift). Two of seven DP payments on the account had installment allocations created against schedule M1 and M2.
+
+**Root cause**: edit-payment-amount Phase 3 unguarded re-allocation. See Bug #160 above.
+
+**Fix**: Atomic SQL DO block in Supabase SQL Editor deleted 4 allocation rows by UUID literal (b36034dc, 0e7ac215, 1ec185b9, ac1e5c65), reset layaway_schedule.paid_amount to 0 and status to 'pending' for M1 and M2 of account_id b1c4117d-227b-408b-87aa-3d9583ea9707. The `payments` table was untouched — DP amounts and classifications preserved. The fix was applied before the code patch in Bug #160, so the bug was caught by audit before any further damage.
+
+**Result**: Account #19105 now has 7 DP payments totaling ₱222,960 (matches `downpayment_amount` field), zero schedule allocations on those payments. `audit_account('19105')` returns `all_pass=true`.

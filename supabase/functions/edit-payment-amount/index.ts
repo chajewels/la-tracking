@@ -188,85 +188,99 @@ Deno.serve(async (req) => {
     // PHASE 3: RE-ALLOCATE with new amount
     // ══════════════════════════════════════════════
 
-    // Fetch fresh schedule
-    const { data: schedule } = await supabase
-      .from("layaway_schedule")
-      .select("*")
-      .eq("account_id", payment.account_id)
-      .order("installment_number", { ascending: true });
+    //
+    // DP GUARD (2026-06-04): DP payments must NEVER allocate to schedule
+    // per CLAUDE.md CALCULATION STANDARD. Phase 1 already reversed any
+    // existing allocations on this payment, so a DP payment that was
+    // previously misallocated is now clean. Phase 4 recomputes account
+    // totals from payments.amount_paid (INVARIANT 1). DP heuristic
+    // matches review-payment-submission L778 minus submission_type
+    // (not a column on the payments table per CLAUDE.md schema notes).
+    const isDP =
+      String(payment.reference_number || '').toUpperCase().startsWith('DP-') ||
+      /\bdown(payment)?\b|\bdp\b/i.test(String(payment.remarks || ''));
 
-    // Fetch unpaid penalties
-    const { data: unpaidPenalties } = await supabase
-      .from("penalty_fees")
-      .select("*")
-      .eq("account_id", payment.account_id)
-      .eq("status", "unpaid")
-      .order("penalty_date", { ascending: true });
+    if (!isDP) {
+      // Fetch fresh schedule
+      const { data: schedule } = await supabase
+        .from("layaway_schedule")
+        .select("*")
+        .eq("account_id", payment.account_id)
+        .order("installment_number", { ascending: true });
 
-    let remaining = newAmount;
-    const newAllocations: Array<{
-      schedule_id: string;
-      allocation_type: "penalty" | "installment";
-      allocated_amount: number;
-    }> = [];
+      // Fetch unpaid penalties
+      const { data: unpaidPenalties } = await supabase
+        .from("penalty_fees")
+        .select("*")
+        .eq("account_id", payment.account_id)
+        .eq("status", "unpaid")
+        .order("penalty_date", { ascending: true });
 
-    // Pay penalties first
-    if (unpaidPenalties) {
-      for (const pen of unpaidPenalties) {
-        if (remaining <= 0) break;
-        const penAmount = Number(pen.penalty_amount);
-        const toPay = round2(Math.min(remaining, penAmount));
-        remaining = round2(remaining - toPay);
-        newAllocations.push({
-          schedule_id: pen.schedule_id,
-          allocation_type: "penalty",
-          allocated_amount: toPay,
-        });
-        await supabase.from("penalty_fees").update({
-          status: toPay >= penAmount ? "paid" : "unpaid",
-        }).eq("id", pen.id);
+      let remaining = newAmount;
+      const newAllocations: Array<{
+        schedule_id: string;
+        allocation_type: "penalty" | "installment";
+        allocated_amount: number;
+      }> = [];
+
+      // Pay penalties first
+      if (unpaidPenalties) {
+        for (const pen of unpaidPenalties) {
+          if (remaining <= 0) break;
+          const penAmount = Number(pen.penalty_amount);
+          const toPay = round2(Math.min(remaining, penAmount));
+          remaining = round2(remaining - toPay);
+          newAllocations.push({
+            schedule_id: pen.schedule_id,
+            allocation_type: "penalty",
+            allocated_amount: toPay,
+          });
+          await supabase.from("penalty_fees").update({
+            status: toPay >= penAmount ? "paid" : "unpaid",
+          }).eq("id", pen.id);
+        }
       }
-    }
 
-    // Allocate to installments
-    if (remaining > 0 && schedule) {
-      const unpaidItems = schedule.filter(
-        item => item.status !== "paid" && item.status !== "cancelled"
-      ).sort((a, b) => a.installment_number - b.installment_number);
+      // Allocate to installments
+      if (remaining > 0 && schedule) {
+        const unpaidItems = schedule.filter(
+          item => item.status !== "paid" && item.status !== "cancelled"
+        ).sort((a, b) => a.installment_number - b.installment_number);
 
-      for (const item of unpaidItems) {
-        if (remaining <= 0) break;
-        const currentPaid = Number(item.paid_amount);
-        const baseAmount = Number(item.base_installment_amount);
-        const due = Math.max(0, round2(baseAmount - currentPaid));
-        if (due <= 0) continue;
+        for (const item of unpaidItems) {
+          if (remaining <= 0) break;
+          const currentPaid = Number(item.paid_amount);
+          const baseAmount = Number(item.base_installment_amount);
+          const due = Math.max(0, round2(baseAmount - currentPaid));
+          if (due <= 0) continue;
 
-        const toApply = round2(Math.min(remaining, due));
-        remaining = round2(remaining - toApply);
-        const newPaid = round2(currentPaid + toApply);
-        const newStatus = newPaid >= baseAmount ? "paid" : "partially_paid";
+          const toApply = round2(Math.min(remaining, due));
+          remaining = round2(remaining - toApply);
+          const newPaid = round2(currentPaid + toApply);
+          const newStatus = newPaid >= baseAmount ? "paid" : "partially_paid";
 
-        newAllocations.push({
-          schedule_id: item.id,
-          allocation_type: "installment",
-          allocated_amount: toApply,
-        });
+          newAllocations.push({
+            schedule_id: item.id,
+            allocation_type: "installment",
+            allocated_amount: toApply,
+          });
 
-        await supabase.from("layaway_schedule").update({
-          paid_amount: newPaid,
-          status: newStatus,
-        }).eq("id", item.id);
+          await supabase.from("layaway_schedule").update({
+            paid_amount: newPaid,
+            status: newStatus,
+          }).eq("id", item.id);
+        }
       }
-    }
 
-    // Insert new allocations
-    for (const alloc of newAllocations) {
-      await supabase.from("payment_allocations").insert({
-        payment_id: payment_id,
-        schedule_id: alloc.schedule_id,
-        allocation_type: alloc.allocation_type,
-        allocated_amount: alloc.allocated_amount,
-      });
+      // Insert new allocations
+      for (const alloc of newAllocations) {
+        await supabase.from("payment_allocations").insert({
+          payment_id: payment_id,
+          schedule_id: alloc.schedule_id,
+          allocation_type: alloc.allocation_type,
+          allocated_amount: alloc.allocated_amount,
+        });
+      }
     }
 
     // ══════════════════════════════════════════════
