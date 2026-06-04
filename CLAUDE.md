@@ -222,6 +222,23 @@ To add a new screenshot for any Help section:
   2. Reference it in markdown using just the filename (no extension)
   3. No code change required for the image to render
 
+## BRAND STYLE STANDARD (added 2026-06-04)
+
+  Canonical brand gold: #D4AF37 = hsl(46 65% 52%)
+  Applied ONLY via theme tokens (--primary / --accent / --ring / --gold family
+  in src/index.css). Hardcoded [#D4AF37]-style Tailwind literals must never
+  be reintroduced.
+  Check: grep -rn "\[#D4AF37\]\|\[#E7D7A2\]" src → must return 0.
+
+  Background photo: brand-assets/IMG_4761.jpeg (Supabase Storage, public)
+  Used by: AppLayout.tsx (Hub interior, under bg-black/72 overlay)
+           PortalLogin.tsx (PORTAL_HERO constant)
+  Admin login (Login.tsx) intentionally keeps IMG_3197.jpeg.
+
+  Gold tokens --gold / --gold-light / --gold-dark defined in :root and .dark.
+  --success / --warning / --info are UNDEFINED in CSS — do not use those
+  Tailwind color classes until tokens are added (usage grep pending).
+
 ## total_amount DEFINITION — NON-NEGOTIABLE (updated 2026-04-12)
 
   layaway_accounts.total_amount = TOTAL ACCOUNT OBLIGATION.
