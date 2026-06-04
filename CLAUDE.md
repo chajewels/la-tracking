@@ -401,6 +401,11 @@ To add a new screenshot for any Help section:
 
 ## PAYMENT ALLOCATION RULES
 
+  Note: DP payments are excluded from this allocation flow per
+  INVARIANT 11. They are recorded as payment rows but never create
+  payment_allocations against schedule. The rules below apply to
+  installment payments only.
+
   Exact payment:    status → paid. No carry. total_due_amount = base (unchanged).
 
   Overpayment:      current month set to paid. Surplus waterfalls to next pending
@@ -646,6 +651,18 @@ When completing a partially_paid month:
     Voiding an installment payment does not revoke loyalty (only DP voids
     do, per CLAUDE.md DP detection heuristic). See LOYALTY LIFECYCLE
     INTEGRATION section for full lifecycle wiring.
+
+  INVARIANT 11 — DP allocation prohibition:
+    DP payments NEVER create payment_allocations against schedule rows.
+    DP detection on the payments table: reference_number starts with
+    'DP-' OR remarks matches /\bdown(payment)?\b|\bdp\b/i (matches
+    review-payment-submission L778 minus submission_type — not a
+    payments column per CLAUDE.md schema notes).
+    Every function writing to payment_allocations MUST guard against
+    DP payments. Account totals for DP are derived via INVARIANT 1
+    (SUM payments.amount_paid) — no schedule allocation needed.
+    See Bug #160 (edit-payment-amount was the missing guard) in
+    docs/FIXED-BUGS.md.
 
 ## TIMEZONE STANDARD — NON-NEGOTIABLE (updated 2026-04-25)
 
@@ -1115,7 +1132,7 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
 - Active sub-item: full gold accent (matches leaf active styling)
 - No hover delay (immediate accordion switch) — can be revisited if jitter becomes an issue
 
-## PAYMENT SUBMISSION FLOW (locked — 2026-04-13)
+## PAYMENT SUBMISSION FLOW (locked — 2026-04-13, restore added 2026-06-04)
 
   ALL payments regardless of submitter must go through
   Submissions review before appearing in Proof of Payment.
@@ -1137,6 +1154,19 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
   paths (submit-payment, record-payment staff path, record-payment
   admin/finance client-side insert from RecordPaymentDialog) use
   status='submitted'.
+
+  RESTORE PATH (added 2026-06-04):
+    A rejected submission can be restored to the review queue by users
+    with reject_submission permission. Restore action:
+    - Validates submission.status === 'rejected' (400 otherwise)
+    - Flips status to 'submitted' (re-enters queue)
+    - Preserves reviewer_user_id and reviewer_notes as rejection history
+    - Writes audit_logs entry: entity_type='payment_submission',
+      action='restored_from_rejected', captures restorer + optional reason
+    - Works for both layaway and cash-order submissions
+    - Does NOT fire customer notifications (internal recovery action)
+    - Does NOT create or modify payments, allocations, schedule, or
+      cash_orders — only flips submission.status
 
 ## LOYALTY AWARD SYSTEM (added 2026-04-27, updated 2026-05-16)
 
