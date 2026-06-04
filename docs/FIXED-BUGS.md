@@ -1961,6 +1961,29 @@ Lovable IDE. (Bug #156, 2026-05-25)
 - restore-payment (has `isDownpaymentPayment()` helper at L36-40)
 - penalty-engine (only writes `'penalty'` allocations, never `'installment'`)
 
+### Feature — Restore action for rejected payment submissions (2026-06-04)
+
+**What changed**: Added the ability to restore a rejected payment submission back to the review queue. Previously, once a submission was rejected (status='rejected') there was no in-app path to recover it — accidentally rejected submissions required manual SQL intervention. Now a Restore button appears on rejected rows for users with `reject_submission` permission, returning the submission to `status='submitted'` for fresh validation.
+
+**Frontend** (`src/pages/PaymentSubmissions.tsx`):
+- `RotateCcw` icon added to lucide-react imports.
+- ActionDialog extended with a `'restore'` action variant: title `'🔄 Restore Submission'`, non-destructive button styling, optional restore reason input.
+- New Restore button rendered on rows where `sub.status === 'rejected' && canReject`, placed between the existing pending-status badge and the Account/Cash Order link.
+
+**Backend** (`supabase/functions/review-payment-submission/index.ts`):
+- `'restore'` added to `validActions` array.
+- `restore: "reject_submission"` added to `permissionByAction` map (same permission as making the rejection — restoration is the inverse trust action).
+- New RESTORE PATH early-return branch placed right after submission and allocs are fetched, BEFORE both the cash-order and layaway branches. Validates `submission.status === 'rejected'` (returns 400 otherwise), flips status to `'submitted'`, preserves `reviewer_user_id` and `reviewer_notes` on the row as rejection history.
+- Audit trail: writes an `audit_logs` entry with `entity_type='payment_submission'`, `action='restored_from_rejected'`, the prior status/reviewer/notes in `old_value_json`, and the new status + restorer's optional reason in `new_value_json`. `performed_by_user_id` is the restorer.
+
+**Status flow**: `rejected` → (Restore button) → `submitted` → re-enters standard review (under_review / confirmed / rejected / needs_clarification).
+
+**Works for**: both layaway submissions (account_id IS NOT NULL) and cash-order submissions (cash_order_id IS NOT NULL). The restore handler short-circuits both branches with a single early-return.
+
+**Does not change**: payment_allocations, payments, schedule rows, penalty_fees, account totals, or cash_orders. Restore only flips the submission status. Customer-facing emails do NOT fire on restore (intentional — restoration is an internal recovery action).
+
+**Permissions**: `reject_submission` controls both rejection AND restore. If finer-grained control is needed later, split into a new `restore_submission` permission key without backend changes (just adjust `permissionByAction`).
+
 ### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
 
   Account schedule/allocation repairs. All four accounts pass

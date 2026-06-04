@@ -398,7 +398,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const validActions = ["under_review", "confirmed", "rejected", "needs_clarification"];
+    const validActions = ["under_review", "confirmed", "rejected", "needs_clarification", "restore"];
     if (!validActions.includes(action)) {
       return new Response(JSON.stringify({ error: "Invalid action" }), {
         status: 400,
@@ -411,6 +411,7 @@ Deno.serve(async (req) => {
       needs_clarification: "review_submission",
       rejected: "reject_submission",
       confirmed: "confirm_payment",
+      restore: "reject_submission",
     };
 
     const requiredPermission = permissionByAction[action];
@@ -447,6 +448,63 @@ Deno.serve(async (req) => {
 
     const allocs = subAllocations || [];
     let confirmedPaymentIds: string[] = [];
+
+    // ── RESTORE PATH ──
+    // Restoring a rejected submission flips status back to 'submitted' so
+    // it re-enters the queue for proper validation. Preserves the original
+    // reviewer_user_id and reviewer_notes as rejection history. The restorer
+    // and optional restore reason are captured in audit_logs. Short-circuits
+    // both the cash-order and layaway branches.
+    if (action === "restore") {
+      if (submission.status !== "rejected") {
+        return new Response(JSON.stringify({
+          error: `Cannot restore submission with status '${submission.status}'. Only rejected submissions can be restored.`,
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { error: restoreErr } = await supabase
+        .from("payment_submissions")
+        .update({
+          status: "submitted",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", submission_id);
+
+      if (restoreErr) {
+        return new Response(JSON.stringify({
+          error: "Failed to restore submission: " + restoreErr.message,
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      await supabase.from("audit_logs").insert({
+        entity_type: "payment_submission",
+        entity_id: submission_id,
+        action: "restored_from_rejected",
+        old_value_json: {
+          status: "rejected",
+          reviewer_user_id: submission.reviewer_user_id,
+          reviewer_notes: submission.reviewer_notes,
+        },
+        new_value_json: {
+          status: "submitted",
+          restore_reason: reviewer_notes || null,
+        },
+        performed_by_user_id: user.id,
+      });
+
+      return new Response(JSON.stringify({
+        success: true,
+        status: "submitted",
+        submission: { id: submission_id, status: "submitted" },
+        restored: true,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
     // ── CASH ORDER CONFIRMATION PATH ──
     // Cash order submissions are identified by cash_order_id IS NOT NULL

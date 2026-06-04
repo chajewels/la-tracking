@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   AlertTriangle, Check, CheckCircle, Clock, CreditCard, Eye, ExternalLink,
-  Filter, Image as ImageIcon, Loader2, MessageSquare, Search, Send, XCircle, FileText,
+  Filter, Image as ImageIcon, Loader2, MessageSquare, RotateCcw, Search, Send, XCircle, FileText,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/calculations';
@@ -158,6 +158,7 @@ const ActionDialogModal = memo(function ActionDialogModal({
           <h2 className="text-lg font-semibold leading-none tracking-tight font-display">
             {actionDialog.action === 'confirmed' ? '✅ Confirm Payment' :
              actionDialog.action === 'rejected' ? '❌ Reject Submission' :
+             actionDialog.action === 'restore' ? '🔄 Restore Submission' :
              '💬 Request Clarification'}
           </h2>
           <p className="text-sm text-muted-foreground">
@@ -165,6 +166,8 @@ const ActionDialogModal = memo(function ActionDialogModal({
               ? `This will create a confirmed payment of ${formatCurrency(actionDialog.sub.submitted_amount, cur)} and update the account balance.`
               : actionDialog.action === 'rejected'
               ? 'This submission will be marked as rejected. The customer will see your reason.'
+              : actionDialog.action === 'restore'
+              ? 'This will return the submission to the queue for re-review. The original rejection reason is preserved as history.'
               : 'Send a message to the customer requesting more information.'}
           </p>
         </div>
@@ -283,7 +286,7 @@ const ActionDialogModal = memo(function ActionDialogModal({
 
           <div>
             <label className="text-xs font-medium text-foreground">
-              {actionDialog.action === 'confirmed' ? 'Note (optional)' : 'Reason / Message *'}
+              {actionDialog.action === 'confirmed' || actionDialog.action === 'restore' ? 'Note (optional)' : 'Reason / Message *'}
             </label>
             <Textarea
               value={reviewerNotes}
@@ -291,6 +294,7 @@ const ActionDialogModal = memo(function ActionDialogModal({
               placeholder={
                 actionDialog.action === 'confirmed' ? 'Optional note...' :
                 actionDialog.action === 'rejected' ? 'Reason for rejection...' :
+                actionDialog.action === 'restore' ? 'Optional restore reason...' :
                 'What information do you need?'
               }
               rows={3}
@@ -303,12 +307,13 @@ const ActionDialogModal = memo(function ActionDialogModal({
           <Button variant="ghost" onClick={onCancel}>Cancel</Button>
           <Button
             variant={actionDialog.action === 'rejected' ? 'destructive' : 'default'}
-            disabled={isPending || (actionDialog.action !== 'confirmed' && !reviewerNotes.trim())}
+            disabled={isPending || (actionDialog.action !== 'confirmed' && actionDialog.action !== 'restore' && !reviewerNotes.trim())}
             onClick={() => onSubmit(reviewerNotes)}
           >
             {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
             {actionDialog.action === 'confirmed' ? 'Confirm & Record Payment' :
              actionDialog.action === 'rejected' ? 'Reject Submission' :
+             actionDialog.action === 'restore' ? 'Restore Submission' :
              'Send Clarification Request'}
           </Button>
         </div>
@@ -860,6 +865,11 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                           <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20 text-[10px]">
                             <Clock className="h-3 w-3 mr-1" /> Pending Confirmation
                           </Badge>
+                        )}
+                        {sub.status === 'rejected' && canReject && (
+                          <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'restore' })}>
+                            <RotateCcw className="h-3.5 w-3.5" /> Restore
+                          </Button>
                         )}
                         <Link to={isCash ? `/cash-orders/${sub.cash_order_id}` : `/accounts/${sub.account_id}`}>
                           <Button size="sm" variant="ghost" className="gap-1.5 text-xs w-full">
