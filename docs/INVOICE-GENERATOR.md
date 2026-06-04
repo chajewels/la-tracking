@@ -257,7 +257,7 @@
   payment_submissions entry on the parent account/cash_order.
 
   Architecture:
-  - _shared/cash-receipt.ts — 13-slot canonical cell map + Sheets
+  - _shared/cash-receipt.ts — 24-slot canonical cell map + Sheets
     API helpers (buildSlotUpdates, appendOneReceipt,
     appendManyReceipts). Single source of truth for slot positions
     and =IMAGE formula construction.
@@ -266,7 +266,7 @@
     from review-payment-submission and for ad-hoc curl testing.
   - generate-invoice extension — on Sheet creation, queries all
     confirmed receipts for parent (ORDER BY payment_date ASC,
-    created_at ASC, LIMIT 13), embeds them in a single Sheets API
+    created_at ASC, LIMIT 24), embeds them in a single Sheets API
     batchUpdate via appendManyReceipts. Persists
     cash_receipt_sheet_id on parent table. Response gains
     embedded_receipt_count field.
@@ -280,15 +280,21 @@
   from system_settings.php_jpy_rate (jsonb scalar). Always
   displays as "{amount} JPY".
 
-  Slot layout: 13 slots in the Cash Receipt tab.
-  - Column B: slots 1, 2, 3 (image B5, B58, B110 / metadata B40, B93, B145)
-  - Column I: slots 4, 5, 6 (image I5, I58, I110 / metadata I40, I93, I145)
-  - Column P: slots 7, 8, 9 (image P5, P58, P110 / metadata P40, P93, P145)
-  - Column W: slots 10, 11, 12, 13 (image W5/58/110/158 / metadata W40/93/145/191)
+  Slot layout: 24 slots in the Cash Receipt tab — 4 columns
+  (B, I, P, W) × 6 bands, numbered ROW-MAJOR (left-to-right
+  across each band, then down) so printed receipts read in
+  chronological sequence.
+  Band anchor rows (image/metadata): 5/40, 58/93, 110/145,
+  163/198, 216/251, 269/304. Image cell = anchor + 27 rows × 5
+  cols; metadata cell = anchor + 5 rows × 5 cols.
+  2026-06-04: remapped from 13-slot column-major. Orphan
+  W157/W191 block removed from master template. generate-invoice
+  receipt query LIMIT 13 → 24. Overflow guard slot_index > 24
+  logs and skips.
 
   Failure isolation: receipt-embed errors caught and logged with
   console.warn, never block invoice generation or payment
-  confirmation. Slot overflow (slot_index > 13) logs and skips.
+  confirmation. Slot overflow (slot_index > 24) logs and skips.
 
   Schema columns:
   - layaway_accounts.cash_receipt_sheet_id text NULL (added 2026-05-11)
