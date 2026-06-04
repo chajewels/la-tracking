@@ -2002,6 +2002,26 @@ Lovable IDE. (Bug #156, 2026-05-25)
 
 **Not changed**: The `/payments-hub` Submissions & Proofs page in finance is unaffected — it uses a different rendering path that reads `proof_url` directly off each submission row, not joined through payments. Database schema unchanged. Backend edge functions unchanged. No data fix needed (the proof URLs in `payment_submissions` rows are already correct; only the rendering join was wrong).
 
+### Bug #162 — fill-payment-tracking reads wrong column for customer country (2026-06-04)
+
+**Symptom**: The "Country" column (column T) on the Overseas tab of the payment tracker sheet was blank for many customers, even though their country was correctly entered via the Customers menu → pencil-edit Customer Details form. Affected ~13 invoices in the latest fill (e.g. Romelyn Fortuna 18998, June Fagerholt 18992, Christia Amparo-Gonzalez 19011, Hayden Hayden 19014, Shiella Flores Almazan 19038/19067, Eetu Rain 19050, Grace Salaug 19053, ELMA GOBLER 19076 — all of whom HAD their country populated in the customer record). Other customers' country populated correctly (e.g. Yolanda Bermudez Alegre 19093 Israel, Aileen Sia 19049 Philippines).
+
+**Root cause**: `supabase/functions/fill-payment-tracking/index.ts` queried `customers.country` at L170 (layaway path) and L179 (cash-orders path) — but the active Customer Details edit form writes the country value to `customers.location`, not `customers.country`. The `country` column on the `customers` table exists but is not populated by any active UI path; it's effectively dormant. Customers whose `location` was set but `country` was NULL produced blank cells in column T because the edge function picked the wrong column.
+
+The two columns are not consistently kept in sync — some legacy customer records have both columns populated (e.g. Yolanda has `country = 'Israel'` AND `location = 'Israel'`), while customers entered through the current UI only get `location` populated. The split source-of-truth meant the bug was invisible for the subset whose records happened to have both fields filled.
+
+**Fix**: Change all four read sites in fill-payment-tracking to use `customers.location` instead of `customers.country`:
+1. L170 SELECT — `customer:customers(country)` → `customer:customers(location)`
+2. L175 map-set — `r.customer?.country` / `r.customer.country` → `r.customer?.location` / `r.customer.location`
+3. L179 SELECT — same swap as L170
+4. L184-185 map-set — same swap as L175
+
+Variable name `countryByInvoice` retained (it represents the column-T VALUE, regardless of which DB column sources it). Comment at L166 updated to document the rationale and prevent re-introduction.
+
+**No data fix needed**: The country values are already in `customers.location` for all affected customers. As soon as the fix deploys, the next payment-tracker fill will populate column T correctly from that column.
+
+**Going-forward consideration**: The `customers.country` column exists but is not actively populated by any UI path. Either (a) backfill `customers.country` from `customers.location` and pick one canonical column going forward, or (b) drop `customers.country` if confirmed unused. Either decision is outside the scope of this fix and parked for a future schema-cleanup pass.
+
 ### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
 
   Account schedule/allocation repairs. All four accounts pass

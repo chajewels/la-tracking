@@ -163,26 +163,30 @@ Deno.serve(async (req) => {
     const statusByInvoice = new Map<string, string>();
     for (const t of tracking) { if (t.month_paid_jpy) byInvoice.set(t.invoice_number, t.month_paid_jpy); if (t.status) statusByInvoice.set(t.invoice_number, t.status); }
 
-    // 4b. Country lookup per invoice (layaway + cash orders)
+    // 4b. Country lookup per invoice (layaway + cash orders).
+    // Reads from customers.location (NOT customers.country) because the
+    // Customer Details edit form writes the country value to the
+    // `location` column. The `country` column on customers exists but
+    // is not populated by the active UI. See Bug #162 in docs/FIXED-BUGS.md.
     const countryByInvoice = new Map<string, string>();
     const inList = invoices.join(",");
     const laCountryRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/layaway_accounts?select=invoice_number,customer:customers(country)&invoice_number=in.(${inList})`,
+      `${SUPABASE_URL}/rest/v1/layaway_accounts?select=invoice_number,customer:customers(location)&invoice_number=in.(${inList})`,
       { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }
     );
     if (laCountryRes.ok) {
       for (const r of await laCountryRes.json()) {
-        if (r.customer?.country) countryByInvoice.set(r.invoice_number, r.customer.country);
+        if (r.customer?.location) countryByInvoice.set(r.invoice_number, r.customer.location);
       }
     }
     const coCountryRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/cash_orders?select=invoice_number,customer:customers(country)&invoice_number=in.(${inList})`,
+      `${SUPABASE_URL}/rest/v1/cash_orders?select=invoice_number,customer:customers(location)&invoice_number=in.(${inList})`,
       { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } }
     );
     if (coCountryRes.ok) {
       for (const r of await coCountryRes.json()) {
-        if (r.customer?.country && !countryByInvoice.has(r.invoice_number)) {
-          countryByInvoice.set(r.invoice_number, r.customer.country);
+        if (r.customer?.location && !countryByInvoice.has(r.invoice_number)) {
+          countryByInvoice.set(r.invoice_number, r.customer.location);
         }
       }
     }
