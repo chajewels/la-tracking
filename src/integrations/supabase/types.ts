@@ -3892,8 +3892,9 @@ export type Database = {
       get_tracking_for_invoices: {
         Args: { p_invoices: string[] }
         Returns: {
+          country: string
           currency: string
-          customer_name: string
+          full_name: string
           invoice_number: string
           month_paid_jpy: Json
           order_date: string
