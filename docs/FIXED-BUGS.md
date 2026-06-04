@@ -2069,6 +2069,81 @@ The function knows its own service role key from env, so direct string equality 
 
 **Process note (locked lesson)**: Lovable-only auto-commits to security-critical edge functions (auth, payments, loyalty) that bypass the SOP gate can ship silent breaking changes. Going forward, ANY change to those functions should be planned and confirmed before shipping — no exceptions. The "Changes" auto-message pattern is a red flag indicating a session edit without proper documentation; future audits should treat such commits with extra scrutiny.
 
+**Resolution & catch-up notes (added 2026-06-04 end of day)**
+
+Outage window: 2026-06-03 04:03:11 UTC (commit `56ddae1` lands) → 2026-06-04 ~09:00 UTC (Bug #163 fix `3ae7b70` deployed). Approximately 29 hours.
+
+**Catch-up scope was 2 accounts, not 4.** Initial diagnostic query identified 5 DP payments in the outage window across 4 unique accounts. Verification revealed two of those accounts already had `earned` txns from before the outage and would have hit the function's idempotency guard (section 4b) regardless of whether auth was working:
+
+- **Sarah Arcibal-Ponting #19060** — prior earned txn from 2026-05-21 06:49:54 (700 pts, Glimmer). The June 4 08:06 DP confirmation was a re-confirmation/edit of an already-awarded account.
+- **ケイ 東 #19105** — prior earned txn from 2026-06-03 00:38:34 (2,300 pts, Glimmer), ~3.5 hours BEFORE the breaking commit landed at 04:03:11 UTC. The two June 3 23:18/23:21 DP tranches were subsequent payments on an already-awarded account.
+- **Bea Sartorio #19101** — NO prior earned txn. Actual catch-up needed.
+- **Suzette Tupaz #19108** — NO prior earned txn. Actual catch-up needed.
+
+**Catch-up was performed via SQL RPC backfill, not function POST.** External service-role calls to `award-loyalty-points` via `pg_net` returned 401 even with the correct service role key copied from Dashboard → Settings → API. Suspected cause: the Dashboard-displayed key doesn't equal the runtime-injected `Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")` value, possibly due to Supabase's `sb_secret_*` key-format rollout. This does NOT affect inter-function calls — verified empirically below — so the Bug #163 fix is sound for the production code path.
+
+The catch-up RPC `public.replay_loyalty_award_bug163(uuid)` was a one-shot PL/pgSQL function replicating sections 4-12 of `award-loyalty-points` directly in Postgres: idempotency check, tier ratchet-up at post-upgrade multiplier, `earned` transaction insert with `notes = 'Bug #163 catch-up (SQL backfill)'`, member totals update, `tier_changed` transaction on upgrade. Intentionally skipped for retroactive (would have confused customers receiving stale notifications): email notifications, in-portal notifications, Google Sheet sync, `loyalty_point_lots` shadow write. RPC dropped after the two backfills completed.
+
+**Final point totals (Bug #163 outage-related):**
+
+| Invoice | Customer | Tier | Multiplier | Points awarded | Source |
+|---|---|---|---|---|---|
+| 19101 | Bea Sartorio | Radiant | 2× | 4,000 | SQL backfill 2026-06-04 10:03:31 UTC |
+| 19108 | Suzette Tupaz | Glimmer | 1× | 1,000 | SQL backfill 2026-06-04 10:03:51 UTC |
+| 19109 | Bernadette Bacho | (verification) | n/a | 3,600 | Natural inter-function call 2026-06-04 10:42:44 UTC |
+
+**Runtime verification — empirical proof the fix works end-to-end.** Bernadette Bacho #19109 was the first natural DP confirmation post-deploy. DP confirmed at 2026-06-04 10:42:43.024238 UTC. The `earned` txn landed at 2026-06-04 10:42:44.9095 UTC — 1.9 seconds later. Auth gate passed, idempotency passed, award fired with correct value (3,600 pts). This confirms `review-payment-submission` → `award-loyalty-points` inter-function path works at runtime under the new direct-env-equality auth check. No Bug #164 needed.
+
+**Future verification — diagnostic SQL pattern.** Use this whenever testing a loyalty-related auth change:
+
+```sql
+SELECT
+  p.created_at AS dp_confirmed_at,
+  la.invoice_number,
+  c.full_name,
+  lt.id AS earned_txn_id,
+  lt.points_amount,
+  lt.created_at AS earned_at,
+  CASE
+    WHEN lt.id IS NOT NULL THEN 'FIX WORKS'
+    WHEN la.loyalty_jpy_amount < 10000 THEN 'BELOW MIN — expected skip'
+    WHEN NOT EXISTS (SELECT 1 FROM loyalty_members lm WHERE lm.customer_id = la.customer_id) THEN 'NOT ENROLLED — expected skip'
+    WHEN EXISTS (SELECT 1 FROM loyalty_transactions lt2 WHERE lt2.account_id = la.id AND lt2.transaction_type = 'earned' AND lt2.created_at < p.created_at) THEN 'ALREADY AWARDED — expected skip'
+    ELSE 'FIX BROKEN — investigate immediately'
+  END AS diagnosis
+FROM payments p
+JOIN layaway_accounts la ON la.id = p.account_id
+JOIN customers c          ON c.id  = la.customer_id
+LEFT JOIN loyalty_transactions lt
+  ON lt.account_id = p.account_id
+ AND lt.transaction_type = 'earned'
+ AND lt.created_at >= p.created_at
+WHERE p.created_at >= '<deploy_timestamp_utc>'::timestamptz
+  AND p.voided_at IS NULL
+  AND (p.reference_number LIKE 'DP-%' OR p.remarks ILIKE '%down%')
+ORDER BY p.created_at DESC;
+```
+
+The `diagnosis` column collapses interpretation into one glance — distinguishes a genuine fix failure from the four common expected-skip paths.
+
+**Process improvements (locked lessons):**
+
+1. **Catch-up queries must filter already-earned accounts.** The initial Bug #163 catch-up query identified 5 DP payments and 4 unique accounts, but 2 of those required no action because they were already awarded — only revealed after we ran verification SQL and saw existing `earned` rows. For any future loyalty-related outage catch-up, add this filter to the candidate query:
+
+```sql
+   AND NOT EXISTS (
+     SELECT 1 FROM loyalty_transactions lt
+     WHERE lt.transaction_type = 'earned'
+       AND lt.account_id = la.id
+   )
+```
+
+2. **Absent-from-short-retention-logs ≠ "function not being called."** During this incident, edge function log retention via the analytics API was ~30 minutes. Within that window, `award-loyalty-points` had zero entries — but this was because no natural DPs had been confirmed in those 30 minutes, NOT because the function was failing. An external AI diagnostic incorrectly concluded the upstream caller was broken and recommended an unjustified Bug #164 patch. The actual root cause was empty-trigger-window, not broken-call-path. Always verify the trigger event actually occurred in the same retention window before drawing conclusions from log absence.
+
+3. **External service-role HTTP auth has format-rollout fragility.** The Dashboard-displayed service role key currently doesn't equal the runtime `Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")` value, likely due to Supabase's `sb_secret_*` rollout. Inter-function calls work because both functions read the same env at invocation time. External SQL Editor / pg_net / curl calls using the Dashboard key fail with 401. Park this; only revisit if external invocation of security-gated functions becomes a real workflow requirement, at which point the auth check would need: (a) direct env equality (current), OR (b) JWT decode for legacy format, OR (c) explicit acceptance of new `sb_secret_*` format.
+
+4. **SOP gate applies most strictly to security-critical edge functions.** Commit `56ddae1` — the originating cause of Bug #163 — was a Lovable-only auto-edit to the security-critical auth path with the generic auto-commit message "Changes", bypassing the standard `investigate → plan → confirm → ship` cycle. The fix (Bug #163) AND the catch-up (this addendum) consumed ~6 hours of operator time, affected 2 customers, and required 5 commits + 4 deploys + 1 one-shot RPC + 2 customer point backfills to resolve. Going forward, ANY change to auth, payment, or loyalty edge functions must pass through the full SOP gate — no exceptions. The "Changes" auto-commit message pattern is a red flag for unreviewed Lovable session edits and should trigger immediate audit when seen in `git log`.
+
 ### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
 
   Account schedule/allocation repairs. All four accounts pass
