@@ -71,8 +71,68 @@
     neither only mark read. "Mark all read" upserts read rows for all
     currently-unread ids (duplicate-key tolerant).
   - loyalty_award_failed rows get destructive/red accent + left border.
-  - Footer link "Open Monitoring →" preserves the old bell behavior.
+    loyalty_award_missing rows (daily-reconciliation self-healing
+    recoveries) get amber accent.
+  - Bell list now scrolls (max-h-[70vh], overflow-y-auto) — all 20
+    fetched rows reachable regardless of viewport. Footer carries the
+    primary link "View all notifications →" to
+    /monitoring?tab=notifications and a secondary smaller "Open
+    Monitoring" link (preserves the original behavior). (updated
+    2026-06-05)
   - Empty state: "No notifications yet."
+  - **Full Notifications section** at /monitoring?tab=notifications
+    (component: `src/components/notifications/NotificationsPanel.tsx`).
+    Paginated 25/page, newest first; type-filter dropdown built from
+    the live distinct-type set; unread-only toggle; per-row icon,
+    title, body, relative + exact timestamp; loyalty_award_failed
+    accented destructive, loyalty_award_missing amber; row click marks
+    read then routes to /accounts/{account_id} → else
+    /cash-orders/{metadata.cash_order_id} → else just mark read;
+    "Mark all read" applies to the current filter scope. Sidebar
+    sub-item "Notifications" added under CSR Monitoring per the
+    SIDEBAR ARCHITECTURE rule.
+
+### Security follow-through (verification — 2026-06-05)
+
+Commit `2370082` dropped the unrestricted anon-upload policy on the
+`payment-proofs` storage bucket and revoked SELECT on
+`customers.portal_pin_hash` from `anon`/`authenticated`.
+
+- **portal_pin_hash client reads:** grep -rn "portal_pin_hash" src
+  returns hits ONLY in the auto-generated `src/integrations/supabase/
+  types.ts` (column declarations, not reads). No client component
+  selects or destructures the column. Nothing to fix.
+
+- **Portal anon proof uploads:** ⚠️ **BROKEN, fix deferred.** Three
+  sites currently POST directly to
+  `${SUPABASE_URL}/storage/v1/object/payment-proofs/${path}` using
+  `apikey: SUPABASE_KEY` (anon) for token-auth customer flows:
+  - `src/pages/CustomerPortal.tsx` L2101–2112 (layaway submit)
+  - `src/pages/CustomerPortal.tsx` L2622–2632 (layaway edit)
+  - `src/components/portal/CashPortalPaymentDialog.tsx` L135 (cash submit)
+
+  With the dropped policy, these will 403 for all anon callers.
+  Phase-B authenticated customers (Authorization: Bearer <user jwt>)
+  may still upload if a separate `authenticated`-role policy exists
+  on the bucket — that needs verification.
+
+  Two recovery options (this prompt was scoped frontend-only / "no
+  migrations" — neither was applied here; awaiting direction):
+  1. **Token-gated storage policy** (one migration). Restore an
+     anon INSERT policy on `storage.objects` where `bucket_id =
+     'payment-proofs'` AND a valid active `customer_portal_tokens`
+     row exists for the request's `x-portal-token` header.
+  2. **Edge function route.** New edge function accepts multipart
+     upload + portal_token, validates the token, writes via service
+     role. Requires the function + frontend rewrite of the three
+     upload sites.
+
+  No edge function currently exists that handles arbitrary file
+  uploads, so option 1 (migration) is the smaller patch. Decision
+  parked until a separate prompt that explicitly authorizes one of
+  these two paths.
+
+### Sheet sync reconciler architecture (shipped 2026-06-05)
 
 ### Sheet sync reconciler architecture (shipped 2026-06-05)
 

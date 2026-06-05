@@ -5,6 +5,7 @@ import AppLayout from '@/components/layout/AppLayout';
 import PenaltyFollowUpSection from '@/components/monitoring/PenaltyFollowUpSection';
 import PenaltyCapAuditPanel from '@/components/dashboard/PenaltyCapAuditPanel';
 import { PenaltyAuditTab, OverdueDebugTab, WaiverAuditTab } from '@/pages/AdminAudit';
+import NotificationsPanel from '@/components/notifications/NotificationsPanel';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
@@ -65,9 +66,9 @@ export default function Monitoring() {
   const [messengerDialog, setMessengerDialog] = useState<{ alert: AlertItem; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  type MonitoringTabKey = 'alerts' | 'reminders' | 'extensions' | 'audit';
+  type MonitoringTabKey = 'alerts' | 'reminders' | 'extensions' | 'notifications' | 'audit';
   const isMonitoringTab = (v: string | null): v is MonitoringTabKey =>
-    v === 'alerts' || v === 'reminders' || v === 'extensions' || v === 'audit';
+    v === 'alerts' || v === 'reminders' || v === 'extensions' || v === 'notifications' || v === 'audit';
   const [monitoringTab, setMonitoringTabState] = useState<MonitoringTabKey>(() => {
     const urlTab = searchParams.get('tab');
     return isMonitoringTab(urlTab) ? urlTab : 'alerts';
@@ -530,8 +531,8 @@ export default function Monitoring() {
           </div>
         </div>
 
-        <Tabs value={monitoringTab} onValueChange={v => setMonitoringTab(v as 'alerts' | 'reminders' | 'extensions' | 'audit')} className="w-full">
-          <TabsList className="grid grid-cols-4 w-full max-w-xl">
+        <Tabs value={monitoringTab} onValueChange={v => setMonitoringTab(v as MonitoringTabKey)} className="w-full">
+          <TabsList className="grid grid-cols-5 w-full max-w-2xl">
             <TabsTrigger value="alerts">CSR Alerts</TabsTrigger>
             <TabsTrigger value="reminders">Smart Reminders</TabsTrigger>
             <TabsTrigger value="extensions">
@@ -549,6 +550,7 @@ export default function Monitoring() {
                 </span>
               )}
             </TabsTrigger>
+            <TabsTrigger value="notifications">Notifications</TabsTrigger>
             <TabsTrigger value="audit">Audit</TabsTrigger>
           </TabsList>
 
@@ -766,6 +768,10 @@ export default function Monitoring() {
 
           <TabsContent value="extensions" className="mt-5 space-y-6" tabIndex={-1}>
             <ExtensionRequestsPanel />
+          </TabsContent>
+
+          <TabsContent value="notifications" className="mt-5 space-y-6" tabIndex={-1}>
+            <NotificationsPanel />
           </TabsContent>
 
           <TabsContent value="audit" className="mt-5 space-y-4" tabIndex={-1}>

@@ -72,6 +72,7 @@ const menuItems: MenuItem[] = [
       { label: 'CSR Alerts', tab: 'alerts' },
       { label: 'Smart Reminders', tab: 'reminders' },
       { label: 'Extensions', tab: 'extensions', badgeKey: 'monitoring_extensions' },
+      { label: 'Notifications', tab: 'notifications' },
       { label: 'Audit', tab: 'audit' },
     ],
   },

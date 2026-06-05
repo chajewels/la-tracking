@@ -190,7 +190,7 @@ export default function StaffNotificationBell() {
           </Button>
         </div>
 
-        <ScrollArea className="max-h-96">
+        <ScrollArea className="max-h-[70vh] overflow-y-auto">
           {notifications.length === 0 ? (
             <div className="py-12 text-center text-xs text-muted-foreground">
               No notifications yet.
@@ -247,12 +247,18 @@ export default function StaffNotificationBell() {
           )}
         </ScrollArea>
 
-        <div className="border-t border-border px-4 py-2">
+        <div className="border-t border-border px-4 py-2 flex items-center justify-between">
+          <Link
+            to={`${ROUTES.MONITORING}?tab=notifications`}
+            className="text-[12px] font-medium text-primary hover:underline transition-colors"
+          >
+            View all notifications →
+          </Link>
           <Link
             to={ROUTES.MONITORING}
-            className="text-[11px] text-muted-foreground hover:text-primary transition-colors"
+            className="text-[10px] text-muted-foreground hover:text-primary transition-colors"
           >
-            Open Monitoring →
+            Open Monitoring
           </Link>
         </div>
       </PopoverContent>
