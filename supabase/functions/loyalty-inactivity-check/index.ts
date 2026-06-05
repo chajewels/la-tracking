@@ -114,6 +114,16 @@ async function syncSheet(
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  // Service-role-only guard — cron-only endpoint, performs destructive
+  // loyalty expiry / downgrade operations and triggers customer emails.
+  const authToken = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
+  if (authToken !== Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) {
+    return new Response(JSON.stringify({ error: "Forbidden" }), {
+      status: 403,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,

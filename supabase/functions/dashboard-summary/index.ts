@@ -38,6 +38,23 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
+    // Staff/admin/finance role gate — dashboard exposes business KPIs that
+    // must never be visible to customers (Phase B portal users hold valid
+    // JWTs but are not staff).
+    const [adminRes, staffRes, financeRes, csrRes] = await Promise.all([
+      supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
+      supabase.rpc("has_role", { _user_id: user.id, _role: "staff" }),
+      supabase.rpc("has_role", { _user_id: user.id, _role: "finance" }),
+      supabase.rpc("has_role", { _user_id: user.id, _role: "csr" }),
+    ]);
+    const isStaff = !!(adminRes.data || staffRes.data || financeRes.data || csrRes.data);
+    if (!isStaff) {
+      return new Response(JSON.stringify({ error: "Forbidden" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Read currency filter
     let currencyFilter = "ALL";
     if (req.method === "POST") {
