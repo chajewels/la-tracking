@@ -57,9 +57,40 @@ function isDPPayment(p: any): boolean {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  // Service-role-only guard — this endpoint exposes all account/payment data.
-  const authToken = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
-  if (authToken !== Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) {
+  // Auth gate. Accept either:
+  //   (a) the service-role key (cron / internal callers), OR
+  //   (b) a signed-in admin/staff/finance/csr user JWT (frontend callers
+  //       like UnifiedSystemHealthTab / SystemHealthCheckPanel).
+  // Same role list as dashboard-summary — this endpoint exposes the same
+  // business data class so it must match exactly. Customers (Phase B JWT
+  // holders without a staff user_roles row) get 403.
+  const authHeader = req.headers.get("Authorization");
+  const authToken = authHeader?.replace("Bearer ", "") ?? "";
+  let authorized = false;
+  if (authToken && authToken === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) {
+    authorized = true;
+  } else if (authHeader?.startsWith("Bearer ")) {
+    const anonClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } }
+    );
+    const { data: { user }, error: userError } = await anonClient.auth.getUser();
+    if (!userError && user) {
+      const supabaseGate = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      );
+      const [adminRes, staffRes, financeRes, csrRes] = await Promise.all([
+        supabaseGate.rpc("has_role", { _user_id: user.id, _role: "admin" }),
+        supabaseGate.rpc("has_role", { _user_id: user.id, _role: "staff" }),
+        supabaseGate.rpc("has_role", { _user_id: user.id, _role: "finance" }),
+        supabaseGate.rpc("has_role", { _user_id: user.id, _role: "csr" }),
+      ]);
+      authorized = !!(adminRes.data || staffRes.data || financeRes.data || csrRes.data);
+    }
+  }
+  if (!authorized) {
     return new Response(JSON.stringify({ error: "Forbidden" }), {
       status: 403,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
