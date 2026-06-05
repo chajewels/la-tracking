@@ -728,10 +728,13 @@ Deno.serve(async (req) => {
         console.warn("[review-payment-submission] cash-payment-confirmed email failed (non-blocking):", emailErr);
       }
 
-      // 8. Fire-and-forget: award-loyalty-points if order is now completed
+      // 8. Capture-and-record: award-loyalty-points if order is now completed.
+      // Failures here NEVER affect the confirmation outcome — they flow
+      // through as data on cashLoyaltyAward.
+      let cashLoyaltyAward: Record<string, unknown> | null = null;
       if (isFullyPaid) {
         try {
-          await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`, {
+          const lpRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -742,8 +745,39 @@ Deno.serve(async (req) => {
               customer_id: cashOrder.customer_id,
             }),
           });
+          const lpJson = await lpRes.json().catch(() => null);
+          cashLoyaltyAward = { cash_order_id: cashOrder.id, ...(lpJson ?? { error: "no_response" }) };
         } catch (loyaltyErr) {
           console.warn("[review-payment-submission] award-loyalty-points failed (non-blocking):", loyaltyErr);
+          cashLoyaltyAward = { cash_order_id: cashOrder.id, error: String(loyaltyErr) };
+        }
+      }
+
+      if (cashLoyaltyAward) {
+        try {
+          const a: any = cashLoyaltyAward;
+          if (a.awarded === true) {
+            await supabase.from("staff_notifications").insert({
+              type: "loyalty_award",
+              title: "Loyalty points awarded",
+              body: `+${a.points_earned}${a.bonus_points ? ` (+${a.bonus_points} bonus)` : ""} pts · balance ${a.remaining_points}${a.tier_upgraded ? ` · Tier upgraded: ${a.old_tier} → ${a.new_tier}` : ""} · Inv #${cashOrder.invoice_number}`,
+              customer_id: cashOrder.customer_id,
+              invoice_number: cashOrder.invoice_number,
+              metadata: cashLoyaltyAward,
+            });
+          } else if (a.error) {
+            await supabase.from("staff_notifications").insert({
+              type: "loyalty_award_failed",
+              title: "Loyalty award FAILED — check wiring",
+              body: String(a.error) + ` · Inv #${cashOrder.invoice_number}`,
+              customer_id: cashOrder.customer_id,
+              invoice_number: cashOrder.invoice_number,
+              metadata: cashLoyaltyAward,
+            });
+          }
+          // skipped results (not_enrolled, below_minimum, already_awarded, etc.): no notification
+        } catch (nErr) {
+          console.warn("[review-payment-submission] staff_notifications insert failed (non-blocking):", nErr);
         }
       }
 
@@ -823,6 +857,7 @@ Deno.serve(async (req) => {
         submission: { id: submission_id, status: "confirmed", confirmed_payment_id: cashPayment.id },
         cash_order: updatedOrder,
         cash_payment: cashPayment,
+        loyalty_awards: cashLoyaltyAward ? [cashLoyaltyAward] : [],
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     // ── END CASH ORDER PATH ──
