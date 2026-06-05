@@ -362,6 +362,10 @@ export default function AppSidebar() {
           <LogOut className="h-4 w-4" />
           Logout
         </button>
+
+        <p className="mt-1 text-center text-[10px] text-muted-foreground select-none">
+          v {__APP_VERSION__}
+        </p>
       </SidebarFooter>
     </Sidebar>
   );

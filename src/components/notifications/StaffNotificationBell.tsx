@@ -233,11 +233,6 @@ export default function StaffNotificationBell() {
                         <span className="text-[10px] text-muted-foreground">
                           {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
                         </span>
-                        {n.invoice_number && (
-                          <span className="text-[10px] text-muted-foreground">
-                            · INV #{n.invoice_number}
-                          </span>
-                        )}
                       </div>
                     </div>
                   </li>

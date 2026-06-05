@@ -1,8 +1,17 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
+import { execSync } from "node:child_process";
 import { componentTagger } from "lovable-tagger";
 import { VitePWA } from "vite-plugin-pwa";
+
+const APP_VERSION = (() => {
+  try {
+    return execSync("git rev-parse --short HEAD").toString().trim();
+  } catch {
+    return "dev-" + new Date().toISOString().slice(0, 10);
+  }
+})();
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
@@ -76,6 +85,7 @@ export default defineConfig(({ mode }) => ({
   },
   define: {
     __BUILD_TIME__: Date.now(),
+    __APP_VERSION__: JSON.stringify(APP_VERSION),
   },
   build: {
     rollupOptions: {
