@@ -2144,6 +2144,57 @@ The `diagnosis` column collapses interpretation into one glance — distinguishe
 
 4. **SOP gate applies most strictly to security-critical edge functions.** Commit `56ddae1` — the originating cause of Bug #163 — was a Lovable-only auto-edit to the security-critical auth path with the generic auto-commit message "Changes", bypassing the standard `investigate → plan → confirm → ship` cycle. The fix (Bug #163) AND the catch-up (this addendum) consumed ~6 hours of operator time, affected 2 customers, and required 5 commits + 4 deploys + 1 one-shot RPC + 2 customer point backfills to resolve. Going forward, ANY change to auth, payment, or loyalty edge functions must pass through the full SOP gate — no exceptions. The "Changes" auto-commit message pattern is a red flag for unreviewed Lovable session edits and should trigger immediate audit when seen in `git log`.
 
+**Architectural follow-up (added 2026-06-05) — sheet sync gap CLOSED**
+
+The "External service-role HTTP auth has format-rollout fragility" gap
+flagged in process improvement #3 above triggered an immediate follow-up
+build the same evening rather than parking it. The hidden cost wasn't
+just the 5,000 points of customer-facing loyalty debt — it was that any
+future SQL RPC backfill, direct `loyalty_transactions` INSERT, migration,
+or emission failure would silently bypass the Google Sheet backup with
+no recovery mechanism.
+
+The fix shipped as the **sheet sync reconciler architecture** — documented
+in CLAUDE.md under "SHEET SYNC ARCHITECTURE — NON-NEGOTIABLE (added
+2026-06-05)". Six steps:
+
+1. Schema migration adding `loyalty_transactions.synced_to_sheet_at`
+   timestamptz + partial index `idx_loyalty_transactions_unsynced` on
+   `(created_at) WHERE synced_to_sheet_at IS NULL`. 952 historical rows
+   marked synced; 2 (Bea + Suzette) deliberately left NULL to be picked
+   up by the reconciler's first run.
+2. Modified `award-loyalty-points` to mark synced after each successful
+   `sync-loyalty-to-sheet` POST (the fast path). Commit `3c063c9` + deploy.
+3. New `loyalty-sheet-reconcile` edge function — initial deploy at
+   commit `f9fcd94`, embed disambiguation at commit `62d17ad`.
+4. pg_cron entry `loyalty-sheet-reconcile` (jobid 21, schedule
+   `7 * * * *`, Vault-backed auth).
+5. Manual trigger empirically verified end-to-end: Bea (4,000 pts,
+   Radiant 2×) and Suzette (1,000 pts, Glimmer 1×) emitted to the
+   Transactions tab via the reconciler at 2026-06-05 05:38 UTC. Response
+   `{processed: 2, succeeded: 2, failed: 0, remaining: 0}`. Post-run
+   verification: `total_rows=954, synced_rows=954, unsynced_rows=0`.
+6. This documentation update.
+
+Also discovered during the build: the reconciler initially used the same
+strict env-equality auth pattern as `award-loyalty-points` (post-Bug-#163
+fix). That pattern works for inter-function calls but rejects external
+calls when the Vault-stored service role key diverges from the runtime
+`Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")` value — which is the current
+state per Supabase's `sb_secret_*` rollout. The cron uses Vault, so the
+strict pattern broke the cron. Decision: drop the auth check entirely on
+the reconciler (commit `0e845e2`), matching `sync-loyalty-to-sheet`'s
+pattern. The reconciler is read-mostly and only writes a metadata column
+— acceptable risk surface for an unauthenticated internal utility.
+`award-loyalty-points` keeps its strict auth because it modifies customer
+point balances.
+
+**Net result:** every loyalty_transactions row now reaches the Google
+Sheet backup, regardless of how it was created. SQL backfills, direct
+INSERTs, migrations, edge function failures — all caught within ~1 hour
+of insertion. The "external service-role HTTP auth fragility" gap is no
+longer a parked item — it's been structurally routed around.
+
 ### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
 
   Account schedule/allocation repairs. All four accounts pass
