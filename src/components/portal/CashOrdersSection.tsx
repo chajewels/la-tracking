@@ -1,5 +1,6 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { ChevronDown, ChevronUp, Banknote, CheckCircle, XCircle } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import CashPortalPaymentDialog from './CashPortalPaymentDialog';
 
@@ -103,6 +104,22 @@ export default function CashOrdersSection({
   const [payTarget, setPayTarget] = useState<PortalCashOrder | null>(null);
   const [pendingByOrder, setPendingByOrder] = useState<Map<string, PortalPendingSubmission>>(new Map());
 
+  // Anon Supabase client that forwards the portal token via a custom request
+  // header. RLS policies on payment_submissions (anon SELECT / UPDATE) match
+  // this header against the row's portal_token, scoping access to the
+  // caller's own submissions only.
+  const portalDbRef = useRef<ReturnType<typeof createClient> | null>(null);
+  if (!portalDbRef.current && portalToken) {
+    portalDbRef.current = createClient(
+      import.meta.env.VITE_SUPABASE_URL as string,
+      import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string,
+      {
+        auth: { persistSession: false, autoRefreshToken: false },
+        global: { headers: { 'x-portal-token': portalToken } },
+      },
+    );
+  }
+
   // Group non-voided payments by cash_order_id once, client-side
   const paymentsByOrder = useMemo(() => {
     const map = new Map<string, PortalCashPayment[]>();
@@ -122,8 +139,9 @@ export default function CashOrdersSection({
       setPendingByOrder(new Map());
       return;
     }
+    const db = portalDbRef.current ?? supabase;
     const orderIds = cashOrders.map(o => o.id);
-    const { data } = await (supabase as any)
+    const { data } = await (db as any)
       .from('payment_submissions')
       .select('id, cash_order_id, submitted_amount, payment_method, status')
       .in('cash_order_id', orderIds)
@@ -138,7 +156,8 @@ export default function CashOrdersSection({
   useEffect(() => { fetchPending(); }, [fetchPending]);
 
   const handleCancelSubmission = useCallback(async (submissionId: string) => {
-    await (supabase as any)
+    const db = portalDbRef.current ?? supabase;
+    await (db as any)
       .from('payment_submissions')
       .update({ status: 'cancelled' })
       .eq('id', submissionId);
