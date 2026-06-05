@@ -3638,6 +3638,14 @@ export type Database = {
         }
         Returns: undefined
       }
+      approve_redemption_atomic: {
+        Args: {
+          p_redemption_id: string
+          p_user_email: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       audit_account: { Args: { p_invoice_number: string }; Returns: Json }
       audit_all_accounts: {
         Args: never
