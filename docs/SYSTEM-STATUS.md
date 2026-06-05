@@ -1,5 +1,33 @@
 ## SYSTEM STATUS (as of 2026-05-16)
 
+### Loyalty community links (shipped 2026-06-05)
+
+  WhatsApp + LINE community group links surfaced in two places for
+  loyalty members.
+
+  URLs (canonical, hardcoded in both surfaces):
+  - WhatsApp: https://chat.whatsapp.com/ENdMNvF8N3jB3iG963f6EF
+  - LINE:     https://line.me/ti/g/5fb8KyBCCJ
+
+  Surfaces:
+  - **Enrollment email** (templateName `loyalty-welcome`,
+    `supabase/functions/_shared/transactional-email-templates/loyalty-welcome.tsx`):
+    new "Join our community" Section inserted between the "View My
+    Loyalty Dashboard" CTA and the closing footnote. Two `<Button>`s
+    centered, hex colors only (#25D366 WhatsApp / #06C755 LINE, white
+    text), matching existing template typography/spacing rules.
+  - **Loyalty portal home screen**
+    (`src/components/loyalty/screens/HomeScreen.tsx` → new
+    `src/components/loyalty/home/CommunityCard.tsx`): compact card
+    appended after MilestoneCard, motion-faded in (delay 0.4), same
+    `bg-card rounded-xl p-4 shadow-card border-gold-accent` shell as
+    the other home cards, with a Users icon + heading + two anchor
+    buttons opening in a new tab (target=_blank, rel=noopener
+    noreferrer).
+
+  Update both URLs together when groups rotate — there is no shared
+  constant yet.
+
 ### Payment method registry (shipped 2026-06-05)
 
   Canonical payment-method values + currency tagging in one place.

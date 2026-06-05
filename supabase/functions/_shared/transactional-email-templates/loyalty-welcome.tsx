@@ -59,6 +59,27 @@ const LoyaltyWelcomeEmail = ({
             </Section>
           )}
 
+          <Section style={communityBox}>
+            <Text style={communityTitle}>Join our community</Text>
+            <Text style={communityText}>
+              Connect with fellow Cha Jewels members for exclusive updates and community perks:
+            </Text>
+            <Section style={{ textAlign: 'center' as const, margin: '12px 0 0' }}>
+              <Button
+                style={{ ...communityButton, backgroundColor: '#25D366' }}
+                href="https://chat.whatsapp.com/ENdMNvF8N3jB3iG963f6EF"
+              >
+                Join on WhatsApp
+              </Button>
+              <Button
+                style={{ ...communityButton, backgroundColor: '#06C755', marginLeft: '8px' }}
+                href="https://line.me/ti/g/5fb8KyBCCJ"
+              >
+                Join on LINE
+              </Button>
+            </Section>
+          </Section>
+
           <Text style={footnote}>
             Make your first eligible purchase to start earning points!
           </Text>
@@ -105,3 +126,7 @@ const footnote = { fontSize: '13px', color: '#a37e1f', textAlign: 'center' as co
 const hr = { borderColor: '#e5e7eb', margin: '24px' }
 const footer = { fontSize: '12px', color: '#9ca3af', padding: '0 24px', margin: '0 0 8px', lineHeight: '1.5' }
 const footerBrand = { fontSize: '11px', color: '#d4af37', textAlign: 'center' as const, padding: '0 24px 24px', margin: '0', fontWeight: 'bold' as const }
+const communityBox = { backgroundColor: '#f8f6f0', borderRadius: '12px', padding: '16px 20px', margin: '8px 24px 16px', textAlign: 'center' as const }
+const communityTitle = { fontSize: '13px', fontWeight: 'bold' as const, color: '#1a1a2e', margin: '0 0 6px', letterSpacing: '0.04em' }
+const communityText = { fontSize: '13px', color: '#55575d', margin: '0 0 4px', lineHeight: '1.5' }
+const communityButton = { color: '#ffffff', padding: '10px 18px', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold' as const, textDecoration: 'none', display: 'inline-block' as const }

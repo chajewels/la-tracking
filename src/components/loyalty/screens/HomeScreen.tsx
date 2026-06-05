@@ -9,6 +9,7 @@ import BirthdayRewardCard from '@/components/loyalty/home/BirthdayRewardCard';
 import FeaturedBanner from '@/components/loyalty/home/FeaturedBanner';
 import PromoBanners from '@/components/loyalty/home/PromoBanners';
 import MilestoneCard from '@/components/loyalty/home/MilestoneCard';
+import CommunityCard from '@/components/loyalty/home/CommunityCard';
 import { Button } from '@/components/ui/button';
 import type { LoyaltyTab } from '@/components/loyalty/LoyaltyBottomNav';
 
@@ -71,6 +72,7 @@ export default function HomeScreen({
 
       <RecentActivity onViewAll={() => setTab('points')} />
       <MilestoneCard setTab={setTab} />
+      <CommunityCard />
     </div>
   );
 }
