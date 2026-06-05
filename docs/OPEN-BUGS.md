@@ -383,16 +383,11 @@
       get_audit_filter_options() RPC) — paginated audit_logs browser with
       entity/action/actor/date filters and before→after diff. Distinct
       from the System Audit page (/admin-audit).
-    - Loyalty redemption approve — no atomic rollback across the
-      multi-write approve sequence. process-loyalty-redemption approve
-      does sequential writes (confirm redemption → debit member points
-      → insert synthetic payment → update account totals) with no DB
-      transaction wrapper; a mid-sequence failure leaves inconsistent
-      state (points debited but payment not recorded, or vice versa).
-      Deferred in-code: "// atomic rollback is a separate phase" at
-      process-loyalty-redemption/index.ts L590 and L724. The catalog
-      stock decrement and the void branch ARE atomic — this gap is only
-      the approve multi-write path. (added 2026-05-26)
+    - Loyalty redemption approve atomic rollback —
+      RESOLVED 2026-06-05 (commit 6b9d8a7 + SQL RPC
+      approve_redemption_atomic). The approve handler now delegates
+      every write to a single SECURITY DEFINER transaction. See Bug
+      #164 in docs/FIXED-BUGS.md for full details.
 
   P2 — Hygiene / consistency (Low severity)
     None as of 2026-05-01 (both items resolved — see bugs

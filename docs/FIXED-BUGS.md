@@ -2195,6 +2195,31 @@ INSERTs, migrations, edge function failures — all caught within ~1 hour
 of insertion. The "external service-role HTTP auth fragility" gap is no
 longer a parked item — it's been structurally routed around.
 
+### Bug #164 — process-loyalty-redemption approve had no atomic rollback across its multi-write sequence (2026-06-05)
+
+**Root cause:** The approve handler ran the seven writes — `loyalty_transactions` insert, `loyalty_redemptions` status flip + `transaction_id` stamp, `loyalty_members` balance debit (with non-atomic read-then-compute arithmetic), `loyalty_jpy_amount` net-reduce on the target order, synthetic `payments`/`cash_payments` insert, account/cash-order totals + status update, and `loyalty_rewards.current_stock` decrement — as sequential edge-function calls with no transaction wrapper. The two in-code comments "// atomic rollback is a separate phase" at L590 and L724 acknowledged the gap. The result was four latent holes:
+
+1. **Double-approve race.** Two concurrent approve calls on the same pending redemption both passed the upstream `status === 'pending'` check, both inserted `loyalty_transactions` rows, and both flipped the redemption to confirmed — the customer was debited twice for one redemption.
+2. **Lost-update points debit.** `update loyalty_members set remaining_points = <stale value computed in JS>` overwrote any concurrent points change between the read and the write. A redeem + an award firing in the same instant could double-credit or zero out the balance.
+3. **Free-redemption hole.** If the synthetic payment INSERT or the account-totals UPDATE failed after the redemption and member rows were already written, the function returned 500 with the comment "redemption is already status='confirmed', member debited" — but the points were redeemed without any discount actually applied to the order. A retry from the UI re-approved (now blocked by status check) but never recovered the value.
+4. **Approve-then-manual-refund stock race.** When `loyalty_rewards.current_stock` raced to 0 between create and approve, the function had already debited points and flipped redemption to confirmed, then emitted an "approved but cancel manually" notification and returned 409. Admin had to manually cancel + refund, which the code admitted via a Phase 3.2.1 TODO that "does not yet emit a separate notification."
+
+**Fix:** SQL Editor added `approve_redemption_atomic(uuid, uuid, text) returns jsonb` — a SECURITY DEFINER function that performs all seven writes inside one Postgres transaction. The redemption and member rows are locked `FOR UPDATE` before any compute, points debit uses relative arithmetic (`set remaining_points = remaining_points - :points`) so concurrent updates merge correctly, and the stock decrement runs `update … where current_stock > 0` and raises `reward_out_of_stock` if no row matched. Any raise inside the function rolls back the entire write set — there is no half-committed state. `EXECUTE` is revoked from `PUBLIC` / `anon` / `authenticated`; service-role only.
+
+`process-loyalty-redemption/index.ts` approve handler now keeps the upstream fast-error pre-flight (role check, redemption_id presence, pending-status check, member fetch, friendly insufficient-points compare) and replaces the entire write sequence with a single `supabase.rpc("approve_redemption_atomic", { p_redemption_id, p_user_id, p_user_email })` call. The four named raises map to friendly responses: `redemption_not_pending` → 400, `insufficient_points` → 400, `reward_out_of_stock` → 409 ("nothing was debited"), `not_found` → 404, generic → 500. Net frontend diff: −394 lines.
+
+**Behavior change (owner-approved):** Catalog stock depletion at approve time now ABORTS the approval with 409 `reward_out_of_stock` and zero writes. The legacy "approved but cancel manually" notification + 409 path is removed. Customers who lose the stock race get a clean rejection instead of a debited account with a side notification asking admin to manually refund.
+
+**Closes:**
+- Hole #1 (double-approve race) — pending-status re-check now runs under `FOR UPDATE`; the second caller sees `redemption_not_pending` and rolls back with zero writes.
+- Hole #2 (lost-update points debit) — relative arithmetic on a locked row.
+- Hole #3 (free-redemption hole) — synthetic payment insert + totals update share the transaction; any failure rolls back the redemption flip and points debit.
+- Hole #4 (stock-race manual-refund) — replaced with the abort-with-zero-writes behavior above.
+
+**Edge-side cleanup:** The duplicate `audit_logs` insert for `redemption_approved` was removed from the edge function — the RPC owns that write now, so the previous code logged twice. Verified live 2026-06-05: points-only approve, `new_order_discount` approve + void on TEST-004, Check Health green, double-click race bounces correctly with `redemption_not_pending`.
+
+**Untouched:** `create`, `cancel`, and `void` action handlers. The catalog-stock decrement and void branch were already atomic — this entry only closes the approve multi-write path. (commit `6b9d8a7`)
+
 ### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
 
   Account schedule/allocation repairs. All four accounts pass

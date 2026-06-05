@@ -1,5 +1,42 @@
 ## SYSTEM STATUS (as of 2026-05-16)
 
+### Loyalty redemption approve — atomic via approve_redemption_atomic RPC (shipped 2026-06-05)
+
+  `approve_redemption_atomic(uuid, uuid, text) returns jsonb` created
+  in SQL Editor 2026-06-05 — SECURITY DEFINER, all seven approve
+  writes (loyalty_transactions insert, redemption status flip + tx_id
+  stamp, loyalty_members debit with relative arithmetic on a row
+  locked FOR UPDATE, loyalty_jpy_amount net-reduce, synthetic
+  payment + account/cash-order totals + status, catalog stock
+  decrement, audit_logs `redemption_approved` insert) execute inside
+  a single transaction. Any raise rolls back the entire set —
+  no half-committed state. EXECUTE revoked from PUBLIC / anon /
+  authenticated; service-role only.
+
+  `process-loyalty-redemption/index.ts` approve handler now keeps
+  the upstream fast-error pre-flight and delegates every write to
+  the RPC (commit `6b9d8a7`, +31/−425, deployed via Lovable). The
+  named raises map to friendly responses: `redemption_not_pending`
+  → 400, `insufficient_points` → 400, `reward_out_of_stock` → 409,
+  `not_found` → 404, generic → 500. Closes Bug #164 (four holes:
+  double-approve race, lost-update points debit, free-redemption
+  hole, stock-race manual-refund) — see docs/FIXED-BUGS.md Bug #164
+  for the full pre-fix exposure analysis.
+
+  **BEHAVIOR CHANGE (owner-approved):** Catalog reward stock
+  depletion at approve time now ABORTS the approval with 409
+  `reward_out_of_stock` and zero writes. The legacy "approved but
+  cancel manually" notification + 409 path is removed — customers
+  who lose the stock race now get a clean rejection instead of a
+  debited account with a side notification asking admin to manually
+  refund. The edge-side `audit_logs` insert for
+  `redemption_approved` was removed (the RPC owns it now; previously
+  it was being logged twice).
+
+  Verified live 2026-06-05: points-only approve, `new_order_discount`
+  approve + void on TEST-004, Check Health green, double-click race
+  bounces correctly with `redemption_not_pending`.
+
 ### Loyalty community links (shipped 2026-06-05)
 
   WhatsApp + LINE community group links surfaced in two places for
