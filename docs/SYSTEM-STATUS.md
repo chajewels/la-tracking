@@ -68,6 +68,36 @@
   - Footer link "Open Monitoring →" preserves the old bell behavior.
   - Empty state: "No notifications yet."
 
+### Sheet sync reconciler architecture (shipped 2026-06-05)
+
+**Status:** ✅ Operational
+
+**What:** Every `loyalty_transactions` row now reaches the Google Sheet
+backup via two paths — synchronous fast-path on natural awards (~1
+second latency), async recovery via hourly pg_cron reconciler (~1 hour
+catch-up for SQL backfills, direct INSERTs, migrations, and any
+fast-path failure).
+
+**Components shipped:**
+- `loyalty_transactions.synced_to_sheet_at` column + partial index
+  `idx_loyalty_transactions_unsynced`
+- `award-loyalty-points` fast-path mark (commit `3c063c9`)
+- `loyalty-sheet-reconcile` edge function (commits `f9fcd94` →
+  `0e845e2` → `62d17ad`)
+- pg_cron entry `loyalty-sheet-reconcile` (jobid 21, schedule
+  `7 * * * *`, Vault-backed auth)
+- CLAUDE.md "SHEET SYNC ARCHITECTURE — NON-NEGOTIABLE" locked rule
+  (commit `344f835`)
+- Operational guide: `docs/LOYALTY-OPERATIONS.md`
+
+**Verification:** Manual trigger 2026-06-05 05:38 UTC processed Bea
+Sartorio (4,000 pts) + Suzette Tupaz (1,000 pts) — both Bug #163
+catch-up rows. Final state: 954/954 rows synced, 0 unsynced.
+
+**Origin:** Bug #163 architectural follow-up — see
+`docs/FIXED-BUGS.md` Bug #163 entry "Architectural follow-up
+(added 2026-06-05) — sheet sync gap CLOSED".
+
 ### Shipped 2026-06-01
 
   - HUB Help Center Phase 1 — /help route, page component, markdown rendering pipeline (react-markdown + remark-gfm), role-aware filtering, sidebar leaf entry, sample Welcome section: SHIPPED 2026-06-01 ✅ (commit `ff6548b`)
