@@ -122,6 +122,31 @@
   - layaway_accounts: is_trade BOOLEAN NOT NULL DEFAULT false — locked at creation, indicates Trade Program origin, pure metadata (no calculation effect)
   - cash_orders: is_trade BOOLEAN NOT NULL DEFAULT false — same semantics as layaway_accounts.is_trade
 
+### payment-proofs bucket INSERT paths — PINNED (added 2026-06-05)
+
+  All three of the following INSERT policies on `storage.objects`
+  must survive any future security pass. Dropping any one of them
+  breaks a live upload surface that has no fallback.
+
+  1. **Staff via `is_staff()`** — `authenticated` role, predicate
+     `is_staff(auth.uid())`. Covers internal staff record-payment
+     dialogs and any admin-side upload.
+  2. **Token customers via `x-portal-token` header** — `anon` role,
+     predicate joins the request's `x-portal-token` header against
+     an active, non-expired `customer_portal_tokens` row. Covers
+     the legacy `?token=` portal flow.
+  3. **Session customers via ownership policy** — `authenticated`
+     role, predicate joins `auth.uid()` → `auth_user_id` on either
+     `layaway_accounts` OR `cash_orders`, AND the first path
+     segment of the upload `name` equals the owning record id.
+     Covers Phase B JWT session customers.
+
+  Frontend upload sites must continue to use the `{account_id or
+  cash_order_id}/` path prefix the ownership policy expects:
+  `src/pages/CustomerPortal.tsx` L2100 (layaway submit), L2622
+  (layaway edit), `src/components/portal/CashPortalPaymentDialog.tsx`
+  L133 (cash submit). Changing the prefix breaks path 3.
+
 ## PROOF OF PAYMENT (added 2026-04-13)
 
   - Stored in Supabase Storage bucket: payment-proofs

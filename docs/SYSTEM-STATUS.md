@@ -1,5 +1,92 @@
 ## SYSTEM STATUS (as of 2026-05-16)
 
+### Security batch 4 — 7 findings fixed (2026-06-05)
+
+  Lovable-driven security scan + manual review. All seven findings
+  resolved on the same day. Two pre-deploy catches and one same-day
+  regression caught and patched before any customer impact.
+
+  **The 7 fixes:**
+  1. **payment-proofs broad authenticated INSERT policy DROPPED.**
+     The post-`2370082` "Authenticated users can upload payment
+     proofs" policy gave any JWT holder bucket-wide INSERT on
+     `payment-proofs` — too broad. Migration
+     `20260605093651_707cb301-3735-45b3-a50d-9a9713d5e6ae.sql`
+     dropped it.
+  2. **dashboard-summary role-gated** (commit `27a3877`). After JWT
+     verification via anon-client `getUser()`, allow only when
+     `has_role` returns true for one of `admin / staff / finance /
+     csr`. Phase B customer JWTs without a staff role row get 403.
+  3. **system-health-v2 gated** (commit `27a3877`, then amended in
+     commit `49681b4` — see "Pre-deploy catch 2" below).
+  4. **daily-reconciliation service-role-only guard** (commit
+     `27a3877`, `verify_jwt = false` in config.toml). Cron-only
+     endpoint.
+  5. **auto-expire-cash-orders service-role-only guard** (commit
+     `27a3877`, `verify_jwt = false`). Cron-only endpoint.
+  6. **loyalty-inactivity-check service-role-only guard** (commit
+     `27a3877`, `verify_jwt = false`). Cron-only endpoint.
+  7. **portal_token column-level SELECT REVOKED** from `authenticated`
+     and `anon` on `public.extension_requests` and
+     `public.payment_submissions` (same migration as #1).
+     `service_role` retains full access for edge functions and admin
+     queries; customer SELECT policies can no longer leak the raw
+     portal token.
+
+  **REGRESSION CAUGHT SAME DAY — and fixed:** Dropping the broad
+  authenticated policy in fix #1 removed the ONLY INSERT path that
+  Phase B JWT session-auth customers had on the `payment-proofs`
+  bucket — re-opening the same gap that commit `65e86a2` had closed
+  via the `x-portal-token` header (which is anon-only). Live for a
+  short window after the migration. Replaced via SQL Editor with a
+  scoped policy **"Session customers can upload own payment proofs"**:
+  `authenticated` INSERT permitted on `bucket_id = 'payment-proofs'`
+  ONLY when the JWT subject (`auth.uid()`) joins via `auth_user_id`
+  to either a `layaway_accounts` row OR a `cash_orders` row whose id
+  matches the first segment of the upload `name`. Three portal
+  upload sites verified to use the `{id}/` path prefix the policy
+  expects:
+  - `src/pages/CustomerPortal.tsx` L2100 (layaway submit, `${primaryAccountForName.id}/…`)
+  - `src/pages/CustomerPortal.tsx` L2622 (layaway edit, `${sub.account_id}/…`)
+  - `src/components/portal/CashPortalPaymentDialog.tsx` L133 (cash submit, `${cashOrder.id}/…`)
+
+  This restores three coexisting INSERT paths: staff `is_staff()`
+  (authenticated), token customers via `x-portal-token`
+  (anon), session customers via ownership join (authenticated). See
+  `docs/SCHEMA-FACTS.md` "payment-proofs bucket INSERT paths" pinned
+  note for the invariant.
+
+  **PRE-DEPLOY CATCH 1:** Cron jobid 15 (daily-reconciliation,
+  00:20 UTC) still used the embedded anon key for its outbound POST
+  — would have 401'd at the next tick once fix #4's service-role
+  guard went live. Migrated via SQL Editor `cron.alter_job(15, …)`
+  to read the key at fire time from
+  `(SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name
+  = 'email_queue_service_role_key')` BEFORE deploy and verified. The
+  second firing of the CRON AUTH RULE (CLAUDE.md TIMEZONE STANDARD
+  section) inside one week.
+
+  **PRE-DEPLOY CATCH 2:** system-health-v2's initial strict
+  service-role-only guard (commit `27a3877`) would have 403'd its
+  two frontend callers — `src/components/admin/UnifiedSystemHealthTab.tsx`
+  (L273) and `src/components/admin/SystemHealthCheckPanel.tsx`
+  (L127) — the moment it deployed. Amended to a dual gate
+  (service-role bearer OR verified JWT + `has_role` admin / staff /
+  finance / csr, mirroring dashboard-summary exactly) in commit
+  `49681b4` BEFORE deploy.
+
+  **Deploy + verification.** All five edge functions
+  (`dashboard-summary`, `system-health-v2`, `daily-reconciliation`,
+  `auto-expire-cash-orders`, `loyalty-inactivity-check`) deployed
+  2026-06-05 and smoke-verified the same day: Dashboard loads on an
+  admin JWT, System Health Check panel runs from
+  `UnifiedSystemHealthTab` and `SystemHealthCheckPanel`, staff
+  payment-proof upload path intact, Phase B session customer upload
+  path intact via the new ownership policy, token customer upload
+  path unchanged. First Vault-keyed cron firings happen overnight at
+  00:20 / 00:25 / 00:30 UTC — **System Health Check 17 is the morning
+  witness** (verifies daily-reconciliation ran within 25 hours).
+
 ### Loyalty redemption approve — atomic via approve_redemption_atomic RPC (shipped 2026-06-05)
 
   `approve_redemption_atomic(uuid, uuid, text) returns jsonb` created
