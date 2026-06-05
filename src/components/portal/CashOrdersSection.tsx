@@ -1,5 +1,6 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { ChevronDown, ChevronUp, Banknote, CheckCircle, XCircle } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import CashPortalPaymentDialog from './CashPortalPaymentDialog';
 
