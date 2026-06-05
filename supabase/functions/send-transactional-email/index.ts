@@ -40,6 +40,20 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders })
   }
 
+  // SECURITY: require an Authorization header (verify_jwt=true at the gateway
+  // enforces a valid Supabase JWT — anon, authenticated, or service_role).
+  // This blocks fully-unauthenticated abuse; rate limiting + idempotency +
+  // suppression checks downstream further limit blast radius.
+  const authToken = req.headers.get('Authorization')?.replace('Bearer ', '') ?? ''
+  if (!authToken) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
+
+
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
 

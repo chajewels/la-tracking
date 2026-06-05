@@ -102,12 +102,10 @@ Deno.serve(async (req) => {
 
     const token = authHeader.replace("Bearer ", "");
     let userId: string | null = null;
-    let isServiceRole = false;
-
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      isServiceRole = payload.role === 'service_role';
-    } catch (_) {}
+    // SECURITY: Verify service-role by exact token match against env var.
+    // Never trust the unverified JWT payload (`atob`) — an attacker could forge
+    // a JWT with role=service_role and bypass auth entirely.
+    const isServiceRole = token === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
     if (isServiceRole) {
       // Service role calls - no user ID (will be null)
