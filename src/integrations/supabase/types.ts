@@ -2217,6 +2217,7 @@ export type Database = {
           promo_id: string | null
           rate_snapshot: number | null
           spend_amount_jpy: number | null
+          synced_to_sheet_at: string | null
           tier_at_time: string | null
           transaction_type: Database["public"]["Enums"]["loyalty_transaction_type"]
         }
@@ -2234,6 +2235,7 @@ export type Database = {
           promo_id?: string | null
           rate_snapshot?: number | null
           spend_amount_jpy?: number | null
+          synced_to_sheet_at?: string | null
           tier_at_time?: string | null
           transaction_type: Database["public"]["Enums"]["loyalty_transaction_type"]
         }
@@ -2251,6 +2253,7 @@ export type Database = {
           promo_id?: string | null
           rate_snapshot?: number | null
           spend_amount_jpy?: number | null
+          synced_to_sheet_at?: string | null
           tier_at_time?: string | null
           transaction_type?: Database["public"]["Enums"]["loyalty_transaction_type"]
         }
