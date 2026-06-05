@@ -140,6 +140,7 @@ export default function CashPortalPaymentDialog({
           Authorization: `Bearer ${SUPABASE_KEY}`,
           'Content-Type': proofFile.type,
           'x-upsert': 'true',
+          ...(portalToken ? { 'x-portal-token': portalToken } : {}),
         },
         body: proofFile,
       },

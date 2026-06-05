@@ -2106,6 +2106,7 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
               apikey: SUPABASE_KEY,
               Authorization: `Bearer ${SUPABASE_KEY}`,
               'Content-Type': proofFile.type,
+              ...(portalToken ? { 'x-portal-token': portalToken } : {}),
             },
             body: proofFile,
           }
@@ -2623,7 +2624,12 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
           `${SUPABASE_URL}/storage/v1/object/payment-proofs/${filePath}`,
           {
             method: 'POST',
-            headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': editProofFile.type },
+            headers: {
+              apikey: SUPABASE_KEY,
+              Authorization: `Bearer ${SUPABASE_KEY}`,
+              'Content-Type': editProofFile.type,
+              ...(portalToken ? { 'x-portal-token': portalToken } : {}),
+            },
             body: editProofFile,
           }
         );

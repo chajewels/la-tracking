@@ -103,34 +103,24 @@ Commit `2370082` dropped the unrestricted anon-upload policy on the
   types.ts` (column declarations, not reads). No client component
   selects or destructures the column. Nothing to fix.
 
-- **Portal anon proof uploads:** ⚠️ **BROKEN, fix deferred.** Three
-  sites currently POST directly to
-  `${SUPABASE_URL}/storage/v1/object/payment-proofs/${path}` using
-  `apikey: SUPABASE_KEY` (anon) for token-auth customer flows:
-  - `src/pages/CustomerPortal.tsx` L2101–2112 (layaway submit)
-  - `src/pages/CustomerPortal.tsx` L2622–2632 (layaway edit)
-  - `src/components/portal/CashPortalPaymentDialog.tsx` L135 (cash submit)
+- **Portal anon proof uploads:** ✅ **RESOLVED 2026-06-05.** Two new
+  storage policies applied via SQL Editor: (1) a token-gated anon
+  INSERT policy on `storage.objects` for `bucket_id = 'payment-proofs'`
+  that validates `x-portal-token` against an active non-expired
+  `customer_portal_tokens` row; (2) an authenticated INSERT policy
+  for `bucket_id = 'payment-proofs'` covering JWT (Phase B) customers.
+  Frontend updated to send `'x-portal-token': portalToken` (conditional
+  spread — only when portalToken is truthy) at the three direct-to-
+  storage upload sites:
+  - `src/pages/CustomerPortal.tsx` L2101–2113 (layaway submit)
+  - `src/pages/CustomerPortal.tsx` L2622–2634 (layaway edit)
+  - `src/components/portal/CashPortalPaymentDialog.tsx` L134–148 (cash submit)
 
-  With the dropped policy, these will 403 for all anon callers.
-  Phase-B authenticated customers (Authorization: Bearer <user jwt>)
-  may still upload if a separate `authenticated`-role policy exists
-  on the bucket — that needs verification.
-
-  Two recovery options (this prompt was scoped frontend-only / "no
-  migrations" — neither was applied here; awaiting direction):
-  1. **Token-gated storage policy** (one migration). Restore an
-     anon INSERT policy on `storage.objects` where `bucket_id =
-     'payment-proofs'` AND a valid active `customer_portal_tokens`
-     row exists for the request's `x-portal-token` header.
-  2. **Edge function route.** New edge function accepts multipart
-     upload + portal_token, validates the token, writes via service
-     role. Requires the function + frontend rewrite of the three
-     upload sites.
-
-  No edge function currently exists that handles arbitrary file
-  uploads, so option 1 (migration) is the smaller patch. Decision
-  parked until a separate prompt that explicitly authorizes one of
-  these two paths.
+  Token-auth (legacy `?token=`) customers now POST with the header
+  and pass the anon policy. Phase B authenticated customers omit the
+  header (`portalToken` is null on the session-auth code path) and
+  pass via the authenticated policy. Pattern matches the dedicated-
+  client `x-portal-token` header use in `CashOrdersSection.tsx`.
 
 ### Sheet sync reconciler architecture (shipped 2026-06-05)
 
