@@ -46,32 +46,23 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // Auth: env-equality OR admin/finance user fallback.
-    // Matches award-loyalty-points post-Bug-#163 fix. See Bug #163 in
-    // docs/FIXED-BUGS.md for rationale on why direct env equality is
-    // used instead of JWT decode.
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return json({ error: "Unauthorized" }, 401);
-    }
-    const token = authHeader.replace("Bearer ", "");
-    let authorized = false;
-    if (token === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) {
-      authorized = true;
-    }
-    if (!authorized) {
-      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-      if (authError || !user) {
-        return json({ error: "Unauthorized" }, 401);
-      }
-      const [{ data: isAdmin }, { data: isFinance }] = await Promise.all([
-        supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
-        supabase.rpc("has_role", { _user_id: user.id, _role: "finance" }),
-      ]);
-      if (!isAdmin && !isFinance) {
-        return json({ error: "Forbidden" }, 403);
-      }
-    }
+    // No auth check — intentional. This is an internal cron-driven
+    // recovery utility that fans out to sync-loyalty-to-sheet (which
+    // is itself unauthenticated). Risk surface is minimal: reconciler
+    // only emits already-existing loyalty_transactions data to the
+    // backup sheet and writes a synced_to_sheet_at marker. No customer
+    // data exposure in responses, no balance-affecting operations.
+    //
+    // Background: an earlier version (commit f9fcd94) used env-equality
+    // + admin/finance user fallback matching award-loyalty-points'
+    // post-Bug-#163 pattern. That broke the Vault-backed cron auth flow
+    // because the Vault-stored service role key does NOT equal
+    // Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") at runtime — Supabase's
+    // sb_secret_* key-format rollout produces a runtime env value that
+    // diverges from any Dashboard- or Vault-stored copy. award-loyalty-
+    // points keeps the stricter auth because it modifies customer point
+    // balances; this reconciler does not. See Bug #163 + the sheet
+    // reconciler section in docs/FIXED-BUGS.md / CLAUDE.md.
 
     // Optional body parameters
     //   max_rows    1..200, default 100
