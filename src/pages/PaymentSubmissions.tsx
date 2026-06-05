@@ -503,12 +503,22 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
       if (data?.error) throw new Error(data.error);
       return data;
     },
-    onSuccess: async (_data, vars) => {
+    onSuccess: async (data, vars) => {
       queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
       queryClient.invalidateQueries({ queryKey: ['pending-submission-count'] });
       const approvedAccountId = actionDialog?.sub.account_id;
 
       if (vars.action === 'confirmed') {
+        for (const award of ((data as any)?.loyalty_awards ?? [])) {
+          if (award.awarded) {
+            toast.success(
+              `Loyalty points awarded: +${award.points_earned}${award.bonus_points ? ` (+${award.bonus_points} bonus)` : ''} pts · balance ${award.remaining_points}` +
+              (award.tier_upgraded ? ` · Tier upgraded: ${award.old_tier} → ${award.new_tier}` : '')
+            );
+          } else if (award.error) {
+            toast.warning(`Loyalty award failed — check wiring: ${award.error}`);
+          }
+        }
         // Skip underpayment/overpayment decision flow for cash-order submissions —
         // cash orders have no schedule, no carry-over, no per-row partial concept.
         if (actionDialog?.sub.cash_order_id) {

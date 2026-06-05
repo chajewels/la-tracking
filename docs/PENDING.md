@@ -109,3 +109,7 @@
   "Purpose: {notes}" for shipping_fee / service_fee / catalog_reward.
   The send call passes notes in templateData; gated on redemptionType in
   loyalty-redeem.tsx. Requires send-transactional-email redeploy on template
+
+### LOYALTY ACCOUNT NOTES TRAIL (OPEN — added 2026-06-04)
+  Persistent loyalty trail in account_notes — log point awards AND all
+  redemptions (services and others) per account. Scoped separately; not started.

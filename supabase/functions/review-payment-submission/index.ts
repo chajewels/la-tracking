@@ -827,6 +827,8 @@ Deno.serve(async (req) => {
     }
     // ── END CASH ORDER PATH ──
 
+    const loyaltyAwards: Array<Record<string, unknown>> = [];
+
     // If confirming, create actual payment records
     if (action === "confirmed") {
       // Detect DP submissions using the same heuristics as the payments table
@@ -885,16 +887,21 @@ Deno.serve(async (req) => {
         confirmedPaymentIds.push(result.paymentId);
 
         if (submissionIsDP) {
-          await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-            },
-            body: JSON.stringify({ account_id: submission.account_id }),
-          }).catch((err) => {
+          try {
+            const lpRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+              },
+              body: JSON.stringify({ account_id: submission.account_id }),
+            });
+            const lpJson = await lpRes.json().catch(() => null);
+            loyaltyAwards.push({ account_id: submission.account_id, ...(lpJson ?? { error: "no_response" }) });
+          } catch (err) {
             console.warn("[review-payment-submission] award-loyalty-points failed (non-blocking):", err);
-          });
+            loyaltyAwards.push({ account_id: submission.account_id, error: String(err) });
+          }
         }
       } else {
         // Multi-account split: process each allocation separately.
@@ -928,16 +935,21 @@ Deno.serve(async (req) => {
           confirmedPaymentIds.push(result.paymentId);
 
           if (submissionIsDP) {
-            await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-              },
-              body: JSON.stringify({ account_id: alloc.account_id }),
-            }).catch((err) => {
+            try {
+              const lpRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                },
+                body: JSON.stringify({ account_id: alloc.account_id }),
+              });
+              const lpJson = await lpRes.json().catch(() => null);
+              loyaltyAwards.push({ account_id: alloc.account_id, ...(lpJson ?? { error: "no_response" }) });
+            } catch (err) {
               console.warn("[review-payment-submission] award-loyalty-points failed (non-blocking):", err);
-            });
+              loyaltyAwards.push({ account_id: alloc.account_id, error: String(err) });
+            }
           }
         }
 
@@ -1136,6 +1148,7 @@ Deno.serve(async (req) => {
       success: true,
       status: action,
       confirmed_payment_ids: confirmedPaymentIds,
+      loyalty_awards: loyaltyAwards,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
