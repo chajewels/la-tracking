@@ -75,7 +75,7 @@ export default function StaffNotificationBell() {
         .order('created_at', { ascending: false })
         .limit(20);
       if (error) throw error;
-      return (data ?? []) as StaffNotificationRow[];
+      return (data ?? []) as unknown as StaffNotificationRow[];
     },
   });
 
