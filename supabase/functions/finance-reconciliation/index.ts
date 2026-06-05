@@ -27,6 +27,45 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // SECURITY: require auth — exposes per-account balance discrepancies and PII.
+  // Accept service-role token (Vault/cron) or an admin/finance user JWT.
+  const supabaseAuth = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_ANON_KEY")!
+  );
+  const authToken = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
+  if (!authToken) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+  const isServiceRole = authToken === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!isServiceRole) {
+    const { data: userData, error: userErr } = await supabaseAuth.auth.getUser(authToken);
+    if (userErr || !userData?.user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const svc = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+    const [{ data: isAdmin }, { data: isFinance }] = await Promise.all([
+      svc.rpc("has_role", { _user_id: userData.user.id, _role: "admin" }),
+      svc.rpc("has_role", { _user_id: userData.user.id, _role: "finance" }),
+    ]);
+    if (!isAdmin && !isFinance) {
+      return new Response(JSON.stringify({ error: "Forbidden" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  }
+
+
   try {
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
