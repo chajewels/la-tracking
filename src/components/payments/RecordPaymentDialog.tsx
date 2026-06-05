@@ -10,6 +10,12 @@ import {
 } from '@/components/ui/dialog';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
+import {
+  PAYMENT_METHODS,
+  methodCurrency,
+  methodLabel,
+  methodMismatch,
+} from '@/lib/payment-method-registry';
 import { toast } from 'sonner';
 import { useRecordPayment } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
@@ -644,21 +650,15 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
                 onChange={(e) => setPaymentMethod(e.target.value)}
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
               >
-                <option value="cash">Cash Payment</option>
-                <option value="bdo">BDO</option>
-                <option value="bpi">BPI</option>
-                <option value="metrobank">METROBANK</option>
-                <option value="gcash">GCash</option>
-                <option value="cash_pickup">Cash Pick Up</option>
-                <option value="rakuten">Rakuten</option>
-                <option value="sumitomo">Sumitomo</option>
-                <option value="genkin_kaketome">Genkin Kaketome</option>
-                <option value="credit_card">Credit Card</option>
-                <option value="paypay">PayPay</option>
-                <option value="jp_bank">JP Bank</option>
-                <option value="cod">Cash on Delivery</option>
-                <option value="other">Other</option>
+                {PAYMENT_METHODS.map((m) => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
               </select>
+              {currency && methodMismatch(paymentMethod, currency) && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-200">
+                  ⚠️ {methodLabel(paymentMethod)} receives {methodCurrency(paymentMethod)} but this account is {currency}. Double-check the bank selection and make sure the amount is entered in {currency}.
+                </div>
+              )}
             </div>
             {paymentType === 'downpayment' && (
               <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-sm">

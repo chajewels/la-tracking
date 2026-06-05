@@ -9,6 +9,7 @@ import {
   type ChaPaymentMethod,
   PaymentMethodCard,
 } from '@/lib/payment-methods';
+import { normalizeMethod, methodCurrency } from '@/lib/payment-method-registry';
 import { getPHTToday } from '@/lib/date-utils';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -170,7 +171,7 @@ export default function CashPortalPaymentDialog({
         portal_token: portalToken,
         cash_order_id: cashOrder.id,
         submitted_amount: amount,
-        payment_method: selectedMethodName,
+        payment_method: normalizeMethod(selectedMethodName),
         payment_date: paymentDate,
         sender_name: senderName.trim(),
       };
@@ -332,6 +333,18 @@ export default function CashPortalPaymentDialog({
                 </button>
               </div>
             )}
+
+            {(() => {
+              const mc = methodCurrency(selectedMethodName);
+              if ((mc === 'PHP' || mc === 'JPY') && mc !== currency) {
+                return (
+                  <p style={{ color: P.ts, fontSize: '11px', lineHeight: 1.4 }}>
+                    This method receives {mc} — your account is billed in {currency}.
+                  </p>
+                );
+              }
+              return null;
+            })()}
 
             {/* Amount */}
             <div className="space-y-1.5">

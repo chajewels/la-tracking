@@ -31,6 +31,7 @@ import {
   buildFullDetails,
   copyToClipboard,
 } from '@/lib/payment-methods';
+import { normalizeMethod, methodCurrency } from '@/lib/payment-method-registry';
 import { LocationType, parseLocation, toLocationString } from '@/lib/countries';
 import { getPHTToday } from '@/lib/date-utils';
 import { getPortalAuthHeaders } from '@/lib/portal-auth';
@@ -2143,7 +2144,7 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
           account_id: isSplit ? allocations[0]?.account_id : account.id,
           submitted_amount: submittedAmount,
           payment_date: paymentDate,
-          payment_method: selectedMethodName,
+          payment_method: normalizeMethod(selectedMethodName),
           reference_number: referenceNumber || null,
           sender_name: senderName || null,
           notes: notes || null,
@@ -2246,6 +2247,18 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
           )}
           <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,fontStyle:'italic' as const,marginTop:'8px'}}>After completing your payment, please upload your proof of payment below.</p>
         </div>
+
+        {(() => {
+          const mc = methodCurrency(selectedMethodName);
+          if ((mc === 'PHP' || mc === 'JPY') && mc !== currency) {
+            return (
+              <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,lineHeight:1.4}}>
+                This method receives {mc} — your account is billed in {currency}.
+              </p>
+            );
+          }
+          return null;
+        })()}
 
         {/* Payment Mode Toggle */}
         {payableAccounts.length > 1 && (
@@ -2628,7 +2641,7 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
           submission_id: sub.id,
           action: 'edit',
           submitted_amount: parsedAmount,
-          payment_method: editMethod,
+          payment_method: normalizeMethod(editMethod),
           reference_number: editRef || null,
           notes: editNotes || null,
           ...(proofUrl !== undefined ? { proof_url: proofUrl } : {}),

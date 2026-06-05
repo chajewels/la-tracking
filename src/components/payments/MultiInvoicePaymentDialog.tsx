@@ -11,6 +11,12 @@ import {
 } from '@/components/ui/dialog';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
+import {
+  PAYMENT_METHODS,
+  methodCurrency,
+  methodLabel,
+  methodMismatch,
+} from '@/lib/payment-method-registry';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
@@ -671,21 +677,26 @@ export default function MultiInvoicePaymentDialog({
                     onChange={e => setPaymentMethod(e.target.value)}
                     className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
                   >
-                    <option value="cash">Cash Payment</option>
-                    <option value="bdo">BDO</option>
-                    <option value="bpi">BPI</option>
-                    <option value="metrobank">METROBANK</option>
-                    <option value="gcash">GCash</option>
-                    <option value="cash_pickup">Cash Pick Up</option>
-                    <option value="rakuten">Rakuten</option>
-                    <option value="sumitomo">Sumitomo</option>
-                    <option value="genkin_kaketome">Genkin Kaketome</option>
-                    <option value="credit_card">Credit Card</option>
-                    <option value="paypay">PayPay</option>
-                    <option value="jp_bank">JP Bank</option>
-                    <option value="cod">Cash on Delivery</option>
-                    <option value="other">Other</option>
+                    {PAYMENT_METHODS.map((m) => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
+                    ))}
                   </select>
+                  {(() => {
+                    const mismatchedCurrencies = Array.from(
+                      new Set(
+                        selectedAccounts
+                          .map((a) => (a.currency || 'PHP') as Currency)
+                          .filter((c) => methodMismatch(paymentMethod, c))
+                      )
+                    );
+                    if (mismatchedCurrencies.length === 0) return null;
+                    const accountSide = mismatchedCurrencies.join(' / ');
+                    return (
+                      <div className="mt-2 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2 text-[11px] text-amber-200">
+                        ⚠️ {methodLabel(paymentMethod)} receives {methodCurrency(paymentMethod)} but one or more selected accounts are in {accountSide}. Double-check the bank selection and make sure each per-account amount is entered in its own currency.
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-card-foreground text-xs">Payment Date</Label>

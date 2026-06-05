@@ -31,6 +31,7 @@ import PenaltyWaiverPanel from '@/components/penalties/PenaltyWaiverPanel';
 import ContractAgreementSection from '@/components/contract/ContractAgreementSection';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
+import { PAYMENT_METHODS, normalizeMethod } from '@/lib/payment-method-registry';
 import { toast } from 'sonner';
 import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useEditPaymentAmount, useRestorePayment, useDeleteAccount, useForfeitAccount, useAccountServices, usePenaltyCapOverride, useAccountNotes } from '@/hooks/use-supabase-data';
 import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
@@ -1768,11 +1769,9 @@ export default function AccountDetail() {
                             <Select value={editMethod} onValueChange={setEditMethod}>
                               <SelectTrigger className="h-8 text-xs bg-background"><SelectValue /></SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="cash">Cash Payment</SelectItem>
-                                <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                                <SelectItem value="gcash">GCash</SelectItem>
-                                <SelectItem value="cod">Cash on Delivery</SelectItem>
-                                <SelectItem value="other">Other</SelectItem>
+                                {PAYMENT_METHODS.map((m) => (
+                                  <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                                ))}
                               </SelectContent>
                             </Select>
                           </div>
@@ -1901,7 +1900,7 @@ export default function AccountDetail() {
                               onClick={() => {
                                 setEditingId(p.id);
                                 setEditDate(p.date_paid);
-                                setEditMethod(p.payment_method || 'cash');
+                                setEditMethod(normalizeMethod(p.payment_method || 'cash'));
                                 setEditRemarks(p.remarks || '');
                                 setEditAmount(String(Number(p.amount_paid)));
                                 setEditAmountReason('');

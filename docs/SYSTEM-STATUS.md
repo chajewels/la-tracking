@@ -1,5 +1,36 @@
 ## SYSTEM STATUS (as of 2026-05-16)
 
+### Payment method registry (shipped 2026-06-05)
+
+  Canonical payment-method values + currency tagging in one place.
+  Replaces the 4+ independent hardcoded option lists across the app.
+
+  - src/lib/payment-method-registry.ts: PAYMENT_METHODS (15 entries —
+    5 PHP, 8 JPY, 2 currency-neutral), METHOD_ALIASES (legacy spellings
+    → canonical), helpers normalizeMethod / methodCurrency /
+    methodMismatch / methodLabel.
+  - RecordPaymentDialog, MultiInvoicePaymentDialog, AccountDetail edit
+    Select now render options from PAYMENT_METHODS. Edits cannot
+    reintroduce orphan values; legacy stored values preselect via
+    normalizeMethod. AccountDetail's MULTI_INVOICE_PAYMENT_DIALOG retains
+    METHODS_WITH_REF — reference-number rules untouched.
+  - Currency-mismatch warning (amber box, non-blocking) appears when
+    the selected method's currency is PHP/JPY and differs from the
+    account currency. Multi-invoice dialog warns when any selected
+    invoice currency mismatches.
+  - Portal: src/lib/payment-methods.tsx moved 'cash-payment' and
+    'cash-on-delivery' from group 'PH' → 'JP' (JPY-only channels);
+    'cash-pickup' stays PH. CashPortalPaymentDialog +
+    CustomerPortal submit & edit pass payment_method through
+    normalizeMethod() so hyphenated portal ids ('cash-payment',
+    'cash-on-delivery', 'cash-pickup') store canonically ('cash',
+    'cod', 'cash_pickup'). Portal pay form shows a muted single-line
+    hint "This method receives {JPY/PHP} — your account is billed in
+    {currency}." when the selected method's currency differs from
+    the order/account currency.
+
+  No edge function or migration changes. No stored data rewritten.
+
 ### Staff Notification Center (shipped 2026-06-05)
 
   In-app bell-icon notification feed for internal staff. The hardcoded

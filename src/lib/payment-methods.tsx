@@ -85,15 +85,15 @@ export const CHA_PAYMENT_METHODS: ChaPaymentMethod[] = [
     location: 'San Juan Batangas',
     phone: '0906 032 2808',
   },
+  // Japan
   {
-    id: 'cash-payment', name: 'Cash Payment', group: 'PH',
+    id: 'cash-payment', name: 'Cash Payment', group: 'JP',
     icon: <Banknote className="h-5 w-5" />,
   },
   {
-    id: 'cash-on-delivery', name: 'Cash on Delivery', group: 'PH',
+    id: 'cash-on-delivery', name: 'Cash on Delivery', group: 'JP',
     icon: <Truck className="h-5 w-5" />,
   },
-  // Japan
   {
     id: 'rakuten', name: 'Rakuten Bank', group: 'JP',
     icon: <Building2 className="h-5 w-5" />,
