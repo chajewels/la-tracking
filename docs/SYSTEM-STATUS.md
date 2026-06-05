@@ -1,5 +1,42 @@
 ## SYSTEM STATUS (as of 2026-05-16)
 
+### Staff Notification Center (shipped 2026-06-05)
+
+  In-app bell-icon notification feed for internal staff. The hardcoded
+  red-dot Link bell in AppLayout was replaced with a real popover.
+
+  Data:
+  - Tables: staff_notifications (id, type, title, body, account_id,
+    customer_id, invoice_number, metadata jsonb, created_at) +
+    staff_notification_reads (notification_id, user_id, read_at).
+  - RLS: staff SELECT via is_staff(); each user SELECT/INSERT their own
+    read rows. Created via SQL Editor — no repo migration.
+  - DB triggers populate it for: submission_created, submission_confirmed,
+    submission_rejected, account_created, customer_notified,
+    extension_requested, extension_granted, waiver_requested,
+    waiver_approved, waiver_rejected.
+
+  Loyalty award rows (added from edge-fn side):
+  - review-payment-submission inserts staff_notifications rows from the
+    loyaltyAwards array immediately before its final layaway success
+    return: type='loyalty_award' on award.awarded=true,
+    type='loyalty_award_failed' on award.error. Skipped results
+    (not_enrolled / below_minimum / already_awarded / etc.) emit
+    nothing. account_id passes through; failures are non-blocking.
+
+  UI:
+  - src/components/notifications/StaffNotificationBell.tsx rendered in
+    AppLayout.tsx header. Popover trigger = same ghost icon Button; red
+    pill unread badge (cap "9+"), hidden at 0.
+  - react-query polling every 60s: latest 20 notifications + the current
+    user's reads for those ids. Unread = no matching read row.
+  - Item click inserts a read row and navigates to
+    /accounts/{account_id} when set. "Mark all read" upserts read rows
+    for all currently-unread ids (duplicate-key tolerant).
+  - loyalty_award_failed rows get destructive/red accent + left border.
+  - Footer link "Open Monitoring →" preserves the old bell behavior.
+  - Empty state: "No notifications yet."
+
 ### Shipped 2026-06-01
 
   - HUB Help Center Phase 1 — /help route, page component, markdown rendering pipeline (react-markdown + remark-gfm), role-aware filtering, sidebar leaf entry, sample Welcome section: SHIPPED 2026-06-01 ✅ (commit `ff6548b`)

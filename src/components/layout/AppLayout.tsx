@@ -1,11 +1,10 @@
 import { ReactNode } from 'react';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
-import { Link } from 'react-router-dom';
-import { ROUTES } from '@/constants/routes';
 import AppSidebar from './AppSidebar';
-import { Bell, LogOut } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
+import StaffNotificationBell from '@/components/notifications/StaffNotificationBell';
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { profile, roles, signOut } = useAuth();
@@ -39,16 +38,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               <SidebarTrigger className="text-primary hover:text-white" />
 
               <div className="flex items-center gap-3">
-                <Link to={ROUTES.MONITORING}>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-primary hover:text-white hover:bg-white/10 relative"
-                  >
-                    <Bell className="h-4 w-4" />
-                    <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500" />
-                  </Button>
-                </Link>
+                <StaffNotificationBell />
 
                 <div className="flex items-center gap-2">
                   <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#F7E7A1] via-primary to-[#8C6A00] text-black text-[10px] font-bold shadow-md">

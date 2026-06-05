@@ -1144,6 +1144,33 @@ Deno.serve(async (req) => {
       console.warn("[review-payment-submission] email send failed (non-blocking):", emailErr);
     }
 
+    for (const award of loyaltyAwards) {
+      try {
+        if ((award as any).awarded) {
+          const a: any = award;
+          await supabase.from("staff_notifications").insert({
+            type: "loyalty_award",
+            title: "Loyalty points awarded",
+            body: `+${a.points_earned}${a.bonus_points ? ` (+${a.bonus_points} bonus)` : ""} pts · balance ${a.remaining_points}${a.tier_upgraded ? ` · Tier upgraded: ${a.old_tier} → ${a.new_tier}` : ""}`,
+            account_id: a.account_id ?? null,
+            metadata: a,
+          });
+        } else if ((award as any).error) {
+          const a: any = award;
+          await supabase.from("staff_notifications").insert({
+            type: "loyalty_award_failed",
+            title: "Loyalty award FAILED — check wiring",
+            body: String(a.error),
+            account_id: a.account_id ?? null,
+            metadata: a,
+          });
+        }
+        // skipped results (not_enrolled, below_minimum, already_awarded, etc.): no notification
+      } catch (nErr) {
+        console.warn("[review-payment-submission] staff_notifications insert failed (non-blocking):", nErr);
+      }
+    }
+
     return new Response(JSON.stringify({
       success: true,
       status: action,
