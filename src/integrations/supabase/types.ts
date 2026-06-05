@@ -3403,6 +3403,68 @@ export type Database = {
         }
         Relationships: []
       }
+      staff_notification_reads: {
+        Row: {
+          notification_id: string
+          read_at: string
+          user_id: string
+        }
+        Insert: {
+          notification_id: string
+          read_at?: string
+          user_id: string
+        }
+        Update: {
+          notification_id?: string
+          read_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_notification_reads_notification_id_fkey"
+            columns: ["notification_id"]
+            isOneToOne: false
+            referencedRelation: "staff_notifications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      staff_notifications: {
+        Row: {
+          account_id: string | null
+          body: string | null
+          created_at: string
+          customer_id: string | null
+          id: string
+          invoice_number: string | null
+          metadata: Json
+          title: string
+          type: string
+        }
+        Insert: {
+          account_id?: string | null
+          body?: string | null
+          created_at?: string
+          customer_id?: string | null
+          id?: string
+          invoice_number?: string | null
+          metadata?: Json
+          title: string
+          type: string
+        }
+        Update: {
+          account_id?: string | null
+          body?: string | null
+          created_at?: string
+          customer_id?: string | null
+          id?: string
+          invoice_number?: string | null
+          metadata?: Json
+          title?: string
+          type?: string
+        }
+        Relationships: []
+      }
       suppressed_emails: {
         Row: {
           created_at: string
@@ -3994,6 +4056,19 @@ export type Database = {
           p_spend_jpy: number
         }
         Returns: string
+      }
+      staff_display_name: { Args: { p_user_id: string }; Returns: string }
+      staff_notify: {
+        Args: {
+          p_account_id: string
+          p_body: string
+          p_customer_id: string
+          p_invoice: string
+          p_meta?: Json
+          p_title: string
+          p_type: string
+        }
+        Returns: undefined
       }
       validate_bulk_import: { Args: { p_rows: Json }; Returns: Json }
     }
