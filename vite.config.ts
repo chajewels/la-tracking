@@ -6,10 +6,23 @@ import { componentTagger } from "lovable-tagger";
 import { VitePWA } from "vite-plugin-pwa";
 
 const APP_VERSION = (() => {
+  // 1. Try common CI/build commit SHA env vars first — git is usually
+  //    unavailable in build environments, but the host typically injects
+  //    the commit SHA as an env var.
+  const ciSha =
+    process.env.COMMIT_REF ||
+    process.env.VERCEL_GIT_COMMIT_SHA ||
+    process.env.CF_PAGES_COMMIT_SHA ||
+    process.env.GITHUB_SHA;
+  if (ciSha) return ciSha.slice(0, 7);
+
+  // 2. Fall back to git rev-parse for local builds.
   try {
     return execSync("git rev-parse --short HEAD").toString().trim();
   } catch {
-    return "dev-" + new Date().toISOString().slice(0, 10);
+    // 3. Final fallback: minute-precision timestamp so consecutive
+    //    builds in the same environment remain distinguishable.
+    return "dev-" + new Date().toISOString().replace("T", " ").slice(0, 16);
   }
 })();
 
