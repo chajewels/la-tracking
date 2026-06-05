@@ -1573,6 +1573,7 @@ export type Database = {
           cumulative_spend_jpy: number
           current_tier_id: string
           customer_id: string
+          downgrade_spend_baseline: number | null
           earned_tier_id: string
           enrolled_at: string
           id: string
@@ -1590,6 +1591,7 @@ export type Database = {
           cumulative_spend_jpy?: number
           current_tier_id: string
           customer_id: string
+          downgrade_spend_baseline?: number | null
           earned_tier_id: string
           enrolled_at?: string
           id?: string
@@ -1607,6 +1609,7 @@ export type Database = {
           cumulative_spend_jpy?: number
           current_tier_id?: string
           customer_id?: string
+          downgrade_spend_baseline?: number | null
           earned_tier_id?: string
           enrolled_at?: string
           id?: string
@@ -2173,6 +2176,7 @@ export type Database = {
           mystery_gift: boolean
           name: string
           points_multiplier: number
+          requalify_spend_jpy: number | null
         }
         Insert: {
           benefits?: Json
@@ -2186,6 +2190,7 @@ export type Database = {
           mystery_gift?: boolean
           name: string
           points_multiplier: number
+          requalify_spend_jpy?: number | null
         }
         Update: {
           benefits?: Json
@@ -2199,6 +2204,7 @@ export type Database = {
           mystery_gift?: boolean
           name?: string
           points_multiplier?: number
+          requalify_spend_jpy?: number | null
         }
         Relationships: []
       }
