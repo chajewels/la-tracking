@@ -431,430 +431,32 @@ Deno.serve(async (req) => {
         return json({ error: "Insufficient points (balance changed since create)" }, 400);
       }
 
-      const { data: tier } = await supabase
-        .from("loyalty_tiers")
-        .select("name")
-        .eq("id", member.current_tier_id)
-        .single();
-      const tierName = tier?.name ?? null;
-
-      const { data: txRow, error: txErr } = await supabase
-        .from("loyalty_transactions")
-        .insert({
-          member_id: member.id,
-          transaction_type: "redeemed",
-          points_amount: -Number(redemption.points_redeemed),
-          account_id: redemption.account_id,
-          cash_order_id: redemption.cash_order_id,
-          invoice_number: redemption.invoice_number,
-          tier_at_time: tierName,
-          notes: `Redemption: ${redemption.redemption_type}`,
-        })
-        .select("id")
-        .single();
-      if (txErr || !txRow) {
-        console.error("[process-loyalty-redemption] redeemed tx insert failed:", txErr);
-        return json({ error: "Failed to record redemption transaction" }, 500);
+      // Single-call atomic approve: writes loyalty_transactions, updates
+      // loyalty_redemptions + loyalty_members, decrements catalog stock,
+      // reduces target loyalty_jpy_amount, inserts the synthetic payment
+      // (layaway or cash) + updates account totals/status, and writes
+      // audit_logs in one transaction. Stock depletion now aborts with
+      // reward_out_of_stock (409, zero writes) instead of the legacy
+      // "approved but cancel manually" path. The redemption_not_pending /
+      // insufficient_points re-checks here are authoritative under lock —
+      // the friendly upstream checks above only give fast errors.
+      const { data: approveResult, error: approveErr } = await supabase.rpc(
+        "approve_redemption_atomic",
+        { p_redemption_id: redemption.id, p_user_id: user.id, p_user_email: user.email ?? "Admin" }
+      );
+      if (approveErr) {
+        const msg = approveErr.message ?? String(approveErr);
+        if (msg.includes("redemption_not_pending")) return json({ error: "Redemption is no longer pending" }, 400);
+        if (msg.includes("insufficient_points")) return json({ error: "Insufficient points (balance changed since create)" }, 400);
+        if (msg.includes("reward_out_of_stock")) return json({ error: "Reward out of stock — approval aborted, nothing was debited" }, 409);
+        if (msg.includes("not_found")) return json({ error: "Redemption or member not found" }, 404);
+        console.error("[process-loyalty-redemption] approve_redemption_atomic failed:", approveErr);
+        return json({ error: "Approve failed — no changes were applied", detail: msg }, 500);
       }
 
-      const { error: updRedErr } = await supabase
-        .from("loyalty_redemptions")
-        .update({
-          status: "confirmed",
-          transaction_id: txRow.id,
-          processed_by_user_id: user.id,
-          processed_at: new Date().toISOString(),
-        })
-        .eq("id", redemption.id);
-      if (updRedErr) {
-        console.warn(
-          "[process-loyalty-redemption] redemption update failed (tx already inserted):",
-          updRedErr,
-        );
-      }
-
-      await supabase.from("audit_logs").insert({
-        entity_type: "loyalty_redemption",
-        entity_id: redemption.id,
-        action: "redemption_approved",
-        performed_by_user_id: user.id,
-        old_value_json: { status: "pending" },
-        new_value_json: {
-          status: "confirmed",
-          transaction_id: txRow.id,
-          points_redeemed: Number(redemption.points_redeemed),
-          redemption_type: redemption.redemption_type,
-          invoice_number: redemption.invoice_number,
-        },
-      });
-
-      const newRemaining = Number(member.remaining_points ?? 0) -
-        Number(redemption.points_redeemed);
-      const newRedeemedTotal = Number(member.total_points_redeemed ?? 0) +
-        Number(redemption.points_redeemed);
-
-      const { error: updMemberErr } = await supabase
-        .from("loyalty_members")
-        .update({
-          remaining_points: newRemaining,
-          total_points_redeemed: newRedeemedTotal,
-        })
-        .eq("id", member.id);
-      if (updMemberErr) {
-        console.warn(
-          "[process-loyalty-redemption] member balance update failed (manual reconcile):",
-          updMemberErr,
-        );
-      }
-
-      // Phase B — apply discount to target order for non-catalog redemptions.
-      // Catalog rewards are handled offline by staff and do not touch the
-      // order's balance. All non-catalog types (new_order_discount,
-      // shipping_fee, service_fee) insert a synthetic payment that reduces
-      // the target order's remaining_balance via existing reconcile paths.
-      // Best-effort: failures here are logged but do NOT block the approve
-      // flow — the redemption flip and member balance update have already
-      // succeeded.
-      // Synthetic payment + allocation chain fires ONLY for new_order_discount
-      // with a real FK. shipping_fee/service_fee are points-only (owner rule
-      // 2026-05-19); catalog_reward never had a synthetic payment. For those
-      // types, only the member balance debit + loyalty_transactions INSERT
-      // (earlier in this handler, type-agnostic) fire.
-      if (
-        redemption.redemption_type === 'new_order_discount' &&
-        (redemption.account_id || redemption.cash_order_id)
-      ) {
-        try {
-          // payments table has CHECK constraint limiting submitted_by_type to {'customer','staff'}.
-          // cash_payments has no such constraint but we normalize both branches to 'staff' for consistency.
-          // Audit trail of the actual approver is preserved via entered_by_user_id + submitted_by_name.
-          const submittedByType = 'staff';
-          const submittedByName = user.email ?? 'Admin';
-          const today = new Date().toISOString().slice(0, 10);
-          const refRef = `LOYALTY-${redemption.id}`;
-          const remarksText = `Loyalty redemption: ${Number(redemption.points_redeemed)} pts (${redemption.redemption_type})`;
-          // Net-spend correction (owner 2026-05-26): a new_order_discount is paid with points,
-          // so the order's loyalty_jpy_amount drops by the redeemed JPY value — points AND
-          // cumulative_spend then accumulate on net, not gross. Runs once (status!='pending'
-          // guard above). Both fields are JPY. Floored at 0. Non-blocking.
-          {
-            const reduceJpy = Number(redemption.value_applied_jpy ?? 0);
-            if (reduceJpy > 0) {
-              const ljTable = redemption.account_id ? "layaway_accounts" : "cash_orders";
-              const ljId = redemption.account_id ?? redemption.cash_order_id;
-              const { data: ljOrd } = await supabase
-                .from(ljTable).select("loyalty_jpy_amount").eq("id", ljId).maybeSingle();
-              const ljNext = Math.max(0, Number(ljOrd?.loyalty_jpy_amount ?? 0) - reduceJpy);
-              const { error: ljErr } = await supabase
-                .from(ljTable).update({ loyalty_jpy_amount: ljNext }).eq("id", ljId);
-              if (ljErr) console.warn(
-                "[process-loyalty-redemption] loyalty_jpy_amount net-reduce failed (manual reconcile):",
-                { redemption_id: redemption.id, ljTable, ljId, err: ljErr });
-            }
-          }
-
-          if (redemption.account_id) {
-            // Layaway path
-            const { data: acct } = await supabase
-              .from("layaway_accounts")
-              .select("currency")
-              .eq("id", redemption.account_id)
-              .maybeSingle();
-            const acctCurrency = acct?.currency ?? null;
-            const paymentAmount = acctCurrency === 'PHP'
-              ? Number(redemption.value_applied_php ?? 0)
-              : Number(redemption.value_applied_jpy ?? 0);
-
-            if (paymentAmount > 0 && acctCurrency) {
-              const { data: newPayment, error: payErr } = await supabase
-                .from("payments")
-                .insert({
-                  account_id: redemption.account_id,
-                  amount_paid: paymentAmount,
-                  currency: acctCurrency,
-                  date_paid: today,
-                  payment_method: 'loyalty_redemption',
-                  reference_number: refRef,
-                  remarks: `${remarksText} (applied to downpayment)`,
-                  entered_by_user_id: user.id,
-                  submitted_by_type: submittedByType,
-                  submitted_by_name: submittedByName,
-                })
-                .select("id")
-                .single();
-              if (payErr || !newPayment) {
-                // NOTE: redemption is already status='confirmed', member
-                // debited, and loyalty_transactions written above. Returning
-                // 500 here leaves that inconsistent state intact (no payment
-                // row, no reconcile). Admin sees the error in the UI; full
-                // atomic rollback is a separate phase.
-                console.error(
-                  "[process-loyalty-redemption] synthetic layaway payment INSERT failed:",
-                  { redemption_id: redemption.id, account_id: redemption.account_id, err: payErr },
-                );
-                return json(
-                  {
-                    error: "Synthetic payment INSERT failed after redemption approval",
-                    detail: payErr.message ?? String(payErr),
-                    redemption_id: redemption.id,
-                    manual_action_required: true,
-                  },
-                  500,
-                );
-              } else {
-                // new_order_discount on a layaway is applied to the DOWNPAYMENT, not to
-                // installments. Downpayment payments do not allocate to schedule rows, so
-                // there is no waterfall here — the payment's remarks contain "downpayment"
-                // (CHANGE 1) so DP detection recognizes it, and the account-totals update
-                // below still reduces total_paid / remaining_balance.
-
-
-                // 4. UPDATE account totals (canonical formula: total_paid = SUM non-voided payments;
-                //    we just inserted a new payment of paymentAmount, so simply increment).
-                const { data: acctNow, error: acctReadErr } = await supabase
-                  .from("layaway_accounts")
-                  .select("total_paid, remaining_balance, status")
-                  .eq("id", redemption.account_id)
-                  .single();
-
-                if (acctReadErr || !acctNow) {
-                  console.error(
-                    "[process-loyalty-redemption] failed to read account for totals update:",
-                    { redemption_id: redemption.id, payment_id: newPayment.id, err: acctReadErr },
-                  );
-                  return json(
-                    {
-                      error: "Failed to read account for totals update",
-                      detail: acctReadErr?.message ?? "no row returned",
-                      redemption_id: redemption.id,
-                      payment_id: newPayment.id,
-                      manual_action_required: true,
-                    },
-                    500,
-                  );
-                }
-
-                const newTotalPaid = Number(acctNow.total_paid) + paymentAmount;
-                const newRemaining = Number(acctNow.remaining_balance) - paymentAmount;
-
-                // Status: completed if fully paid; overdue → active if no overdue rows remain.
-                // All other status transitions (active, forfeited, etc.) are out of scope here.
-                let newAccountStatus = acctNow.status;
-                if (newRemaining <= 0.01) {
-                  newAccountStatus = "completed";
-                } else if (acctNow.status === "overdue") {
-                  const { data: stillOverdue } = await supabase
-                    .from("layaway_schedule")
-                    .select("id")
-                    .eq("account_id", redemption.account_id)
-                    .eq("status", "overdue")
-                    .limit(1);
-                  if (!stillOverdue || stillOverdue.length === 0) {
-                    newAccountStatus = "active";
-                  }
-                }
-
-                const { error: acctUpdErr } = await supabase
-                  .from("layaway_accounts")
-                  .update({
-                    total_paid: newTotalPaid,
-                    remaining_balance: newRemaining,
-                    status: newAccountStatus,
-                  })
-                  .eq("id", redemption.account_id);
-
-                if (acctUpdErr) {
-                  console.error(
-                    "[process-loyalty-redemption] account totals UPDATE failed:",
-                    { redemption_id: redemption.id, payment_id: newPayment.id, err: acctUpdErr },
-                  );
-                  return json(
-                    {
-                      error: "Account totals UPDATE failed",
-                      detail: acctUpdErr.message,
-                      redemption_id: redemption.id,
-                      payment_id: newPayment.id,
-                      manual_action_required: true,
-                    },
-                    500,
-                  );
-                }
-
-                // Allocation chain complete — synthetic payment is now reflected on the account.
-              }
-            } else {
-              console.warn(
-                "[process-loyalty-redemption] synthetic payment skipped — missing currency or zero amount:",
-                { redemption_id: redemption.id, acctCurrency, paymentAmount },
-              );
-            }
-          } else if (redemption.cash_order_id) {
-            // Cash path
-            const { data: cash } = await supabase
-              .from("cash_orders")
-              .select("currency, total_amount")
-              .eq("id", redemption.cash_order_id)
-              .maybeSingle();
-            const cashCurrency = cash?.currency ?? null;
-            const cashTotalAmount = Number(cash?.total_amount ?? 0);
-            const paymentAmount = cashCurrency === 'PHP'
-              ? Number(redemption.value_applied_php ?? 0)
-              : Number(redemption.value_applied_jpy ?? 0);
-
-            if (paymentAmount > 0 && cashCurrency) {
-              const { error: payErr } = await supabase
-                .from("cash_payments")
-                .insert({
-                  cash_order_id: redemption.cash_order_id,
-                  amount_paid: paymentAmount,
-                  currency: cashCurrency,
-                  date_paid: today,
-                  payment_method: 'loyalty_redemption',
-                  reference_number: refRef,
-                  remarks: remarksText,
-                  entered_by_user_id: user.id,
-                  submitted_by_type: submittedByType,
-                  submitted_by_name: submittedByName,
-                });
-              if (payErr) {
-                // NOTE: redemption is already status='confirmed', member
-                // debited, and loyalty_transactions written above. Returning
-                // 500 here leaves that inconsistent state intact (no payment
-                // row, no recompute). Admin sees the error in the UI; full
-                // atomic rollback is a separate phase.
-                console.error(
-                  "[process-loyalty-redemption] synthetic cash payment INSERT failed:",
-                  { redemption_id: redemption.id, cash_order_id: redemption.cash_order_id, err: payErr },
-                );
-                return json(
-                  {
-                    error: "Synthetic payment INSERT failed after redemption approval",
-                    detail: payErr.message ?? String(payErr),
-                    redemption_id: redemption.id,
-                    manual_action_required: true,
-                  },
-                  500,
-                );
-              } else {
-                const { data: sumRows } = await supabase
-                  .from("cash_payments")
-                  .select("amount_paid")
-                  .eq("cash_order_id", redemption.cash_order_id)
-                  .is("voided_at", null);
-                const newTotalPaid = (sumRows ?? []).reduce(
-                  (acc: number, r: any) => acc + Number(r.amount_paid ?? 0), 0,
-                );
-                const newRemaining = cashTotalAmount - newTotalPaid;
-                const cashUpdate: Record<string, any> = {
-                  total_paid: newTotalPaid,
-                  remaining_balance: newRemaining,
-                  updated_at: new Date().toISOString(),
-                };
-                if (newRemaining <= 0) {
-                  cashUpdate.status = 'completed';
-                  cashUpdate.completed_at = new Date().toISOString();
-                }
-                const { error: cashUpdErr } = await supabase
-                  .from("cash_orders")
-                  .update(cashUpdate)
-                  .eq("id", redemption.cash_order_id);
-                if (cashUpdErr) {
-                  console.warn(
-                    "[process-loyalty-redemption] cash_orders totals update failed:",
-                    { redemption_id: redemption.id, err: cashUpdErr },
-                  );
-                }
-              }
-            } else {
-              console.warn(
-                "[process-loyalty-redemption] synthetic cash payment skipped — missing currency or zero amount:",
-                { redemption_id: redemption.id, cashCurrency, paymentAmount },
-              );
-            }
-          }
-        } catch (applyErr) {
-          console.warn(
-            "[process-loyalty-redemption] discount application block failed (manual reconcile needed):",
-            { redemption_id: redemption.id, err: applyErr },
-          );
-        }
-      }
-
-      // Stock decrement for catalog rewards. Atomic via WHERE clause
-      // so concurrent approvals can't drive current_stock negative.
-      // Unlimited rewards (current_stock IS NULL) skip silently.
-      if (redemption.reward_id) {
-        const { data: rewardBefore } = await supabase
-          .from("loyalty_rewards")
-          .select("current_stock")
-          .eq("id", redemption.reward_id)
-          .maybeSingle();
-
-        const prevStock = rewardBefore?.current_stock ?? null;
-        if (prevStock != null) {
-          const { data: decremented, error: stockErr } = await supabase
-            .from("loyalty_rewards")
-            .update({ current_stock: Number(prevStock) - 1 })
-            .eq("id", redemption.reward_id)
-            .gt("current_stock", 0)
-            .select("id, current_stock");
-
-          if (stockErr) {
-            console.warn(
-              "[process-loyalty-redemption] stock decrement failed (manual reconcile):",
-              stockErr,
-            );
-          } else if (!decremented || decremented.length === 0) {
-            // Race: stock raced to 0 between create-time validation
-            // and approval. The approval already wrote the
-            // loyalty_transactions row + member balance update; admin
-            // must manually cancel/refund and reconcile stock.
-            console.error(
-              "[process-loyalty-redemption] stock raced to 0 — redemption approved but stock could not be decremented:",
-              { redemption_id: redemption.id, reward_id: redemption.reward_id },
-            );
-            // Phase 4.2 — emit the approved notification anyway: points
-            // ARE debited at this point, so the customer needs to see
-            // the redemption in their portal. Admin will manually
-            // cancel/refund afterward, which (per Phase 3.2.1 TODO)
-            // does not yet emit a separate notification.
-            const raceRewardName = await resolveRewardName(supabase, redemption);
-            await emitNotification(supabase, redemption.member_id, {
-              category: "redemption",
-              ...buildApprovedNotif(
-                redemption,
-                raceRewardName,
-                Number(redemption.points_redeemed),
-              ),
-              link_target: "tab:points",
-            });
-            return json(
-              {
-                error:
-                  "Reward stock raced to 0 — redemption was approved and points debited; cancel and refund customer manually",
-                approved: true,
-                transaction_id: txRow.id,
-                remaining_points: newRemaining,
-                stock_race: true,
-              },
-              409,
-            );
-          } else {
-            const newStock = Number(decremented[0].current_stock);
-            await supabase.from("audit_logs").insert({
-              entity_type: "loyalty_reward",
-              entity_id: redemption.reward_id,
-              action: "stock_decremented",
-              performed_by_user_id: user.id,
-              old_value_json: { current_stock: prevStock },
-              new_value_json: {
-                current_stock: newStock,
-                redemption_id: redemption.id,
-              },
-            });
-          }
-        }
-      }
+      // approveResult shape (returned by the RPC):
+      //   { transaction_id, payment_id, new_remaining_points, tier_name,
+      //     account_status, payment_amount, currency }
 
       // Email + sheet sync — fire-and-forget
       try {
@@ -891,7 +493,7 @@ Deno.serve(async (req) => {
                     redemptionType: redemption.redemption_type,
                     invoiceNumber: redemption.invoice_number,
                     notes: redemption.notes ?? null,
-                    remainingPoints: newRemaining,
+                    remainingPoints: (approveResult as any)?.new_remaining_points ?? 0,
                     portalUrl,
                   },
                 }),
@@ -956,8 +558,12 @@ Deno.serve(async (req) => {
 
       return json({
         approved: true,
-        transaction_id: txRow.id,
-        remaining_points: newRemaining,
+        transaction_id: (approveResult as any)?.transaction_id ?? null,
+        remaining_points: (approveResult as any)?.new_remaining_points ?? 0,
+        payment_id: (approveResult as any)?.payment_id ?? null,
+        account_status: (approveResult as any)?.account_status ?? null,
+        payment_amount: (approveResult as any)?.payment_amount ?? null,
+        currency: (approveResult as any)?.currency ?? null,
       });
     }
 
