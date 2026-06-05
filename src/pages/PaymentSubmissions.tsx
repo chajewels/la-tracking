@@ -562,7 +562,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
               surplus: partialAlloc.amount,
               currency: cur,
               accountId: actionDialog.sub.account_id,
-              paymentId: (_data as any)?.confirmed_payment_ids?.[0] ?? null,
+              paymentId: (data as any)?.confirmed_payment_ids?.[0] ?? null,
             });
             setActionDialog(null);
             setConfirmResults(null);
