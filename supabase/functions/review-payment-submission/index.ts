@@ -5,6 +5,11 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// award-loyalty-points skip reasons that surface as operator notifications.
+// Benign skips (not_enrolled, below_minimum, already_awarded, no_loyalty_amount,
+// missing_source) stay silent.
+const ANOMALOUS_SKIP_REASONS = ["loyalty_disabled", "tier_not_found", "account_not_found", "cash_order_not_found"];
+
 async function hasPermission(supabase: any, userId: string, permissionKey: string) {
   const { data: roles, error: roleError } = await supabase
     .from("user_roles")
@@ -774,8 +779,17 @@ Deno.serve(async (req) => {
               invoice_number: cashOrder.invoice_number,
               metadata: cashLoyaltyAward,
             });
+          } else if (a.skipped === true && ANOMALOUS_SKIP_REASONS.includes(String(a.reason))) {
+            await supabase.from("staff_notifications").insert({
+              type: "loyalty_award_failed",
+              title: "Loyalty award SKIPPED — needs attention",
+              body: `Award skipped: ${a.reason} · Inv #${cashOrder.invoice_number ?? '?'}`,
+              customer_id: cashOrder.customer_id,
+              invoice_number: cashOrder.invoice_number,
+              metadata: cashLoyaltyAward,
+            });
           }
-          // skipped results (not_enrolled, below_minimum, already_awarded, etc.): no notification
+          // benign skips (not_enrolled, below_minimum, already_awarded, no_loyalty_amount, missing_source): no notification
         } catch (nErr) {
           console.warn("[review-payment-submission] staff_notifications insert failed (non-blocking):", nErr);
         }
@@ -1199,8 +1213,17 @@ Deno.serve(async (req) => {
             account_id: a.account_id ?? null,
             metadata: a,
           });
+        } else if ((award as any).skipped === true && ANOMALOUS_SKIP_REASONS.includes(String((award as any).reason))) {
+          const a: any = award;
+          await supabase.from("staff_notifications").insert({
+            type: "loyalty_award_failed",
+            title: "Loyalty award SKIPPED — needs attention",
+            body: `Award skipped: ${a.reason} · Inv #?`,
+            account_id: a.account_id ?? null,
+            metadata: a,
+          });
         }
-        // skipped results (not_enrolled, below_minimum, already_awarded, etc.): no notification
+        // benign skips (not_enrolled, below_minimum, already_awarded, no_loyalty_amount, missing_source): no notification
       } catch (nErr) {
         console.warn("[review-payment-submission] staff_notifications insert failed (non-blocking):", nErr);
       }
