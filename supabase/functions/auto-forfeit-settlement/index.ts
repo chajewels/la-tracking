@@ -30,6 +30,17 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // SECURITY: service-role only (pg_cron uses Vault-stored service-role key).
+  // Prevents anonymous callers from triggering irreversible forfeiture.
+  const authToken = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
+  if (authToken !== Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) {
+    return new Response(JSON.stringify({ error: "Forbidden" }), {
+      status: 403,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+
   try {
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
