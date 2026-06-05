@@ -645,7 +645,7 @@ Deno.serve(async (req) => {
 
     // CALL 1 — earned (always)
     try {
-      await fetch(syncSheetUrl, {
+      const earnedSheetRes = await fetch(syncSheetUrl, {
         method: "POST",
         headers: syncSheetHeaders,
         body: JSON.stringify({
@@ -664,9 +664,26 @@ Deno.serve(async (req) => {
             created_by: "system",
           },
         }),
-      }).catch((e) =>
-        console.warn("[award-loyalty-points] sheet sync (earned) failed:", e)
-      );
+      });
+      if (earnedSheetRes.ok && earnedTxId) {
+        const { error: markErr } = await supabase
+          .from("loyalty_transactions")
+          .update({ synced_to_sheet_at: new Date().toISOString() })
+          .eq("id", earnedTxId);
+        if (markErr) {
+          console.warn(
+            "[award-loyalty-points] failed to mark earned tx synced (non-blocking):",
+            markErr,
+          );
+        }
+      } else if (!earnedSheetRes.ok) {
+        const errBody = await earnedSheetRes.text().catch(() => "");
+        console.warn(
+          "[award-loyalty-points] sheet sync (earned) returned non-2xx:",
+          earnedSheetRes.status,
+          errBody,
+        );
+      }
     } catch (sheetErr) {
       console.warn("[award-loyalty-points] sheet sync (earned) block failed:", sheetErr);
     }
@@ -674,7 +691,7 @@ Deno.serve(async (req) => {
     // CALL 2 — bonus (only when a promo bonus was awarded)
     if (bonusTxPoints > 0) {
       try {
-        await fetch(syncSheetUrl, {
+        const bonusSheetRes = await fetch(syncSheetUrl, {
           method: "POST",
           headers: syncSheetHeaders,
           body: JSON.stringify({
@@ -692,9 +709,26 @@ Deno.serve(async (req) => {
               created_by: "system",
             },
           }),
-        }).catch((e) =>
-          console.warn("[award-loyalty-points] sheet sync (bonus) failed:", e)
-        );
+        });
+        if (bonusSheetRes.ok && bonusTxId) {
+          const { error: markErr } = await supabase
+            .from("loyalty_transactions")
+            .update({ synced_to_sheet_at: new Date().toISOString() })
+            .eq("id", bonusTxId);
+          if (markErr) {
+            console.warn(
+              "[award-loyalty-points] failed to mark bonus tx synced (non-blocking):",
+              markErr,
+            );
+          }
+        } else if (!bonusSheetRes.ok) {
+          const errBody = await bonusSheetRes.text().catch(() => "");
+          console.warn(
+            "[award-loyalty-points] sheet sync (bonus) returned non-2xx:",
+            bonusSheetRes.status,
+            errBody,
+          );
+        }
       } catch (sheetErr) {
         console.warn("[award-loyalty-points] sheet sync (bonus) block failed:", sheetErr);
       }
@@ -707,6 +741,7 @@ Deno.serve(async (req) => {
       // and never rolls back the award. spend_amount_jpy is NULL here — the
       // spend is already captured on the corresponding 'earned' row above
       // (don't double-count). Source IDs pass through for traceability.
+      let tierTxId: string | null = null;
       try {
         const tierTxRow: Record<string, unknown> = {
           member_id: member.id,
@@ -723,9 +758,12 @@ Deno.serve(async (req) => {
             `Tier upgraded: ${oldTierName} → ${newTierName} at ${newCumulative.toLocaleString()} JPY cumulative spend`,
           created_by_user_id: null,
         };
-        const { error: tierTxErr } = await supabase
+        const { data: tierTxData, error: tierTxErr } = await supabase
           .from("loyalty_transactions")
-          .insert(tierTxRow);
+          .insert(tierTxRow)
+          .select("id")
+          .single();
+        tierTxId = (tierTxData as { id?: string } | null)?.id ?? null;
         if (tierTxErr) {
           console.warn(
             "[award-loyalty-points] tier_changed tx insert failed (non-blocking):",
@@ -740,7 +778,7 @@ Deno.serve(async (req) => {
       }
 
       try {
-        await fetch(syncSheetUrl, {
+        const tierSheetRes = await fetch(syncSheetUrl, {
           method: "POST",
           headers: syncSheetHeaders,
           body: JSON.stringify({
@@ -758,9 +796,26 @@ Deno.serve(async (req) => {
               notes: `${oldTierName} → ${newTierName}`,
             },
           }),
-        }).catch((e) =>
-          console.warn("[award-loyalty-points] sheet sync (tier_changed) failed:", e)
-        );
+        });
+        if (tierSheetRes.ok && tierTxId) {
+          const { error: markErr } = await supabase
+            .from("loyalty_transactions")
+            .update({ synced_to_sheet_at: new Date().toISOString() })
+            .eq("id", tierTxId);
+          if (markErr) {
+            console.warn(
+              "[award-loyalty-points] failed to mark tier_changed tx synced (non-blocking):",
+              markErr,
+            );
+          }
+        } else if (!tierSheetRes.ok) {
+          const errBody = await tierSheetRes.text().catch(() => "");
+          console.warn(
+            "[award-loyalty-points] sheet sync (tier_changed) returned non-2xx:",
+            tierSheetRes.status,
+            errBody,
+          );
+        }
       } catch (sheetErr) {
         console.warn("[award-loyalty-points] sheet sync (tier_changed) block failed:", sheetErr);
       }
