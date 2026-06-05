@@ -93,7 +93,7 @@ export default function StaffNotificationBell() {
         .in('notification_id', notificationIds);
       if (error) throw error;
       const set = new Set<string>();
-      for (const row of (data ?? []) as Array<{ notification_id: string }>) {
+      for (const row of (data ?? []) as unknown as Array<{ notification_id: string }>) {
         set.add(row.notification_id);
       }
       return set;
