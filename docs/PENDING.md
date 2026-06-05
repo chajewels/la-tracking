@@ -113,3 +113,9 @@
 ### LOYALTY ACCOUNT NOTES TRAIL (OPEN — added 2026-06-04)
   Persistent loyalty trail in account_notes — log point awards AND all
   redemptions (services and others) per account. Scoped separately; not started.
+
+### IS_STAFF() ROLE-SCOPE TIGHTENING (OPEN — added 2026-06-05)
+  is_staff() is loose — returns true for ANY user_roles row, not specific roles.
+  Correct today (roles: staff, admin) but every is_staff() RLS policy silently
+  widens if a restricted/customer-facing role is ever added to user_roles.
+  Revisit before introducing new roles. (Flagged 2026-06-05.)

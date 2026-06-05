@@ -130,6 +130,11 @@ export default function StaffNotificationBell() {
     }
     if (n.account_id) {
       navigate(`/accounts/${n.account_id}`);
+      return;
+    }
+    const cashOrderId = (n.metadata as { cash_order_id?: string } | null)?.cash_order_id;
+    if (cashOrderId) {
+      navigate(`/cash-orders/${cashOrderId}`);
     }
   };
 

@@ -46,6 +46,9 @@
     submission_rejected, account_created, customer_notified,
     extension_requested, extension_granted, waiver_requested,
     waiver_approved, waiver_rejected.
+  - cash_orders AFTER INSERT trigger `trg_notify_cash_order_created`
+    (type `account_created`) added 2026-06-05 so the bell also surfaces
+    new cash orders, not just layaway accounts.
 
   Loyalty award rows (added from edge-fn side):
   - review-payment-submission inserts staff_notifications rows from the
@@ -62,8 +65,11 @@
   - react-query polling every 60s: latest 20 notifications + the current
     user's reads for those ids. Unread = no matching read row.
   - Item click inserts a read row and navigates to
-    /accounts/{account_id} when set. "Mark all read" upserts read rows
-    for all currently-unread ids (duplicate-key tolerant).
+    /accounts/{account_id} when set; if account_id is null and
+    metadata.cash_order_id is present, routes to
+    /cash-orders/{cash_order_id} instead (added 2026-06-05); rows with
+    neither only mark read. "Mark all read" upserts read rows for all
+    currently-unread ids (duplicate-key tolerant).
   - loyalty_award_failed rows get destructive/red accent + left border.
   - Footer link "Open Monitoring →" preserves the old bell behavior.
   - Empty state: "No notifications yet."
