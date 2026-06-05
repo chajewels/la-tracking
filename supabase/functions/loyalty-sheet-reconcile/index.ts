@@ -100,7 +100,7 @@ Deno.serve(async (req) => {
           remaining_points,
           last_purchase_at,
           customers!inner ( id, customer_code, full_name, email ),
-          loyalty_tiers ( name, points_multiplier )
+          loyalty_tiers!current_tier_id ( name, points_multiplier )
         )
       `)
       .is("synced_to_sheet_at", null)
