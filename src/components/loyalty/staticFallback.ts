@@ -117,7 +117,10 @@ export const FAQS: FallbackFaq[] = [
   { q: 'When do my points expire?', a: 'Loyalty points are valid as long as you remain an active member. Make at least one purchase every 6 months to keep your tier and points active.' },
   { q: 'How do I check my tier progress?', a: 'Visit the Tiers tab to see your current tier, your progress to the next tier, and all tier benefits.' },
   { q: 'Can I share my points with someone else?', a: 'No, loyalty points are non-transferable and tied to your customer account.' },
-  { q: 'How does the referral program work?', a: 'Share your referral code from the Profile tab. When a friend joins using your code, you both earn bonus points.' },
+  { q: 'What keeps my account active?', a: 'Any order of any amount. As long as you place an order within 180 days of your last one, your points and tier are safe.' },
+  { q: 'What happens if I am inactive for more than 180 days?', a: 'Your accumulated points expire, and your tier drops one level (for example, Radiant to Glimmer).' },
+  { q: 'How do I get my tier back after a downgrade?', a: 'By reaching a re-qualification spend in new purchases: ¥500,000 for Radiant, ¥2,000,000 for Elite, ¥4,000,000 for Crown VIP. Once reached, your tier is restored immediately.' },
+  { q: 'Do small orders earn points?', a: 'Orders under ¥10,000 keep your account active but do not earn points — points are awarded on purchases of ¥10,000 and above.' },
   { q: 'What happens if I become inactive?', a: 'After 6 months without a purchase, your tier may be downgraded one level. Stay active with regular purchases to maintain your tier.' },
   { q: 'How do I contact customer support?', a: 'Use the Contact Support button in the Profile tab to reach the Cha Jewels team via Messenger or email.' },
 ];

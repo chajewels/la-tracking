@@ -159,7 +159,7 @@ Deno.serve(async (req) => {
     const { data: member } = await supabase
       .from("loyalty_members")
       .select(
-        "id, customer_id, current_tier_id, earned_tier_id, cumulative_spend_jpy, total_points_earned, remaining_points, last_purchase_at",
+        "id, customer_id, current_tier_id, earned_tier_id, cumulative_spend_jpy, total_points_earned, remaining_points, last_purchase_at, is_downgraded, downgrade_spend_baseline",
       )
       .eq("customer_id", customerId!)
       .maybeSingle();
@@ -225,7 +225,30 @@ Deno.serve(async (req) => {
 
     const oldMin = Number(currentTier.min_spend_jpy ?? 0);
     const newMin = Number(newTierRow?.min_spend_jpy ?? oldMin);
-    const tierUpgraded = !!newTierRow && newMin > oldMin;
+
+    // Re-qualification gate: a downgraded member must accumulate new awarded
+    // spend since their downgrade (>= their earned tier's requalify target)
+    // before any tier movement. Safe-default: if baseline / earned_tier_id /
+    // tier's requalify_spend_jpy is missing, requalified stays true and
+    // behavior is identical to pre-2026-06-05 (instant restore on lifetime
+    // spend). While !requalified, tierUpgraded falls to false → existing
+    // downstream code earns at the current (downgraded) multiplier, writes
+    // tier_at_time = downgraded tier, leaves is_downgraded true, and writes
+    // no tier fields. See docs/LOYALTY-LIFECYCLE.md for the full rule.
+    let requalified = true;
+    if (member.is_downgraded === true && member.downgrade_spend_baseline != null && member.earned_tier_id) {
+      const { data: earnedTierRow } = await supabase
+        .from("loyalty_tiers")
+        .select("requalify_spend_jpy")
+        .eq("id", member.earned_tier_id)
+        .maybeSingle();
+      const requalifyTarget = earnedTierRow?.requalify_spend_jpy;
+      if (requalifyTarget != null) {
+        requalified = (newCumulative - Number(member.downgrade_spend_baseline)) >= Number(requalifyTarget);
+      }
+    }
+
+    const tierUpgraded = requalified && !!newTierRow && newMin > oldMin;
     const effectiveMultiplier = tierUpgraded
       ? Number(newTierRow!.points_multiplier ?? 1)
       : multiplier;
@@ -361,6 +384,7 @@ Deno.serve(async (req) => {
       memberUpdate.earned_tier_id = newTierRow!.id;
       memberUpdate.current_tier_id = newTierRow!.id;
       memberUpdate.is_downgraded = false;
+      memberUpdate.downgrade_spend_baseline = null;
     }
 
     const { error: memberUpdateErr } = await supabase

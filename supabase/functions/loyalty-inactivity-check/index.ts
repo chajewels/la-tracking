@@ -208,21 +208,32 @@ Deno.serve(async (req) => {
     return acc;
   }
 
-  let mostRecentByCustomer: Map<string, Date>;
+  // topTwoByCustomer: the two most recent successful order dates per
+  // customer, sorted DESCENDING (index 0 = most recent). The gap clock
+  // uses these two dates directly when available, so any successful order
+  // of any amount counts toward keeping the account active — matching the
+  // expiry gate's definition of activity. Fewer than 2 rows → caller
+  // falls back to the prev_purchase_at-based scalar computation.
+  let topTwoByCustomer: Map<string, Date[]>;
   try {
     const [layawayRows, cashRows] = await Promise.all([
       fetchAllOrderDates("layaway_accounts", LAYAWAY_SUCCESSFUL),
       fetchAllOrderDates("cash_orders", CASH_SUCCESSFUL),
     ]);
-    mostRecentByCustomer = new Map<string, Date>();
+    topTwoByCustomer = new Map<string, Date[]>();
     for (const r of [...layawayRows, ...cashRows]) {
       if (!r.customer_id || !r.order_date) continue;
       const d = new Date(r.order_date);
       if (Number.isNaN(d.getTime())) continue;
-      const existing = mostRecentByCustomer.get(r.customer_id);
-      if (!existing || d.getTime() > existing.getTime()) {
-        mostRecentByCustomer.set(r.customer_id, d);
+      const list = topTwoByCustomer.get(r.customer_id) ?? [];
+      // Insert d in DESCENDING order; keep at most 2 entries.
+      if (list.length === 0 || d.getTime() >= list[0].getTime()) {
+        list.unshift(d);
+      } else if (list.length < 2 || d.getTime() > list[1].getTime()) {
+        list.splice(1, list.length - 1, d);
       }
+      if (list.length > 2) list.length = 2;
+      topTwoByCustomer.set(r.customer_id, list);
     }
   } catch (e: any) {
     console.error(
@@ -242,16 +253,23 @@ Deno.serve(async (req) => {
       // effectiveLastPurchase = GREATEST(stored last_purchase_at,
       // most recent successful order_date). Read-only gate input — we
       // do NOT write it back to loyalty_members.
-      const mostRecentOrder = mostRecentByCustomer.get(member.customer_id) ??
-        null;
+      const topTwo = topTwoByCustomer.get(member.customer_id) ?? [];
+      const mostRecentOrder = topTwo[0] ?? null;
       const effectiveLastPurchase =
         mostRecentOrder && mostRecentOrder.getTime() > lastPurchase.getTime()
           ? mostRecentOrder
           : lastPurchase;
       const daysSinceLast = daysBetween(now, effectiveLastPurchase);
-      const gapBetweenLastTwo = prevPurchase
-        ? daysBetween(lastPurchase, prevPurchase)
-        : null;
+      // Gap clock now counts ANY successful order of any amount (added
+      // 2026-06-05). When the customer has ≥2 successful order rows, use
+      // the two most recent order_date values directly. Otherwise fall
+      // back to the prev_purchase_at-based scalar computation (legacy
+      // behavior; preserves the single-history edge case).
+      const gapBetweenLastTwo = topTwo.length >= 2
+        ? daysBetween(topTwo[0], topTwo[1])
+        : prevPurchase
+          ? daysBetween(lastPurchase, prevPurchase)
+          : null;
 
       const currentTier = tierById.get(member.current_tier_id);
       if (!currentTier) {
@@ -308,6 +326,13 @@ Deno.serve(async (req) => {
             current_tier_id: nextLower!.id,
             is_downgraded: tierChanged ? true : member.is_downgraded,
             pre_expiry_warned_at: null,
+            // Snapshot lifetime spend at downgrade time so the re-qualification
+            // gate in award-loyalty-points can measure new awarded spend since
+            // this point. Only set when the downgrade actually moves tiers —
+            // otherwise leave the existing baseline (or NULL) untouched.
+            ...(tierChanged
+              ? { downgrade_spend_baseline: Number(member.cumulative_spend_jpy ?? 0) }
+              : {}),
           })
           .eq("id", member.id);
         if (updErr) throw updErr;
@@ -463,6 +488,12 @@ Deno.serve(async (req) => {
             .update({
               current_tier_id: nextLower.id,
               is_downgraded: true,
+              // Snapshot lifetime spend at downgrade time — re-qualification
+              // gate in award-loyalty-points uses this as the floor for "new
+              // awarded spend since downgrade". The gap path always moves
+              // tiers (this branch only runs when downgrade is canDowngrade),
+              // so this is always set here.
+              downgrade_spend_baseline: Number(member.cumulative_spend_jpy ?? 0),
             })
             .eq("id", member.id);
           if (dgErr) throw dgErr;

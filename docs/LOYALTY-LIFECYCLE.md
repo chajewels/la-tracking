@@ -93,3 +93,67 @@ where explicitly decided otherwise.
   Loyalty is RESTORED on reactivate-account when a prior revoke transaction
   exists for the account.
 
+### Tier downgrade + re-qualification (added 2026-06-05)
+
+Distinct from the lot-revoke flow above. This subsection covers tier
+movement only — point lots are not affected by these rules.
+
+  1. **Downgrade snapshots `downgrade_spend_baseline`.** Both inactivity
+     downgrade paths write `loyalty_members.downgrade_spend_baseline =
+     cumulative_spend_jpy` at the moment of downgrade — capturing
+     lifetime spend as the floor for "new awarded spend since
+     downgrade":
+     - **Expiry path** (180-day total-inactivity): writes baseline
+       only when the points-expiry also moves tiers
+       (`tierChanged === true`). Pure points-expiry with no tier
+       movement leaves the field untouched.
+     - **Gap path** (180-day gap between two consecutive successful
+       orders): always writes baseline — this branch only runs when
+       a tier downgrade is happening.
+     The column is nullable; NULL means "not currently downgraded for
+     re-qualification purposes."
+
+  2. **Restore requires NEW awarded spend ≥ the earned tier's
+     `requalify_spend_jpy`.** `award-loyalty-points` Step 5b reads
+     `loyalty_members.is_downgraded` + `downgrade_spend_baseline` +
+     `earned_tier_id`, then reads
+     `loyalty_tiers.requalify_spend_jpy` for the earned tier
+     (Radiant 500000, Elite 2000000, Crown VIP 4000000, Glimmer NULL).
+     Re-qualified when
+     `(newCumulative − downgrade_spend_baseline) >= requalify_spend_jpy`.
+     - Once re-qualified, tier recomputes from `newCumulative` against
+       `loyalty_tiers.min_spend_jpy` (same lookup as a normal upgrade),
+       the **ratcheted multiplier applies on the completing purchase**
+       (the award that crosses the threshold uses the restored tier's
+       multiplier, not the downgraded one), the member update sets
+       `earned_tier_id` / `current_tier_id` / `is_downgraded = false` /
+       `downgrade_spend_baseline = null` in one write, and the
+       loyalty-tier-upgrade email path fires.
+     - **While downgraded and NOT yet re-qualified:** the gate yields
+       `tierUpgraded = false`. Points earn at the current (downgraded)
+       tier's multiplier. `tier_at_time` on the `earned` transaction
+       records the downgraded tier. No tier fields written.
+       `is_downgraded` stays true. The member silently accumulates
+       toward the re-qualification target with every awarded purchase.
+
+  3. **Gap-clock activity definition.** The 180-day gap downgrade now
+     counts ANY successful order of any amount as activity — matching
+     the expiry gate. `loyalty-inactivity-check` aggregates the two
+     most recent successful order dates per customer (DESCENDING) from
+     `layaway_accounts` (status IN active/overdue/completed/extension_active/
+     reactivated) + `cash_orders` (status IN completed/pending) — no
+     amount filter. When ≥2 dates exist, `gapBetweenLastTwo` is the
+     daysBetween of those two; when fewer than 2, falls back to the
+     legacy `prev_purchase_at` scalar computation. Small orders
+     (< ¥10,000) keep the account active even though they earn no
+     points (see `award-loyalty-points` `below_minimum` skip).
+
+  4. **Missing config falls back to instant restore.** If
+     `downgrade_spend_baseline` is NULL, or `earned_tier_id` is NULL,
+     or `loyalty_tiers.requalify_spend_jpy` is NULL for the earned
+     tier, the re-qualification gate sets `requalified = true` and
+     behavior is identical to pre-2026-06-05 (tier movement runs
+     purely on lifetime spend, restore is instant). This is the safe
+     default for Glimmer (no requalify target by design) and for any
+     legacy member whose downgrade predates the baseline column.
+
