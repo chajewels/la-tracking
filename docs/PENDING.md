@@ -114,8 +114,15 @@
   Persistent loyalty trail in account_notes — log point awards AND all
   redemptions (services and others) per account. Scoped separately; not started.
 
-### IS_STAFF() ROLE-SCOPE TIGHTENING (OPEN — added 2026-06-05)
-  is_staff() is loose — returns true for ANY user_roles row, not specific roles.
-  Correct today (roles: staff, admin) but every is_staff() RLS policy silently
-  widens if a restricted/customer-facing role is ever added to user_roles.
-  Revisit before introducing new roles. (Flagged 2026-06-05.)
+### IS_STAFF() ROLE-SCOPE TIGHTENING (added 2026-06-05)
+✅ RESOLVED 2026-06-05 — `is_staff(uuid)` restricted via SQL Editor to
+  `EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role IN
+  ('admin','staff','finance','csr'))`. The any-row latent widening
+  vector is closed; any future role added to `user_roles` must be
+  explicitly added to that IN-list before it gains staff scope.
+
+  Original flag (kept for context): is_staff() was loose — returned true
+  for ANY user_roles row, not specific roles. Correct in practice (roles
+  in use: admin / staff / finance / csr) but every is_staff() RLS policy
+  would silently widen if a restricted/customer-facing role were ever
+  added to user_roles.

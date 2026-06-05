@@ -28,6 +28,70 @@
   Update both URLs together when groups rotate — there is no shared
   constant yet.
 
+### Cron auth migrated to Vault — daily-penalty-engine + daily-auto-forfeit (shipped 2026-06-05)
+
+  Both pg_cron jobs `daily-penalty-engine` and `daily-auto-forfeit`
+  migrated via SQL Editor from embedded anon-key Authorization
+  headers to Vault-backed service keys. Each job now reads the
+  service role key at fire time via
+  `(SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name
+  = 'email_queue_service_role_key')` and passes it as
+  `Authorization: Bearer <key>`.
+
+  Required because the underlying edge functions added
+  service-role-only gates in today's security pass — the previous
+  embedded anon key would now 401 at every cron tick. No code change
+  in either edge function; the new gate accepts the runtime
+  `SUPABASE_SERVICE_ROLE_KEY` and the Vault copy resolves to the
+  same value for pg_net's outbound POST.
+
+  Matches the established Vault-backed cron pattern used by
+  loyalty-sheet-reconcile, process-email-queue, and the rest of the
+  cron fleet — codified in CLAUDE.md (see "Any pg_cron job calling a
+  service-role-gated edge function").
+
+### Storage policies — payment-proofs uploads (shipped 2026-06-05)
+
+  Two INSERT policies applied on `storage.objects` via SQL Editor to
+  replace the dropped unrestricted anon-upload policy from
+  `2370082`:
+
+  - **"Token customers can upload payment proofs"** (role: `anon`).
+    Anon INSERT permitted on `bucket_id = 'payment-proofs'` ONLY when
+    the request carries `x-portal-token` AND that token has an
+    active, non-expired row in `customer_portal_tokens`. Three
+    frontend upload sites now send the header (see "Security
+    follow-through" block above for file list).
+  - **"Authenticated users can upload payment proofs"** (role:
+    `authenticated`). Authenticated INSERT permitted on
+    `bucket_id = 'payment-proofs'` bucket-wide. Covers Phase B
+    JWT-authenticated customers and any internal staff upload path.
+
+  Together these restore the upload path while preserving the
+  Bug-#-style 403 gate against unscoped anon writes that the
+  `2370082` security pass closed.
+
+### staff_notifications trigger inventory + helper hardening (shipped 2026-06-05)
+
+  Full DB trigger coverage now feeding `staff_notifications`:
+
+  - `payment_submissions`: created + reviewed events
+  - `layaway_accounts`: created
+  - `cash_orders`: created  *(cash orders are first-class accounts —
+    see CLAUDE.md "Account-scoped features … MUST cover BOTH")*
+  - `csr_notifications`: customer-notified events
+  - `extension_requests`: lifecycle (requested / granted)
+  - `penalty_waiver_requests`: lifecycle (requested / approved /
+    rejected)
+  - `loyalty_members`: enrolled + tier_changed
+
+  Helpers `staff_notify(...)` and `staff_display_name(uuid)` had
+  EXECUTE revoked from `PUBLIC`, `anon`, and `authenticated` via SQL
+  Editor — trigger-only access. Direct invocation from any
+  application code path now fails permission-checked at the boundary,
+  matching the principle that staff_notifications is a system-of-
+  record written exclusively by DB triggers.
+
 ### Payment method registry (shipped 2026-06-05)
 
   Canonical payment-method values + currency tagging in one place.

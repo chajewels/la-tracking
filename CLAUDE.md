@@ -734,6 +734,24 @@ When completing a partially_paid month:
     re-add a second cron pointing at /send-reminders — see
     EMAIL SENDING — LOVABLE WORKSPACE RATE LIMIT for why.
 
+  CRON AUTH RULE (added 2026-06-05):
+    Any pg_cron job calling a service-role-gated edge function MUST
+    use the Vault-backed service key — never an embedded key.
+    Pattern: the cron body resolves the key at fire time via
+      (SELECT decrypted_secret FROM vault.decrypted_secrets
+        WHERE name = 'email_queue_service_role_key')
+    and passes it as `Authorization: Bearer <key>` to pg_net's
+    outbound POST. Embedded keys (anon, dashboard-pasted service
+    role) drift out of sync with the runtime
+    `SUPABASE_SERVICE_ROLE_KEY` env value over time (Supabase's
+    `sb_secret_*` rollout, key rotations, security passes that
+    tighten gates) and silently 401 at every tick.
+    Canonical adopters: loyalty-sheet-reconcile, process-email-queue,
+    fc-alert-evaluation, daily-penalty-engine, daily-auto-forfeit.
+    When adding a new cron, copy the Vault pattern from one of
+    those; do not hand-edit the Authorization header to anything
+    else. See `docs/LOYALTY-OPERATIONS.md` for the full SQL snippet.
+
 ## DISPLAY RULES (permanent)
 
   ALL schedule display reads from schedule_with_actuals view
@@ -1101,6 +1119,26 @@ Trade Program lets fully-paid layaway customers exchange their item for a new pi
   - Detail badge: amber-styled Badge next to status pill in AccountDetail.tsx + CashOrderDetail.tsx
   - Finance > Overview: 3 KPI StatCards (Trade Accounts / Total Trade Value / Trade Share) between Cash Orders row and AgingBuckets
   - Finance > Overview: TradeProgramTrends dual-line Recharts chart below MonthlyAnalyticsChart
+
+## ACCOUNT-SCOPE COVERAGE — NON-NEGOTIABLE (added 2026-06-05)
+
+Account-scoped features, notifications, and audits MUST cover BOTH
+`layaway_accounts` AND `cash_orders` — cash orders are first-class
+accounts. This applies to:
+
+  - DB triggers that emit `staff_notifications` for "account
+    created" / similar lifecycle events
+  - Reporting RPCs, dashboard KPIs, and money roll-ups
+  - Test-account exclusion (numeric invoice_number regex)
+  - Audit panels, drift checks, and ad-hoc operator queries
+  - Frontend list/detail surfaces and search
+
+When adding a new account-scoped surface, the default question is
+"how does this behave for cash orders?" not "do cash orders apply?".
+Trade Program, staff_notifications triggers, and Finance Overview
+KPIs are the canonical examples — see TRADE PROGRAM section above
+(both tables carry `is_trade`) and the staff_notifications trigger
+inventory in docs/SYSTEM-STATUS.md (2026-06-05 entry).
 
 ## SIDEBAR ARCHITECTURE — NON-NEGOTIABLE (added 2026-05-31)
 
