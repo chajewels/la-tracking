@@ -156,6 +156,126 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ──────────────────────────────────────────────────────────────
+    // Loyalty self-healing checker. Replays award-loyalty-points for
+    // recent cash-order completions and recent confirmed-submission
+    // layaway accounts in the last 25h window. The award function's
+    // own guards (already_awarded / not_enrolled / below_minimum)
+    // make replay safe; recovered awards and hard failures surface
+    // as staff_notifications. ENTIRELY non-blocking — a loyalty
+    // problem must NEVER affect reconciliation or the completion
+    // stamp below.
+    // ──────────────────────────────────────────────────────────────
+    try {
+      const loyaltyWindowMs = 25 * 60 * 60 * 1000;
+      const loyaltyCutoff = new Date(Date.now() - loyaltyWindowMs).toISOString();
+      const lpUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`;
+      const lpHeaders = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+      };
+
+      type Candidate =
+        | { kind: "cash"; cash_order_id: string; customer_id: string | null; invoice_number: string | null }
+        | { kind: "layaway"; account_id: string };
+
+      const candidates: Candidate[] = [];
+
+      const { data: cashRows } = await supabase
+        .from("cash_orders")
+        .select("id, customer_id, invoice_number")
+        .gte("completed_at", loyaltyCutoff)
+        .limit(200);
+      for (const r of (cashRows ?? []) as any[]) {
+        candidates.push({
+          kind: "cash",
+          cash_order_id: r.id,
+          customer_id: r.customer_id ?? null,
+          invoice_number: r.invoice_number ?? null,
+        });
+      }
+
+      const { data: subRows } = await supabase
+        .from("payment_submissions")
+        .select("account_id")
+        .eq("status", "confirmed")
+        .not("account_id", "is", null)
+        .gte("updated_at", loyaltyCutoff)
+        .limit(200);
+      const seenAccounts = new Set<string>();
+      for (const r of (subRows ?? []) as any[]) {
+        const aid = r.account_id as string | null;
+        if (!aid || seenAccounts.has(aid)) continue;
+        seenAccounts.add(aid);
+        candidates.push({ kind: "layaway", account_id: aid });
+      }
+
+      let recoveredCount = 0;
+      let failedCount = 0;
+
+      for (const cand of candidates) {
+        let result: Record<string, unknown> | null = null;
+        try {
+          const body = cand.kind === "cash"
+            ? { cash_order_id: cand.cash_order_id, customer_id: cand.customer_id }
+            : { account_id: cand.account_id };
+          const res = await fetch(lpUrl, {
+            method: "POST",
+            headers: lpHeaders,
+            body: JSON.stringify(body),
+          });
+          const lpJson = await res.json().catch(() => null);
+          result = lpJson ?? { error: "no_response" };
+        } catch (lpErr) {
+          console.warn("[daily-reconciliation] award-loyalty-points call failed (non-blocking):", lpErr);
+          result = { error: String(lpErr) };
+        }
+
+        if (!result) continue;
+        const a: any = result;
+        const sourceIds = cand.kind === "cash"
+          ? { cash_order_id: cand.cash_order_id, customer_id: cand.customer_id, invoice_number: cand.invoice_number }
+          : { account_id: cand.account_id };
+
+        try {
+          if (a.awarded === true) {
+            recoveredCount++;
+            const invStr = cand.kind === "cash" ? (cand.invoice_number ?? "?") : "?";
+            await supabase.from("staff_notifications").insert({
+              type: "loyalty_award_missing",
+              title: "Loyalty award RECOVERED by daily checker",
+              body: `+${a.points_earned} pts awarded retroactively · Inv #${invStr}`,
+              customer_id: cand.kind === "cash" ? cand.customer_id : null,
+              invoice_number: cand.kind === "cash" ? cand.invoice_number : null,
+              account_id: cand.kind === "layaway" ? cand.account_id : null,
+              metadata: { ...result, ...sourceIds },
+            });
+          } else if (a.error) {
+            failedCount++;
+            const invStr = cand.kind === "cash" ? (cand.invoice_number ?? "?") : "?";
+            await supabase.from("staff_notifications").insert({
+              type: "loyalty_award_failed",
+              title: "Loyalty award FAILED in daily checker",
+              body: `${String(a.error)} · Inv #${invStr}`,
+              customer_id: cand.kind === "cash" ? cand.customer_id : null,
+              invoice_number: cand.kind === "cash" ? cand.invoice_number : null,
+              account_id: cand.kind === "layaway" ? cand.account_id : null,
+              metadata: { ...result, ...sourceIds },
+            });
+          }
+          // skipped (already_awarded / not_enrolled / below_minimum / etc.): silent
+        } catch (nErr) {
+          console.warn("[daily-reconciliation] staff_notifications insert failed (non-blocking):", nErr);
+        }
+      }
+
+      console.log(
+        `[daily-reconciliation] loyalty checker: candidates=${candidates.length} recovered=${recoveredCount} failed=${failedCount}`,
+      );
+    } catch (loyaltyBlockErr) {
+      console.warn("[daily-reconciliation] loyalty self-healing block failed (non-blocking):", loyaltyBlockErr);
+    }
+
     // Record completion timestamp
     await supabase.from("system_settings").upsert(
       { key: "last_daily_reconciliation", value: new Date().toISOString() },
