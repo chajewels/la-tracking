@@ -2098,22 +2098,36 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
         const monthSegment = installmentNumber ? `Month${installmentNumber}` : 'MonthX';
         const fileName = `${safeCustomer}_${safeInvoice}_${monthSegment}_${paymentDate}.${ext}`;
         const filePath = `${primaryAccountForName.id}/${fileName}`;
-        const uploadRes = await fetch(
-          `${SUPABASE_URL}/storage/v1/object/payment-proofs/${filePath}`,
-          {
-            method: 'POST',
-            headers: {
-              apikey: SUPABASE_KEY,
-              Authorization: `Bearer ${SUPABASE_KEY}`,
-              'Content-Type': proofFile.type,
-              ...(portalToken ? { 'x-portal-token': portalToken } : {}),
-            },
-            body: proofFile,
+        try {
+          const uploadRes = await fetch(
+            `${SUPABASE_URL}/storage/v1/object/payment-proofs/${filePath}`,
+            {
+              method: 'POST',
+              headers: {
+                apikey: SUPABASE_KEY,
+                Authorization: `Bearer ${SUPABASE_KEY}`,
+                'Content-Type': proofFile.type,
+                ...(portalToken ? { 'x-portal-token': portalToken } : {}),
+              },
+              body: proofFile,
+            }
+          );
+          if (!uploadRes.ok) {
+            setFormError('Proof upload failed — please try again.');
+            setSubmitting(false);
+            return;
           }
-        );
-        if (uploadRes.ok) {
           proofUrl = `${SUPABASE_URL}/storage/v1/object/public/payment-proofs/${filePath}`;
+        } catch {
+          setFormError('Proof upload failed — please try again.');
+          setSubmitting(false);
+          return;
         }
+      }
+      if (!proofUrl) {
+        setFormError('Proof upload failed — please try again.');
+        setSubmitting(false);
+        return;
       }
 
       // Build allocations for split
@@ -2620,21 +2634,30 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
         const ext = editProofFile.name.split('.').pop() || 'jpg';
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         const filePath = `${sub.account_id}/${timestamp}_${editProofFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')}.${ext}`;
-        const uploadRes = await fetch(
-          `${SUPABASE_URL}/storage/v1/object/payment-proofs/${filePath}`,
-          {
-            method: 'POST',
-            headers: {
-              apikey: SUPABASE_KEY,
-              Authorization: `Bearer ${SUPABASE_KEY}`,
-              'Content-Type': editProofFile.type,
-              ...(portalToken ? { 'x-portal-token': portalToken } : {}),
-            },
-            body: editProofFile,
+        try {
+          const uploadRes = await fetch(
+            `${SUPABASE_URL}/storage/v1/object/payment-proofs/${filePath}`,
+            {
+              method: 'POST',
+              headers: {
+                apikey: SUPABASE_KEY,
+                Authorization: `Bearer ${SUPABASE_KEY}`,
+                'Content-Type': editProofFile.type,
+                ...(portalToken ? { 'x-portal-token': portalToken } : {}),
+              },
+              body: editProofFile,
+            }
+          );
+          if (!uploadRes.ok) {
+            setEditError('Proof upload failed — please try again.');
+            setEditSubmitting(false);
+            return;
           }
-        );
-        if (uploadRes.ok) {
           proofUrl = `${SUPABASE_URL}/storage/v1/object/public/payment-proofs/${filePath}`;
+        } catch {
+          setEditError('Proof upload failed — please try again.');
+          setEditSubmitting(false);
+          return;
         }
       }
 

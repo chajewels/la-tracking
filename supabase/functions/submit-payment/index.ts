@@ -50,6 +50,15 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    // Proof of payment is REQUIRED for all customer-portal submissions.
+    // Staff record-payment uses its own insert-then-attach-proof flow and is
+    // unaffected. See CLAUDE.md PAYMENT SUBMISSION FLOW for the gate rule.
+    if (typeof proof_url !== "string" || proof_url.trim().length === 0) {
+      return new Response(JSON.stringify({ error: "Proof of payment is required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const isSplit = submission_type === 'split';
     const parsedAllocations: Allocation[] = isSplit ? (allocations || []) : [];

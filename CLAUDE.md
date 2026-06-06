@@ -1223,6 +1223,16 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
     - Does NOT create or modify payments, allocations, schedule, or
       cash_orders — only flips submission.status
 
+  PROOF REQUIRED — customer-portal submissions (added 2026-06-06):
+    Customer-portal submissions REQUIRE a non-empty proof_url —
+    enforced both in the portal UI (CustomerPortal.tsx main + edit
+    flows, CashPortalPaymentDialog.tsx) and server-side in
+    submit-payment + submit-cash-payment (400 "Proof of payment is
+    required" when proof_url is missing/empty/whitespace). The staff
+    record-payment edge function and its insert-then-attach-proof
+    flow are unchanged — staff continue to submit without proof and
+    upload afterward.
+
 ## LOYALTY AWARD SYSTEM (added 2026-04-27, updated 2026-05-16)
 
 ### Canonical award path (SOLE path — Layer-2 triggers removed 2026-05-16):

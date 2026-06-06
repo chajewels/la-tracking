@@ -115,6 +115,7 @@ export default function CashPortalPaymentDialog({
     !!paymentDate &&
     !dateIsFuture &&
     !!senderName.trim() &&
+    !!proofFile &&
     !proofTooLarge;
 
   const setPayFull = () => setAmountInput(String(Math.round(remaining * 100) / 100));
@@ -154,18 +155,25 @@ export default function CashPortalPaymentDialog({
 
   const handleSubmit = async () => {
     setFormError(null);
+    if (!proofFile) {
+      setFormError('Please attach your proof of payment (screenshot or receipt).');
+      return;
+    }
     if (!isFormValid) return;
     setSubmitting(true);
     try {
       let proofUrl: string | null = null;
-      if (proofFile) {
-        try {
-          proofUrl = await uploadProof();
-        } catch (err: unknown) {
-          setFormError(`Proof upload failed: ${(err as Error).message || 'unknown error'}`);
-          setSubmitting(false);
-          return;
-        }
+      try {
+        proofUrl = await uploadProof();
+      } catch (err: unknown) {
+        setFormError(`Proof upload failed: ${(err as Error).message || 'please try again'}`);
+        setSubmitting(false);
+        return;
+      }
+      if (!proofUrl) {
+        setFormError('Please attach your proof of payment (screenshot or receipt).');
+        setSubmitting(false);
+        return;
       }
 
       const body: Record<string, unknown> = {
