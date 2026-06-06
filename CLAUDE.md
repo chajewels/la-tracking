@@ -768,6 +768,29 @@ When completing a partially_paid month:
     `supabase/functions/_shared/jwt-claims.ts` (`parseJwtClaims`).
     Root-caused as Bug #168 (2026-06-06, commit `04a7f47`).
 
+    NEVER accept the anon key as an internal-bypass credential, and
+    NEVER allow a missing Authorization header to skip the gate
+    (added 2026-06-06 after Bug #170):
+      - `SUPABASE_ANON_KEY` is shipped in every browser bundle —
+        treating an `isInternalKey = (token === SUPABASE_ANON_KEY)`
+        match as authorization is equivalent to no auth at all. Any
+        caller can copy the anon key out of the public bundle and
+        mint the bypass header.
+      - An `if (authHeader) { …gate… }` wrapper is NOT a gate — a
+        request with no Authorization header skips the entire check
+        and reaches the handler. The Authorization header MUST be
+        mandatory; reject with 401 when missing or malformed before
+        any other work.
+      - For functions that mutate account/financial state via a user
+        action (System Health "fix" entry points, admin-only repair
+        RPCs, etc.), pair the JWT validation with a real role or
+        permission check (`hasPermission(user.id, '<permission_key>')`)
+        — `getUser()` succeeding only proves the caller has *some*
+        valid session, not the right to mutate. Reject with 403 on
+        permission failure.
+      Root-caused as Bug #170 (2026-06-06, commit `28bc07e`,
+      deployed 2026-06-06 09:15 UTC).
+
 ## DISPLAY RULES (permanent)
 
   ALL schedule display reads from schedule_with_actuals view

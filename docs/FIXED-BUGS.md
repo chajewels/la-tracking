@@ -2257,6 +2257,16 @@ Six cron-targeted functions (`send-reminders`, `penalty-engine`, `auto-forfeit-s
 - **Fix**: `CREATE OR REPLACE` of `approve_redemption_atomic` run directly in Supabase SQL Editor on 2026-06-06 with exactly two changed tokens — `v_currency` → `v_currency::account_currency` in each INSERT's VALUES list. No code or deploy involved; the RPC lives only in the DB.
 - **Verified**: `pg_get_functiondef` check confirmed `cast_count = 2`; subsequent live approve succeeded. This run was also the first successful staff-role approve through the `isInternal` server gate (a3d941b), confirming that change empirically.
 
+### Bug #170 — fix-account-status: anon-key bypass + no-header bypass (2026-06-06, commit `28bc07e` deployed same day, 2026-06-06 09:15 UTC)
+
+- **Symptom**: Security audit of edge-function auth gates surfaced two compounded bypass paths on `fix-account-status` — a System Health "fix" entry point that mutates `layaway_accounts.status`, `layaway_accounts.total_paid`, `layaway_accounts.remaining_balance`, `layaway_schedule.status`, `layaway_schedule.paid_amount`, `penalty_fees.penalty_amount`, and writes `audit_logs`. Anyone able to bypass the gate could silently rewrite balances and statuses on real customer accounts. Severity: Critical.
+- **Bypass 1 (no-header)**: The original auth block wrapped its entire check in `if (authHeader)`. A request with **no** `Authorization` header skipped the JWT validation entirely and reached the action dispatch — fix-status / recalculate / sync_schedule all writable by anyone who could reach the function URL.
+- **Bypass 2 (anon-key)**: Inside the gated branch, a fallback compared the Bearer token to `SUPABASE_ANON_KEY` and treated a match as `isInternalKey = true`, satisfying the authorization gate. The anon key is **publicly known** (shipped in every browser bundle) — anyone could mint the bypass header.
+- **Root cause**: Optional auth (`if (authHeader)`) instead of mandatory; a public key (anon) treated as an internal-bypass credential. Neither path checked any role or permission.
+- **Fix**: Auth block replaced with strict Bearer requirement (401 when missing/malformed), mandatory `supabase.auth.getUser(token)` validation, and a mandatory `hasPermission(user.id, "system_health")` role-permission check (403 on deny). `isInternalKey` removed entirely. `[functions.fix-account-status] verify_jwt = true` added to `supabase/config.toml` so the gateway validates the JWT signature before the handler executes. 2 files changed, 23 insertions, 11 deletions.
+- **Verified**: Strict-mode gates exercised via `curl` after deploy — request with no `Authorization` header returns 401; request with a public anon-key Bearer returns 401 (anon JWT lacks `system_health` permission and is no longer special-cased); request with an admin/finance user JWT bearing `system_health` returns 200. Deploy timestamp: 2026-06-06 09:15 UTC.
+- **Cross-reference**: Aligns with the **EDGE FUNCTION SERVICE-ROLE AUTH PATTERN** locked rule in CLAUDE.md (added 2026-06-06) and the broader Bug #168 hardening pass on cron-targeted functions.
+
 ### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
 
   Account schedule/allocation repairs. All four accounts pass

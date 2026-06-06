@@ -1,5 +1,41 @@
 ## SYSTEM STATUS (as of 2026-05-16)
 
+### Proof URL — Option A Phase 1 in-place (2026-06-06)
+
+  Frontend renderers (`PaymentProofs.tsx` view + download, `AccountDetail.tsx`
+  proof view handler) now mint short-lived signed URLs on demand via
+  `getProofSignedUrl()` instead of rendering the stored public URL. The
+  `payment-proofs` Storage bucket remains public so legacy stored URLs in
+  `payment_submissions.proof_url` continue to resolve — no migration required,
+  no break to existing rendered proofs. The signed-URL path is forward-compat
+  with Phase 2 (bucket flipped private, store object-path only, mint via gated
+  edge function). Phase 1 narrows the practical leak window: copying a rendered
+  URL out of the admin Submissions queue or customer-portal history now yields
+  a URL that expires, instead of an indefinite public link. See FIXED-BUGS Bug
+  #167 (commit `7ccf41e`) for the related stale-session signOut scope amendment
+  bundled in the same push.
+
+### Loyalty-sheet-reconcile gated + fix-account-status Critical CLOSED (2026-06-06)
+
+  Two unrelated edge-function security closures shipped this session:
+
+  - **`loyalty-sheet-reconcile`** — inbound JWT-claims gate added
+    (`parseJwtClaims(token)?.role === 'service_role'`) and
+    `[functions.loyalty-sheet-reconcile] verify_jwt = true` recorded in
+    `supabase/config.toml`. Now matches the locked **EDGE FUNCTION
+    SERVICE-ROLE AUTH PATTERN** rule (Bug #168 hardening pass). Commit
+    `7ccf41e`.
+  - **`fix-account-status`** — Critical-severity dual bypass closed
+    (no-header request + public anon-key bypass). Strict user-JWT +
+    `system_health` permission gate, `verify_jwt = true`. Commit
+    `28bc07e`, deployed 2026-06-06 09:15 UTC. See FIXED-BUGS Bug #170
+    for the full bypass anatomy and verification trace.
+
+  Both functions are now indistinguishable from the Vault-backed cron
+  pattern at the gateway layer (signature validation upstream, claims
+  check inside) — no manual env-equality, no public-key special-case
+  remains in the audited surface.
+
 ### Edge function auth gate pattern (2026-06-06)
 
   All cron-targeted functions now use JWT claims decode
