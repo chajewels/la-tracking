@@ -220,21 +220,31 @@ const submissionStatusConfig: Record<string, { label: string; color: string; ico
   needs_clarification: { label: 'Needs Clarification', color: 'bg-warning/10 text-warning border-warning/20', icon: <MessageSquare className="h-3 w-3" /> },
 };
 
-/** Render a proof-of-payment image directly from its public URL.
- *  Mirrors PaymentSubmissions.tsx ProofImage so the inline panel
- *  preview matches the shared review surface. */
+/** Render a proof-of-payment image via a short-lived signed URL.
+ *  The payment-proofs bucket is PRIVATE — mints a signed URL on demand. */
 function ProofImage({ url, className }: { url: string; className?: string }) {
   const [imgError, setImgError] = useState(false);
-  const src = /^https?:\/\//.test(url)
-    ? url.replace('/storage/v1/object/sign/payment-proofs/', '/storage/v1/object/public/payment-proofs/').split('?')[0]
-    : `${(import.meta as any).env?.VITE_SUPABASE_URL ?? ''}/storage/v1/object/public/payment-proofs/${url}`;
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    setImgError(false);
+    setSrc(null);
+    getProofSignedUrl(url).then((u) => {
+      if (!active) return;
+      if (u) setSrc(u);
+      else setImgError(true);
+    });
+    return () => { active = false; };
+  }, [url]);
   if (imgError) {
     return (
-      <a href={url} target="_blank" rel="noopener noreferrer"
-        className="inline-flex items-center gap-1.5 text-xs text-primary underline">
-        <ImageIcon className="h-3.5 w-3.5" /> View proof (open in new tab)
-      </a>
+      <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+        <ImageIcon className="h-3.5 w-3.5" /> Proof unavailable
+      </span>
     );
+  }
+  if (!src) {
+    return <span className="text-xs text-muted-foreground">Loading proof…</span>;
   }
   return (
     <img src={src} alt="Proof of payment" className={className}
