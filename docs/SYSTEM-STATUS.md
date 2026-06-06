@@ -1,5 +1,47 @@
 ## SYSTEM STATUS (as of 2026-05-16)
 
+### Staff bell — redemption lifecycle coverage (2026-06-06, commit `30081eb`, deployed 2026-06-06)
+
+  `process-loyalty-redemption` now emits `staff_notifications` at all
+  four redemption lifecycle points — `redemption_requested`,
+  `redemption_approved`, `redemption_cancelled`, `redemption_voided` —
+  non-blocking, each insert wrapped in its own try/catch with a
+  `[process-loyalty-redemption]` `console.warn` on failure. Both
+  layaway-linked and cash-order-linked redemptions are covered:
+  `account_id` carries the layaway link when present, `cash_order_id`
+  rides inside `metadata` per the existing "Cash order created"
+  convention (the `staff_notifications` table has no `cash_order_id`
+  column). `NotificationsPanel.tsx` + `StaffNotificationBell.tsx`
+  icon maps gained `Gift` / `Award` / `XCircle` / `Ban` cases for the
+  new types; the type-filter dropdown is dynamic and picks them up
+  automatically. Live emission of the four new types is pending the
+  first post-deploy redemption activity.
+
+### Payment-submission bell sender names — verified correct across all paths (2026-06-06)
+
+  After the Bug #171 fix + historical repair, every path that creates
+  a `payment_submissions` row now writes `sender_name` at insert time,
+  and the AFTER-INSERT trigger `notify_submission_created` snapshots
+  the correct sender into `staff_notifications.body`:
+
+  - **Staff/CSR — `record-payment`, `record-multi-payment`**: now set
+    `sender_name = user_metadata.full_name → email` at insert (commit
+    `2610741`, deployed 2026-06-06 09:17 UTC).
+  - **Portal — `submit-payment`, `submit-cash-payment`**: unchanged;
+    `submit-payment` has populated `sender_name` since `41fddad`
+    (2026-03-22); `submit-cash-payment` requires it as a NOT-NULL.
+  - **Defense layer — `notify_submission_created` trigger**: COALESCE
+    fallback now reads `customers.full_name` (via `NEW.customer_id`)
+    before defaulting to `'Unknown sender'`, hardening against any
+    future name-late insert path.
+  - **Historical repair**: 25 existing bell rows rebuilt from their
+    submissions' `sender_name`; 1 row with NULL `sender_name` rebuilt
+    from the customer's name. Verified 0 `'Unknown sender'` rows
+    remain.
+
+  See FIXED-BUGS Bug #171 for the full incident anatomy and the
+  three-layer fix.
+
 ### Proof URL — Option A Phase 1 in-place (2026-06-06)
 
   Frontend renderers (`PaymentProofs.tsx` view + download, `AccountDetail.tsx`

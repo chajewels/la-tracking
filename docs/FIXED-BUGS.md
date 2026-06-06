@@ -2267,6 +2267,16 @@ Six cron-targeted functions (`send-reminders`, `penalty-engine`, `auto-forfeit-s
 - **Verified**: Strict-mode gates exercised via `curl` after deploy — request with no `Authorization` header returns 401; request with a public anon-key Bearer returns 401 (anon JWT lacks `system_health` permission and is no longer special-cased); request with an admin/finance user JWT bearing `system_health` returns 200. Deploy timestamp: 2026-06-06 09:15 UTC.
 - **Cross-reference**: Aligns with the **EDGE FUNCTION SERVICE-ROLE AUTH PATTERN** locked rule in CLAUDE.md (added 2026-06-06) and the broader Bug #168 hardening pass on cron-targeted functions.
 
+### Bug #171 — Staff bell "Unknown sender" on staff/CSR-recorded payment submissions (fixed 2026-06-06)
+
+- **Symptom**: `staff_notifications` bell entries for payment submissions read "Unknown sender submitted ..." even though `payment_submissions.sender_name` was populated when inspected.
+- **Root cause**: `record-payment` and `record-multi-payment` created `payment_submissions` rows server-side **without** `sender_name`; the AFTER INSERT trigger `notify_submission_created` fired immediately and snapshotted NULL. The frontend (`RecordPaymentDialog` / `MultiInvoicePaymentDialog`) patched `sender_name` onto the row later alongside the proof upload — invisible to the already-written bell body. Portal paths (`submit-payment` / `submit-cash-payment`) were unaffected; `submit-cash-payment` requires `sender_name`, which is why cash submissions rendered correctly and created the misleading split in the data.
+- **Fix (three layers, all 2026-06-06)**:
+  1. Commit `2610741` — both edge functions now set `sender_name` at insert, derived as `user_metadata.full_name → email`, mirroring the existing `submitted_by_name` derivation. Deployed 2026-06-06 09:17 UTC.
+  2. `notify_submission_created` hardened via SQL Editor `CREATE OR REPLACE` — `COALESCE` now falls back to `customers.full_name` (via `NEW.customer_id`) before `'Unknown sender'`, protecting any current or future name-late insert path.
+  3. Historical repair via SQL Editor `UPDATE` — 25 bell rows rebuilt from their submissions' `sender_name` via `metadata->>'submission_id'` join, plus 1 row whose submission had NULL `sender_name` rebuilt with the customer's name (matching the new trigger fallback); verified 0 `'Unknown sender'` rows remain.
+- **Note**: `submit-payment` was redeployed 2026-06-06 09:16 UTC during diagnosis; it was not the cause (its insert has included `sender_name` since `41fddad`, 2026-03-22) — redeploy harmless, function current.
+
 ### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
 
   Account schedule/allocation repairs. All four accounts pass
