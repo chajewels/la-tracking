@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { parseJwtClaims } from "../_shared/jwt-claims.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,7 +47,7 @@ Deno.serve(async (req) => {
 
   // Service-role-only guard — cron-only endpoint.
   const authToken = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
-  if (authToken !== Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) {
+  if (parseJwtClaims(authToken)?.role !== "service_role") {
     return new Response(JSON.stringify({ error: "Forbidden" }), {
       status: 403,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

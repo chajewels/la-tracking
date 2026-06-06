@@ -2,6 +2,7 @@ import * as React from 'npm:react@18.3.1'
 import { renderAsync } from 'npm:@react-email/components@0.0.22'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { TEMPLATES } from '../_shared/transactional-email-templates/registry.ts'
+import { parseJwtClaims } from '../_shared/jwt-claims.ts'
 
 // Configuration baked in at scaffold time — do NOT change these manually.
 // To update, re-run the email domain setup flow.
@@ -54,7 +55,7 @@ Deno.serve(async (req) => {
   }
   {
     const serviceRoleKeyForAuth = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    if (authToken !== serviceRoleKeyForAuth) {
+    if (parseJwtClaims(authToken)?.role !== "service_role") {
       const supabaseUrlForAuth = Deno.env.get('SUPABASE_URL') ?? ''
       const authClient = createClient(supabaseUrlForAuth, serviceRoleKeyForAuth)
       const { data: userData, error: userErr } = await authClient.auth.getUser(authToken)

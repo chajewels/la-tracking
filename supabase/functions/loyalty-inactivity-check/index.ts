@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { parseJwtClaims } from "../_shared/jwt-claims.ts";
 import {
   createLoyaltyEmailGate,
   type LoyaltyEmailKey,
@@ -117,7 +118,7 @@ Deno.serve(async (req) => {
   // Service-role-only guard — cron-only endpoint, performs destructive
   // loyalty expiry / downgrade operations and triggers customer emails.
   const authToken = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
-  if (authToken !== Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) {
+  if (parseJwtClaims(authToken)?.role !== "service_role") {
     return new Response(JSON.stringify({ error: "Forbidden" }), {
       status: 403,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

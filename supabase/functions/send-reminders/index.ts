@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { parseJwtClaims } from "../_shared/jwt-claims.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -97,8 +98,11 @@ Deno.serve(async (req) => {
   }
 
   // Dual auth gate — mirrors system-health-v2 (commit 49681b4). Accept:
-  //   (a) Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY> — the cron
-  //       path (pg_cron jobid 1, Vault-backed). OR
+  //   (a) A service-role JWT — verified via gateway verify_jwt=true and
+  //       confirmed in-code via parseJwtClaims(token).role === "service_role".
+  //       Used by pg_cron jobid 1 (Vault-backed). Equality against the
+  //       env-injected SUPABASE_SERVICE_ROLE_KEY would fail because the
+  //       Vault-stored key is a different signed JWT with the same role. OR
   //   (b) A verified JWT whose user holds admin/staff/finance/csr in
   //       user_roles — the Monitoring.tsx invoke path (L162, L466).
   // Everything else is rejected with 401.
@@ -106,7 +110,7 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get("Authorization");
     const token = authHeader?.replace("Bearer ", "") ?? "";
     let authorized = false;
-    if (token && token === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) {
+    if (token && parseJwtClaims(token)?.role === "service_role") {
       authorized = true;
     } else if (authHeader?.startsWith("Bearer ")) {
       const supabaseAuth = createClient(
