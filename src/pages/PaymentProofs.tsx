@@ -13,6 +13,7 @@ import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { FileText, Search, Eye, Download } from 'lucide-react';
 import ProofsSearchBar from '@/components/search/ProofsSearchBar';
+import { getProofSignedUrl } from '@/lib/proof-url';
 
 const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedded?: boolean } = {}) {
   const { roles } = useAuth();
@@ -167,7 +168,7 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedd
                           <div className="inline-flex gap-1">
                             <button
                               type="button"
-                              onClick={() => window.open(sub.proof_url, '_blank', 'noopener,noreferrer')}
+                              onClick={() => getProofSignedUrl(sub.proof_url).then(url => { if (url) window.open(url, '_blank', 'noopener,noreferrer'); })}
                               className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-border text-muted-foreground hover:text-primary hover:border-primary/30">
                               <Eye className="h-3 w-3" /> View
                             </button>
@@ -175,7 +176,8 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedd
                               type="button"
                               onClick={async () => {
                                 try {
-                                  const res = await fetch(sub.proof_url);
+                                  const signedUrl = await getProofSignedUrl(sub.proof_url) || sub.proof_url;
+                                  const res = await fetch(signedUrl);
                                   if (!res.ok) throw new Error(`HTTP ${res.status}`);
                                   const blob = await res.blob();
                                   const blobUrl = URL.createObjectURL(blob);

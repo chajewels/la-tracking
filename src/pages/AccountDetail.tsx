@@ -41,6 +41,7 @@ import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getPHTToday } from '@/lib/date-utils';
 import { getPortalLinkForCustomer } from '@/lib/portal-link';
+import { getProofSignedUrl } from '@/lib/proof-url';
 import {
   isEffectivelyPaid, isPartiallyPaid, remainingDue, remainingPrincipalDue, computeRemainingBalance,
   getUnpaidScheduleItems, getActivePayments, accountProgress,
@@ -1881,7 +1882,7 @@ export default function AccountDetail() {
                             <div className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">
                               <button
                                 type="button"
-                                onClick={() => window.open(proof.url, '_blank', 'noopener,noreferrer')}
+                                onClick={() => getProofSignedUrl(proof.url).then(url => { if (url) window.open(url, '_blank', 'noopener,noreferrer'); })}
                                 className="text-primary hover:underline">
                                 📎 View Proof
                               </button>

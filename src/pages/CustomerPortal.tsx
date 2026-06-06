@@ -451,7 +451,7 @@ export default function CustomerPortal() {
         // back to token auth — the explicit link wins. The useEffect on
         // [token, authMode, accessToken, bootstrapping] refetches in token mode.
         if (authMode === 'session' && token) {
-          supabase.auth.signOut().catch(() => {});
+          supabase.auth.signOut({ scope: 'local' }).catch(() => {});
           setAccessToken(null);
           setAuthMode('token');
           return;
