@@ -1604,9 +1604,9 @@ backup that nothing reconciled.
 
 2026-06-06: `fill-payment-tracking` now also generates the monthly
 tax-declaration file (`申告用フォーマット_MM Month YYYY`) into the
-Tax Account Drive folder from the same source upload — Overseas /
-Japan tabs, columns B/D/E only (Deposit date, Customer, Sum of
-Total), non-blocking relative to the tracking output.
+Tax Account Drive folder from the same source upload — Overseas
+tab columns B/D/E, Japan tab columns B/D/G (Deposit date /
+Customer / Amount), non-blocking relative to the tracking output.
 
 ## SERVICES RULE (added 2026-04-12)
 

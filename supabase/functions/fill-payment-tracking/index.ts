@@ -474,12 +474,13 @@ Deno.serve(async (req) => {
           }
         }
 
+        const amountCol = title.startsWith("JAPAN") ? "G" : "E";
         for (let i = 0; i < records.length; i++) {
           const row = dataStart0 + i + 1; // 1-indexed for A1 notation
           const rec = records[i];
           taxValueData.push({ range: `${title}!B${row}`, values: [[rec.deposit_date]] });
           taxValueData.push({ range: `${title}!D${row}`, values: [[rec.customer]] });
-          taxValueData.push({ range: `${title}!E${row}`, values: [[rec.amount]] });
+          taxValueData.push({ range: `${title}!${amountCol}${row}`, values: [[rec.amount]] });
         }
       }
 
