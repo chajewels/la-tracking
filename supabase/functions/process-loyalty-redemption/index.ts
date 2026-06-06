@@ -1302,6 +1302,23 @@ Deno.serve(async (req) => {
         );
       }
 
+      // Non-blocking account_notes trail. Only writes when the redemption
+      // is linked to a layaway account or cash order. A failure here must
+      // NEVER fail or roll back the void.
+      if (redemption.account_id || redemption.cash_order_id) {
+        try {
+          await supabase.from("account_notes").insert({
+            account_id: redemption.account_id ?? null,
+            cash_order_id: redemption.cash_order_id ?? null,
+            note_text: `Loyalty: redemption voided — ${redemption.points_redeemed} pts refunded (${redemption.redemption_type})`,
+            created_by_user_id: user.id,
+            created_by_name: "System (Loyalty)",
+          });
+        } catch (noteErr) {
+          console.warn("[process-loyalty-redemption] void account note failed (non-blocking):", noteErr);
+        }
+      }
+
       return json({
         voided: true,
         redemption_id: redemption.id,

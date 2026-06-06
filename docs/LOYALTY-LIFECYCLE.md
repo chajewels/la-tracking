@@ -157,3 +157,47 @@ movement only — point lots are not affected by these rules.
      default for Glimmer (no requalify target by design) and for any
      legacy member whose downgrade predates the baseline column.
 
+### Loyalty trail in account notes (added 2026-06-06)
+
+Every linked loyalty event now writes an `account_notes` row so the
+trail is visible inside `AccountDetail` (layaway) and
+`CashOrderDetail` (cash order) alongside the existing payment +
+schedule history. Three writers, one convention:
+
+  1. **Award** — `supabase/functions/award-loyalty-points/index.ts`
+     writes the note immediately before the final `awarded: true`
+     return, after the member update has fully succeeded. Body
+     format: `Loyalty: +{points} pts awarded{ (+{bonus} bonus)?} —
+     balance {newRemaining}{ — tier upgraded {old} → {new}?}`.
+  2. **Approve** — written **inside** the
+     `approve_redemption_atomic(uuid, uuid, text)` RPC (SQL Editor;
+     no edge-side copy). Body format:
+     `Loyalty: redemption approved — {points} pts redeemed
+     ({redemption_type})`. Runs in the same transaction as the
+     debit, so the note is either fully present or fully absent
+     along with the approve writes — never half-committed.
+  3. **Void** — `supabase/functions/process-loyalty-redemption/
+     index.ts` void handler writes the note after all void writes
+     have succeeded and immediately before the success response.
+     Body format: `Loyalty: redemption voided — {points} pts
+     refunded ({redemption_type})`.
+
+Conventions for all three writers:
+
+  - `created_by_name` is set to `"System (Loyalty)"`. Award uses
+    `created_by_user_id: null` (system-driven); approve and void
+    use the acting user id, since the RPC and the void handler are
+    invoked by an admin/finance reviewer.
+  - The insert is skipped entirely when neither `account_id` nor
+    `cash_order_id` is present (rare in practice but guards against
+    stand-alone loyalty events that have no linked order).
+  - Award and void wrap the insert in a non-blocking try/catch that
+    logs `console.warn` on failure — a note-insert error must NEVER
+    fail or roll back the underlying loyalty operation. Approve's
+    note lives inside the same RPC transaction, so a note failure
+    raises and rolls back the whole approve (acceptable because the
+    RPC already provides full atomic rollback semantics — see Bug
+    #164 in docs/FIXED-BUGS.md).
+  - Sheet sync, lot writes, transaction-row inserts, and member /
+    redemption / payment updates are untouched.
+

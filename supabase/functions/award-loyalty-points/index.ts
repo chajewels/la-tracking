@@ -845,6 +845,26 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Non-blocking account_notes trail. Only writes when the award is
+    // linked to a layaway account or cash order. A failure here must
+    // NEVER affect the award result. created_by_user_id is null because
+    // awards are system-driven; the displayed actor is "System (Loyalty)".
+    if (account_id || cash_order_id) {
+      try {
+        await supabase.from("account_notes").insert({
+          account_id: account_id ?? null,
+          cash_order_id: cash_order_id ?? null,
+          note_text:
+            `Loyalty: +${points} pts awarded${bonusTxPoints ? ` (+${bonusTxPoints} bonus)` : ""} — balance ${newRemaining}` +
+            (tierUpgraded ? ` — tier upgraded ${oldTierName} → ${newTierName}` : ""),
+          created_by_user_id: null,
+          created_by_name: "System (Loyalty)",
+        });
+      } catch (noteErr) {
+        console.warn("[award-loyalty-points] award account note failed (non-blocking):", noteErr);
+      }
+    }
+
     // 16. Return
     return json({
       awarded: true,

@@ -110,9 +110,20 @@
   The send call passes notes in templateData; gated on redemptionType in
   loyalty-redeem.tsx. Requires send-transactional-email redeploy on template
 
-### LOYALTY ACCOUNT NOTES TRAIL (OPEN — added 2026-06-04)
-  Persistent loyalty trail in account_notes — log point awards AND all
-  redemptions (services and others) per account. Scoped separately; not started.
+### LOYALTY ACCOUNT NOTES TRAIL (added 2026-06-04)
+✅ RESOLVED 2026-06-06 — three writers now emit account_notes rows
+  for every linked loyalty event: awards (award-loyalty-points),
+  redemption approvals (inside approve_redemption_atomic RPC),
+  redemption voids (process-loyalty-redemption void path). All three
+  set created_by_name = 'System (Loyalty)', skip when neither
+  account_id nor cash_order_id is present, and are wrapped in
+  non-blocking try/catch so a note-insert failure never affects the
+  underlying loyalty operation. See docs/LOYALTY-LIFECYCLE.md
+  "Loyalty trail in account notes (added 2026-06-06)".
+
+  Original flag (kept for context): Persistent loyalty trail in
+  account_notes — log point awards AND all redemptions (services
+  and others) per account. Scoped separately; not started.
 
 ### IS_STAFF() ROLE-SCOPE TIGHTENING (added 2026-06-05)
 ✅ RESOLVED 2026-06-05 — `is_staff(uuid)` restricted via SQL Editor to
