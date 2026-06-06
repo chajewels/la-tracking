@@ -11,6 +11,10 @@ import {
   UserPlus,
   Mail,
   ShieldAlert,
+  Gift,
+  Award,
+  XCircle,
+  Ban,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -52,6 +56,14 @@ function iconForType(type: string) {
     case 'waiver_approved':
     case 'waiver_rejected':
       return <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />;
+    case 'redemption_requested':
+      return <Gift className="h-3.5 w-3.5 text-primary" />;
+    case 'redemption_approved':
+      return <Award className="h-3.5 w-3.5 text-primary" />;
+    case 'redemption_cancelled':
+      return <XCircle className="h-3.5 w-3.5 text-muted-foreground" />;
+    case 'redemption_voided':
+      return <Ban className="h-3.5 w-3.5 text-destructive" />;
     default:
       return <CheckCircle className="h-3.5 w-3.5 text-muted-foreground" />;
   }

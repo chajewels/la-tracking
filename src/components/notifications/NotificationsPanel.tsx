@@ -13,6 +13,10 @@ import {
   ShieldAlert,
   CircleDot,
   Loader2,
+  Gift,
+  Award,
+  XCircle,
+  Ban,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -64,6 +68,14 @@ function iconForType(type: string) {
     case 'waiver_approved':
     case 'waiver_rejected':
       return <AlertTriangle className="h-4 w-4 text-amber-400" />;
+    case 'redemption_requested':
+      return <Gift className="h-4 w-4 text-primary" />;
+    case 'redemption_approved':
+      return <Award className="h-4 w-4 text-primary" />;
+    case 'redemption_cancelled':
+      return <XCircle className="h-4 w-4 text-muted-foreground" />;
+    case 'redemption_voided':
+      return <Ban className="h-4 w-4 text-destructive" />;
     default:
       return <CheckCircle className="h-4 w-4 text-muted-foreground" />;
   }

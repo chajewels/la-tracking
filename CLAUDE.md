@@ -1348,6 +1348,13 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
      void) keep the higher trust requirement because they affect
      accounts post-debit.
 
+  8. 2026-06-06: Staff bell (staff_notifications) now covers the full
+     redemption lifecycle — redemption_requested / redemption_approved /
+     redemption_cancelled / redemption_voided — emitted non-blocking from
+     process-loyalty-redemption, covering both layaway-linked and
+     cash-order-linked redemptions (cash_order_id in metadata, account_id
+     NULL, per existing convention).
+
 ## LOYALTY INACTIVITY — last_purchase_at SOURCE OF TRUTH (added 2026-05-20)
 
   - `loyalty_members.last_purchase_at` = order_date of the member's

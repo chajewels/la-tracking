@@ -390,6 +390,36 @@ Deno.serve(async (req) => {
         return json({ error: "Failed to create redemption" }, 500);
       }
 
+      // Staff bell — non-blocking. Mirrors review-payment-submission's
+      // staff_notifications pattern. account_id is the layaway link (NULL
+      // for cash-order-linked or points-only); cash_order_id rides in
+      // metadata per the existing "Cash order created" convention.
+      try {
+        const { data: requestCust } = await supabase
+          .from("customers")
+          .select("full_name")
+          .eq("id", member.customer_id)
+          .maybeSingle();
+        const requestName = requestCust?.full_name || "Customer";
+        const invSuffix = insertInvoice ? ` · Inv #${insertInvoice}` : "";
+        await supabase.from("staff_notifications").insert({
+          type: "redemption_requested",
+          title: "Redemption requested",
+          body: `${requestName} requested ${pts} pts (${redemption_type})${invSuffix}`,
+          account_id: account_id ?? null,
+          customer_id: member.customer_id,
+          invoice_number: insertInvoice,
+          metadata: {
+            redemption_id: redemption.id,
+            points_redeemed: pts,
+            redemption_type,
+            ...(cash_order_id ? { cash_order_id } : {}),
+          },
+        });
+      } catch (nErr) {
+        console.warn("[process-loyalty-redemption] staff_notifications insert (create) failed (non-blocking):", nErr);
+      }
+
       return json({
         created: true,
         redemption_id: redemption.id,
@@ -458,13 +488,18 @@ Deno.serve(async (req) => {
       //   { transaction_id, payment_id, new_remaining_points, tier_name,
       //     account_status, payment_amount, currency }
 
+      // Hoisted customer fetch — used by the email/sheet-sync side-effects
+      // block AND the staff_notifications insert below. Single lookup
+      // instead of duplicating.
+      const { data: approveCustomer } = await supabase
+        .from("customers")
+        .select("id, customer_code, full_name, email")
+        .eq("id", member.customer_id)
+        .maybeSingle();
+
       // Email + sheet sync — fire-and-forget
       try {
-        const { data: customer } = await supabase
-          .from("customers")
-          .select("id, customer_code, full_name, email")
-          .eq("id", member.customer_id)
-          .single();
+        const customer = approveCustomer;
         const recipientEmail = customer?.email;
         const customerName = customer?.full_name || "Valued Customer";
 
@@ -541,6 +576,28 @@ Deno.serve(async (req) => {
         console.warn("[process-loyalty-redemption] side-effects block failed:", sideErr);
       }
 
+      // Staff bell — non-blocking. Reuses hoisted approveCustomer.
+      try {
+        const approvedName = approveCustomer?.full_name || "Customer";
+        const invSuffixApp = redemption.invoice_number ? ` · Inv #${redemption.invoice_number}` : "";
+        await supabase.from("staff_notifications").insert({
+          type: "redemption_approved",
+          title: "Redemption approved",
+          body: `${Number(redemption.points_redeemed)} pts (${redemption.redemption_type}) for ${approvedName} — approved by ${user.email ?? "Admin"}${invSuffixApp}`,
+          account_id: redemption.account_id ?? null,
+          customer_id: member.customer_id,
+          invoice_number: redemption.invoice_number,
+          metadata: {
+            redemption_id: redemption.id,
+            points_redeemed: Number(redemption.points_redeemed),
+            redemption_type: redemption.redemption_type,
+            ...(redemption.cash_order_id ? { cash_order_id: redemption.cash_order_id } : {}),
+          },
+        });
+      } catch (nErr) {
+        console.warn("[process-loyalty-redemption] staff_notifications insert (approve) failed (non-blocking):", nErr);
+      }
+
       // Phase 4.2 — in-portal notification (fire-and-forget, never throws).
       // Sent on the normal approval path. The stock-race-loss path above
       // also emits before its 409 return because points were already
@@ -585,7 +642,7 @@ Deno.serve(async (req) => {
 
       const { data: redemption } = await supabase
         .from("loyalty_redemptions")
-        .select("id, status, member_id, reward_id, redemption_type, points_redeemed")
+        .select("id, status, member_id, reward_id, redemption_type, points_redeemed, account_id, cash_order_id, invoice_number")
         .eq("id", redemption_id)
         .maybeSingle();
       if (!redemption) return json({ error: "Redemption not found" }, 404);
@@ -623,6 +680,41 @@ Deno.serve(async (req) => {
           cancelled_at: cancelledAt,
         },
       });
+
+      // Staff bell — non-blocking. Look up customer_id via the member.
+      try {
+        const { data: cancelMember } = await supabase
+          .from("loyalty_members")
+          .select("customer_id")
+          .eq("id", redemption.member_id)
+          .maybeSingle();
+        const cancelCustomerId = cancelMember?.customer_id ?? null;
+        let cancelName = "Customer";
+        if (cancelCustomerId) {
+          const { data: cust } = await supabase
+            .from("customers")
+            .select("full_name")
+            .eq("id", cancelCustomerId)
+            .maybeSingle();
+          cancelName = cust?.full_name || "Customer";
+        }
+        await supabase.from("staff_notifications").insert({
+          type: "redemption_cancelled",
+          title: "Redemption cancelled",
+          body: `${Number(redemption.points_redeemed)} pts (${redemption.redemption_type}) for ${cancelName} — cancelled by ${user.email ?? "Admin"}: ${cancellation_reason}`,
+          account_id: redemption.account_id ?? null,
+          customer_id: cancelCustomerId,
+          invoice_number: redemption.invoice_number ?? null,
+          metadata: {
+            redemption_id,
+            points_redeemed: Number(redemption.points_redeemed),
+            redemption_type: redemption.redemption_type,
+            ...(redemption.cash_order_id ? { cash_order_id: redemption.cash_order_id } : {}),
+          },
+        });
+      } catch (nErr) {
+        console.warn("[process-loyalty-redemption] staff_notifications insert (cancel) failed (non-blocking):", nErr);
+      }
 
       // Phase 4.2 — in-portal notification with the admin reason.
       const cancelledRewardName = await resolveRewardName(supabase, redemption);
@@ -1189,6 +1281,34 @@ Deno.serve(async (req) => {
           stock_re_incremented: stockReIncremented,
         },
       });
+
+      // Staff bell — non-blocking. Customer lookup mirrors the email
+      // side-effects block below; isolated try/catch so a notification
+      // failure can never affect the void response.
+      try {
+        const { data: voidCust } = await supabase
+          .from("customers")
+          .select("full_name")
+          .eq("id", member.customer_id)
+          .maybeSingle();
+        const voidName = voidCust?.full_name || "Customer";
+        await supabase.from("staff_notifications").insert({
+          type: "redemption_voided",
+          title: "Redemption voided",
+          body: `${pointsToRefund} pts (${redemption.redemption_type}) for ${voidName} — voided by ${user.email ?? "Admin"}: ${trimmedReason}`,
+          account_id: redemption.account_id ?? null,
+          customer_id: member.customer_id,
+          invoice_number: redemption.invoice_number ?? null,
+          metadata: {
+            redemption_id: redemption.id,
+            points_redeemed: pointsToRefund,
+            redemption_type: redemption.redemption_type,
+            ...(redemption.cash_order_id ? { cash_order_id: redemption.cash_order_id } : {}),
+          },
+        });
+      } catch (nErr) {
+        console.warn("[process-loyalty-redemption] staff_notifications insert (void) failed (non-blocking):", nErr);
+      }
 
       // Step 8: Email — fire-and-forget transactional email parallel
       // to the approve branch. Never throws; failures are logged.
