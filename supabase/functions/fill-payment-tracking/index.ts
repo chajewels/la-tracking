@@ -8,6 +8,8 @@ const corsHeaders = {
 
 const TRACKER_ROOT_FOLDER_ID = "18ShmrYP90ywvB9WUgXVio1sEXxhjsmZX"; // "SALES_Payment List"
 const TEMPLATE_ID = "1Ah5ScUN7tI06JT7qpTeuc6Xi1SoGEXGlzq7nqcAfheA"; // 11-month master template
+const TAX_TEMPLATE_ID = "1B9QCouhWnha0Ogh163Zbt5ueFuV9AUx9"; // 申告用フォーマット master (xlsx)
+const TAX_ROOT_FOLDER_ID = "1SiJu1Hv9t7VCXyEnvJlTK2O2JXIGzZ-B"; // "Tax Account"
 
 const MONTH_NAMES = [
   "01. January", "02. February", "03. March", "04. April",
@@ -334,9 +336,179 @@ Deno.serve(async (req) => {
     const patchRes = await fetch(`https://www.googleapis.com/drive/v3/files/${outId}?addParents=${monthId}${removeParents}&fields=id`, { method: "PATCH", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ name: monthName }) });
     if (!patchRes.ok) throw new Error(`Drive move failed (${patchRes.status}): ${await patchRes.text()}`);
 
+    // 9. Tax declaration output — non-blocking. Re-reads tempSrcId (still
+    // present; cleanup runs after this block). Failure here must NEVER
+    // affect the tracking response.
+    let tax_file_url: string | null = null;
+    let tax_error: string | null = null;
+    try {
+      const TAX_DATE_RE = /^\d{1,2}\/\d{1,2}\/\d{4}$/;
+      const INVOICE_RE = /^\d{4,6}$/;
+      type TaxRecord = { deposit_date: string; customer: string; amount: string | number };
+      const taxRecordsByTab: Record<string, TaxRecord[]> = { Overseas: [], Japan: [] };
+
+      for (const tab of TABS) {
+        const rows = await readTab(token, tempSrcId, tab);
+
+        // Header row = row whose first populated cell is "Customer".
+        let hdrIdx = -1;
+        for (let i = 0; i < rows.length; i++) {
+          const r = rows[i] ?? [];
+          let firstIdx = -1;
+          for (let c = 0; c < r.length; c++) {
+            if (String(r[c] ?? "").trim() !== "") { firstIdx = c; break; }
+          }
+          if (firstIdx >= 0 && String(r[firstIdx] ?? "").trim() === "Customer") {
+            hdrIdx = i; break;
+          }
+        }
+        if (hdrIdx < 0) continue;
+
+        // "Sum of Total" column index in the header (NOT "Sum of Amt Paid Posted").
+        const headerRow = rows[hdrIdx] ?? [];
+        let sumTotalCol = -1;
+        for (let c = 0; c < headerRow.length; c++) {
+          if (String(headerRow[c] ?? "").trim() === "Sum of Total") { sumTotalCol = c; break; }
+        }
+
+        let currentDate = "";
+        let currentCustomer = "";
+        for (let i = hdrIdx + 1; i < rows.length; i++) {
+          // Customer column is column B (index 1), matching the existing roster build above.
+          const cell = String(rows[i]?.[1] ?? "").trim();
+          if (cell === "") continue;
+          if (TAX_DATE_RE.test(cell)) {
+            currentDate = cell; // verbatim — do not reformat
+          } else if (INVOICE_RE.test(cell)) {
+            const amtCell = sumTotalCol >= 0 ? rows[i]?.[sumTotalCol] : rows[i]?.[2];
+            const amtStr = String(amtCell ?? "").trim();
+            if (amtStr === "") continue;
+            taxRecordsByTab[tab].push({
+              deposit_date: currentDate,
+              customer: currentCustomer,
+              amount: amtCell as string | number,
+            });
+          } else {
+            currentCustomer = cell;
+          }
+        }
+      }
+
+      // Output file naming: 申告用フォーマット_MM MonthName YYYY (no period after MM)
+      const MM = String(cohortMonth).padStart(2, "0");
+      const monthNameOnly = (MONTH_NAMES[cohortMonth - 1] ?? "").split(". ")[1] ?? "";
+      const taxFileName = `申告用フォーマット_${MM} ${monthNameOnly} ${cohortYear}`;
+
+      // Convert-copy template -> native Sheet inside Tax Account folder
+      const taxCopyRes = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${TAX_TEMPLATE_ID}/copy?fields=id`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: taxFileName,
+            mimeType: "application/vnd.google-apps.spreadsheet",
+            parents: [TAX_ROOT_FOLDER_ID],
+          }),
+        },
+      );
+      if (!taxCopyRes.ok) throw new Error(`tax template copy failed (${taxCopyRes.status}): ${await taxCopyRes.text()}`);
+      const taxOutId = (await taxCopyRes.json()).id as string;
+
+      // Tab metadata for the new tax file
+      const taxMetaRes = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${taxOutId}?fields=sheets.properties(sheetId,title)`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!taxMetaRes.ok) throw new Error(`tax output meta failed (${taxMetaRes.status}): ${await taxMetaRes.text()}`);
+      const taxSheets: Array<{ properties: { sheetId: number; title: string } }> = (await taxMetaRes.json()).sheets ?? [];
+
+      const taxStructReqs: Array<Record<string, unknown>> = [];
+      const taxValueData: Array<{ range: string; values: (string | number)[][] }> = [];
+
+      for (const sheetMeta of taxSheets) {
+        const title = sheetMeta.properties.title;
+        let records: TaxRecord[] | null = null;
+        if (title.startsWith("OVERSEAS")) records = taxRecordsByTab.Overseas;
+        else if (title.startsWith("JAPAN")) records = taxRecordsByTab.Japan;
+        if (!records || records.length === 0) continue;
+
+        const taxTabRows = await readTab(token, taxOutId, title);
+        // "Deposit date" header row — scan all columns in case template moves it.
+        let depHdrIdx = -1;
+        for (let i = 0; i < taxTabRows.length; i++) {
+          const r = taxTabRows[i] ?? [];
+          for (let c = 0; c < r.length; c++) {
+            if (String(r[c] ?? "").trim() === "Deposit date") { depHdrIdx = i; break; }
+          }
+          if (depHdrIdx >= 0) break;
+        }
+        if (depHdrIdx < 0) continue;
+
+        // "Total" row — first row at/below header where any cell trims to "Total" (case-insensitive).
+        let totalRowIdx = -1;
+        for (let i = depHdrIdx + 1; i < taxTabRows.length; i++) {
+          const r = taxTabRows[i] ?? [];
+          for (let c = 0; c < r.length; c++) {
+            if (String(r[c] ?? "").trim().toLowerCase() === "total") { totalRowIdx = i; break; }
+          }
+          if (totalRowIdx >= 0) break;
+        }
+
+        const dataStart0 = depHdrIdx + 1;
+        if (totalRowIdx >= 0) {
+          const capacity = totalRowIdx - dataStart0;
+          const insertCount = Math.max(0, records.length - capacity);
+          if (insertCount > 0) {
+            taxStructReqs.push({
+              insertDimension: {
+                range: {
+                  sheetId: sheetMeta.properties.sheetId,
+                  dimension: "ROWS",
+                  startIndex: totalRowIdx,
+                  endIndex: totalRowIdx + insertCount,
+                },
+                inheritFromBefore: true,
+              },
+            });
+          }
+        }
+
+        for (let i = 0; i < records.length; i++) {
+          const row = dataStart0 + i + 1; // 1-indexed for A1 notation
+          const rec = records[i];
+          taxValueData.push({ range: `${title}!B${row}`, values: [[rec.deposit_date]] });
+          taxValueData.push({ range: `${title}!D${row}`, values: [[rec.customer]] });
+          taxValueData.push({ range: `${title}!E${row}`, values: [[rec.amount]] });
+        }
+      }
+
+      if (taxStructReqs.length > 0) {
+        const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${taxOutId}:batchUpdate`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ requests: taxStructReqs }),
+        });
+        if (!r.ok) throw new Error(`tax structural batchUpdate failed (${r.status}): ${await r.text()}`);
+      }
+      if (taxValueData.length > 0) {
+        const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${taxOutId}/values:batchUpdate`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ valueInputOption: "USER_ENTERED", data: taxValueData }),
+        });
+        if (!r.ok) throw new Error(`tax values batchUpdate failed (${r.status}): ${await r.text()}`);
+      }
+
+      tax_file_url = `https://docs.google.com/spreadsheets/d/${taxOutId}`;
+    } catch (taxErr) {
+      console.error("[fill-payment-tracking][tax] error:", taxErr);
+      tax_error = (taxErr as Error).message || String(taxErr);
+    }
+
     await deleteFile(token, tempSrcId);
 
-    return new Response(JSON.stringify({ ok: true, invoices: invoices.length, cells: rawData.length + ueData.length, flagged, sheetId: outId, movedTo: monthId }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ ok: true, invoices: invoices.length, cells: rawData.length + ueData.length, flagged, sheetId: outId, movedTo: monthId, tax_file_url, tax_error }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err) {
     if (token && tempSrcId) await deleteFile(token, tempSrcId);
     console.error("[fill-payment-tracking] error:", err);

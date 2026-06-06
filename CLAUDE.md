@@ -1600,6 +1600,14 @@ backup that nothing reconciled.
 - Incident context: see `docs/FIXED-BUGS.md` Bug #163 entry, including
   the architecture rationale in the Resolution & catch-up notes
 
+## FILL-PAYMENT-TRACKING DUAL OUTPUT (added 2026-06-06)
+
+2026-06-06: `fill-payment-tracking` now also generates the monthly
+tax-declaration file (`申告用フォーマット_MM Month YYYY`) into the
+Tax Account Drive folder from the same source upload — Overseas /
+Japan tabs, columns B/D/E only (Deposit date, Customer, Sum of
+Total), non-blocking relative to the tracking output.
+
 ## SERVICES RULE (added 2026-04-12)
 
   account_services are included in total_amount at the time of service creation.
