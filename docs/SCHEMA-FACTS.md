@@ -191,3 +191,11 @@
   (2026-06-05 evening, SQL Editor)" for the canonical 17/16 split
   and the lockdown rationale.
 
+### extension_requests columns (added 2026-06-06)
+
+  extension_requests: no `created_at` column — recency column is
+  `requested_at` (timestamp with time zone, default `now()`). Also
+  has `portal_token` text column (populated in token-mode portal
+  submissions). Account link is `account_id` (uuid), NOT
+  `invoice_number`.
+

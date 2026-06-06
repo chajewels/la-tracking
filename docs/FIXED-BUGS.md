@@ -2238,6 +2238,18 @@ longer a parked item — it's been structurally routed around.
 
 **Process note**: The OPEN-BUGS / SYSTEM-STATUS regression-watch pattern recorded for `2370082` and Batch 4 needs to extend to RLS policy enumeration — not just storage and grants. A simple SQL snapshot of `pg_policies` before and after each security pass would have caught all three instances at the migration boundary. Locked in as a Process Improvement #5 candidate in the Bug #163 architectural follow-up, but the larger lesson is: any DROP POLICY statement in a security pass must be paired with explicit documentation of what replaces it.
 
+### Bug #166 — Fix-all incident bucket flip (2026-06-06, commit `9b5c44b`)
+
+Lovable "Try to fix all" flipped the `payment-proofs` bucket to private (no migration file produced) and redeployed `send-transactional-email` with an anon-key auth gate. Bucket reverted immediately via one SQL `UPDATE … SET public = true`. What was kept from the fix-all sweep: `proof-url.ts` (Phase 1 util, Option A material), two converted viewers (`CashOrderDetail`, `PaymentSubmissions`), and the `send-transactional-email` gate — the gate design was correct; the Bearer identity check was the defect, fixed in **Bug #168**. Auto-deploy remains off permanently. "Try to fix all" banned.
+
+### Bug #167 — Portal stale-session mislabeled as Invalid Portal Link (2026-06-06, commit `694d43f`)
+
+When a session-auth customer's refresh token is rotated on another device, the stored local session passes `getSession()` but the Bearer JWT is rejected server-side. The `fetchPortal` error branch painted this as "Invalid Portal Link" (the non-expired branch). Fix: self-healing fallback in `fetchPortal` — when `authMode === 'session' && token` is present and the fetch is rejected, `signOut()` the dead session, clear `accessToken`, set `authMode` to `'token'`, and return; the `useEffect` on `[token, authMode, accessToken, bootstrapping]` refetches in token mode automatically. Goes live on next Firebase Publish of commit `694d43f`. **NOTE**: `signOut()` uses default global scope — amend to `scope: 'local'` in the next bundled code prompt (queued).
+
+### Bug #168 — Gate equality breaks Vault-backed crons (2026-06-06, commit `04a7f47`)
+
+Six cron-targeted functions (`send-reminders`, `penalty-engine`, `auto-forfeit-settlement`, `daily-reconciliation`, `loyalty-inactivity-check`, `auto-expire-cash-orders`) compared the Bearer token to `Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")` with strict string equality. The pg_cron Vault key (`email_queue_service_role_key`) is a valid, currently-signed `service_role` JWT but not string-identical to the auto-injected env copy (different issuance). All six would 401 the nightly cron suite. `send-transactional-email` had the same defect from Lovable's fix-all gate. **Fix**: new shared helper `supabase/functions/_shared/jwt-claims.ts` (`parseJwtClaims` copied from `process-email-queue`); equality branch replaced with `claims?.role === 'service_role'` in all seven functions; `verify_jwt = true` added in `config.toml` for eight functions (six fixed + `process-loyalty-notification-queue` + `cleanup-loyalty-images`, which had claims-decode without gateway signature verification). Nine functions deployed. **Gate-class witness**: `daily-reconciliation` returned 200 via the Vault key at `net._http_response` id 5297 (timeout = function ran, not rejected; contrast instant 401 at id 5295). **Extension-email witness**: `net._http_response` id 5299 = 200; `email_send_log` extension-requested → sent within 7 seconds.
+
 ### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
 
   Account schedule/allocation repairs. All four accounts pass

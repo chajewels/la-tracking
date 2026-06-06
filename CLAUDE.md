@@ -753,6 +753,21 @@ When completing a partially_paid month:
     those; do not hand-edit the Authorization header to anything
     else. See `docs/LOYALTY-OPERATIONS.md` for the full SQL snippet.
 
+  EDGE FUNCTION SERVICE-ROLE AUTH PATTERN (locked — added 2026-06-06):
+    Inside a service-role-gated edge function, identify the caller
+    via JWT claims, NOT string equality:
+      if (parseJwtClaims(token)?.role !== "service_role") { return 401; }
+    Run behind gateway `verify_jwt = true` in `supabase/config.toml`
+    so the signature is validated before the handler executes.
+    NEVER write `token === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")`:
+    Vault-stored keys and env-injected keys are both valid
+    same-project `service_role` JWTs but may not be string-identical
+    (different issuance times, different signing rotations) — the
+    equality check rejects legitimate Vault-backed cron callers and
+    breaks the nightly suite. Shared helper:
+    `supabase/functions/_shared/jwt-claims.ts` (`parseJwtClaims`).
+    Root-caused as Bug #168 (2026-06-06, commit `04a7f47`).
+
 ## DISPLAY RULES (permanent)
 
   ALL schedule display reads from schedule_with_actuals view

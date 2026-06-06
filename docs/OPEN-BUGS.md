@@ -4,7 +4,7 @@
   yet fixed. Each entry should describe the fix
   pattern so the next session can pick it up cleanly.
 
-### Portal token link shows "expired" when a stale signed-in session exists on the device (found 2026-06-06)
+### Portal token link shows "expired" when a stale signed-in session exists on the device (found 2026-06-06) — CLOSED 2026-06-06 (commit `694d43f`, awaiting Firebase Publish)
 
   **Symptom.** Customer reaches the portal via a fresh `?token=…` URL
   but lands on the link-expired screen. Token row is healthy

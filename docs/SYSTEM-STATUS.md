@@ -1,5 +1,23 @@
 ## SYSTEM STATUS (as of 2026-05-16)
 
+### Edge function auth gate pattern (2026-06-06)
+
+  All cron-targeted functions now use JWT claims decode
+  (`parseJwtClaims`) instead of env-string equality. Shared helper
+  at `supabase/functions/_shared/jwt-claims.ts`. `verify_jwt = true`
+  in `config.toml` for 10 functions total. Vault-backed cron paths
+  certified empirically. See FIXED-BUGS Bug #168.
+
+### Extension request email (2026-06-06)
+
+  Server-side path via `notify_extension_event()` trigger; routes
+  to customer email address (Option A) when customer has email;
+  auth-aware portal link (`auth_user_id` → bare portal, else
+  active token URL); skipped silently when email null; staff
+  coverage = bell only. Replaces dead frontend fetch (anon key
+  rejected by gate). Trigger verified: `email_send_log` id
+  2026-06-06 05:43.
+
 ### Security scan 2026-06-06 triage
 
   Latest Lovable security scan + manual triage. Four findings
@@ -8,8 +26,10 @@
 
   - **payment-proofs bucket is PUBLIC — confirmed.** The
     `payment-proofs` Supabase Storage bucket is configured public,
-    and every upload site (CustomerPortal main + edit flows,
-    CashPortalPaymentDialog) stores the full public URL into
+    and all five upload sites — RecordCashPaymentDialog,
+    RecordPaymentDialog, MultiInvoicePaymentDialog (staff side),
+    CashPortalPaymentDialog and CustomerPortal main + edit flows
+    (portal side) — store the full public URL into
     `payment_submissions.proof_url`. Anyone with a proof URL can
     fetch the image without auth — and submission rows are
     selectable by RLS to the owning customer + staff, so the URL
