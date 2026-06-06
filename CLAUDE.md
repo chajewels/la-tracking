@@ -473,6 +473,7 @@ To add a new screenshot for any Help section:
 
 - Commit and push all changes directly to **main** branch
 - Do NOT create feature branches unless explicitly asked
+- Versioning: package.json version is the app version (shown in the sidebar with the build commit). Bump MINOR when a feature ships, PATCH for fixes — only when a prompt explicitly says to bump.
 
 ## TOOL OWNERSHIP RULES (updated 2026-05-10)
 

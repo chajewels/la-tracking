@@ -4,6 +4,7 @@ import path from "path";
 import { execSync } from "node:child_process";
 import { componentTagger } from "lovable-tagger";
 import { VitePWA } from "vite-plugin-pwa";
+import pkg from "./package.json";
 
 const APP_VERSION = (() => {
   // 1. Try common CI/build commit SHA env vars first — git is usually
@@ -98,7 +99,7 @@ export default defineConfig(({ mode }) => ({
   },
   define: {
     __BUILD_TIME__: Date.now(),
-    __APP_VERSION__: JSON.stringify(APP_VERSION),
+    __APP_VERSION__: JSON.stringify(`${pkg.version} · ${APP_VERSION}`),
   },
   build: {
     rollupOptions: {
