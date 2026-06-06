@@ -128,6 +128,19 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Service-role-only gate. No frontend callers, no cron — only
+  // inter-function or service-key admin invocations. Reject anything
+  // that isn't carrying the service role key.
+  {
+    const incoming = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
+    if (!incoming || incoming !== Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  }
+
   try {
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,

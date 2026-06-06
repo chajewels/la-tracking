@@ -96,6 +96,42 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Dual auth gate — mirrors system-health-v2 (commit 49681b4). Accept:
+  //   (a) Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY> — the cron
+  //       path (pg_cron jobid 1, Vault-backed). OR
+  //   (b) A verified JWT whose user holds admin/staff/finance/csr in
+  //       user_roles — the Monitoring.tsx invoke path (L162, L466).
+  // Everything else is rejected with 401.
+  {
+    const authHeader = req.headers.get("Authorization");
+    const token = authHeader?.replace("Bearer ", "") ?? "";
+    let authorized = false;
+    if (token && token === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) {
+      authorized = true;
+    } else if (authHeader?.startsWith("Bearer ")) {
+      const supabaseAuth = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      );
+      const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token);
+      if (!authError && user) {
+        const { data: roleRows } = await supabaseAuth
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", user.id)
+          .in("role", ["admin", "staff", "finance", "csr"])
+          .limit(1);
+        authorized = !!(roleRows && roleRows.length > 0);
+      }
+    }
+    if (!authorized) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  }
+
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
