@@ -1335,6 +1335,19 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
      ASC NULLS LAST). MemberCard shows the next-expiring lot and
      a red "expiring soon" badge when within 30 days.
 
+  7. Redemption role gates (locked 2026-06-06):
+     APPROVE is reachable by admin / finance / staff — frontend
+     `RedemptionApprovalModal.canApprove` includes the staff role,
+     and `process-loyalty-redemption` approve gate uses the existing
+     `isInternal` constant (`isAdmin || isFinance || isStaff`).
+     CANCEL and VOID stay admin-only on both the frontend
+     affordance and the server gate. Extending APPROVE to staff
+     was an explicit policy decision so reviewers handling
+     redemption traffic during business hours don't have to escalate
+     to admin/finance for every approval; reversal paths (cancel,
+     void) keep the higher trust requirement because they affect
+     accounts post-debit.
+
 ## LOYALTY INACTIVITY — last_purchase_at SOURCE OF TRUTH (added 2026-05-20)
 
   - `loyalty_members.last_purchase_at` = order_date of the member's

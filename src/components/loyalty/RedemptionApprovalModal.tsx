@@ -80,7 +80,8 @@ export function RedemptionApprovalModal({
   const rolesArr = roles as any[];
   const isAdmin = rolesArr.includes('admin');
   const isFinance = rolesArr.includes('finance');
-  const canApprove = isAdmin || isFinance;
+  const isStaff = rolesArr.includes('staff');
+  const canApprove = isAdmin || isFinance || isStaff;
 
   const [check1, setCheck1] = useState(false);
   const [check2, setCheck2] = useState(false);
