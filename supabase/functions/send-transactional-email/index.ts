@@ -40,16 +40,31 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders })
   }
 
-  // SECURITY: require an Authorization header (verify_jwt=true at the gateway
-  // enforces a valid Supabase JWT — anon, authenticated, or service_role).
-  // This blocks fully-unauthenticated abuse; rate limiting + idempotency +
-  // suppression checks downstream further limit blast radius.
+  // SECURITY: require an Authorization header with EITHER the service-role key
+  // (internal edge-function callers / crons) OR a valid authenticated user JWT
+  // (portal customers, staff). Plain anon-key callers are rejected — otherwise
+  // anyone with the public anon key could spoof company-branded emails to
+  // arbitrary recipients with attacker-controlled templateData.
   const authToken = req.headers.get('Authorization')?.replace('Bearer ', '') ?? ''
   if (!authToken) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
       status: 401,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
+  }
+  {
+    const serviceRoleKeyForAuth = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    if (authToken !== serviceRoleKeyForAuth) {
+      const supabaseUrlForAuth = Deno.env.get('SUPABASE_URL') ?? ''
+      const authClient = createClient(supabaseUrlForAuth, serviceRoleKeyForAuth)
+      const { data: userData, error: userErr } = await authClient.auth.getUser(authToken)
+      if (userErr || !userData?.user) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+    }
   }
 
 
