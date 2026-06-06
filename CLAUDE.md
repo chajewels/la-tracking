@@ -791,6 +791,13 @@ When completing a partially_paid month:
       Root-caused as Bug #170 (2026-06-06, commit `28bc07e`,
       deployed 2026-06-06 09:15 UTC).
 
+    User-permission-gated edge functions (staff frontend callers
+    only, no service-role path): `fix-account-status` — requires
+    valid user JWT + `hasPermission(user.id, 'system_health')`.
+    `system-health-check` — requires valid user JWT + `user_roles`
+    IN (`admin`, `staff`, `finance`, `csr`). Never reintroduce an
+    `isInternalKey` or anon-key bypass on either.
+
 ## DISPLAY RULES (permanent)
 
   ALL schedule display reads from schedule_with_actuals view

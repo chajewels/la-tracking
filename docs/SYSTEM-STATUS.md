@@ -1,5 +1,27 @@
 ## SYSTEM STATUS (as of 2026-05-16)
 
+### Contract & Agreement feature removed (2026-06-06, commit `f43d938`)
+
+  The Contract & Agreement signature capture feature was removed in
+  full: `supabase/functions/submit-signature/` directory deleted,
+  `src/components/contract/ContractAgreementSection.tsx` deleted,
+  `AccountDetail.tsx` import and render block removed. Database:
+  `layaway_signatures` table DROPped (3 rows, RLS policy, FK
+  constraints all removed via CASCADE). The `agreement_version` and
+  `agreement_acceptance` columns on `cash_orders` and
+  `layaway_accounts` are retained — they are populated by separate
+  live flows (`create-cash-order`) and are unrelated to the
+  signature capture feature. The deployed `submit-signature` edge
+  function is orphaned (source deleted, table gone — any call fails
+  at DB level; no callers remain). Scanner warning dismissed —
+  dead code, no live surface.
+
+### `system-health-check` gated (2026-06-06, commit `a65a356`, deployed same day)
+
+  Previously had no inbound auth gate. Now requires user JWT +
+  `user_roles` `admin / staff / finance / csr` check,
+  `verify_jwt = true` in `config.toml`. See FIXED-BUGS #173.
+
 ### Extension email recipient fix + full email audit (2026-06-06, SQL fix)
 
   `notify_extension_event` trigger corrected — `recipient_email` now
