@@ -61,3 +61,5 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.loyalty-sheet-reconcile]
     verify_jwt = true
+  [functions.fix-account-status]
+    verify_jwt = true

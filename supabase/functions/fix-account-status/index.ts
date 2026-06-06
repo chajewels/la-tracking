@@ -38,18 +38,28 @@ Deno.serve(async (req) => {
 
     // Validate JWT — allow service-role or anon-key bypass for internal invocations
     const authHeader = req.headers.get("Authorization");
-    let userId: string | null = null;
-    if (authHeader) {
-      const token = authHeader.replace("Bearer ", "");
-      const isInternalKey = token === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || token === Deno.env.get("SUPABASE_ANON_KEY");
-      if (!isInternalKey) {
-        const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-        if (authError || !user) throw new Error("Unauthorized");
-        const canRunSystemHealthFixes = await hasPermission(supabase, user.id, "system_health");
-        if (!canRunSystemHealthFixes) throw new Error("Permission denied");
-        userId = user.id;
-      }
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
+    const token = authHeader.replace("Bearer ", "");
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const canRunSystemHealthFixes = await hasPermission(supabase, user.id, "system_health");
+    if (!canRunSystemHealthFixes) {
+      return new Response(JSON.stringify({ error: "Permission denied" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    let userId: string | null = user.id;
 
     const body = await req.json();
     const { action, schedule_id, invoice_number } = body;
