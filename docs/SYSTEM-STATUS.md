@@ -371,6 +371,12 @@
   approve + void on TEST-004, Check Health green, double-click race
   bounces correctly with `redemption_not_pending`.
 
+  Verified live 2026-06-06: approve end-to-end empirically confirmed
+  via a staff-role JWT through the `isInternal` server gate (commit
+  `a3d941b`) after the Bug #169 `v_currency::account_currency` cast
+  fix to `approve_redemption_atomic`. First successful staff-role
+  approve in production. See docs/FIXED-BUGS.md Bug #169.
+
 ### Loyalty community links (shipped 2026-06-05)
 
   WhatsApp + LINE community group links surfaced in two places for

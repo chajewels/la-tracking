@@ -2250,6 +2250,13 @@ When a session-auth customer's refresh token is rotated on another device, the s
 
 Six cron-targeted functions (`send-reminders`, `penalty-engine`, `auto-forfeit-settlement`, `daily-reconciliation`, `loyalty-inactivity-check`, `auto-expire-cash-orders`) compared the Bearer token to `Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")` with strict string equality. The pg_cron Vault key (`email_queue_service_role_key`) is a valid, currently-signed `service_role` JWT but not string-identical to the auto-injected env copy (different issuance). All six would 401 the nightly cron suite. `send-transactional-email` had the same defect from Lovable's fix-all gate. **Fix**: new shared helper `supabase/functions/_shared/jwt-claims.ts` (`parseJwtClaims` copied from `process-email-queue`); equality branch replaced with `claims?.role === 'service_role'` in all seven functions; `verify_jwt = true` added in `config.toml` for eight functions (six fixed + `process-loyalty-notification-queue` + `cleanup-loyalty-images`, which had claims-decode without gateway signature verification). Nine functions deployed. **Gate-class witness**: `daily-reconciliation` returned 200 via the Vault key at `net._http_response` id 5297 (timeout = function ran, not rejected; contrast instant 401 at id 5295). **Extension-email witness**: `net._http_response` id 5299 = 200; `email_send_log` extension-requested → sent within 7 seconds.
 
+### Bug #169 — approve_redemption_atomic ENUM cast failure (P1, fixed 2026-06-06)
+
+- **Symptom**: First live approve via the RPC returned 500 `column "currency" is of type account_currency but expression is of type text`. Transaction aborted cleanly — zero writes, redemption stayed pending (atomicity from Bug #164 fix held as designed).
+- **Root cause**: `v_currency` is declared `text`; both synthetic-payment INSERTs (`public.payments` in the layaway branch, `public.cash_payments` in the cash branch) passed it uncast into the `currency` column, which is the `account_currency` ENUM. Both branches had the identical bug; per the cash-orders-are-first-class rule, both were fixed in one patch.
+- **Fix**: `CREATE OR REPLACE` of `approve_redemption_atomic` run directly in Supabase SQL Editor on 2026-06-06 with exactly two changed tokens — `v_currency` → `v_currency::account_currency` in each INSERT's VALUES list. No code or deploy involved; the RPC lives only in the DB.
+- **Verified**: `pg_get_functiondef` check confirmed `cast_count = 2`; subsequent live approve succeeded. This run was also the first successful staff-role approve through the `isInternal` server gate (a3d941b), confirming that change empirically.
+
 ### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
 
   Account schedule/allocation repairs. All four accounts pass
