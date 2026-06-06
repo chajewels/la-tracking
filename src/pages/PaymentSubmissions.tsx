@@ -70,28 +70,33 @@ interface SubmissionAllocation {
   allocated_amount: number;
 }
 
-/** Renders a proof-of-payment image directly from its public URL.
- *  The payment-proofs bucket is public (migration 20260322083531 sets
- *  public: true with an Anyone-can-view SELECT policy), so no signed-URL
- *  round-trip is needed. Falls back to a text link if the image fails to
- *  load (e.g. non-image content, legacy URL, or bucket access change).
- *  Rendering directly from `url` also eliminates the setSrc(null) flash
- *  that the previous signed-URL implementation produced on every render. */
+/** Renders a proof-of-payment image via a short-lived signed URL.
+ *  The payment-proofs bucket is PRIVATE — all reads must go through
+ *  Storage's signed-URL API (RLS-gated by the SELECT policy). */
 function ProofImage({ url, className }: { url: string; className?: string }) {
   const [imgError, setImgError] = useState(false);
-  // Normalise path variants (bare path, /object/sign/... with token) to the
-  // public URL so legacy rows still render correctly.
-  const src = /^https?:\/\//.test(url)
-    ? url.replace('/storage/v1/object/sign/payment-proofs/', '/storage/v1/object/public/payment-proofs/').split('?')[0]
-    : `${(import.meta as any).env?.VITE_SUPABASE_URL ?? ''}/storage/v1/object/public/payment-proofs/${url}`;
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    setImgError(false);
+    setSrc(null);
+    getProofSignedUrl(url).then((u) => {
+      if (!active) return;
+      if (u) setSrc(u);
+      else setImgError(true);
+    });
+    return () => { active = false; };
+  }, [url]);
 
   if (imgError) {
     return (
-      <a href={url} target="_blank" rel="noopener noreferrer"
-        className="inline-flex items-center gap-1.5 text-xs text-primary underline">
-        <ImageIcon className="h-3.5 w-3.5" /> View proof (open in new tab)
-      </a>
+      <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+        <ImageIcon className="h-3.5 w-3.5" /> Proof unavailable
+      </span>
     );
+  }
+  if (!src) {
+    return <span className="text-xs text-muted-foreground">Loading proof…</span>;
   }
   return (
     <img src={src} alt="Proof of payment" className={className}
