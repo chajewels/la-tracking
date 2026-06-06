@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef, memo, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { getProofSignedUrl } from '@/lib/proof-url';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/layout/AppLayout';
 
