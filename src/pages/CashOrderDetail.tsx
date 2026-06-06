@@ -24,6 +24,7 @@ import InvoiceGeneratorSheet from '@/components/invoices/InvoiceGeneratorSheet';
 import { Currency } from '@/lib/types';
 import { formatCurrency } from '@/lib/calculations';
 import { supabase } from '@/integrations/supabase/client';
+import { getProofSignedUrl } from '@/lib/proof-url';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
