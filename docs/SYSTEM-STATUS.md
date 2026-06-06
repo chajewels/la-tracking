@@ -1,5 +1,22 @@
 ## SYSTEM STATUS (as of 2026-05-16)
 
+### Extension email recipient fix + full email audit (2026-06-06, SQL fix)
+
+  `notify_extension_event` trigger corrected — `recipient_email` now
+  reads `v_customer_email` from `customers` at execution time
+  (Option A). Previous version had `'sales@chajewelsjp.com'`
+  hardcoded; discovered via `pg_get_functiondef`. Verified via
+  `email_send_log`: `recipient_email = chajewelsjapan@gmail.com` on
+  next send after fix. Full `email_send_log` audit: all 9 active
+  templates (`account-forfeited`, `cash-payment-confirmed`,
+  `cash-payment-submitted`, `extension-granted`, `loyalty-earned`,
+  `cash-payment-submitted`, `payment-submitted`, `payment-voided`,
+  `penalty-applied` / `penalty-escalation`) route to dynamic
+  customer emails. `send-transactional-email` has a `template.to`
+  override mechanism (L141 `effectiveRecipient = template.to ||
+  recipientEmail`) — no current template has a hardcoded `to`
+  pointing to staff. See FIXED-BUGS #172.
+
 ### Staff bell — redemption lifecycle coverage (2026-06-06, commit `30081eb`, deployed 2026-06-06)
 
   `process-loyalty-redemption` now emits `staff_notifications` at all

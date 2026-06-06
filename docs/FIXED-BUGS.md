@@ -2277,6 +2277,10 @@ Six cron-targeted functions (`send-reminders`, `penalty-engine`, `auto-forfeit-s
   3. Historical repair via SQL Editor `UPDATE` — 25 bell rows rebuilt from their submissions' `sender_name` via `metadata->>'submission_id'` join, plus 1 row whose submission had NULL `sender_name` rebuilt with the customer's name (matching the new trigger fallback); verified 0 `'Unknown sender'` rows remain.
 - **Note**: `submit-payment` was redeployed 2026-06-06 09:16 UTC during diagnosis; it was not the cause (its insert has included `sender_name` since `41fddad`, 2026-03-22) — redeploy harmless, function current.
 
+### Bug #172 — `notify_extension_event`: `recipient_email` hardcoded as `'sales@chajewelsjp.com'` (2026-06-06, SQL fix same day)
+
+The first `CREATE OR REPLACE` of `notify_extension_event` was applied with `'sales@chajewelsjp.com'` as a string literal in the `recipient_email` field of the `net.http_post` body. The Option A version (using `v_customer_email` read from `customers.email` at trigger execution time) was delivered but never successfully applied to the database. Result: every extension request email went to `sales@` regardless of the customer's actual email address — confirmed in `email_send_log` (10 sends to `sales@`, all from this version). Discovered by inspecting `pg_get_functiondef` output. Fix: re-ran the correct `CREATE OR REPLACE` with `v_customer_email`, `v_auth_user_id`, `v_token`, `v_portal_url` declared and used. Verified: `email_send_log` shows `recipient_email = chajewelsjapan@gmail.com` (test customer email) on the next two sends after the fix. Email audit of all other templates (`account-forfeited`, `cash-payment-confirmed`, `cash-payment-submitted`, `extension-granted`, `loyalty-earned`, `payment-submitted`, `payment-voided`, `penalty-applied`, `penalty-escalation`) confirmed all route to dynamic customer emails — no other hardcoded-recipient bugs found.
+
 ### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
 
   Account schedule/allocation repairs. All four accounts pass
