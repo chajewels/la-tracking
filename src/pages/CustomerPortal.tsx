@@ -444,7 +444,21 @@ export default function CustomerPortal() {
     try {
       const res = await fetch(fetchUrl, { headers: fetchHeaders });
       const json = await res.json();
-      if (!res.ok) { setError(json.error || 'Access denied'); return; }
+      if (!res.ok) {
+        // Stale-session self-heal: a session-mode rejection while the URL
+        // carries a portal token means the stored session is dead (e.g. its
+        // refresh token was rotated on another device). Discard it and fall
+        // back to token auth — the explicit link wins. The useEffect on
+        // [token, authMode, accessToken, bootstrapping] refetches in token mode.
+        if (authMode === 'session' && token) {
+          supabase.auth.signOut().catch(() => {});
+          setAccessToken(null);
+          setAuthMode('token');
+          return;
+        }
+        setError(json.error || 'Access denied');
+        return;
+      }
       // Override stale 'Overdue' status_label: account is only truly overdue if
       // an unpaid schedule row has due_date < today (same logic as admin view)
       const portalToday = getPHTToday();
