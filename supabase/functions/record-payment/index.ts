@@ -163,6 +163,7 @@ Deno.serve(async (req) => {
           notes: remarks || null,
           status: "submitted",
           submission_type: submission_type ?? 'single',
+          sender_name: (user.user_metadata as any)?.full_name || user.email || null,
         })
         .select("id")
         .single();

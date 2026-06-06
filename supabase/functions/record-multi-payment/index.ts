@@ -320,6 +320,7 @@ Deno.serve(async (req) => {
             notes: remarks ? `[Multi-invoice] ${remarks}` : `[Multi-invoice batch: ${batchId}]`,
             status: "submitted",
             submission_type: inputAlloc.is_downpayment ? 'downpayment' : 'installment',
+            sender_name: (claimsData.user.user_metadata as any)?.full_name || claimsData.user.email || null,
           })
           .select("id")
           .single();

@@ -1272,6 +1272,11 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
     flow are unchanged — staff continue to submit without proof and
     upload afterward.
 
+  2026-06-06: record-payment + record-multi-payment now set sender_name
+    at payment_submissions insert (staff name from user_metadata/email),
+    so notify_submission_created staff-bell bodies no longer show
+    "Unknown sender" for staff-recorded payments.
+
 ## LOYALTY AWARD SYSTEM (added 2026-04-27, updated 2026-05-16)
 
 ### Canonical award path (SOLE path — Layer-2 triggers removed 2026-05-16):
