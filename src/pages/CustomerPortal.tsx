@@ -1457,12 +1457,19 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
 
   useEffect(() => {
     if (!isForfeited) return;
-    fetch(`${SUPABASE_URL}/rest/v1/extension_requests?account_id=eq.${account.id}&status=eq.pending&limit=1`, {
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
-    }).then(r => r.json()).then(data => {
-      if (Array.isArray(data) && data.length > 0) setExtPending(true);
-    }).catch(() => {});
-  }, [isForfeited, account.id]);
+    (async () => {
+      try {
+        const authHeaders = await getPortalAuthHeaders(portalToken);
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/extension_requests?account_id=eq.${account.id}&status=eq.pending&limit=1`, {
+          headers: { 'apikey': SUPABASE_KEY, ...authHeaders },
+        });
+        const data = await r.json();
+        if (Array.isArray(data) && data.length > 0) setExtPending(true);
+      } catch {
+        // silent — matches prior behavior
+      }
+    })();
+  }, [isForfeited, account.id, portalToken]);
 
   const handleExtensionRequest = async () => {
     setExtSubmitting(true);
