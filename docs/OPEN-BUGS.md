@@ -4,6 +4,57 @@
   yet fixed. Each entry should describe the fix
   pattern so the next session can pick it up cleanly.
 
+### Portal token link shows "expired" when a stale signed-in session exists on the device (found 2026-06-06)
+
+  **Symptom.** Customer reaches the portal via a fresh `?token=…` URL
+  but lands on the link-expired screen. Token row is healthy
+  (`customer_portal_tokens.is_active = true`, `expires_at` well in
+  the future). A clean curl against `customer-portal?token=…` from a
+  separate machine returns HTTP 200 with the full payload, confirming
+  the token-auth path itself works.
+
+  **Root cause.** Auth-mode precedence in `CustomerPortal.tsx`
+  `fetchPortal` evaluates session mode FIRST: whenever
+  `authMode === 'session' && accessToken`, the function calls the
+  customer-portal edge function with the session JWT and entirely
+  ignores the `?token=` URL parameter. If that session's JWT has been
+  invalidated upstream (deactivation, password reset, ban, key
+  rotation, etc.), the upstream rejection message commonly contains
+  the substring `'expired'`. The frontend error screen at
+  `CustomerPortal.tsx` ~L513 does a generic `.includes('expired')`
+  check on the error string and renders the link-expired template —
+  even though the underlying problem is a stale session, not the
+  token.
+
+  **Evidence.** Affected customer's `customer_portal_tokens` row was
+  active with `expires_at = 2026-12-03`. Curl with the same token from
+  a clean shell returned 200 + full payload. Same customer's device
+  had a stale Supabase Auth session in `localStorage` whose JWT was
+  no longer accepted.
+
+  **Workaround applied.** Customer migrated to email/password auth
+  (the session path then succeeded with fresh credentials, bypassing
+  the precedence issue).
+
+  **Fix direction (not yet built).**
+  1. **Auth-mode precedence.** URL token should take precedence over
+     a session, OR (cleaner) the session-mode call should fall back
+     to the URL token automatically when the session call fails with
+     an auth-class error. Either pattern: when both auth modes are
+     available, the legitimate non-expired credential wins.
+  2. **Expired-link message scoping.** The L513 error-string check
+     must not be triggered by generic `'expired'` substrings —
+     scope it to a specific error code (`token_expired`,
+     `token_not_found`) or to error messages that explicitly came
+     from the token-auth code path. Session JWT expiry surfaces a
+     different code; that path should re-prompt for sign-in, not
+     show the token-expired screen.
+
+  Until both halves ship, any customer with a dead device session
+  will land on the wrong error screen and won't realize their token
+  link is fine. Operationally rare but high-confusion when it
+  happens.
+
 ### Dashboard wiring & realtime audit (surfaced 2026-05-22)
 
   End-to-end audit of all four monitoring surfaces — Dashboard, CSR

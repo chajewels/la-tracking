@@ -1,5 +1,63 @@
 ## SYSTEM STATUS (as of 2026-05-16)
 
+### Security scan 2026-06-06 triage
+
+  Latest Lovable security scan + manual triage. Four findings
+  reviewed; each parked with an explicit disposition rather than a
+  same-day code change.
+
+  - **payment-proofs bucket is PUBLIC — confirmed.** The
+    `payment-proofs` Supabase Storage bucket is configured public,
+    and every upload site (CustomerPortal main + edit flows,
+    CashPortalPaymentDialog) stores the full public URL into
+    `payment_submissions.proof_url`. Anyone with a proof URL can
+    fetch the image without auth — and submission rows are
+    selectable by RLS to the owning customer + staff, so the URL
+    is reachable from those sessions. Disposition: **not a toggle**.
+    Flipping the bucket to private without a coordinated migration
+    would break every existing rendered proof in the admin
+    Submissions queue + customer portal history. Proper fix is a
+    coordinated pass: convert the bucket to private, store only
+    the object path in `proof_url` (already partially the case for
+    legacy rows), add a signed-URL minting edge function gated on
+    the same RLS predicates that already protect
+    `payment_submissions` reads, and update every renderer to mint
+    a short-lived URL on demand. Parked until that pass is
+    scheduled — the URL set is currently treated as
+    capability-protected (you need the URL to retrieve), which is
+    inadequate against URL leaks but matches the existing live
+    state.
+
+  - **Realtime postgres_changes publication on public tables —
+    acceptable, parked.** The `supabase_realtime` publication is
+    populated with the eight mutating tables that
+    `useRealtimeSync` listens to (per CLAUDE.md REALTIME SYNC).
+    All eight tables enforce RLS, so the realtime stream a client
+    receives is already filtered to rows that client could
+    SELECT. The audit flag was the absence of "private channel"
+    enforcement (i.e. nothing stops an authenticated customer
+    from subscribing to the same channel staff use). RLS makes
+    that subscription useless — they see only their own rows —
+    so the practical exposure is zero. Disposition: enforcement
+    of explicit private channels stays parked.
+
+  - **brand-assets bucket public read + no write policies —
+    intentional.** Public read is required for the Help Center
+    image renderer (`Help.tsx` `img` override resolves filenames
+    via the bucket's public URL — see CLAUDE.md HELP CENTER
+    SCREENSHOTS rule). Absence of write policies is also
+    intentional: uploads come through the Supabase Storage UI by
+    operators, never from frontend code, so no client-facing
+    INSERT/UPDATE policy is needed. Disposition: **no change**.
+
+  - **Customer signature access — open business decision.** The
+    scan flagged customer signature artifacts (the agreement
+    acceptance signatures recorded on cash orders and layaway
+    accounts) as broadly readable. Disposition is a product /
+    legal question, not a security-implementation one: do
+    signatures need to be staff-only, or do customers see their
+    own at the portal? Parked pending owner decision.
+
 ### Tier re-qualification verified live (2026-06-06)
 
   Test Customer restore scenario passed end-to-end. Member was at
