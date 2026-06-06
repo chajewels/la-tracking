@@ -137,3 +137,51 @@
   in use: admin / staff / finance / csr) but every is_staff() RLS policy
   would silently widen if a restricted/customer-facing role were ever
   added to user_roles.
+
+### PORTAL_TOKEN COLUMN REVOKE IS A NO-OP (OPEN — found 2026-06-06)
+  Security Batch 4's migration `20260605093651_…` ran
+  `REVOKE SELECT (portal_token) ON public.extension_requests FROM
+  authenticated, anon;` and the same for `payment_submissions`.
+  Postgres ACL rule: a column-level REVOKE cannot subtract from a
+  table-level grant. Both roles still hold table-level SELECT on
+  both tables, so `portal_token` remains fully client-readable via
+  `select('*')` or `select('portal_token')`. The Batch 4 entry in
+  SYSTEM-STATUS.md (fix #7) records the action but the action did
+  nothing.
+
+  Proper fix is a careful standalone pass:
+  1. Audit every `select('*')` consumer of both tables — both edge
+     functions and frontend components — and convert them to
+     explicit column lists.
+  2. REVOKE the table-level SELECT from authenticated / anon.
+  3. GRANT explicit column-list SELECT (omitting `portal_token`)
+     back to authenticated / anon.
+  4. Verify via `information_schema.column_privileges` that
+     `portal_token` no longer appears for either role.
+
+  Scope is non-trivial because PostgREST `select=*` is the
+  default in many places; an incomplete audit will break list
+  views silently. Park until a focused session.
+
+### REALTIME INVALIDATION DOES NOT COVER loyalty_members (OPEN — polish, found 2026-06-06)
+  Tier / remaining points / lifetime spend render stale on
+  AccountDetail and CashOrderDetail until manual Refresh, while
+  the account_notes trail updates live alongside via the existing
+  REALTIME_INVALIDATE_KEYS sweep (account_notes inherits the
+  realtime sync via its parent account/cash_order detail key).
+
+  Two-line fix:
+  1. Add `loyalty_members` (and probably `loyalty_transactions`) to
+     `SYNC_TABLES` in `src/hooks/useRealtimeSync.ts`.
+  2. Confirm `REALTIME_INVALIDATE_KEYS` includes the loyalty query
+     keys actually consumed by `MemberCard` / `PointsSnapshot` /
+     the bell badges — if not, add a new `LOYALTY_KEYS` group and
+     union it in (per the CLAUDE.md REALTIME SYNC convention).
+
+  Also review the staff_notifications bell refresh mechanism — it
+  polls every 60s currently, which is fine for the bell badge but
+  means the in-panel list doesn't refresh between polls. Either
+  add `staff_notifications` to the realtime sweep or document the
+  60s cap explicitly.
+
+  Pure polish — no data correctness issue. Low priority.

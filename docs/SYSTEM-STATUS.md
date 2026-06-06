@@ -1,5 +1,174 @@
 ## SYSTEM STATUS (as of 2026-05-16)
 
+### Tier re-qualification verified live (2026-06-06)
+
+  Test Customer restore scenario passed end-to-end. Member was at
+  Glimmer with `is_downgraded=true`, `earned_tier_id=Elite`, and
+  `downgrade_spend_baseline` snapshotted at downgrade time. Test
+  award delivered `value_applied_jpy = 2,010,000` of new spend since
+  downgrade — `(newCumulative − downgrade_spend_baseline) ≥
+  requalify_spend_jpy (2,000,000)` — so the gate inside
+  `award-loyalty-points` Step 5b flipped `requalified = true`, the
+  member update restored to Elite (`earned_tier_id = current_tier_id
+  = Elite`, `is_downgraded = false`, `downgrade_spend_baseline =
+  null`), and the completing purchase earned at the ratcheted Elite
+  multiplier (+200 pts on this award, not the pre-restore Glimmer
+  rate). Tier-change emission witnessed on all three surfaces:
+  PaymentSubmissions reviewer toast tail, staff_notifications bell
+  row, and `account_notes` trail. Closes verification for the
+  2026-06-05 tier-requalification feature work.
+
+### Extension requests restored for token customers (2026-06-06)
+
+  An earlier security pass had DELETED all anon RLS policies on
+  `public.extension_requests`, silently killing the
+  Request-Extension feature for every token-link customer (any
+  customer reaching the portal via `?token=` without a Phase B
+  session). RLS was on with no anon row visibility → submitting
+  inserted nothing, and the duplicate-pending check returned `[]`
+  for every caller. **Third instance** of a security pass removing
+  a live customer path in 30 days (after `2370082` payment-proofs
+  upload, and the Batch 4 `payment-proofs` re-drop). Recorded as
+  Bug #165 in `docs/FIXED-BUGS.md`.
+
+  Two anon RLS policies re-created via SQL Editor mirroring the
+  `payment_submissions` anon pattern from migration
+  `20260605072749`:
+  - **INSERT**: bound to a real, active, non-expired
+    `customer_portal_tokens` row whose `customer_id` matches the
+    row being inserted (token portion ≥ 16 chars, fail-closed).
+  - **SELECT**: gated on the `x-portal-token` request header
+    matching the row's `portal_token` AND the same active-token
+    join. Customer can only see their own extension requests.
+
+  Companion frontend bug — the duplicate-pending GET fetch at
+  CustomerPortal L1458-1465 was sending the bare anon apikey and no
+  portal auth header, so even with policies in place the check
+  would have returned `[]`. Fixed in commit `90949f7` (effect now
+  awaits `getPortalAuthHeaders(portalToken)` and spreads the
+  result alongside `apikey`).
+
+### Proof of payment required on customer-portal submissions (shipped 2026-06-06, commit `92e324b`)
+
+  Trigger: a proofless layaway submission on 2026-06-05 13:56 UTC
+  slipped through because the portal upload block was
+  failure-tolerant (a fetch error left `proofUrl` null and the
+  submission posted anyway). Staff caught it during review and
+  rejected.
+
+  Fix layers:
+  - **UI gates** in `src/pages/CustomerPortal.tsx` main + edit
+    flows and `src/components/portal/CashPortalPaymentDialog.tsx`:
+    the submit button is disabled until a file is attached, the
+    main flow shows "Please upload your proof of payment
+    (screenshot or receipt)." and the cash dialog shows "Please
+    attach your proof of payment (screenshot or receipt)." when
+    blocked, and any upload failure (non-2xx response OR thrown
+    error) now sets a fatal "Proof upload failed — please try
+    again." message, resets the submitting state, and aborts.
+    `proofUrl` is guaranteed non-empty before the body is posted.
+  - **Server 400** in `supabase/functions/submit-payment/index.ts`
+    and `submit-cash-payment/index.ts`: reject with
+    `{ error: "Proof of payment is required" }` when `proof_url` is
+    missing, not a string, or empty/whitespace.
+
+  Staff `record-payment` and its insert-then-attach-proof flow are
+  **unchanged** — staff continue to submit without a proof URL and
+  upload afterward. Rule recorded in CLAUDE.md PAYMENT SUBMISSION
+  FLOW section under "PROOF REQUIRED — customer-portal submissions
+  (added 2026-06-06)".
+
+### Loyalty trail in account_notes (shipped 2026-06-06)
+
+  Three writers live, all emit `account_notes` rows tagged
+  `created_by_name = 'System (Loyalty)'` so the trail surfaces
+  inside `AccountDetail` (layaway) and `CashOrderDetail` (cash)
+  alongside payment + schedule history:
+
+  - **Award** — `award-loyalty-points` writes the note immediately
+    before its `awarded: true` return, after the member update has
+    succeeded. `created_by_user_id: null`. Non-blocking try/catch.
+  - **Approve** — written **inside** the
+    `approve_redemption_atomic(uuid, uuid, text)` RPC at Step 7b
+    (SQL Editor replace; no edge-side copy). Note lives in the
+    same atomic transaction as the debit, so it's either fully
+    present or fully absent.
+  - **Void** — `process-loyalty-redemption` void handler writes
+    the note after all void writes succeeded and immediately
+    before the success response. Non-blocking try/catch.
+
+  Code: commit `a3a8200` (edge functions) + SQL Editor RPC
+  replace for the approve step. First automatic note verified live
+  the same day on a cash order — full chain observed from
+  approve → DB row → cash order detail render.
+
+  Closes the long-standing "LOYALTY ACCOUNT NOTES TRAIL" item from
+  `docs/PENDING.md` (originally flagged 2026-06-04). Rule wired
+  into `docs/LOYALTY-LIFECYCLE.md` "Loyalty trail in account notes
+  (added 2026-06-06)".
+
+### RPC + view privilege lockdown (2026-06-05 evening, SQL Editor)
+
+  Two-part lockdown applied via SQL Editor; no migration file
+  (schema-only ACL changes, intentionally kept out of repo).
+
+  **View privileges — `schedule_with_actuals`.** This view ran with
+  owner rights AND held FULL table-privilege grants (SELECT/
+  INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER) to **`anon`** —
+  a public read window into every customer's payment schedule,
+  bypassing all RLS. Anon revoked entirely; `authenticated`
+  reduced to `SELECT` only.
+
+  **SECURITY DEFINER function ACL batch.** 17 server-only RPCs
+  stripped of `PUBLIC` / `anon` / `authenticated` EXECUTE — every
+  caller must come through a service-role edge function or a
+  trigger:
+
+    delete_account_atomic, admin_renumber_installment,
+    admin_update_schedule_base, delete_schedule_row_atomic,
+    consume_lots_fifo, insert_lot_and_extend,
+    restore_lots_for_redemption, restore_loyalty_points,
+    revoke_loyalty_points, reconcile_failing_accounts,
+    enqueue_email, delete_email, read_email_batch, move_to_dlq,
+    get_bulk_setup_invite_candidates, _award_birthday_reward,
+    get_unpaid_schedule
+
+  16 frontend-called functions retained `authenticated` EXECUTE
+  only (PUBLIC / anon stripped). `has_role` and `is_staff` and all
+  trigger functions left untouched — they must remain callable
+  inside RLS predicates by every role.
+
+  **`ALTER DEFAULT PRIVILEGES`** on the `public` schema now revokes
+  EXECUTE from PUBLIC on functions created by the
+  database/migration owner — future functions are born locked.
+
+  **Finding worth recording.** `delete_account_atomic` had NEVER
+  actually been client-revoked despite the 2026-05-08 SYSTEM-STATUS
+  entry that claimed it. Verified by inspecting `pg_proc.proacl`
+  before the batch ran. Lesson: ACL changes applied via the SQL
+  Editor must be re-verified against `pg_proc` / `information_schema`
+  after the fact; a successful SQL execution does not guarantee
+  the grant string the operator typed actually landed.
+
+  **Smoke verification.** Dashboard summary, Finance Overview KPIs,
+  per-account Check Health (`audit_account`), and System Audit
+  (`audit_all_accounts`) all loaded clean on an admin JWT after
+  the lockdown.
+
+  **Residuals on the deliberate-change list (NOT done):**
+  - `security_invoker = true` flip for `schedule_with_actuals` so
+    the view enforces caller-side RLS instead of running with
+    owner rights (the current lockdown is privilege-only — the
+    view definition is unchanged).
+  - Internal `has_role()` checks inside staff RPCs. The
+    `authenticated` role currently includes Phase B session
+    customers; a staff RPC granted to `authenticated` and gated
+    only by RLS would let a customer JWT execute it. Today this
+    is masked because the lockdown revoked EXECUTE from all such
+    RPCs — but the audit pass still needs to walk every staff RPC
+    and either add a `has_role` guard at function entry or move
+    the function behind an edge-function gate.
+
 ### Security batch 4 — 7 findings fixed (2026-06-05)
 
   Lovable-driven security scan + manual review. All seven findings

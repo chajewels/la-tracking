@@ -2220,6 +2220,24 @@ longer a parked item — it's been structurally routed around.
 
 **Untouched:** `create`, `cancel`, and `void` action handlers. The catalog-stock decrement and void branch were already atomic — this entry only closes the approve multi-write path. (commit `6b9d8a7`)
 
+### Bug #165 — extension request feature silently broken for token-link customers (2026-06-06)
+
+**Symptom**: Forfeited-account customers reaching the portal via the `?token=` URL flow could not submit a Request Extension. Submission appeared to succeed in the UI but no row landed in `public.extension_requests`. The duplicate-pending check on AccountDetail load returned `[]` for every customer, so the "Extension Request Pending" guard never fired either — a customer could "submit" the same request repeatedly with no feedback. Customers on the Phase B session-auth flow were unaffected because they hit the `authenticated`-role policy path.
+
+**Root cause**: An earlier security pass (intermediate Lovable session, no preserved commit hash for the SQL block) had DROPPED every anon RLS policy on `public.extension_requests`. With RLS still enabled and no anon policy, anon callers had zero row visibility and zero INSERT permission. PostgREST returns 200 with an empty array on a permission-blocked SELECT, and the portal frontend's INSERT path quietly relied on PostgREST's `Prefer: return=representation` returning nothing on permission failure — so neither path surfaced an error to the customer.
+
+**Third instance** of a security pass removing a live customer code path in roughly 30 days, after commit `2370082` (dropped the unrestricted `payment-proofs` anon upload policy, broke token-customer proof upload) and the Batch 4 same-day regression (dropped the broad `payment-proofs` authenticated upload policy, broke Phase B session uploads). Both prior instances were caught and patched the same day; this one ran undetected long enough to surface as an operations report.
+
+**Fix**: Two anon RLS policies re-created via SQL Editor mirroring the `payment_submissions` anon pattern shipped in migration `20260605072749`:
+
+1. **INSERT policy** (`"Anon can insert extension requests with token"`): `WITH CHECK (portal_token IS NOT NULL AND length(portal_token) >= 16 AND EXISTS (SELECT 1 FROM public.customer_portal_tokens t WHERE t.token = extension_requests.portal_token AND t.is_active = true AND (t.expires_at IS NULL OR t.expires_at > now()) AND t.customer_id = extension_requests.customer_id))`. Token must be ≥16 chars, point at a real active non-expired row, and own the customer_id being inserted (fail-closed against scope escalation).
+
+2. **SELECT policy** (`"Anon can view own extension requests by token"`): `USING (portal_token IS NOT NULL AND length(portal_token) >= 16 AND portal_token = ((current_setting('request.headers'::text, true))::json ->> 'x-portal-token'::text) AND EXISTS (SELECT 1 FROM public.customer_portal_tokens t WHERE t.token = extension_requests.portal_token AND t.is_active = true))`. Customers can only see their own rows, and only when the request header carries their token.
+
+**Companion frontend bug — commit `90949f7`**: The duplicate-pending check at `src/pages/CustomerPortal.tsx` L1458-1465 was sending bare `apikey` + `Authorization: Bearer SUPABASE_KEY` headers, no `x-portal-token` and no session JWT. Even with the policies in place, the SELECT would have returned `[]` for the customer because the `x-portal-token` predicate in policy #2 above would never match. Fixed by rewriting the effect to `await getPortalAuthHeaders(portalToken)` and spread the result alongside `apikey` — exactly the pattern the extension POST a few lines below was already using. Token-mode customers now send `x-portal-token`; session-mode customers send their Bearer JWT.
+
+**Process note**: The OPEN-BUGS / SYSTEM-STATUS regression-watch pattern recorded for `2370082` and Batch 4 needs to extend to RLS policy enumeration — not just storage and grants. A simple SQL snapshot of `pg_policies` before and after each security pass would have caught all three instances at the migration boundary. Locked in as a Process Improvement #5 candidate in the Bug #163 architectural follow-up, but the larger lesson is: any DROP POLICY statement in a security pass must be paired with explicit documentation of what replaces it.
+
 ### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
 
   Account schedule/allocation repairs. All four accounts pass

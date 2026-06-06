@@ -176,3 +176,18 @@
   - Inline panel in AccountDetail — after Payment History
   - Optional initial note on new account creation (NewAccount.tsx)
 
+### RPC grant model (added 2026-06-06)
+
+  Since the 2026-06-05 evening privilege lockdown,
+  `ALTER DEFAULT PRIVILEGES` on the `public` schema revokes
+  EXECUTE from PUBLIC for new functions. New frontend-called RPCs
+  must therefore explicitly `GRANT EXECUTE ON FUNCTION
+  public.foo(...) TO authenticated;` at creation — otherwise
+  PostgREST returns 403 for every signed-in caller. Server-only
+  RPCs (those reached only through a service-role edge function
+  or a trigger) should NOT receive any client grant; they run via
+  service-role's BYPASSRLS / superuser-like access. See
+  docs/SYSTEM-STATUS.md "RPC + view privilege lockdown
+  (2026-06-05 evening, SQL Editor)" for the canonical 17/16 split
+  and the lockdown rationale.
+
