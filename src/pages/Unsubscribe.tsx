@@ -49,6 +49,7 @@ export default function Unsubscribe() {
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="max-w-md w-full rounded-2xl border border-border bg-card p-8 text-center space-y-6 shadow-lg">
+        <h1 className="text-2xl font-bold text-foreground font-display">Unsubscribe from Email Reminders</h1>
         <div className="text-2xl font-bold text-foreground font-display">💎 Cha Jewels</div>
 
         {status === 'loading' && (

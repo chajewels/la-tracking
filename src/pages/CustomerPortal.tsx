@@ -2492,7 +2492,7 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
               <input ref={fileInputRef} type="file" accept="image/*,.pdf" onChange={handleFileChange} className="hidden" />
               {proofPreview ? (
                 <div className="relative">
-                  <img src={proofPreview} alt="Proof" className="w-full h-40 object-cover" style={{border:`2px solid ${P.gp}`,borderRadius:'2px'}} />
+                  <img src={proofPreview} alt="Payment proof preview" className="w-full h-40 object-cover" style={{border:`2px solid ${P.gp}`,borderRadius:'2px'}} />
                   <button onClick={() => { setProofFile(null); setProofPreview(null); }}
                     className="absolute top-2 right-2 h-6 w-6 flex items-center justify-center" style={{background:'rgba(10,10,10,0.7)',color:P.tp,border:'none',cursor:'pointer'}}>
                     <X className="h-3.5 w-3.5" />

@@ -181,7 +181,7 @@ export default function Login() {
               className="font-display text-2xl font-light tracking-wide"
               style={{ color: '#fff' }}
             >
-              Welcome Back
+              Staff Sign In — Cha Jewels Hub
             </h1>
             <p
               className="text-xs font-light mb-10 mt-2"
