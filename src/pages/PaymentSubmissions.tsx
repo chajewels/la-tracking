@@ -328,6 +328,69 @@ const ActionDialogModal = memo(function ActionDialogModal({
   );
 });
 
+const InlinePaymentMethodSelect = memo(function InlinePaymentMethodSelect({
+  submissionId,
+  currentMethod,
+  availableMethods,
+}: {
+  submissionId: string;
+  currentMethod: string;
+  availableMethods: string[];
+}) {
+  const queryClient = useQueryClient();
+  const [pending, setPending] = useState(false);
+
+  const options = useMemo(() => {
+    const set = new Set(availableMethods);
+    if (currentMethod) set.add(currentMethod);
+    return Array.from(set);
+  }, [availableMethods, currentMethod]);
+
+  const handleChange = async (newValue: string) => {
+    if (newValue === currentMethod) return;
+    setPending(true);
+
+    queryClient.setQueriesData<SubmissionRow[]>(
+      { queryKey: ['payment-submissions'] },
+      (old) => old?.map((row) =>
+        row.id === submissionId ? { ...row, payment_method: newValue } : row
+      ),
+    );
+
+    const { error } = await supabase
+      .from('payment_submissions')
+      .update({ payment_method: newValue })
+      .eq('id', submissionId);
+
+    setPending(false);
+
+    if (error) {
+      queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
+      toast.error('Failed to update payment method', { description: error.message });
+      return;
+    }
+    toast.success('Payment method updated');
+  };
+
+  return (
+    <Select value={currentMethod} onValueChange={handleChange} disabled={pending}>
+      <SelectTrigger
+        onClick={(e) => e.stopPropagation()}
+        className="h-6 px-2 py-0 text-sm font-medium inline-flex w-auto min-w-0 gap-1 shrink-0 bg-card/40 border-border/50 hover:bg-card/70 text-foreground"
+      >
+        <SelectValue placeholder={currentMethod} />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((m) => (
+          <SelectItem key={m} value={m} className="text-sm">
+            {m}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+});
+
 const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }: { embedded?: boolean } = {}) {
   const { session } = useAuth();
   const { can } = usePermissions();
@@ -336,6 +399,18 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
   const canReject = can('reject_submission');
   const canModerate = canConfirm || canReview || canReject;
   const queryClient = useQueryClient();
+  const { data: paymentMethodOptions = [] } = useQuery<string[]>({
+    queryKey: ['payment-methods-active'],
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('payment_methods')
+        .select('method_name')
+        .eq('is_active', true);
+      if (error) throw error;
+      return (data ?? []).map((r: { method_name: string }) => r.method_name);
+    },
+  });
   const { lastRefreshedAt, refreshing, refresh } = useAutoRefresh([
     ['payment-submissions'],
     ['submission-allocations'],
@@ -751,9 +826,16 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
                                 </Badge>
                               )}
                             </div>
-                            <p className="text-sm text-muted-foreground mt-0.5">
-                              via {sub.payment_method} · {new Date(sub.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                            </p>
+                            <div className="text-base font-medium text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
+                              <span>via</span>
+                              <InlinePaymentMethodSelect
+                                submissionId={sub.id}
+                                currentMethod={sub.payment_method}
+                                availableMethods={paymentMethodOptions}
+                              />
+                              <span>·</span>
+                              <span>{new Date(sub.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+                            </div>
                           </div>
                           <Badge variant="outline" className={`text-[10px] gap-1 shrink-0 ${cfg.color}`}>
                             {cfg.icon} {cfg.label}
