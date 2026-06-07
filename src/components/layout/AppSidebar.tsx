@@ -44,7 +44,7 @@ import {
 type SubMenuItem = {
   label: string;
   tab: string;
-  badgeKey?: 'finance_docs' | 'monitoring_extensions' | 'loyalty_redemptions';
+  badgeKey?: 'finance_docs' | 'monitoring_extensions' | 'loyalty_redemptions' | 'sales_payments';
   permFilter?: (can: (key: string) => boolean) => boolean;
 };
 
@@ -74,7 +74,7 @@ const sidebarItems: (CategoryHeader | MenuItem)[] = [
     children: [
       { label: 'Cash', tab: 'cash' },
       { label: 'Layaway', tab: 'layaway' },
-      { label: 'Payments', tab: 'payments' },
+      { label: 'Payments', tab: 'payments', badgeKey: 'sales_payments' },
       { label: 'Waivers', tab: 'waivers' },
     ],
   },
@@ -175,13 +175,13 @@ export default function AppSidebar() {
 
   const badgeCountByPath: Record<string, number> = {
     [ROUTES.LOYALTY_ADMIN]: pendingRedemptions ?? 0,
-    [ROUTES.FINANCE]: (pendingSubmissions ?? 0) + (pendingWaivers ?? 0),
+    [ROUTES.SALES]: (pendingSubmissions ?? 0) + (pendingWaivers ?? 0),
     [ROUTES.MONITORING]: pendingExtensions ?? 0,
     [ROUTES.DASHBOARD]: (newLayawayToday ?? 0) + (newCashToday ?? 0),
   };
 
   const badgeBySubKey: Record<string, number> = {
-    finance_docs: (pendingSubmissions ?? 0) + (pendingWaivers ?? 0),
+    sales_payments: (pendingSubmissions ?? 0) + (pendingWaivers ?? 0),
     monitoring_extensions: pendingExtensions ?? 0,
     loyalty_redemptions: pendingRedemptions ?? 0,
   };
