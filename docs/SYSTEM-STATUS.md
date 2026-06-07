@@ -22,6 +22,14 @@
   Confirmed 401 via `curl`. `verify_jwt = true` total:
   **17 functions**. See FIXED-BUGS #175.
 
+## 2026-06-07 — v1.1.1
+
+- Bug fix: Services sidebar converted from leaf to parent with
+  sub-items (Service Jobs / Trade-Ins) matching Customers / CSR
+  Monitoring hover pattern. Also fixed `is_allowed=false` on
+  `view_services` + `manage_services` + `view_trade_ins` +
+  `manage_trade_ins` `role_permissions` rows (set to `true` via SQL).
+
 ## 2026-06-07 — v1.1.0
 
 ### Features shipped
