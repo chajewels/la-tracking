@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
+import { parseJwtClaims } from "../_shared/jwt-claims.ts";
 import {
   buildPointsEarnedNotification,
   buildTierUpgradeNotification,
@@ -45,14 +46,9 @@ Deno.serve(async (req) => {
     }
     const token = authHeader.replace("Bearer ", "");
     let authorized = false;
-    // Service-role check: direct env comparison. The function knows
-    // its own SUPABASE_SERVICE_ROLE_KEY from environment, so direct
-    // equality is the simplest, most reliable inter-function auth.
-    // Avoids the base64URL/atob pitfall — JWT payloads are base64URL
-    // (-, _) but atob expects standard base64 (+, /), causing silent
-    // 401 for any service-role JWT whose payload happens to contain
-    // those chars. See Bug #163 in docs/FIXED-BUGS.md.
-    if (token === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) {
+    // Service-role check: parseJwtClaims from shared helper (base64URL-safe,
+    // works with both env-injected and Vault-backed service-role keys).
+    if (parseJwtClaims(token)?.role === "service_role") {
       authorized = true;
     }
     if (!authorized) {

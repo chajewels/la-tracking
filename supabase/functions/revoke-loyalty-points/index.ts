@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
+import { parseJwtClaims } from "../_shared/jwt-claims.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -65,7 +66,7 @@ Deno.serve(async (req) => {
     if (!authHeader) return json({ error: "Unauthorized" }, 401);
     const token = authHeader.replace("Bearer ", "");
     let createdByUserId: string | null = null;
-    if (token !== Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) {
+    if (parseJwtClaims(token)?.role !== "service_role") {
       const { data: { user }, error: authError } = await supabase.auth.getUser(token);
       if (authError || !user) return json({ error: "Unauthorized" }, 401);
       const { data: isAdmin } = await supabase.rpc("has_role", {

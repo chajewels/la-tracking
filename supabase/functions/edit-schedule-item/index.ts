@@ -38,6 +38,15 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Staff-only gate — prevents Phase B customers from altering installment amounts
+    const { data: userIsStaff } = await supabase.rpc("is_staff", { _user_id: user.id });
+    if (!userIsStaff) {
+      return new Response(JSON.stringify({ error: "Staff access required" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const { schedule_id, new_base_amount } = await req.json();
 
     if (!schedule_id || new_base_amount === undefined || new_base_amount === null) {

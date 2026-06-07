@@ -10,7 +10,7 @@ project_id = "pfoicalpzdcmyxzvwyhz"
   [functions.auto-forfeit-settlement]
     verify_jwt = true
   [functions.bulk-import]
-    verify_jwt = false
+    verify_jwt = true
   [functions.create-layaway-account]
     verify_jwt = false
   [functions.create-team-member]
@@ -18,13 +18,13 @@ project_id = "pfoicalpzdcmyxzvwyhz"
   [functions.dashboard-summary]
     verify_jwt = false
   [functions.finance-reconciliation]
-    verify_jwt = false
+    verify_jwt = true
   [functions.system-health-v2]
     verify_jwt = false
   [functions.system-health-check]
     verify_jwt = true
   [functions.parse-import-docs]
-    verify_jwt = false
+    verify_jwt = true
   [functions.penalty-engine]
     verify_jwt = true
   [functions.process-email-queue]
@@ -72,4 +72,18 @@ project_id = "pfoicalpzdcmyxzvwyhz"
   [functions.append-cash-receipt]
     verify_jwt = true
   [functions.fix-account-totals]
+    verify_jwt = true
+  [functions.set-portal-pin]
+    verify_jwt = true
+  [functions.carry-over]
+    verify_jwt = true
+  [functions.reconcile-account]
+    verify_jwt = true
+  [functions.edit-schedule-item]
+    verify_jwt = true
+  [functions.restore-loyalty-points]
+    verify_jwt = true
+  [functions.revoke-loyalty-points]
+    verify_jwt = true
+  [functions.award-loyalty-points]
     verify_jwt = true

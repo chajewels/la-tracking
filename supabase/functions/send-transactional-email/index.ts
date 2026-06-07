@@ -65,6 +65,14 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
       }
+      // Reject customer JWTs — only staff may trigger company-branded emails
+      const { data: callerIsStaff } = await authClient.rpc('is_staff', { _user_id: userData.user.id })
+      if (!callerIsStaff) {
+        return new Response(JSON.stringify({ error: 'Forbidden' }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
     }
   }
 

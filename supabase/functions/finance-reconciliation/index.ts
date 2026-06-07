@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { parseJwtClaims } from "../_shared/jwt-claims.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,7 +32,7 @@ Deno.serve(async (req) => {
   // Accept service-role token (Vault/cron) or an admin/finance user JWT.
   const supabaseAuth = createClient(
     Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_ANON_KEY")!
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
   const authToken = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
   if (!authToken) {
@@ -40,7 +41,7 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-  const isServiceRole = authToken === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const isServiceRole = parseJwtClaims(authToken)?.role === "service_role";
   if (!isServiceRole) {
     const { data: userData, error: userErr } = await supabaseAuth.auth.getUser(authToken);
     if (userErr || !userData?.user) {

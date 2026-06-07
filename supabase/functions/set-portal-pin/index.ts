@@ -5,6 +5,20 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+async function hashPinPbkdf2(pin: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw", encoder.encode(String(pin)), { name: "PBKDF2" }, false, ["deriveBits"],
+  );
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const derivedBits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" }, keyMaterial, 256,
+  );
+  const saltHex = Array.from(salt).map((b) => b.toString(16).padStart(2, "0")).join("");
+  const hashHex = Array.from(new Uint8Array(derivedBits)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `pbkdf2:${saltHex}:${hashHex}`;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -14,73 +28,42 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // 1. Verify auth
+    // 1. Auth: admin or staff JWT required
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-    const { data: { user }, error: authError } = await supabase.auth.getUser(
-      authHeader.replace("Bearer ", ""),
-    );
+    const { data: { user }, error: authError } = await supabase.auth.getUser(authHeader.replace("Bearer ", ""));
     if (authError || !user) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-
-    // 2. Admin or staff only
     const [{ data: isAdmin }, { data: isStaff }] = await Promise.all([
       supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
       supabase.rpc("has_role", { _user_id: user.id, _role: "staff" }),
     ]);
     if (!isAdmin && !isStaff) {
-      return new Response(
-        JSON.stringify({ error: "Admin or staff access required" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ error: "Admin or staff access required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // 3. Validate input
+    // 2. Validate input
     const { customer_id, pin } = await req.json();
     if (!customer_id || !pin) {
-      return new Response(
-        JSON.stringify({ error: "customer_id and pin are required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ error: "customer_id and pin are required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (!/^\d{4}$/.test(String(pin))) {
-      return new Response(
-        JSON.stringify({ error: "PIN must be exactly 4 digits" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ error: "PIN must be exactly 4 digits" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // 4. Hash PIN (SHA-256 via Web Crypto API)
-    const encoder = new TextEncoder();
-    const data = encoder.encode(pin);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    // 3. Hash PIN with PBKDF2 (SHA-256 removed — portal_pin_hash column no longer exists on customers)
+    const hash = await hashPinPbkdf2(String(pin));
 
-    // 5. Update customer
-    const { error: updateError } = await supabase
-      .from("customers")
-      .update({
-        portal_pin_hash: hash,
-        portal_pin_attempts: 0,
-        portal_pin_locked_until: null,
-      })
-      .eq("id", customer_id);
+    // 4. Upsert into customer_pins
+    const { error: upsertError } = await supabase
+      .from("customer_pins")
+      .upsert({ customer_id, pin_hash: hash, pin_attempts: 0, pin_locked_until: null });
 
-    if (updateError) {
-      return new Response(
-        JSON.stringify({ error: updateError.message }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+    if (upsertError) {
+      return new Response(JSON.stringify({ error: upsertError.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // Audit log (best-effort)
@@ -91,14 +74,8 @@ Deno.serve(async (req) => {
       performed_by_user_id: user.id,
     }).then(() => {}).catch(() => {});
 
-    return new Response(
-      JSON.stringify({ success: true }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error: any) {
-    return new Response(
-      JSON.stringify({ error: error.message || "Internal error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    return new Response(JSON.stringify({ error: error.message || "Internal error" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });

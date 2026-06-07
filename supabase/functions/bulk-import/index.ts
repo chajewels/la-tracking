@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { parseJwtClaims } from "../_shared/jwt-claims.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -105,7 +106,7 @@ Deno.serve(async (req) => {
     // SECURITY: Verify service-role by exact token match against env var.
     // Never trust the unverified JWT payload (`atob`) — an attacker could forge
     // a JWT with role=service_role and bypass auth entirely.
-    const isServiceRole = token === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const isServiceRole = parseJwtClaims(token)?.role === "service_role";
 
     if (isServiceRole) {
       // Service role calls - no user ID (will be null)

@@ -10,12 +10,23 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { schedule_row_id, account_id } = await req.json();
-
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
+
+    // Auth gate: service-role callers only (called internally by accept-underpayment)
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
+    }
+    const incomingToken = authHeader.replace("Bearer ", "");
+    const { parseJwtClaims } = await import("../_shared/jwt-claims.ts");
+    if (parseJwtClaims(incomingToken)?.role !== "service_role") {
+      return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: corsHeaders });
+    }
+
+    const { schedule_row_id, account_id } = await req.json();
 
     const { data: source, error: srcErr } = await supabase
       .from("layaway_schedule")
