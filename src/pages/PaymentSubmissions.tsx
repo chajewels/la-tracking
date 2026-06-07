@@ -391,7 +391,12 @@ const InlinePaymentMethodSelect = memo(function InlinePaymentMethodSelect({
   );
 });
 
-const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }: { embedded?: boolean } = {}) {
+interface PaymentSubmissionsProps {
+  embedded?: boolean;
+  searchValue?: string;
+}
+
+const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, searchValue }: PaymentSubmissionsProps = {}) {
   const { session } = useAuth();
   const { can } = usePermissions();
   const canConfirm = can('confirm_payment');
@@ -426,6 +431,17 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => setFilterTick(t => t + 1), 300);
   }, []);
+
+  // External search from a parent toolbar (PaymentsHub workspace toolbar).
+  // When undefined, this child manages its own search via SubmissionsSearchBar.
+  useEffect(() => {
+    if (searchValue !== undefined) {
+      searchRef.current = searchValue;
+      clearTimeout(debounceRef.current);
+      setFilterTick(t => t + 1);
+    }
+  }, [searchValue]);
+
   const [actionDialog, setActionDialog] = useState<{ sub: SubmissionRow; action: string } | null>(null);
   const [proofDialog, setProofDialog] = useState<string | null>(null);
   const [expandedAllocs, setExpandedAllocs] = useState<string | null>(null);

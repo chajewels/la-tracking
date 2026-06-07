@@ -18,7 +18,6 @@ import ServiceJobDialog, {
 import { serviceStatusBadgeClass, serviceTypeBadgeClass } from '@/components/services/service-badge-styles';
 import TradeInsTab from '@/components/services/TradeInsTab';
 import { formatCurrency } from '@/lib/calculations';
-import { cn } from '@/lib/utils';
 import WorkspaceToolbar from '@/components/layout/WorkspaceToolbar';
 import WorkspaceSplitButton from '@/components/layout/WorkspaceSplitButton';
 
@@ -57,38 +56,9 @@ export default function Services() {
           <h1 className="text-xl font-semibold text-foreground">Services</h1>
         </div>
 
-        {/* Tab switcher */}
-        <div className="flex items-center gap-1 border-b border-border">
-          <TabButton active={tab === 'service-jobs'} onClick={() => setTab('service-jobs')}>
-            Service Jobs
-          </TabButton>
-          <TabButton active={tab === 'trade-ins'} onClick={() => setTab('trade-ins')}>
-            Trade-Ins
-          </TabButton>
-        </div>
-
         {tab === 'service-jobs' ? <ServiceJobsTab /> : <TradeInsTab />}
       </div>
     </AppLayout>
-  );
-}
-
-function TabButton({
-  active, onClick, children,
-}: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'px-4 py-2 text-sm transition-colors border-b-2 -mb-px',
-        active
-          ? 'border-primary text-primary font-medium'
-          : 'border-transparent text-muted-foreground hover:text-foreground',
-      )}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -103,6 +73,17 @@ function ServiceJobsTab() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editJob, setEditJob] = useState<ServiceJobRow | null>(null);
+
+  // Open the create dialog when the WorkspaceSplitButton dispatches the
+  // CustomEvent (Services workspace toolbar → + New Job).
+  useEffect(() => {
+    const handler = () => {
+      setEditJob(null);
+      setDialogOpen(true);
+    };
+    window.addEventListener('open-new-service-job', handler);
+    return () => window.removeEventListener('open-new-service-job', handler);
+  }, []);
 
   const { data: jobs = [], isLoading } = useQuery<ServiceJobRow[]>({
     queryKey: ['service-jobs'],

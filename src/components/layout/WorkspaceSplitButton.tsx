@@ -37,15 +37,17 @@ function resolveConfig(
       dropdownItems: [
         { label: 'New Cash Order', action: () => navigate('/cash-orders/new') },
         { label: 'New Layaway Order', action: () => navigate('/accounts/new') },
-        { label: 'Record Payment — Single', action: () => setRecordOpen(true) },
-        { label: 'Record Payment — Split', action: () => setRecordOpen(true) },
+        { label: 'Record Payment', action: () => setRecordOpen(true) },
       ],
     };
   }
   if (pathname.startsWith('/services')) {
     return {
       primaryLabel: '+ New Job',
-      primaryAction: () => console.log('New Job — dialog not yet built'),
+      primaryAction: () => {
+        navigate('/services?tab=service-jobs');
+        setTimeout(() => window.dispatchEvent(new CustomEvent('open-new-service-job')), 150);
+      },
       dropdownItems: [
         {
           label: 'Log Trade-In',

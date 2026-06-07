@@ -6,6 +6,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { useAccounts, type AccountWithCustomer } from '@/hooks/use-supabase-data';
 import RecordPaymentDialog from '@/components/payments/RecordPaymentDialog';
+import MultiInvoicePaymentDialog from '@/components/payments/MultiInvoicePaymentDialog';
 
 interface RecordPaymentModalProps {
   open: boolean;
@@ -24,9 +25,7 @@ export default function RecordPaymentModal({ open, onOpenChange }: RecordPayment
   const [step, setStep] = useState<Step>('search');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<AccountWithCustomer | null>(null);
-  // UI-only — RecordPaymentDialog has its own internal paymentType toggle.
-  // We don't forward this yet; the selection is for clarity in this wizard.
-  const [, setPaymentMode] = useState<PaymentMode>('single');
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>('single');
 
   const { data: accounts } = useAccounts();
 
@@ -167,29 +166,46 @@ export default function RecordPaymentModal({ open, onOpenChange }: RecordPayment
         {step === 'record' && selected && (
           <>
             <button
-              onClick={() => {
-                setStep('mode');
-              }}
+              onClick={() => setStep('mode')}
               className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-3"
             >
               <ChevronLeft className="h-3.5 w-3.5" /> Back
             </button>
-            <RecordPaymentDialog
-              accountId={selected.id}
-              currency={selected.currency}
-              remainingBalance={selected.remaining_balance ?? 0}
-              payFullBalance={false}
-              schedule={[]}
-              invoiceNumber={selected.invoice_number}
-              downpaymentRemaining={0}
-              onPaymentRecorded={() => {
-                onOpenChange(false);
-                setStep('search');
-                setSelected(null);
-                setQuery('');
-                setPaymentMode('single');
-              }}
-            />
+
+            {paymentMode === 'single' ? (
+              <RecordPaymentDialog
+                accountId={selected.id}
+                currency={selected.currency}
+                remainingBalance={selected.remaining_balance ?? 0}
+                payFullBalance={false}
+                schedule={[]}
+                invoiceNumber={selected.invoice_number}
+                downpaymentRemaining={0}
+                onPaymentRecorded={() => {
+                  onOpenChange(false);
+                  setStep('search');
+                  setSelected(null);
+                  setQuery('');
+                  setPaymentMode('single');
+                }}
+              />
+            ) : (
+              <MultiInvoicePaymentDialog
+                customerId={selected.customer_id}
+                customerName={selected.customers?.full_name ?? ''}
+                accounts={(accounts ?? [])
+                  .filter((a) => a.customer_id === selected.customer_id)
+                  .map((a) => ({
+                    id: a.id,
+                    invoice_number: a.invoice_number,
+                    currency: a.currency,
+                    remaining_balance: Number(a.remaining_balance ?? 0),
+                    total_amount: Number(a.total_amount ?? 0),
+                    total_paid: Number(a.total_paid ?? 0),
+                    status: a.status,
+                  }))}
+              />
+            )}
           </>
         )}
       </DialogContent>

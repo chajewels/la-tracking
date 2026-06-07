@@ -8,6 +8,8 @@ import PaymentSubmissions from './PaymentSubmissions';
 import PaymentProofs from './PaymentProofs';
 import Waivers from './Waivers';
 import { useWaiverRequestCount } from '@/hooks/useWaiverRequestCount';
+import WorkspaceToolbar from '@/components/layout/WorkspaceToolbar';
+import WorkspaceSplitButton from '@/components/layout/WorkspaceSplitButton';
 
 type TabKey = 'submissions' | 'proofs' | 'waivers';
 
@@ -16,6 +18,7 @@ export default function PaymentsHub({ embedded = false }: { embedded?: boolean }
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab: TabKey = (['proofs', 'waivers'].includes(searchParams.get('tab') || '') ? searchParams.get('tab') as TabKey : 'submissions');
   const [tab, setTab] = useState<TabKey>(initialTab);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     if (embedded) return;
@@ -54,6 +57,13 @@ export default function PaymentsHub({ embedded = false }: { embedded?: boolean }
           </div>
         )}
 
+        <WorkspaceToolbar
+          searchValue={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="Search payments..."
+          splitButton={<WorkspaceSplitButton />}
+        />
+
         <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)} className="w-full">
           <TabsList className="grid grid-cols-3 w-full max-w-md">
             <TabsTrigger value="submissions">Submissions</TabsTrigger>
@@ -76,7 +86,7 @@ export default function PaymentsHub({ embedded = false }: { embedded?: boolean }
           </TabsList>
 
           <TabsContent value="submissions" className="mt-5" tabIndex={-1}>
-            <PaymentSubmissions embedded />
+            <PaymentSubmissions embedded searchValue={search} />
           </TabsContent>
 
           <TabsContent value="proofs" className="mt-5" tabIndex={-1}>
