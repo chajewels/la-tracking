@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { parseLocation, LocationType } from '@/lib/countries';
 import { Users, Search, LayoutGrid, ListFilter, Layers } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent } from '@/components/ui/tabs';
 import AccountList from './AccountList';
 import CashOrdersList from '@/components/customers/CashOrdersList';
 import { Button } from '@/components/ui/button';
@@ -241,12 +241,6 @@ export default function Customers() {
         </div>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <TabsList className="grid grid-cols-3 w-full max-w-md">
-            <TabsTrigger value="customers">Customers ({sorted.length})</TabsTrigger>
-            <TabsTrigger value="accounts">Layaway</TabsTrigger>
-            <TabsTrigger value="cash">Cash</TabsTrigger>
-          </TabsList>
-
           <TabsContent value="customers" className="mt-5 space-y-5">
 
         <WorkspaceToolbar
@@ -375,11 +369,11 @@ export default function Customers() {
           </TabsContent>
 
           <TabsContent value="accounts" className="mt-5">
-            <AccountList embedded />
+            <AccountList embedded searchValue={search} />
           </TabsContent>
 
           <TabsContent value="cash" className="mt-5">
-            <CashOrdersList embedded />
+            <CashOrdersList embedded searchValue={search} />
           </TabsContent>
         </Tabs>
       </div>
