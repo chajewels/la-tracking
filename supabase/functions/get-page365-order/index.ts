@@ -1,5 +1,6 @@
 import { parse } from "https://deno.land/std@0.224.0/csv/parse.ts";
 import { getServiceAccountAccessToken } from "../_shared/google-auth.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 interface RequestBody {
   invoice_number: string;
@@ -34,6 +35,22 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") {
     return jsonResponse(405, { error: "Method not allowed" });
   }
+
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return jsonResponse(401, { error: "Unauthorized" });
+  }
+  const token = authHeader.replace("Bearer ", "");
+  const authClient = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+  );
+  const { data: { user }, error: authError } = await authClient.auth.getUser(token);
+  if (authError || !user) return jsonResponse(401, { error: "Unauthorized" });
+  const { data: roleRows } = await authClient
+    .from("user_roles").select("role").eq("user_id", user.id)
+    .in("role", ["admin", "staff", "finance", "csr"]).limit(1);
+  if (!roleRows || roleRows.length === 0) return jsonResponse(403, { error: "Forbidden" });
 
   try {
     const body: RequestBody = await req.json();

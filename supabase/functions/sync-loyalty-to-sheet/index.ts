@@ -13,6 +13,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getServiceAccountAccessToken } from "../_shared/google-auth.ts";
+import { parseJwtClaims } from "../_shared/jwt-claims.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -153,6 +154,11 @@ function buildTransactionsRow(
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  const authToken = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
+  if (parseJwtClaims(authToken)?.role !== "service_role") {
+    return json({ error: "Unauthorized" }, 401);
+  }
 
   try {
     const body = await req.json().catch(() => null) as

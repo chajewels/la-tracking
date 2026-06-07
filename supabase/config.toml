@@ -65,3 +65,9 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.fix-account-status]
     verify_jwt = true
+  [functions.get-page365-order]
+    verify_jwt = true
+  [functions.sync-loyalty-to-sheet]
+    verify_jwt = true
+  [functions.append-cash-receipt]
+    verify_jwt = true

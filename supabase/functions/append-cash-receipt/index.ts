@@ -1,4 +1,5 @@
 import { appendOneReceipt, type CashReceiptSlot } from "../_shared/cash-receipt.ts";
+import { parseJwtClaims } from "../_shared/jwt-claims.ts";
 
 interface RequestBody {
   sheet_id: string;
@@ -18,6 +19,14 @@ const corsHeaders = {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
+  }
+
+  const authToken = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
+  if (parseJwtClaims(authToken)?.role !== "service_role") {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 
   if (req.method !== "POST") {
