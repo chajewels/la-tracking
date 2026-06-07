@@ -2329,6 +2329,16 @@ Two existing-correct upload paths were unaffected because they already had uniqu
 
 **Going-forward consideration**: After this fix ships, no future filename collision is possible across the 3 affected paths. If perfect consistency is desired, a follow-up patch could extend the same uniqueness suffix to `MultiInvoicePaymentDialog.tsx` L348 — currently safe due to `upsert: false` but ideally aligned with the other paths' filename convention.
 
+### Bug #179 — Payment History list sorted by entry time instead of payment date (2026-06-07)
+
+**Symptom**: Account #19116's Payment History displayed 5 confirmed downpayments out of chronological order — Mar 4 → Jun 2 → Jun 7 → Apr 2 → May 3 — instead of the correct Mar 4 → Apr 2 → May 3 → Jun 2 → Jun 7. Surfaced immediately after Bug #178's data correction set `date_paid` to the actual transfer dates on the 2 back-entered rows.
+
+**Root cause**: `src/pages/AccountDetail.tsx` L1752 rendered the Payment History list with `[...payments].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())` — sorting by `payments.created_at` (when staff recorded the row) instead of `payments.date_paid` (when the customer actually transferred). For accounts where every payment is recorded same-day as it happens, both columns track together and the bug is invisible. For accounts with back-entered payments — where staff catches up on weeks or months of historical transfers in a single session — `created_at` reflects entry order, not transfer order, producing misordered displays.
+
+**Fix**: Changed the sort comparator to sort primarily by `date_paid`, with `created_at` as the tiebreaker for same-day payments. Null-safe: if `date_paid` is missing (shouldn't occur on confirmed payments, but defensively), falls back to `created_at`.
+
+**Going-forward**: This same sort pattern may exist in other Payment History renderings (`src/pages/CustomerPortal.tsx`, `src/pages/PaymentSubmissions.tsx`, `src/pages/PaymentsHub.tsx`). A follow-up grep should confirm whether they need the same correction.
+
 ### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
 
   Account schedule/allocation repairs. All four accounts pass

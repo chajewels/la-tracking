@@ -1749,7 +1749,15 @@ export default function AccountDetail() {
               <p className="text-sm text-muted-foreground">No payments recorded yet</p>
             ) : (
               <div className="space-y-2">
-                {[...payments].sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()).map((p) => {
+                {/* Bug #179: sort by date_paid (when the customer actually paid),
+                    not by created_at (when staff entered the row). created_at is the
+                    tiebreaker for same-day payments. */}
+                {[...payments].sort((a: any, b: any) => {
+                  const dateA = a.date_paid ? new Date(a.date_paid).getTime() : new Date(a.created_at).getTime();
+                  const dateB = b.date_paid ? new Date(b.date_paid).getTime() : new Date(b.created_at).getTime();
+                  if (dateA !== dateB) return dateA - dateB;
+                  return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+                }).map((p) => {
                   const isVoided = !!(p as any).voided_at;
                   const isEditing = editingId === p.id;
 
