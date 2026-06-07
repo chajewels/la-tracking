@@ -21,4 +21,6 @@ export const ROUTES = {
   LOYALTY_ADMIN: "/loyalty/admin",
   LOYALTY_REDEMPTIONS: "/loyalty/redemptions",
   EXECUTIVE_DASHBOARD: "/executive-dashboard",
+  SALES: "/sales",
+  HELP: "/help",
 };
