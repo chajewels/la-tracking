@@ -29,7 +29,12 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
     const urlTab = searchParams.get('tab') as SalesTabKey | null;
     return urlTab && VALID_TABS.includes(urlTab) ? urlTab : DEFAULT_TAB;
   });
-  const [search, setSearch] = useState('');
+  // One search state per tab so a query typed on Cash doesn't bleed
+  // into Layaway / Payments / Waivers when the user switches tabs.
+  const [cashSearch, setCashSearch] = useState('');
+  const [layawaySearch, setLayawaySearch] = useState('');
+  const [paymentsSearch, setPaymentsSearch] = useState('');
+  const [waiversSearch, setWaiversSearch] = useState('');
 
   // Refs hold each child's exported CSV download handler. The active tab's
   // ref is invoked when the workspace toolbar export button is clicked.
@@ -51,7 +56,6 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
 
   const setTab = (next: SalesTabKey) => {
     setTabState(next);
-    setSearch('');
     const params = new URLSearchParams(searchParams);
     params.set('tab', next);
     setSearchParams(params, { replace: true });
@@ -81,8 +85,20 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
         )}
 
         <WorkspaceToolbar
-          searchValue={search}
-          onSearchChange={setSearch}
+          searchValue={
+            tab === 'cash' ? cashSearch :
+            tab === 'layaway' ? layawaySearch :
+            tab === 'payments' ? paymentsSearch :
+            tab === 'waivers' ? waiversSearch :
+            ''
+          }
+          onSearchChange={
+            tab === 'cash' ? setCashSearch :
+            tab === 'layaway' ? setLayawaySearch :
+            tab === 'payments' ? setPaymentsSearch :
+            tab === 'waivers' ? setWaiversSearch :
+            () => {}
+          }
           searchPlaceholder={
             tab === 'cash' ? 'Search cash orders...' :
             tab === 'layaway' ? 'Search layaway accounts...' :
@@ -97,13 +113,13 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as SalesTabKey)} className="w-full">
           <TabsContent value="cash" className="mt-5">
-            <MemoCashOrdersList embedded searchValue={tab === 'cash' ? search : ''} exportRef={cashExportRef} />
+            <MemoCashOrdersList embedded searchValue={cashSearch} exportRef={cashExportRef} />
           </TabsContent>
           <TabsContent value="layaway" className="mt-5">
-            <MemoAccountList embedded searchValue={tab === 'layaway' ? search : ''} exportRef={layawayExportRef} />
+            <MemoAccountList embedded searchValue={layawaySearch} exportRef={layawayExportRef} />
           </TabsContent>
           <TabsContent value="payments" className="mt-5">
-            <MemoPaymentsHub embedded searchValue={tab === 'payments' ? search : ''} />
+            <MemoPaymentsHub embedded searchValue={paymentsSearch} />
           </TabsContent>
           <TabsContent value="waivers" className="mt-5">
             <MemoWaivers embedded />
