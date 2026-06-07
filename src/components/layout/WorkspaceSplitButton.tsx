@@ -1,4 +1,4 @@
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -8,12 +8,18 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
+type DropdownAction = { label: string; action: () => void };
+
 type SplitConfig = {
   primaryLabel: string;
-  dropdownItems: string[];
+  primaryAction: () => void;
+  dropdownItems: DropdownAction[];
 };
 
-function resolveConfig(pathname: string): SplitConfig | null {
+function resolveConfig(
+  pathname: string,
+  navigate: ReturnType<typeof useNavigate>,
+): SplitConfig | null {
   if (
     pathname.startsWith('/sales') ||
     pathname.startsWith('/cash-orders') ||
@@ -24,19 +30,40 @@ function resolveConfig(pathname: string): SplitConfig | null {
   ) {
     return {
       primaryLabel: '+ New Account',
-      dropdownItems: ['New Cash Order', 'New Layaway Order', 'Record Payment'],
+      primaryAction: () => navigate('/accounts/new'),
+      dropdownItems: [
+        { label: 'New Cash Order', action: () => navigate('/cash-orders/new') },
+        { label: 'New Layaway Order', action: () => navigate('/accounts/new') },
+        { label: 'Record Payment', action: () => navigate('/sales?tab=payments') },
+      ],
     };
   }
   if (pathname.startsWith('/services')) {
     return {
       primaryLabel: '+ New Job',
-      dropdownItems: ['Log Trade-In'],
+      primaryAction: () => console.log('New Job — dialog not yet built'),
+      dropdownItems: [
+        {
+          label: 'Log Trade-In',
+          action: () => {
+            navigate('/services?tab=trade-ins');
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent('open-trade-in-dialog'));
+            }, 150);
+          },
+        },
+      ],
     };
   }
   if (pathname.startsWith('/customers')) {
     return {
       primaryLabel: '+ New Customer',
-      dropdownItems: ['New Contact', 'Import Customers', 'Manage Groups'],
+      primaryAction: () => console.log('New Customer — route not yet built'),
+      dropdownItems: [
+        { label: 'New Contact', action: () => console.log('New Contact — not yet built') },
+        { label: 'Import Customers', action: () => console.log('Import — not yet built') },
+        { label: 'Manage Groups', action: () => console.log('Manage Groups — not yet built') },
+      ],
     };
   }
   return null;
@@ -44,14 +71,15 @@ function resolveConfig(pathname: string): SplitConfig | null {
 
 export default function WorkspaceSplitButton() {
   const { pathname } = useLocation();
-  const config = resolveConfig(pathname);
+  const navigate = useNavigate();
+  const config = resolveConfig(pathname, navigate);
   if (!config) return null;
 
   return (
     <div className="flex items-center">
       <Button
         type="button"
-        onClick={() => console.log(config.primaryLabel)}
+        onClick={config.primaryAction}
         className="h-10 rounded-r-none bg-primary text-primary-foreground hover:bg-primary/90"
       >
         {config.primaryLabel}
@@ -69,10 +97,10 @@ export default function WorkspaceSplitButton() {
         <DropdownMenuContent align="end">
           {config.dropdownItems.map((item) => (
             <DropdownMenuItem
-              key={item}
-              onSelect={() => console.log(item)}
+              key={item.label}
+              onSelect={item.action}
             >
-              {item}
+              {item.label}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>

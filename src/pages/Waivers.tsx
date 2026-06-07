@@ -325,21 +325,23 @@ export default function Waivers({ embedded = false }: { embedded?: boolean } = {
   return (
     <Wrapper>
       <div className={embedded ? 'space-y-6' : 'animate-fade-in space-y-6'}>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold text-primary uppercase tracking-widest mb-1">Operations</p>
-            <h1 className="text-2xl font-bold text-foreground font-display">Waiver Requests</h1>
-            <p className="text-sm text-muted-foreground mt-1">Review and action pending penalty waiver requests with selective penalty control</p>
+        {!embedded && (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-primary uppercase tracking-widest mb-1">Operations</p>
+              <h1 className="text-2xl font-bold text-foreground font-display">Waiver Requests</h1>
+              <p className="text-sm text-muted-foreground mt-1">Review and action pending penalty waiver requests with selective penalty control</p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant={filter === 'pending' ? 'default' : 'outline'} size="sm" onClick={() => setFilter('pending')}>
+                <Clock className="h-3.5 w-3.5 mr-1.5" /> Pending
+              </Button>
+              <Button variant={filter === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setFilter('all')}>
+                All Requests
+              </Button>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <Button variant={filter === 'pending' ? 'default' : 'outline'} size="sm" onClick={() => setFilter('pending')}>
-              <Clock className="h-3.5 w-3.5 mr-1.5" /> Pending
-            </Button>
-            <Button variant={filter === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setFilter('all')}>
-              All Requests
-            </Button>
-          </div>
-        </div>
+        )}
 
         {isLoading ? (
           <div className="space-y-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}</div>

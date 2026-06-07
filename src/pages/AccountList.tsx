@@ -103,26 +103,28 @@ const AccountList = memo(function AccountList({ embedded = false }: { embedded?:
     <Wrapper>
       <div className={embedded ? 'space-y-6' : 'animate-fade-in space-y-6'}>
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl gold-gradient">
-              <FileText className="h-5 w-5 text-primary-foreground" />
+        {!embedded && (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl gold-gradient">
+                <FileText className="h-5 w-5 text-primary-foreground" />
+              </div>
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">Layaway Accounts</h1>
+                <p className="text-sm text-muted-foreground">{filtered.length} total accounts</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">Layaway Accounts</h1>
-              <p className="text-sm text-muted-foreground">{filtered.length} total accounts</p>
-            </div>
+            <Link to={ROUTES.NEW_ACCOUNT}>
+              <Button className="gold-gradient text-primary-foreground font-medium shadow-lg">
+                <Plus className="h-4 w-4 mr-1.5" /> New Account
+              </Button>
+            </Link>
           </div>
-          <Link to={ROUTES.NEW_ACCOUNT}>
-            <Button className="gold-gradient text-primary-foreground font-medium shadow-lg">
-              <Plus className="h-4 w-4 mr-1.5" /> New Account
-            </Button>
-          </Link>
-        </div>
+        )}
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3">
-          <AccountSearchBar onSearch={handleSearch} />
+          {!embedded && <AccountSearchBar onSearch={handleSearch} />}
           <div className="flex gap-1 rounded-lg border border-border p-1 bg-card overflow-x-auto">
             {statusOptions.map((s) => (
               <button

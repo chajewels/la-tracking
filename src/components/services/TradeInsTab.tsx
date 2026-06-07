@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -27,6 +27,14 @@ export default function TradeInsTab() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editRow, setEditRow] = useState<TradeInRow | null>(null);
+
+  useEffect(() => {
+    const handler = () => setDialogOpen(true);
+    window.addEventListener('open-trade-in-dialog', handler);
+    return () => {
+      window.removeEventListener('open-trade-in-dialog', handler);
+    };
+  }, []);
 
   const { data: rows = [], isLoading } = useQuery<TradeInRow[]>({
     queryKey: ['trade-ins'],
