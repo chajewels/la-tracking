@@ -4,7 +4,7 @@ import { useQueryClient, useQuery } from '@tanstack/react-query';
 import {
   Settings, UserPlus, Users, Shield, Eye, EyeOff, RotateCcw,
   DollarSign, Bell, Info, ChevronDown, ChevronUp, AlertTriangle,
-  MessageSquare, Mail, Clock, Percent, Zap, Grid3X3, UserX, UserCheck
+  MessageSquare, Mail, Clock, Percent, UserX, UserCheck
 } from 'lucide-react';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -26,7 +26,7 @@ import { usePermissions } from '@/contexts/PermissionsContext';
 import { PERMISSION_MODULES, ROLES } from '@/components/settings/PermissionMatrixTab';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 type TeamMember = {
@@ -333,35 +333,6 @@ export default function SettingsPage() {
         </div>
 
         <Tabs value={settingsTab} onValueChange={(v) => setSettingsTab(v as SettingsTabKey)} className="w-full">
-          <TabsList className="bg-muted/50 border border-border">
-            <TabsTrigger value="general" className="gap-1.5 text-xs">
-              <Settings className="h-3.5 w-3.5" />
-              General
-            </TabsTrigger>
-            {isAdmin && (
-              <TabsTrigger value="team" className="gap-1.5 text-xs">
-                <Users className="h-3.5 w-3.5" />
-                Team
-              </TabsTrigger>
-            )}
-            <TabsTrigger value="roles" className="gap-1.5 text-xs">
-              <Shield className="h-3.5 w-3.5" />
-              Roles & Permissions
-            </TabsTrigger>
-            {isAdmin && (
-              <TabsTrigger value="matrix" className="gap-1.5 text-xs">
-                <Grid3X3 className="h-3.5 w-3.5" />
-                Permission Matrix
-              </TabsTrigger>
-            )}
-            {isAdmin && (
-              <TabsTrigger value="features" className="gap-1.5 text-xs">
-                <Zap className="h-3.5 w-3.5" />
-                Feature Toggles
-              </TabsTrigger>
-            )}
-          </TabsList>
-
           {/* ── GENERAL TAB ── */}
           <TabsContent value="general" className="space-y-6 mt-4">
             {/* Currency */}

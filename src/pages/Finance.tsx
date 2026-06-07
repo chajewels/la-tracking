@@ -14,7 +14,7 @@ import CurrencyToggle, { CurrencyFilter } from '@/components/dashboard/CurrencyT
 import RiskBadge from '@/components/dashboard/RiskBadge';
 import CLVBadge from '@/components/dashboard/CLVBadge';
 import CompletionBadge from '@/components/dashboard/CompletionBadge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatCurrency } from '@/lib/calculations';
@@ -581,31 +581,6 @@ export default function Finance() {
 
 
         <Tabs value={tab} onValueChange={v => setTab(v as 'overview' | 'analytics' | 'collections' | 'tracking' | 'docs' | 'vault')} className="w-full">
-          <TabsList className={`grid w-full max-w-4xl`} style={{ gridTemplateColumns: `repeat(${visibleTabCount}, minmax(0, 1fr))` }}>
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            {showAnalytics && <TabsTrigger value="analytics">Analytics</TabsTrigger>}
-            {showCollections && <TabsTrigger value="collections">Collections</TabsTrigger>}
-            {showTracking && <TabsTrigger value="tracking">Payment Tracking</TabsTrigger>}
-            {showDocs && (
-              <TabsTrigger value="docs">
-                Documentation
-                {(pendingSubmissions ?? 0) > 0 && (
-                  <span
-                    className="ml-2 inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
-                    style={{
-                      background: 'rgba(245, 158, 11, 0.18)',
-                      color: '#B45309',
-                      border: '1px solid rgba(245, 158, 11, 0.35)',
-                    }}
-                  >
-                    {pendingSubmissions}
-                  </span>
-                )}
-              </TabsTrigger>
-            )}
-            {showVault && <TabsTrigger value="vault">Vault</TabsTrigger>}
-          </TabsList>
-
           {/* ═══════ Overview Tab ═══════ */}
           <TabsContent value="overview" className="mt-5 space-y-6">
             {/* KPI Cards */}

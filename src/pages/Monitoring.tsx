@@ -541,28 +541,6 @@ export default function Monitoring() {
         </div>
 
         <Tabs value={monitoringTab} onValueChange={v => setMonitoringTab(v as MonitoringTabKey)} className="w-full">
-          <TabsList className="grid grid-cols-5 w-full max-w-2xl">
-            <TabsTrigger value="alerts">CSR Alerts</TabsTrigger>
-            <TabsTrigger value="reminders">Smart Reminders</TabsTrigger>
-            <TabsTrigger value="extensions">
-              Extensions
-              {pendingExtensions > 0 && (
-                <span
-                  className="ml-2 inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
-                  style={{
-                    background: 'rgba(245, 158, 11, 0.18)',
-                    color: '#B45309',
-                    border: '1px solid rgba(245, 158, 11, 0.35)',
-                  }}
-                >
-                  {pendingExtensions}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="notifications">Notifications</TabsTrigger>
-            <TabsTrigger value="audit">Audit</TabsTrigger>
-          </TabsList>
-
           <TabsContent value="alerts" className="mt-5 space-y-6">
         {/* Summary Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">

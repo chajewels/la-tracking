@@ -1,8 +1,8 @@
 import { useCallback, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Sparkles, Bell } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent } from '@/components/ui/tabs';
 import DashboardTab from '@/components/loyalty-admin/DashboardTab';
 import MembersTab from '@/components/loyalty-admin/MembersTab';
 import RedemptionsTab from '@/components/loyalty-admin/RedemptionsTab';
@@ -116,44 +116,6 @@ export default function LoyaltyAdmin() {
         />
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-5">
-          {/*
-            12 tabs. shadcn TabsTrigger has whitespace-nowrap so labels
-            stay on one line. Default behavior is flex + horizontal
-            scroll for narrow screens; on xl (1280+) we use a 12-column
-            grid for an even split.
-          */}
-          <TabsList className="flex w-full overflow-x-auto xl:grid xl:grid-cols-12">
-            <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
-            <TabsTrigger value="members">Members</TabsTrigger>
-            <TabsTrigger value="redemptions">
-              Redemptions
-              {pendingRedemptions > 0 && (
-                <span
-                  className="ml-2 inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
-                  style={{
-                    background: 'rgba(245, 158, 11, 0.18)',
-                    color: '#B45309',
-                    border: '1px solid rgba(245, 158, 11, 0.35)',
-                  }}
-                >
-                  {pendingRedemptions}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="beta">Beta Whitelist</TabsTrigger>
-            <TabsTrigger value="tiers">Tiers</TabsTrigger>
-            <TabsTrigger value="settings">Settings</TabsTrigger>
-            <TabsTrigger value="audit">Audit Log</TabsTrigger>
-            <TabsTrigger value="transactions">Transactions</TabsTrigger>
-            <TabsTrigger value="promotions">Promotions</TabsTrigger>
-            <TabsTrigger value="rewards">Rewards</TabsTrigger>
-            <TabsTrigger value="banners">Banners</TabsTrigger>
-            <TabsTrigger value="notifications">
-              <Bell className="h-3.5 w-3.5 mr-1.5" />
-              Notifications
-            </TabsTrigger>
-          </TabsList>
-
           <TabsContent value="dashboard" className="mt-0">
             <DashboardTab
               onJumpToRedemptions={jumpToRedemptions}
