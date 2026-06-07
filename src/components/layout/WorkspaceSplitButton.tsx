@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,6 +22,7 @@ function resolveConfig(
   pathname: string,
   navigate: ReturnType<typeof useNavigate>,
   setRecordOpen: (open: boolean) => void,
+  searchParams: URLSearchParams,
 ): SplitConfig | null {
   if (
     pathname.startsWith('/sales') ||
@@ -42,23 +43,26 @@ function resolveConfig(
     };
   }
   if (pathname.startsWith('/services')) {
+    const tab = searchParams.get('tab') ?? 'service-jobs';
+
+    if (tab === 'trade-ins') {
+      return {
+        primaryLabel: '+ Log Trade-In',
+        primaryAction: () => {
+          navigate('/services?tab=trade-ins');
+          setTimeout(() => window.dispatchEvent(new CustomEvent('open-trade-in-dialog')), 150);
+        },
+        dropdownItems: [],
+      };
+    }
+
     return {
       primaryLabel: '+ New Job',
       primaryAction: () => {
         navigate('/services?tab=service-jobs');
         setTimeout(() => window.dispatchEvent(new CustomEvent('open-new-service-job')), 150);
       },
-      dropdownItems: [
-        {
-          label: 'Log Trade-In',
-          action: () => {
-            navigate('/services?tab=trade-ins');
-            setTimeout(() => {
-              window.dispatchEvent(new CustomEvent('open-trade-in-dialog'));
-            }, 150);
-          },
-        },
-      ],
+      dropdownItems: [],
     };
   }
   if (pathname.startsWith('/customers')) {
@@ -87,9 +91,12 @@ function resolveConfig(
 export default function WorkspaceSplitButton() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [recordOpen, setRecordOpen] = useState(false);
-  const config = resolveConfig(pathname, navigate, setRecordOpen);
+  const config = resolveConfig(pathname, navigate, setRecordOpen, searchParams);
   if (!config) return null;
+
+  const hasDropdown = config.dropdownItems.length > 0;
 
   return (
     <>
@@ -97,31 +104,37 @@ export default function WorkspaceSplitButton() {
         <Button
           type="button"
           onClick={config.primaryAction}
-          className="h-10 rounded-r-none bg-primary text-primary-foreground hover:bg-primary/90"
+          className={
+            hasDropdown
+              ? 'h-10 rounded-r-none bg-primary text-primary-foreground hover:bg-primary/90'
+              : 'h-10 bg-primary text-primary-foreground hover:bg-primary/90'
+          }
         >
           {config.primaryLabel}
         </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              className="h-10 rounded-l-none border-l border-primary-foreground/20 bg-primary px-2 text-primary-foreground hover:bg-primary/90"
-              aria-label="More actions"
-            >
-              <ChevronDown className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {config.dropdownItems.map((item) => (
-              <DropdownMenuItem
-                key={item.label}
-                onSelect={item.action}
+        {hasDropdown && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                className="h-10 rounded-l-none border-l border-primary-foreground/20 bg-primary px-2 text-primary-foreground hover:bg-primary/90"
+                aria-label="More actions"
               >
-                {item.label}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {config.dropdownItems.map((item) => (
+                <DropdownMenuItem
+                  key={item.label}
+                  onSelect={item.action}
+                >
+                  {item.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
       <RecordPaymentModal open={recordOpen} onOpenChange={setRecordOpen} />
     </>
