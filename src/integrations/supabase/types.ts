@@ -600,9 +600,6 @@ export type Database = {
           messenger_link: string | null
           mobile_number: string | null
           notes: string | null
-          portal_pin_attempts: number | null
-          portal_pin_hash: string | null
-          portal_pin_locked_until: string | null
           postal_code: string | null
           preferred_contact_method: string | null
           setup_link_sent_at: string | null
@@ -627,9 +624,6 @@ export type Database = {
           messenger_link?: string | null
           mobile_number?: string | null
           notes?: string | null
-          portal_pin_attempts?: number | null
-          portal_pin_hash?: string | null
-          portal_pin_locked_until?: string | null
           postal_code?: string | null
           preferred_contact_method?: string | null
           setup_link_sent_at?: string | null
@@ -654,9 +648,6 @@ export type Database = {
           messenger_link?: string | null
           mobile_number?: string | null
           notes?: string | null
-          portal_pin_attempts?: number | null
-          portal_pin_hash?: string | null
-          portal_pin_locked_until?: string | null
           postal_code?: string | null
           preferred_contact_method?: string | null
           setup_link_sent_at?: string | null
