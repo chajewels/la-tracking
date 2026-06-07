@@ -1,5 +1,13 @@
 ## SYSTEM STATUS (as of 2026-05-16)
 
+### Three scanner-flagged functions gated (2026-06-07, commit `b1e41d3`, deployed same day)
+
+  `get-page365-order` — user JWT + `user_roles` gate (same class
+  as `system-health-check`). `sync-loyalty-to-sheet` — service-role
+  claims gate. `append-cash-receipt` — service-role claims gate.
+  `verify_jwt = true` added for all three in `config.toml`. Total
+  `verify_jwt = true`: **16 functions**. See FIXED-BUGS #174.
+
 ### Trade-In Tracker added — `/services?tab=trade-ins` (2026-06-06)
 
   Second tab under the existing `/services` page. Hub-native,

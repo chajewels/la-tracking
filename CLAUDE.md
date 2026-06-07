@@ -791,12 +791,26 @@ When completing a partially_paid month:
       Root-caused as Bug #170 (2026-06-06, commit `28bc07e`,
       deployed 2026-06-06 09:15 UTC).
 
+    Service-role-only functions using this claims gate (added
+    2026-06-07, commit `b1e41d3`): `sync-loyalty-to-sheet` —
+    callers are loyalty edge functions (`adjust-loyalty-points`,
+    `award-loyalty-points`, `loyalty-inactivity-check`,
+    `loyalty-sheet-reconcile`, `process-loyalty-redemption`) +
+    `customer-portal`; all send `Bearer` env service role key.
+    `append-cash-receipt` — caller is `review-payment-submission`
+    (internal only). Both also `verify_jwt = true` in
+    `supabase/config.toml`.
+
     User-permission-gated edge functions (staff frontend callers
     only, no service-role path): `fix-account-status` — requires
     valid user JWT + `hasPermission(user.id, 'system_health')`.
     `system-health-check` — requires valid user JWT + `user_roles`
-    IN (`admin`, `staff`, `finance`, `csr`). Never reintroduce an
-    `isInternalKey` or anon-key bypass on either.
+    IN (`admin`, `staff`, `finance`, `csr`).
+    `get-page365-order` — requires valid user JWT + `user_roles`
+    IN (`admin`, `staff`, `finance`, `csr`). Only caller:
+    `InvoiceGeneratorSheet.tsx` (`invoke`).
+    Never reintroduce an `isInternalKey` or anon-key bypass on
+    any of these.
 
 ## DISPLAY RULES (permanent)
 
