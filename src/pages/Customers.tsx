@@ -20,6 +20,8 @@ import EditCustomerDialog from '@/components/customers/EditCustomerDialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
+import WorkspaceToolbar from '@/components/layout/WorkspaceToolbar';
+import WorkspaceSplitButton from '@/components/layout/WorkspaceSplitButton';
 
 type ViewMode = 'all' | 'filter' | 'grouped';
 type TabKey = 'customers' | 'accounts' | 'cash';
@@ -247,17 +249,15 @@ export default function Customers() {
 
           <TabsContent value="customers" className="mt-5 space-y-5">
 
-        {/* Search + View Toggle */}
+        <WorkspaceToolbar
+          searchValue={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="Search customers..."
+          splitButton={<WorkspaceSplitButton />}
+        />
+
+        {/* View Toggle */}
         <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={handleSearchChange}
-              placeholder="Search by name, code, or Facebook…"
-              className="pl-9 bg-card border-border"
-            />
-          </div>
           <div className="flex items-center gap-1 p-1 rounded-lg bg-card border border-border">
             {([
               { mode: 'all' as ViewMode, icon: LayoutGrid, label: 'All' },
@@ -282,6 +282,7 @@ export default function Customers() {
             ))}
           </div>
         </div>
+
 
         {/* Alphabet Nav */}
         <AlphabetNav
