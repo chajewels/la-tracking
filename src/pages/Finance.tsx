@@ -32,8 +32,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { Link, useSearchParams } from 'react-router-dom';
 import PaymentVault from './PaymentVault';
 import PaymentTrackingReport from '@/components/finance/PaymentTrackingReport';
-import WorkspaceToolbar from '@/components/layout/WorkspaceToolbar';
-import WorkspaceSplitButton from '@/components/layout/WorkspaceSplitButton';
 
 const MemoPaymentVault = memo(PaymentVault);
 import {
@@ -104,7 +102,6 @@ export default function Finance() {
   // ── Collections tab state ──
   const [selectedCard, setSelectedCard] = useState<{ key: string; label: string; count: number } | null>(null);
   const [drillSearch, setDrillSearch] = useState('');
-  const [pageSearch, setPageSearch] = useState('');
 
   const { data: forecastSchedule, isLoading: forecastLoading } = useQuery({
     queryKey: ['collections-forecast-6m', format(new Date(), 'yyyy-MM-dd')],
@@ -554,13 +551,6 @@ export default function Finance() {
   return (
     <AppLayout>
       <div className="animate-fade-in space-y-6">
-        <WorkspaceToolbar
-          searchValue={pageSearch}
-          onSearchChange={setPageSearch}
-          searchPlaceholder="Search..."
-          splitButton={<WorkspaceSplitButton />}
-        />
-
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
             <DollarSign className="h-5 w-5 text-primary" />

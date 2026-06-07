@@ -21,8 +21,6 @@ import { useExtensionRequestCount } from '@/hooks/useExtensionRequestCount';
 import { supabase } from '@/integrations/supabase/client';
 import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
-import WorkspaceToolbar from '@/components/layout/WorkspaceToolbar';
-import WorkspaceSplitButton from '@/components/layout/WorkspaceSplitButton';
 import {
   Dialog,
   DialogContent,
@@ -67,7 +65,6 @@ export default function Monitoring() {
   const [sending, setSending] = useState(false);
   const [messengerDialog, setMessengerDialog] = useState<{ alert: AlertItem; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
-  const [search, setSearch] = useState('');
 
   type MonitoringTabKey = 'alerts' | 'reminders' | 'extensions' | 'notifications' | 'audit';
   const isMonitoringTab = (v: string | null): v is MonitoringTabKey =>
@@ -512,12 +509,6 @@ export default function Monitoring() {
   return (
     <AppLayout>
       <div className="animate-fade-in space-y-6">
-        <WorkspaceToolbar
-          searchValue={search}
-          onSearchChange={setSearch}
-          searchPlaceholder="Search..."
-          splitButton={<WorkspaceSplitButton />}
-        />
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">

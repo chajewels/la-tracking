@@ -11,8 +11,6 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
-import WorkspaceToolbar from '@/components/layout/WorkspaceToolbar';
-import WorkspaceSplitButton from '@/components/layout/WorkspaceSplitButton';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -136,8 +134,6 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 export default function Promotions() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  // UI-only — wiring into per-tab filters is a follow-up task.
-  const [search, setSearch] = useState('');
 
   type PromotionsTabKey = 'promos' | 'categories' | 'announcements';
   const PROMOTIONS_TABS: PromotionsTabKey[] = ['promos', 'categories', 'announcements'];
@@ -681,13 +677,6 @@ export default function Promotions() {
             </Button>
           )}
         </div>
-
-        <WorkspaceToolbar
-          searchValue={search}
-          onSearchChange={setSearch}
-          searchPlaceholder="Search promotions..."
-          splitButton={<WorkspaceSplitButton />}
-        />
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as 'promos' | 'categories' | 'announcements')} className="w-full">
           <TabsContent value="promos" className="mt-4">
