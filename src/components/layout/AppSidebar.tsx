@@ -17,6 +17,7 @@ import {
   ChevronRight,
   HelpCircle,
   Wrench,
+  ShoppingBag,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
@@ -57,44 +58,39 @@ type MenuItem = {
   permPath?: string;
 };
 
-const menuItems: MenuItem[] = [
+type CategoryHeader = {
+  type: 'category';
+  label: string;
+};
+
+const sidebarItems: (CategoryHeader | MenuItem)[] = [
   { label: 'Dashboard', icon: LayoutDashboard, path: ROUTES.DASHBOARD },
+  { label: 'Executive Dashboard', icon: BarChart3, path: ROUTES.EXECUTIVE_DASHBOARD, adminOnly: true },
+
+  { type: 'category', label: 'Business' },
+
   {
-    label: 'Customers', icon: Users, parentPath: ROUTES.CUSTOMERS,
+    label: 'Sales', icon: ShoppingBag, parentPath: ROUTES.SALES,
     children: [
-      { label: 'All Customers', tab: 'customers' },
-      { label: 'Layaway', tab: 'accounts' },
       { label: 'Cash', tab: 'cash' },
+      { label: 'Layaway', tab: 'layaway' },
+      { label: 'Payments', tab: 'payments' },
+      { label: 'Waivers', tab: 'waivers' },
     ],
   },
-  { label: 'Services', icon: Wrench, parentPath: ROUTES.SERVICES, permPath: ROUTES.SERVICES,
+  {
+    label: 'Services', icon: Wrench, parentPath: ROUTES.SERVICES, permPath: ROUTES.SERVICES,
     children: [
       { label: 'Service Jobs', tab: 'service-jobs' },
       { label: 'Trade-Ins', tab: 'trade-ins' },
     ],
   },
   {
-    label: 'CSR Monitoring', icon: Bell, parentPath: ROUTES.MONITORING,
+    label: 'Customers', icon: Users, parentPath: ROUTES.CUSTOMERS,
     children: [
-      { label: 'CSR Alerts', tab: 'alerts' },
-      { label: 'Smart Reminders', tab: 'reminders' },
-      { label: 'Extensions', tab: 'extensions', badgeKey: 'monitoring_extensions' },
-      { label: 'Notifications', tab: 'notifications' },
-      { label: 'Audit', tab: 'audit' },
+      { label: 'Directory', tab: 'customers' },
     ],
   },
-  {
-    label: 'Finance', icon: Wallet, parentPath: ROUTES.FINANCE,
-    children: [
-      { label: 'Overview', tab: 'overview' },
-      { label: 'Analytics', tab: 'analytics', permFilter: (can) => can('view_analytics') },
-      { label: 'Collections', tab: 'collections', permFilter: (can) => can('view_collections') },
-      { label: 'Payment Tracking', tab: 'tracking', permFilter: (can) => can('admin_settings') },
-      { label: 'Documentation', tab: 'docs', badgeKey: 'finance_docs', permFilter: (can) => can('view_submissions') },
-      { label: 'Vault', tab: 'vault', permFilter: (can) => can('admin_settings') },
-    ],
-  },
-  { label: 'Executive Dashboard', icon: BarChart3, path: ROUTES.EXECUTIVE_DASHBOARD, adminOnly: true },
   {
     label: 'Promotions', icon: Megaphone, parentPath: ROUTES.PROMOTIONS,
     children: [
@@ -108,16 +104,41 @@ const menuItems: MenuItem[] = [
     children: [
       { label: 'Dashboard', tab: 'dashboard' },
       { label: 'Members', tab: 'members' },
-      { label: 'Redemptions', tab: 'redemptions', badgeKey: 'loyalty_redemptions' },
-      { label: 'Beta Whitelist', tab: 'beta' },
       { label: 'Tiers', tab: 'tiers' },
+      { label: 'Rewards', tab: 'rewards' },
+      { label: 'Redemptions', tab: 'redemptions', badgeKey: 'loyalty_redemptions' },
+      { label: 'Transactions', tab: 'transactions' },
+      { label: 'Banners', tab: 'banners' },
+      { label: 'Beta Whitelist', tab: 'beta' },
+      { label: 'Notifications', tab: 'notifications' },
       { label: 'Settings', tab: 'settings' },
       { label: 'Audit Log', tab: 'audit' },
-      { label: 'Transactions', tab: 'transactions' },
-      { label: 'Promotions', tab: 'promotions' },
-      { label: 'Rewards', tab: 'rewards' },
-      { label: 'Banners', tab: 'banners' },
+    ],
+  },
+
+  { type: 'category', label: 'Accounting' },
+
+  {
+    label: 'Finance', icon: Wallet, parentPath: ROUTES.FINANCE,
+    children: [
+      { label: 'Overview', tab: 'overview' },
+      { label: 'Analytics', tab: 'analytics', permFilter: (can) => can('view_analytics') },
+      { label: 'Payment Tracking', tab: 'tracking', permFilter: (can) => can('admin_settings') },
+      { label: 'Collections', tab: 'collections', permFilter: (can) => can('view_collections') },
+      { label: 'Vault', tab: 'vault', permFilter: (can) => can('admin_settings') },
+    ],
+  },
+
+  { type: 'category', label: 'System & Admin' },
+
+  {
+    label: 'CSR Operations', icon: Bell, parentPath: ROUTES.MONITORING,
+    children: [
+      { label: 'CSR Alerts', tab: 'alerts' },
+      { label: 'Smart Reminders', tab: 'reminders' },
+      { label: 'Extensions', tab: 'extensions', badgeKey: 'monitoring_extensions' },
       { label: 'Notifications', tab: 'notifications' },
+      { label: 'Audit', tab: 'audit' },
     ],
   },
   {
@@ -133,6 +154,10 @@ const menuItems: MenuItem[] = [
   { label: 'Admin Audit', icon: ScrollText, path: ROUTES.ADMIN_ACTIVITY, adminOnly: true },
   { label: 'Help', icon: HelpCircle, path: '/help' },
 ];
+
+function isCategory(item: CategoryHeader | MenuItem): item is CategoryHeader {
+  return (item as CategoryHeader).type === 'category';
+}
 
 export default function AppSidebar() {
   const location = useLocation();
