@@ -6,6 +6,71 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// ---------------------------------------------------------------------------
+// Hashing helpers — PBKDF2 via Deno's built-in crypto.subtle (no external deps)
+// Stored format: "pbkdf2:<32-char-salt-hex>:<64-char-hash-hex>"
+// Legacy format: 64-char SHA-256 hex (no prefix) — migrated on next successful login
+// ---------------------------------------------------------------------------
+
+async function hashPinPbkdf2(pin: string, saltBytes?: Uint8Array): Promise<string> {
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(String(pin)),
+    { name: "PBKDF2" },
+    false,
+    ["deriveBits"],
+  );
+  const salt = saltBytes ?? crypto.getRandomValues(new Uint8Array(16));
+  const derivedBits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+    keyMaterial,
+    256,
+  );
+  const saltHex = Array.from(salt).map((b) => b.toString(16).padStart(2, "0")).join("");
+  const hashHex = Array.from(new Uint8Array(derivedBits))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return `pbkdf2:${saltHex}:${hashHex}`;
+}
+
+async function verifyPinPbkdf2(pin: string, stored: string): Promise<boolean> {
+  const parts = stored.split(":");
+  if (parts.length !== 3 || parts[0] !== "pbkdf2") return false;
+  const salt = new Uint8Array(
+    parts[1].match(/.{2}/g)!.map((b) => parseInt(b, 16)),
+  );
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(String(pin)),
+    { name: "PBKDF2" },
+    false,
+    ["deriveBits"],
+  );
+  const derivedBits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+    keyMaterial,
+    256,
+  );
+  const hashHex = Array.from(new Uint8Array(derivedBits))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return hashHex === parts[2];
+}
+
+// Legacy SHA-256 verifier (for migration only — never used to create new hashes)
+async function verifySha256(pin: string, storedHash: string): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const buf = await crypto.subtle.digest("SHA-256", encoder.encode(String(pin)));
+  const hex = Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return hex === storedHash;
+}
+
+// ---------------------------------------------------------------------------
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -23,13 +88,13 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 1. Resolve customer via portal token, session_id, or Bearer JWT
+    // 1. Resolve customer
     let customerId: string;
     try {
       const auth = await resolvePortalAuth(supabase, {
         token,
         session_id,
-        authHeader: req.headers.get('Authorization'),
+        authHeader: req.headers.get("Authorization"),
       });
       customerId = auth.customer_id;
     } catch (err: any) {
@@ -53,26 +118,16 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 3. Auto-set default PIN from last 4 digits of mobile_number
+    // 3. Auto-set default PIN from last 4 digits of mobile_number — PBKDF2 from the start
     if (!customer.portal_pin_hash) {
-      const digits = (customer.mobile_number || '').replace(/\D/g, '');
-      const defaultPin = digits.length >= 4 ? digits.slice(-4) : '0000';
-
-      // Use Web Crypto API (available in Deno) to hash the PIN
-      const encoder = new TextEncoder();
-      const data = encoder.encode(defaultPin);
-      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const defaultHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      const digits = (customer.mobile_number || "").replace(/\D/g, "");
+      const defaultPin = digits.length >= 4 ? digits.slice(-4) : "0000";
+      const defaultHash = await hashPinPbkdf2(defaultPin);
 
       await supabase
-        .from('customers')
-        .update({
-          portal_pin_hash: defaultHash,
-          portal_pin_attempts: 0,
-          portal_pin_locked_until: null
-        })
-        .eq('id', customer.id);
+        .from("customers")
+        .update({ portal_pin_hash: defaultHash, portal_pin_attempts: 0, portal_pin_locked_until: null })
+        .eq("id", customer.id);
       customer.portal_pin_hash = defaultHash;
     }
 
@@ -88,20 +143,31 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 5. Verify PIN (SHA-256 compare)
-    const encoder = new TextEncoder();
-    const pinData = encoder.encode(String(pin));
-    const pinHashBuffer = await crypto.subtle.digest('SHA-256', pinData);
-    const pinHashArray = Array.from(new Uint8Array(pinHashBuffer));
-    const pinHash = pinHashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    const isMatch = pinHash === customer.portal_pin_hash;
+    // 5. Verify PIN — with lazy migration from SHA-256 → PBKDF2
+    const isLegacyFormat = !customer.portal_pin_hash.startsWith("pbkdf2:");
+    let isMatch: boolean;
+
+    if (isLegacyFormat) {
+      // Legacy SHA-256 path — verify once, then silently re-hash if correct
+      isMatch = await verifySha256(pin, customer.portal_pin_hash);
+      if (isMatch) {
+        // Migrate to PBKDF2 immediately on successful login
+        const newHash = await hashPinPbkdf2(pin);
+        await supabase
+          .from("customers")
+          .update({ portal_pin_hash: newHash })
+          .eq("id", customer.id);
+        customer.portal_pin_hash = newHash;
+      }
+    } else {
+      isMatch = await verifyPinPbkdf2(pin, customer.portal_pin_hash);
+    }
 
     if (!isMatch) {
       const nextAttempts = (customer.portal_pin_attempts ?? 0) + 1;
       const updatePayload: Record<string, any> = { portal_pin_attempts: nextAttempts };
       if (nextAttempts >= 3) {
-        const lockUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-        updatePayload.portal_pin_locked_until = lockUntil;
+        updatePayload.portal_pin_locked_until = new Date(Date.now() + 30 * 60 * 1000).toISOString();
       }
       await supabase.from("customers").update(updatePayload).eq("id", customer.id);
 
