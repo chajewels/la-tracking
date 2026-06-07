@@ -13,12 +13,25 @@ import WorkspaceSplitButton from '@/components/layout/WorkspaceSplitButton';
 
 type TabKey = 'submissions' | 'proofs' | 'waivers';
 
-export default function PaymentsHub({ embedded = false }: { embedded?: boolean } = {}) {
+interface PaymentsHubProps {
+  embedded?: boolean;
+  searchValue?: string;
+}
+
+export default function PaymentsHub({ embedded = false, searchValue }: PaymentsHubProps = {}) {
   const { count: pendingWaivers } = useWaiverRequestCount();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab: TabKey = (['proofs', 'waivers'].includes(searchParams.get('tab') || '') ? searchParams.get('tab') as TabKey : 'submissions');
   const [tab, setTab] = useState<TabKey>(initialTab);
   const [search, setSearch] = useState('');
+
+  // When embedded, mirror the parent's search value into the local
+  // search state so PaymentSubmissions sees the same query.
+  useEffect(() => {
+    if (embedded && searchValue !== undefined) {
+      setSearch(searchValue);
+    }
+  }, [embedded, searchValue]);
 
   useEffect(() => {
     if (embedded) return;

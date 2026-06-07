@@ -103,7 +103,7 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
             <MemoAccountList embedded searchValue={tab === 'layaway' ? search : ''} exportRef={layawayExportRef} />
           </TabsContent>
           <TabsContent value="payments" className="mt-5">
-            <MemoPaymentsHub embedded />
+            <MemoPaymentsHub embedded searchValue={tab === 'payments' ? search : ''} />
           </TabsContent>
           <TabsContent value="waivers" className="mt-5">
             <MemoWaivers embedded />
