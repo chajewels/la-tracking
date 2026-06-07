@@ -812,6 +812,30 @@ When completing a partially_paid month:
     Never reintroduce an `isInternalKey` or anon-key bypass on
     any of these.
 
+    `verify-portal-pin` — public-facing endpoint, **no**
+    `verify_jwt = true` (intentional). Auth handled internally
+    by `resolvePortalAuth`. PIN hashing: PBKDF2-SHA256, 100,000
+    iterations, 16-byte salt, format
+    `pbkdf2:{saltHex}:{hashHex}`. Legacy SHA-256 hashes migrate
+    on next successful login (lazy migration). NEVER revert to
+    SHA-256.
+
+    `customers` table column-level grant (added 2026-06-07,
+    Bug #177): `portal_pin_hash`, `portal_pin_attempts`,
+    `portal_pin_locked_until` are EXCLUDED from the SELECT
+    grant for `authenticated`. Only `service_role` can read
+    these columns. Postgres RLS is row-level only and cannot
+    restrict columns, so the grant model is the only enforcement
+    layer. Do not add these columns back to the column-level
+    `GRANT` to `authenticated`.
+
+    `fix-account-totals` — service-role-only gate. No frontend
+    or edge-function callers. Manually-triggered admin utility
+    that rewrites `total_paid`, `remaining_balance`, schedule
+    `paid_amount`, and allocation records across active accounts;
+    must stay behind the service-role claims gate +
+    `verify_jwt = true`.
+
 ## DISPLAY RULES (permanent)
 
   ALL schedule display reads from schedule_with_actuals view

@@ -1,3 +1,27 @@
+### `portal_pin_hash` column SELECT revoked from `authenticated` (2026-06-07, SQL only)
+
+  `REVOKE SELECT ON public.customers FROM authenticated` +
+  column-level `GRANT` restoring all columns except
+  `portal_pin_hash`, `portal_pin_attempts`,
+  `portal_pin_locked_until`. Edge functions unaffected
+  (`service_role` bypasses column-level grants). Verified via
+  `information_schema.column_privileges`. See FIXED-BUGS #177.
+
+### `verify-portal-pin`: SHA-256 → PBKDF2 (2026-06-07, commit `6086c0f`, deployed same day)
+
+  Portal PIN hashing upgraded from unsalted SHA-256 to
+  PBKDF2-SHA256 (100,000 iterations, 16-byte salt). Stored
+  format: `pbkdf2:{saltHex}:{hashHex}`. Legacy hashes migrate
+  silently on next successful login. Default PIN auto-set also
+  uses PBKDF2. See FIXED-BUGS #176.
+
+### `fix-account-totals` gated (2026-06-07, commit `725afc8`, deployed same day)
+
+  Bulk account-totals repair utility had no inbound auth gate.
+  Service-role claims gate added + `verify_jwt = true`.
+  Confirmed 401 via `curl`. `verify_jwt = true` total:
+  **17 functions**. See FIXED-BUGS #175.
+
 ## 2026-06-07 — v1.1.0
 
 ### Features shipped
