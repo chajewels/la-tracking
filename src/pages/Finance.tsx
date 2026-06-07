@@ -24,30 +24,26 @@ import { useAccounts, useCustomers, usePayments, useDashboardSummary } from '@/h
 import { toJpy } from '@/lib/currency-converter';
 import { computeCollectionStats, todayStr } from '@/lib/business-rules';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
-import { usePendingSubmissionCount } from '@/hooks/use-pending-submissions';
 
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Link, useSearchParams } from 'react-router-dom';
-import PaymentsHub from './PaymentsHub';
 import PaymentVault from './PaymentVault';
 import PaymentTrackingReport from '@/components/finance/PaymentTrackingReport';
 import WorkspaceToolbar from '@/components/layout/WorkspaceToolbar';
 import WorkspaceSplitButton from '@/components/layout/WorkspaceSplitButton';
 
-const MemoPaymentsHub = memo(PaymentsHub);
 const MemoPaymentVault = memo(PaymentVault);
 import {
   assessRisk, predictCompletion, assessCLV, riskStyles,
 } from '@/lib/business-rules';
 
 export default function Finance() {
-  const { data: pendingSubmissions } = usePendingSubmissionCount();
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
-  type FinanceTabKey = 'overview' | 'analytics' | 'collections' | 'tracking' | 'docs' | 'vault';
-  const FINANCE_TABS: FinanceTabKey[] = ['overview', 'analytics', 'collections', 'tracking', 'docs', 'vault'];
+  type FinanceTabKey = 'overview' | 'analytics' | 'collections' | 'tracking' | 'vault';
+  const FINANCE_TABS: FinanceTabKey[] = ['overview', 'analytics', 'collections', 'tracking', 'vault'];
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTabState] = useState<FinanceTabKey>(() => {
     const urlTab = searchParams.get('tab') as FinanceTabKey | null;
@@ -76,17 +72,14 @@ export default function Finance() {
   const showAnalytics = can('view_analytics');
   const showCollections = can('view_collections');
   const showTracking = can('admin_settings');
-  const showDocs = can('view_submissions');
   const showVault = can('admin_settings');
-  const visibleTabCount = 1 + (showAnalytics ? 1 : 0) + (showCollections ? 1 : 0) + (showTracking ? 1 : 0) + (showDocs ? 1 : 0) + (showVault ? 1 : 0);
 
   useEffect(() => {
     if (tab === 'analytics' && !showAnalytics) setTab('overview');
     if (tab === 'collections' && !showCollections) setTab('overview');
     if (tab === 'tracking' && !showTracking) setTab('overview');
-    if (tab === 'docs' && !showDocs) setTab('overview');
     if (tab === 'vault' && !showVault) setTab('overview');
-  }, [tab, showAnalytics, showCollections, showTracking, showDocs, showVault]);
+  }, [tab, showAnalytics, showCollections, showTracking, showVault]);
 
   const { data: summary, isLoading: summaryLoading } = useDashboardSummary(
     currencyFilter,
@@ -580,7 +573,7 @@ export default function Finance() {
         </div>
 
 
-        <Tabs value={tab} onValueChange={v => setTab(v as 'overview' | 'analytics' | 'collections' | 'tracking' | 'docs' | 'vault')} className="w-full">
+        <Tabs value={tab} onValueChange={v => setTab(v as FinanceTabKey)} className="w-full">
           {/* ═══════ Overview Tab ═══════ */}
           <TabsContent value="overview" className="mt-5 space-y-6">
             {/* KPI Cards */}
@@ -1166,15 +1159,6 @@ export default function Finance() {
           <TabsContent value="tracking" className="mt-5" tabIndex={-1}>
             {showTracking ? (
               <PaymentTrackingReport />
-            ) : (
-              <div className="text-center text-muted-foreground py-12">You don't have permission to view this section.</div>
-            )}
-          </TabsContent>
-
-          {/* ═══════ Documentation Tab ═══════ */}
-          <TabsContent value="docs" className="mt-5" tabIndex={-1}>
-            {showDocs ? (
-              <MemoPaymentsHub embedded />
             ) : (
               <div className="text-center text-muted-foreground py-12">You don't have permission to view this section.</div>
             )}

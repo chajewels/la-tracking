@@ -1,11 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import { parseLocation, LocationType } from '@/lib/countries';
 import { Users, Search, LayoutGrid, ListFilter, Layers } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
-import { Tabs, TabsContent } from '@/components/ui/tabs';
-import AccountList from './AccountList';
-import CashOrdersList from '@/components/customers/CashOrdersList';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useQuery } from '@tanstack/react-query';
@@ -24,28 +20,8 @@ import WorkspaceToolbar from '@/components/layout/WorkspaceToolbar';
 import WorkspaceSplitButton from '@/components/layout/WorkspaceSplitButton';
 
 type ViewMode = 'all' | 'filter' | 'grouped';
-type TabKey = 'customers' | 'accounts' | 'cash';
 
 export default function Customers() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const initialTab: TabKey = (() => {
-    const t = searchParams.get('tab');
-    return t === 'cash' || t === 'accounts' ? t : 'customers';
-  })();
-  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
-  useEffect(() => {
-    const t = searchParams.get('tab');
-    const next: TabKey = t === 'cash' || t === 'accounts' ? t : 'customers';
-    if (next !== activeTab) setActiveTab(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
-  const handleTabChange = useCallback((v: string) => {
-    const tab = v as TabKey;
-    setActiveTab(tab);
-    if (tab === 'customers') searchParams.delete('tab');
-    else searchParams.set('tab', tab);
-    setSearchParams(searchParams, { replace: true });
-  }, [searchParams, setSearchParams]);
   const { data: customers, isLoading } = useCustomers();
   const { data: accounts } = useAccountsLight();
 
@@ -248,8 +224,7 @@ export default function Customers() {
           </div>
         </div>
 
-        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <TabsContent value="customers" className="mt-5 space-y-5">
+        <div className="w-full mt-5 space-y-5">
 
         <WorkspaceToolbar
           searchValue={search}
@@ -375,16 +350,7 @@ export default function Customers() {
           editForm={editForm}
           setEditForm={setEditForm}
         />
-          </TabsContent>
-
-          <TabsContent value="accounts" className="mt-5">
-            <AccountList embedded searchValue={search} />
-          </TabsContent>
-
-          <TabsContent value="cash" className="mt-5">
-            <CashOrdersList embedded searchValue={search} />
-          </TabsContent>
-        </Tabs>
+        </div>
 
         <NewCustomerDialog
           open={newCustomerOpen}
