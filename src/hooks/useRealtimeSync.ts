@@ -12,6 +12,7 @@ const SYNC_TABLES = [
   'penalty_fees',
   'payment_submissions',
   'account_services',
+  'service_jobs',
 ] as const;
 
 const DEBOUNCE_MS = 250;

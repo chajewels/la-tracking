@@ -103,6 +103,71 @@ export type Database = {
           },
         ]
       }
+      service_jobs: {
+        Row: {
+          id: string
+          date_received: string
+          invoice_number: string
+          account_type: string
+          customer_id: string | null
+          service_description: string | null
+          service_fee: number | null
+          service_type: Database["public"]["Enums"]["service_type"]
+          service_status: Database["public"]["Enums"]["service_status"]
+          notes: string | null
+          estimated_completion: string | null
+          date_completed: string | null
+          updated_by: string | null
+          created_by_user_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          date_received: string
+          invoice_number: string
+          account_type: string
+          customer_id?: string | null
+          service_description?: string | null
+          service_fee?: number | null
+          service_type: Database["public"]["Enums"]["service_type"]
+          service_status?: Database["public"]["Enums"]["service_status"]
+          notes?: string | null
+          estimated_completion?: string | null
+          date_completed?: string | null
+          updated_by?: string | null
+          created_by_user_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          date_received?: string
+          invoice_number?: string
+          account_type?: string
+          customer_id?: string | null
+          service_description?: string | null
+          service_fee?: number | null
+          service_type?: Database["public"]["Enums"]["service_type"]
+          service_status?: Database["public"]["Enums"]["service_status"]
+          notes?: string | null
+          estimated_completion?: string | null
+          date_completed?: string | null
+          updated_by?: string | null
+          created_by_user_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_jobs_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       announcements: {
         Row: {
           content: string
@@ -4083,6 +4148,20 @@ export type Database = {
         | "paid"
         | "overdue"
         | "cancelled"
+      service_type:
+        | "Ring Resize"
+        | "Certificate"
+        | "Repair"
+        | "Bracelet Resize"
+        | "Polishing"
+        | "Watch Polishing"
+        | "Color Change"
+      service_status:
+        | "Process"
+        | "On-going"
+        | "Pending"
+        | "Cancelled"
+        | "Completed"
       submission_status:
         | "submitted"
         | "under_review"
@@ -4272,6 +4351,22 @@ export const Constants = {
         "paid",
         "overdue",
         "cancelled",
+      ],
+      service_type: [
+        "Ring Resize",
+        "Certificate",
+        "Repair",
+        "Bracelet Resize",
+        "Polishing",
+        "Watch Polishing",
+        "Color Change",
+      ],
+      service_status: [
+        "Process",
+        "On-going",
+        "Pending",
+        "Cancelled",
+        "Completed",
       ],
       submission_status: [
         "submitted",

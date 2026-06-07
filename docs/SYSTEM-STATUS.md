@@ -1,5 +1,51 @@
 ## SYSTEM STATUS (as of 2026-05-16)
 
+### Services Tracking — Hub-native feature live (2026-06-06)
+
+  New standalone tracker for the workshop pipeline. Hub-only —
+  **NO Google Sheet sync of any kind**.
+
+  - **Table**: `service_jobs` (already created via SQL Editor)
+    with `service_type` + `service_status` enums, RLS for
+    admin + staff only, FK to `customers`.
+  - **Route**: `/services` page (`src/pages/Services.tsx`) with
+    horizontal filter bar (status, type, updated-by, date range,
+    "Active Jobs" quick filter, "Clear filters") and a default
+    sort of `date_received DESC, created_at DESC`. Numeric
+    invoice filter (`^[0-9]+$`) applied client-side to exclude
+    test accounts.
+  - **Dialog**: `ServiceJobDialog.tsx` is the single
+    add/edit dialog. Invoice resolves against both
+    `layaway_accounts` and `cash_orders`; sets
+    `account_type='layaway'|'cash_order'` + `customer_id`
+    accordingly; blocks save on unresolved. Ring Resize size
+    parser (`+N` / `-N`) auto-fills the fee table; Certificate
+    / Polishing / Watch Polishing / Repair prefill defaults;
+    Bracelet Resize / Color Change blank.
+  - **Status side-effects**: on `On-going` set
+    `estimated_completion = date_received + 7 working days`
+    (skips Sat/Sun); on `Completed` set
+    `date_completed = getPHTToday()`; reverts to NULL when
+    status leaves `Completed`.
+  - **Customer detail surfaces**: `ServiceJobsSection.tsx`
+    rendered as a read-only section on both
+    `src/pages/AccountDetail.tsx` and
+    `src/pages/CashOrderDetail.tsx`, scoped by
+    `invoice_number`.
+  - **Realtime**: `service_jobs` added to `SYNC_TABLES` in
+    `useRealtimeSync`; new `SERVICES_KEYS` group (`services`,
+    `service-jobs`, `service-jobs-by-invoice`) folded into
+    `REALTIME_INVALIDATE_KEYS` so the list and per-account
+    surfaces auto-refresh on any insert/update.
+  - **Sidebar**: leaf entry "Services" with the `Wrench` icon,
+    placed between Customers and CSR Monitoring, gated by
+    `permPath: '/services'`.
+  - **Access control**: `view_services` + `manage_services`
+    `role_permissions` rows (admin + staff). Page perm key
+    `view_services` wired through `PAGE_PERMISSION_MAP` in
+    `PermissionsContext`. Finance + CSR roles automatically
+    hidden from both the route and the sidebar entry.
+
 ### Contract & Agreement feature removed (2026-06-06, commit `f43d938`)
 
   The Contract & Agreement signature capture feature was removed in

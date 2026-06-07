@@ -20,6 +20,7 @@ const CORE_KEYS = ['accounts', 'dashboard-summary', 'payments-with-accounts', 'c
 const PAYMENT_KEYS = ['payments', 'schedule', 'collections-upcoming-schedule', 'weekly-collections', 'aging-buckets', 'overdue-schedule', 'collections-forecast-6m', 'forecast-drilldown', 'operations-action-items', 'penalty-cap-audit'] as const;
 const MONITORING_KEYS = ['monitoring-schedules', 'csr-notifications', 'penalty-followup-alerts', 'csr-notifications-penalty'] as const;
 const SUBMISSION_KEYS = ['pending-submission-count', 'pending-submissions-summary', 'payment-submissions'] as const;
+const SERVICES_KEYS = ['services', 'service-jobs', 'service-jobs-by-invoice'] as const;
 
 // Union of all key groups — consumed by useRealtimeSync for global cross-user invalidation.
 export const REALTIME_INVALIDATE_KEYS = [
@@ -27,6 +28,7 @@ export const REALTIME_INVALIDATE_KEYS = [
   ...PAYMENT_KEYS,
   ...MONITORING_KEYS,
   ...SUBMISSION_KEYS,
+  ...SERVICES_KEYS,
   'account',
   'customer-detail',
 ] as const;

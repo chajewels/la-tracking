@@ -30,6 +30,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
 import LoyaltyTierBadge from '@/components/loyalty/LoyaltyTierBadge';
+import ServiceJobsSection from '@/components/services/ServiceJobsSection';
 
 interface CashOrderRow {
   id: string;
@@ -991,6 +992,9 @@ export default function CashOrderDetail() {
             )}
           </div>
         )}
+
+        {/* Services (service_jobs scoped to this invoice) */}
+        <ServiceJobsSection invoiceNumber={order?.invoice_number} />
 
         {/* Account Notes */}
         {(isAdmin || isFinance || isStaff) && (

@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ChevronRight,
   HelpCircle,
+  Wrench,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
@@ -66,6 +67,7 @@ const menuItems: MenuItem[] = [
       { label: 'Cash', tab: 'cash' },
     ],
   },
+  { label: 'Services', icon: Wrench, path: ROUTES.SERVICES, permPath: ROUTES.SERVICES },
   {
     label: 'CSR Monitoring', icon: Bell, parentPath: ROUTES.MONITORING,
     children: [

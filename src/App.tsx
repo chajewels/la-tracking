@@ -60,6 +60,7 @@ const ExecutiveDashboard = lazyWithRetry(() => import("./pages/ExecutiveDashboar
 const NewCashOrder = lazyWithRetry(() => import("./pages/NewCashOrder"));
 const CashOrderDetail = lazyWithRetry(() => import("./pages/CashOrderDetail"));
 const Help = lazyWithRetry(() => import("./pages/Help"));
+const Services = lazyWithRetry(() => import("./pages/Services"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -127,6 +128,7 @@ const App = () => (
                 <Route path="/accounts/:id" element={<Protected><AccountDetail /></Protected>} />
                 <Route path="/customers" element={<Protected><Customers /></Protected>} />
                 <Route path="/customers/:customerId" element={<Protected><CustomerDetail /></Protected>} />
+                <Route path="/services" element={<Protected><Services /></Protected>} />
                 <Route path="/monitoring" element={<Protected><Monitoring /></Protected>} />
                 <Route path="/finance" element={<Protected><Finance /></Protected>} />
                 <Route path="/admin-audit" element={<Protected><AdminAudit /></Protected>} />
