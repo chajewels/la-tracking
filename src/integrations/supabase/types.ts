@@ -465,6 +465,35 @@ export type Database = {
           },
         ]
       }
+      customer_pins: {
+        Row: {
+          customer_id: string
+          pin_attempts: number
+          pin_hash: string | null
+          pin_locked_until: string | null
+        }
+        Insert: {
+          customer_id: string
+          pin_attempts?: number
+          pin_hash?: string | null
+          pin_locked_until?: string | null
+        }
+        Update: {
+          customer_id?: string
+          pin_attempts?: number
+          pin_hash?: string | null
+          pin_locked_until?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_pins_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: true
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customer_portal_sessions: {
         Row: {
           created_at: string
