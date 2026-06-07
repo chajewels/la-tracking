@@ -3366,7 +3366,7 @@ export type Database = {
           date_received: string
           estimated_completion: string | null
           id: string
-          invoice_number: string
+          invoice_number: string | null
           notes: string | null
           service_description: string
           service_fee: number
@@ -3384,7 +3384,7 @@ export type Database = {
           date_received?: string
           estimated_completion?: string | null
           id?: string
-          invoice_number: string
+          invoice_number?: string | null
           notes?: string | null
           service_description: string
           service_fee?: number
@@ -3402,7 +3402,7 @@ export type Database = {
           date_received?: string
           estimated_completion?: string | null
           id?: string
-          invoice_number?: string
+          invoice_number?: string | null
           notes?: string | null
           service_description?: string
           service_fee?: number
@@ -3414,62 +3414,6 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "service_jobs_customer_id_fkey"
-            columns: ["customer_id"]
-            isOneToOne: false
-            referencedRelation: "customers"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      trade_ins: {
-        Row: {
-          id: string
-          date_trade: string
-          customer_id: string | null
-          old_invoice_number: string
-          new_invoice_number: string | null
-          item_code: string
-          item_description: string
-          trade_amount: number
-          resale_amount: number | null
-          resale_status: Database["public"]["Enums"]["resale_status"]
-          notes: string | null
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          date_trade: string
-          customer_id?: string | null
-          old_invoice_number: string
-          new_invoice_number?: string | null
-          item_code: string
-          item_description: string
-          trade_amount: number
-          resale_amount?: number | null
-          resale_status?: Database["public"]["Enums"]["resale_status"]
-          notes?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          date_trade?: string
-          customer_id?: string | null
-          old_invoice_number?: string
-          new_invoice_number?: string | null
-          item_code?: string
-          item_description?: string
-          trade_amount?: number
-          resale_amount?: number | null
-          resale_status?: Database["public"]["Enums"]["resale_status"]
-          notes?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "trade_ins_customer_id_fkey"
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
@@ -3589,6 +3533,62 @@ export type Database = {
           value?: Json
         }
         Relationships: []
+      }
+      trade_ins: {
+        Row: {
+          created_at: string
+          customer_id: string
+          date_trade: string
+          id: string
+          item_code: string
+          item_description: string
+          new_invoice_number: string | null
+          notes: string | null
+          old_invoice_number: string
+          resale_amount: number | null
+          resale_status: Database["public"]["Enums"]["resale_status"]
+          trade_amount: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          customer_id: string
+          date_trade?: string
+          id?: string
+          item_code: string
+          item_description: string
+          new_invoice_number?: string | null
+          notes?: string | null
+          old_invoice_number: string
+          resale_amount?: number | null
+          resale_status?: Database["public"]["Enums"]["resale_status"]
+          trade_amount?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          customer_id?: string
+          date_trade?: string
+          id?: string
+          item_code?: string
+          item_description?: string
+          new_invoice_number?: string | null
+          notes?: string | null
+          old_invoice_number?: string
+          resale_amount?: number | null
+          resale_status?: Database["public"]["Enums"]["resale_status"]
+          trade_amount?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trade_ins_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_permission_overrides: {
         Row: {
