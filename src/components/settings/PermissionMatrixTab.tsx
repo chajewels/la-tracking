@@ -21,12 +21,9 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
     ],
   },
   {
-    module: 'Customers & Accounts',
+    module: 'Sales',
     permissions: [
-      { key: 'view_customers', label: 'View Customers', section: 'Customers' },
-      { key: 'edit_customer', label: 'Edit Customer' },
-      { key: 'delete_customer', label: 'Delete Customer' },
-      { key: 'view_accounts', label: 'View Accounts', section: 'Accounts' },
+      { key: 'view_accounts', label: 'View Accounts', section: 'Layaway & Cash' },
       { key: 'create_account', label: 'Create Account' },
       { key: 'edit_account', label: 'Edit Account' },
       { key: 'delete_account', label: 'Delete Account' },
@@ -39,18 +36,41 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
       { key: 'confirm_payment', label: 'Confirm Payment' },
       { key: 'void_payment', label: 'Void Payment' },
       { key: 'restore_payment', label: 'Restore Payment' },
-      { key: 'add_penalty', label: 'Add Penalty', section: 'Penalties & Services' },
+      { key: 'view_submissions', label: 'View Submissions', section: 'Payment Submissions' },
+      { key: 'review_submission', label: 'Review Submission' },
+      { key: 'reject_submission', label: 'Reject Submission' },
+      { key: 'view_waivers', label: 'View Waivers', section: 'Waivers' },
+      { key: 'manage_waivers', label: 'Manage Waivers' },
+      { key: 'add_penalty', label: 'Add Penalty', section: 'Penalties' },
       { key: 'waive_penalty', label: 'Waive Penalty' },
       { key: 'apply_cap_fix', label: 'Override Penalty Cap' },
-      { key: 'add_service', label: 'Add Service' },
     ],
   },
   {
-    module: 'CSR Monitoring',
+    module: 'Customers',
     permissions: [
-      { key: 'view_monitoring', label: 'View Monitoring' },
-      { key: 'send_reminder', label: 'Send Reminders' },
-      { key: 'view_reminders', label: 'View Reminders' },
+      { key: 'view_customers', label: 'View Customers' },
+      { key: 'edit_customer', label: 'Edit Customer' },
+      { key: 'delete_customer', label: 'Delete Customer' },
+    ],
+  },
+  {
+    module: 'Services',
+    permissions: [
+      { key: 'add_service', label: 'Manage Services' },
+    ],
+  },
+  {
+    module: 'Promotions',
+    permissions: [
+      { key: 'manage_promotions', label: 'Manage Promotions' },
+      { key: 'manage_announcements', label: 'Manage Announcements' },
+    ],
+  },
+  {
+    module: 'Loyalty',
+    permissions: [
+      { key: 'view_dashboard', label: 'View Loyalty Dashboard', section: 'Loyalty Program' },
     ],
   },
   {
@@ -59,24 +79,20 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
       { key: 'view_finance', label: 'View Finance', section: 'Overview & Analytics' },
       { key: 'view_analytics', label: 'View Analytics' },
       { key: 'view_collections', label: 'View Collections' },
-      { key: 'view_submissions', label: 'View Submissions', section: 'Financial Documentation' },
-      { key: 'review_submission', label: 'Review Submission' },
-      { key: 'reject_submission', label: 'Reject Submission' },
-      { key: 'view_waivers', label: 'View Waivers' },
-      { key: 'manage_waivers', label: 'Manage Waivers' },
-      { key: 'bulk_payment_import', label: 'Bulk Payment Import', section: 'Bulk Import & Vault' },
+      { key: 'bulk_payment_import', label: 'Bulk Payment Import', section: 'Vault & Bulk Import' },
       { key: 'view_vault', label: 'View Payment Vault' },
     ],
   },
   {
-    module: 'Promotions & Announcements',
+    module: 'CSR Operations',
     permissions: [
-      { key: 'manage_promotions', label: 'Manage Promotions' },
-      { key: 'manage_announcements', label: 'Manage Announcements' },
+      { key: 'view_monitoring', label: 'View CSR Monitoring' },
+      { key: 'send_reminder', label: 'Send Reminders' },
+      { key: 'view_reminders', label: 'View Reminders' },
     ],
   },
   {
-    module: 'Admin Audit & Settings',
+    module: 'System & Admin',
     permissions: [
       { key: 'view_audit_logs', label: 'View Audit Logs', section: 'Audit' },
       { key: 'system_health', label: 'System Health Checks' },
