@@ -48,7 +48,12 @@ const TEST_INVOICES = new Set([
   'TEST-WAIVER-001', 'TEST-FORFEIT-002', 'TEST-FORFEIT-003'
 ]);
 
-const AccountList = memo(function AccountList({ embedded = false }: { embedded?: boolean } = {}) {
+interface AccountListProps {
+  embedded?: boolean;
+  searchValue?: string;
+}
+
+const AccountList = memo(function AccountList({ embedded = false, searchValue }: AccountListProps = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
   const searchRef = useRef('');
   const [filterTick, setFilterTick] = useState(0);
@@ -58,6 +63,15 @@ const AccountList = memo(function AccountList({ embedded = false }: { embedded?:
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => setFilterTick(t => t + 1), 300);
   }, []);
+
+  // External search from a parent toolbar (Sales page). When undefined,
+  // this child manages its own search via AccountSearchBar.
+  useEffect(() => {
+    if (searchValue !== undefined) {
+      searchRef.current = searchValue;
+      setFilterTick(t => t + 1);
+    }
+  }, [searchValue]);
 
   const [filterCurrency, setFilterCurrency] = useState<Currency | 'all'>('all');
   const [filterStatus, setFilterStatus] = useState<string>(searchParams.get('status') || 'all');

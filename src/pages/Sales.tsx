@@ -2,7 +2,7 @@ import { useEffect, useState, memo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ShoppingBag } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent } from '@/components/ui/tabs';
 import WorkspaceToolbar from '@/components/layout/WorkspaceToolbar';
 import WorkspaceSplitButton from '@/components/layout/WorkspaceSplitButton';
 import CashOrdersList from '@/components/customers/CashOrdersList';
@@ -77,18 +77,11 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
         />
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as SalesTabKey)} className="w-full">
-          <TabsList className="grid w-full max-w-xl grid-cols-4">
-            <TabsTrigger value="cash">Cash</TabsTrigger>
-            <TabsTrigger value="layaway">Layaway</TabsTrigger>
-            <TabsTrigger value="payments">Payments</TabsTrigger>
-            <TabsTrigger value="waivers">Waivers</TabsTrigger>
-          </TabsList>
-
           <TabsContent value="cash" className="mt-5">
-            <MemoCashOrdersList embedded />
+            <MemoCashOrdersList embedded searchValue={search} />
           </TabsContent>
           <TabsContent value="layaway" className="mt-5">
-            <MemoAccountList embedded />
+            <MemoAccountList embedded searchValue={search} />
           </TabsContent>
           <TabsContent value="payments" className="mt-5">
             <MemoPaymentsHub embedded />

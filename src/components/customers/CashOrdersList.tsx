@@ -1,4 +1,4 @@
-import { memo, useState, useMemo, useCallback, useRef, type ReactNode } from 'react';
+import { memo, useState, useMemo, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, Search, ChevronRight, ChevronLeft, Banknote } from 'lucide-react';
@@ -49,7 +49,12 @@ function useCashOrders() {
   });
 }
 
-const CashOrdersList = memo(function CashOrdersList({ embedded = false }: { embedded?: boolean } = {}) {
+interface CashOrdersListProps {
+  embedded?: boolean;
+  searchValue?: string;
+}
+
+const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchValue }: CashOrdersListProps = {}) {
   const navigate = useNavigate();
   const { roles } = useAuth();
   const { can } = usePermissions();
@@ -63,6 +68,15 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false }: { embe
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => setFilterTick(t => t + 1), 300);
   }, []);
+
+  // External search from a parent toolbar (Sales page). When undefined,
+  // this child manages its own search via the local Input.
+  useEffect(() => {
+    if (searchValue !== undefined) {
+      searchRef.current = searchValue;
+      setFilterTick(t => t + 1);
+    }
+  }, [searchValue]);
 
   const [filterStatus, setFilterStatus] = useState<CashOrderStatus>('all');
   const [filterCurrency, setFilterCurrency] = useState<Currency | 'all'>('all');

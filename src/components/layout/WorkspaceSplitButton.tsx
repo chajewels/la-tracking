@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -7,6 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import RecordPaymentModal from '@/components/payments/RecordPaymentModal';
 
 type DropdownAction = { label: string; action: () => void };
 
@@ -19,6 +21,7 @@ type SplitConfig = {
 function resolveConfig(
   pathname: string,
   navigate: ReturnType<typeof useNavigate>,
+  setRecordOpen: (open: boolean) => void,
 ): SplitConfig | null {
   if (
     pathname.startsWith('/sales') ||
@@ -34,7 +37,7 @@ function resolveConfig(
       dropdownItems: [
         { label: 'New Cash Order', action: () => navigate('/cash-orders/new') },
         { label: 'New Layaway Order', action: () => navigate('/accounts/new') },
-        { label: 'Record Payment', action: () => navigate('/sales?tab=payments') },
+        { label: 'Record Payment', action: () => setRecordOpen(true) },
       ],
     };
   }
@@ -72,39 +75,43 @@ function resolveConfig(
 export default function WorkspaceSplitButton() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  const config = resolveConfig(pathname, navigate);
+  const [recordOpen, setRecordOpen] = useState(false);
+  const config = resolveConfig(pathname, navigate, setRecordOpen);
   if (!config) return null;
 
   return (
-    <div className="flex items-center">
-      <Button
-        type="button"
-        onClick={config.primaryAction}
-        className="h-10 rounded-r-none bg-primary text-primary-foreground hover:bg-primary/90"
-      >
-        {config.primaryLabel}
-      </Button>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            className="h-10 rounded-l-none border-l border-primary-foreground/20 bg-primary px-2 text-primary-foreground hover:bg-primary/90"
-            aria-label="More actions"
-          >
-            <ChevronDown className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          {config.dropdownItems.map((item) => (
-            <DropdownMenuItem
-              key={item.label}
-              onSelect={item.action}
+    <>
+      <div className="flex items-center">
+        <Button
+          type="button"
+          onClick={config.primaryAction}
+          className="h-10 rounded-r-none bg-primary text-primary-foreground hover:bg-primary/90"
+        >
+          {config.primaryLabel}
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              className="h-10 rounded-l-none border-l border-primary-foreground/20 bg-primary px-2 text-primary-foreground hover:bg-primary/90"
+              aria-label="More actions"
             >
-              {item.label}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+              <ChevronDown className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {config.dropdownItems.map((item) => (
+              <DropdownMenuItem
+                key={item.label}
+                onSelect={item.action}
+              >
+                {item.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <RecordPaymentModal open={recordOpen} onOpenChange={setRecordOpen} />
+    </>
   );
 }
