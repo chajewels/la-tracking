@@ -48,6 +48,11 @@ export default function Services() {
     setSearchParams(params, { replace: true });
   };
 
+  // One search state per tab so a query on Service Jobs doesn't bleed
+  // into Trade-Ins (or vice versa) when the user switches tabs.
+  const [jobSearch, setJobSearch] = useState('');
+  const [tradeSearch, setTradeSearch] = useState('');
+
   return (
     <AppLayout>
       <div className="space-y-4 p-4 sm:p-6">
@@ -56,13 +61,26 @@ export default function Services() {
           <h1 className="text-xl font-semibold text-foreground">Services</h1>
         </div>
 
-        {tab === 'service-jobs' ? <ServiceJobsTab /> : <TradeInsTab />}
+        <WorkspaceToolbar
+          searchValue={tab === 'service-jobs' ? jobSearch : tradeSearch}
+          onSearchChange={tab === 'service-jobs' ? setJobSearch : setTradeSearch}
+          searchPlaceholder={tab === 'service-jobs' ? 'Search service jobs...' : 'Search trade-ins...'}
+          splitButton={<WorkspaceSplitButton />}
+        />
+
+        {tab === 'service-jobs'
+          ? <ServiceJobsTab searchValue={jobSearch} />
+          : <TradeInsTab searchValue={tradeSearch} />}
       </div>
     </AppLayout>
   );
 }
 
-function ServiceJobsTab() {
+interface ServiceJobsTabProps {
+  searchValue?: string;
+}
+
+function ServiceJobsTab({ searchValue }: ServiceJobsTabProps = {}) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('All');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('All');
   const [updatedByFilter, setUpdatedByFilter] = useState<UpdatedByFilter>('All');
@@ -84,6 +102,15 @@ function ServiceJobsTab() {
     window.addEventListener('open-new-service-job', handler);
     return () => window.removeEventListener('open-new-service-job', handler);
   }, []);
+
+  // Mirror the parent-level search into the local search state so the
+  // existing `filtered` useMemo (depending on `search`) keeps working
+  // without any other change.
+  useEffect(() => {
+    if (searchValue !== undefined) {
+      setSearch(searchValue);
+    }
+  }, [searchValue]);
 
   const { data: jobs = [], isLoading } = useQuery<ServiceJobRow[]>({
     queryKey: ['service-jobs'],
@@ -142,13 +169,6 @@ function ServiceJobsTab() {
 
   return (
     <div className="space-y-4">
-      <WorkspaceToolbar
-        searchValue={search}
-        onSearchChange={setSearch}
-        searchPlaceholder="Search service jobs..."
-        splitButton={<WorkspaceSplitButton />}
-      />
-
       {/* Filter bar */}
       <div className="rounded-xl border border-border bg-card p-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">

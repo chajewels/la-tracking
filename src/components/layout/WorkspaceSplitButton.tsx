@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import RecordPaymentModal from '@/components/payments/RecordPaymentModal';
+import { toast } from 'sonner';
 
 type DropdownAction = { label: string; action: () => void };
 
@@ -82,11 +83,11 @@ function resolveConfig(
         },
         {
           label: 'Import Customers',
-          action: () => console.log('Import — not yet built'),
+          action: () => toast.info('Customer import coming soon'),
         },
         {
           label: 'Manage Groups',
-          action: () => console.log('Manage Groups — not yet built'),
+          action: () => window.dispatchEvent(new CustomEvent('toggle-grouped-view')),
         },
       ],
     };

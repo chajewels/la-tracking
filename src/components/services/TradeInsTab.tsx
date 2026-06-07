@@ -20,7 +20,11 @@ function resaleBadgeClass(status: ResaleStatus): string {
     : 'bg-amber-500/10 text-amber-500 border-amber-500/30';
 }
 
-export default function TradeInsTab() {
+interface TradeInsTabProps {
+  searchValue?: string;
+}
+
+export default function TradeInsTab({ searchValue }: TradeInsTabProps = {}) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('All');
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
@@ -52,13 +56,21 @@ export default function TradeInsTab() {
   });
 
   const filtered = useMemo(() => {
+    const q = searchValue?.trim().toLowerCase() ?? '';
     return rows.filter((r) => {
+      if (q) {
+        const matchesSearch =
+          String(r.old_invoice_number ?? '').toLowerCase().includes(q) ||
+          String(r.customers?.full_name ?? '').toLowerCase().includes(q) ||
+          String(r.item_description ?? '').toLowerCase().includes(q);
+        if (!matchesSearch) return false;
+      }
       if (statusFilter !== 'All' && r.resale_status !== statusFilter) return false;
       if (fromDate && r.date_trade < fromDate) return false;
       if (toDate && r.date_trade > toDate) return false;
       return true;
     });
-  }, [rows, statusFilter, fromDate, toDate]);
+  }, [rows, statusFilter, fromDate, toDate, searchValue]);
 
   const clearFilters = () => {
     setStatusFilter('All');

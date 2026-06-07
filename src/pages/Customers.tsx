@@ -64,6 +64,16 @@ export default function Customers() {
     setPage(0);
   }, [search, viewMode, activeLetter]);
 
+  // Listen for the WorkspaceSplitButton "Manage Groups" action — toggles
+  // the directory between grouped view and the default `all` cards view.
+  useEffect(() => {
+    const handler = () => {
+      setViewMode(prev => prev === 'grouped' ? 'all' : 'grouped');
+    };
+    window.addEventListener('toggle-grouped-view', handler);
+    return () => window.removeEventListener('toggle-grouped-view', handler);
+  }, []);
+
   // New-customer dialog state — opened via the WorkspaceSplitButton
   // dispatching the `open-new-customer-dialog` CustomEvent.
   const [newCustomerOpen, setNewCustomerOpen] = useState(false);
