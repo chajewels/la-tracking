@@ -129,11 +129,14 @@ export default function RecordCashPaymentDialog({
   const uploadProof = useCallback(async (): Promise<string | null> => {
     if (!proofFile) return null;
     const ext = (proofFile.name.split('.').pop() || 'jpg').toLowerCase();
-    const fileName = `${safeForFilename(customerName)}_${safeForFilename(cashOrder.invoice_number)}_Cash_${paymentDate}.${ext}`;
+    // Bug #178: append Date.now() suffix to guarantee uniqueness when
+    // same customer + invoice + cash + date is uploaded multiple times.
+    // See docs/FIXED-BUGS.md.
+    const fileName = `${safeForFilename(customerName)}_${safeForFilename(cashOrder.invoice_number)}_Cash_${paymentDate}_${Date.now().toString(36)}.${ext}`;
     const storagePath = `${cashOrder.id}/${fileName}`;
     const { error: uploadErr } = await supabase.storage
       .from('payment-proofs')
-      .upload(storagePath, proofFile, { cacheControl: '3600', upsert: true });
+      .upload(storagePath, proofFile, { cacheControl: '3600', upsert: false });
     if (uploadErr) throw uploadErr;
     const { data: urlData } = supabase.storage
       .from('payment-proofs')

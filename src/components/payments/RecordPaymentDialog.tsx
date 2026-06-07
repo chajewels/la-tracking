@@ -187,12 +187,15 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
       const safeInvoice = (invoiceNumber || '').replace(/[^a-zA-Z0-9]/g, '');
       const ext = (proofFile.name.split('.').pop() || 'jpg').toLowerCase();
       const monthSegment = isDP ? 'DP' : (installmentNumber ? `Month${installmentNumber}` : 'MonthX');
-      const fileName = `${customerName}_${safeInvoice}_${monthSegment}_${paymentDate}.${ext}`;
+      // Bug #178: append Date.now() suffix to guarantee uniqueness when
+      // same customer + invoice + month/DP + date is uploaded multiple times.
+      // See docs/FIXED-BUGS.md.
+      const fileName = `${customerName}_${safeInvoice}_${monthSegment}_${paymentDate}_${Date.now().toString(36)}.${ext}`;
       const storagePath = `${accountId}/${fileName}`;
 
       const { error: uploadErr } = await supabase.storage
         .from('payment-proofs')
-        .upload(storagePath, proofFile, { cacheControl: '3600', upsert: true });
+        .upload(storagePath, proofFile, { cacheControl: '3600', upsert: false });
       if (uploadErr) throw uploadErr;
 
       const { data: urlData } = supabase.storage

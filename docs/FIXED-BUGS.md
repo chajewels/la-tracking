@@ -2301,6 +2301,34 @@ Scanner (Deep agentic scan) flagged Critical. Portal PINs were hashed with `cryp
 
 Scanner (Deep agentic scan) flagged Critical. The `customers` table SELECT RLS policy (`auth_user_id = auth.uid()`) is row-level only; Postgres RLS cannot restrict individual columns. Session-authenticated customers could `SELECT portal_pin_hash` from their own row, enabling offline cracking. Two approaches were attempted and failed before the final fix: (1) column-level `REVOKE` broke PostgREST — it generates explicit column lists internally and errors when it hits a revoked privilege; (2) `REVOKE` + `NOTIFY pgrst reload schema` also failed — PostgREST schema reload did not resolve the conflict. Final fix: created `customer_pins` table (`customer_id UUID PK → customers.id`, `pin_hash`, `pin_attempts`, `pin_locked_until`) with RLS enabled and no SELECT policy for `authenticated` — `service_role` bypasses RLS entirely so edge functions are unaffected. Migrated 303 rows from `customers`. Updated `verify-portal-pin` (commit `747d76e`, deployed) to read and write all PIN fields from `customer_pins`; `customers` is now queried for `id` and `mobile_number` only. Dropped `portal_pin_hash`, `portal_pin_attempts`, `portal_pin_locked_until` columns from `customers`. Authenticated users now have zero access to PIN data at the schema level — the columns no longer exist on `customers`, and `customer_pins` has no `authenticated` SELECT policy.
 
+### Bug #178 — Proof-of-payment filename collisions overwrote prior uploads in Storage (2026-06-07)
+
+**Symptom**: Account #19116 (Kaila Daniela Catilo) had 5 confirmed downpayment submissions on 2026-06-07. SQL inspection showed all 5 `payment_submissions.proof_url` rows stored the EXACT same string — `https://.../payment-proofs/c8d63981-.../KailaDanielaCatilo_19116_DP_2026-06-07.jpg` — with `times_this_url_appears = 5`. Only the most recently uploaded image actually existed in Supabase Storage; the prior 4 images were gone. The View Proof inline link in Payment History rendered 5 distinct buttons (one per payment, per the Bug #161 rekey), but every button signed and opened the same surviving image because the underlying `proof.url` strings were identical.
+
+**Root cause**: Three proof-upload code paths constructed filenames purely from human-readable identifiers (customer name, invoice, month/DP/Cash segment, date) with no uniqueness component:
+
+- `src/pages/CustomerPortal.tsx` L2123 — customer portal main submission upload
+- `src/components/payments/RecordPaymentDialog.tsx` L188 — staff payment recording from AccountDetail
+- `src/components/customers/RecordCashPaymentDialog.tsx` L132 — staff cash payment recording
+
+When the same customer + invoice + segment + date combination was uploaded multiple times — common for split downpayments, same-day installment-plus-penalty payments, or staff re-recording corrections — the filename was identical. The two staff paths (RecordPaymentDialog, RecordCashPaymentDialog) used `upsert: true` on the Supabase Storage `.upload()` call, which silently overwrites existing files. The customer portal path used a direct REST POST without an explicit `x-upsert` header, but Storage's behavior still produced overwrites in practice (the 5 #19116 uploads all succeeded with identical paths). Result: only the last image survived; the prior N-1 images were lost; all N submissions' `proof_url` rows pointed to the same surviving file.
+
+Two existing-correct upload paths were unaffected because they already had uniqueness:
+- `src/pages/CustomerPortal.tsx` L2660 — edit-submission flow uses `${timestamp}_${origName}` prefix
+- `src/components/portal/CashPortalPaymentDialog.tsx` L131 — cash portal uses `${Date.now()}_${invoice}_Cash` prefix
+
+`src/components/payments/MultiInvoicePaymentDialog.tsx` L348 was NOT in scope — it uses `upsert: false`, so filename collisions error out loudly rather than silently overwriting (different failure mode, lower data-loss risk).
+
+**Fix**: Two changes per broken path —
+
+1. Appended `_${Date.now().toString(36)}` to every filename in the 3 broken upload paths immediately before the extension. `Date.now().toString(36)` produces ~8 readable base-36 characters (e.g. `lo3ay7gz`), guaranteed unique for human-paced uploads, keeps the readable prefix intact for staff browsing Storage.
+
+2. Flipped `upsert: true` → `upsert: false` on the two staff `.upload()` calls (RecordPaymentDialog L195, RecordCashPaymentDialog L136). Defensive: if the timestamp suffix ever fails to produce uniqueness (theoretical same-millisecond from rapid concurrent uploads), Storage will throw an HTTP 409 instead of silently overwriting — the failure becomes visible.
+
+**Data state caveat — #19116**: The original 4 proof images for #19116's first 4 downpayment submissions are GONE from Storage, overwritten between 11:35 UTC and 13:09 UTC on 2026-06-07 when the 5 uploads happened in sequence. The 5 `payment_submissions.proof_url` rows still exist and still point to the surviving file (the 13:09 UTC upload). All 5 View Proof buttons will continue to render and open the same image until either (a) the customer re-uploads the original 4 images and staff updates each row's `proof_url` to a unique new path, or (b) the historical mismatch is accepted as documentation cost of the bug. The submissions are all `confirmed` and the payment data itself (amounts, dates, allocations) is intact and unaffected — only the proof archive lost 4 of 5 images for this account.
+
+**Going-forward consideration**: After this fix ships, no future filename collision is possible across the 3 affected paths. If perfect consistency is desired, a follow-up patch could extend the same uniqueness suffix to `MultiInvoicePaymentDialog.tsx` L348 — currently safe due to `upsert: false` but ideally aligned with the other paths' filename convention.
+
 ### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
 
   Account schedule/allocation repairs. All four accounts pass

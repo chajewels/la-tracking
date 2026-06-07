@@ -2117,7 +2117,10 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
         const safeCustomer = (customerName || 'Customer').replace(/[^a-zA-Z0-9]/g, '');
         const safeInvoice = (primaryAccountForName.invoice_number || '').replace(/[^a-zA-Z0-9]/g, '');
         const monthSegment = installmentNumber ? `Month${installmentNumber}` : 'MonthX';
-        const fileName = `${safeCustomer}_${safeInvoice}_${monthSegment}_${paymentDate}.${ext}`;
+        // Bug #178: append Date.now() suffix to guarantee uniqueness when
+        // same customer submits multiple same-day payments of the same type.
+        // See docs/FIXED-BUGS.md.
+        const fileName = `${safeCustomer}_${safeInvoice}_${monthSegment}_${paymentDate}_${Date.now().toString(36)}.${ext}`;
         const filePath = `${primaryAccountForName.id}/${fileName}`;
         try {
           const uploadRes = await fetch(
