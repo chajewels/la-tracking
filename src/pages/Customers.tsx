@@ -10,6 +10,7 @@ import { useCustomers, useAccountsLight } from '@/hooks/use-supabase-data';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
+import ImportCustomersDialog from '@/components/customers/ImportCustomersDialog';
 import AlphabetNav, { LETTERS, SPECIAL } from '@/components/customers/AlphabetNav';
 import CustomerCard from '@/components/customers/CustomerCard';
 import EditCustomerDialog from '@/components/customers/EditCustomerDialog';
@@ -77,6 +78,15 @@ export default function Customers() {
   // New-customer dialog state — opened via the WorkspaceSplitButton
   // dispatching the `open-new-customer-dialog` CustomEvent.
   const [newCustomerOpen, setNewCustomerOpen] = useState(false);
+
+  // Import customers dialog — opened via the WorkspaceSplitButton
+  // dispatching the `open-import-customers` CustomEvent.
+  const [importOpen, setImportOpen] = useState(false);
+  useEffect(() => {
+    const handler = () => setImportOpen(true);
+    window.addEventListener('open-import-customers', handler);
+    return () => window.removeEventListener('open-import-customers', handler);
+  }, []);
   useEffect(() => {
     const handler = () => setNewCustomerOpen(true);
     window.addEventListener('open-new-customer-dialog', handler);
@@ -365,6 +375,11 @@ export default function Customers() {
         <NewCustomerDialog
           open={newCustomerOpen}
           onOpenChange={setNewCustomerOpen}
+        />
+
+        <ImportCustomersDialog
+          open={importOpen}
+          onOpenChange={setImportOpen}
         />
       </div>
     </AppLayout>

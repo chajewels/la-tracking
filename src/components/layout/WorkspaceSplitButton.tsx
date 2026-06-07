@@ -9,7 +9,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import RecordPaymentModal from '@/components/payments/RecordPaymentModal';
-import { toast } from 'sonner';
 
 type DropdownAction = { label: string; action: () => void };
 
@@ -83,7 +82,7 @@ function resolveConfig(
         },
         {
           label: 'Import Customers',
-          action: () => toast.info('Customer import coming soon'),
+          action: () => window.dispatchEvent(new CustomEvent('open-import-customers')),
         },
         {
           label: 'Manage Groups',
