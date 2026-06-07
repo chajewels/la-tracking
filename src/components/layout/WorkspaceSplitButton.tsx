@@ -32,10 +32,21 @@ function resolveConfig(
     pathname.startsWith('/payments-hub') ||
     pathname.startsWith('/waivers')
   ) {
-    const tab = searchParams.get('tab');
+    const tab = searchParams.get('tab') ?? 'cash';
 
     if (tab === 'payments' || tab === 'waivers') {
       return null;
+    }
+
+    if (tab === 'cash') {
+      return {
+        primaryLabel: '+ New Cash Order',
+        primaryAction: () => navigate('/cash-orders/new'),
+        dropdownItems: [
+          { label: 'New Layaway Order', action: () => navigate('/accounts/new') },
+          { label: 'Record Payment', action: () => setRecordOpen(true) },
+        ],
+      };
     }
 
     return {
@@ -43,7 +54,6 @@ function resolveConfig(
       primaryAction: () => navigate('/accounts/new'),
       dropdownItems: [
         { label: 'New Cash Order', action: () => navigate('/cash-orders/new') },
-        { label: 'New Layaway Order', action: () => navigate('/accounts/new') },
         { label: 'Record Payment', action: () => setRecordOpen(true) },
       ],
     };
