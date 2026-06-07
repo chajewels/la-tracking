@@ -67,7 +67,12 @@ const menuItems: MenuItem[] = [
       { label: 'Cash', tab: 'cash' },
     ],
   },
-  { label: 'Services', icon: Wrench, path: ROUTES.SERVICES, permPath: ROUTES.SERVICES },
+  { label: 'Services', icon: Wrench, parentPath: ROUTES.SERVICES, permPath: ROUTES.SERVICES,
+    children: [
+      { label: 'Service Jobs', tab: 'service-jobs' },
+      { label: 'Trade-Ins', tab: 'trade-ins' },
+    ],
+  },
   {
     label: 'CSR Monitoring', icon: Bell, parentPath: ROUTES.MONITORING,
     children: [
