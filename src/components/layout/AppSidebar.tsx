@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from 'react';
 import { ROUTES } from "@/constants/routes";
-import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   LayoutDashboard,
   Wallet,
@@ -131,6 +131,7 @@ const menuItems: MenuItem[] = [
 
 export default function AppSidebar() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { profile, signOut, user } = useAuth();
   const isExecAllowed = user?.email === 'sales@chajewelsjp.com';
@@ -219,35 +220,33 @@ export default function AppSidebar() {
               return (
                 <SidebarMenuItem key={item.label} onMouseEnter={() => setExpanded({})}>
                   <SidebarMenuButton
-                    asChild
+                    onClick={() => navigate(item.path!)}
                     className={cn(
-                      'mb-1 h-11 rounded-md pl-3 pr-3 text-sm transition-all duration-200 ease-out',
+                      'mb-1 h-11 rounded-md pl-3 pr-3 text-sm transition-all duration-200 ease-out cursor-pointer',
                       isActive
                         ? 'border-l-2 border-l-primary bg-primary/10 font-medium text-primary hover:bg-primary/15 hover:text-primary'
                         : 'text-white/55 hover:bg-primary/[0.06] hover:text-white/90'
                     )}
                   >
-                    <Link to={item.path!} className="flex w-full items-center gap-2">
-                      <Icon
-                        className={cn(
-                          'h-4 w-4',
-                          isActive ? 'opacity-100 text-primary' : 'opacity-60'
-                        )}
-                      />
-                      <span className="flex-1">{item.label}</span>
-                      {(badgeCountByPath[item.path!] ?? 0) > 0 && (
-                        <span
-                          className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
-                          style={{
-                            background: 'rgba(245, 158, 11, 0.18)',
-                            color: '#F59E0B',
-                            border: '1px solid rgba(245, 158, 11, 0.35)',
-                          }}
-                        >
-                          {badgeCountByPath[item.path!]}
-                        </span>
+                    <Icon
+                      className={cn(
+                        'h-4 w-4 flex-shrink-0',
+                        isActive ? 'opacity-100 text-primary' : 'opacity-60'
                       )}
-                    </Link>
+                    />
+                    <span className="flex-1 text-left">{item.label}</span>
+                    {(badgeCountByPath[item.path!] ?? 0) > 0 && (
+                      <span
+                        className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                        style={{
+                          background: 'rgba(245, 158, 11, 0.18)',
+                          color: '#F59E0B',
+                          border: '1px solid rgba(245, 158, 11, 0.35)',
+                        }}
+                      >
+                        {badgeCountByPath[item.path!]}
+                      </span>
+                    )}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               );
