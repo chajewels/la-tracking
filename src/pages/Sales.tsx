@@ -83,7 +83,13 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
         <WorkspaceToolbar
           searchValue={search}
           onSearchChange={setSearch}
-          searchPlaceholder="Search sales..."
+          searchPlaceholder={
+            tab === 'cash' ? 'Search cash orders...' :
+            tab === 'layaway' ? 'Search layaway accounts...' :
+            tab === 'payments' ? 'Search payments...' :
+            tab === 'waivers' ? 'Search waivers...' :
+            'Search...'
+          }
           onExport={handleExport}
           showExport={tab === 'cash' || tab === 'layaway'}
           splitButton={<WorkspaceSplitButton />}

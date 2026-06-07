@@ -57,12 +57,14 @@ export default function PaymentsHub({ embedded = false }: { embedded?: boolean }
           </div>
         )}
 
-        <WorkspaceToolbar
-          searchValue={search}
-          onSearchChange={setSearch}
-          searchPlaceholder="Search payments..."
-          splitButton={<WorkspaceSplitButton />}
-        />
+        {!embedded && (
+          <WorkspaceToolbar
+            searchValue={search}
+            onSearchChange={setSearch}
+            searchPlaceholder="Search payments..."
+            splitButton={<WorkspaceSplitButton />}
+          />
+        )}
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)} className="w-full">
           <TabsList className="grid grid-cols-3 w-full max-w-md">

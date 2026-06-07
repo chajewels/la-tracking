@@ -32,6 +32,12 @@ function resolveConfig(
     pathname.startsWith('/payments-hub') ||
     pathname.startsWith('/waivers')
   ) {
+    const tab = searchParams.get('tab');
+
+    if (tab === 'payments' || tab === 'waivers') {
+      return null;
+    }
+
     return {
       primaryLabel: '+ New Account',
       primaryAction: () => navigate('/accounts/new'),
