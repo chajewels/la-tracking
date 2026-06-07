@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -28,6 +29,7 @@ export const SERVICE_TYPES = [
 export type ServiceType = typeof SERVICE_TYPES[number];
 
 export const SERVICE_STATUSES = [
+  'Logged',
   'Process',
   'On-going',
   'Pending',
@@ -35,6 +37,9 @@ export const SERVICE_STATUSES = [
   'Completed',
 ] as const;
 export type ServiceStatus = typeof SERVICE_STATUSES[number];
+
+// Pattern for Ring Resize size validation in the description.
+export const RING_RESIZE_SIZE_PATTERN = /[+-]\d+(\.\d+)?/;
 
 export const UPDATED_BY_OPTIONS = [
   'Brenda',
@@ -130,7 +135,7 @@ export default function ServiceJobDialog({
   const [serviceType, setServiceType] = useState<ServiceType | ''>('');
   const [serviceDescription, setServiceDescription] = useState<string>('');
   const [serviceFee, setServiceFee] = useState<string>('');
-  const [serviceStatus, setServiceStatus] = useState<ServiceStatus>('Process');
+  const [serviceStatus, setServiceStatus] = useState<ServiceStatus>('Logged');
   const [notes, setNotes] = useState<string>('');
   const [estimatedCompletion, setEstimatedCompletion] = useState<string>('');
   const [dateCompleted, setDateCompleted] = useState<string>('');
@@ -143,9 +148,19 @@ export default function ServiceJobDialog({
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string>('');
 
+  // Validation / interaction state
+  const [attemptedSave, setAttemptedSave] = useState(false);
+  const [descBlurred, setDescBlurred] = useState(false);
+
+  // Polishing complimentary checkbox + remembered pre-check fee
+  const [polishingComplimentary, setPolishingComplimentary] = useState(false);
+  const [polishingPreCheckFee, setPolishingPreCheckFee] = useState<string>('');
+
   // Reset on open / hydrate on edit
   useEffect(() => {
     if (!open) return;
+    setAttemptedSave(false);
+    setDescBlurred(false);
     if (isEdit && initialJob) {
       setDateReceived(initialJob.date_received);
       setInvoiceNumber(initialJob.invoice_number);
@@ -161,13 +176,20 @@ export default function ServiceJobDialog({
       setCustomerId(initialJob.customer_id);
       setCustomerName(initialJob.customers?.full_name ?? '');
       setResolveError('');
+      // Pre-check complimentary if the saved record is a free Polishing.
+      const isFreePolish =
+        initialJob.service_type === 'Polishing' &&
+        initialJob.service_fee != null &&
+        Math.round(Number(initialJob.service_fee)) === 0;
+      setPolishingComplimentary(isFreePolish);
+      setPolishingPreCheckFee('');
     } else {
       setDateReceived(getPHTToday());
       setInvoiceNumber('');
       setServiceType('');
       setServiceDescription('');
       setServiceFee('');
-      setServiceStatus('Process');
+      setServiceStatus('Logged');
       setNotes('');
       setEstimatedCompletion('');
       setDateCompleted('');
@@ -176,6 +198,8 @@ export default function ServiceJobDialog({
       setCustomerId(null);
       setCustomerName('');
       setResolveError('');
+      setPolishingComplimentary(false);
+      setPolishingPreCheckFee('');
     }
   }, [open, isEdit, initialJob]);
 
@@ -237,10 +261,10 @@ export default function ServiceJobDialog({
   };
 
   // Service Type → fee auto-fill
-  const applyServiceTypeDefaults = (nextType: ServiceType) => {
+  const applyServiceTypeDefaults = (nextType: ServiceType, complimentary: boolean) => {
     let fee: string = serviceFee;
     if (nextType === 'Certificate') fee = '880';
-    else if (nextType === 'Polishing') fee = '2100';
+    else if (nextType === 'Polishing') fee = complimentary ? '0' : '2100';
     else if (nextType === 'Watch Polishing') fee = '10000';
     else if (nextType === 'Repair') fee = '3500';
     else if (nextType === 'Bracelet Resize' || nextType === 'Color Change') fee = '';
@@ -258,11 +282,34 @@ export default function ServiceJobDialog({
 
   const handleServiceTypeChange = (nextType: ServiceType) => {
     setServiceType(nextType);
-    applyServiceTypeDefaults(nextType);
+    // Any type change resets the Polishing-only complimentary state.
+    setPolishingComplimentary(false);
+    setPolishingPreCheckFee('');
+    applyServiceTypeDefaults(nextType, false);
+  };
+
+  // Polishing complimentary checkbox toggle.
+  const handleComplimentaryToggle = (checked: boolean) => {
+    setPolishingComplimentary(checked);
+    if (checked) {
+      // Remember whatever the CSR had typed so we can restore it on uncheck.
+      setPolishingPreCheckFee(serviceFee);
+      setServiceFee('0');
+    } else {
+      // Restore the pre-check value if there was one; otherwise prefill 2100
+      // (only when current fee is 0, indicating it was the checkbox that set it).
+      if (polishingPreCheckFee !== '') {
+        setServiceFee(polishingPreCheckFee);
+      } else if (serviceFee === '0' || serviceFee === '') {
+        setServiceFee('2100');
+      }
+      setPolishingPreCheckFee('');
+    }
   };
 
   // Ring Resize description-blur fee recalc
   const handleDescriptionBlur = () => {
+    setDescBlurred(true);
     if (serviceType !== 'Ring Resize') return;
     const size = parseRingResizeSize(serviceDescription);
     if (size == null) return; // no match → leave fee as-is
@@ -270,7 +317,12 @@ export default function ServiceJobDialog({
     if (f != null) setServiceFee(String(f));
   };
 
-  // Status side-effects
+  // Status side-effects. Auto-set rules:
+  //   Logged / Process    → nothing
+  //   On-going            → estimated_completion = date_received + 7 working days
+  //   Completed           → date_completed = getPHTToday()
+  //   Pending / Cancelled → clear date_completed
+  // Switching away from On-going does NOT clear estimated_completion.
   const handleStatusChange = (next: ServiceStatus) => {
     setServiceStatus(next);
     if (next === 'On-going') {
@@ -278,20 +330,33 @@ export default function ServiceJobDialog({
       setEstimatedCompletion(addWorkingDays(base, 7));
     } else if (next === 'Completed') {
       setDateCompleted(getPHTToday());
-    } else {
+    } else if (next === 'Pending' || next === 'Cancelled') {
       setDateCompleted('');
     }
   };
 
-  const canSave = useMemo(() => {
-    if (!invoiceNumber.trim()) return false;
-    if (resolveError) return false;
-    if (!accountType) return false;
-    if (!serviceType) return false;
-    if (!serviceDescription.trim()) return false;
-    if (!updatedBy) return false;
-    return true;
+  // Validation — returns a map of field-key → error message. Empty = OK.
+  const errors = useMemo(() => {
+    const e: Record<string, string> = {};
+    if (!invoiceNumber.trim()) e.invoice = 'Invoice # is required';
+    else if (resolveError) e.invoice = resolveError;
+    else if (!accountType) e.invoice = 'Invoice # not found';
+    if (!serviceType) e.serviceType = 'Service Type is required';
+    if (!serviceDescription.trim()) e.serviceDescription = 'Service Description is required';
+    else if (
+      serviceType === 'Ring Resize' &&
+      !RING_RESIZE_SIZE_PATTERN.test(serviceDescription)
+    ) {
+      e.serviceDescription = 'Ring Resize description must include a size (e.g. +3, -2, +3.5)';
+    }
+    if (!updatedBy) e.updatedBy = 'Updated By is required';
+    return e;
   }, [invoiceNumber, resolveError, accountType, serviceType, serviceDescription, updatedBy]);
+
+  // Show ring-resize size error after either: first save attempt OR first
+  // description blur — never on every keystroke.
+  const showDescError = (attemptedSave || descBlurred) && !!errors.serviceDescription;
+  const canSave = Object.keys(errors).length === 0;
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -380,7 +445,7 @@ export default function ServiceJobDialog({
                     <Loader2 className="h-3 w-3 animate-spin" /> Resolving…
                   </span>
                 )}
-                {!resolving && customerName && (
+                {!resolving && customerName && !resolveError && (
                   <span className="inline-flex items-center gap-1 text-emerald-500">
                     <CheckCircle2 className="h-3 w-3" /> {customerName}
                     <span className="text-muted-foreground ml-1">({accountType === 'layaway' ? 'Layaway' : 'Cash Order'})</span>
@@ -390,6 +455,9 @@ export default function ServiceJobDialog({
                   <span className="inline-flex items-center gap-1 text-destructive">
                     <XCircle className="h-3 w-3" /> {resolveError}
                   </span>
+                )}
+                {!resolving && !resolveError && attemptedSave && errors.invoice && !customerName && (
+                  <span className="text-destructive">{errors.invoice}</span>
                 )}
               </div>
             </div>
@@ -408,6 +476,9 @@ export default function ServiceJobDialog({
                   ))}
                 </SelectContent>
               </Select>
+              {attemptedSave && errors.serviceType && (
+                <p className="mt-1 text-xs text-destructive">{errors.serviceType}</p>
+              )}
             </div>
             <div>
               <Label>Service Fee (¥)</Label>
@@ -416,7 +487,18 @@ export default function ServiceJobDialog({
                 placeholder="0"
                 value={serviceFee}
                 onChange={(e) => setServiceFee(e.target.value.replace(/[^0-9]/g, ''))}
+                disabled={polishingComplimentary}
+                className={polishingComplimentary ? 'opacity-60' : ''}
               />
+              {serviceType === 'Polishing' && (
+                <label className="mt-2 inline-flex items-center gap-2 text-xs text-foreground/90 cursor-pointer">
+                  <Checkbox
+                    checked={polishingComplimentary}
+                    onCheckedChange={(v) => handleComplimentaryToggle(v === true)}
+                  />
+                  Complimentary (Free)
+                </label>
+              )}
             </div>
           </div>
 
@@ -429,11 +511,13 @@ export default function ServiceJobDialog({
               onBlur={handleDescriptionBlur}
               placeholder={serviceType === 'Ring Resize' ? 'e.g. Ring resize +3.5 → 7.5' : 'Describe the service'}
             />
-            {serviceType === 'Ring Resize' && (
+            {showDescError ? (
+              <p className="mt-1 text-xs text-destructive">{errors.serviceDescription}</p>
+            ) : serviceType === 'Ring Resize' ? (
               <p className="mt-1 text-[11px] text-muted-foreground">
                 Include the size change as <code>+N</code> or <code>-N</code> (decimals OK) — fee auto-fills on blur.
               </p>
-            )}
+            ) : null}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -493,6 +577,9 @@ export default function ServiceJobDialog({
                 ))}
               </SelectContent>
             </Select>
+            {attemptedSave && errors.updatedBy && (
+              <p className="mt-1 text-xs text-destructive">{errors.updatedBy}</p>
+            )}
           </div>
         </div>
 
@@ -501,8 +588,12 @@ export default function ServiceJobDialog({
             Cancel
           </Button>
           <Button
-            onClick={() => mutation.mutate()}
-            disabled={!canSave || mutation.isPending}
+            onClick={() => {
+              setAttemptedSave(true);
+              if (!canSave) return;
+              mutation.mutate();
+            }}
+            disabled={mutation.isPending}
             className="bg-primary text-primary-foreground hover:bg-primary/90"
           >
             {mutation.isPending ? 'Saving…' : (isEdit ? 'Save Changes' : 'Create Service Job')}

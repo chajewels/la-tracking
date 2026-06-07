@@ -1,5 +1,37 @@
 ## SYSTEM STATUS (as of 2026-05-16)
 
+### Services validation enhanced + `'Logged'` status added (2026-06-06)
+
+  Follow-up pass on the Services tracking feature shipped earlier
+  today (commit `2d6cec3`).
+
+  - **New status value `'Logged'`** added as the first value of the
+    `service_status` enum via SQL Editor; `types.ts` updated to
+    match (both the type union and the `Constants` runtime list).
+    `'Logged'` is now the **default** status when opening
+    `ServiceJobDialog` in Add mode.
+  - **Required field validation** in `ServiceJobDialog`: Invoice #
+    (must resolve), Service Type, Service Description, Updated By
+    — each shows an inline destructive-colored error on attempted
+    save. Status, Service Fee, Notes, Estimated Completion, Date
+    Completed are not required (¥0 is a valid fee).
+  - **Ring Resize description guard**: when Service Type =
+    Ring Resize and the description does not contain a size token
+    matching `[+-]\d+(\.\d+)?`, save is blocked and an inline error
+    renders. Validation triggers on first save attempt OR first
+    description blur — never per-keystroke.
+  - **Polishing complimentary checkbox**: visible only when
+    Service Type = Polishing. Checking it sets fee to 0 and
+    disables the input; unchecking restores the pre-check value
+    (or prefills 2100 if there wasn't one). Edit mode auto-checks
+    when an existing Polishing record carries `service_fee = 0`.
+  - **Status side-effects clarified**: `Logged` and `Process` do
+    nothing; `On-going` sets `estimated_completion` to base + 7
+    working days (PHT, skip Sat/Sun); `Completed` sets
+    `date_completed` to `getPHTToday()`; `Pending` and `Cancelled`
+    clear `date_completed`. Switching away from `On-going` does
+    NOT clear `estimated_completion`.
+
 ### Services Tracking — Hub-native feature live (2026-06-06)
 
   New standalone tracker for the workshop pipeline. Hub-only —

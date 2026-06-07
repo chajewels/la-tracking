@@ -4149,6 +4149,7 @@ export type Database = {
         | "overdue"
         | "cancelled"
       service_status:
+        | "Logged"
         | "Process"
         | "On-going"
         | "Pending"
@@ -4353,6 +4354,7 @@ export const Constants = {
         "cancelled",
       ],
       service_status: [
+        "Logged",
         "Process",
         "On-going",
         "Pending",
