@@ -1,3 +1,24 @@
+## UI Restructuring — 2026-06-08
+
+- Sidebar: category headers Business / Accounting / System & Admin added as static non-clickable labels
+- Sidebar: all parent menus collapsible, sub-items navigate via ?tab= query param
+- Sidebar: TabsList removed from Finance, Loyalty, Monitoring, Settings, Promotions, Sales, Services, Customers — sidebar drives navigation
+- WorkspaceToolbar: shared component rendering search + export + split-button in one row above all tabular pages
+- Split-button: context-aware per section and per active tab
+  - Sales / Cash → + New Cash Order (primary), New Layaway Order + Record Payment (dropdown)
+  - Sales / Layaway → + New Account (primary), New Cash Order + Record Payment (dropdown)
+  - Sales / Payments and Waivers → hidden
+  - Services / Service Jobs → + New Job (primary, no dropdown)
+  - Services / Trade-Ins → + Log Trade-In (primary, no dropdown)
+  - Customers → + New Customer (primary), Import Customers + Manage Groups (dropdown)
+- Search: independent per tab in Sales and Services, no bleed across tabs
+- CSV export: wired to Cash and Layaway tabs via export ref pattern
+- Record Payment modal: account search → Single / Split mode selection → RecordPaymentDialog
+- Import Customers: CSV template download, upload, preview, bulk insert with error report
+- Manage Groups: dispatches CustomEvent that toggles A-Z grouped view in Customers directory
+- Permission Matrix: PERMISSION_MODULES array realigned to current sidebar structure
+- Finance pending badge moved to Sales Payments sub-item
+
 ### `portal_pin_hash` — PIN data moved to `customer_pins` table (2026-06-07, SQL + commit `747d76e`, deployed)
 
   Created `customer_pins` (`customer_id` PK → `customers.id`,
