@@ -189,7 +189,9 @@ export default function AppSidebar() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    const match = menuItems.find(m => m.parentPath && location.pathname === m.parentPath);
+    const match = sidebarItems.find(
+      (m): m is MenuItem => !isCategory(m) && !!m.parentPath && location.pathname === m.parentPath,
+    );
     if (match) {
       setExpanded({ [match.label]: true });
     } else {
@@ -206,15 +208,19 @@ export default function AppSidebar() {
         .slice(0, 2)
     : 'CJ';
 
-  const visibleItems = menuItems
-    .filter(item => !item.adminOnly || isExecAllowed)
-    .filter(item => !item.permPath || canSeeNav(item.permPath))
+  const visibleItems: (CategoryHeader | MenuItem)[] = sidebarItems
+    .filter(item => {
+      if (isCategory(item)) return true;
+      if (item.adminOnly && !isExecAllowed) return false;
+      if (item.permPath && !canSeeNav(item.permPath)) return false;
+      return true;
+    })
     .map(item => {
-      if (!item.children) return item;
+      if (isCategory(item) || !item.children) return item;
       const visibleChildren = item.children.filter(c => !c.permFilter || c.permFilter(can));
       return { ...item, children: visibleChildren };
     })
-    .filter(item => !item.children || item.children.length > 0);
+    .filter(item => isCategory(item) || !(item as MenuItem).children || ((item as MenuItem).children!.length > 0));
 
   return (
     <Sidebar
@@ -242,6 +248,18 @@ export default function AppSidebar() {
       <SidebarContent className="px-3 py-4" style={{ background: '#1A1410' }}>
         <SidebarMenu>
           {visibleItems.map((item) => {
+            // Category header — non-interactive label
+            if (isCategory(item)) {
+              return (
+                <div
+                  key={`cat-${item.label}`}
+                  className="mt-3 mb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-white/30 select-none"
+                >
+                  {item.label}
+                </div>
+              );
+            }
+
             const Icon = item.icon;
 
             // Leaf item (no children) — unchanged from previous behavior
