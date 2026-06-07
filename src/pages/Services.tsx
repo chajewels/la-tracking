@@ -19,6 +19,8 @@ import { serviceStatusBadgeClass, serviceTypeBadgeClass } from '@/components/ser
 import TradeInsTab from '@/components/services/TradeInsTab';
 import { formatCurrency } from '@/lib/calculations';
 import { cn } from '@/lib/utils';
+import WorkspaceToolbar from '@/components/layout/WorkspaceToolbar';
+import WorkspaceSplitButton from '@/components/layout/WorkspaceSplitButton';
 
 type StatusFilter = 'All' | ServiceStatus;
 type TypeFilter = 'All' | ServiceType;
@@ -97,6 +99,7 @@ function ServiceJobsTab() {
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
   const [activeOnly, setActiveOnly] = useState(false);
+  const [search, setSearch] = useState('');
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editJob, setEditJob] = useState<ServiceJobRow | null>(null);
@@ -117,6 +120,7 @@ function ServiceJobsTab() {
   });
 
   const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
     return jobs.filter((j) => {
       if (activeOnly) {
         if (j.service_status === 'Completed' || j.service_status === 'Cancelled') return false;
@@ -127,9 +131,14 @@ function ServiceJobsTab() {
       if (updatedByFilter !== 'All' && j.updated_by !== updatedByFilter) return false;
       if (fromDate && j.date_received < fromDate) return false;
       if (toDate && j.date_received > toDate) return false;
+      if (q) {
+        const inv = String(j.invoice_number ?? '').toLowerCase();
+        const name = String(j.customers?.full_name ?? '').toLowerCase();
+        if (!inv.includes(q) && !name.includes(q)) return false;
+      }
       return true;
     });
-  }, [jobs, statusFilter, typeFilter, updatedByFilter, fromDate, toDate, activeOnly]);
+  }, [jobs, statusFilter, typeFilter, updatedByFilter, fromDate, toDate, activeOnly, search]);
 
   const clearFilters = () => {
     setStatusFilter('All');
@@ -152,6 +161,13 @@ function ServiceJobsTab() {
 
   return (
     <div className="space-y-4">
+      <WorkspaceToolbar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search service jobs..."
+        splitButton={<WorkspaceSplitButton />}
+      />
+
       <div className="flex items-center justify-end">
         <Button
           onClick={handleAdd}
@@ -160,6 +176,8 @@ function ServiceJobsTab() {
           <Plus className="h-4 w-4 mr-1" /> New Service Job
         </Button>
       </div>
+
+
 
       {/* Filter bar */}
       <div className="rounded-xl border border-border bg-card p-4">
