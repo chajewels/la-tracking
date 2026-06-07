@@ -2399,3 +2399,35 @@ Two existing-correct upload paths were unaffected because they already had uniqu
 **Fix**: Atomic SQL DO block in Supabase SQL Editor deleted 4 allocation rows by UUID literal (b36034dc, 0e7ac215, 1ec185b9, ac1e5c65), reset layaway_schedule.paid_amount to 0 and status to 'pending' for M1 and M2 of account_id b1c4117d-227b-408b-87aa-3d9583ea9707. The `payments` table was untouched — DP amounts and classifications preserved. The fix was applied before the code patch in Bug #160, so the bug was caught by audit before any further damage.
 
 **Result**: Account #19105 now has 7 DP payments totaling ₱222,960 (matches `downpayment_amount` field), zero schedule allocations on those payments. `audit_account('19105')` returns `all_pass=true`.
+
+### TODAY'S DATA FIXES (2026-06-07)
+
+#### 2026-06-07 — Account #19116 (Kaila Daniela Catilo) proof-image + date_paid correction
+
+**Context**: Bug #178 (filename-collision class) caused 5 downpayment submissions on account #19116 (`c8d63981-4b06-40e6-86ef-4f3e7ea21906`) to share a single Storage file. The original 4 receipt images were overwritten and irrecoverable server-side. Customer Kaila provided the 5 original BDO transfer receipts after the code fix shipped, allowing manual correction.
+
+**State found before correction**:
+- 5 confirmed downpayment `payment_submissions` rows, all `proof_url` pointing at the same file `c8d63981-4b06-40e6-86ef-4f3e7ea21906/KailaDanielaCatilo_19116_DP_2026-06-07.jpg` (62987 bytes, last overwritten 2026-06-07 11:45 UTC)
+- 2 of the 5 `payments` rows had wrong `date_paid` (`2026-06-07`) because staff back-entered them today instead of setting the actual transfer date
+
+**Correction actions taken**:
+1. Uploaded 5 receipt images to Supabase Storage (`payment-proofs` bucket, landed at bucket root):
+   - `KailaDanielaCatilo_19116_DP_2026-03-04.jpeg` — Mar 4 Heartbiz Downpayment (₱7,430)
+   - `KailaDanielaCatilo_19116_DP_2026-04-02.jpeg` — Apr 2 Gold Bracelet (₱2,890)
+   - `KailaDanielaCatilo_19116_DP_2026-05-03.jpeg` — May 3 May Payment (₱2,890)
+   - `KailaDanielaCatilo_19116_DP_2026-06-02.jpg` — Jun 2 Payment for June (₱2,890)
+   - `KailaDanielaCatilo_19116_DP_2026-06-07.jpg` — Jun 7 Full Payment for Trading (₱8,667)
+2. SQL `UPDATE payments SET date_paid = ...` on 2 rows to correct dates from `2026-06-07` to actual transfer dates:
+   - `dac613cf-4c79-4959-b769-eaa4fa42e40c` → `2026-04-02`
+   - `a345826d-b3e7-442b-8ecc-aa995c980044` → `2026-05-03`
+3. SQL `UPDATE payment_submissions SET proof_url = ...` on 5 rows to point each at its correct date-specific Storage file. All URLs use the bucket-root path pattern `https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/payment-proofs/KailaDanielaCatilo_19116_DP_YYYY-MM-DD.{jpg,jpeg}`.
+
+**Final state**:
+- All 5 submissions display correctly in AccountDetail Payment History (chronological order achieved after Bug #179 sort fix shipped same day).
+- `payments.date_paid` matches the receipt dates on each BDO transfer screenshot.
+- Each submission has its own unique `proof_url` pointing at a distinct file in Storage.
+- Financial data (amounts, allocations, schedule status, loyalty) untouched throughout — only `date_paid` strings and `proof_url` strings changed.
+
+**Loose ends**:
+- One orphaned file remains at `c8d63981-4b06-40e6-86ef-4f3e7ea21906/KailaDanielaCatilo_19116_DP_2026-06-07.jpg` (62987 bytes — the original Bug #178 collision survivor). No `proof_url` row points at it anymore. Safe to delete via Storage dashboard whenever convenient.
+- The Apr 2 vs May 3 receipt-to-submission_id mapping was determined by chronological assumption (earlier-created submission row maps to earlier receipt date). If staff actually entered them in the reverse order, swap the two `date_paid` values via a simple SQL UPDATE — no downstream impact.

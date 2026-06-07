@@ -209,3 +209,30 @@
   `verify-portal-pin` edge function. No frontend access. 303 rows
   migrated from `customers` on 2026-06-07.
 
+### `payments` table — column names (verified 2026-06-07 via information_schema)
+
+| column | type | notes |
+|---|---|---|
+| `id` | uuid NOT NULL | primary key |
+| `account_id` | uuid NOT NULL | FK to layaway/cash account |
+| `amount_paid` | numeric NOT NULL | NOT `amount` |
+| `currency` | USER-DEFINED enum NOT NULL | PHP, JPY |
+| `date_paid` | date NOT NULL | NOT `payment_date`; the actual transfer date |
+| `payment_method` | text NULLABLE | |
+| `reference_number` | text NULLABLE | NOT `ref`; bank/transfer reference |
+| `remarks` | text NULLABLE | also used to identify DP submissions via `remarks LIKE '%down%' AND voided_at IS NULL` |
+| `entered_by_user_id` | uuid NULLABLE | staff member who recorded the row |
+| `created_at` | timestamptz NOT NULL | row insertion time — diverges from `date_paid` on back-entered records |
+| `voided_at` | timestamptz NULLABLE | void marker; filter `voided_at IS NULL` for active payments |
+| `voided_by_user_id` | uuid NULLABLE | |
+| `void_reason` | text NULLABLE | |
+| `submitted_by_type` | text NULLABLE | |
+| `submitted_by_name` | text NULLABLE | |
+
+**Naming corrections from prior incorrect documentation** (verified 2026-06-07):
+- `amount` → actual column is `amount_paid`
+- `payment_date` → actual column is `date_paid`
+- `ref` → actual column is `reference_number`
+
+**`created_at` vs `date_paid` semantics**: For accounts where every payment is recorded same-day as it happens, both columns track together. For accounts with back-entered payments (staff catching up on weeks/months of historical transfers in a single session), `created_at` reflects data-entry order while `date_paid` reflects actual transfer order. Use `date_paid` for any sort or filter that displays customer-meaningful payment history — see Bug #179 for the UI bug that surfaced from sorting by the wrong column.
+
