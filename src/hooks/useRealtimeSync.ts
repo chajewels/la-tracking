@@ -13,6 +13,7 @@ const SYNC_TABLES = [
   'payment_submissions',
   'account_services',
   'service_jobs',
+  'trade_ins',
 ] as const;
 
 const DEBOUNCE_MS = 250;

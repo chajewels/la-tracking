@@ -3421,6 +3421,62 @@ export type Database = {
           },
         ]
       }
+      trade_ins: {
+        Row: {
+          id: string
+          date_trade: string
+          customer_id: string | null
+          old_invoice_number: string
+          new_invoice_number: string | null
+          item_code: string
+          item_description: string
+          trade_amount: number
+          resale_amount: number | null
+          resale_status: Database["public"]["Enums"]["resale_status"]
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          date_trade: string
+          customer_id?: string | null
+          old_invoice_number: string
+          new_invoice_number?: string | null
+          item_code: string
+          item_description: string
+          trade_amount: number
+          resale_amount?: number | null
+          resale_status?: Database["public"]["Enums"]["resale_status"]
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          date_trade?: string
+          customer_id?: string | null
+          old_invoice_number?: string
+          new_invoice_number?: string | null
+          item_code?: string
+          item_description?: string
+          trade_amount?: number
+          resale_amount?: number | null
+          resale_status?: Database["public"]["Enums"]["resale_status"]
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trade_ins_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       staff_notification_reads: {
         Row: {
           notification_id: string
@@ -4141,6 +4197,7 @@ export type Database = {
         | "birthday_bonus"
       penalty_fee_status: "unpaid" | "paid" | "waived"
       penalty_stage: "week1" | "week2"
+      resale_status: "In stock" | "Sold"
       risk_level: "low" | "medium" | "high"
       schedule_status:
         | "pending"
@@ -4345,6 +4402,7 @@ export const Constants = {
       ],
       penalty_fee_status: ["unpaid", "paid", "waived"],
       penalty_stage: ["week1", "week2"],
+      resale_status: ["In stock", "Sold"],
       risk_level: ["low", "medium", "high"],
       schedule_status: [
         "pending",

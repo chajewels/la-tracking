@@ -1,5 +1,49 @@
 ## SYSTEM STATUS (as of 2026-05-16)
 
+### Trade-In Tracker added — `/services?tab=trade-ins` (2026-06-06)
+
+  Second tab under the existing `/services` page. Hub-native,
+  **NO external sync** of any kind.
+
+  - **Table**: `trade_ins` (already created via SQL Editor) with
+    columns `date_trade`, `customer_id`, `old_invoice_number`,
+    `new_invoice_number`, `item_code`, `item_description`,
+    `trade_amount`, `resale_amount`, `resale_status`, `notes`,
+    `created_at`, `updated_at`. RLS for admin + staff only,
+    FK on `customer_id → customers.id`.
+  - **Enum**: `resale_status` — `'In stock' | 'Sold'`. Reflected
+    in `src/integrations/supabase/types.ts` (both the type union
+    and the `Constants` runtime list).
+  - **Tab routing**: `src/pages/Services.tsx` now has a two-tab
+    switcher (Service Jobs / Trade-Ins) using `?tab=service-jobs`
+    / `?tab=trade-ins`, default `service-jobs`. Tab state syncs
+    with the URL per the CLAUDE.md SIDEBAR ARCHITECTURE pattern
+    (initialize from `searchParams`, mirror back on change,
+    useEffect handles external URL changes).
+  - **List**: `src/components/services/TradeInsTab.tsx` — header
+    "New Trade-In" button, filter bar (Resale Status, Date Trade
+    from/to, Clear filters), table columns: Date Trade /
+    Customer / Old Invoice # / New Invoice # / Item Code /
+    Description / Trade Amount / Resale Amount / Status / Edit.
+    Default sort `date_trade DESC, created_at DESC`. Numeric
+    invoice filter (`^[0-9]+$`) applied to `old_invoice_number`
+    to exclude test accounts.
+  - **Dialog**: `src/components/services/TradeInDialog.tsx`
+    single Add/Edit. Old Invoice # resolves against both
+    `layaway_accounts` and `cash_orders` and sets `customer_id`;
+    New Invoice # uses the same lookup but is info-only (does
+    NOT touch `customer_id`). Required fields: Old Invoice #
+    (must resolve), Item Code, Item Description, Trade Amount.
+    Resale Amount blank until sold. Resale Status defaults to
+    `In stock`.
+  - **Realtime**: `trade_ins` added to `SYNC_TABLES` in
+    `useRealtimeSync`; `'trade-ins'` added to `SERVICES_KEYS`
+    so the list refetches on any insert/update.
+  - **Access control**: existing `view_services` gate on the
+    `/services` route covers Trade-Ins (no new route).
+    `view_trade_ins` + `manage_trade_ins` `role_permissions`
+    rows (admin + staff) already provisioned via SQL Editor.
+
 ### Services validation enhanced + `'Logged'` status added (2026-06-06)
 
   Follow-up pass on the Services tracking feature shipped earlier
