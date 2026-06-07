@@ -32,9 +32,9 @@ project_id = "pfoicalpzdcmyxzvwyhz"
   [functions.reactivate-account]
     verify_jwt = false
   [functions.record-multi-payment]
-    verify_jwt = false
+    verify_jwt = true
   [functions.record-payment]
-    verify_jwt = false
+    verify_jwt = true
   [functions.restore-payment]
     verify_jwt = false
   [functions.restructure-account]

@@ -34,6 +34,15 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Staff-only gate — prevents Phase B customers from injecting payment submissions for arbitrary accounts
+    const { data: userIsStaff } = await supabase.rpc("is_staff", { _user_id: user.id });
+    if (!userIsStaff) {
+      return new Response(JSON.stringify({ error: "Staff access required" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const body = await req.json();
     const { account_id, amount_paid, date_paid, payment_method, reference_number, remarks, preview_only, is_downpayment, carry_over = false, submission_type, force } = body;
 

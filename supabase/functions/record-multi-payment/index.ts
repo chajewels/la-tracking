@@ -14,7 +14,6 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
@@ -24,12 +23,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Verify user via anon client
-    const anonClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
+    // Verify user via service role client
+    const supabase = createClient(supabaseUrl, serviceKey);
     const token = authHeader.replace("Bearer ", "");
-    const { data: claimsData, error: claimsError } = await anonClient.auth.getUser(token);
+    const { data: claimsData, error: claimsError } = await supabase.auth.getUser(token);
     if (claimsError || !claimsData?.user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
@@ -38,8 +35,14 @@ Deno.serve(async (req) => {
     }
     const userId = claimsData.user.id;
 
-    // Service role client for data ops
-    const supabase = createClient(supabaseUrl, serviceKey);
+    // Staff-only gate — prevents Phase B customers from injecting payment submissions for arbitrary accounts
+    const { data: userIsStaff } = await supabase.rpc("is_staff", { _user_id: userId });
+    if (!userIsStaff) {
+      return new Response(JSON.stringify({ error: "Staff access required" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // ── Role check: only admin/finance can directly record payments ──
     const [{ data: isAdmin }, { data: isFinance }] = await Promise.all([
