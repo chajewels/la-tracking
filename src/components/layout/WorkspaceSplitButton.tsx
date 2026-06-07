@@ -87,10 +87,6 @@ function resolveConfig(
       primaryAction: () => window.dispatchEvent(new CustomEvent('open-new-customer-dialog')),
       dropdownItems: [
         {
-          label: 'New Contact',
-          action: () => window.dispatchEvent(new CustomEvent('open-new-customer-dialog')),
-        },
-        {
           label: 'Import Customers',
           action: () => window.dispatchEvent(new CustomEvent('open-import-customers')),
         },
