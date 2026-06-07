@@ -1,3 +1,39 @@
+## 2026-06-07 — v1.1.0
+
+### Features shipped
+
+- **Services Tracking** (Hub-native, no Google Sheet sync)
+  - `/services` route, admin + staff only (`view_services` + `manage_services` permissions).
+  - Service Jobs tab: full list with filters, Active Jobs preset, Add/Edit dialog.
+  - Auto-fee logic per service type, Ring Resize size parser, Polishing complimentary checkbox.
+  - Required field validation, Ring Resize description guard.
+  - `'Logged'` status as default, full status flow:
+    Logged → Process → On-going → Pending → Cancelled → Completed.
+  - Services tab on `AccountDetail` + `CashOrderDetail`.
+  - Realtime sync wired (`service_jobs` in `SYNC_TABLES`).
+  - 178 historical records migrated from Google Sheet (Google Sheet retired).
+
+- **Trade-In Tracker** (tab under `/services`)
+  - `trade_ins` table, `resale_status` enum provisioned via SQL Editor.
+  - Old Invoice # and New Invoice # dual lookup, customer auto-resolve.
+  - Trade Amount + Resale Amount fields, Resale Status (`In stock` / `Sold`).
+  - 8 historical records migrated from Google Sheet.
+  - Access: admin + staff only (`view_trade_ins` + `manage_trade_ins` permissions).
+
+### DB changes (via SQL Editor)
+
+- New table: `service_jobs` (`service_type` enum, `service_status` enum, RLS, indexes).
+- New table: `trade_ins` (`resale_status` enum, RLS, indexes).
+- `invoice_number` column on `service_jobs` made nullable (for legacy records).
+- `role_permissions` seeded: `view_services`, `manage_services`,
+  `view_trade_ins`, `manage_trade_ins` (admin + staff).
+
+### Commits
+
+- `2d6cec3` — Services Tracking initial ship.
+- `6c6390d` — Validation + `Logged` status.
+- `86f986d` — Trade-In Tracker.
+
 ## SYSTEM STATUS (as of 2026-05-16)
 
 ### Three scanner-flagged functions gated (2026-06-07, commit `b1e41d3`, deployed same day)
