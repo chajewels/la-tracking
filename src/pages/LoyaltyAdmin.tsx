@@ -16,6 +16,8 @@ import RewardsTab from '@/components/loyalty-admin/RewardsTab';
 import BannersTab from '@/components/loyalty-admin/BannersTab';
 import NotificationsTab from '@/components/loyalty-admin/NotificationsTab';
 import { useLoyaltyPendingCount } from '@/hooks/useLoyaltyPendingCount';
+import WorkspaceToolbar from '@/components/layout/WorkspaceToolbar';
+import WorkspaceSplitButton from '@/components/layout/WorkspaceSplitButton';
 
 type LoyaltyAdminTab =
   | 'dashboard'
@@ -57,6 +59,7 @@ export default function LoyaltyAdmin() {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = readTab(searchParams.get('tab'));
   const { count: pendingRedemptions } = useLoyaltyPendingCount();
+  const [search, setSearch] = useState('');
 
   // Drawer-selected member id is owned at this level so the
   // dashboard's recent-enrollments rows can deep-link into the
@@ -104,6 +107,13 @@ export default function LoyaltyAdmin() {
             </p>
           </div>
         </div>
+
+        <WorkspaceToolbar
+          searchValue={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="Search loyalty..."
+          splitButton={<WorkspaceSplitButton />}
+        />
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-5">
           {/*

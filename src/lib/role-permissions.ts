@@ -5,6 +5,7 @@ export type AppRole = 'admin' | 'staff' | 'finance' | 'csr';
 // ── Page-level access ──
 const PAGE_ACCESS: Record<string, AppRole[]> = {
   '/':                    ['admin', 'staff', 'finance', 'csr'],
+  '/sales':               ['admin', 'finance', 'staff', 'csr'],
   '/accounts':            ['admin', 'staff', 'finance'],
   '/accounts/new':        ['admin', 'staff'],
   '/accounts/:id':        ['admin', 'staff', 'finance'],
@@ -27,6 +28,7 @@ const PAGE_ACCESS: Record<string, AppRole[]> = {
 // ── Sidebar items that each role can see ──
 export const SIDEBAR_ACCESS: Record<string, AppRole[]> = {
   '/':                    ['admin', 'staff', 'finance', 'csr'],
+  '/sales':               ['admin', 'finance', 'staff', 'csr'],
   '/customers':           ['admin', 'staff', 'finance', 'csr'],
   '/cash-orders':         ['admin', 'staff', 'finance', 'csr'],
   '/monitoring':          ['admin', 'staff', 'csr'],
