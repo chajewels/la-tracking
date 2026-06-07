@@ -814,20 +814,21 @@ When completing a partially_paid month:
 
     `verify-portal-pin` — public-facing endpoint, **no**
     `verify_jwt = true` (intentional). Auth handled internally
-    by `resolvePortalAuth`. PIN hashing: PBKDF2-SHA256, 100,000
+    by `resolvePortalAuth`. PIN data lives in `customer_pins`
+    table — NOT `customers`. `customers` is queried for `id` +
+    `mobile_number` only. PIN hashing: PBKDF2-SHA256, 100,000
     iterations, 16-byte salt, format
     `pbkdf2:{saltHex}:{hashHex}`. Legacy SHA-256 hashes migrate
-    on next successful login (lazy migration). NEVER revert to
-    SHA-256.
+    on next successful login. Never revert to SHA-256. Never
+    move PIN columns back to `customers`.
 
-    `customers` table column-level grant (added 2026-06-07,
-    Bug #177): `portal_pin_hash`, `portal_pin_attempts`,
-    `portal_pin_locked_until` are EXCLUDED from the SELECT
-    grant for `authenticated`. Only `service_role` can read
-    these columns. Postgres RLS is row-level only and cannot
-    restrict columns, so the grant model is the only enforcement
-    layer. Do not add these columns back to the column-level
-    `GRANT` to `authenticated`.
+    `customer_pins` table (added 2026-06-07, Bug #177): RLS
+    enabled, no SELECT policy for `authenticated`. Only
+    `service_role` can read (via RLS bypass).
+    `portal_pin_hash`, `portal_pin_attempts`,
+    `portal_pin_locked_until` were DROPPED from `customers` on
+    2026-06-07. Do not add PIN columns back to `customers`
+    under any circumstances.
 
     `fix-account-totals` — service-role-only gate. No frontend
     or edge-function callers. Manually-triggered admin utility

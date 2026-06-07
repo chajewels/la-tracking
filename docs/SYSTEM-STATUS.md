@@ -1,11 +1,13 @@
-### `portal_pin_hash` column SELECT revoked from `authenticated` (2026-06-07, SQL only)
+### `portal_pin_hash` — PIN data moved to `customer_pins` table (2026-06-07, SQL + commit `747d76e`, deployed)
 
-  `REVOKE SELECT ON public.customers FROM authenticated` +
-  column-level `GRANT` restoring all columns except
-  `portal_pin_hash`, `portal_pin_attempts`,
-  `portal_pin_locked_until`. Edge functions unaffected
-  (`service_role` bypasses column-level grants). Verified via
-  `information_schema.column_privileges`. See FIXED-BUGS #177.
+  Created `customer_pins` (`customer_id` PK → `customers.id`,
+  `pin_hash`, `pin_attempts`, `pin_locked_until`). RLS enabled,
+  no SELECT policy for `authenticated`. Migrated 303 rows from
+  `customers`. `verify-portal-pin` updated to read/write
+  `customer_pins` only. `portal_pin_hash`, `portal_pin_attempts`,
+  `portal_pin_locked_until` columns dropped from `customers`.
+  Authenticated users have zero access to PIN data at schema
+  level. See FIXED-BUGS #177.
 
 ### `verify-portal-pin`: SHA-256 → PBKDF2 (2026-06-07, commit `6086c0f`, deployed same day)
 

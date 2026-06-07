@@ -199,3 +199,13 @@
   submissions). Account link is `account_id` (uuid), NOT
   `invoice_number`.
 
+### customer_pins table (added 2026-06-07)
+
+  `customer_pins`: `customer_id UUID PK` (FK → `customers.id`
+  `ON DELETE CASCADE`), `pin_hash TEXT`, `pin_attempts INTEGER
+  DEFAULT 0`, `pin_locked_until TIMESTAMPTZ`. RLS enabled — no
+  SELECT policy for `authenticated` role. `service_role` bypasses
+  RLS (edge functions read/write freely). Only writer:
+  `verify-portal-pin` edge function. No frontend access. 303 rows
+  migrated from `customers` on 2026-06-07.
+
