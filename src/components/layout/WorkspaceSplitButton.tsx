@@ -61,11 +61,20 @@ function resolveConfig(
   if (pathname.startsWith('/customers')) {
     return {
       primaryLabel: '+ New Customer',
-      primaryAction: () => console.log('New Customer — route not yet built'),
+      primaryAction: () => window.dispatchEvent(new CustomEvent('open-new-customer-dialog')),
       dropdownItems: [
-        { label: 'New Contact', action: () => console.log('New Contact — not yet built') },
-        { label: 'Import Customers', action: () => console.log('Import — not yet built') },
-        { label: 'Manage Groups', action: () => console.log('Manage Groups — not yet built') },
+        {
+          label: 'New Contact',
+          action: () => window.dispatchEvent(new CustomEvent('open-new-customer-dialog')),
+        },
+        {
+          label: 'Import Customers',
+          action: () => console.log('Import — not yet built'),
+        },
+        {
+          label: 'Manage Groups',
+          action: () => console.log('Manage Groups — not yet built'),
+        },
       ],
     };
   }

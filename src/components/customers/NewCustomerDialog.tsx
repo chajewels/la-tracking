@@ -14,10 +14,17 @@ import { LocationType, toLocationString } from '@/lib/countries';
 interface NewCustomerDialogProps {
   onCreated?: (customer: DbCustomer) => void;
   trigger?: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export default function NewCustomerDialog({ onCreated, trigger }: NewCustomerDialogProps) {
-  const [open, setOpen] = useState(false);
+export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChange }: NewCustomerDialogProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = open !== undefined;
+  const isOpen = isControlled ? open : internalOpen;
+  const setIsOpen = isControlled
+    ? (v: boolean) => onOpenChange?.(v)
+    : setInternalOpen;
   const createCustomer = useCreateCustomer();
 
   const [fullName, setFullName] = useState('');
@@ -70,22 +77,24 @@ export default function NewCustomerDialog({ onCreated, trigger }: NewCustomerDia
       toast.success(`Customer created! Code: ${customer.customer_code}`);
       onCreated?.(customer as DbCustomer);
       resetForm();
-      setOpen(false);
+      setIsOpen(false);
     } catch (err: any) {
       toast.error(err.message || 'Failed to create customer');
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {trigger || (
-          <Button className="gold-gradient text-primary-foreground font-medium">
-            <UserPlus className="h-4 w-4 mr-2" />
-            New Customer
-          </Button>
-        )}
-      </DialogTrigger>
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      {!isControlled && (
+        <DialogTrigger asChild>
+          {trigger || (
+            <Button className="gold-gradient text-primary-foreground font-medium">
+              <UserPlus className="h-4 w-4 mr-2" />
+              New Customer
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="font-display">New Customer</DialogTitle>
@@ -142,7 +151,7 @@ export default function NewCustomerDialog({ onCreated, trigger }: NewCustomerDia
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes..." rows={2} />
           </div>
           <div className="flex justify-end gap-3 pt-2">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
             <Button type="submit" disabled={createCustomer.isPending} className="gold-gradient text-primary-foreground font-medium">
               {createCustomer.isPending ? 'Creating…' : 'Create Customer'}
             </Button>

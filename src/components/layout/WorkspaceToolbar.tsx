@@ -7,6 +7,7 @@ interface WorkspaceToolbarProps {
   onSearchChange: (value: string) => void;
   searchPlaceholder?: string;
   onExport?: () => void;
+  showExport?: boolean;
   splitButton?: React.ReactNode;
   className?: string;
 }
@@ -16,6 +17,7 @@ export default function WorkspaceToolbar({
   onSearchChange,
   searchPlaceholder,
   onExport,
+  showExport = true,
   splitButton,
   className,
 }: WorkspaceToolbarProps) {
@@ -34,14 +36,16 @@ export default function WorkspaceToolbar({
       </div>
 
       {/* Export icon */}
-      <button
-        type="button"
-        onClick={onExport}
-        aria-label="Export"
-        className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:text-foreground hover:bg-muted/40"
-      >
-        <Download className="h-4 w-4" />
-      </button>
+      {showExport && (
+        <button
+          type="button"
+          onClick={onExport}
+          aria-label="Export"
+          className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:text-foreground hover:bg-muted/40"
+        >
+          <Download className="h-4 w-4" />
+        </button>
+      )}
 
       {/* Split-button slot */}
       {splitButton && <div className="flex-shrink-0">{splitButton}</div>}

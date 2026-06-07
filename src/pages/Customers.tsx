@@ -88,6 +88,15 @@ export default function Customers() {
     setPage(0);
   }, [search, viewMode, activeLetter]);
 
+  // New-customer dialog state — opened via the WorkspaceSplitButton
+  // dispatching the `open-new-customer-dialog` CustomEvent.
+  const [newCustomerOpen, setNewCustomerOpen] = useState(false);
+  useEffect(() => {
+    const handler = () => setNewCustomerOpen(true);
+    window.addEventListener('open-new-customer-dialog', handler);
+    return () => window.removeEventListener('open-new-customer-dialog', handler);
+  }, []);
+
   // Edit dialog state
   const [editOpen, setEditOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -231,13 +240,12 @@ export default function Customers() {
               <Users className="h-5 w-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">Customers & Accounts</h1>
+              <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">Customers</h1>
               <p className="text-sm text-muted-foreground">
-                Manage customers and layaway accounts
+                Customer directory
               </p>
             </div>
           </div>
-          {can('edit_customer') && <NewCustomerDialog />}
         </div>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
@@ -247,6 +255,7 @@ export default function Customers() {
           searchValue={search}
           onSearchChange={setSearch}
           searchPlaceholder="Search customers..."
+          showExport={false}
           splitButton={<WorkspaceSplitButton />}
         />
 
@@ -376,6 +385,11 @@ export default function Customers() {
             <CashOrdersList embedded searchValue={search} />
           </TabsContent>
         </Tabs>
+
+        <NewCustomerDialog
+          open={newCustomerOpen}
+          onOpenChange={setNewCustomerOpen}
+        />
       </div>
     </AppLayout>
   );
