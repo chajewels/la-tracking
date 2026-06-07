@@ -716,7 +716,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false }
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-2">
-          <SubmissionsSearchBar onSearch={handleSearch} />
+          {!embedded && <SubmissionsSearchBar onSearch={handleSearch} />}
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-full sm:w-[180px]">
               <Filter className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />

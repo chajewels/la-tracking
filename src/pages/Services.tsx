@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Wrench, Plus, Pencil, Loader2 } from 'lucide-react';
+import { Wrench, Pencil, Loader2 } from 'lucide-react';
 import ServiceJobDialog, {
   SERVICE_STATUSES, SERVICE_TYPES, UPDATED_BY_OPTIONS,
   type ServiceJobRow, type ServiceStatus, type ServiceType,
@@ -167,17 +167,6 @@ function ServiceJobsTab() {
         searchPlaceholder="Search service jobs..."
         splitButton={<WorkspaceSplitButton />}
       />
-
-      <div className="flex items-center justify-end">
-        <Button
-          onClick={handleAdd}
-          className="bg-primary text-primary-foreground hover:bg-primary/90"
-        >
-          <Plus className="h-4 w-4 mr-1" /> New Service Job
-        </Button>
-      </div>
-
-
 
       {/* Filter bar */}
       <div className="rounded-xl border border-border bg-card p-4">

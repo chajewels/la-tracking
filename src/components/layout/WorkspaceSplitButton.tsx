@@ -37,7 +37,8 @@ function resolveConfig(
       dropdownItems: [
         { label: 'New Cash Order', action: () => navigate('/cash-orders/new') },
         { label: 'New Layaway Order', action: () => navigate('/accounts/new') },
-        { label: 'Record Payment', action: () => setRecordOpen(true) },
+        { label: 'Record Payment — Single', action: () => setRecordOpen(true) },
+        { label: 'Record Payment — Split', action: () => setRecordOpen(true) },
       ],
     };
   }

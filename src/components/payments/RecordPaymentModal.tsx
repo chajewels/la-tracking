@@ -12,12 +12,21 @@ interface RecordPaymentModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
+type PaymentMode = 'single' | 'split';
+type Step = 'search' | 'mode' | 'record';
+
 const MAX_RESULTS = 8;
+const ACTIVE_STATUSES = [
+  'active', 'overdue', 'extension_active', 'reactivated', 'final_settlement',
+];
 
 export default function RecordPaymentModal({ open, onOpenChange }: RecordPaymentModalProps) {
-  const [step, setStep] = useState<'search' | 'record'>('search');
+  const [step, setStep] = useState<Step>('search');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<AccountWithCustomer | null>(null);
+  // UI-only — RecordPaymentDialog has its own internal paymentType toggle.
+  // We don't forward this yet; the selection is for clarity in this wizard.
+  const [, setPaymentMode] = useState<PaymentMode>('single');
 
   const { data: accounts } = useAccounts();
 
@@ -25,7 +34,7 @@ export default function RecordPaymentModal({ open, onOpenChange }: RecordPayment
     const q = query.trim().toLowerCase();
     if (!q) return [];
     return (accounts ?? [])
-      .filter((a) => a.status === 'active' || a.status === 'overdue')
+      .filter((a) => ACTIVE_STATUSES.includes(a.status))
       .filter((a) => {
         const inv = String(a.invoice_number ?? '').toLowerCase();
         const name = String(a.customers?.full_name ?? '').toLowerCase();
@@ -41,13 +50,14 @@ export default function RecordPaymentModal({ open, onOpenChange }: RecordPayment
       setStep('search');
       setSelected(null);
       setQuery('');
+      setPaymentMode('single');
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-lg">
-        {step === 'search' || !selected ? (
+        {step === 'search' && (
           <>
             <DialogHeader>
               <DialogTitle>Record Payment</DialogTitle>
@@ -70,19 +80,26 @@ export default function RecordPaymentModal({ open, onOpenChange }: RecordPayment
                   key={account.id}
                   onClick={() => {
                     setSelected(account);
-                    setStep('record');
+                    setStep('mode');
                   }}
-                  className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-muted transition-colors text-sm"
+                  className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-muted transition-colors border border-border mb-1"
                 >
-                  <span className="font-medium text-foreground">
-                    {account.invoice_number}
-                  </span>
-                  <span className="text-muted-foreground ml-2">
-                    {account.customers?.full_name}
-                  </span>
-                  <span className="float-right text-xs text-muted-foreground">
-                    {account.currency} · ¥{account.remaining_balance?.toLocaleString()} remaining
-                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono font-semibold text-sm text-foreground">
+                      #{account.invoice_number}
+                    </span>
+                    <span className="text-xs font-medium capitalize px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                      {account.status}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between mt-0.5">
+                    <span className="text-sm text-muted-foreground">
+                      {account.customers?.full_name}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Balance: {account.currency} {(account.remaining_balance ?? 0).toLocaleString()}
+                    </span>
+                  </div>
                 </button>
               ))}
               {results.length === 0 && query.length > 0 && (
@@ -92,10 +109,67 @@ export default function RecordPaymentModal({ open, onOpenChange }: RecordPayment
               )}
             </div>
           </>
-        ) : (
+        )}
+
+        {step === 'mode' && selected && (
           <>
             <button
-              onClick={() => { setStep('search'); setSelected(null); }}
+              onClick={() => {
+                setStep('search');
+                setSelected(null);
+              }}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-3"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" /> Back
+            </button>
+            <DialogHeader>
+              <DialogTitle>Record Payment</DialogTitle>
+              <DialogDescription>
+                #{selected.invoice_number} · {selected.customers?.full_name}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4 space-y-3">
+              <p className="text-sm font-medium text-foreground">
+                Select payment type
+              </p>
+              <button
+                onClick={() => {
+                  setPaymentMode('single');
+                  setStep('record');
+                }}
+                className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-muted transition-colors"
+              >
+                <p className="font-medium text-sm text-foreground">
+                  Single Payment
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Record one installment or downpayment
+                </p>
+              </button>
+              <button
+                onClick={() => {
+                  setPaymentMode('split');
+                  setStep('record');
+                }}
+                className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-muted transition-colors"
+              >
+                <p className="font-medium text-sm text-foreground">
+                  Split Payment
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Split amount across multiple months
+                </p>
+              </button>
+            </div>
+          </>
+        )}
+
+        {step === 'record' && selected && (
+          <>
+            <button
+              onClick={() => {
+                setStep('mode');
+              }}
               className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-3"
             >
               <ChevronLeft className="h-3.5 w-3.5" /> Back
@@ -113,6 +187,7 @@ export default function RecordPaymentModal({ open, onOpenChange }: RecordPayment
                 setStep('search');
                 setSelected(null);
                 setQuery('');
+                setPaymentMode('single');
               }}
             />
           </>

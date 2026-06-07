@@ -41,6 +41,7 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
 
   const setTab = (next: SalesTabKey) => {
     setTabState(next);
+    setSearch('');
     const params = new URLSearchParams(searchParams);
     params.set('tab', next);
     setSearchParams(params, { replace: true });
@@ -78,10 +79,10 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as SalesTabKey)} className="w-full">
           <TabsContent value="cash" className="mt-5">
-            <MemoCashOrdersList embedded searchValue={search} />
+            <MemoCashOrdersList embedded searchValue={tab === 'cash' ? search : ''} />
           </TabsContent>
           <TabsContent value="layaway" className="mt-5">
-            <MemoAccountList embedded searchValue={search} />
+            <MemoAccountList embedded searchValue={tab === 'layaway' ? search : ''} />
           </TabsContent>
           <TabsContent value="payments" className="mt-5">
             <MemoPaymentsHub embedded />
