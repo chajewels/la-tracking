@@ -1,4 +1,4 @@
-import { useEffect, useState, memo } from 'react';
+import { useCallback, useEffect, useRef, useState, memo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ShoppingBag } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
@@ -30,6 +30,16 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
     return urlTab && VALID_TABS.includes(urlTab) ? urlTab : DEFAULT_TAB;
   });
   const [search, setSearch] = useState('');
+
+  // Refs hold each child's exported CSV download handler. The active tab's
+  // ref is invoked when the workspace toolbar export button is clicked.
+  const cashExportRef = useRef<(() => void) | null>(null);
+  const layawayExportRef = useRef<(() => void) | null>(null);
+
+  const handleExport = useCallback(() => {
+    if (tab === 'cash') cashExportRef.current?.();
+    else if (tab === 'layaway') layawayExportRef.current?.();
+  }, [tab]);
 
   useEffect(() => {
     const urlTab = searchParams.get('tab') as SalesTabKey | null;
@@ -74,15 +84,17 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
           searchValue={search}
           onSearchChange={setSearch}
           searchPlaceholder="Search sales..."
+          onExport={handleExport}
+          showExport={tab === 'cash' || tab === 'layaway'}
           splitButton={<WorkspaceSplitButton />}
         />
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as SalesTabKey)} className="w-full">
           <TabsContent value="cash" className="mt-5">
-            <MemoCashOrdersList embedded searchValue={tab === 'cash' ? search : ''} />
+            <MemoCashOrdersList embedded searchValue={tab === 'cash' ? search : ''} exportRef={cashExportRef} />
           </TabsContent>
           <TabsContent value="layaway" className="mt-5">
-            <MemoAccountList embedded searchValue={tab === 'layaway' ? search : ''} />
+            <MemoAccountList embedded searchValue={tab === 'layaway' ? search : ''} exportRef={layawayExportRef} />
           </TabsContent>
           <TabsContent value="payments" className="mt-5">
             <MemoPaymentsHub embedded />

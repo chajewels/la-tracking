@@ -51,9 +51,10 @@ const TEST_INVOICES = new Set([
 interface AccountListProps {
   embedded?: boolean;
   searchValue?: string;
+  exportRef?: React.MutableRefObject<(() => void) | null>;
 }
 
-const AccountList = memo(function AccountList({ embedded = false, searchValue }: AccountListProps = {}) {
+const AccountList = memo(function AccountList({ embedded = false, searchValue, exportRef }: AccountListProps = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
   const searchRef = useRef('');
   const [filterTick, setFilterTick] = useState(0);
@@ -107,6 +108,43 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue }:
     return matchesSearch && matchesCurrency && matchesStatus && matchesTest;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [accounts, filterTick, filterCurrency, filterStatus, filterPeriod, hideTest]);
+
+  // CSV export of the currently-filtered layaway accounts. Exposed via
+  // exportRef so a parent (Sales workspace toolbar) can trigger download.
+  const handleExport = useCallback(() => {
+    const rows = filtered.map(a => ({
+      'Invoice #': a.invoice_number ?? '',
+      'Customer': a.customers?.full_name ?? '',
+      'Status': a.status ?? '',
+      'Currency': a.currency ?? '',
+      'Total': a.total_amount ?? 0,
+      'Paid': a.total_paid ?? 0,
+      'Balance': a.remaining_balance ?? 0,
+      'Plan Months': a.payment_plan_months ?? '',
+      'Start Date': a.order_date ?? '',
+    }));
+    const headers = Object.keys(rows[0] ?? {});
+    const csv = [
+      headers.join(','),
+      ...rows.map(r =>
+        headers.map(h => JSON.stringify((r as Record<string, unknown>)[h] ?? '')).join(',')
+      ),
+    ].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `layaway-accounts-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [filtered]);
+
+  useEffect(() => {
+    if (exportRef) exportRef.current = handleExport;
+    return () => {
+      if (exportRef) exportRef.current = null;
+    };
+  }, [exportRef, handleExport]);
 
   const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);

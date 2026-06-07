@@ -52,9 +52,10 @@ function useCashOrders() {
 interface CashOrdersListProps {
   embedded?: boolean;
   searchValue?: string;
+  exportRef?: React.MutableRefObject<(() => void) | null>;
 }
 
-const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchValue }: CashOrdersListProps = {}) {
+const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchValue, exportRef }: CashOrdersListProps = {}) {
   const navigate = useNavigate();
   const { roles } = useAuth();
   const { can } = usePermissions();
@@ -97,6 +98,43 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
     return matchesSearch && matchesStatus && matchesCurrency && matchesTest;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [orders, filterTick, filterStatus, filterCurrency, hideTest]);
+
+  // CSV export of the currently-filtered cash orders. Exposed via exportRef
+  // so a parent (Sales workspace toolbar) can trigger the download button.
+  const handleExport = useCallback(() => {
+    const rows = filtered.map(o => ({
+      'Invoice #': o.invoice_number ?? '',
+      'Customer': o.customers?.full_name ?? '',
+      'Status': o.status ?? '',
+      'Currency': o.currency ?? '',
+      'Total': o.total_amount ?? 0,
+      'Paid': o.total_paid ?? 0,
+      'Balance': o.remaining_balance ?? 0,
+      'Date': o.order_date ?? '',
+      'Item': o.item_description ?? '',
+    }));
+    const headers = Object.keys(rows[0] ?? {});
+    const csv = [
+      headers.join(','),
+      ...rows.map(r =>
+        headers.map(h => JSON.stringify((r as Record<string, unknown>)[h] ?? '')).join(',')
+      ),
+    ].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cash-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [filtered]);
+
+  useEffect(() => {
+    if (exportRef) exportRef.current = handleExport;
+    return () => {
+      if (exportRef) exportRef.current = null;
+    };
+  }, [exportRef, handleExport]);
 
   const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
