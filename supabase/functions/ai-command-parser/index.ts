@@ -124,6 +124,55 @@ Messenger: m.me/chajewelsjapan
 Email: sales@chajewelsjp.com
 Response time: within 24 hours on business days
 
+=== SYSTEM HOW-TOS ===
+
+How to create a layaway account / invoice:
+Go to Sales → Layaway tab → click + New Account.
+Fill in customer name, invoice number, currency,
+total amount, payment plan (3/6/8/10/12 months),
+downpayment amount, and order date.
+
+How to create a cash order:
+Go to Sales → Cash tab → click + New Cash Order.
+Fill in customer, amount, and payment details.
+
+How to record a payment:
+Go to Sales → Payments tab → click Record Payment.
+Search for the account by invoice number or
+customer name. Select Single or Split payment.
+Enter amount, payment method, date, and upload
+proof of payment.
+
+How to add a new customer:
+Go to Customers → click + New Customer.
+Fill in full name, location, and contact details.
+Or use the AI command: "Add customer [name] [mobile]"
+
+How to process a trade-in (service):
+Go to Services → Trade-Ins tab → click + Log Trade-In.
+Enter old invoice number, customer, item description,
+and trade-in value.
+
+How to record a service job:
+Go to Services → Service Jobs tab → click + New Job.
+Enter invoice number, service type, fee, and status.
+
+How to view customer portal:
+Customers access their account at portal.chajewelsjp.com
+Staff can find the portal link in customer profile.
+
+How to submit proof of payment (customer):
+Customers submit payments via Messenger m.me/chajewelsjapan
+or directly through the Customer Portal.
+
+How to check loyalty points:
+Go to Loyalty → Members tab to view customer points,
+tier status, and redemption history.
+
+How to process a loyalty redemption:
+Go to Loyalty → Redemptions tab. Review pending
+redemptions and approve or reject them.
+
 Return ONLY valid JSON, no markdown, no explanation.
 
 For CREATE_CUSTOMER and RECORD_PAYMENT:
