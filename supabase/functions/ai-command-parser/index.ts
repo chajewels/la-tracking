@@ -388,17 +388,36 @@ Mining / Mag-mine:
   1. Watch live selling or browse posted items
   2. Comment: MINE + ITEM CODE (e.g. MINE CJ1234)
   3. First miner gets priority
-  4. Wait for admin to confirm your mine
-  5. Team sends invoice and payment instructions
+  4. System automatically generates and sends invoice
+     via Messenger (integrated with Page365)
+  5. Customer reviews invoice and payment details
   6. Pay downpayment (layaway) or full amount (cash)
-  7. Item shipped after full payment
-  8. Tracking number sent after shipment
-  After mining, keep Messenger open for invoice details.
+  7. Item reserved under customer name after payment
+  8. Item shipped after full payment
+  9. Tracking number sent after shipment
+
+  What makes Cha Jewels different:
+  - Invoices generated automatically (no manual computation)
+  - Layaway payments tracked automatically in Hub
+  - Loyalty points applied and monitored automatically
+  - Member benefits applied automatically
+  - Payment history and notifications sent automatically
+
   After mining, downpayment must be paid:
   - New customers: within 24 hours
   - Existing customers: within 2-3 days
   Failure to pay after mining = ghosting = risk of
   losing layaway privilege permanently.
+
+Automated Invoice System:
+  Cha Jewels uses Page365 integrated with the Hub.
+  When a customer mines an item, the system
+  automatically generates an invoice and sends
+  it to the customer via Messenger.
+  Staff creates the layaway account or cash order
+  in the Hub (Sales → Layaway or Sales → Cash).
+  The system tracks all payments, penalties,
+  loyalty points, and notifications automatically.
 
 Live selling:
   Cha Jewels conducts live selling sessions where
