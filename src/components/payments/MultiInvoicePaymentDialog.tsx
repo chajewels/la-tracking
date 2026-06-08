@@ -129,7 +129,7 @@ export default function MultiInvoicePaymentDialog({
   customerName,
   accounts,
   portalLink,
-  initialPaymentMethod?: string;
+  initialPaymentMethod,
 }: MultiInvoicePaymentDialogProps) {
   const queryClient = useQueryClient();
   const { roles, user, profile } = useAuth();
