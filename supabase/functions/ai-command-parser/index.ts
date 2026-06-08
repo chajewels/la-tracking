@@ -335,7 +335,10 @@ async function runTool(
         q = q.eq("invoice_number", args.invoice_number);
       }
       if (args.status) {
-        q = q.eq("status", args.status);
+        const statusFilter = args.status === "overdue"
+          ? ["overdue", "extension_active"]
+          : [args.status];
+        q = q.in("status", statusFilter);
       }
       const { data, error } = await q;
       if (error) return JSON.stringify({ error: error.message });
