@@ -143,10 +143,15 @@ How customers access the portal:
 - If customer forgets PIN, staff can reset it in the Hub
 
 Extension requests:
-- Customers cannot request extensions through the portal
-- Extensions must be requested via Messenger (m.me/chajewelsjapan)
-- Extensions are approved by Cha Jewels staff at their discretion
-- Extension terms are subject to the layaway agreement
+- Customers CAN request a 1-month payment extension through the
+  Customer Portal (portal.chajewelsjp.com)
+- Extension request is available on forfeited or overdue accounts
+- Customers provide an optional reason for the extension
+- Staff receives a notification and reviews within 24 hours
+- Extensions can also be requested via Messenger (m.me/chajewelsjapan)
+- Staff manages extension requests in CSR Operations → CSR Alerts
+- The extension request window closes after a certain period —
+  customers must contact Cha Jewels directly if window is closed
 
 === LOYALTY PROGRAM ===
 How to enroll:
