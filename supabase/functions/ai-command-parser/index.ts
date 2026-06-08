@@ -306,10 +306,19 @@ Tier multipliers and thresholds (cumulative spend in JPY):
   Crown VIP: 3x — requires ¥8,000,000 cumulative spend
 
 Tier benefits:
-  Radiant+: VIP Early Access to new gold arrivals
-  Elite:    Full access to VIP Rewards Vault
-  Crown VIP: Mystery gifts, private gold viewings,
-             triple points multiplier
+  Glimmer:   1x points, basic loyalty access
+  Radiant:   2x points, VIP early access to new arrivals
+  Elite:     2x points, free shipping (min 4 items),
+             2% invoice discount, full VIP Rewards Vault
+  Crown VIP: 3x points, free shipping (min 3 items),
+             mystery gifts, private gold viewings
+
+Free shipping:
+  Available as a loyalty redemption reward (not automatic)
+  Elite tier: minimum 4 items per order
+  Crown VIP: minimum 3 items per order
+  Glimmer and Radiant: no free shipping benefit
+  Redeemed via Loyalty → Redemptions (shipping_fee type)
 
 When points are awarded:
   Layaway: ONLY on downpayment confirmation (not on monthly payments)
