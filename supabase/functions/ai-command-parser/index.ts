@@ -411,6 +411,58 @@ interface ToolCall {
   function: { name: string; arguments: string };
 }
 
+// deno-lint-ignore no-explicit-any
+async function callAI(
+  messages: any[],
+  // deno-lint-ignore no-explicit-any
+  tools: any[],
+  apiKey: string,
+  model = "google/gemini-2.5-flash",
+  // deno-lint-ignore no-explicit-any
+): Promise<any> {
+  const response = await fetch(
+    "https://ai.gateway.lovable.dev/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        tools: tools.length > 0 ? tools : undefined,
+        tool_choice: tools.length > 0 ? "auto" : undefined,
+        temperature: 0.1,
+      }),
+    },
+  );
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`AI error ${response.status}: ${err}`);
+  }
+  return response.json();
+}
+
+async function callAIWithFallback(
+  // deno-lint-ignore no-explicit-any
+  messages: any[],
+  // deno-lint-ignore no-explicit-any
+  tools: any[],
+  apiKey: string,
+  // deno-lint-ignore no-explicit-any
+): Promise<any> {
+  try {
+    return await callAI(messages, tools, apiKey, "google/gemini-2.5-flash");
+  } catch (err) {
+    console.warn(
+      "Primary model failed, falling back to gpt-5-mini:",
+      (err as Error).message,
+    );
+    return await callAI(messages, tools, apiKey, "openai/gpt-5-mini");
+  }
+}
+
 function safeParseArgs(raw: string): Record<string, string> {
   try {
     const parsed = JSON.parse(raw ?? "{}");
@@ -475,31 +527,12 @@ Deno.serve(async (req) => {
     const userCommand = command.trim();
 
     // Pass 1 — send messages + tools, let the model decide whether to call a tool.
-    const firstResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...historyMessages,
-          { role: "user", content: userCommand },
-        ],
-        tools: TOOLS,
-        tool_choice: "auto",
-        temperature: 0.1,
-      }),
-    });
-
-    if (!firstResponse.ok) {
-      const errorText = await firstResponse.text();
-      throw new Error(`AI error ${firstResponse.status}: ${errorText}`);
-    }
-
-    const firstResult = await firstResponse.json();
+    const firstMessages = [
+      { role: "system", content: systemPrompt },
+      ...historyMessages,
+      { role: "user", content: userCommand },
+    ];
+    const firstResult = await callAIWithFallback(firstMessages, TOOLS, LOVABLE_API_KEY);
     const firstChoice = firstResult.choices?.[0];
     const firstMessage = firstChoice?.message;
     const toolCalls: ToolCall[] | undefined = firstMessage?.tool_calls;
@@ -515,42 +548,22 @@ Deno.serve(async (req) => {
       );
 
       // Pass 2 — feed tool results back for a natural-language answer.
-      const secondResponse = await fetch(
-        "https://ai.gateway.lovable.dev/v1/chat/completions",
+      const secondMessages = [
+        { role: "system", content: systemPrompt },
+        ...historyMessages,
+        { role: "user", content: userCommand },
         {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "google/gemini-2.5-flash",
-            messages: [
-              { role: "system", content: systemPrompt },
-              ...historyMessages,
-              { role: "user", content: userCommand },
-              {
-                role: "assistant",
-                content: firstMessage?.content ?? null,
-                tool_calls: toolCalls,
-              },
-              ...toolResults.map(({ tc, result }) => ({
-                role: "tool",
-                tool_call_id: tc.id,
-                content: result,
-              })),
-            ],
-            temperature: 0.1,
-          }),
+          role: "assistant",
+          content: firstMessage?.content ?? null,
+          tool_calls: toolCalls,
         },
-      );
-
-      if (!secondResponse.ok) {
-        const errorText = await secondResponse.text();
-        throw new Error(`AI error ${secondResponse.status}: ${errorText}`);
-      }
-
-      const secondResult = await secondResponse.json();
+        ...toolResults.map(({ tc, result }) => ({
+          role: "tool",
+          tool_call_id: tc.id,
+          content: result,
+        })),
+      ];
+      const secondResult = await callAIWithFallback(secondMessages, [], LOVABLE_API_KEY);
       const secondContent = secondResult.choices?.[0]?.message?.content ?? "";
 
       // The second pass may return either prose or another JSON envelope.
