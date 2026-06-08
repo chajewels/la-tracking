@@ -116,7 +116,8 @@ Deno.serve(async (req) => {
           .from("penalty_fees")
           .select("penalty_amount, status, account_id, created_at")
           .in("account_id", accountIds)
-          .neq("created_at::date", "2026-03-22")
+          .not("created_at", "gte", "2026-03-22T00:00:00Z")
+          .not("created_at", "lte", "2026-03-22T23:59:59Z")
         : Promise.resolve({ data: [] as any[] }),
       supabase
         .from("loyalty_members")
@@ -126,7 +127,11 @@ Deno.serve(async (req) => {
     ]);
 
     const payments = (paymentsRes as any).data ?? [];
-    const penalties = (penaltiesRes as any).data ?? [];
+    // Exclude migration-batch penalties (all created 2026-03-22)
+    const allPenalties = (penaltiesRes as any).data ?? [];
+    const penalties = allPenalties.filter((p: any) =>
+      !p.created_at?.startsWith("2026-03-22")
+    );
     const loyalty = (loyaltyRes as any).data ?? null;
 
     // ── Build compact context for the AI ──
