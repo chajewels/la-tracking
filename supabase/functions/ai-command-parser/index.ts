@@ -373,10 +373,14 @@ async function runTool(
     if (name === "count_accounts") {
       const status = String(args.status ?? "").trim();
       if (!status) return JSON.stringify({ error: "status is required" });
+      // "overdue" semantics include accounts in their granted extension window.
+      const statusFilter = status === "overdue"
+        ? ["overdue", "extension_active"]
+        : [status];
       const { count, error } = await supabase
         .from("layaway_accounts")
         .select("*", { count: "exact", head: true })
-        .eq("status", status);
+        .in("status", statusFilter);
       if (error) return JSON.stringify({ error: error.message });
       return JSON.stringify({ count: count ?? 0, status });
     }
@@ -451,13 +455,14 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { command } = await req.json();
+    const { command, history = [] } = await req.json();
     if (!command || typeof command !== "string" || !command.trim()) {
       return new Response(JSON.stringify({ error: "command is required" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    const historyMessages = Array.isArray(history) ? history : [];
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
@@ -480,6 +485,7 @@ Deno.serve(async (req) => {
         model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
+          ...historyMessages,
           { role: "user", content: userCommand },
         ],
         tools: TOOLS,
@@ -521,6 +527,7 @@ Deno.serve(async (req) => {
             model: "google/gemini-2.5-flash",
             messages: [
               { role: "system", content: systemPrompt },
+              ...historyMessages,
               { role: "user", content: userCommand },
               {
                 role: "assistant",
