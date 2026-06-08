@@ -499,6 +499,34 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "query_loyalty_tiers",
+      description: "Get loyalty tier names, spend thresholds, and point multipliers",
+      parameters: {
+        type: "object",
+        properties: {},
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_system_settings",
+      description: "Get system settings like php_jpy_rate exchange rate",
+      parameters: {
+        type: "object",
+        properties: {
+          key: {
+            type: "string",
+            description: "Setting key to retrieve e.g. php_jpy_rate",
+          },
+        },
+        required: ["key"],
+      },
+    },
+  },
 ];
 
 async function runTool(
@@ -601,6 +629,27 @@ async function runTool(
         .limit(5);
       if (error) return JSON.stringify({ error: error.message });
       return JSON.stringify(data ?? []);
+    }
+
+    if (name === "query_loyalty_tiers") {
+      const { data, error } = await supabase
+        .from("loyalty_tiers")
+        .select("name, min_spend_jpy, points_multiplier")
+        .order("min_spend_jpy", { ascending: true });
+      if (error) return JSON.stringify({ error: error.message });
+      return JSON.stringify(data ?? []);
+    }
+
+    if (name === "query_system_settings") {
+      const key = String(args.key ?? "").trim();
+      if (!key) return JSON.stringify({ error: "key is required" });
+      const { data, error } = await supabase
+        .from("system_settings")
+        .select("key, value")
+        .eq("key", key)
+        .maybeSingle();
+      if (error) return JSON.stringify({ error: error.message });
+      return JSON.stringify(data ?? {});
     }
 
     return JSON.stringify({ error: "Unknown tool" });
