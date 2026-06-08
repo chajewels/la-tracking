@@ -23,20 +23,25 @@ Supported intents:
 - CREATE_CUSTOMER: staff wants to add a new customer to the directory
 - RECORD_PAYMENT: staff wants to record a payment against a layaway account
 
-For CREATE_CUSTOMER extract:
-  full_name (required),
-  email (optional),
-  mobile_number (optional),
-  facebook_name (optional),
-  location_type: 'japan' | 'philippines' | 'international' (default 'philippines')
+For CREATE_CUSTOMER extract these fields:
+
+full_name (required) — the person's full name, typically the first words before any other data
+
+mobile_number (optional) — any value starting with + followed by digits, or a string of digits that looks like a phone number (e.g. +81901234567, +63912345678)
+
+email (optional) — any value containing @ (e.g. maria@email.com, chajewelsjapan@gmail.com)
+
+messenger_link (optional) — any value starting with m.me/ or containing messenger.com (e.g. m.me/chajewelsjapan)
+
+facebook_name (optional) — only if explicitly mentioned with "FB" or "Facebook" label. Do NOT use the name or messenger link as facebook_name.
 
 location_type rules (IMPORTANT):
 - If the command mentions "Japan" or the customer is in Japan → location_type: "japan"
-- If the command mentions "Philippines" or no location is mentioned → location_type: "philippines" (this is the default)
-- If the command mentions any other country (Korea, USA, Singapore, etc.) → location_type: "international"
-- location_type must be exactly one of: "japan" | "philippines" | "international"
-- NEVER put Japan or Philippines in a "country" field — they belong in location_type only
-- Only set "country" field when location_type is "international" and a specific country is mentioned
+- If the command mentions "Philippines" or no location is mentioned → location_type: "philippines" (default)
+- If the command mentions any other country → location_type: "international"
+- Must be exactly: "japan" | "philippines" | "international"
+- NEVER put Japan or Philippines in a country field
+- Only set country when location_type is "international"
 
 For RECORD_PAYMENT extract:
   customer_name (required),
