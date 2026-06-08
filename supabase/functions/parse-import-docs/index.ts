@@ -99,7 +99,7 @@ async function extractWithAI(text: string, apiKey: string): Promise<any> {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "openai/gpt-5-mini",
+      model: "google/gemini-2.5-flash",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: `Extract all customer and account data from this parsed document:\n\n${text}` },
