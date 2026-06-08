@@ -90,35 +90,17 @@ export default function NewAccount() {
   const submittedRef = useRef(false);
   const pendingNavRef = useRef<string | null>(null);
 
-  // Pre-fill form from AI-command query params (e.g. CREATE_LAYAWAY_ACCOUNT).
-  // Runs once on mount; the customer combobox does its own debounced fetch off
-  // customerSearch, so seeding it here triggers the dropdown automatically.
+  // Single mount-scoped initializer:
+  //   1. Restore the saved draft (if any) — sets totalAmount, currency, plan, etc.
+  //   2. Then overlay AI-command URL params on top so they always win over a
+  //      stale draft when present. Customer name seeds customerSearch, which
+  //      the debounced combobox picks up on its own.
   useEffect(() => {
-    const customerName = searchParams.get('customer_name');
-    const amountParam = searchParams.get('amount');
-    const currencyParam = searchParams.get('currency') as Currency | null;
-    const planMonthsParam = searchParams.get('plan_months');
-    const notes = searchParams.get('notes');
+    if (draftRestoredRef.current) return;
+    draftRestoredRef.current = true;
 
-    if (amountParam) setTotalAmount(amountParam);
-    if (currencyParam && ['PHP', 'JPY'].includes(currencyParam)) {
-      setCurrency(currencyParam);
-    }
-    if (planMonthsParam) {
-      const months = parseInt(planMonthsParam);
-      if ([3, 6, 8, 10, 12].includes(months)) {
-        setPaymentPlan(months as PaymentPlan);
-      }
-    }
-    if (notes) setInitialNote(notes);
-    if (customerName) setCustomerSearch(customerName);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Restore draft on mount
-  useEffect(() => {
-    if (initialDraft && !draftRestoredRef.current) {
-      draftRestoredRef.current = true;
+    // 1. Draft restore
+    if (initialDraft) {
       setInvoiceNumber(initialDraft.invoiceNumber || '');
       setCustomerId(initialDraft.customerId || '');
       setCurrency(initialDraft.currency || 'PHP');
@@ -133,7 +115,27 @@ export default function NewAccount() {
       setFormDirty(true);
       markRestored();
     }
-  }, [initialDraft, markRestored]);
+
+    // 2. URL prefill — applied last so query params override draft values
+    const customerName = searchParams.get('customer_name');
+    const amountParam = searchParams.get('amount');
+    const currencyParam = searchParams.get('currency');
+    const planMonthsParam = searchParams.get('plan_months');
+    const notes = searchParams.get('notes');
+
+    if (amountParam) setTotalAmount(amountParam);
+    if (currencyParam === 'PHP' || currencyParam === 'JPY') {
+      setCurrency(currencyParam);
+    }
+    if (planMonthsParam) {
+      const months = parseInt(planMonthsParam);
+      if ([3, 6, 8, 10, 12].includes(months)) {
+        setPaymentPlan(months as PaymentPlan);
+      }
+    }
+    if (notes) setInitialNote(notes);
+    if (customerName) setCustomerSearch(customerName);
+  }, [initialDraft, markRestored, searchParams]);
 
   // Auto-save draft on changes
   useEffect(() => {
