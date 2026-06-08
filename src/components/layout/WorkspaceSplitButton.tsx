@@ -18,6 +18,17 @@ type SplitConfig = {
   dropdownItems: DropdownAction[];
 };
 
+// Maps AI-extracted `payment_channel` strings (lowercased) to the canonical
+// payment-method labels the RecordPayment dialogs expect.
+const channelMap: Record<string, string> = {
+  gcash: 'GCash',
+  bdo: 'BDO',
+  bpi: 'BPI',
+  metrobank: 'Metrobank',
+  paypal: 'PayPal',
+  cash: 'Cash',
+};
+
 function resolveConfig(
   pathname: string,
   navigate: ReturnType<typeof useNavigate>,
@@ -106,6 +117,8 @@ export default function WorkspaceSplitButton() {
   const [searchParams] = useSearchParams();
   const [recordOpen, setRecordOpen] = useState(false);
   const [initialInvoice, setInitialInvoice] = useState<string | null>(null);
+  const [initialPaymentMethod, setInitialPaymentMethod] = useState<string | null>(null);
+  const [initialPaymentMode, setInitialPaymentMode] = useState<'single' | 'split' | null>(null);
 
   // AICommandModal's RECORD_PAYMENT path dispatches this CustomEvent so
   // staff land directly on the existing RecordPaymentModal flow (proof
@@ -114,6 +127,10 @@ export default function WorkspaceSplitButton() {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail ?? {};
       setInitialInvoice(detail.invoice_number ?? null);
+      setInitialPaymentMethod(
+        channelMap[(detail.payment_channel ?? '').toLowerCase()] ?? null,
+      );
+      setInitialPaymentMode(detail.payment_mode ?? null);
       setRecordOpen(true);
     };
     window.addEventListener('open-record-payment-modal', handler);
@@ -166,9 +183,15 @@ export default function WorkspaceSplitButton() {
         open={recordOpen}
         onOpenChange={(next) => {
           setRecordOpen(next);
-          if (!next) setInitialInvoice(null);
+          if (!next) {
+            setInitialInvoice(null);
+            setInitialPaymentMethod(null);
+            setInitialPaymentMode(null);
+          }
         }}
         initialInvoice={initialInvoice}
+        initialPaymentMethod={initialPaymentMethod}
+        initialPaymentMode={initialPaymentMode}
       />
     </>
   );
