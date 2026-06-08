@@ -30,6 +30,14 @@ For CREATE_CUSTOMER extract:
   facebook_name (optional),
   location_type: 'japan' | 'philippines' | 'international' (default 'philippines')
 
+location_type rules (IMPORTANT):
+- If the command mentions "Japan" or the customer is in Japan → location_type: "japan"
+- If the command mentions "Philippines" or no location is mentioned → location_type: "philippines" (this is the default)
+- If the command mentions any other country (Korea, USA, Singapore, etc.) → location_type: "international"
+- location_type must be exactly one of: "japan" | "philippines" | "international"
+- NEVER put Japan or Philippines in a "country" field — they belong in location_type only
+- Only set "country" field when location_type is "international" and a specific country is mentioned
+
 For RECORD_PAYMENT extract:
   customer_name (required),
   amount (required, numeric),
