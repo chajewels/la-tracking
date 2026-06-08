@@ -23,4 +23,5 @@ export const ROUTES = {
   EXECUTIVE_DASHBOARD: "/executive-dashboard",
   SALES: "/sales",
   HELP: "/help",
+  POLICY_HUB: "/policy-hub",
 };
