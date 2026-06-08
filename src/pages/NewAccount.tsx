@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
 import { ArrowLeft, UserPlus, ChevronDown, ChevronUp, Banknote, Copy, Check, MessageCircle, Wand2, Save, AlertTriangle, Loader2, X } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
@@ -32,6 +32,7 @@ interface SplitAllocation {
 
 export default function NewAccount() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { data: customers } = useCustomers();
   const { data: allAccounts } = useAccountsLight();
   const createAccount = useCreateAccount();
@@ -88,6 +89,31 @@ export default function NewAccount() {
   const [showLeaveDialog, setShowLeaveDialog] = useState(false);
   const submittedRef = useRef(false);
   const pendingNavRef = useRef<string | null>(null);
+
+  // Pre-fill form from AI-command query params (e.g. CREATE_LAYAWAY_ACCOUNT).
+  // Runs once on mount; the customer combobox does its own debounced fetch off
+  // customerSearch, so seeding it here triggers the dropdown automatically.
+  useEffect(() => {
+    const customerName = searchParams.get('customer_name');
+    const amountParam = searchParams.get('amount');
+    const currencyParam = searchParams.get('currency') as Currency | null;
+    const planMonthsParam = searchParams.get('plan_months');
+    const notes = searchParams.get('notes');
+
+    if (amountParam) setTotalAmount(amountParam);
+    if (currencyParam && ['PHP', 'JPY'].includes(currencyParam)) {
+      setCurrency(currencyParam);
+    }
+    if (planMonthsParam) {
+      const months = parseInt(planMonthsParam);
+      if ([3, 6, 8, 10, 12].includes(months)) {
+        setPaymentPlan(months as PaymentPlan);
+      }
+    }
+    if (notes) setInitialNote(notes);
+    if (customerName) setCustomerSearch(customerName);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Restore draft on mount
   useEffect(() => {

@@ -238,17 +238,30 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
         setPendingConfirm(null);
         handleClose(false);
       } else if (parsed.intent === 'CREATE_LAYAWAY_ACCOUNT') {
+        const p = parsed.parameters as Record<string, unknown>;
+        const params = new URLSearchParams();
+        if (p.customer_name) params.set('customer_name', String(p.customer_name));
+        if (p.amount != null) params.set('amount', String(p.amount));
+        if (p.currency) params.set('currency', String(p.currency));
+        if (p.plan_months) params.set('plan_months', String(p.plan_months));
+        if (p.notes) params.set('notes', String(p.notes));
         toast.info('Opening new layaway account form...');
         pushAssistant('Opening new layaway account form...');
         setPendingConfirm(null);
         handleClose(false);
-        navigate('/accounts/new');
+        navigate(`/accounts/new?${params.toString()}`);
       } else if (parsed.intent === 'CREATE_CASH_ORDER') {
+        const p = parsed.parameters as Record<string, unknown>;
+        const params = new URLSearchParams();
+        if (p.customer_name) params.set('customer_name', String(p.customer_name));
+        if (p.amount != null) params.set('amount', String(p.amount));
+        if (p.currency) params.set('currency', String(p.currency));
+        if (p.notes) params.set('notes', String(p.notes));
         toast.info('Opening new cash order form...');
         pushAssistant('Opening new cash order form...');
         setPendingConfirm(null);
         handleClose(false);
-        navigate('/cash-orders/new');
+        navigate(`/cash-orders/new?${params.toString()}`);
       }
     } catch (err) {
       pushAssistant((err as Error).message || 'Action failed.');
