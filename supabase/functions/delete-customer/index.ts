@@ -120,7 +120,21 @@ Deno.serve(async (req) => {
       .eq("customer_id", customer_id);
     if (psErr) throw psErr;
 
-    // 3. Safe to delete — also clean up analytics
+    // 3. Service jobs cleanup (FK is NO ACTION — must explicitly delete)
+    const { error: sjErr } = await supabase
+      .from("service_jobs")
+      .delete()
+      .eq("customer_id", customer_id);
+    if (sjErr) throw sjErr;
+
+    // 4. Trade-ins cleanup (FK is NO ACTION — must explicitly delete)
+    const { error: tiErr } = await supabase
+      .from("trade_ins")
+      .delete()
+      .eq("customer_id", customer_id);
+    if (tiErr) throw tiErr;
+
+    // 5. Safe to delete — also clean up analytics
     await supabase.from("customer_analytics").delete().eq("customer_id", customer_id);
     const { error: delErr } = await supabase.from("customers").delete().eq("id", customer_id);
     if (delErr) throw delErr;
