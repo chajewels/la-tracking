@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Sparkles, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Sparkles, Loader2 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
+import { toLocationString, type LocationType } from '@/lib/countries';
 
 interface AICommandModalProps {
   open: boolean;
@@ -21,72 +23,156 @@ interface ParsedCommand {
   answer?: string;
 }
 
-type Step = 'input' | 'confirm' | 'answer' | 'done';
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'action';
+  content: string;
+  intent?: string;
+  parsed?: ParsedCommand;
+  timestamp: Date;
+}
+
+const newId = () =>
+  (globalThis.crypto?.randomUUID?.() ??
+    `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
+const VALID_LOCATIONS: readonly LocationType[] = ['japan', 'philippines', 'international'];
+
+function coerceLocationType(value: unknown): LocationType {
+  const v = String(value ?? '').trim().toLowerCase();
+  return (VALID_LOCATIONS as readonly string[]).includes(v) ? (v as LocationType) : 'philippines';
+}
 
 export default function AICommandModal({ open, onOpenChange }: AICommandModalProps) {
   const queryClient = useQueryClient();
 
-  const [step, setStep] = useState<Step>('input');
-  const [command, setCommand] = useState('');
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [parsed, setParsed] = useState<ParsedCommand | null>(null);
-  const [result, setResult] = useState<'success' | 'error' | null>(null);
-  const [resultMessage, setResultMessage] = useState('');
+  const [pendingConfirm, setPendingConfirm] = useState<ParsedCommand | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   const handleClose = (next: boolean) => {
     onOpenChange(next);
     if (!next) {
-      setStep('input');
-      setCommand('');
-      setParsed(null);
-      setResult(null);
-      setResultMessage('');
+      setMessages([]);
+      setInput('');
       setLoading(false);
+      setPendingConfirm(null);
     }
   };
 
-  const handleParse = async () => {
-    if (!command.trim() || loading) return;
+  const pushAssistant = (content: string, parsed?: ParsedCommand) => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: newId(),
+        role: 'assistant',
+        content,
+        intent: parsed?.intent,
+        parsed,
+        timestamp: new Date(),
+      },
+    ]);
+  };
+
+  const summarize = (parsed: ParsedCommand): string => {
+    if (parsed.intent === 'CREATE_CUSTOMER') {
+      const p = parsed.parameters as Record<string, unknown>;
+      const name = String(p.full_name ?? 'New customer');
+      const bits: string[] = [];
+      if (p.mobile_number) bits.push(String(p.mobile_number));
+      if (p.email) bits.push(String(p.email));
+      if (p.facebook_name) bits.push(`FB: ${String(p.facebook_name)}`);
+      if (p.location_type) bits.push(String(p.location_type));
+      const detail = bits.length ? ` (${bits.join(' · ')})` : '';
+      return `Add customer "${name}"${detail}?`;
+    }
+    if (parsed.intent === 'RECORD_PAYMENT') {
+      const p = parsed.parameters as Record<string, unknown>;
+      const amount = p.amount != null ? `${p.currency ?? 'PHP'} ${p.amount}` : 'payment';
+      const inv = p.invoice_number ? ` Invoice ${p.invoice_number}` : '';
+      const who = p.customer_name ? ` for ${p.customer_name}` : '';
+      const via = p.payment_channel ? ` via ${p.payment_channel}` : '';
+      return `Record ${amount}${inv}${who}${via}?`;
+    }
+    return parsed.display_summary || 'Confirm action?';
+  };
+
+  const handleSend = async () => {
+    const trimmed = input.trim();
+    if (!trimmed || loading) return;
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: newId(),
+        role: 'user',
+        content: trimmed,
+        timestamp: new Date(),
+      },
+    ]);
+    setInput('');
+    setPendingConfirm(null);
     setLoading(true);
+
     try {
       const { data, error } = await supabase.functions.invoke('ai-command-parser', {
-        body: { command: command.trim() },
+        body: { command: trimmed },
       });
       if (error) {
-        toast.error(error.message || 'AI command failed');
+        pushAssistant(error.message || 'AI command failed.');
         return;
       }
       const result = data as ParsedCommand;
-      if (!result || result.intent === 'UNKNOWN') {
-        toast.error(
-          'Command not recognised. Try: "Add customer [name]" or "Record [amount] payment for [name]"',
-        );
+      if (!result) {
+        pushAssistant('AI returned no result. Please try again.');
         return;
       }
-      // Client-side invoice number extraction — more reliable than AI parsing
-      // Matches: "Invoice 19106", "invoice #19106", "#19106", "19106" preceded by invoice/account
+
+      // Client-side invoice number extraction — more reliable than AI parsing.
       if (result.intent === 'RECORD_PAYMENT' && !result.parameters.invoice_number) {
-        const invoiceMatch = command.match(/(?:invoice|inv|account|acct)\s*#?(\d{4,6})(?=\s|$|\b)/i);
+        const invoiceMatch = trimmed.match(/(?:invoice|inv|account|acct)\s*#?(\d{4,6})(?=\s|$|\b)/i);
         if (invoiceMatch) {
           result.parameters.invoice_number = invoiceMatch[1];
         }
       }
-      setParsed(result);
-      setStep(result.intent === 'ASK_POLICY' ? 'answer' : 'confirm');
+
+      if (result.intent === 'ASK_POLICY') {
+        pushAssistant(result.answer || "I don't have information about that. Please refer to the Policy Hub.");
+        return;
+      }
+
+      if (result.intent === 'UNKNOWN') {
+        pushAssistant(
+          "I didn't understand that. Try asking about our policies, or use commands like 'Add customer [name]' or 'Record [amount] PHP Invoice [#] for [name] via [channel]'.",
+        );
+        return;
+      }
+
+      pushAssistant(summarize(result), result);
+      setPendingConfirm(result);
     } catch (err) {
-      toast.error((err as Error).message || 'AI command failed');
+      pushAssistant((err as Error).message || 'AI command failed.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleConfirm = async () => {
+  const handleConfirm = async (parsed: ParsedCommand) => {
     if (!parsed || loading) return;
     setLoading(true);
 
     try {
       if (parsed.intent === 'CREATE_CUSTOMER') {
         const p = parsed.parameters as Record<string, string | undefined>;
+        const locationType = coerceLocationType(p.location_type);
+        const country = String((p as Record<string, unknown>).country ?? '').trim();
+        const locationString = toLocationString(locationType, country) ?? 'philippines';
         const { error } = await supabase
           .from('customers')
           .insert({
@@ -95,17 +181,15 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
             mobile_number: p.mobile_number ? String(p.mobile_number).trim() : null,
             facebook_name: p.facebook_name ? String(p.facebook_name).trim() : null,
             messenger_link: p.messenger_link ? String(p.messenger_link).trim() : null,
-            location: p.location_type ? String(p.location_type).trim() : 'philippines',
+            location: locationString,
           });
         if (error) {
-          setResult('error');
-          setResultMessage(error.message);
+          pushAssistant(`Could not create customer: ${error.message}`);
         } else {
           queryClient.invalidateQueries({ queryKey: ['customers'] });
-          setResult('success');
-          setResultMessage(`Customer "${p.full_name}" created successfully.`);
+          pushAssistant(`Customer "${p.full_name}" created successfully.`);
         }
-        setStep('done');
+        setPendingConfirm(null);
       } else if (parsed.intent === 'RECORD_PAYMENT') {
         const customerName = String((parsed.parameters as Record<string, unknown>).customer_name ?? '');
         toast.info(`Opening payment form for ${customerName}...`);
@@ -118,160 +202,130 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
             },
           }),
         );
+        pushAssistant(`Opening payment form for ${customerName || 'customer'}...`);
+        setPendingConfirm(null);
         handleClose(false);
       }
     } catch (err) {
-      setResult('error');
-      setResultMessage((err as Error).message || 'Action failed');
-      setStep('done');
+      pushAssistant((err as Error).message || 'Action failed.');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleCancel = () => {
+    pushAssistant('Cancelled.');
+    setPendingConfirm(null);
+  };
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
+      <DialogContent
+        className="max-w-md flex flex-col"
+        style={{ height: '80vh', maxHeight: '600px' }}
+      >
+        <DialogHeader className="flex-shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-primary" />
-            AI Command
+            Cha Jewels AI Assistant
           </DialogTitle>
           <DialogDescription>
-            Ask anything about our policies and how the system works, or type a command to add a customer or record a payment. Examples: "What is the penalty for late payment?" · "Add customer Maria Santos +63912345678" · "Record 5000 PHP Invoice 19106 for Lhouise via GCash"
+            Ask about policies, add a customer, or record a payment.
           </DialogDescription>
         </DialogHeader>
 
-        {step === 'input' && (
-          <>
-            <textarea
-              autoFocus
-              value={command}
-              onChange={(e) => setCommand(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleParse();
-                }
-              }}
-              placeholder="Type your command..."
-              rows={3}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm resize-none outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground"
-            />
-
-            <div className="flex justify-between items-center">
-              <span className="text-xs text-muted-foreground">
-                Press Enter to parse · Shift+Enter for new line
-              </span>
-              <div className="flex gap-2">
-                <Button variant="ghost" size="sm" onClick={() => handleClose(false)}>
-                  Cancel
-                </Button>
-                <Button size="sm" onClick={handleParse} disabled={loading || !command.trim()}>
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Parse Command'}
-                </Button>
+        <div className="flex-1 overflow-y-auto space-y-3 px-1 py-2 min-h-0">
+          {messages.length === 0 && (
+            <div className="text-center py-8 text-muted-foreground text-sm space-y-2">
+              <Sparkles className="h-8 w-8 mx-auto text-primary/40" />
+              <p>How can I help you today?</p>
+              <div className="text-xs space-y-1 text-muted-foreground/70">
+                <p>"What is the penalty for late payment?"</p>
+                <p>"Add customer Maria Santos +63912345678"</p>
+                <p>"Record 5000 PHP Invoice 19106 for Lhouise via GCash"</p>
               </div>
             </div>
-          </>
-        )}
+          )}
 
-        {step === 'confirm' && parsed && (
-          <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-primary" />
-              <span className="text-sm font-semibold">
-                AI Parsed: {parsed.intent === 'CREATE_CUSTOMER' ? 'New Customer' : 'Payment Entry'}
-              </span>
-              <span className="ml-auto text-xs text-muted-foreground">
-                {Math.round(parsed.confidence * 100)}% confidence
-              </span>
-            </div>
+          {messages.map((msg, idx) => {
+            const isLast = idx === messages.length - 1;
+            const showConfirmButtons =
+              msg.role === 'assistant' && pendingConfirm && isLast;
+            return (
+              <div
+                key={msg.id}
+                className={cn(
+                  'flex flex-col gap-1',
+                  msg.role === 'user' ? 'items-end' : 'items-start',
+                )}
+              >
+                <div
+                  className={cn(
+                    'max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap',
+                    msg.role === 'user'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-foreground',
+                  )}
+                >
+                  {msg.content}
+                </div>
 
-            <p className="text-xs text-muted-foreground border-t border-border pt-2">
-              {parsed.display_summary}
-            </p>
-
-            <div className="space-y-1.5">
-              {Object.entries(parsed.parameters)
-                .filter(([, v]) => v !== null && v !== undefined && v !== '')
-                .map(([key, value]) => (
-                  <div key={key} className="flex justify-between text-sm">
-                    <span className="text-muted-foreground capitalize">
-                      {key.replace(/_/g, ' ')}
-                    </span>
-                    <span className="font-medium">{String(value)}</span>
+                {showConfirmButtons && (
+                  <div className="flex gap-2 mt-1">
+                    <Button size="sm" variant="outline" onClick={handleCancel}>
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="gold-gradient text-primary-foreground"
+                      onClick={() => handleConfirm(pendingConfirm)}
+                      disabled={loading}
+                    >
+                      {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : '✓ Confirm'}
+                    </Button>
                   </div>
-                ))}
-            </div>
+                )}
+              </div>
+            );
+          })}
 
-            <div className="flex gap-2 pt-2 border-t border-border">
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex-1"
-                onClick={() => setStep('input')}
-              >
-                ← Edit
-              </Button>
-              <Button
-                size="sm"
-                className="flex-1 gold-gradient text-primary-foreground"
-                onClick={handleConfirm}
-                disabled={loading}
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : '✓ Confirm'}
-              </Button>
+          {loading && (
+            <div className="flex items-start">
+              <div className="bg-muted rounded-lg px-3 py-2 text-sm text-muted-foreground flex items-center gap-2">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Thinking...
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {step === 'answer' && parsed && (
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-primary" />
-              <span className="text-sm font-semibold">
-                Policy Answer
-              </span>
-              <span className="ml-auto text-xs text-muted-foreground">
-                {Math.round(parsed.confidence * 100)}% confidence
-              </span>
-            </div>
-            <p className="text-sm text-foreground leading-relaxed border-l-2 border-primary/40 pl-3">
-              {parsed.answer}
-            </p>
-            <div className="flex gap-2 pt-2 border-t border-border">
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex-1"
-                onClick={() => {
-                  setCommand('');
-                  setParsed(null);
-                  setStep('input');
-                }}
-              >
-                Ask Another
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => handleClose(false)}>
-                Close
-              </Button>
-            </div>
-          </div>
-        )}
+          <div ref={messagesEndRef} />
+        </div>
 
-        {step === 'done' && (
-          <div className="text-center space-y-4 py-6">
-            {result === 'success' ? (
-              <CheckCircle className="h-12 w-12 text-green-500 mx-auto" />
-            ) : (
-              <XCircle className="h-12 w-12 text-destructive mx-auto" />
-            )}
-            <p className="text-sm font-medium text-foreground">{resultMessage}</p>
-            <Button size="sm" variant="outline" onClick={() => handleClose(false)}>
-              Close
-            </Button>
-          </div>
-        )}
+        <div className="flex-shrink-0 flex gap-2 pt-2 border-t border-border">
+          <textarea
+            autoFocus
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            placeholder="Ask anything or type a command..."
+            rows={2}
+            disabled={loading}
+            className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm resize-none outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground disabled:opacity-50"
+          />
+          <Button
+            size="sm"
+            onClick={handleSend}
+            disabled={loading || !input.trim()}
+            className="self-end"
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Send'}
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   );
