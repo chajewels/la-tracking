@@ -67,10 +67,11 @@ interface RecordPaymentDialogProps {
   schedule?: ScheduleItem[];
   invoiceNumber?: string;
   downpaymentRemaining?: number;
+  initialPaymentMethod?: string;
   onPaymentRecorded?: (info: SessionPaymentInfo) => void;
 }
 
-export default function RecordPaymentDialog({ accountId, currency, remainingBalance, payFullBalance, schedule, invoiceNumber, downpaymentRemaining, onPaymentRecorded }: RecordPaymentDialogProps) {
+export default function RecordPaymentDialog({ accountId, currency, remainingBalance, payFullBalance, schedule, invoiceNumber, downpaymentRemaining, initialPaymentMethod, onPaymentRecorded }: RecordPaymentDialogProps) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState('');
   const [carryOver, setCarryOver] = useState(false);
