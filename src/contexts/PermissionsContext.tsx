@@ -87,7 +87,7 @@ const PAGE_FEATURE_MAP: Record<string, string> = {
 
 // Paths accessible to ANY authenticated user — no permission check required.
 // Use this for Help, Glossary, FAQ, Changelog, and other universally-accessible content.
-const PUBLIC_AUTHENTICATED_PATHS = ['/help'];
+const PUBLIC_AUTHENTICATED_PATHS = ['/help', '/policy-hub'];
 
 // Sidebar nav paths (same as PAGE_PERMISSION_MAP minus dynamic routes)
 const NAV_PATHS = ['/', '/sales', '/customers', '/cash-orders', '/services', '/monitoring', '/finance', '/bulk-payment-import', '/admin-audit', '/settings', '/promotions'];
