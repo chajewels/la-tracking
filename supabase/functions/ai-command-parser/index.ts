@@ -722,7 +722,7 @@ async function callAI(
   // deno-lint-ignore no-explicit-any
   tools: any[],
   apiKey: string,
-  model = "google/gemini-2.5-flash",
+  model = "openai/gpt-5-mini",
   // deno-lint-ignore no-explicit-any
 ): Promise<any> {
   const response = await fetch(
@@ -758,13 +758,13 @@ async function callAIWithFallback(
   // deno-lint-ignore no-explicit-any
 ): Promise<any> {
   try {
-    return await callAI(messages, tools, apiKey, "google/gemini-2.5-flash");
+    return await callAI(messages, tools, apiKey, "openai/gpt-5-mini");
   } catch (err) {
     console.warn(
-      "Primary model failed, falling back to gpt-5-mini:",
+      "Primary model failed, falling back to gemini-2.5-flash:",
       (err as Error).message,
     );
-    return await callAI(messages, tools, apiKey, "openai/gpt-5-mini");
+    return await callAI(messages, tools, apiKey, "google/gemini-2.5-flash");
   }
 }
 
