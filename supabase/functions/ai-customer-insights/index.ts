@@ -116,6 +116,7 @@ Deno.serve(async (req) => {
           .from("penalty_fees")
           .select("penalty_amount, status, account_id, created_at")
           .in("account_id", accountIds)
+          .neq("created_at::date", "2026-03-22")
         : Promise.resolve({ data: [] as any[] }),
       supabase
         .from("loyalty_members")
