@@ -256,13 +256,28 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
 
   const handleAddCustomerFirst = () => {
     if (!pendingFollowUp) return;
-    const { customerName } = pendingFollowUp;
+    const { customerName, parsed } = pendingFollowUp;
     const displayName = customerName || 'this customer';
-    toast.info(`Go to Customers → + New Customer to add ${displayName}, then come back to create the account.`);
-    pushAssistant(`Opening Customers list — add ${displayName} via + New Customer, then re-run your command.`);
+    toast.info(`Opening New Customer for ${displayName}…`);
     setPendingFollowUp(null);
     handleClose(false);
     navigate('/customers');
+    // Wait one tick past the route transition so the Customers page has
+    // mounted its open-new-customer-dialog listener.
+    setTimeout(() => {
+      window.dispatchEvent(
+        new CustomEvent('open-new-customer-dialog', {
+          detail: {
+            full_name: customerName,
+            // Store the original intent + params so a future iteration can
+            // resume the action (e.g. open the layaway/cash-order form)
+            // after the customer is created.
+            next_intent: parsed.intent,
+            next_params: parsed.parameters,
+          },
+        }),
+      );
+    }, 300);
   };
 
   const handleSkipFollowUp = () => {
