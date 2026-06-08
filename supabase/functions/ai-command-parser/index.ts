@@ -70,39 +70,39 @@ Deno.serve(async (req) => {
       );
     }
 
-    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
-    if (!ANTHROPIC_API_KEY) {
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) {
       return new Response(
         JSON.stringify({ error: "AI service not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5",
-        max_tokens: 500,
-        system: systemPrompt,
+        model: "google/gemini-2.5-flash",
         messages: [
-          { role: "user", content: command }
+          { role: "system", content: systemPrompt },
+          { role: "user", content: command },
         ],
+        temperature: 0.1,
       }),
     });
 
     if (!response.ok) {
       const err = await response.text();
-      throw new Error(`Anthropic error ${response.status}: ${err}`);
+      throw new Error(`AI gateway error ${response.status}: ${err}`);
     }
 
     const aiResult = await response.json();
-    const aiContent = aiResult.content?.[0]?.text;
+    const aiContent = aiResult.choices?.[0]?.message?.content;
     if (!aiContent) throw new Error("AI returned empty response");
+
 
     let jsonStr = aiContent.trim();
     if (jsonStr.startsWith("```")) {
