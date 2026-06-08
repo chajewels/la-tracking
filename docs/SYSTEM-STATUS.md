@@ -1,3 +1,16 @@
+### Security hardening batch — 8 bugs fixed (2026-06-08, commit `4833407` + `cbb8414`, deployed same day)
+
+  Bugs #180–187 resolved. Covers: `set-portal-pin` PBKDF2 migration
+  + `customer_pins` write; `carry-over` service-role gate;
+  `reconcile-account` staff gate; `edit-schedule-item` staff gate;
+  `send-transactional-email` customer JWT rejection;
+  `award-loyalty-points` + `finance-reconciliation` string equality
+  + anon key fix; `parse-import-docs` + `restore-loyalty-points` +
+  `revoke-loyalty-points` + `bulk-import` string equality;
+  `record-payment` + `record-multi-payment` staff gate + anon key
+  fix. `verify_jwt = true` total: **27 functions**. All confirmed
+  401 via `curl`.
+
 ## UI Restructuring — 2026-06-08
 
 - Sidebar: category headers Business / Accounting / System & Admin added as static non-clickable labels

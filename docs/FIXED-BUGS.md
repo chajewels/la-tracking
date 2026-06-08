@@ -2339,6 +2339,38 @@ Two existing-correct upload paths were unaffected because they already had uniqu
 
 **Going-forward**: This same sort pattern may exist in other Payment History renderings (`src/pages/CustomerPortal.tsx`, `src/pages/PaymentSubmissions.tsx`, `src/pages/PaymentsHub.tsx`). A follow-up grep should confirm whether they need the same correction.
 
+### Bug #180 — `set-portal-pin`: SHA-256 hashing + writes to dropped `customers` columns (2026-06-08, commit `4833407`, deployed same day)
+
+Scanner flagged Critical. `set-portal-pin` still used `crypto.subtle.digest('SHA-256')` and wrote `portal_pin_hash`, `portal_pin_attempts`, `portal_pin_locked_until` to the `customers` table — columns that were dropped on 2026-06-07 (Bug #177). Any call returned 500. Auth gate (admin/staff JWT) was already correct. Fix: replaced SHA-256 with PBKDF2-SHA256 (100,000 iterations, 16-byte salt) matching `verify-portal-pin`, and switched the write target to `customer_pins.upsert`. `verify_jwt = true` added.
+
+### Bug #181 — `carry-over`: zero authentication (2026-06-08, commit `4833407`, deployed same day)
+
+Scanner flagged Critical. `carry-over` had no inbound auth gate — any internet user could POST to mark schedule rows as paid, forge carry amounts, and flip account status. No frontend `invoke` callers exist (called internally by `accept-underpayment` via service-role). Fix: service-role claims gate (`parseJwtClaims` from `_shared/jwt-claims.ts`) + `verify_jwt = true`. Confirmed 401 via `curl`.
+
+### Bug #182 — `reconcile-account`: zero authentication (2026-06-08, commit `4833407`, deployed same day)
+
+Scanner flagged Critical. `reconcile-account` exposed full per-account financial drift data (`total_paid`, `remaining_balance`, schedule status discrepancies) with no auth gate. Report-only but writes to `reconciliation_log`. Frontend caller: `AccountDetail.tsx` auto-triggers on mount with user session JWT. Fix: staff JWT gate (`is_staff` RPC) + `verify_jwt = true`. Confirmed 401 via `curl`.
+
+### Bug #183 — `edit-schedule-item`: any authenticated JWT accepted (2026-06-08, commit `4833407`, deployed same day)
+
+Scanner flagged Critical. `edit-schedule-item` validated the JWT (`getUser`) but had no role check — any Phase B customer with a session JWT could alter `base_installment_amount` on any schedule row. Fix: `is_staff` RPC check inserted after `getUser`. `verify_jwt = true` added. Confirmed 401 via `curl`.
+
+### Bug #184 — `send-transactional-email`: customer JWTs accepted in user-JWT fallback (2026-06-08, commit `4833407`, deployed same day)
+
+Scanner flagged Critical. The function has a service-role claims gate + user-JWT fallback for the staff share-menu caller. The fallback called `auth.getUser` and proceeded on any valid JWT — including Phase B customer session JWTs — with no role check. Any authenticated customer could trigger company-branded email sends to arbitrary recipients. Fix: `is_staff` RPC check inserted in the user-JWT fallback path after `getUser` succeeds. Confirmed 401 via `curl`.
+
+### Bug #185 — `award-loyalty-points` + `finance-reconciliation`: prohibited service-role string equality (2026-06-08, commit `4833407`, deployed same day)
+
+Scanner flagged Warning. Both functions used `token === Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')` string equality — the Bug #168 prohibited pattern that rejects Vault-backed cron keys. Both are dual-gated (`service_role` OR admin/finance user JWT). Additional issue in `finance-reconciliation`: used `SUPABASE_ANON_KEY` to initialize the auth client for user JWT verification — replaced with `SUPABASE_SERVICE_ROLE_KEY` for consistency. Fix: `parseJwtClaims` import + claims-based check for both. `verify_jwt = true` added. Stale Bug #163 comment removed from `award-loyalty-points`.
+
+### Bug #186 — `parse-import-docs`, `restore-loyalty-points`, `revoke-loyalty-points`, `bulk-import`: prohibited service-role string equality (2026-06-08, commit `4833407`, deployed same day)
+
+Scanner flagged Warning. All four used `token === Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')` string equality — Bug #168 prohibited pattern. All are service-role-only (no frontend `invoke` callers). Fix: `parseJwtClaims` import + claims-based check for all four. `verify_jwt = true` added. Confirmed 401 via `curl`.
+
+### Bug #187 — `record-payment` + `record-multi-payment`: cross-account submission injection + anon key auth client (2026-06-08, commit `cbb8414`, deployed same day)
+
+Scanner flagged Warning. `record-payment` had a dual code path: admin/finance callers directly record payments; non-admin/finance callers insert `payment_submissions`. The non-admin/finance path accepted any authenticated JWT including Phase B customer session JWTs with no ownership check — any customer could POST with any `account_id` and inject payment submissions into the CSR review queue. `record-multi-payment` similarly accepted any authenticated JWT; its `customer_id` ownership check used a `customer_id` from the request body (not verified against the caller's identity). Additional issue: `record-multi-payment` used `SUPABASE_ANON_KEY` to initialize the auth client for user JWT verification. All frontend callers are staff-side components (`RecordPaymentDialog.tsx`, `MultiInvoicePaymentDialog.tsx`, `BulkPaymentImport.tsx`, `use-supabase-data.ts`). Fix: `is_staff` RPC gate added to both after `getUser`. `record-multi-payment` auth client switched to `SUPABASE_SERVICE_ROLE_KEY`. `verify_jwt = true` added to both. Confirmed 401 via `curl`.
+
 ### TODAY'S DATA FIXES (2026-05-20 / 2026-05-21)
 
   Account schedule/allocation repairs. All four accounts pass
