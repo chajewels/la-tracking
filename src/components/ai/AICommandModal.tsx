@@ -14,13 +14,14 @@ interface AICommandModalProps {
 }
 
 interface ParsedCommand {
-  intent: 'CREATE_CUSTOMER' | 'RECORD_PAYMENT' | 'UNKNOWN';
+  intent: 'CREATE_CUSTOMER' | 'RECORD_PAYMENT' | 'ASK_POLICY' | 'UNKNOWN';
   confidence: number;
   parameters: Record<string, unknown>;
   display_summary: string;
+  answer?: string;
 }
 
-type Step = 'input' | 'confirm' | 'done';
+type Step = 'input' | 'confirm' | 'answer' | 'done';
 
 export default function AICommandModal({ open, onOpenChange }: AICommandModalProps) {
   const queryClient = useQueryClient();
@@ -71,7 +72,7 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
         }
       }
       setParsed(result);
-      setStep('confirm');
+      setStep(result.intent === 'ASK_POLICY' ? 'answer' : 'confirm');
     } catch (err) {
       toast.error((err as Error).message || 'AI command failed');
     } finally {
@@ -137,7 +138,7 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
             AI Command
           </DialogTitle>
           <DialogDescription>
-            Type a command in plain English. Examples: "Add customer Maria Santos +63912345678" or "Record 5000 PHP payment for Haruka via BDO"
+            Ask anything about our policies and how the system works, or type a command to add a customer or record a payment. Examples: "What is the penalty for late payment?" · "Add customer Maria Santos +63912345678" · "Record 5000 PHP Invoice 19106 for Lhouise via GCash"
           </DialogDescription>
         </DialogHeader>
 
@@ -219,6 +220,40 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
                 disabled={loading}
               >
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : '✓ Confirm'}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {step === 'answer' && parsed && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              <span className="text-sm font-semibold">
+                Policy Answer
+              </span>
+              <span className="ml-auto text-xs text-muted-foreground">
+                {Math.round(parsed.confidence * 100)}% confidence
+              </span>
+            </div>
+            <p className="text-sm text-foreground leading-relaxed border-l-2 border-primary/40 pl-3">
+              {parsed.answer}
+            </p>
+            <div className="flex gap-2 pt-2 border-t border-border">
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1"
+                onClick={() => {
+                  setCommand('');
+                  setParsed(null);
+                  setStep('input');
+                }}
+              >
+                Ask Another
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => handleClose(false)}>
+                Close
               </Button>
             </div>
           </div>

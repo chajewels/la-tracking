@@ -18,6 +18,7 @@ import {
   HelpCircle,
   Wrench,
   ShoppingBag,
+  BookOpen,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
@@ -151,6 +152,7 @@ const sidebarItems: (CategoryHeader | MenuItem)[] = [
       { label: 'Features', tab: 'features' },
     ],
   },
+  { label: 'Policy Hub', icon: BookOpen, path: ROUTES.POLICY_HUB },
   { label: 'Admin Audit', icon: ScrollText, path: ROUTES.ADMIN_ACTIVITY, adminOnly: true },
   { label: 'Help', icon: HelpCircle, path: '/help' },
 ];
