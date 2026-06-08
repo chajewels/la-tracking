@@ -492,7 +492,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
             {isAdminOrFinance ? 'Record Payment' : 'Submit Payment for Confirmation'}
           </DialogTitle>
           <DialogDescription>
-            Remaining balance: {formatCurrency(remainingBalance, currency)}
+            {invoiceNumber && <span className="font-mono font-semibold">#{invoiceNumber} · </span>}Remaining balance: {formatCurrency(remainingBalance, currency)}
             {!isAdminOrFinance && (
               <span className="block mt-1 text-warning">
                 This payment will be submitted for admin/finance confirmation before it takes effect.
