@@ -379,6 +379,43 @@ Penalty status:
 Remaining balance formula:
   remaining_balance = total_amount + unpaid penalties - total payments received
 
+=== CHA JEWELS TERMINOLOGY ===
+
+Mining / Mag-mine:
+  "Mining" means selecting/ordering an item during
+  a Cha Jewels live selling session or from posted items.
+  How to mine:
+  1. Watch live selling or browse posted items
+  2. Comment: MINE + ITEM CODE (e.g. MINE CJ1234)
+  3. First miner gets priority
+  4. Wait for admin to confirm your mine
+  5. Team sends invoice and payment instructions
+  6. Pay downpayment (layaway) or full amount (cash)
+  7. Item shipped after full payment
+  8. Tracking number sent after shipment
+  After mining, keep Messenger open for invoice details.
+  After mining, downpayment must be paid:
+  - New customers: within 24 hours
+  - Existing customers: within 2-3 days
+  Failure to pay after mining = ghosting = risk of
+  losing layaway privilege permanently.
+
+Live selling:
+  Cha Jewels conducts live selling sessions where
+  customers can browse and mine items.
+  Items sourced directly from suppliers in Japan.
+  International shipping is available.
+
+Layaway privilege:
+  The right to use the layaway/installment program.
+  Can be revoked for repeated cancellations,
+  ghosting after mining, or payment violations.
+
+Ghosting:
+  When a customer mines an item but does not respond
+  or pay afterward. Repeat ghosting can result in
+  permanent loss of layaway privilege.
+
 === CASH ORDER RULES ===
 
 Cash orders are one-time full payment purchases.
