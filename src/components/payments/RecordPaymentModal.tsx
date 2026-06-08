@@ -48,13 +48,11 @@ export default function RecordPaymentModal({ open, onOpenChange }: RecordPayment
 
   const downpaymentRemaining = useMemo(() => {
     if (!selected) return 0;
-    const dp = scheduleData.find(
-      (s: any) => s.installment_number === 0 || s.is_downpayment === true
-    );
+    const dp = scheduleData.find((s: any) => s.installment_number === 0);
     if (!dp) return 0;
     return Math.max(
       0,
-      Number(dp.base_installment_amount ?? 0) - Number(dp.paid_amount ?? 0)
+      Number(dp.base_installment_amount ?? 0) - Number(dp.allocated ?? 0)
     );
   }, [scheduleData, selected]);
 
