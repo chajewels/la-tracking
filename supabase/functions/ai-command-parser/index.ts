@@ -572,21 +572,19 @@ Deno.serve(async (req) => {
       // The second pass may return either prose or another JSON envelope.
       // Try to parse JSON; if that fails, wrap the prose as ASK_POLICY.
       let payload: unknown;
-      const trimmed = String(secondContent).trim();
-      let jsonStr = trimmed;
-      if (jsonStr.startsWith("```")) {
-        jsonStr = jsonStr.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
-      }
       try {
+        let jsonStr = String(secondContent).trim();
+        if (jsonStr.startsWith("```")) {
+          jsonStr = jsonStr.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
+        }
         payload = JSON.parse(jsonStr);
-      } catch (_err) {
+      } catch {
         payload = {
           intent: "ASK_POLICY",
-          confidence: 0.85,
+          confidence: 1.0,
           parameters: {},
           display_summary: "",
-          answer: trimmed ||
-            "I couldn't put that into words. Try rephrasing your question.",
+          answer: secondContent,
         };
       }
 
@@ -605,19 +603,21 @@ Deno.serve(async (req) => {
       );
     }
 
-    let jsonStr = String(aiContent).trim();
-    if (jsonStr.startsWith("```")) {
-      jsonStr = jsonStr.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
-    }
-
     let parsed: unknown;
     try {
+      let jsonStr = String(aiContent).trim();
+      if (jsonStr.startsWith("```")) {
+        jsonStr = jsonStr.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
+      }
       parsed = JSON.parse(jsonStr);
-    } catch (_err) {
-      return new Response(JSON.stringify({ error: "Could not parse command" }), {
-        status: 422,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    } catch {
+      parsed = {
+        intent: "ASK_POLICY",
+        confidence: 1.0,
+        parameters: {},
+        display_summary: "",
+        answer: aiContent,
+      };
     }
 
     return new Response(JSON.stringify(parsed), {
