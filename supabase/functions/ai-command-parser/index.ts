@@ -9,20 +9,31 @@ const corsHeaders = {
  * AI Command Parser Edge Function
  *
  * Parses natural-language staff commands into structured JSON describing
- * one of the supported intents (CREATE_CUSTOMER, RECORD_PAYMENT, ASK_POLICY).
+ * one of the supported intents (CREATE_CUSTOMER, RECORD_PAYMENT, ASK_POLICY),
+ * and supports tool use / function calling for live database lookups
+ * (customers, accounts, payments, loyalty).
  *
  * Payload: { "command": "..." }
  *
  * Auth: staff user JWT required (this is invoked from the Hub's AICommandModal).
- * Backed by Google's native Gemini API (gemini-2.5-flash), temperature 0.1.
+ * Backed by Lovable AI Gateway / google/gemini-2.0-flash, temperature 0.1.
  */
 
-const systemPrompt = `You are a command parser and policy assistant for Cha Jewels Hub, a jewelry layaway business in Japan and the Philippines. Parse natural language staff commands into structured JSON, OR answer staff questions about Cha Jewels policies using the knowledge base below.
+const systemPrompt = `You are a command parser and policy assistant for Cha Jewels Hub, a jewelry layaway business in Japan and the Philippines. You can:
+  1. Parse natural language staff commands into structured JSON (CREATE_CUSTOMER, RECORD_PAYMENT).
+  2. Answer staff policy questions using the knowledge base below (ASK_POLICY).
+  3. Look up LIVE database information by calling the provided tools (query_customers, query_accounts, query_payments, count_accounts, query_loyalty).
+
+Tool use rules:
+- If the staff question requires CURRENT data from the database — counts, statuses, specific customer/account/payment/loyalty records — CALL THE APPROPRIATE TOOL. Do not guess from memory.
+- After tools return, write a clear natural-language answer summarising the result in plain English. Do NOT return JSON when answering tool-based questions; the wrapping system will turn your text into an ASK_POLICY response.
+- If the question is purely about policy and does not need live data, answer directly from the knowledge base (no tool call needed), but still wrap the answer in the ASK_POLICY JSON shape.
+- If the input is an action command (add customer / record payment), do NOT call tools — return the CREATE_CUSTOMER or RECORD_PAYMENT JSON.
 
 Supported intents:
 - CREATE_CUSTOMER: staff wants to add a new customer to the directory
 - RECORD_PAYMENT: staff wants to record a payment against a layaway account
-- ASK_POLICY: staff is asking a question about Cha Jewels policies, rules, or how the system works
+- ASK_POLICY: staff is asking a question about Cha Jewels policies, rules, how the system works, or live data
 
 For CREATE_CUSTOMER extract these fields:
 
@@ -52,7 +63,7 @@ For RECORD_PAYMENT extract:
   payment_channel (e.g. BDO, GCash, PayPal),
   invoice_number (optional) — a numeric invoice or account reference mentioned in the command. Look for patterns like "Invoice 19106", "Invoice #19106", "invoice 12345", "#18422", "account 19106". Extract ONLY the digits as a string. Example: "Record 5000 PHP Invoice 19106 for Maria" → invoice_number: "19106". If no invoice number is mentioned, omit this field entirely.
 
-KNOWLEDGE_BASE — use ONLY this content to answer ASK_POLICY questions:
+KNOWLEDGE_BASE — use ONLY this content (plus tool results when relevant) to answer ASK_POLICY questions:
 
 === LAYAWAY AGREEMENT (Summary) ===
 - 3 tiers: 3-Month, 6-Month (min ¥25,000), 8-Month (min ¥300,000)
@@ -115,7 +126,7 @@ Messenger: m.me/chajewelsjapan
 Email: sales@chajewelsjp.com
 Response time: within 24 hours on business days
 
-Return ONLY valid JSON, no markdown, no explanation.
+Return ONLY valid JSON for action/policy intents, no markdown, no explanation.
 
 For CREATE_CUSTOMER and RECORD_PAYMENT:
 {
@@ -125,18 +136,243 @@ For CREATE_CUSTOMER and RECORD_PAYMENT:
   "display_summary": "human-readable one-line summary of what was parsed"
 }
 
-For ASK_POLICY:
+For ASK_POLICY (policy or post-tool-call answer):
 {
   "intent": "ASK_POLICY",
   "confidence": 0.0-1.0,
   "parameters": {},
   "display_summary": "",
-  "answer": "your direct answer to the question based on the knowledge base above"
+  "answer": "your direct answer to the question, based on the knowledge base and/or tool results"
 }
 
-The answer field should be a clear, direct, helpful response in English. If the question is not covered by the knowledge base, say "I don't have information about that. Please check with the admin or refer to the Policy Hub."
+The answer field should be a clear, direct, helpful response in English. If the question is not covered by the knowledge base AND no tools returned useful data, say "I don't have information about that. Please check with the admin or refer to the Policy Hub."
 
 If the input is unclear or does not match any intent, return intent: "UNKNOWN" with confidence: 0 and an empty parameters object.`;
+
+const TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "query_customers",
+      description: "Search customers by name, email, or mobile number",
+      parameters: {
+        type: "object",
+        properties: {
+          search: {
+            type: "string",
+            description: "Customer name, email, or mobile to search for",
+          },
+        },
+        required: ["search"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_accounts",
+      description: "Get layaway accounts by customer name, invoice number, or status",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_name: {
+            type: "string",
+            description: "Customer name to filter by",
+          },
+          invoice_number: {
+            type: "string",
+            description: "Invoice number to look up",
+          },
+          status: {
+            type: "string",
+            description: "Account status: active, overdue, completed, forfeited",
+          },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_payments",
+      description: "Get payment history by customer name or date range",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_name: {
+            type: "string",
+            description: "Customer name to filter payments by",
+          },
+          date_from: {
+            type: "string",
+            description: "Start date in YYYY-MM-DD format",
+          },
+          date_to: {
+            type: "string",
+            description: "End date in YYYY-MM-DD format",
+          },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "count_accounts",
+      description: "Count accounts by status — overdue, active, completed, forfeited",
+      parameters: {
+        type: "object",
+        properties: {
+          status: {
+            type: "string",
+            description: "Account status to count",
+          },
+        },
+        required: ["status"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_loyalty",
+      description: "Get loyalty points and tier for a customer",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_name: {
+            type: "string",
+            description: "Customer name to look up loyalty info for",
+          },
+        },
+        required: ["customer_name"],
+      },
+    },
+  },
+];
+
+async function runTool(
+  name: string,
+  args: Record<string, string>,
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+): Promise<string> {
+  try {
+    if (name === "query_customers") {
+      const search = String(args.search ?? "").trim();
+      if (!search) return JSON.stringify({ error: "search is required" });
+      const { data, error } = await supabase
+        .from("customers")
+        .select("id, customer_code, full_name, email, mobile_number, location, facebook_name")
+        .or(
+          `full_name.ilike.%${search}%,email.ilike.%${search}%,mobile_number.ilike.%${search}%`,
+        )
+        .limit(10);
+      if (error) return JSON.stringify({ error: error.message });
+      return JSON.stringify(data ?? []);
+    }
+
+    if (name === "query_accounts") {
+      let q = supabase
+        .from("layaway_accounts")
+        .select(
+          "invoice_number, currency, total_amount, remaining_balance, status, customers(full_name)",
+        )
+        .limit(20);
+      if (args.customer_name) {
+        q = q.ilike("customers.full_name", `%${args.customer_name}%`);
+      }
+      if (args.invoice_number) {
+        q = q.eq("invoice_number", args.invoice_number);
+      }
+      if (args.status) {
+        q = q.eq("status", args.status);
+      }
+      const { data, error } = await q;
+      if (error) return JSON.stringify({ error: error.message });
+      return JSON.stringify(data ?? []);
+    }
+
+    if (name === "query_payments") {
+      let q = supabase
+        .from("payments")
+        .select(
+          "amount_paid, date_paid, payment_method, reference_number, layaway_accounts(invoice_number, customers(full_name))",
+        )
+        .is("voided_at", null)
+        .order("date_paid", { ascending: false })
+        .limit(20);
+      if (args.date_from) q = q.gte("date_paid", args.date_from);
+      if (args.date_to) q = q.lte("date_paid", args.date_to);
+      const { data, error } = await q;
+      if (error) return JSON.stringify({ error: error.message });
+
+      // Optional client-side filter by customer_name (joined column can't be
+      // .ilike'd directly without an inner join hint).
+      if (args.customer_name) {
+        const needle = String(args.customer_name).toLowerCase();
+        // deno-lint-ignore no-explicit-any
+        const filtered = (data ?? []).filter((row: any) => {
+          const name = row?.layaway_accounts?.customers?.full_name ?? "";
+          return String(name).toLowerCase().includes(needle);
+        });
+        return JSON.stringify(filtered);
+      }
+      return JSON.stringify(data ?? []);
+    }
+
+    if (name === "count_accounts") {
+      const status = String(args.status ?? "").trim();
+      if (!status) return JSON.stringify({ error: "status is required" });
+      const { count, error } = await supabase
+        .from("layaway_accounts")
+        .select("*", { count: "exact", head: true })
+        .eq("status", status);
+      if (error) return JSON.stringify({ error: error.message });
+      return JSON.stringify({ count: count ?? 0, status });
+    }
+
+    if (name === "query_loyalty") {
+      const search = String(args.customer_name ?? "").trim();
+      if (!search) return JSON.stringify({ error: "customer_name is required" });
+      const { data, error } = await supabase
+        .from("loyalty_members")
+        .select(
+          "remaining_points, total_points_earned, total_points_redeemed, customers(full_name)",
+        )
+        .ilike("customers.full_name", `%${search}%`)
+        .limit(5);
+      if (error) return JSON.stringify({ error: error.message });
+      return JSON.stringify(data ?? []);
+    }
+
+    return JSON.stringify({ error: "Unknown tool" });
+  } catch (err) {
+    return JSON.stringify({ error: (err as Error).message });
+  }
+}
+
+interface ToolCall {
+  id: string;
+  type?: string;
+  function: { name: string; arguments: string };
+}
+
+function safeParseArgs(raw: string): Record<string, string> {
+  try {
+    const parsed = JSON.parse(raw ?? "{}");
+    if (parsed && typeof parsed === "object") {
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+        if (v != null) out[k] = String(v);
+      }
+      return out;
+    }
+  } catch (_err) {
+    // fall through
+  }
+  return {};
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -174,48 +410,122 @@ Deno.serve(async (req) => {
       });
     }
 
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-    if (!GEMINI_API_KEY) {
-      return new Response(
-        JSON.stringify({ error: "AI service not configured" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) {
+      return new Response(JSON.stringify({ error: "AI service not configured" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const userCommand = command.trim();
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          systemInstruction: {
-            parts: [{ text: systemPrompt }],
-          },
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: userCommand }],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.1,
-            responseMimeType: "application/json",
-          },
-        }),
+    // Pass 1 — send messages + tools, let the model decide whether to call a tool.
+    const firstResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        "Content-Type": "application/json",
       },
-    );
+      body: JSON.stringify({
+        model: "google/gemini-2.0-flash",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userCommand },
+        ],
+        tools: TOOLS,
+        tool_choice: "auto",
+        temperature: 0.1,
+      }),
+    });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`AI error ${response.status}: ${errorText}`);
+    if (!firstResponse.ok) {
+      const errorText = await firstResponse.text();
+      throw new Error(`AI error ${firstResponse.status}: ${errorText}`);
     }
 
-    const aiResult = await response.json();
-    const aiContent = aiResult.candidates?.[0]?.content?.parts?.[0]?.text;
+    const firstResult = await firstResponse.json();
+    const firstChoice = firstResult.choices?.[0];
+    const firstMessage = firstChoice?.message;
+    const toolCalls: ToolCall[] | undefined = firstMessage?.tool_calls;
+
+    if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+      // Execute every tool call and collect results.
+      const toolResults = await Promise.all(
+        toolCalls.map(async (tc) => {
+          const args = safeParseArgs(tc.function?.arguments ?? "{}");
+          const result = await runTool(tc.function?.name ?? "", args, supabase);
+          return { tc, result };
+        }),
+      );
+
+      // Pass 2 — feed tool results back for a natural-language answer.
+      const secondResponse = await fetch(
+        "https://ai.gateway.lovable.dev/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.0-flash",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userCommand },
+              {
+                role: "assistant",
+                content: firstMessage?.content ?? null,
+                tool_calls: toolCalls,
+              },
+              ...toolResults.map(({ tc, result }) => ({
+                role: "tool",
+                tool_call_id: tc.id,
+                content: result,
+              })),
+            ],
+            temperature: 0.1,
+          }),
+        },
+      );
+
+      if (!secondResponse.ok) {
+        const errorText = await secondResponse.text();
+        throw new Error(`AI error ${secondResponse.status}: ${errorText}`);
+      }
+
+      const secondResult = await secondResponse.json();
+      const secondContent = secondResult.choices?.[0]?.message?.content ?? "";
+
+      // The second pass may return either prose or another JSON envelope.
+      // Try to parse JSON; if that fails, wrap the prose as ASK_POLICY.
+      let payload: unknown;
+      const trimmed = String(secondContent).trim();
+      let jsonStr = trimmed;
+      if (jsonStr.startsWith("```")) {
+        jsonStr = jsonStr.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
+      }
+      try {
+        payload = JSON.parse(jsonStr);
+      } catch (_err) {
+        payload = {
+          intent: "ASK_POLICY",
+          confidence: 0.85,
+          parameters: {},
+          display_summary: "",
+          answer: trimmed ||
+            "I couldn't put that into words. Try rephrasing your question.",
+        };
+      }
+
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // No tool calls — parse the model's direct response as before.
+    const aiContent = firstMessage?.content;
     if (!aiContent) {
       return new Response(
         JSON.stringify({ error: "AI returned empty response" }),
@@ -223,7 +533,6 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Strip code fences if the model wrapped its JSON.
     let jsonStr = String(aiContent).trim();
     if (jsonStr.startsWith("```")) {
       jsonStr = jsonStr.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
