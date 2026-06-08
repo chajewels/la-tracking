@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Sparkles, Loader2 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -16,7 +17,13 @@ interface AICommandModalProps {
 }
 
 interface ParsedCommand {
-  intent: 'CREATE_CUSTOMER' | 'RECORD_PAYMENT' | 'ASK_POLICY' | 'UNKNOWN';
+  intent:
+    | 'CREATE_CUSTOMER'
+    | 'RECORD_PAYMENT'
+    | 'CREATE_LAYAWAY_ACCOUNT'
+    | 'CREATE_CASH_ORDER'
+    | 'ASK_POLICY'
+    | 'UNKNOWN';
   confidence: number;
   parameters: Record<string, unknown>;
   display_summary: string;
@@ -45,6 +52,7 @@ function coerceLocationType(value: unknown): LocationType {
 
 export default function AICommandModal({ open, onOpenChange }: AICommandModalProps) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -98,7 +106,21 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
       const inv = p.invoice_number ? ` Invoice ${p.invoice_number}` : '';
       const who = p.customer_name ? ` for ${p.customer_name}` : '';
       const via = p.payment_channel ? ` via ${p.payment_channel}` : '';
-      return `Record ${amount}${inv}${who}${via}?`;
+      const mode = p.payment_mode === 'split' ? ' (split)' : '';
+      return `Record ${amount}${inv}${who}${via}${mode}?`;
+    }
+    if (parsed.intent === 'CREATE_LAYAWAY_ACCOUNT') {
+      const p = parsed.parameters as Record<string, unknown>;
+      const who = p.customer_name ? ` for ${p.customer_name}` : '';
+      const amount = p.amount != null ? ` (${p.currency ?? 'PHP'} ${p.amount})` : '';
+      const months = p.plan_months ? ` · ${p.plan_months}M` : '';
+      return `Open new layaway account form${who}${amount}${months}?`;
+    }
+    if (parsed.intent === 'CREATE_CASH_ORDER') {
+      const p = parsed.parameters as Record<string, unknown>;
+      const who = p.customer_name ? ` for ${p.customer_name}` : '';
+      const amount = p.amount != null ? ` (${p.currency ?? 'PHP'} ${p.amount})` : '';
+      return `Open new cash order form${who}${amount}?`;
     }
     return parsed.display_summary || 'Confirm action?';
   };
@@ -208,12 +230,25 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
               invoice_number: parsed.parameters.invoice_number ?? null,
               customer_name: parsed.parameters.customer_name ?? null,
               payment_channel: parsed.parameters.payment_channel ?? null,
+              payment_mode: parsed.parameters.payment_mode ?? 'single',
             },
           }),
         );
         pushAssistant(`Opening payment form for ${customerName || 'customer'}...`);
         setPendingConfirm(null);
         handleClose(false);
+      } else if (parsed.intent === 'CREATE_LAYAWAY_ACCOUNT') {
+        toast.info('Opening new layaway account form...');
+        pushAssistant('Opening new layaway account form...');
+        setPendingConfirm(null);
+        handleClose(false);
+        navigate('/accounts/new');
+      } else if (parsed.intent === 'CREATE_CASH_ORDER') {
+        toast.info('Opening new cash order form...');
+        pushAssistant('Opening new cash order form...');
+        setPendingConfirm(null);
+        handleClose(false);
+        navigate('/cash-orders/new');
       }
     } catch (err) {
       pushAssistant((err as Error).message || 'Action failed.');

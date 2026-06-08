@@ -13,6 +13,7 @@ interface RecordPaymentModalProps {
   onOpenChange: (open: boolean) => void;
   initialInvoice?: string | null;
   initialPaymentMethod?: string | null;
+  initialPaymentMode?: 'single' | 'split' | null;
 }
 
 type PaymentMode = 'single' | 'split';
@@ -23,7 +24,7 @@ const ACTIVE_STATUSES = [
   'active', 'overdue', 'extension_active', 'reactivated', 'final_settlement',
 ];
 
-export default function RecordPaymentModal({ open, onOpenChange, initialInvoice, initialPaymentMethod }: RecordPaymentModalProps) {
+export default function RecordPaymentModal({ open, onOpenChange, initialInvoice, initialPaymentMethod, initialPaymentMode }: RecordPaymentModalProps) {
   const [step, setStep] = useState<Step>('search');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<AccountWithCustomer | null>(null);
@@ -41,10 +42,18 @@ export default function RecordPaymentModal({ open, onOpenChange, initialInvoice,
       );
       if (match) {
         setSelected(match);
-        setStep('mode');
+        if (initialPaymentMode === 'split') {
+          setPaymentMode('split');
+          setStep('record');
+        } else if (initialPaymentMode === 'single') {
+          setPaymentMode('single');
+          setStep('record');
+        } else {
+          setStep('mode');
+        }
       }
     }
-  }, [open, initialInvoice, accounts]);
+  }, [open, initialInvoice, accounts, initialPaymentMode]);
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();

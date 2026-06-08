@@ -35,6 +35,8 @@ Supported intents:
 - CREATE_LAYAWAY_ACCOUNT: staff wants to create a new layaway account/invoice for a customer
 - CREATE_CASH_ORDER: staff wants to create a new cash order for a customer
 - RECORD_PAYMENT: staff wants to record a payment against a layaway account
+- CREATE_LAYAWAY_ACCOUNT: staff wants to create a new layaway account/invoice for a customer
+- CREATE_CASH_ORDER: staff wants to create a new cash order for a customer
 - ASK_POLICY: staff is asking a question about Cha Jewels policies, rules, how the system works, or live data
 
 For CREATE_LAYAWAY_ACCOUNT extract:
@@ -78,7 +80,21 @@ For RECORD_PAYMENT extract:
   currency: 'PHP' | 'JPY' (default 'PHP'),
   payment_type: 'downpayment' | 'installment' (default 'installment'),
   payment_channel (e.g. BDO, GCash, PayPal),
+  payment_mode: 'single' | 'split' (default 'single'). If the command mentions "split" or "hatiin" → payment_mode: 'split'. Otherwise → payment_mode: 'single'.
   invoice_number (optional) — a numeric invoice or account reference mentioned in the command. Look for patterns like "Invoice 19106", "Invoice #19106", "invoice 12345", "#18422", "account 19106". Extract ONLY the digits as a string. Example: "Record 5000 PHP Invoice 19106 for Maria" → invoice_number: "19106". If no invoice number is mentioned, omit this field entirely.
+
+For CREATE_LAYAWAY_ACCOUNT extract:
+  customer_name (required),
+  amount (optional, numeric),
+  currency: 'PHP' | 'JPY' (default 'PHP'),
+  plan_months (optional, one of 3 | 6 | 8 | 10 | 12),
+  notes (optional)
+
+For CREATE_CASH_ORDER extract:
+  customer_name (required),
+  amount (optional, numeric),
+  currency: 'PHP' | 'JPY' (default 'PHP'),
+  notes (optional)
 
 KNOWLEDGE_BASE — use ONLY this content (plus tool results when relevant) to answer ASK_POLICY questions:
 
@@ -466,9 +482,9 @@ Payments submitted via Messenger or Customer Portal
 
 Return ONLY valid JSON for action/policy intents, no markdown, no explanation.
 
-For CREATE_CUSTOMER and RECORD_PAYMENT:
+For CREATE_CUSTOMER and RECORD_PAYMENT and CREATE_LAYAWAY_ACCOUNT and CREATE_CASH_ORDER:
 {
-  "intent": "CREATE_CUSTOMER" | "RECORD_PAYMENT",
+  "intent": "CREATE_CUSTOMER" | "RECORD_PAYMENT" | "CREATE_LAYAWAY_ACCOUNT" | "CREATE_CASH_ORDER",
   "confidence": 0.0-1.0,
   "parameters": { ... extracted fields ... },
   "display_summary": "human-readable one-line summary of what was parsed"
