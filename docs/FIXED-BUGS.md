@@ -2432,7 +2432,7 @@ Scanner flagged Warning. `record-payment` had a dual code path: admin/finance ca
 
 **Result**: Account #19105 now has 7 DP payments totaling ₱222,960 (matches `downpayment_amount` field), zero schedule allocations on those payments. `audit_account('19105')` returns `all_pass=true`.
 
-### Bug #181 — RecordPaymentModal DP remaining ignored existing DP payments (2026-06-08) ✅
+### Bug #184 — RecordPaymentModal DP remaining ignored existing DP payments (2026-06-08) ✅
 - **Symptom:** New floating Record Payment modal's single-payment view showed the full base downpayment amount as "remaining" even when DP payments had already been recorded against the account
 - **Root cause:** Component referenced `dp.paid_amount` and `dp.is_downpayment` — neither column exists on the `schedule_with_actuals` view. `Number(undefined ?? 0)` evaluated to 0, so subtraction never reduced the displayed remaining
 - **Fix:** Renamed `dp.paid_amount` → `dp.allocated` (correct view column); removed dead `is_downpayment` OR branch
