@@ -99,6 +99,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         </button>
 
         <AICommandModal open={aiOpen} onOpenChange={setAiOpen} />
+        <RecordPaymentModal
+          open={recordOpen}
+          onOpenChange={(next) => {
+            setRecordOpen(next);
+            if (!next) setInitialInvoice(null);
+          }}
+          initialInvoice={initialInvoice}
+        />
       </div>
     </SidebarProvider>
   );
