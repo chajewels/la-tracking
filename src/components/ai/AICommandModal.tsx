@@ -227,10 +227,10 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
         <DialogHeader className="flex-shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-primary" />
-            Cha Jewels AI Assistant
+            Cha Jewels AI ✨
           </DialogTitle>
           <DialogDescription>
-            Ask about policies, add a customer, or record a payment.
+            Your Cha Jewels guide — ask about policies, add a customer, or record a payment.
           </DialogDescription>
         </DialogHeader>
 
@@ -238,7 +238,7 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
           {messages.length === 0 && (
             <div className="text-center py-8 text-muted-foreground text-sm space-y-2">
               <Sparkles className="h-8 w-8 mx-auto text-primary/40" />
-              <p>How can I help you today?</p>
+              <p>Hi! I'm Cha Jewels AI. How can I help you today?</p>
               <div className="text-xs space-y-1 text-muted-foreground/70">
                 <p>"What is the penalty for late payment?"</p>
                 <p>"Add customer Maria Santos +63912345678"</p>
