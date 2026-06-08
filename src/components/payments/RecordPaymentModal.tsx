@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ChevronLeft, Loader2 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { useAccounts, type AccountWithCustomer } from '@/hooks/use-supabase-data';
-import { supabase } from '@/integrations/supabase/client';
+import { useAccounts, useSchedule, type AccountWithCustomer } from '@/hooks/use-supabase-data';
 import RecordPaymentDialog from '@/components/payments/RecordPaymentDialog';
 import MultiInvoicePaymentDialog from '@/components/payments/MultiInvoicePaymentDialog';
 
@@ -27,24 +26,11 @@ export default function RecordPaymentModal({ open, onOpenChange }: RecordPayment
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<AccountWithCustomer | null>(null);
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('single');
-  const [scheduleData, setScheduleData] = useState<any[]>([]);
-  const [scheduleLoading, setScheduleLoading] = useState(false);
 
   const { data: accounts } = useAccounts();
-
-  useEffect(() => {
-    if (step !== 'record' || !selected) return;
-    setScheduleLoading(true);
-    supabase
-      .from('schedule_with_actuals' as any)
-      .select('*')
-      .eq('account_id', selected.id)
-      .order('installment_number', { ascending: true })
-      .then(({ data }) => {
-        setScheduleData(data || []);
-        setScheduleLoading(false);
-      });
-  }, [step, selected]);
+  const { data: scheduleData = [], isLoading: scheduleLoading } = useSchedule(
+    step === 'record' && selected ? selected.id : undefined
+  );
 
   const downpaymentRemaining = useMemo(() => {
     if (!selected) return 0;
@@ -52,7 +38,7 @@ export default function RecordPaymentModal({ open, onOpenChange }: RecordPayment
     if (!dp) return 0;
     return Math.max(
       0,
-      Number(dp.base_installment_amount ?? 0) - Number(dp.allocated ?? 0)
+      Number(dp.base_installment_amount ?? 0) - Number(dp.paid_amount ?? 0)
     );
   }, [scheduleData, selected]);
 
@@ -77,8 +63,6 @@ export default function RecordPaymentModal({ open, onOpenChange }: RecordPayment
       setSelected(null);
       setQuery('');
       setPaymentMode('single');
-      setScheduleData([]);
-      setScheduleLoading(false);
     }
   };
 
@@ -224,8 +208,6 @@ export default function RecordPaymentModal({ open, onOpenChange }: RecordPayment
                     setSelected(null);
                     setQuery('');
                     setPaymentMode('single');
-                    setScheduleData([]);
-                    setScheduleLoading(false);
                   }}
                 />
               )
