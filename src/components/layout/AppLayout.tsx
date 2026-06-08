@@ -1,13 +1,15 @@
-import { ReactNode } from 'react';
+import { ReactNode, useState } from 'react';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import AppSidebar from './AppSidebar';
-import { LogOut } from 'lucide-react';
+import { LogOut, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import StaffNotificationBell from '@/components/notifications/StaffNotificationBell';
+import AICommandModal from '@/components/ai/AICommandModal';
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { profile, roles, signOut } = useAuth();
+  const [aiOpen, setAiOpen] = useState(false);
 
   const initials = profile?.full_name
     ? profile.full_name
@@ -72,6 +74,18 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             </main>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setAiOpen(true)}
+          className="fixed bottom-6 right-6 z-50 h-12 w-12 rounded-full gold-gradient shadow-lg flex items-center justify-center hover:scale-110 transition-transform focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+          aria-label="AI Command"
+          title="AI Command"
+        >
+          <Sparkles className="h-5 w-5 text-primary-foreground" />
+        </button>
+
+        <AICommandModal open={aiOpen} onOpenChange={setAiOpen} />
       </div>
     </SidebarProvider>
   );

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -105,6 +105,15 @@ export default function WorkspaceSplitButton() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [recordOpen, setRecordOpen] = useState(false);
+
+  // AICommandModal's RECORD_PAYMENT path dispatches this CustomEvent so
+  // staff land directly on the existing RecordPaymentModal flow (proof
+  // upload still required there).
+  useEffect(() => {
+    const handler = () => setRecordOpen(true);
+    window.addEventListener('open-record-payment-modal', handler);
+    return () => window.removeEventListener('open-record-payment-modal', handler);
+  }, []);
   const config = resolveConfig(pathname, navigate, setRecordOpen, searchParams);
   if (!config) return null;
 
