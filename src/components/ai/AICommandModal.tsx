@@ -85,6 +85,7 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
             email: p.email ? String(p.email).trim() : null,
             mobile_number: p.mobile_number ? String(p.mobile_number).trim() : null,
             facebook_name: p.facebook_name ? String(p.facebook_name).trim() : null,
+            messenger_link: p.messenger_link ? String(p.messenger_link).trim() : null,
             location: p.location_type ? String(p.location_type).trim() : 'philippines',
           });
         if (error) {
