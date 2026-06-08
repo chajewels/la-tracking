@@ -216,23 +216,6 @@ export default function MultiInvoicePaymentDialog({
     }
   }, [open, payableAccounts]);
 
-  // AI-command override: when the dialog opens and both an invoice + amount
-  // were supplied via the open-record-payment-modal CustomEvent, replace just
-  // that account's default with the AI-extracted amount. Runs after the
-  // default-fill effect above so it wins for the matched invoice.
-  useEffect(() => {
-    if (!open || !initialAmount || !initialInvoice) return;
-    const match = payableAccounts.find(
-      a => String(a.invoice_number) === String(initialInvoice),
-    );
-    if (!match) return;
-    setAmounts(prev => ({
-      ...prev,
-      [match.id]: String(initialAmount),
-    }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
   // Debounced waterfall computation per account
   const runWaterfall = useCallback((accountId: string, amount: number) => {
     if (waterfallTimers.current[accountId]) clearTimeout(waterfallTimers.current[accountId]);
