@@ -121,8 +121,17 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
     setLoading(true);
 
     try {
+      // Build conversation history for context
+      const history = messages
+        .filter(m => m.role === 'user' || m.role === 'assistant')
+        .slice(-10) // last 10 messages max
+        .map(m => ({
+          role: m.role === 'user' ? 'user' : 'assistant',
+          content: m.content,
+        }));
+
       const { data, error } = await supabase.functions.invoke('ai-command-parser', {
-        body: { command: trimmed },
+        body: { command: trimmed, history },
       });
       if (error) {
         pushAssistant(error.message || 'AI command failed.');
