@@ -56,6 +56,7 @@ interface MultiInvoicePaymentDialogProps {
   customerName: string;
   accounts: AccountInfo[];
   portalLink?: string | null;
+  initialPaymentMethod?: string;
 }
 
 interface AccountResult {
