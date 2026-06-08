@@ -299,11 +299,17 @@ Points formula:
   Example: ¥50,000 purchase at Glimmer tier =
   floor(50000/10000) × 100 × 1 = 500 points
 
-Tier multipliers:
-  Glimmer:   1x (starting tier)
-  Radiant:   2x
-  Elite:     2x
-  Crown VIP: 3x
+Tier multipliers and thresholds (cumulative spend in JPY):
+  Glimmer:   1x — starting tier (¥0 minimum)
+  Radiant:   2x — requires ¥1,000,000 cumulative spend
+  Elite:     2x — requires ¥4,000,000 cumulative spend
+  Crown VIP: 3x — requires ¥8,000,000 cumulative spend
+
+Tier benefits:
+  Radiant+: VIP Early Access to new gold arrivals
+  Elite:    Full access to VIP Rewards Vault
+  Crown VIP: Mystery gifts, private gold viewings,
+             triple points multiplier
 
 When points are awarded:
   Layaway: ONLY on downpayment confirmation (not on monthly payments)
