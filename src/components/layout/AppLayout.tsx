@@ -1,4 +1,4 @@
-import { ReactNode, useState } from 'react';
+import { ReactNode, useState, useEffect } from 'react';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import AppSidebar from './AppSidebar';
 import { LogOut, Sparkles } from 'lucide-react';
@@ -6,10 +6,23 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import StaffNotificationBell from '@/components/notifications/StaffNotificationBell';
 import AICommandModal from '@/components/ai/AICommandModal';
+import RecordPaymentModal from '@/components/payments/RecordPaymentModal';
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { profile, roles, signOut } = useAuth();
   const [aiOpen, setAiOpen] = useState(false);
+  const [recordOpen, setRecordOpen] = useState(false);
+  const [initialInvoice, setInitialInvoice] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail ?? {};
+      setInitialInvoice(detail.invoice_number ?? null);
+      setRecordOpen(true);
+    };
+    window.addEventListener('open-record-payment-modal', handler);
+    return () => window.removeEventListener('open-record-payment-modal', handler);
+  }, []);
 
   const initials = profile?.full_name
     ? profile.full_name
