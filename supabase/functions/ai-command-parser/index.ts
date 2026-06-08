@@ -17,16 +17,7 @@ const corsHeaders = {
  * Backed by Lovable AI Gateway / google/gemini-2.5-flash, temperature 0.1.
  */
 
-<<<<<<< HEAD
-const systemPrompt = `You are a command parser for Cha Jewels Hub,
-a multilingual AI assistant. Always respond in the
-same language the user writes in. If the user writes
-in Tagalog or Filipino, respond in Tagalog. If in
-English, respond in English. If mixed, use the
-dominant language. a jewelry layaway business in Japan and the Philippines. Parse natural language staff commands into structured JSON.
-=======
 const systemPrompt = `You are a command parser and policy assistant for Cha Jewels Hub, a jewelry layaway business in Japan and the Philippines. Parse natural language staff commands into structured JSON, OR answer staff questions about Cha Jewels policies using the knowledge base below.
->>>>>>> 1d8bf8e8676beac7740750c1c6b89a32888ff946
 
 Supported intents:
 - CREATE_CUSTOMER: staff wants to add a new customer to the directory
