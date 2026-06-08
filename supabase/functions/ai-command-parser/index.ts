@@ -205,17 +205,30 @@ Go to Sales → Layaway tab → click + New Account.
 Fill in customer name, invoice number, currency,
 total amount, payment plan (3/6/8/10/12 months),
 downpayment amount, and order date.
+Plans available: 3M (no minimum), 6M (no minimum),
+8M (min ¥300,000), 10M (min ¥600,000),
+12M (min ¥1,000,000).
+Downpayment is 30% of total amount.
+Downpayment is NOT marked paid at creation —
+it must be confirmed after payment submission.
 
 How to create a cash order:
 Go to Sales → Cash tab → click + New Cash Order.
 Fill in customer, amount, and payment details.
 
-How to record a payment:
+How to record a payment (staff):
 Go to Sales → Payments tab → click Record Payment.
-Search for the account by invoice number or
-customer name. Select Single or Split payment.
-Enter amount, payment method, date, and upload
-proof of payment.
+Search by invoice number or customer name.
+Select Single Payment (one installment/downpayment)
+or Split Payment (across multiple accounts).
+Enter amount, payment method, date, upload proof.
+Proof of payment is REQUIRED for all submissions.
+
+How to review and confirm a payment submission:
+Go to Sales → Payments tab → Submissions.
+Review the proof of payment uploaded by customer.
+Click Confirm to approve or Reject to decline.
+Confirming a downpayment awards loyalty points.
 
 How to add a new customer:
 Go to Customers → click + New Customer.
@@ -233,11 +246,13 @@ Enter invoice number, service type, fee, and status.
 
 How to view customer portal:
 Customers access their account at portal.chajewelsjp.com
-Staff can find the portal link in customer profile.
+Staff uses app.chajewelsjp.com (internal only).
+Never give customers the app.chajewelsjp.com URL.
 
 How to submit proof of payment (customer):
 Customers submit payments via Messenger m.me/chajewelsjapan
 or directly through the Customer Portal.
+Customer portal URL: portal.chajewelsjp.com
 
 How to check loyalty points:
 Go to Loyalty → Members tab to view customer points,
@@ -245,7 +260,115 @@ tier status, and redemption history.
 
 How to process a loyalty redemption:
 Go to Loyalty → Redemptions tab. Review pending
-redemptions and approve or reject them.
+redemptions. Admin/finance/staff can approve.
+Only admin can cancel or void redemptions.
+
+How to handle overdue accounts:
+Go to CSR Operations → CSR Alerts.
+View overdue accounts by penalty stage (P1-P8).
+Send reminders via Notify button.
+Overdue = missed payment past due date.
+Grace period: 1 week on first late payment.
+Penalty: ¥1,000 or ₱500 per missed due date.
+After 3 consecutive missed payments → Final Settlement.
+
+How to process an extension request:
+Go to CSR Operations → CSR Alerts → Extensions tab.
+Review customer extension requests.
+Extension gives customer 1 more month to pay.
+Approve or reject within 24 hours.
+
+How to forfeit an account:
+Admin only. Go to account detail → Manual Forfeit.
+All payments are forfeited, item returns to Cha Jewels.
+Loyalty points are revoked on forfeit.
+
+How to reactivate a forfeited account:
+Admin only. Go to account detail → Reactivate.
+Loyalty points are automatically restored on reactivation.
+
+How to void a payment:
+Go to account detail → Payment History → Void.
+Admin only. Voiding a downpayment revokes loyalty points.
+Voiding an installment does NOT revoke loyalty points.
+
+=== LOYALTY PROGRAM DETAILS ===
+
+Points formula:
+  points = floor(loyalty_jpy_amount / 10000) × 100 × tier_multiplier
+  Example: ¥50,000 purchase at Glimmer tier =
+  floor(50000/10000) × 100 × 1 = 500 points
+
+Tier multipliers:
+  Glimmer:   1x (starting tier)
+  Radiant:   2x
+  Elite:     2x
+  Crown VIP: 3x
+
+When points are awarded:
+  Layaway: ONLY on downpayment confirmation (not on monthly payments)
+  Cash orders: ONLY when fully paid (order completed)
+  Monthly installment payments do NOT earn points
+
+Loyalty enrollment:
+  Customers auto-enroll when they sign up on the portal
+  Staff can also enroll manually: Loyalty → Members → Add Member
+  Enrollment URL for customers: regloyalty.chajewelsjp.com
+
+Redemption process:
+  Customer requests redemption via portal or Messenger
+  Staff reviews in Loyalty → Redemptions tab
+  Admin/finance/staff can APPROVE redemptions
+  Only admin can CANCEL or VOID redemptions
+  Redemption discount is applied to the order's loyalty amount
+
+Loyalty point lot expiry:
+  Point lots expire — customers can see next expiry in portal
+  Red "expiring soon" badge shows within 30 days of expiry
+
+Inactivity rule:
+  166-day warning sent if no purchase activity
+  180-day expiry if still inactive after warning
+
+=== ACCOUNT STATUS MEANINGS ===
+
+active: account is current, payments on time
+overdue: missed payment past due date
+extension_active: account extended, still paying
+reactivated: previously forfeited, now reactivated
+final_settlement: given final date to settle
+completed: fully paid off
+forfeited: all payments lost, item returned
+final_forfeited: final forfeiture after extension
+cancelled: account cancelled
+
+=== PENALTY RULES ===
+
+Penalty amount: ¥1,000 or ₱500 per missed due date
+Grace period: 1 week on FIRST late payment only
+Subsequent late payments: penalty applied immediately
+3 consecutive missed payments → Final Settlement Date issued
+If not settled by Final Settlement Date → account forfeited
+
+Penalty status:
+  unpaid/active: charged, not yet collected (shows red)
+  paid: charged and collected (shows green)
+  waived: forgiven by admin (excluded from balance)
+
+Remaining balance formula:
+  remaining_balance = total_amount + unpaid penalties - total payments received
+
+=== CASH ORDER RULES ===
+
+Cash orders are one-time full payment purchases.
+No installment schedule — customer pays the full amount.
+Loyalty points awarded when cash order is fully paid.
+Cash orders managed in Sales → Cash tab.
+Cancellation: full store credit if same day, 30% fee after 1 day.
+
+=== PAYMENT METHODS ACCEPTED ===
+GCash, BPI, BDO, Metrobank, cash deposit, PayPay (Japan)
+Payments submitted via Messenger or Customer Portal
 
 Return ONLY valid JSON for action/policy intents, no markdown, no explanation.
 
