@@ -119,6 +119,7 @@ export default function WorkspaceSplitButton() {
   const [initialInvoice, setInitialInvoice] = useState<string | null>(null);
   const [initialPaymentMethod, setInitialPaymentMethod] = useState<string | null>(null);
   const [initialPaymentMode, setInitialPaymentMode] = useState<'single' | 'split' | null>(null);
+  const [initialAmount, setInitialAmount] = useState<number | null>(null);
 
   // AICommandModal's RECORD_PAYMENT path dispatches this CustomEvent so
   // staff land directly on the existing RecordPaymentModal flow (proof
@@ -131,6 +132,7 @@ export default function WorkspaceSplitButton() {
         channelMap[(detail.payment_channel ?? '').toLowerCase()] ?? null,
       );
       setInitialPaymentMode(detail.payment_mode ?? null);
+      setInitialAmount(detail.amount ? Number(detail.amount) : null);
       setRecordOpen(true);
     };
     window.addEventListener('open-record-payment-modal', handler);
@@ -187,11 +189,13 @@ export default function WorkspaceSplitButton() {
             setInitialInvoice(null);
             setInitialPaymentMethod(null);
             setInitialPaymentMode(null);
+            setInitialAmount(null);
           }
         }}
         initialInvoice={initialInvoice}
         initialPaymentMethod={initialPaymentMethod}
         initialPaymentMode={initialPaymentMode}
+        initialAmount={initialAmount}
       />
     </>
   );

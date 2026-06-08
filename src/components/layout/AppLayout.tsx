@@ -15,6 +15,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [initialInvoice, setInitialInvoice] = useState<string | null>(null);
   const [initialPaymentMethod, setInitialPaymentMethod] = useState<string | null>(null);
   const [initialPaymentMode, setInitialPaymentMode] = useState<'single' | 'split' | null>(null);
+  const [initialAmount, setInitialAmount] = useState<number | null>(null);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -29,6 +30,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       const rawChannel = (detail.payment_channel ?? '').toLowerCase();
       setInitialPaymentMethod(channelMap[rawChannel] ?? null);
       setInitialPaymentMode(detail.payment_mode ?? null);
+      setInitialAmount(detail.amount ? Number(detail.amount) : null);
       setRecordOpen(true);
     };
     window.addEventListener('open-record-payment-modal', handler);
@@ -118,11 +120,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               setInitialInvoice(null);
               setInitialPaymentMethod(null);
               setInitialPaymentMode(null);
+              setInitialAmount(null);
             }
           }}
           initialInvoice={initialInvoice}
           initialPaymentMethod={initialPaymentMethod}
           initialPaymentMode={initialPaymentMode}
+          initialAmount={initialAmount}
         />
       </div>
     </SidebarProvider>

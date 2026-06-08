@@ -328,6 +328,7 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
               customer_name: parsed.parameters.customer_name ?? null,
               payment_channel: parsed.parameters.payment_channel ?? null,
               payment_mode: parsed.parameters.payment_mode ?? 'single',
+              amount: parsed.parameters.amount ?? null,
             },
           }),
         );

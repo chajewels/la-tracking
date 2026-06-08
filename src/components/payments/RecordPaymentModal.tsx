@@ -14,6 +14,7 @@ interface RecordPaymentModalProps {
   initialInvoice?: string | null;
   initialPaymentMethod?: string | null;
   initialPaymentMode?: 'single' | 'split' | null;
+  initialAmount?: number | null;
 }
 
 type PaymentMode = 'single' | 'split';
@@ -24,7 +25,7 @@ const ACTIVE_STATUSES = [
   'active', 'overdue', 'extension_active', 'reactivated', 'final_settlement',
 ];
 
-export default function RecordPaymentModal({ open, onOpenChange, initialInvoice, initialPaymentMethod, initialPaymentMode }: RecordPaymentModalProps) {
+export default function RecordPaymentModal({ open, onOpenChange, initialInvoice, initialPaymentMethod, initialPaymentMode, initialAmount }: RecordPaymentModalProps) {
   const [step, setStep] = useState<Step>('search');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<AccountWithCustomer | null>(null);
@@ -221,6 +222,8 @@ export default function RecordPaymentModal({ open, onOpenChange, initialInvoice,
                 customerId={selected.customer_id}
                 customerName={selected.customers?.full_name ?? ''}
                 initialPaymentMethod={initialPaymentMethod ?? undefined}
+                initialAmount={initialAmount ?? null}
+                initialInvoice={initialInvoice ?? null}
                 accounts={(accounts ?? [])
                   .filter((a) => a.customer_id === selected.customer_id)
                   .map((a) => ({
