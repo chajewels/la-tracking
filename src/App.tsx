@@ -63,6 +63,7 @@ const Help = lazyWithRetry(() => import("./pages/Help"));
 const Services = lazyWithRetry(() => import("./pages/Services"));
 const Sales = lazyWithRetry(() => import("./pages/Sales"));
 const Waivers = lazyWithRetry(() => import("./pages/Waivers"));
+const PolicyHub = lazyWithRetry(() => import("./pages/PolicyHub"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -153,6 +154,7 @@ const App = () => (
                 <Route path="/payment-proofs" element={<Navigate to="/payments-hub?tab=proofs" replace />} />
                 <Route path="/admin/payment-vault" element={<Protected><PaymentVault /></Protected>} />
                 <Route path="/help" element={<Protected><Help /></Protected>} />
+                <Route path={ROUTES.POLICY_HUB} element={<Protected><PolicyHub /></Protected>} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>

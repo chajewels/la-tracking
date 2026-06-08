@@ -78,6 +78,9 @@ export default function Customers() {
   // New-customer dialog state — opened via the WorkspaceSplitButton
   // dispatching the `open-new-customer-dialog` CustomEvent.
   const [newCustomerOpen, setNewCustomerOpen] = useState(false);
+  // Optional pre-fill name carried in the CustomEvent detail (e.g. from
+  // the AI command modal's "Add Customer First" follow-up).
+  const [newCustomerInitialName, setNewCustomerInitialName] = useState<string>('');
 
   // Import customers dialog — opened via the WorkspaceSplitButton
   // dispatching the `open-import-customers` CustomEvent.
@@ -88,7 +91,11 @@ export default function Customers() {
     return () => window.removeEventListener('open-import-customers', handler);
   }, []);
   useEffect(() => {
-    const handler = () => setNewCustomerOpen(true);
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail ?? {};
+      setNewCustomerInitialName(String(detail.full_name ?? ''));
+      setNewCustomerOpen(true);
+    };
     window.addEventListener('open-new-customer-dialog', handler);
     return () => window.removeEventListener('open-new-customer-dialog', handler);
   }, []);
@@ -374,7 +381,11 @@ export default function Customers() {
 
         <NewCustomerDialog
           open={newCustomerOpen}
-          onOpenChange={setNewCustomerOpen}
+          onOpenChange={(next) => {
+            setNewCustomerOpen(next);
+            if (!next) setNewCustomerInitialName('');
+          }}
+          initialFullName={newCustomerInitialName}
         />
 
         <ImportCustomersDialog

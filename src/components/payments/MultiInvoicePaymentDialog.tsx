@@ -56,6 +56,9 @@ interface MultiInvoicePaymentDialogProps {
   customerName: string;
   accounts: AccountInfo[];
   portalLink?: string | null;
+  initialPaymentMethod?: string;
+  initialAmount?: number | null;
+  initialInvoice?: string | null;
 }
 
 interface AccountResult {
@@ -129,6 +132,9 @@ export default function MultiInvoicePaymentDialog({
   customerName,
   accounts,
   portalLink,
+  initialPaymentMethod,
+  initialAmount,
+  initialInvoice,
 }: MultiInvoicePaymentDialogProps) {
   const queryClient = useQueryClient();
   const { roles, user, profile } = useAuth();
@@ -146,7 +152,7 @@ export default function MultiInvoicePaymentDialog({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [paymentDate, setPaymentDate] = useState(getPHTToday());
-  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [paymentMethod, setPaymentMethod] = useState(initialPaymentMethod ?? 'cash');
   const [referenceNumber, setReferenceNumber] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitResults, setSubmitResults] = useState<Array<{ account_id: string; invoice: string; type: string; ok: boolean; msg: string }>>([]);

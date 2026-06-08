@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
 import { ArrowLeft, UserPlus, ChevronDown, ChevronUp, Banknote, Copy, Check, MessageCircle, Wand2, Save, AlertTriangle, Loader2, X } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
@@ -32,29 +32,49 @@ interface SplitAllocation {
 
 export default function NewAccount() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { data: customers } = useCustomers();
   const { data: allAccounts } = useAccountsLight();
   const createAccount = useCreateAccount();
   const { initialDraft, persistDraft, clearDraft, restored, markRestored } = useAccountDraft();
   const draftRestoredRef = useRef(false);
 
+  // Read AI-command URL params synchronously so they can seed the initial
+  // useState values. Captured into a ref so they don't change identity
+  // mid-edit and so the draft restore effect can detect them.
+  const urlCustomerName = searchParams.get('customer_name');
+  const urlAmount = searchParams.get('amount');
+  const urlCurrency = searchParams.get('currency');
+  const urlPlanMonths = searchParams.get('plan_months');
+  const urlNotes = searchParams.get('notes');
+
+  const initialCurrency: Currency =
+    urlCurrency === 'JPY' || urlCurrency === 'PHP' ? urlCurrency : 'PHP';
+  const initialPlanMonths: PaymentPlan = (() => {
+    if (urlPlanMonths) {
+      const m = parseInt(urlPlanMonths);
+      if ([3, 6, 8, 10, 12].includes(m)) return m as PaymentPlan;
+    }
+    return 3;
+  })();
+
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [customerId, setCustomerId] = useState('');
 
   // ── Customer search combobox state ──
-  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerSearch, setCustomerSearch] = useState(urlCustomerName ?? '');
   const [customerResults, setCustomerResults] = useState<DbCustomer[]>([]);
   const [customerSearching, setCustomerSearching] = useState(false);
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const [selectedExistingCustomer, setSelectedExistingCustomer] = useState<DbCustomer | null>(null);
   const customerSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [currency, setCurrency] = useState<Currency>('PHP');
-  const [totalAmount, setTotalAmount] = useState('');
+  const [currency, setCurrency] = useState<Currency>(initialCurrency);
+  const [totalAmount, setTotalAmount] = useState(urlAmount ?? '');
   const [orderDate, setOrderDate] = useState('');
-  const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>(3);
+  const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>(initialPlanMonths);
   const [downpaymentInput, setDownpaymentInput] = useState('');
   const [loyaltyJpyInput, setLoyaltyJpyInput] = useState('');
-  const [initialNote, setInitialNote] = useState('');
+  const [initialNote, setInitialNote] = useState(urlNotes ?? '');
   const [isTrade, setIsTrade] = useState(false);
 
   // Loyalty-only product amount field is admin/finance only.
@@ -89,25 +109,30 @@ export default function NewAccount() {
   const submittedRef = useRef(false);
   const pendingNavRef = useRef<string | null>(null);
 
-  // Restore draft on mount
+  // Single mount-scoped initializer:
+  //   1. Restore the saved draft (if any) — BUT skip fields that AI-command
+  //      URL params already seeded via useState initializers, so query params
+  //      always win over a stale draft.
   useEffect(() => {
-    if (initialDraft && !draftRestoredRef.current) {
-      draftRestoredRef.current = true;
-      setInvoiceNumber(initialDraft.invoiceNumber || '');
-      setCustomerId(initialDraft.customerId || '');
-      setCurrency(initialDraft.currency || 'PHP');
-      setTotalAmount(initialDraft.totalAmount || '');
-      setOrderDate(initialDraft.orderDate || '');
-      setPaymentPlan(initialDraft.paymentPlan || 3);
-      setDownpaymentInput(initialDraft.downpaymentInput || '');
-      setInstallmentMode(initialDraft.installmentMode || 'equal');
-      setCustomAmounts(initialDraft.customAmounts || []);
-      setEnableSplitPayment(initialDraft.enableSplitPayment || false);
-      setLumpSumInput(initialDraft.lumpSumInput || '');
-      setFormDirty(true);
-      markRestored();
-    }
-  }, [initialDraft, markRestored]);
+    if (draftRestoredRef.current) return;
+    draftRestoredRef.current = true;
+
+    if (!initialDraft) return;
+
+    setInvoiceNumber(initialDraft.invoiceNumber || '');
+    setCustomerId(initialDraft.customerId || '');
+    if (!urlCurrency) setCurrency(initialDraft.currency || 'PHP');
+    if (!urlAmount) setTotalAmount(initialDraft.totalAmount || '');
+    setOrderDate(initialDraft.orderDate || '');
+    if (!urlPlanMonths) setPaymentPlan(initialDraft.paymentPlan || 3);
+    setDownpaymentInput(initialDraft.downpaymentInput || '');
+    setInstallmentMode(initialDraft.installmentMode || 'equal');
+    setCustomAmounts(initialDraft.customAmounts || []);
+    setEnableSplitPayment(initialDraft.enableSplitPayment || false);
+    setLumpSumInput(initialDraft.lumpSumInput || '');
+    setFormDirty(true);
+    markRestored();
+  }, [initialDraft, markRestored, urlAmount, urlCurrency, urlPlanMonths]);
 
   // Auto-save draft on changes
   useEffect(() => {

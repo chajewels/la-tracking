@@ -1,13 +1,41 @@
-import { ReactNode } from 'react';
+import { ReactNode, useState, useEffect } from 'react';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import AppSidebar from './AppSidebar';
-import { LogOut } from 'lucide-react';
+import { LogOut, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import StaffNotificationBell from '@/components/notifications/StaffNotificationBell';
+import AICommandModal from '@/components/ai/AICommandModal';
+import RecordPaymentModal from '@/components/payments/RecordPaymentModal';
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { profile, roles, signOut } = useAuth();
+  const [aiOpen, setAiOpen] = useState(false);
+  const [recordOpen, setRecordOpen] = useState(false);
+  const [initialInvoice, setInitialInvoice] = useState<string | null>(null);
+  const [initialPaymentMethod, setInitialPaymentMethod] = useState<string | null>(null);
+  const [initialPaymentMode, setInitialPaymentMode] = useState<'single' | 'split' | null>(null);
+  const [initialAmount, setInitialAmount] = useState<number | null>(null);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail ?? {};
+      setInitialInvoice(detail.invoice_number ?? null);
+      // Map AI payment_channel to payment method registry key
+      const channelMap: Record<string, string> = {
+        gcash: 'gcash', bdo: 'bdo', bpi: 'bpi',
+        paypal: 'paypal', cash: 'cash', maya: 'maya',
+        paymaya: 'maya', 'bank transfer': 'bank_transfer',
+      };
+      const rawChannel = (detail.payment_channel ?? '').toLowerCase();
+      setInitialPaymentMethod(channelMap[rawChannel] ?? null);
+      setInitialPaymentMode(detail.payment_mode ?? null);
+      setInitialAmount(detail.amount ? Number(detail.amount) : null);
+      setRecordOpen(true);
+    };
+    window.addEventListener('open-record-payment-modal', handler);
+    return () => window.removeEventListener('open-record-payment-modal', handler);
+  }, []);
 
   const initials = profile?.full_name
     ? profile.full_name
@@ -72,6 +100,34 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             </main>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setAiOpen(true)}
+          className="fixed bottom-6 right-6 z-50 h-12 w-12 rounded-full gold-gradient shadow-lg flex items-center justify-center hover:scale-110 transition-transform focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+          aria-label="AI Command"
+          title="AI Command"
+        >
+          <Sparkles className="h-5 w-5 text-primary-foreground" />
+        </button>
+
+        <AICommandModal open={aiOpen} onOpenChange={setAiOpen} />
+        <RecordPaymentModal
+          open={recordOpen}
+          onOpenChange={(next) => {
+            setRecordOpen(next);
+            if (!next) {
+              setInitialInvoice(null);
+              setInitialPaymentMethod(null);
+              setInitialPaymentMode(null);
+              setInitialAmount(null);
+            }
+          }}
+          initialInvoice={initialInvoice}
+          initialPaymentMethod={initialPaymentMethod}
+          initialPaymentMode={initialPaymentMode}
+          initialAmount={initialAmount}
+        />
       </div>
     </SidebarProvider>
   );

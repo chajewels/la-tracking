@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,9 +16,10 @@ interface NewCustomerDialogProps {
   trigger?: React.ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  initialFullName?: string;
 }
 
-export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChange }: NewCustomerDialogProps) {
+export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChange, initialFullName }: NewCustomerDialogProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isControlled = open !== undefined;
   const isOpen = isControlled ? open : internalOpen;
@@ -27,7 +28,7 @@ export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChan
     : setInternalOpen;
   const createCustomer = useCreateCustomer();
 
-  const [fullName, setFullName] = useState('');
+  const [fullName, setFullName] = useState(initialFullName ?? '');
   const [facebookName, setFacebookName] = useState('');
   const [messengerLink, setMessengerLink] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
@@ -35,6 +36,14 @@ export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChan
   const [notes, setNotes] = useState('');
   const [locationType, setLocationType] = useState<LocationType>('japan');
   const [country, setCountry] = useState('');
+
+  // When opened with a fresh initialFullName, seed the field. Skipped while the
+  // dialog is closed so the user's in-progress typing isn't clobbered.
+  useEffect(() => {
+    if (isOpen && initialFullName) {
+      setFullName(initialFullName);
+    }
+  }, [isOpen, initialFullName]);
 
   const resetForm = () => {
     setFullName('');

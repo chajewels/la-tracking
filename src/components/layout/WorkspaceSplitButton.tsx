@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,17 @@ type SplitConfig = {
   primaryLabel: string;
   primaryAction: () => void;
   dropdownItems: DropdownAction[];
+};
+
+// Maps AI-extracted `payment_channel` strings (lowercased) to the canonical
+// payment-method labels the RecordPayment dialogs expect.
+const channelMap: Record<string, string> = {
+  gcash: 'GCash',
+  bdo: 'BDO',
+  bpi: 'BPI',
+  metrobank: 'Metrobank',
+  paypal: 'PayPal',
+  cash: 'Cash',
 };
 
 function resolveConfig(
@@ -105,6 +116,28 @@ export default function WorkspaceSplitButton() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [recordOpen, setRecordOpen] = useState(false);
+  const [initialInvoice, setInitialInvoice] = useState<string | null>(null);
+  const [initialPaymentMethod, setInitialPaymentMethod] = useState<string | null>(null);
+  const [initialPaymentMode, setInitialPaymentMode] = useState<'single' | 'split' | null>(null);
+  const [initialAmount, setInitialAmount] = useState<number | null>(null);
+
+  // AICommandModal's RECORD_PAYMENT path dispatches this CustomEvent so
+  // staff land directly on the existing RecordPaymentModal flow (proof
+  // upload still required there).
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail ?? {};
+      setInitialInvoice(detail.invoice_number ?? null);
+      setInitialPaymentMethod(
+        channelMap[(detail.payment_channel ?? '').toLowerCase()] ?? null,
+      );
+      setInitialPaymentMode(detail.payment_mode ?? null);
+      setInitialAmount(detail.amount ? Number(detail.amount) : null);
+      setRecordOpen(true);
+    };
+    window.addEventListener('open-record-payment-modal', handler);
+    return () => window.removeEventListener('open-record-payment-modal', handler);
+  }, []);
   const config = resolveConfig(pathname, navigate, setRecordOpen, searchParams);
   if (!config) return null;
 
@@ -148,7 +181,22 @@ export default function WorkspaceSplitButton() {
           </DropdownMenu>
         )}
       </div>
-      <RecordPaymentModal open={recordOpen} onOpenChange={setRecordOpen} />
+      <RecordPaymentModal
+        open={recordOpen}
+        onOpenChange={(next) => {
+          setRecordOpen(next);
+          if (!next) {
+            setInitialInvoice(null);
+            setInitialPaymentMethod(null);
+            setInitialPaymentMode(null);
+            setInitialAmount(null);
+          }
+        }}
+        initialInvoice={initialInvoice}
+        initialPaymentMethod={initialPaymentMethod}
+        initialPaymentMode={initialPaymentMode}
+        initialAmount={initialAmount}
+      />
     </>
   );
 }

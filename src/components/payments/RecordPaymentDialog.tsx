@@ -67,16 +67,17 @@ interface RecordPaymentDialogProps {
   schedule?: ScheduleItem[];
   invoiceNumber?: string;
   downpaymentRemaining?: number;
+  initialPaymentMethod?: string;
   onPaymentRecorded?: (info: SessionPaymentInfo) => void;
 }
 
-export default function RecordPaymentDialog({ accountId, currency, remainingBalance, payFullBalance, schedule, invoiceNumber, downpaymentRemaining, onPaymentRecorded }: RecordPaymentDialogProps) {
+export default function RecordPaymentDialog({ accountId, currency, remainingBalance, payFullBalance, schedule, invoiceNumber, downpaymentRemaining, initialPaymentMethod, onPaymentRecorded }: RecordPaymentDialogProps) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState('');
   const [carryOver, setCarryOver] = useState(false);
   const [paymentDate, setPaymentDate] = useState(getPHTToday());
   const [notes, setNotes] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [paymentMethod, setPaymentMethod] = useState(initialPaymentMethod ?? 'cash');
   const [paymentType, setPaymentType] = useState<'installment' | 'downpayment'>('installment');
   const [step, setStep] = useState<'input' | 'preview'>('input');
   const [preview, setPreview] = useState<PreviewResult | null>(null);
@@ -491,7 +492,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
             {isAdminOrFinance ? 'Record Payment' : 'Submit Payment for Confirmation'}
           </DialogTitle>
           <DialogDescription>
-            Remaining balance: {formatCurrency(remainingBalance, currency)}
+            {invoiceNumber && <span className="font-mono font-semibold">#{invoiceNumber} · </span>}Remaining balance: {formatCurrency(remainingBalance, currency)}
             {!isAdminOrFinance && (
               <span className="block mt-1 text-warning">
                 This payment will be submitted for admin/finance confirmation before it takes effect.

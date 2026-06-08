@@ -25,6 +25,14 @@ export default function NewCashOrder() {
   const [searchParams] = useSearchParams();
   const presetCustomerId = searchParams.get('customer_id');
   const customerLocked = !!presetCustomerId;
+
+  // AI-command URL params (CREATE_CASH_ORDER intent) seed initial state.
+  const urlCustomerName = searchParams.get('customer_name');
+  const urlAmount = searchParams.get('amount');
+  const urlCurrency = searchParams.get('currency');
+  const initialCurrency: Currency =
+    urlCurrency === 'JPY' || urlCurrency === 'PHP' ? urlCurrency : 'JPY';
+
   const { roles, loading: authLoading } = useAuth();
   const { can, loading: permLoading } = usePermissions();
   const { data: customers } = useCustomers();
@@ -41,8 +49,8 @@ export default function NewCashOrder() {
   // Form state
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [customerId, setCustomerId] = useState(presetCustomerId || '');
-  const [currency, setCurrency] = useState<Currency>('JPY');
-  const [totalAmount, setTotalAmount] = useState('');
+  const [currency, setCurrency] = useState<Currency>(initialCurrency);
+  const [totalAmount, setTotalAmount] = useState(urlAmount ?? '');
   const [loyaltyJpyInput, setLoyaltyJpyInput] = useState('');
   const [orderDate, setOrderDate] = useState(() => getPHTToday());
   const [expiresAt, setExpiresAt] = useState<string>('');
@@ -51,7 +59,7 @@ export default function NewCashOrder() {
   const [isTrade, setIsTrade] = useState(false);
 
   // Customer search combobox (matches NewAccount pattern)
-  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerSearch, setCustomerSearch] = useState(urlCustomerName ?? '');
   const [customerResults, setCustomerResults] = useState<DbCustomer[]>([]);
   const [customerSearching, setCustomerSearching] = useState(false);
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
