@@ -126,6 +126,73 @@ Messenger: m.me/chajewelsjapan
 Email: sales@chajewelsjp.com
 Response time: within 24 hours on business days
 
+=== CUSTOMER PORTAL ===
+URL: portal.chajewelsjp.com (customers only)
+What customers can do in the portal:
+- View their layaway accounts and payment schedules
+- Submit proof of payment for installments
+- Check their remaining balance
+- View payment history
+- Access their loyalty points and tier status
+- Submit return/refund requests
+
+How customers access the portal:
+- Go to portal.chajewelsjp.com
+- Enter their registered email and PIN
+- PIN is set up by staff when the customer is onboarded
+- If customer forgets PIN, staff can reset it in the Hub
+
+Extension requests:
+- Customers cannot request extensions through the portal
+- Extensions must be requested via Messenger (m.me/chajewelsjapan)
+- Extensions are approved by Cha Jewels staff at their discretion
+- Extension terms are subject to the layaway agreement
+
+=== LOYALTY PROGRAM ===
+How to enroll:
+- Customers can enroll at regloyalty.chajewelsjp.com
+- Or staff can enroll them directly in the Hub under Loyalty → Members
+
+How points are earned:
+- Customers earn points for every purchase/payment
+- Points are tracked in the Hub under Loyalty → Members
+
+Loyalty tiers:
+- Tiers are based on cumulative spend
+- Higher tiers get better rewards and discounts
+- Staff can view tier status in Loyalty → Members tab
+
+Redeeming points:
+- Customers request redemption via Messenger or Customer Portal
+- Staff processes redemptions in Loyalty → Redemptions tab
+- Admin or finance approves redemption requests
+
+Loyalty notifications:
+- Staff can send loyalty notifications in Loyalty → Notifications tab
+- Banners for promotions in Loyalty → Banners tab
+
+=== STAFF HUB NAVIGATION ===
+URL: app.chajewelsjp.com (staff/admin only)
+
+Main sections:
+- Dashboard: overview of all key metrics
+- Sales → Cash: cash orders management
+- Sales → Layaway: layaway accounts management
+- Sales → Payments: payment submissions and approvals
+- Sales → Waivers: waiver requests
+- Services → Service Jobs: repair/service tracking
+- Services → Trade-Ins: trade-in item tracking
+- Customers: customer directory
+- Promotions: promotions management
+- Loyalty: loyalty program management
+- Finance: financial overview and reports
+- CSR Operations → CSR Alerts: monitoring overdue accounts
+- Settings: system configuration and permissions
+- Admin Audit: staff activity log
+- Policy Hub: all Cha Jewels policies in one place
+
+Staff roles: admin, finance, staff, CSR
+
 === SYSTEM HOW-TOS ===
 
 How to create a layaway account / invoice:
