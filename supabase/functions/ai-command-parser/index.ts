@@ -32,8 +32,25 @@ Tool use rules:
 
 Supported intents:
 - CREATE_CUSTOMER: staff wants to add a new customer to the directory
+- CREATE_LAYAWAY_ACCOUNT: staff wants to create a new layaway account/invoice for a customer
+- CREATE_CASH_ORDER: staff wants to create a new cash order for a customer
 - RECORD_PAYMENT: staff wants to record a payment against a layaway account
 - ASK_POLICY: staff is asking a question about Cha Jewels policies, rules, how the system works, or live data
+
+For CREATE_LAYAWAY_ACCOUNT extract:
+  customer_name (required),
+  amount (optional, numeric),
+  currency: PHP | JPY (default PHP),
+  plan_months: 3 | 6 | 8 | 10 | 12 (optional),
+  notes (optional)
+  Return: { "intent": "CREATE_LAYAWAY_ACCOUNT", "confidence": 0.0-1.0, "parameters": {...}, "display_summary": "..." }
+
+For CREATE_CASH_ORDER extract:
+  customer_name (required),
+  amount (optional, numeric),
+  currency: PHP | JPY (default PHP),
+  notes (optional)
+  Return: { "intent": "CREATE_CASH_ORDER", "confidence": 0.0-1.0, "parameters": {...}, "display_summary": "..." }
 
 For CREATE_CUSTOMER extract these fields:
 
