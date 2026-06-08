@@ -211,6 +211,7 @@ export default function RecordPaymentModal({ open, onOpenChange, initialInvoice,
               <MultiInvoicePaymentDialog
                 customerId={selected.customer_id}
                 customerName={selected.customers?.full_name ?? ''}
+                initialPaymentMethod={initialPaymentMethod ?? undefined}
                 accounts={(accounts ?? [])
                   .filter((a) => a.customer_id === selected.customer_id)
                   .map((a) => ({
