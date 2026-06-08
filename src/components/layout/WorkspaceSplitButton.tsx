@@ -105,12 +105,17 @@ export default function WorkspaceSplitButton() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [recordOpen, setRecordOpen] = useState(false);
+  const [initialInvoice, setInitialInvoice] = useState<string | null>(null);
 
   // AICommandModal's RECORD_PAYMENT path dispatches this CustomEvent so
   // staff land directly on the existing RecordPaymentModal flow (proof
   // upload still required there).
   useEffect(() => {
-    const handler = () => setRecordOpen(true);
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail ?? {};
+      setInitialInvoice(detail.invoice_number ?? null);
+      setRecordOpen(true);
+    };
     window.addEventListener('open-record-payment-modal', handler);
     return () => window.removeEventListener('open-record-payment-modal', handler);
   }, []);
@@ -157,7 +162,14 @@ export default function WorkspaceSplitButton() {
           </DropdownMenu>
         )}
       </div>
-      <RecordPaymentModal open={recordOpen} onOpenChange={setRecordOpen} />
+      <RecordPaymentModal
+        open={recordOpen}
+        onOpenChange={(next) => {
+          setRecordOpen(next);
+          if (!next) setInitialInvoice(null);
+        }}
+        initialInvoice={initialInvoice}
+      />
     </>
   );
 }

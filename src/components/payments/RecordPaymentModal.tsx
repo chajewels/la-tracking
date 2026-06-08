@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
@@ -11,6 +11,7 @@ import MultiInvoicePaymentDialog from '@/components/payments/MultiInvoicePayment
 interface RecordPaymentModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialInvoice?: string | null;
 }
 
 type PaymentMode = 'single' | 'split';
@@ -21,13 +22,28 @@ const ACTIVE_STATUSES = [
   'active', 'overdue', 'extension_active', 'reactivated', 'final_settlement',
 ];
 
-export default function RecordPaymentModal({ open, onOpenChange }: RecordPaymentModalProps) {
+export default function RecordPaymentModal({ open, onOpenChange, initialInvoice }: RecordPaymentModalProps) {
   const [step, setStep] = useState<Step>('search');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<AccountWithCustomer | null>(null);
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('single');
 
   const { data: accounts } = useAccounts();
+
+  useEffect(() => {
+    if (open && initialInvoice && accounts) {
+      setQuery(initialInvoice);
+      const match = accounts.find(
+        (a) =>
+          String(a.invoice_number) === String(initialInvoice) &&
+          ACTIVE_STATUSES.includes(a.status),
+      );
+      if (match) {
+        setSelected(match);
+        setStep('mode');
+      }
+    }
+  }, [open, initialInvoice, accounts]);
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();

@@ -48,7 +48,8 @@ For RECORD_PAYMENT extract:
   amount (required, numeric),
   currency: 'PHP' | 'JPY' (default 'PHP'),
   payment_type: 'downpayment' | 'installment' (default 'installment'),
-  payment_channel (e.g. BDO, GCash, PayPal)
+  payment_channel (e.g. BDO, GCash, PayPal),
+  invoice_number (optional) — a numeric invoice reference mentioned in the command (e.g. "Invoice 12345", "invoice #19105", "#18422"). Extract only the digits. If no invoice number is mentioned, omit this field.
 
 Return ONLY valid JSON, no markdown, no explanation:
 {

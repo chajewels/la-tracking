@@ -100,7 +100,14 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
       } else if (parsed.intent === 'RECORD_PAYMENT') {
         const customerName = String((parsed.parameters as Record<string, unknown>).customer_name ?? '');
         toast.info(`Opening payment form for ${customerName}...`);
-        window.dispatchEvent(new CustomEvent('open-record-payment-modal'));
+        window.dispatchEvent(
+          new CustomEvent('open-record-payment-modal', {
+            detail: {
+              invoice_number: parsed.parameters.invoice_number ?? null,
+              customer_name: parsed.parameters.customer_name ?? null,
+            },
+          }),
+        );
         handleClose(false);
       }
     } catch (err) {
