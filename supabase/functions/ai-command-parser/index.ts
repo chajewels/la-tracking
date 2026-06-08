@@ -205,10 +205,16 @@ Go to Sales → Layaway tab → click + New Account.
 Fill in customer name, invoice number, currency,
 total amount, payment plan (3/6/8/10/12 months),
 downpayment amount, and order date.
-Plans available: 3M (no minimum), 6M (no minimum),
-8M (min ¥300,000), 10M (min ¥600,000),
-12M (min ¥1,000,000).
-Downpayment is 30% of total amount.
+Plans available:
+  3M: no minimum invoice, available to all customers
+  6M: no minimum invoice, available to all customers
+  8M: minimum ¥300,000 invoice, available to all customers
+  10M: minimum ¥600,000 invoice, available to all customers
+  12M: minimum ¥1,000,000 invoice, available to all customers
+All plans are available to both new and existing customers.
+Eligibility is based on invoice value only, not customer history.
+Downpayment is 30% of total amount for all plans.
+0% interest on all plans.
 Downpayment is NOT marked paid at creation —
 it must be confirmed after payment submission.
 
