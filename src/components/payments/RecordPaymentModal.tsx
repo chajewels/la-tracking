@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
-import { ChevronLeft } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ChevronLeft, Loader2 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useAccounts, type AccountWithCustomer } from '@/hooks/use-supabase-data';
+import { supabase } from '@/integrations/supabase/client';
 import RecordPaymentDialog from '@/components/payments/RecordPaymentDialog';
 import MultiInvoicePaymentDialog from '@/components/payments/MultiInvoicePaymentDialog';
 
@@ -26,8 +27,58 @@ export default function RecordPaymentModal({ open, onOpenChange }: RecordPayment
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<AccountWithCustomer | null>(null);
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('single');
+  const [scheduleData, setScheduleData] = useState<any[]>([]);
+  const [paymentsData, setPaymentsData] = useState<any[]>([]);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
 
   const { data: accounts } = useAccounts();
+
+  useEffect(() => {
+    if (step !== 'record' || !selected) return;
+    let cancelled = false;
+    setScheduleLoading(true);
+    Promise.all([
+      supabase
+        .from('schedule_with_actuals' as any)
+        .select('*')
+        .eq('account_id', selected.id)
+        .order('installment_number', { ascending: true }),
+      supabase
+        .from('payments')
+        .select('*')
+        .eq('account_id', selected.id),
+    ]).then(([scheduleRes, paymentsRes]) => {
+      if (cancelled) return;
+      const normalized = ((scheduleRes.data as any[]) || []).map((row: any) => ({
+        ...row,
+        paid_amount: row.allocated ?? 0,
+        status: row.computed_status ?? row.db_status,
+        total_due_amount: row.actual_remaining ?? row.total_due_amount,
+      }));
+      setScheduleData(normalized);
+      setPaymentsData((paymentsRes.data as any[]) || []);
+      setScheduleLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [step, selected]);
+
+  const downpaymentRemaining = useMemo(() => {
+    if (!selected) return 0;
+    const downpaymentAmount = Number((selected as any).downpayment_amount ?? 0);
+    if (downpaymentAmount <= 0) return 0;
+    const isDp = (p: any) =>
+      (p.reference_number && String(p.reference_number).startsWith('DP-')) ||
+      (p.remarks && /\bdown(payment)?\b|\bdp\b/i.test(String(p.remarks)));
+    const active = paymentsData.filter((p) => !p.voided_at);
+    const taggedDpPaid = active
+      .filter(isDp)
+      .reduce((s, p) => s + Number(p.amount_paid), 0);
+    const totalPaidAll = active.reduce((s, p) => s + Number(p.amount_paid), 0);
+    const dpPaidAmount = taggedDpPaid > 0
+      ? taggedDpPaid
+      : (totalPaidAll >= downpaymentAmount ? downpaymentAmount : 0);
+    return Math.max(0, downpaymentAmount - dpPaidAmount);
+  }, [selected, paymentsData]);
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -50,6 +101,9 @@ export default function RecordPaymentModal({ open, onOpenChange }: RecordPayment
       setSelected(null);
       setQuery('');
       setPaymentMode('single');
+      setScheduleData([]);
+      setPaymentsData([]);
+      setScheduleLoading(false);
     }
   };
 
@@ -173,22 +227,31 @@ export default function RecordPaymentModal({ open, onOpenChange }: RecordPayment
             </button>
 
             {paymentMode === 'single' ? (
-              <RecordPaymentDialog
-                accountId={selected.id}
-                currency={selected.currency}
-                remainingBalance={selected.remaining_balance ?? 0}
-                payFullBalance={false}
-                schedule={[]}
-                invoiceNumber={selected.invoice_number}
-                downpaymentRemaining={0}
-                onPaymentRecorded={() => {
-                  onOpenChange(false);
-                  setStep('search');
-                  setSelected(null);
-                  setQuery('');
-                  setPaymentMode('single');
-                }}
-              />
+              scheduleLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <RecordPaymentDialog
+                  accountId={selected.id}
+                  currency={selected.currency}
+                  remainingBalance={selected.remaining_balance ?? 0}
+                  payFullBalance={false}
+                  schedule={scheduleData}
+                  invoiceNumber={selected.invoice_number}
+                  downpaymentRemaining={downpaymentRemaining}
+                  onPaymentRecorded={() => {
+                    onOpenChange(false);
+                    setStep('search');
+                    setSelected(null);
+                    setQuery('');
+                    setPaymentMode('single');
+                    setScheduleData([]);
+                    setPaymentsData([]);
+                    setScheduleLoading(false);
+                  }}
+                />
+              )
             ) : (
               <MultiInvoicePaymentDialog
                 customerId={selected.customer_id}
