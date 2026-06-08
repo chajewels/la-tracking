@@ -12,6 +12,7 @@ interface RecordPaymentModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialInvoice?: string | null;
+  initialPaymentMethod?: string | null;
 }
 
 type PaymentMode = 'single' | 'split';
@@ -22,7 +23,7 @@ const ACTIVE_STATUSES = [
   'active', 'overdue', 'extension_active', 'reactivated', 'final_settlement',
 ];
 
-export default function RecordPaymentModal({ open, onOpenChange, initialInvoice }: RecordPaymentModalProps) {
+export default function RecordPaymentModal({ open, onOpenChange, initialInvoice, initialPaymentMethod }: RecordPaymentModalProps) {
   const [step, setStep] = useState<Step>('search');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<AccountWithCustomer | null>(null);
@@ -197,6 +198,7 @@ export default function RecordPaymentModal({ open, onOpenChange, initialInvoice 
                 schedule={[]}
                 invoiceNumber={selected.invoice_number}
                 downpaymentRemaining={0}
+                initialPaymentMethod={initialPaymentMethod ?? undefined}
                 onPaymentRecorded={() => {
                   onOpenChange(false);
                   setStep('search');

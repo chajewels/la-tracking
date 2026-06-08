@@ -13,11 +13,20 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [aiOpen, setAiOpen] = useState(false);
   const [recordOpen, setRecordOpen] = useState(false);
   const [initialInvoice, setInitialInvoice] = useState<string | null>(null);
+  const [initialPaymentMethod, setInitialPaymentMethod] = useState<string | null>(null);
 
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail ?? {};
       setInitialInvoice(detail.invoice_number ?? null);
+      // Map AI payment_channel to payment method registry key
+      const channelMap: Record<string, string> = {
+        gcash: 'gcash', bdo: 'bdo', bpi: 'bpi',
+        paypal: 'paypal', cash: 'cash', maya: 'maya',
+        paymaya: 'maya', 'bank transfer': 'bank_transfer',
+      };
+      const rawChannel = (detail.payment_channel ?? '').toLowerCase();
+      setInitialPaymentMethod(channelMap[rawChannel] ?? null);
       setRecordOpen(true);
     };
     window.addEventListener('open-record-payment-modal', handler);
@@ -103,9 +112,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           open={recordOpen}
           onOpenChange={(next) => {
             setRecordOpen(next);
-            if (!next) setInitialInvoice(null);
+            if (!next) { setInitialInvoice(null); setInitialPaymentMethod(null); }
           }}
           initialInvoice={initialInvoice}
+          initialPaymentMethod={initialPaymentMethod}
         />
       </div>
     </SidebarProvider>

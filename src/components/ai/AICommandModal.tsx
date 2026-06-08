@@ -113,6 +113,7 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
             detail: {
               invoice_number: parsed.parameters.invoice_number ?? null,
               customer_name: parsed.parameters.customer_name ?? null,
+              payment_channel: parsed.parameters.payment_channel ?? null,
             },
           }),
         );

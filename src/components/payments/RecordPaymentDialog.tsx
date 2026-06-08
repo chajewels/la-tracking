@@ -76,7 +76,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   const [carryOver, setCarryOver] = useState(false);
   const [paymentDate, setPaymentDate] = useState(getPHTToday());
   const [notes, setNotes] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [paymentMethod, setPaymentMethod] = useState(initialPaymentMethod ?? 'cash');
   const [paymentType, setPaymentType] = useState<'installment' | 'downpayment'>('installment');
   const [step, setStep] = useState<'input' | 'preview'>('input');
   const [preview, setPreview] = useState<PreviewResult | null>(null);
