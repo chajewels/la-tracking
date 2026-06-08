@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import RecordPaymentDialog from '@/components/payments/RecordPaymentDialog';
 import MultiInvoicePaymentDialog from '@/components/payments/MultiInvoicePaymentDialog';
+import AICustomerInsightsDialog from '@/components/ai/AICustomerInsightsDialog';
 import CustomerCashOrdersTab from '@/components/customers/CustomerCashOrdersTab';
 import CustomerLoyaltyTab from '@/components/customers/CustomerLoyaltyTab';
 import { formatCurrency } from '@/lib/calculations';
@@ -434,6 +435,7 @@ export default function CustomerDetail() {
             <Button variant="outline" size="sm" onClick={startEditCustomer} className="border-primary/30 text-primary hover:bg-primary/10">
               <Pencil className="h-3.5 w-3.5 mr-1.5" /> Edit Details
             </Button>
+            <AICustomerInsightsDialog customerId={customer.id} customerName={customer.full_name} />
             <MultiInvoicePaymentDialog
               customerId={customer.id}
               customerName={customer.full_name}
