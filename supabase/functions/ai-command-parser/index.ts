@@ -16,7 +16,7 @@ const corsHeaders = {
  * Payload: { "command": "..." }
  *
  * Auth: staff user JWT required (this is invoked from the Hub's AICommandModal).
- * Backed by Lovable AI Gateway / google/gemini-2.0-flash, temperature 0.1.
+ * Backed by Lovable AI Gateway / google/gemini-2.5-flash, temperature 0.1.
  */
 
 const systemPrompt = `You are a command parser and policy assistant for Cha Jewels Hub, a jewelry layaway business in Japan and the Philippines. You can:
@@ -428,7 +428,7 @@ Deno.serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.0-flash",
+        model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userCommand },
@@ -469,7 +469,7 @@ Deno.serve(async (req) => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "google/gemini-2.0-flash",
+            model: "google/gemini-2.5-flash",
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: userCommand },
