@@ -39,6 +39,15 @@ interface ChatMessage {
   timestamp: Date;
 }
 
+// Follow-up prompt shown when an action intent references a customer name
+// that doesn't match any row in `customers`. Lets staff choose between
+// adding the customer first or continuing to the form anyway.
+interface CustomerNotFoundFollowUp {
+  kind: 'customer_not_found';
+  parsed: ParsedCommand;
+  customerName: string;
+}
+
 const newId = () =>
   (globalThis.crypto?.randomUUID?.() ??
     `${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -58,6 +67,7 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState<ParsedCommand | null>(null);
+  const [pendingFollowUp, setPendingFollowUp] = useState<CustomerNotFoundFollowUp | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -71,6 +81,7 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
       setInput('');
       setLoading(false);
       setPendingConfirm(null);
+      setPendingFollowUp(null);
     }
   };
 
@@ -140,6 +151,7 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
     ]);
     setInput('');
     setPendingConfirm(null);
+    setPendingFollowUp(null);
     setLoading(true);
 
     try {
@@ -194,6 +206,76 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
     }
   };
 
+  // Helper: case-insensitive customer name lookup. Returns true if at least
+  // one row in `customers` matches. Empty input is treated as "not found"
+  // so the warning fires when the AI failed to extract a customer name.
+  const customerExists = async (customerName: string): Promise<boolean> => {
+    if (!customerName) return false;
+    const { data } = await supabase
+      .from('customers')
+      .select('id, full_name')
+      .ilike('full_name', `%${customerName}%`)
+      .limit(5);
+    return !!data && data.length > 0;
+  };
+
+  const navigateToNewLayaway = (parsed: ParsedCommand) => {
+    const p = parsed.parameters as Record<string, unknown>;
+    const params = new URLSearchParams();
+    if (p.customer_name) params.set('customer_name', String(p.customer_name));
+    if (p.amount != null) params.set('amount', String(p.amount));
+    if (p.currency) params.set('currency', String(p.currency));
+    if (p.plan_months) params.set('plan_months', String(p.plan_months));
+    if (p.notes) params.set('notes', String(p.notes));
+    toast.info('Opening new layaway account form...');
+    pushAssistant('Opening new layaway account form...');
+    handleClose(false);
+    navigate(`/accounts/new?${params.toString()}`);
+  };
+
+  const navigateToNewCashOrder = (parsed: ParsedCommand) => {
+    const p = parsed.parameters as Record<string, unknown>;
+    const params = new URLSearchParams();
+    if (p.customer_name) params.set('customer_name', String(p.customer_name));
+    if (p.amount != null) params.set('amount', String(p.amount));
+    if (p.currency) params.set('currency', String(p.currency));
+    if (p.notes) params.set('notes', String(p.notes));
+    toast.info('Opening new cash order form...');
+    pushAssistant('Opening new cash order form...');
+    handleClose(false);
+    navigate(`/cash-orders/new?${params.toString()}`);
+  };
+
+  const showCustomerNotFoundFollowUp = (parsed: ParsedCommand, customerName: string) => {
+    const displayName = customerName || 'this customer';
+    pushAssistant(
+      `⚠️ Customer '${displayName}' not found in the system. Please add them as a new customer first, then create the account.\n\nWould you like me to add '${displayName}' as a new customer now?`,
+    );
+    setPendingFollowUp({ kind: 'customer_not_found', parsed, customerName });
+  };
+
+  const handleAddCustomerFirst = () => {
+    if (!pendingFollowUp) return;
+    const { customerName } = pendingFollowUp;
+    const displayName = customerName || 'this customer';
+    toast.info(`Go to Customers → + New Customer to add ${displayName}, then come back to create the account.`);
+    pushAssistant(`Opening Customers list — add ${displayName} via + New Customer, then re-run your command.`);
+    setPendingFollowUp(null);
+    handleClose(false);
+    navigate('/customers');
+  };
+
+  const handleSkipFollowUp = () => {
+    if (!pendingFollowUp) return;
+    const { parsed } = pendingFollowUp;
+    setPendingFollowUp(null);
+    if (parsed.intent === 'CREATE_LAYAWAY_ACCOUNT') {
+      navigateToNewLayaway(parsed);
+    } else if (parsed.intent === 'CREATE_CASH_ORDER') {
+      navigateToNewCashOrder(parsed);
+    }
+  };
+
   const handleConfirm = async (parsed: ParsedCommand) => {
     if (!parsed || loading) return;
     setLoading(true);
@@ -238,30 +320,23 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
         setPendingConfirm(null);
         handleClose(false);
       } else if (parsed.intent === 'CREATE_LAYAWAY_ACCOUNT') {
-        const p = parsed.parameters as Record<string, unknown>;
-        const params = new URLSearchParams();
-        if (p.customer_name) params.set('customer_name', String(p.customer_name));
-        if (p.amount != null) params.set('amount', String(p.amount));
-        if (p.currency) params.set('currency', String(p.currency));
-        if (p.plan_months) params.set('plan_months', String(p.plan_months));
-        if (p.notes) params.set('notes', String(p.notes));
-        toast.info('Opening new layaway account form...');
-        pushAssistant('Opening new layaway account form...');
+        const customerName = String((parsed.parameters as Record<string, unknown>).customer_name ?? '').trim();
+        const found = await customerExists(customerName);
+        if (!found) {
+          showCustomerNotFoundFollowUp(parsed, customerName);
+        } else {
+          navigateToNewLayaway(parsed);
+        }
         setPendingConfirm(null);
-        handleClose(false);
-        navigate(`/accounts/new?${params.toString()}`);
       } else if (parsed.intent === 'CREATE_CASH_ORDER') {
-        const p = parsed.parameters as Record<string, unknown>;
-        const params = new URLSearchParams();
-        if (p.customer_name) params.set('customer_name', String(p.customer_name));
-        if (p.amount != null) params.set('amount', String(p.amount));
-        if (p.currency) params.set('currency', String(p.currency));
-        if (p.notes) params.set('notes', String(p.notes));
-        toast.info('Opening new cash order form...');
-        pushAssistant('Opening new cash order form...');
+        const customerName = String((parsed.parameters as Record<string, unknown>).customer_name ?? '').trim();
+        const found = await customerExists(customerName);
+        if (!found) {
+          showCustomerNotFoundFollowUp(parsed, customerName);
+        } else {
+          navigateToNewCashOrder(parsed);
+        }
         setPendingConfirm(null);
-        handleClose(false);
-        navigate(`/cash-orders/new?${params.toString()}`);
       }
     } catch (err) {
       pushAssistant((err as Error).message || 'Action failed.');
@@ -307,7 +382,9 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
           {messages.map((msg, idx) => {
             const isLast = idx === messages.length - 1;
             const showConfirmButtons =
-              msg.role === 'assistant' && pendingConfirm && isLast;
+              msg.role === 'assistant' && pendingConfirm && !pendingFollowUp && isLast;
+            const showFollowUpButtons =
+              msg.role === 'assistant' && pendingFollowUp && isLast;
             return (
               <div
                 key={msg.id}
@@ -339,6 +416,22 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
                       disabled={loading}
                     >
                       {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : '✓ Confirm'}
+                    </Button>
+                  </div>
+                )}
+
+                {showFollowUpButtons && (
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    <Button size="sm" variant="outline" onClick={handleSkipFollowUp} disabled={loading}>
+                      Skip — I'll add them manually
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="gold-gradient text-primary-foreground"
+                      onClick={handleAddCustomerFirst}
+                      disabled={loading}
+                    >
+                      Add Customer First
                     </Button>
                   </div>
                 )}
