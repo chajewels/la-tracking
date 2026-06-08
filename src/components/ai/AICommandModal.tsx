@@ -62,6 +62,14 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
         );
         return;
       }
+      // Client-side invoice number extraction — more reliable than AI parsing
+      // Matches: "Invoice 19106", "invoice #19106", "#19106", "19106" preceded by invoice/account
+      if (result.intent === 'RECORD_PAYMENT' && !result.parameters.invoice_number) {
+        const invoiceMatch = command.match(/(?:invoice|inv|account|acct)?\s*#?(\d{4,6})(?=\s|$|\b)/i);
+        if (invoiceMatch) {
+          result.parameters.invoice_number = invoiceMatch[1];
+        }
+      }
       setParsed(result);
       setStep('confirm');
     } catch (err) {
