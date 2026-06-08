@@ -39,23 +39,42 @@ export default function NewAccount() {
   const { initialDraft, persistDraft, clearDraft, restored, markRestored } = useAccountDraft();
   const draftRestoredRef = useRef(false);
 
+  // Read AI-command URL params synchronously so they can seed the initial
+  // useState values. Captured into a ref so they don't change identity
+  // mid-edit and so the draft restore effect can detect them.
+  const urlCustomerName = searchParams.get('customer_name');
+  const urlAmount = searchParams.get('amount');
+  const urlCurrency = searchParams.get('currency');
+  const urlPlanMonths = searchParams.get('plan_months');
+  const urlNotes = searchParams.get('notes');
+
+  const initialCurrency: Currency =
+    urlCurrency === 'JPY' || urlCurrency === 'PHP' ? urlCurrency : 'PHP';
+  const initialPlanMonths: PaymentPlan = (() => {
+    if (urlPlanMonths) {
+      const m = parseInt(urlPlanMonths);
+      if ([3, 6, 8, 10, 12].includes(m)) return m as PaymentPlan;
+    }
+    return 3;
+  })();
+
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [customerId, setCustomerId] = useState('');
 
   // ── Customer search combobox state ──
-  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerSearch, setCustomerSearch] = useState(urlCustomerName ?? '');
   const [customerResults, setCustomerResults] = useState<DbCustomer[]>([]);
   const [customerSearching, setCustomerSearching] = useState(false);
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const [selectedExistingCustomer, setSelectedExistingCustomer] = useState<DbCustomer | null>(null);
   const customerSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [currency, setCurrency] = useState<Currency>('PHP');
-  const [totalAmount, setTotalAmount] = useState('');
+  const [currency, setCurrency] = useState<Currency>(initialCurrency);
+  const [totalAmount, setTotalAmount] = useState(urlAmount ?? '');
   const [orderDate, setOrderDate] = useState('');
-  const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>(3);
+  const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>(initialPlanMonths);
   const [downpaymentInput, setDownpaymentInput] = useState('');
   const [loyaltyJpyInput, setLoyaltyJpyInput] = useState('');
-  const [initialNote, setInitialNote] = useState('');
+  const [initialNote, setInitialNote] = useState(urlNotes ?? '');
   const [isTrade, setIsTrade] = useState(false);
 
   // Loyalty-only product amount field is admin/finance only.
@@ -91,51 +110,29 @@ export default function NewAccount() {
   const pendingNavRef = useRef<string | null>(null);
 
   // Single mount-scoped initializer:
-  //   1. Restore the saved draft (if any) — sets totalAmount, currency, plan, etc.
-  //   2. Then overlay AI-command URL params on top so they always win over a
-  //      stale draft when present. Customer name seeds customerSearch, which
-  //      the debounced combobox picks up on its own.
+  //   1. Restore the saved draft (if any) — BUT skip fields that AI-command
+  //      URL params already seeded via useState initializers, so query params
+  //      always win over a stale draft.
   useEffect(() => {
     if (draftRestoredRef.current) return;
     draftRestoredRef.current = true;
 
-    // 1. Draft restore
-    if (initialDraft) {
-      setInvoiceNumber(initialDraft.invoiceNumber || '');
-      setCustomerId(initialDraft.customerId || '');
-      setCurrency(initialDraft.currency || 'PHP');
-      setTotalAmount(initialDraft.totalAmount || '');
-      setOrderDate(initialDraft.orderDate || '');
-      setPaymentPlan(initialDraft.paymentPlan || 3);
-      setDownpaymentInput(initialDraft.downpaymentInput || '');
-      setInstallmentMode(initialDraft.installmentMode || 'equal');
-      setCustomAmounts(initialDraft.customAmounts || []);
-      setEnableSplitPayment(initialDraft.enableSplitPayment || false);
-      setLumpSumInput(initialDraft.lumpSumInput || '');
-      setFormDirty(true);
-      markRestored();
-    }
+    if (!initialDraft) return;
 
-    // 2. URL prefill — applied last so query params override draft values
-    const customerName = searchParams.get('customer_name');
-    const amountParam = searchParams.get('amount');
-    const currencyParam = searchParams.get('currency');
-    const planMonthsParam = searchParams.get('plan_months');
-    const notes = searchParams.get('notes');
-
-    if (amountParam) setTotalAmount(amountParam);
-    if (currencyParam === 'PHP' || currencyParam === 'JPY') {
-      setCurrency(currencyParam);
-    }
-    if (planMonthsParam) {
-      const months = parseInt(planMonthsParam);
-      if ([3, 6, 8, 10, 12].includes(months)) {
-        setPaymentPlan(months as PaymentPlan);
-      }
-    }
-    if (notes) setInitialNote(notes);
-    if (customerName) setCustomerSearch(customerName);
-  }, [initialDraft, markRestored, searchParams]);
+    setInvoiceNumber(initialDraft.invoiceNumber || '');
+    setCustomerId(initialDraft.customerId || '');
+    if (!urlCurrency) setCurrency(initialDraft.currency || 'PHP');
+    if (!urlAmount) setTotalAmount(initialDraft.totalAmount || '');
+    setOrderDate(initialDraft.orderDate || '');
+    if (!urlPlanMonths) setPaymentPlan(initialDraft.paymentPlan || 3);
+    setDownpaymentInput(initialDraft.downpaymentInput || '');
+    setInstallmentMode(initialDraft.installmentMode || 'equal');
+    setCustomAmounts(initialDraft.customAmounts || []);
+    setEnableSplitPayment(initialDraft.enableSplitPayment || false);
+    setLumpSumInput(initialDraft.lumpSumInput || '');
+    setFormDirty(true);
+    markRestored();
+  }, [initialDraft, markRestored, urlAmount, urlCurrency, urlPlanMonths]);
 
   // Auto-save draft on changes
   useEffect(() => {
