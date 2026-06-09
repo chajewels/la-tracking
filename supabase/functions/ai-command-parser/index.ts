@@ -225,6 +225,32 @@ FREE SHIPPING: Currently available —
 Note: All items verified with photos before shipping.
 International shipping available worldwide.
 
+=== LIQUID ITEM SHIPPING POLICY ===
+
+Liquid items (perfumes, lotions, skincare, cosmetics,
+oils, and similar products):
+
+  Customer must notify Cha Jewels IN ADVANCE if their
+  order contains any liquid products.
+
+  EMS: Liquid items are NOT ALLOWED via EMS.
+
+  DHL: Preferred courier for liquid items.
+    Most DHL shipments with liquids (e.g. perfumes)
+    have successfully reached their destinations.
+    However, acceptance is subject to:
+    - DHL regulations
+    - Destination country import restrictions
+    - Customs requirements
+    - Applicable shipping regulations
+    Additional documentation may be required.
+
+  Important:
+    While Cha Jewels assists in arranging the shipment,
+    final acceptance, customs clearance, and delivery
+    are subject to courier and destination country
+    authorities' policies.
+
 === SHIPPING DECLARATION POLICY ===
 
 Declared value for shipment:
@@ -703,6 +729,32 @@ FREE SHIPPING: Currently available —
 
 Note: All items verified with photos before shipping.
 International shipping available worldwide.
+
+=== LIQUID ITEM SHIPPING POLICY ===
+
+Liquid items (perfumes, lotions, skincare, cosmetics,
+oils, and similar products):
+
+  Customer must notify Cha Jewels IN ADVANCE if their
+  order contains any liquid products.
+
+  EMS: Liquid items are NOT ALLOWED via EMS.
+
+  DHL: Preferred courier for liquid items.
+    Most DHL shipments with liquids (e.g. perfumes)
+    have successfully reached their destinations.
+    However, acceptance is subject to:
+    - DHL regulations
+    - Destination country import restrictions
+    - Customs requirements
+    - Applicable shipping regulations
+    Additional documentation may be required.
+
+  Important:
+    While Cha Jewels assists in arranging the shipment,
+    final acceptance, customs clearance, and delivery
+    are subject to courier and destination country
+    authorities' policies.
 
 === SHIPPING DECLARATION POLICY ===
 
