@@ -225,6 +225,23 @@ FREE SHIPPING: Currently available —
 Note: All items verified with photos before shipping.
 International shipping available worldwide.
 
+=== SHIPPING DECLARATION POLICY ===
+
+Declared value for shipment:
+  Default declared value: ¥4,000 (minimum for customs)
+  Unless otherwise instructed by the customer,
+  all shipments are declared at ¥4,000.
+
+If customer wants insurance:
+  Customer must inform Cha Jewels IN ADVANCE of:
+  - Desired declared value
+  - Insurance amount
+  Cha Jewels will then prepare the appropriate
+  documentation and proforma invoice accordingly.
+
+Note: Declared value affects customs duties
+and insurance coverage for the shipment.
+
 === SHIPPING VERIFICATION PROTOCOL ===
 
 Bago i-ship ang kahit anong order, ang Cha Jewels
@@ -686,6 +703,23 @@ FREE SHIPPING: Currently available —
 
 Note: All items verified with photos before shipping.
 International shipping available worldwide.
+
+=== SHIPPING DECLARATION POLICY ===
+
+Declared value for shipment:
+  Default declared value: ¥4,000 (minimum for customs)
+  Unless otherwise instructed by the customer,
+  all shipments are declared at ¥4,000.
+
+If customer wants insurance:
+  Customer must inform Cha Jewels IN ADVANCE of:
+  - Desired declared value
+  - Insurance amount
+  Cha Jewels will then prepare the appropriate
+  documentation and proforma invoice accordingly.
+
+Note: Declared value affects customs duties
+and insurance coverage for the shipment.
 
 === SHIPPING VERIFICATION PROTOCOL ===
 
