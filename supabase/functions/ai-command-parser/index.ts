@@ -150,6 +150,40 @@ Step 4: Ship item back → receive replacement or store credit after inspection
 - Cancellation of trade: 30% deduction, remainder as store credit, no cash refund
 - Process: message via Messenger or Customer Portal → staff confirms eligibility → pick new piece → sign new contract
 
+=== SERVICE JOB FEES ===
+
+Cha Jewels offers the following jewelry services.
+All fees are approximate — final price depends on
+the specific item and work required.
+
+Ring Resize:
+  ₱1,500 – ₱6,500 / ¥3,571 – ¥15,476
+
+Certificate:
+  ₱880 – ₱2,640 / ¥2,095 – ¥6,286
+
+Repair:
+  ₱3,250 – ₱91,000 / ¥7,738 – ¥216,667
+  (depends on complexity of repair)
+
+Bracelet Resize:
+  ₱3,500 / ¥8,333
+
+Polishing:
+  ₱2,000 – ₱2,100 / ¥4,762 – ¥5,000
+
+Watch Polishing:
+  ₱5,500 / ¥13,095
+
+Color Change:
+  ₱1,000 – ₱3,250 / ¥2,381 – ¥7,738
+
+To request a service job:
+  Go to Services → Service Jobs → + New Job in the Hub.
+  Or contact Cha Jewels via Messenger m.me/chajewelsjapan.
+  Staff logs the service in the Hub under the
+  customer's account.
+
 === SHIPPING RATES ===
 
 ASIA (Philippines, Singapore, Hong Kong, Malaysia, etc.):
@@ -577,6 +611,40 @@ No installment schedule — customer pays the full amount.
 Loyalty points awarded when cash order is fully paid.
 Cash orders managed in Sales → Cash tab.
 Cancellation: full store credit if same day, 30% fee after 1 day.
+
+=== SERVICE JOB FEES ===
+
+Cha Jewels offers the following jewelry services.
+All fees are approximate — final price depends on
+the specific item and work required.
+
+Ring Resize:
+  ₱1,500 – ₱6,500 / ¥3,571 – ¥15,476
+
+Certificate:
+  ₱880 – ₱2,640 / ¥2,095 – ¥6,286
+
+Repair:
+  ₱3,250 – ₱91,000 / ¥7,738 – ¥216,667
+  (depends on complexity of repair)
+
+Bracelet Resize:
+  ₱3,500 / ¥8,333
+
+Polishing:
+  ₱2,000 – ₱2,100 / ¥4,762 – ¥5,000
+
+Watch Polishing:
+  ₱5,500 / ¥13,095
+
+Color Change:
+  ₱1,000 – ₱3,250 / ¥2,381 – ¥7,738
+
+To request a service job:
+  Go to Services → Service Jobs → + New Job in the Hub.
+  Or contact Cha Jewels via Messenger m.me/chajewelsjapan.
+  Staff logs the service in the Hub under the
+  customer's account.
 
 === SHIPPING RATES ===
 
