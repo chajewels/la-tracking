@@ -169,6 +169,14 @@ USA, CANADA, AUSTRALIA, NEW ZEALAND, EUROPE:
 MIDDLE EAST (UAE, KSA, Israel):
   ₱3,200+ or ¥6,400+ via DHL
 
+IMPORTANT — DHL rates are APPROXIMATE only:
+  The exact DHL shipping fee can only be determined
+  once all shipment details are entered into the
+  DHL system (exact address, package weight,
+  dimensions, declared value).
+  The rates above are starting estimates only.
+  Final amount may vary.
+
 JAPAN ONLY (domestic):
   ¥710 via Yamato (Compact)
   ¥420 via Konekobin (Letter Pack)
@@ -588,6 +596,14 @@ USA, CANADA, AUSTRALIA, NEW ZEALAND, EUROPE:
 
 MIDDLE EAST (UAE, KSA, Israel):
   ₱3,200+ or ¥6,400+ via DHL
+
+IMPORTANT — DHL rates are APPROXIMATE only:
+  The exact DHL shipping fee can only be determined
+  once all shipment details are entered into the
+  DHL system (exact address, package weight,
+  dimensions, declared value).
+  The rates above are starting estimates only.
+  Final amount may vary.
 
 JAPAN ONLY (domestic):
   ¥710 via Yamato (Compact)
