@@ -150,6 +150,34 @@ Step 4: Ship item back → receive replacement or store credit after inspection
 - Cancellation of trade: 30% deduction, remainder as store credit, no cash refund
 - Process: message via Messenger or Customer Portal → staff confirms eligibility → pick new piece → sign new contract
 
+=== SHIPPING VERIFICATION PROTOCOL ===
+
+Bago i-ship ang kahit anong order, ang Cha Jewels
+ay nagpapadala muna ng verification photos sa customer.
+
+Proseso:
+1. Customer mines item at kumpleto ang payment
+2. Bago i-ship, ang Cha Jewels team ay nagpapadala ng:
+   - Air Way Bill (AWB) para i-verify ang address information
+   - Actual photos ng item/s
+   - Verification photos ng item code o invoice reference
+     (kung kinakailangan)
+3. Hihintayin ang customer confirmation na tama ang item/s
+4. Kapag nakumpirma na ng customer, saka lamang
+   ipo-process ang shipment
+5. Ipapadala ang tracking number pagkatapos ma-ship
+
+Bakit ginagawa ito ng Cha Jewels:
+- Para masiguro na tama ang item na matatanggap ng customer
+- Para maiwasan ang shipping errors
+- Para magkaroon ng transparency at peace of mind
+  ang customer bago ipadala ang kanilang order
+- Bilang bahagi ng mataas na customer service standard
+
+Cha Jewels commitment:
+"We don't just ship your jewelry — we verify it
+with you first."
+
 === PAYMENT METHODS ACCEPTED ===
 GCash, BPI, BDO, Metrobank, cash deposit
 Payments submitted via Messenger or Customer Portal
@@ -475,6 +503,34 @@ No installment schedule — customer pays the full amount.
 Loyalty points awarded when cash order is fully paid.
 Cash orders managed in Sales → Cash tab.
 Cancellation: full store credit if same day, 30% fee after 1 day.
+
+=== SHIPPING VERIFICATION PROTOCOL ===
+
+Bago i-ship ang kahit anong order, ang Cha Jewels
+ay nagpapadala muna ng verification photos sa customer.
+
+Proseso:
+1. Customer mines item at kumpleto ang payment
+2. Bago i-ship, ang Cha Jewels team ay nagpapadala ng:
+   - Air Way Bill (AWB) para i-verify ang address information
+   - Actual photos ng item/s
+   - Verification photos ng item code o invoice reference
+     (kung kinakailangan)
+3. Hihintayin ang customer confirmation na tama ang item/s
+4. Kapag nakumpirma na ng customer, saka lamang
+   ipo-process ang shipment
+5. Ipapadala ang tracking number pagkatapos ma-ship
+
+Bakit ginagawa ito ng Cha Jewels:
+- Para masiguro na tama ang item na matatanggap ng customer
+- Para maiwasan ang shipping errors
+- Para magkaroon ng transparency at peace of mind
+  ang customer bago ipadala ang kanilang order
+- Bilang bahagi ng mataas na customer service standard
+
+Cha Jewels commitment:
+"We don't just ship your jewelry — we verify it
+with you first."
 
 === PAYMENT METHODS ACCEPTED ===
 GCash, BPI, BDO, Metrobank, cash deposit, PayPay (Japan)
