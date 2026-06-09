@@ -40,10 +40,10 @@
    query_system_settings)
 
 ## Open Bugs
-- P1: Loyalty redemption VOID lacks atomic rollback
-  (process-loyalty-redemption, inline TS writes, no RPC wrapper)
+- (none currently tracked)
 
 ## Resolved (do not re-list)
+- P1 void atomicity: VERIFIED FIXED 2026-06-09 (void_redemption_atomic RPC, edge function refactor)
 - P1 approve atomicity: VERIFIED FIXED 2026-06-08
 - P5 session timeout: shipped 2026-05-26
 - P6 admin audit log: shipped 2026-05-26
@@ -79,3 +79,49 @@
   was reset from status='expired' to status='pending' with
   expired_at cleared. Test orders #3456 and #1234 left as 'expired'
   per merchant decision.
+
+### Loyalty redemption void — atomic via void_redemption_atomic RPC (2026-06-09)
+
+  The void branch of process-loyalty-redemption was ~700 lines of
+  inline TypeScript doing ~15 sequential DB writes across loyalty +
+  order tables (refund tx, redemption flip, member balance, loyalty_jpy
+  restore, synthetic payment void, allocation revert, schedule revert,
+  account totals revert, stock re-increment, audit log, account_notes).
+  Outer try/catch swallowed all errors into console.warn — meaning any
+  step after refund tx could fail and leave the customer in a partial
+  state: refund tx exists + redemption cancelled but member balance not
+  updated, or member credited + customer's order still shows discount
+  applied, or partial allocation revert leaving orphaned rows on a
+  voided payment.
+
+  Migrated to public.void_redemption_atomic(uuid, uuid, text, text)
+  PL/pgSQL RPC modeled on approve_redemption_atomic's pattern. Single
+  transaction with FOR UPDATE locks on loyalty_redemptions, loyalty_
+  members, loyalty_rewards; relative arithmetic on member balance;
+  faithful port of schedule status reversal rules (paid/overdue/
+  partially_paid/pending cascade based on remaining due + due_date);
+  faithful port of account status reversal (completed → overdue if
+  any layaway_schedule.status='overdue' else active); faithful port
+  of cash_orders.status revert (completed → pending when remaining > 0).
+
+  account_notes insert moved INSIDE the atomic boundary and uses
+  symmetric format with approve: "Loyalty: redemption voided — N pts
+  refunded (type) — ¥M removed from balance" (or ₱M for PHP).
+
+  Edge function void branch collapsed from ~700 to ~180 lines:
+  auth + input validation, single supabase.rpc call, error code
+  mapping (redemption_not_found → 404, redemption_not_confirmed →
+  400, redemption_void_race → 409, member_not_found → 404, schedule_
+  row_not_found → 500, other → 500), all side effects preserved
+  (staff_notifications, email gate 'loyalty_email_redemption_voided',
+  Phase 4.2 in-app notification, sync-loyalty-to-sheet 'revoked'
+  event). Response shape unchanged: { voided, redemption_id,
+  points_refunded, stock_re_incremented }.
+
+  Lot tables (loyalty_point_lots, loyalty_lot_consumption) intentionally
+  NOT touched. Earlier verification (2026-06-09) showed loyalty_lot_
+  consumption has zero rows in production — consume_lots_fifo is never
+  called from approve_redemption_atomic. void_redemption_atomic stays
+  symmetric: neither touches lots. If consume_lots_fifo activates in
+  approve later, void RPC needs amendment to call restore_lots_for_
+  redemption simultaneously.

@@ -2432,6 +2432,28 @@ Scanner flagged Warning. `record-payment` had a dual code path: admin/finance ca
 
 **Result**: Account #19105 now has 7 DP payments totaling ₱222,960 (matches `downpayment_amount` field), zero schedule allocations on those payments. `audit_account('19105')` returns `all_pass=true`.
 
+### Bug #189 — Loyalty redemption void atomic via RPC migration (2026-06-09) ✅
+
+  process-loyalty-redemption edge function's void branch (L744-1447)
+  was ~700 lines of inline TypeScript doing ~15 sequential DB writes
+  with no atomic rollback. Outer try/catch swallowed all errors into
+  console.warn, leaving customers in partial states on mid-step
+  failures.
+
+  Fix: created public.void_redemption_atomic PL/pgSQL RPC (single
+  transaction, FOR UPDATE locks, relative arithmetic on member
+  balance, atomic account_notes inside the boundary). Refactored edge
+  function to ~180 lines: auth + validation + RPC call + error code
+  mapping + non-atomic side effects (staff_notifications, email,
+  Phase 4.2 in-app notification, Google Sheet revoked sync). Response
+  shape preserved.
+
+  Counterpart to Bug #169 (approve atomicity, fixed 2026-06-05).
+
+  Files: supabase/functions/process-loyalty-redemption/index.ts,
+         public.void_redemption_atomic (Supabase DB)
+  Related: SYSTEM-STATUS.md entry on the same date.
+
 ### Bug #188 — Cash Order Edit Expiry gate mismatch (2026-06-09) ✅
 
   The Edit Expiry button in src/pages/CashOrderDetail.tsx L716
