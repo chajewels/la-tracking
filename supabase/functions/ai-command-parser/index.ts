@@ -150,6 +150,39 @@ Step 4: Ship item back → receive replacement or store credit after inspection
 - Cancellation of trade: 30% deduction, remainder as store credit, no cash refund
 - Process: message via Messenger or Customer Portal → staff confirms eligibility → pick new piece → sign new contract
 
+=== SHIPPING RATES ===
+
+ASIA (Philippines, Singapore, Hong Kong, Malaysia, etc.):
+  ₱1,325 or ¥2,650 via EMS
+  PABITBIT option (recommended, safest for Philippines):
+    - Jewelry: ₱630 per item + local SF in Philippines
+    - Bag: depends on weight
+    - Watch: depends on brand
+
+USA, CANADA, AUSTRALIA, NEW ZEALAND, EUROPE:
+  ₱2,300+ or ¥4,600+ via DHL (depending on location)
+  Special areas (higher rate):
+    Australia: TAZ, QLD, NSW, WA
+    Canada: Saskatchewan, La Biche, New Brunswick
+    Rate: ₱3,200+ or ¥6,400+ via DHL
+
+MIDDLE EAST (UAE, KSA, Israel):
+  ₱3,200+ or ¥6,400+ via DHL
+
+JAPAN ONLY (domestic):
+  ¥710 via Yamato (Compact)
+  ¥420 via Konekobin (Letter Pack)
+
+CASH ON DELIVERY (COD): Available
+
+FREE SHIPPING: Currently available —
+  refer to terms and conditions for details.
+  (Elite tier: min 4 items, Crown VIP: min 3 items
+   via loyalty redemption)
+
+Note: All items verified with photos before shipping.
+International shipping available worldwide.
+
 === SHIPPING VERIFICATION PROTOCOL ===
 
 Bago i-ship ang kahit anong order, ang Cha Jewels
@@ -186,6 +219,39 @@ Payments submitted via Messenger or Customer Portal
 Messenger: m.me/chajewelsjapan
 Email: sales@chajewelsjp.com
 Response time: within 24 hours on business days
+
+=== CUSTOMER PORTAL NAVIGATION ===
+
+Customer Portal URL: portal.chajewelsjp.com
+
+How to submit a payment (customer):
+1. Go to portal.chajewelsjp.com
+2. Log in using email and password
+3. Click on the invoice/account you want to pay
+4. Click "Submit Payment" button
+5. Enter the amount paid
+6. Select payment method (GCash, BPI, BDO, etc.)
+7. Upload screenshot/photo of payment receipt
+8. Click Submit — staff will review and confirm
+
+How to request an extension (customer):
+1. Go to portal.chajewelsjp.com
+2. Log in using email and password
+3. Click on the overdue or forfeited account
+4. Click "Request Extension" button
+5. Enter optional reason
+6. Submit — staff will review within 24 hours
+
+How to view loyalty points (customer):
+1. Go to portal.chajewelsjp.com
+2. Log in
+3. Click "Loyalty" or go to portal.chajewelsjp.com/loyalty
+
+How to sign up on the portal (customer):
+1. Go to portal.chajewelsjp.com/portal/setup
+2. Enter full name, email, and password
+3. Verify email
+4. Account auto-enrolled in Cha Jewels loyalty program
 
 === CUSTOMER PORTAL ===
 URL: portal.chajewelsjp.com (customers only)
@@ -503,6 +569,39 @@ No installment schedule — customer pays the full amount.
 Loyalty points awarded when cash order is fully paid.
 Cash orders managed in Sales → Cash tab.
 Cancellation: full store credit if same day, 30% fee after 1 day.
+
+=== SHIPPING RATES ===
+
+ASIA (Philippines, Singapore, Hong Kong, Malaysia, etc.):
+  ₱1,325 or ¥2,650 via EMS
+  PABITBIT option (recommended, safest for Philippines):
+    - Jewelry: ₱630 per item + local SF in Philippines
+    - Bag: depends on weight
+    - Watch: depends on brand
+
+USA, CANADA, AUSTRALIA, NEW ZEALAND, EUROPE:
+  ₱2,300+ or ¥4,600+ via DHL (depending on location)
+  Special areas (higher rate):
+    Australia: TAZ, QLD, NSW, WA
+    Canada: Saskatchewan, La Biche, New Brunswick
+    Rate: ₱3,200+ or ¥6,400+ via DHL
+
+MIDDLE EAST (UAE, KSA, Israel):
+  ₱3,200+ or ¥6,400+ via DHL
+
+JAPAN ONLY (domestic):
+  ¥710 via Yamato (Compact)
+  ¥420 via Konekobin (Letter Pack)
+
+CASH ON DELIVERY (COD): Available
+
+FREE SHIPPING: Currently available —
+  refer to terms and conditions for details.
+  (Elite tier: min 4 items, Crown VIP: min 3 items
+   via loyalty redemption)
+
+Note: All items verified with photos before shipping.
+International shipping available worldwide.
 
 === SHIPPING VERIFICATION PROTOCOL ===
 
