@@ -2432,6 +2432,21 @@ Scanner flagged Warning. `record-payment` had a dual code path: admin/finance ca
 
 **Result**: Account #19105 now has 7 DP payments totaling ₱222,960 (matches `downpayment_amount` field), zero schedule allocations on those payments. `audit_account('19105')` returns `all_pass=true`.
 
+### Bug #188 — Cash Order Edit Expiry gate mismatch (2026-06-09) ✅
+
+  The Edit Expiry button in src/pages/CashOrderDetail.tsx L716
+  was gated by `(isAdmin || isFinance)`, but the RLS UPDATE policy
+  `staff_admin_update_cash_orders` allows admin OR staff. Result:
+  finance users saw a button that failed with permission errors;
+  staff users had UPDATE permission but no button.
+
+  Fix: changed UI gate to `(isAdmin || isStaff)`. Added
+  `const isStaff = rolesArr.includes('staff');` declaration near
+  L264. UI now matches the existing RLS policy.
+
+  Files: src/pages/CashOrderDetail.tsx
+  Related: SYSTEM-STATUS.md entry on the same date.
+
 ### Bug #185 — RecordPaymentModal passed raw view rows to RecordPaymentDialog (2026-06-08) ✅
 - **Symptom:** The floating Record Payment modal queried `schedule_with_actuals` directly and passed raw view rows to RecordPaymentDialog. The view exposes `allocated` / `computed_status` / `actual_remaining`, but RecordPaymentDialog reads `paid_amount` / `status` / `total_due_amount`. Result: schedule rows displayed incorrect paid/unpaid state (status was undefined for every row), "Due for this month" amount was wrong (used the view's `total_due_amount` directly rather than `actual_remaining`), and partial-paid warnings (which depend on `status === 'partially_paid'`) never fired
 - **Root cause:** The modal duplicated the schedule fetch logic instead of using the existing `useSchedule` hook (which already normalizes the view's field names into the shape RecordPaymentDialog expects). AccountDetail's existing Record Payment entry point has always gone through `useSchedule`, so that entry point was correct; only the new floating modal was affected

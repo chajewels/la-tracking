@@ -714,7 +714,7 @@ export default function CashOrderDetail() {
               Cancel Order
             </Button>
           )}
-          {(isAdmin || isFinance) && (
+          {(isAdmin || isStaff) && (
             <Button
               variant="outline"
               onClick={openEditExpiry}

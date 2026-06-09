@@ -54,3 +54,28 @@
 - Bug #103 auto-deploy: closed 2026-05-25
 - tier_changed emission: shipped 2026-05-25
 - PWA Phase A: abandoned 2026-05-04
+
+### Cash Order Edit Expiry — gate aligned to RLS UPDATE policy (2026-06-09)
+
+  The Edit Expiry button in CashOrderDetail rendered under
+  `(isAdmin || isFinance)`, but the underlying RLS UPDATE policy
+  `staff_admin_update_cash_orders` allows admin OR staff. Two
+  pre-existing mismatches:
+
+    - Finance users saw the button but hit RLS errors on submit
+    - Staff users had UPDATE permission but no UI button
+
+  Gate changed to `(isAdmin || isStaff)` so UI matches RLS. CSR and
+  customer roles remain blocked from editing (unchanged).
+
+  No RLS policies, edge functions, or cron jobs touched. Auto-expiry
+  cron `auto-expire-cash-orders` (jobid=17, 30 0 * * *) still runs.
+  Cash orders still expire if unpaid past `expires_at`, and admin/
+  staff can extend the deadline from the Edit Expiry button on the
+  cash order detail page.
+
+  Data fix: cash_order id 4a39facc-d9a6-499e-818e-e6bbf03c384a
+  (invoice #19114, customer Pedersen Dee, ¥9,800 of ¥79,048 paid)
+  was reset from status='expired' to status='pending' with
+  expired_at cleared. Test orders #3456 and #1234 left as 'expired'
+  per merchant decision.
