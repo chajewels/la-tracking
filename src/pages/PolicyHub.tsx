@@ -6,13 +6,13 @@ import { cn } from '@/lib/utils';
 
 const POLICY_TABS = [
   { key: 'overview', label: 'Overview', url: 'https://cha-jewels-privacy.web.app/index.html' },
-  { key: 'layaway-agreement', label: 'Layaway Agreement', url: 'https://agreement.chajewelsjp.com/' },
   { key: 'return', label: 'Return Policy', url: 'https://cha-jewels-privacy.web.app/return.html' },
   { key: 'refund', label: 'Refund Policy', url: 'https://cha-jewels-privacy.web.app/refund.html' },
   { key: 'cancellation', label: 'Cancellation Policy', url: 'https://cha-jewels-privacy.web.app/cancellation.html' },
   { key: 'flow', label: 'Return & Refund Flow', url: 'https://cha-jewels-privacy.web.app/flow.html' },
-  { key: 'trade', label: 'Trade Program', url: 'https://chajewelstrade.chajewelsjp.com/' },
   { key: 'privacy', label: 'Privacy Policy', url: 'https://cha-jewels-privacy.web.app/privacy.html' },
+  { key: 'layaway-agreement', label: 'Layaway Agreement', url: 'https://agreement.chajewelsjp.com/' },
+  { key: 'trade', label: 'Trade Program', url: 'https://chajewelstrade.chajewelsjp.com/' },
 ] as const;
 
 type TabKey = typeof POLICY_TABS[number]['key'];
