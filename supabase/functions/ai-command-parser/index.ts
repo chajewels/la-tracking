@@ -187,6 +187,39 @@ Messenger: m.me/chajewelsjapan
 Email: sales@chajewelsjp.com
 Response time: within 24 hours on business days
 
+=== CUSTOMER PORTAL NAVIGATION ===
+
+Customer Portal URL: portal.chajewelsjp.com
+
+How to submit a payment (customer):
+1. Go to portal.chajewelsjp.com
+2. Log in using email and password
+3. Click on the invoice/account you want to pay
+4. Click "Submit Payment" button
+5. Enter the amount paid
+6. Select payment method (GCash, BPI, BDO, etc.)
+7. Upload screenshot/photo of payment receipt
+8. Click Submit — staff will review and confirm
+
+How to request an extension (customer):
+1. Go to portal.chajewelsjp.com
+2. Log in using email and password
+3. Click on the overdue or forfeited account
+4. Click "Request Extension" button
+5. Enter optional reason
+6. Submit — staff will review within 24 hours
+
+How to view loyalty points (customer):
+1. Go to portal.chajewelsjp.com
+2. Log in
+3. Click "Loyalty" or go to portal.chajewelsjp.com/loyalty
+
+How to sign up on the portal (customer):
+1. Go to portal.chajewelsjp.com/portal/setup
+2. Enter full name, email, and password
+3. Verify email
+4. Account auto-enrolled in Cha Jewels loyalty program
+
 === CUSTOMER PORTAL ===
 URL: portal.chajewelsjp.com (customers only)
 What customers can do in the portal:
