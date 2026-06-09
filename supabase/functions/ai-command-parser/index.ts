@@ -225,6 +225,48 @@ FREE SHIPPING: Currently available —
 Note: All items verified with photos before shipping.
 International shipping available worldwide.
 
+=== CUSTOMS CLEARANCE POLICY ===
+
+If a parcel is held by customs in the destination country:
+
+Customer responsibilities:
+  - Cooperate with customs authorities
+  - Provide required documents which may include:
+    * Proof of purchase or payment
+    * Identification documents
+    * Tax identification number (if required)
+    * Import permits or other required documents
+    * Payment of customs duties, taxes, storage fees,
+      or other government charges
+
+Cha Jewels will provide:
+  - Available shipping documents (invoice, shipping info)
+    when reasonably requested to assist with clearance
+
+IMPORTANT — For DHL shipments:
+  Customers must NOT provide any information, documents,
+  declarations, or payments directly to DHL, customs
+  authorities, or any third party WITHOUT first:
+  1. Informing Cha Jewels
+  2. Sharing the official notice/communication from DHL
+  Cha Jewels will help coordinate DHL customs clearance.
+  Do NOT submit documents or respond to DHL customs
+  requests without prior advice from Cha Jewels.
+
+For EMS or other couriers:
+  Customers are responsible for communicating directly
+  with the courier and customs authorities.
+  Cha Jewels assistance is available for DHL only.
+
+Disclaimer:
+  Customs procedures, duties, taxes, and import
+  requirements are determined by the destination
+  country's authorities — beyond Cha Jewels' control.
+  Any delays, additional charges, confiscation, return,
+  or disposal resulting from customs regulations,
+  customer non-compliance, inaccurate information,
+  or prohibited items are the customer's responsibility.
+
 === LIQUID ITEM SHIPPING POLICY ===
 
 Liquid items (perfumes, lotions, skincare, cosmetics,
@@ -729,6 +771,48 @@ FREE SHIPPING: Currently available —
 
 Note: All items verified with photos before shipping.
 International shipping available worldwide.
+
+=== CUSTOMS CLEARANCE POLICY ===
+
+If a parcel is held by customs in the destination country:
+
+Customer responsibilities:
+  - Cooperate with customs authorities
+  - Provide required documents which may include:
+    * Proof of purchase or payment
+    * Identification documents
+    * Tax identification number (if required)
+    * Import permits or other required documents
+    * Payment of customs duties, taxes, storage fees,
+      or other government charges
+
+Cha Jewels will provide:
+  - Available shipping documents (invoice, shipping info)
+    when reasonably requested to assist with clearance
+
+IMPORTANT — For DHL shipments:
+  Customers must NOT provide any information, documents,
+  declarations, or payments directly to DHL, customs
+  authorities, or any third party WITHOUT first:
+  1. Informing Cha Jewels
+  2. Sharing the official notice/communication from DHL
+  Cha Jewels will help coordinate DHL customs clearance.
+  Do NOT submit documents or respond to DHL customs
+  requests without prior advice from Cha Jewels.
+
+For EMS or other couriers:
+  Customers are responsible for communicating directly
+  with the courier and customs authorities.
+  Cha Jewels assistance is available for DHL only.
+
+Disclaimer:
+  Customs procedures, duties, taxes, and import
+  requirements are determined by the destination
+  country's authorities — beyond Cha Jewels' control.
+  Any delays, additional charges, confiscation, return,
+  or disposal resulting from customs regulations,
+  customer non-compliance, inaccurate information,
+  or prohibited items are the customer's responsibility.
 
 === LIQUID ITEM SHIPPING POLICY ===
 
