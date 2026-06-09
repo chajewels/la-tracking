@@ -4173,6 +4173,15 @@ export type Database = {
         Returns: undefined
       }
       validate_bulk_import: { Args: { p_rows: Json }; Returns: Json }
+      void_redemption_atomic: {
+        Args: {
+          p_redemption_id: string
+          p_user_email: string
+          p_user_id: string
+          p_void_reason: string
+        }
+        Returns: Json
+      }
     }
     Enums: {
       account_currency: "PHP" | "JPY"
