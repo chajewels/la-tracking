@@ -2569,3 +2569,38 @@ Scanner flagged Warning. `record-payment` had a dual code path: admin/finance ca
 - **Files:** `supabase/functions/_shared/check-permission.ts` (1 file, ~47 LOC, refactored).
 - **Dependent functions redeployed:** `approve-waiver`, `unwaive-waiver`, `manual-forfeit`, `reactivate-account` (each bundles the shared file at deploy time; need redeploy to pick up the fix).
 - **Related:** Phase 1 of role_permissions matrix audit (Bug #192). This is item 2 of the locked 4-item Phase 2 scope.
+
+### Bug #197 — PermissionMatrixTab + PAGE_PERMISSION_MAP cleanup: cash order keys, geo breakdown, /waivers route gating (2026-06-10) ✅
+
+- **Symptom:** Three permission gaps preventing admin from managing role-based access through Settings UI:
+  1. `view_cash_orders` and `create_cash_order` used by `/cash-orders` and `/cash-orders/new` pages (already in PAGE_PERMISSION_MAP at PermissionsContext.tsx L66-67), but absent from PermissionMatrixTab UI — admins couldn't toggle them per role.
+  2. `view_geo_breakdown` referenced by `src/pages/Dashboard.tsx` L48, but absent from PermissionMatrixTab.
+  3. `/waivers` route exists in App.tsx but absent from PAGE_PERMISSION_MAP — page was UN-gated, any authenticated user could navigate there directly via URL. Also missing from NAV_PATHS so sidebar gating couldn't apply.
+- **Root cause:** Drift between code references and the admin-facing matrix UI / route gating definitions. Original Phase 1 audit (CLAUDE.md) flagged these.
+- **Fix:**
+  - `src/components/settings/PermissionMatrixTab.tsx`: Added `view_geo_breakdown` to Dashboard module; added `view_cash_orders` + `create_cash_order` to Sales module under new `section: 'Cash Orders'` subdivision (right after `reassign_owner`).
+  - `src/contexts/PermissionsContext.tsx`: Added `'/waivers': 'view_waivers'` to PAGE_PERMISSION_MAP; appended `/waivers` to NAV_PATHS array.
+  - **DB prerequisite (already applied 2026-06-10 before this commit):** `UPDATE public.role_permissions SET is_allowed = true WHERE permission_key = 'view_waivers' AND role = 'staff'`. Required because PAGE_PERMISSION_MAP gating would otherwise regress Brenda's access to the waivers approve workflow shipped in Bug #192.
+- **Files:** `src/components/settings/PermissionMatrixTab.tsx`, `src/contexts/PermissionsContext.tsx`, `docs/FIXED-BUGS.md`, `docs/SYSTEM-STATUS.md`.
+- **Verification:**
+  - Admin Settings → Permissions tab now shows view_cash_orders, create_cash_order, view_geo_breakdown rows in correct sections.
+  - Direct navigation to `/waivers` for users without `view_waivers=true` returns AccessDenied.
+  - Brenda (staff) retains access (view_waivers=true seeded pre-commit).
+- **Related:** Item 3 of locked Phase 2 scope after Bug #192 (Phase 1 approve-waiver migration), Bug #193 (unwaive flow asymmetry), Bug #196 (check-permission.ts multi-role). Triggers Bug #198 (broader matrix UI / DB drift audit).
+
+### Bug #198 — Broader matrix UI / DB drift: 11 additional DB-only permission keys absent from PermissionMatrixTab (open)
+
+- **Symptom:** Audit run during Bug #197 closure (2026-06-10) revealed 11 DB-seeded permission keys not exposed in PermissionMatrixTab UI beyond the 3 fixed in #197. Admins cannot toggle these per role through Settings; behavior is determined solely by current DB row state (or absence) with no UI surface.
+- **Keys missing from matrix UI (DB has rows for each):**
+  - Cash order admin flows: `approve_cash_order`, `edit_cash_order`
+  - Loyalty: `view_loyalty_redemptions` (referenced in PAGE_PERMISSION_MAP L78-79), `loyalty_adjust_points`
+  - Trade-ins: `manage_trade_ins`, `view_trade_ins`
+  - Admin tools: `recalculate_balance`, `run_reconciliation`
+  - Monitoring/health: `view_ai_risk`, `view_live_collection`, `view_operations_panel`, `view_system_health` (separate from `system_health` already in matrix)
+- **Required next steps before fix:**
+  1. Grep each key in `src/` to determine if actively code-referenced or dead/legacy DB rows
+  2. For each actively-used key: decide correct matrix module + section placement
+  3. For each dead key: decide whether to delete from DB or leave as-is
+  4. Verify per-role `is_allowed` seeds before exposing in UI (so toggling defaults don't surprise existing users)
+- **Scope note:** Larger than Bug #197's 3-key fix — may require new matrix module headers (Trade-Ins, Admin Tools) or further section subdivisions. Defer until after Phase 2 item 4 (10-edge-function hardcoded gate migration).
+- **Status:** Documented, not actively in current Phase 2 scope.

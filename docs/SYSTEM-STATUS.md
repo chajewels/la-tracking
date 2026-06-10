@@ -158,3 +158,9 @@ The shared permission helper used by 4 edge functions previously assumed each us
 Dependent edge functions requiring redeploy after this change: `approve-waiver`, `unwaive-waiver`, `manual-forfeit`, `reactivate-account`. Supabase bundles `_shared/` files at deploy time, so the helper update doesn't propagate to running functions until each is redeployed.
 
 **Pattern:** This completes item 2 of the locked 4-item Phase 2 of the role_permissions matrix audit (after Bug #192 / Bug #193). Remaining items: orphan/naming cleanup in PermissionMatrixTab (item 3), and Phase 2 migrations of 10 hardcoded staff-facing edge functions (item 4).
+
+### Permission matrix / route gating cleanup — Bug #197 closed, Bug #198 deferred (2026-06-10)
+
+Item 3 of locked Phase 2 scope closed. PermissionMatrixTab UI now exposes 3 previously-orphaned DB keys (`view_cash_orders`, `create_cash_order`, `view_geo_breakdown`), and `/waivers` route is now gated through PAGE_PERMISSION_MAP + NAV_PATHS (previously URL-accessible without permission check). DB prerequisite UPDATE applied pre-commit to set `staff/view_waivers=true` so Brenda retains the approve-waiver workflow access shipped in Bug #192.
+
+Audit during Bug #197 closure revealed 11 additional DB-only permission keys absent from the matrix UI — documented as Bug #198 for deferred follow-up. Not blocking Phase 2 item 4 (10-edge-function hardcoded gate migration).

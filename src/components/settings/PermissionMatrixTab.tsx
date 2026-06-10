@@ -18,6 +18,7 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
       { key: 'view_kpis', label: 'View KPIs' },
       { key: 'view_overdue_alerts', label: 'View Overdue Alerts' },
       { key: 'view_aging_buckets', label: 'View Aging Buckets' },
+      { key: 'view_geo_breakdown', label: 'View Geographic Breakdown' },
     ],
   },
   {
@@ -32,6 +33,8 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
       { key: 'forfeit_account', label: 'Forfeit Account' },
       { key: 'reactivate_account', label: 'Reactivate Account' },
       { key: 'reassign_owner', label: 'Reassign Owner' },
+      { key: 'view_cash_orders', label: 'View Cash Orders', section: 'Cash Orders' },
+      { key: 'create_cash_order', label: 'Create Cash Order' },
       { key: 'record_payment', label: 'Record Payment', section: 'Payments' },
       { key: 'confirm_payment', label: 'Confirm Payment' },
       { key: 'void_payment', label: 'Void Payment' },
