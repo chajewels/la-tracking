@@ -4172,6 +4172,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      unwaive_penalty_atomic: {
+        Args: { p_user_email: string; p_user_id: string; p_waiver_id: string }
+        Returns: Json
+      }
       validate_bulk_import: { Args: { p_rows: Json }; Returns: Json }
       void_redemption_atomic: {
         Args: {
