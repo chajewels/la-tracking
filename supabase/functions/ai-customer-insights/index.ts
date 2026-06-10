@@ -223,8 +223,9 @@ Output STRICT JSON (no markdown, no prose outside JSON) with this shape:
 }
 
 Risk rubric:
-- HIGH: any forfeited/final_settlement account, OR >=2 overdue accounts, OR unpaid penalty count >=3, OR no payment in 60+ days with remaining balance.
-- MEDIUM: 1 overdue account, OR 1-2 unpaid penalties, OR no payment in 30-59 days, OR mostly paying late.
+- HIGH: any forfeited/final_settlement account, OR >=2 overdue accounts, OR unpaid penalty count >=3, OR no payment in 60+ days AND remaining balance > 0.
+- MEDIUM: 1 overdue account, OR 1-2 unpaid penalties, OR (no payment in 30-59 days AND remaining balance > 0), OR mostly paying late.
+- LOW: all accounts completed or active with good payment history, OR customer has no remaining balance (fully paid off). A completed account with zero remaining balance should NEVER be flagged as high or medium risk due to payment inactivity alone.
 - LOW: paying on time, no unpaid penalties, recent payment activity.
 
 Be specific. Reference invoice numbers, days since last payment, balance amounts. Currency symbol: ₱ for PHP, ¥ for JPY. No commentary outside JSON.`;
