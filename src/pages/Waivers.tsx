@@ -105,87 +105,20 @@ export default function Waivers({ embedded = false }: { embedded?: boolean } = {
 
   const handleUnwaive = async () => {
     if (!unwaiveTarget) return;
-    const { waiver, group } = unwaiveTarget;
-    const penaltyId = waiver.penalty_fee_id;
-    const scheduleId = waiver.schedule_id;
-    const accountId = waiver.account_id;
+    const { waiver } = unwaiveTarget;
     setUnwaiving(true);
 
     try {
-      // Check account status
-      const { data: acctStatus } = await supabase
-        .from('layaway_accounts')
-        .select('status')
-        .eq('id', accountId)
-        .single();
-      if (acctStatus && ['forfeited', 'final_forfeited', 'completed'].includes(acctStatus.status)) {
-        toast.error('Cannot unwaive penalty on a forfeited or completed account');
-        setUnwaiving(false);
-        return;
+      const { data: { session } } = await supabase.auth.getSession();
+      const { data: fnData, error: fnErr } = await supabase.functions.invoke('unwaive-waiver', {
+        body: { waiver_id: waiver.id },
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      if (fnErr || fnData?.error) {
+        throw new Error(fnData?.error || fnErr?.message || 'Unwaive failed');
       }
 
-      // Step 1: Restore penalty
-      const { error: e1 } = await supabase
-        .from('penalty_fees')
-        .update({ status: 'unpaid' as any, waived_at: null })
-        .eq('id', penaltyId);
-      if (e1) { toast.error('Step 1 failed: ' + e1.message); setUnwaiving(false); return; }
-
-      // Step 2: Sync schedule row
-      const { data: penaltyRows } = await supabase
-        .from('penalty_fees')
-        .select('penalty_amount')
-        .eq('schedule_id', scheduleId)
-        .not('status', 'eq', 'waived');
-      const totalPenalty = (penaltyRows ?? []).reduce((sum: number, p: any) => sum + Number(p.penalty_amount), 0);
-
-      const { data: scheduleRow } = await supabase
-        .from('layaway_schedule')
-        .select('base_installment_amount, carried_amount')
-        .eq('id', scheduleId)
-        .single();
-      const base = Number(scheduleRow?.base_installment_amount ?? 0);
-      const carried = Number(scheduleRow?.carried_amount ?? 0);
-
-      const { error: e2 } = await supabase
-        .from('layaway_schedule')
-        .update({ penalty_amount: totalPenalty, total_due_amount: base + totalPenalty + carried })
-        .eq('id', scheduleId);
-      if (e2) { toast.error('Step 2 failed: ' + e2.message); setUnwaiving(false); return; }
-
-      // Step 3: Recalculate remaining_balance
-      const { data: account } = await supabase
-        .from('layaway_accounts')
-        .select('total_amount')
-        .eq('id', accountId)
-        .single();
-      const { data: activePenalties } = await supabase
-        .from('penalty_fees')
-        .select('penalty_amount')
-        .eq('account_id', accountId)
-        .not('status', 'eq', 'waived');
-      const { data: services } = await supabase
-        .from('account_services' as any)
-        .select('amount')
-        .eq('account_id', accountId);
-      const { data: payments } = await supabase
-        .from('payments')
-        .select('amount_paid')
-        .eq('account_id', accountId)
-        .is('voided_at', null);
-
-      const penaltyTotal = (activePenalties ?? []).reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
-      const serviceTotal = (services ?? []).reduce((s: number, sv: any) => s + Number(sv.amount), 0);
-      const paidTotal = (payments ?? []).reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
-      const remainingBalance = Math.max(0, Number(account?.total_amount ?? 0) + penaltyTotal + serviceTotal - paidTotal);
-
-      const { error: e3 } = await supabase
-        .from('layaway_accounts')
-        .update({ remaining_balance: remainingBalance })
-        .eq('id', accountId);
-      if (e3) { toast.error('Step 3 failed: ' + e3.message); setUnwaiving(false); return; }
-
-      toast.success('Penalty unwaived — account balance updated');
+      toast.success('Penalty unwaived — waiver returned to pending, account balance updated');
       for (const key of MUTATION_INVALIDATION_KEYS) qc.invalidateQueries({ queryKey: [key] });
       qc.invalidateQueries({ queryKey: ['waivers-page'] });
       setUnwaiveTarget(null);

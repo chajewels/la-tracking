@@ -266,3 +266,27 @@ Side effects (staff notifications, transactional email, in-app notification, Goo
 Neither RPC touches `loyalty_lot_consumption`. Lot reservation/consumption is not part of the redemption confirm/void contract.
 
 See `docs/SYSTEM-STATUS.md` "Loyalty redemption confirm — atomic via approve_redemption_atomic RPC (2026-06-08)" and "Loyalty redemption void — atomic via void_redemption_atomic RPC (2026-06-09)" entries for deploy history.
+
+### Atomic penalty waiver unwaive RPC (added 2026-06-10)
+
+`public.unwaive_penalty_atomic(p_waiver_id uuid, p_user_id uuid, p_user_email text) RETURNS jsonb` — reverses an approved penalty waiver atomically. Created 2026-06-10. Replaces the previous 3-step client-side write in `handleUnwaive` (Waivers.tsx L106-195) which was asymmetric (touched penalty_fees + layaway_schedule + layaway_accounts but never reset `penalty_waiver_requests.status`).
+
+Called from `unwaive-waiver` edge function (auth gate via `checkPermission(_, _, "manage_waivers")`). PL/pgSQL, `SECURITY DEFINER`, `search_path = public`. Caller-facing error codes returned via `jsonb_build_object('error_code', ...)`:
+
+| Error code | HTTP status | Meaning |
+|---|---|---|
+| `waiver_not_found` | 404 | No row matching `p_waiver_id` |
+| `waiver_not_approved` | 400 | Status precondition (must be `approved`) not met |
+| `penalty_not_found` | 404 | Linked penalty_fee row missing |
+| `account_terminal_state` | 400 | Account is `forfeited` or `final_forfeited` |
+
+Side effects (all atomic within RPC):
+- `penalty_waiver_requests.status='pending'`, clears `approved_by_user_id`, `approved_at`
+- `penalty_fees.status='unpaid'`, clears `waived_at`
+- `layaway_schedule.penalty_amount` + `total_due_amount` recalculated from active (non-waived) penalties
+- `layaway_accounts.remaining_balance` recalculated; if was `completed` and remaining > 0.01, reverts to `overdue` (if any schedule row is overdue) or `active`
+- `audit_logs` row inserted with `action='waiver_unwaived'`
+
+Symmetric to approve-waiver (which is currently inline TS in the edge function, not yet an atomic RPC — future Phase 2 unification could promote it). Mirrors the pattern of `approve_redemption_atomic` and `void_redemption_atomic`.
+
+Known related asymmetry — Bug #194: `penalty-engine` cron at `supabase/functions/penalty-engine/index.ts` L362 also programmatically converts waived penalties back to unpaid without resetting `penalty_waiver_requests`. Different semantic context (system-driven re-evaluation, not user reversal). Separate scope.

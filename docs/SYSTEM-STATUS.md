@@ -140,3 +140,13 @@
 - Matrix is missing keys referenced in code: `view_cash_orders`, `create_cash_order` (used in `PAGE_PERMISSION_MAP`), `view_geo_breakdown` (used in `Dashboard.tsx` via `can()`).
 - Naming mismatch: `PAGE_PERMISSION_MAP` references `payment_submissions` but matrix uses `view_submissions`.
 - `/waivers` route is not in `PAGE_PERMISSION_MAP` — page reachable via URL even when matrix denies. Phase 2 item.
+
+### Penalty waiver unwaive flow — migrated to atomic RPC (2026-06-10)
+
+`Waivers.tsx` UI `handleUnwaive` previously did 3 separate client-side supabase writes to `penalty_fees`, `layaway_schedule`, and `layaway_accounts` but never reset `penalty_waiver_requests.status`. Result: orphan waiver_request rows stuck at `approved` while the corresponding penalty was unpaid/paid. UI displayed inconsistent state, and admins couldn't re-test approve flows post-unwaive (waiver never re-entered pending queue).
+
+Migrated to atomic PL/pgSQL RPC `public.unwaive_penalty_atomic` called via new edge function `unwaive-waiver` (auth gate via `checkPermission(manage_waivers)`). Three historical orphans backfilled (Roselia #18603, Monika #17933, Maria #17110) — see Bug #193 in FIXED-BUGS.md.
+
+**Pattern:** Mirrors `approve_redemption_atomic` (2026-06-08) and `void_redemption_atomic` (2026-06-09). All three atomic-reverse RPCs follow the same shape: `SECURITY DEFINER` + `search_path = public` + jsonb return with `error_code` mapping.
+
+**Known related asymmetry — Bug #194 (scheduled next session):** `penalty-engine` cron at `supabase/functions/penalty-engine/index.ts` L362 also programmatically converts waived penalties back to unpaid without resetting `penalty_waiver_requests`. Separate semantic context (system-driven re-evaluation, not user reversal), so fix design may differ.
