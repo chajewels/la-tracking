@@ -2557,3 +2557,15 @@ Scanner flagged Warning. `record-payment` had a dual code path: admin/finance ca
 - **Workaround / proposed migration:** For each bulk-imported payment, identify the matching schedule row by `due_date` and create a `payment_allocations` row with `allocation_type='installment'`, `allocated_amount=payment.amount_paid`. Down-payment rows (`ref LIKE 'DP-%' OR remarks LIKE '%down%'`) don't get allocated (DP reduces account total directly, not via schedule).
 - **Discovered during:** Bug #193 reconciliation on Maria #17110 — 5 of her 6 schedule rows (Oct 2025–Feb 2026 installments, payment screenshot showed `cash · Installment N (bulk import)` label) had no allocations, while the 1 native BDO payment from 2026-03-22 correctly created 2 allocations (base + penalty).
 - **Status:** Open. Not customer-blocking. Pending decision on whether to migrate (preferred) or document as accepted historical drift.
+
+### Bug #196 — `_shared/check-permission.ts` failed for multi-role users (2026-06-10) ✅
+
+- **Symptom:** Edge functions using `checkPermission()` would silently fail or behave incorrectly for users with more than one row in `user_roles`. The `.maybeSingle()` call on `user_roles` would throw if multiple rows existed (PostgREST returns 406 with PGRST116 error). Even with one role, the helper only inspected a single role and ignored secondary role permissions.
+- **Root cause:** `_shared/check-permission.ts` used `.maybeSingle()` on the `user_roles` query, expecting only one row per user. The schema permits multiple role rows per user (composite roles like has_admin + has_finance). Current code only checked the first/single fetched role; admin check used `role === "admin"` (single comparison); role_permissions lookup used `.eq("role", role)` (single role).
+- **Fix:** Refactored to fetch all role rows, build a `roles` array, then mirror the UI's `usePermissions().can()` pattern:
+  - `roles.includes("admin")` for admin shortcut
+  - `.in("role", roles)` query against role_permissions
+  - `.some(rp => rp.is_allowed === true)` to OR across results
+- **Files:** `supabase/functions/_shared/check-permission.ts` (1 file, ~47 LOC, refactored).
+- **Dependent functions redeployed:** `approve-waiver`, `unwaive-waiver`, `manual-forfeit`, `reactivate-account` (each bundles the shared file at deploy time; need redeploy to pick up the fix).
+- **Related:** Phase 1 of role_permissions matrix audit (Bug #192). This is item 2 of the locked 4-item Phase 2 scope.

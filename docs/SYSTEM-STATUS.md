@@ -150,3 +150,11 @@ Migrated to atomic PL/pgSQL RPC `public.unwaive_penalty_atomic` called via new e
 **Pattern:** Mirrors `approve_redemption_atomic` (2026-06-08) and `void_redemption_atomic` (2026-06-09). All three atomic-reverse RPCs follow the same shape: `SECURITY DEFINER` + `search_path = public` + jsonb return with `error_code` mapping.
 
 **Known related asymmetry — Bug #194 (scheduled next session):** `penalty-engine` cron at `supabase/functions/penalty-engine/index.ts` L362 also programmatically converts waived penalties back to unpaid without resetting `penalty_waiver_requests`. Separate semantic context (system-driven re-evaluation, not user reversal), so fix design may differ.
+
+### `_shared/check-permission.ts` — migrated to multi-role iteration (2026-06-10)
+
+The shared permission helper used by 4 edge functions previously assumed each user has exactly one role row in `user_roles`. Refactored to fetch all role rows, mirror the UI's `usePermissions().can()` iteration pattern, and support composite roles (admin + finance, staff + admin, etc.).
+
+Dependent edge functions requiring redeploy after this change: `approve-waiver`, `unwaive-waiver`, `manual-forfeit`, `reactivate-account`. Supabase bundles `_shared/` files at deploy time, so the helper update doesn't propagate to running functions until each is redeployed.
+
+**Pattern:** This completes item 2 of the locked 4-item Phase 2 of the role_permissions matrix audit (after Bug #192 / Bug #193). Remaining items: orphan/naming cleanup in PermissionMatrixTab (item 3), and Phase 2 migrations of 10 hardcoded staff-facing edge functions (item 4).
