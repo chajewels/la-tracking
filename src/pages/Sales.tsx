@@ -122,7 +122,7 @@ export default function Sales({ embedded = false }: SalesProps = {}) {
             <MemoPaymentsHub embedded searchValue={paymentsSearch} />
           </TabsContent>
           <TabsContent value="waivers" className="mt-5">
-            <MemoWaivers embedded />
+            <MemoWaivers embedded search={waiversSearch} />
           </TabsContent>
         </Tabs>
       </div>

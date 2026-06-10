@@ -90,7 +90,7 @@ function groupWaivers(waivers: WaiverRow[]): WaiverGroup[] {
   return [...map.values()].sort((a, b) => b.totalAmount - a.totalAmount);
 }
 
-export default function Waivers({ embedded = false }: { embedded?: boolean } = {}) {
+export default function Waivers({ embedded = false, search = '' }: { embedded?: boolean; search?: string } = {}) {
   const { user } = useAuth();
   const { can } = usePermissions();
   const qc = useQueryClient();
@@ -147,7 +147,18 @@ export default function Waivers({ embedded = false }: { embedded?: boolean } = {
     },
   });
 
-  const groups = groupWaivers(waivers || []);
+  const allGroups = groupWaivers(waivers || []);
+  // Search filter — match against customer name, invoice number, or any
+  // waiver's reason. Empty search returns the full list.
+  const groups = (() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return allGroups;
+    return allGroups.filter((g) => {
+      if (g.customerName.toLowerCase().includes(q)) return true;
+      if (String(g.invoiceNumber).toLowerCase().includes(q)) return true;
+      return g.waivers.some((w) => (w.reason || '').toLowerCase().includes(q));
+    });
+  })();
 
   const toggleGroup = (accountId: string) => {
     setExpandedGroups(prev => {
