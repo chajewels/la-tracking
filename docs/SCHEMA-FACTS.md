@@ -269,7 +269,7 @@ See `docs/SYSTEM-STATUS.md` "Loyalty redemption confirm — atomic via approve_r
 
 ### Atomic penalty waiver unwaive RPC (added 2026-06-10)
 
-`public.unwaive_penalty_atomic(p_waiver_id uuid, p_user_id uuid, p_user_email text) RETURNS jsonb` — reverses an approved penalty waiver atomically. Created 2026-06-10. Replaces the previous 3-step client-side write in `handleUnwaive` (Waivers.tsx L106-195) which was asymmetric (touched penalty_fees + layaway_schedule + layaway_accounts but never reset `penalty_waiver_requests.status`).
+`public.unwaive_penalty_atomic(p_waiver_id uuid, p_user_id uuid, p_user_email text) RETURNS jsonb` — reverses an approved penalty waiver atomically. Created 2026-06-10. Replaces the previous 3-step client-side write in `handleUnwaive` (Waivers.tsx L106-195) which was asymmetric (touched penalty_fees + layaway_schedule + layaway_accounts but never reset `penalty_waiver_requests.status`). **Same-day fix (2026-06-10):** initial deploy used `::layaway_account_status` enum cast which doesn't exist; corrected via CREATE OR REPLACE FUNCTION with `::account_status` (see Enum types table above).
 
 Called from `unwaive-waiver` edge function (auth gate via `checkPermission(_, _, "manage_waivers")`). PL/pgSQL, `SECURITY DEFINER`, `search_path = public`. Caller-facing error codes returned via `jsonb_build_object('error_code', ...)`:
 
@@ -290,3 +290,23 @@ Side effects (all atomic within RPC):
 Symmetric to approve-waiver (which is currently inline TS in the edge function, not yet an atomic RPC — future Phase 2 unification could promote it). Mirrors the pattern of `approve_redemption_atomic` and `void_redemption_atomic`.
 
 Known related asymmetry — Bug #194: `penalty-engine` cron at `supabase/functions/penalty-engine/index.ts` L362 also programmatically converts waived penalties back to unpaid without resetting `penalty_waiver_requests`. Different semantic context (system-driven re-evaluation, not user reversal). Separate scope.
+
+### Enum types and column-type quirks (added 2026-06-10)
+
+Confirmed via `information_schema.columns` queries during Bug #193 cleanup. Use these exact enum names when writing any PL/pgSQL RPC or migration that casts text values:
+
+| Table | Column | Enum type name |
+|---|---|---|
+| `layaway_accounts` | `status` | `account_status` |
+| `layaway_schedule` | `status` | `schedule_status` |
+| `penalty_fees` | `status` | `penalty_fee_status` |
+| `penalty_waiver_requests` | `status` | `waiver_status` |
+| `payment_allocations` | `allocation_type` | (USER-DEFINED, name not yet confirmed) |
+| `payments` | `currency` | (USER-DEFINED, name not yet confirmed) |
+
+**Common column-type gotchas:**
+- `layaway_accounts.invoice_number` is **TEXT**, not integer. SQL like `WHERE invoice_number = 17110` fails with `operator does not exist: text = integer`. Always quote: `WHERE invoice_number = '17110'`. Better — when possible, use `account_id` UUID lookups.
+
+**`payments` table columns** (full list, confirmed 2026-06-10): `id`, `account_id`, `amount_paid`, `currency`, `date_paid` (date type), `payment_method`, `reference_number`, `remarks`, `entered_by_user_id`, `created_at` (timestamp), `voided_at`, `voided_by_user_id`, `void_reason`, `submitted_by_type`, `submitted_by_name`. **No `paid_at` column** — use `date_paid` or `created_at`.
+
+**`payment_allocations` table columns**: `id`, `payment_id`, `schedule_id`, `allocation_type`, `allocated_amount`, `created_at`. **Only native payments** (from `record-payment` edge function) create rows here. Bulk-imported payments don't — see Bug #195.
