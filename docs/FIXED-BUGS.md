@@ -2469,14 +2469,14 @@ Scanner flagged Warning. `record-payment` had a dual code path: admin/finance ca
   Files: src/pages/CashOrderDetail.tsx
   Related: SYSTEM-STATUS.md entry on the same date.
 
-### Bug #185 — RecordPaymentModal passed raw view rows to RecordPaymentDialog (2026-06-08) ✅
+### Bug #191 — RecordPaymentModal passed raw view rows to RecordPaymentDialog (2026-06-08) ✅ (renumbered from #185 on 2026-06-09 to resolve parallel-session collision)
 - **Symptom:** The floating Record Payment modal queried `schedule_with_actuals` directly and passed raw view rows to RecordPaymentDialog. The view exposes `allocated` / `computed_status` / `actual_remaining`, but RecordPaymentDialog reads `paid_amount` / `status` / `total_due_amount`. Result: schedule rows displayed incorrect paid/unpaid state (status was undefined for every row), "Due for this month" amount was wrong (used the view's `total_due_amount` directly rather than `actual_remaining`), and partial-paid warnings (which depend on `status === 'partially_paid'`) never fired
 - **Root cause:** The modal duplicated the schedule fetch logic instead of using the existing `useSchedule` hook (which already normalizes the view's field names into the shape RecordPaymentDialog expects). AccountDetail's existing Record Payment entry point has always gone through `useSchedule`, so that entry point was correct; only the new floating modal was affected
 - **Fix:** Replaced direct `supabase.from('schedule_with_actuals')` query with the `useSchedule(accountId)` hook. Removed local `scheduleData` / `scheduleLoading` state (now managed by react-query). Removed unused `useEffect` and `supabase` imports. Preserved original fetch gating (hook only fires when `step === 'record'`)
 - **File:** `src/components/payments/RecordPaymentModal.tsx`
-- **Note:** Bug #184 fixed the DP remaining display specifically (the `downpaymentRemaining` useMemo). This bug fixes the entire schedule row display across RecordPaymentDialog's UI. Together they bring the modal entry point to behavioral parity with AccountDetail's existing entry point
+- **Note:** Bug #190 fixed the DP remaining display specifically (the `downpaymentRemaining` useMemo). This bug fixes the entire schedule row display across RecordPaymentDialog's UI. Together they bring the modal entry point to behavioral parity with AccountDetail's existing entry point
 
-### Bug #184 — RecordPaymentModal DP remaining ignored existing DP payments (2026-06-08) ✅
+### Bug #190 — RecordPaymentModal DP remaining ignored existing DP payments (2026-06-08) ✅ (renumbered from #184 on 2026-06-09 to resolve parallel-session collision)
 - **Symptom:** New floating Record Payment modal's single-payment view showed the full base downpayment amount as "remaining" even when DP payments had already been recorded against the account
 - **Root cause:** Component referenced `dp.paid_amount` and `dp.is_downpayment` — neither column exists on the `schedule_with_actuals` view. `Number(undefined ?? 0)` evaluated to 0, so subtraction never reduced the displayed remaining
 - **Fix:** Renamed `dp.paid_amount` → `dp.allocated` (correct view column); removed dead `is_downpayment` OR branch
