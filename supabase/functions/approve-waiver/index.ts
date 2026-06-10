@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,13 +37,14 @@ Deno.serve(async (req) => {
     const userId = claimsData.user.id;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // ── Role check: admin or finance only ────────────────────────────────────
-    const [{ data: isAdmin }, { data: isFinance }] = await Promise.all([
-      supabase.rpc("has_role", { _user_id: userId, _role: "admin" }),
-      supabase.rpc("has_role", { _user_id: userId, _role: "finance" }),
-    ]);
-    if (!isAdmin && !isFinance) {
-      return new Response(JSON.stringify({ error: "Forbidden: admin or finance role required" }), {
+    // ── Role check: honor role_permissions matrix via shared helper ──────────
+    // Replaces previous hardcoded admin/finance gate so the Settings matrix
+    // (Settings → Permissions → Manage Waivers) is the source of truth. See
+    // docs/SYSTEM-STATUS.md "approve-waiver — migrated to role_permissions
+    // matrix (2026-06-10)" for Phase 1 migration context.
+    const allowed = await checkPermission(supabase, userId, "manage_waivers");
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "Forbidden: manage_waivers permission required" }), {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
