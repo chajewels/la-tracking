@@ -125,3 +125,18 @@
   symmetric: neither touches lots. If consume_lots_fifo activates in
   approve later, void RPC needs amendment to call restore_lots_for_
   redemption simultaneously.
+
+### approve-waiver — migrated to role_permissions matrix (2026-06-10)
+
+`approve-waiver` edge function previously used hardcoded `has_role(admin) OR has_role(finance)` gate, ignoring the `role_permissions` Settings matrix. Migrated to use `_shared/check-permission.ts` helper with permission key `manage_waivers`. UI buttons in `Waivers.tsx` now also gated via `can('manage_waivers')`.
+
+**Phase 1 of broader role-permissions audit.** 74 edge functions total; 30 currently use hardcoded `has_role` gates; 4 already use `checkPermission` (create-team-member, delete-customer, fix-account-status, review-payment-submission); the rest are system/cron/customer-side and intentionally not matrix-gated.
+
+**Phase 2 scope (high-impact staff-facing, scheduled separately):** record-payment, record-multi-payment, void-payment, void-cash-payment, restore-payment, restore-cash-payment, edit-payment-amount, create-cash-order, create-layaway-account, restructure-account, plus fixing the multi-role-user bug in `_shared/check-permission.ts` (uses `.maybeSingle()` on `user_roles` which fails for users with >1 role row).
+
+**Phase 3 scope (admin-only and lower-traffic, scheduled separately):** delete-account, delete-installment, add-installment, extend-schedule, carry-over, add-service, adjust-loyalty-points, award-loyalty-points, restore-loyalty-points, revoke-loyalty-points, bulk-import, set-portal-pin, accept-underpayment, dashboard-summary, system-health-v2, finance-reconciliation, generate-invoice.
+
+**Audit-surfaced data integrity issues (separate cleanup):**
+- Matrix is missing keys referenced in code: `view_cash_orders`, `create_cash_order` (used in `PAGE_PERMISSION_MAP`), `view_geo_breakdown` (used in `Dashboard.tsx` via `can()`).
+- Naming mismatch: `PAGE_PERMISSION_MAP` references `payment_submissions` but matrix uses `view_submissions`.
+- `/waivers` route is not in `PAGE_PERMISSION_MAP` — page reachable via URL even when matrix denies. Phase 2 item.

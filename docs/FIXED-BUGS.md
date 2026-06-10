@@ -2514,3 +2514,11 @@ Scanner flagged Warning. `record-payment` had a dual code path: admin/finance ca
 **Loose ends**:
 - One orphaned file remains at `c8d63981-4b06-40e6-86ef-4f3e7ea21906/KailaDanielaCatilo_19116_DP_2026-06-07.jpg` (62987 bytes — the original Bug #178 collision survivor). No `proof_url` row points at it anymore. Safe to delete via Storage dashboard whenever convenient.
 - The Apr 2 vs May 3 receipt-to-submission_id mapping was determined by chronological assumption (earlier-created submission row maps to earlier receipt date). If staff actually entered them in the reverse order, swap the two `date_paid` values via a simple SQL UPDATE — no downstream impact.
+
+### Bug #192 — `approve-waiver` hardcoded admin/finance gate, blocked staff with `manage_waivers=true` (2026-06-10) ✅
+- **Symptom:** Staff member (Brenda) with `role_permissions.manage_waivers=true` in Settings matrix received 403 from `approve-waiver` edge function when approving penalty waivers
+- **Root cause:** `approve-waiver/index.ts` L36-44 used hardcoded `has_role(admin) OR has_role(finance)` check, bypassing the `role_permissions` matrix entirely. Settings matrix was decorative for this function — toggling `staff.manage_waivers` in Settings had no effect on actual access
+- **Fix:** Migrated gate to use `_shared/check-permission.ts` helper with permission key `manage_waivers`. Function now honors Settings matrix as the source of truth.
+- **UI:** Also gated Approve/Reject buttons in `Waivers.tsx` with `can('manage_waivers')` so users without permission don't see actions that would 403.
+- **Files:** `supabase/functions/approve-waiver/index.ts`, `src/pages/Waivers.tsx`
+- **Note:** First migration from hardcoded `has_role` gate to matrix-honoring `checkPermission`. Phase 1 of broader role-permissions wiring audit. 30 edge functions in the same hardcoded-gate pattern (record-payment, void-payment, restore-payment, edit-payment-amount, adjust-loyalty-points, etc.) are scheduled for Phase 2/3 migration — see `SYSTEM-STATUS.md`.

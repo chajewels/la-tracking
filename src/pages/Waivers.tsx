@@ -16,6 +16,7 @@ import { Currency } from '@/lib/types';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePermissions } from '@/contexts/PermissionsContext';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MUTATION_INVALIDATION_KEYS } from '@/lib/business-rules';
 
@@ -91,6 +92,7 @@ function groupWaivers(waivers: WaiverRow[]): WaiverGroup[] {
 
 export default function Waivers({ embedded = false }: { embedded?: boolean } = {}) {
   const { user } = useAuth();
+  const { can } = usePermissions();
   const qc = useQueryClient();
   const [filter, setFilter] = useState<FilterStatus>('pending');
   const [actionDialog, setActionDialog] = useState<{ group: WaiverGroup; action: 'approve' | 'reject' } | null>(null);
@@ -380,14 +382,18 @@ export default function Waivers({ embedded = false }: { embedded?: boolean } = {
                       </span>
                       {pendingCount > 0 && (
                         <div className="flex gap-1">
-                          <Button variant="outline" size="sm" className="h-7 text-xs border-success/30 text-success hover:bg-success/10"
-                            onClick={e => { e.stopPropagation(); openActionDialog(group, 'approve'); }}>
-                            Approve
-                          </Button>
-                          <Button variant="outline" size="sm" className="h-7 text-xs border-destructive/30 text-destructive hover:bg-destructive/10"
-                            onClick={e => { e.stopPropagation(); openActionDialog(group, 'reject'); }}>
-                            Reject
-                          </Button>
+                          {can('manage_waivers') && (
+                            <>
+                              <Button variant="outline" size="sm" className="h-7 text-xs border-success/30 text-success hover:bg-success/10"
+                                onClick={e => { e.stopPropagation(); openActionDialog(group, 'approve'); }}>
+                                Approve
+                              </Button>
+                              <Button variant="outline" size="sm" className="h-7 text-xs border-destructive/30 text-destructive hover:bg-destructive/10"
+                                onClick={e => { e.stopPropagation(); openActionDialog(group, 'reject'); }}>
+                                Reject
+                              </Button>
+                            </>
+                          )}
                           <Link to={`/accounts/${group.accountId}`} onClick={e => e.stopPropagation()}>
                             <Button variant="ghost" size="icon" className="h-7 w-7" title="View Account">
                               <Eye className="h-3.5 w-3.5" />
