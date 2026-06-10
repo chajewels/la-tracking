@@ -241,3 +241,28 @@
 ### `schedule_with_actuals` view
 
 The view does NOT expose `paid_amount` or `is_downpayment` columns. Per-row payment totals are exposed as `allocated` (live `SUM(payment_allocations.allocated_amount)` where `payments.voided_at IS NULL`). The remaining-due value is exposed as `actual_remaining` (= `GREATEST(0, LEAST(base+penalty+carried, total_due_amount) - allocated)`, pre-clamped at 0). Status is exposed as `db_status` (raw, from layaway_schedule.status) and `computed_status` (live, derived). When mapping rows from this view into components that expect `paid_amount` / `status` field names, alias at the boundary (e.g. in `useSchedule`) rather than referencing those names directly off the view. See Bug #184 for an instance where direct references silently returned undefined.
+
+### Atomic loyalty redemption RPCs (added 2026-06-09)
+
+Two PL/pgSQL functions own all state changes for the loyalty redemption confirm/void flow. Both run `SECURITY DEFINER` with `search_path TO 'public'`, return `jsonb`, and execute as a single transaction so partial failures cannot leave member balance, redemption status, catalog stock, audit trail, and account-side artifacts (synthetic payments, allocations, schedule rows, account totals/status) in inconsistent states.
+
+`public.approve_redemption_atomic(p_redemption_id uuid, p_user_id uuid, p_user_email text) RETURNS jsonb` — confirms a `pending` redemption. Created and deployed 2026-06-08. Replaced ~600 LOC of inline TypeScript in `process-loyalty-redemption`.
+
+`public.void_redemption_atomic(p_redemption_id uuid, p_user_id uuid, p_user_email text, p_void_reason text) RETURNS jsonb` — voids a `confirmed` redemption. Created and deployed 2026-06-09 (commit `efd329d`). Replaced ~700 LOC of inline TypeScript in `process-loyalty-redemption`; net -387 LOC in the edge function after refactor.
+
+Both are gated by `is_admin` in the calling edge function (admin role only). Caller-facing error codes returned via `jsonb_build_object('error_code', ...)`:
+
+| Error code | HTTP status | Meaning |
+|---|---|---|
+| `redemption_not_found` | 404 | No row matching `p_redemption_id` |
+| `redemption_not_pending` (approve) / `redemption_not_confirmed` (void) | 400 | Status precondition not met |
+| `redemption_approve_race` (approve) / `redemption_void_race` (void) | 409 | Concurrent update detected after `FOR UPDATE` lock |
+| `member_not_found` | 404 | Linked member row missing |
+| `schedule_row_not_found` | 500 | Payment allocation references a deleted schedule row |
+| `insufficient_balance` (approve only) | 400 | Member balance below redemption cost |
+
+Side effects (staff notifications, transactional email, in-app notification, Google Sheet sync) are intentionally OUTSIDE the RPC — they run as fire-and-forget try/catch blocks in the edge function after the RPC succeeds. RPC failure = no side effects. Side effect failure = RPC's atomic write already committed.
+
+Neither RPC touches `loyalty_lot_consumption`. Lot reservation/consumption is not part of the redemption confirm/void contract.
+
+See `docs/SYSTEM-STATUS.md` "Loyalty redemption confirm — atomic via approve_redemption_atomic RPC (2026-06-08)" and "Loyalty redemption void — atomic via void_redemption_atomic RPC (2026-06-09)" entries for deploy history.
