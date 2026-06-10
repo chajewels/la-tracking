@@ -167,9 +167,9 @@ Audit during Bug #197 closure revealed 11 additional DB-only permission keys abs
 
 ### Phase 2 Item 4 scope discovery — 28 functions, not 10 (2026-06-10)
 
-Original Phase 2 plan estimated ~10 staff-facing edge functions still using hardcoded `has_role()` checks for role_permissions matrix migration. Cloud Shell enumeration during Bug #197 closure revealed **28 functions** still using the pattern. Three already migrated to `checkPermission()` via earlier Phase 2 work (approve-waiver, manual-forfeit, reactivate-account, unwaive-waiver — 4 total when including #193's new function).
+Original Phase 2 plan estimated ~10 staff-facing edge functions still using hardcoded `has_role()` checks for role_permissions matrix migration. Cloud Shell enumeration during Bug #197 closure revealed **28 functions** still using the pattern. Four already migrated to `checkPermission()` via earlier Phase 2 work: `approve-waiver` (Bug #192), `unwaive-waiver` (Bug #193), `manual-forfeit`, `reactivate-account`.
 
-**Effective Item 4 scope:** 28 functions broken into 6 batches by domain. Each batch = ~one session of investigation → SQL verify role_permissions row exists for target key → Lovable code prompt → Lovable deploy prompt → smoke test → docs entry per function.
+**Effective Item 4 scope:** 28 functions broken into 6 batches by domain. Each batch ≈ one session of investigation → SQL verify role_permissions row exists for target key → Lovable code prompt → Lovable deploy prompt → smoke test → docs entry per function.
 
 | Batch | Domain | Functions | Likely permission keys |
 |---|---|---|---|
