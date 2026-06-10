@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -34,11 +35,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 2. Admin or staff only
-    const { data: isAdmin } = await supabase.rpc("has_role", { _user_id: user.id, _role: "admin" });
-    const { data: isStaff } = await supabase.rpc("has_role", { _user_id: user.id, _role: "staff" });
-    if (!isAdmin && !isStaff) {
-      return new Response(JSON.stringify({ error: "Admin or staff access required" }), {
+    // 2. Permission gate (Bug #199 Batch A: matrix-driven access)
+    const allowed = await checkPermission(supabase, user.id, "create_cash_order");
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "create_cash_order permission required" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

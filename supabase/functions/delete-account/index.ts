@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -33,13 +34,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Admin role check (security gap fix — was missing in prior version)
-    const { data: hasAdminRole, error: roleError } = await supabase.rpc('has_role', {
-      _user_id: user.id,
-      _role: 'admin',
-    });
-    if (roleError || !hasAdminRole) {
-      return new Response(JSON.stringify({ error: "Forbidden: admin role required" }), {
+    // Permission gate (Bug #199 Batch A: matrix-driven access)
+    const allowed = await checkPermission(supabase, user.id, "delete_account");
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "delete_account permission required" }), {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

@@ -2604,3 +2604,45 @@ Scanner flagged Warning. `record-payment` had a dual code path: admin/finance ca
   4. Verify per-role `is_allowed` seeds before exposing in UI (so toggling defaults don't surprise existing users)
 - **Scope note:** Larger than Bug #197's 3-key fix — may require new matrix module headers (Trade-Ins, Admin Tools) or further section subdivisions. Defer until after Phase 2 item 4 (10-edge-function hardcoded gate migration).
 - **Status:** Documented, not actively in current Phase 2 scope.
+
+### Bug #199 — Phase 2 Batch A: 5 account lifecycle edge functions migrated to checkPermission (2026-06-10) ✅
+
+- **Symptom:** Five staff-facing edge functions (create-layaway-account, create-cash-order, delete-account, restructure-account, carry-over) used hardcoded `supabase.rpc("has_role", {...})` checks that ignored the role_permissions matrix UI in admin Settings. Toggling a permission in the matrix had no effect on these operations — DB rows existed but were not consulted by edge function gates.
+- **Root cause:** Pre-checkPermission era pattern from before `_shared/check-permission.ts` existed (Bug #196 completed the helper). Hardcoded gates created drift between admin-facing matrix UI and actual access control. User directive 2026-06-10: matrix must be the actual source of truth ("if i toggle on the confirm payment to any staff, it should be working").
+- **Fix:** All 5 functions migrated to `checkPermission(supabase, user.id, "<permission_key>")` pattern. Matrix UI now drives actual access for these operations.
+- **Permission key mapping:**
+  - `create-layaway-account` → `create_account`
+  - `create-cash-order` → `create_cash_order` (already in matrix UI per Bug #197)
+  - `delete-account` → `delete_account`
+  - `restructure-account` → `edit_account` (first real consumer of this previously-ghost permission)
+  - `carry-over` → `edit_schedule` (carry-over modifies layaway_schedule rows)
+- **DB pre-fix applied 2026-06-10 (pre-deploy):** `UPDATE role_permissions SET is_allowed = false WHERE permission_key = 'edit_account' AND role = 'staff'`. Established admin-only default for edit_account per user policy directive. Tightens restructure-account from prior admin+staff to admin-only via matrix-driven gate. Zero operational impact at deploy time — restructure-account has no UI callers today (orphan function).
+- **Files:** 5 edge functions in `supabase/functions/`, `docs/FIXED-BUGS.md`, `docs/SYSTEM-STATUS.md`.
+- **Net code change:** −15 LOC per function avg (Promise.all blocks collapsed to single checkPermission call).
+- **Verification:**
+  - All 5 functions reachable via curl smoke test returning 401 (function exists + auth gate working)
+  - Admin retains access (admin bypass in checkPermission)
+  - Staff/finance/csr access controlled by current role_permissions DB rows; admin can adjust via Settings → Permissions matrix
+- **Net effect on existing users:**
+  - create-layaway-account / create-cash-order: previously code blocked finance role despite DB rows saying finance=true. Migration now respects DB seed — finance gains create access. If unintended, admin toggles finance=false in matrix for these keys.
+  - delete-account: behavior preserved (DB admin-only matches old code admin-only).
+  - restructure-account: tightens to admin-only (was admin+staff). No operational impact since function has no UI callers; future use will respect matrix.
+  - carry-over: behavior preserved (DB edit_schedule admin-only matches old code admin-only).
+- **Known follow-up:** Bug #200 — UI gate audit. EditAccountDialog at AccountDetail.tsx L1040 is misgated by `isAdmin && can('edit_invoice')` and should use `can('edit_account')`. Similar UI gate audits likely needed elsewhere. Until Bug #200 fixes the L1040 misgating, toggling `edit_account` in matrix only affects the (orphan) restructure-account function.
+- **Related:** Item 4 Batch A of Phase 2 (Bug #192/#193/#196/#197 sibling work). Batch B (payment writes) and Batch C (cash + schedule) and Batch D (loyalty) and Batch E (admin/finance + dashboard) follow. system-health-v2 (parseJwtClaims target) and set-portal-pin (customer-facing semantics) remain as Batch F special cases.
+
+### Bug #200 — UI gate audit: matrix permissions misgated or unused in src/ components (open)
+
+- **Symptom:** Multiple UI surfaces use incorrect permission keys, hardcode `isAdmin &&` checks, or skip permission gating entirely — creating drift between the role_permissions matrix UI in admin Settings and actual UI access. Toggling a permission in the matrix may have no effect on the UI feature it should control.
+- **Known instances:**
+  - `src/pages/AccountDetail.tsx` L1040: `<EditAccountDialog>` gated by `{isAdmin && can('edit_invoice') && (` — should use `can('edit_account')`. The dialog edits account-level fields (total_amount, order_date, downpayment, currency, notes, payment_plan_months) and schedule rows, NOT invoice number. The `isAdmin &&` prefix locks out staff entirely even when DB matrix grants edit_account.
+  - Inline invoice pencil button at L920-936 may also have unclear gating semantics — needs audit.
+  - Other UI components likely have similar misgating patterns — comprehensive grep audit needed.
+- **Required next steps before fix:**
+  1. Comprehensive grep audit: every `can('<key>')`, `isAdmin`, `hasPermission`, and `roles.includes(...)` call site in src/
+  2. For each: verify the gate uses the correct semantic permission key
+  3. Remove redundant `isAdmin &&` prefixes (admin bypass already in checkPermission and useAuth.can helpers)
+  4. Verify gated UI surface matches what the permission name describes
+  5. Cross-reference with PermissionMatrixTab matrix entries
+- **Scope note:** UI-only audit, no edge function changes (those are Phase 2 Item 4's edge function batches). Should be addressed after Phase 2 Item 4 completes OR in parallel as a UI-focused side workstream.
+- **Status:** Documented during Bug #199 (Batch A) closure when EditAccountDialog misgating was discovered during gate investigation. Defer to dedicated UI audit session.

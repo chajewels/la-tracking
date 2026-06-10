@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -45,13 +46,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Role check: only admin or staff may restructure accounts
-    const [{ data: isAdmin }, { data: isStaff }] = await Promise.all([
-      supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
-      supabase.rpc("has_role", { _user_id: user.id, _role: "staff" }),
-    ]);
-    if (!isAdmin && !isStaff) {
-      return new Response(JSON.stringify({ error: "Admin or staff role required" }), {
+    // Permission gate (Bug #199 Batch A: matrix-driven access)
+    const allowed = await checkPermission(supabase, user.id, "edit_account");
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "edit_account permission required" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

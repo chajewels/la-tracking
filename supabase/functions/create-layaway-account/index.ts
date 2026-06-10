@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -35,11 +36,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Admin or staff only
-    const { data: isAdmin } = await supabase.rpc("has_role", { _user_id: user.id, _role: "admin" });
-    const { data: isStaff } = await supabase.rpc("has_role", { _user_id: user.id, _role: "staff" });
-    if (!isAdmin && !isStaff) {
-      return new Response(JSON.stringify({ error: "Admin or staff access required" }), {
+    // Permission gate (Bug #199 Batch A: matrix-driven access)
+    const allowed = await checkPermission(supabase, user.id, "create_account");
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "create_account permission required" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

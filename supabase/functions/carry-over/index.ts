@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -30,10 +31,10 @@ serve(async (req) => {
       });
     }
 
-    // Admin only
-    const { data: isAdmin } = await supabase.rpc("has_role", { _user_id: user.id, _role: "admin" });
-    if (!isAdmin) {
-      return new Response(JSON.stringify({ error: "Admin access required" }), {
+    // Permission gate (Bug #199 Batch A: matrix-driven access)
+    const allowed = await checkPermission(supabase, user.id, "edit_schedule");
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "edit_schedule permission required" }), {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

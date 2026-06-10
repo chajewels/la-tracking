@@ -186,3 +186,15 @@ Original Phase 2 plan estimated ~10 staff-facing edge functions still using hard
 - Batch C cash payment keys may share `record_payment` permission with native payments OR have separate cash-specific keys — DB verification required
 
 **Status:** Items 1-3 of Phase 2 closed (Bug #192, #193, #196, #197). Item 4 = 5-6 future sessions, starts with Batch A in a fresh session.
+
+### Phase 2 Item 4 Batch A complete — 5 account lifecycle functions on checkPermission (2026-06-10)
+
+Batch A of the Item 4 batched migration plan complete. The role_permissions matrix UI in admin Settings is now the actual source of truth for account creation (layaway + cash orders), deletion, restructure, and carry-over operations. Admin toggling a permission in the matrix has real effect on these flows — no more hardcoded `has_role` checks ignoring the matrix.
+
+**Functions migrated:** create-layaway-account, create-cash-order, delete-account, restructure-account, carry-over.
+
+**DB pre-fix applied:** `edit_account` default tightened to admin-only (was admin+staff via legacy seed). Admin can grant other roles via matrix toggle.
+
+**Known UI follow-up:** Bug #200 — EditAccountDialog UI gate at AccountDetail.tsx L1040 misgated, broader UI gate audit recommended.
+
+**Remaining Item 4 scope:** Batch B (payment writes — 5 functions), Batch C (cash + schedule — 7 functions), Batch D (loyalty — 4 functions), Batch E (admin/finance + dashboard — 5 functions), Batch F (system-health-v2 + set-portal-pin — 2 special cases). 23 functions remain across 5 future sessions.
