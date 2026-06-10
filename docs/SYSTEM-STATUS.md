@@ -164,3 +164,25 @@ Dependent edge functions requiring redeploy after this change: `approve-waiver`,
 Item 3 of locked Phase 2 scope closed. PermissionMatrixTab UI now exposes 3 previously-orphaned DB keys (`view_cash_orders`, `create_cash_order`, `view_geo_breakdown`), and `/waivers` route is now gated through PAGE_PERMISSION_MAP + NAV_PATHS (previously URL-accessible without permission check). DB prerequisite UPDATE applied pre-commit to set `staff/view_waivers=true` so Brenda retains the approve-waiver workflow access shipped in Bug #192.
 
 Audit during Bug #197 closure revealed 11 additional DB-only permission keys absent from the matrix UI — documented as Bug #198 for deferred follow-up. Not blocking Phase 2 item 4 (10-edge-function hardcoded gate migration).
+
+### Phase 2 Item 4 scope discovery — 28 functions, not 10 (2026-06-10)
+
+Original Phase 2 plan estimated ~10 staff-facing edge functions still using hardcoded `has_role()` checks for role_permissions matrix migration. Cloud Shell enumeration during Bug #197 closure revealed **28 functions** still using the pattern. Three already migrated to `checkPermission()` via earlier Phase 2 work (approve-waiver, manual-forfeit, reactivate-account, unwaive-waiver — 4 total when including #193's new function).
+
+**Effective Item 4 scope:** 28 functions broken into 6 batches by domain. Each batch = ~one session of investigation → SQL verify role_permissions row exists for target key → Lovable code prompt → Lovable deploy prompt → smoke test → docs entry per function.
+
+| Batch | Domain | Functions | Likely permission keys |
+|---|---|---|---|
+| A | Account lifecycle | create-layaway-account, create-cash-order, delete-account, restructure-account, carry-over | create_account, create_cash_order, delete_account, edit_account, edit_schedule |
+| B | Payment writes | record-payment, record-multi-payment, void-payment, restore-payment, accept-underpayment | record_payment, void_payment, restore_payment |
+| C | Cash + schedule | submit-cash-payment, void-cash-payment, restore-cash-payment, add-installment, delete-installment, extend-schedule, edit-payment-amount | record_payment, edit_schedule |
+| D | Loyalty admin | adjust-loyalty-points, award-loyalty-points, revoke-loyalty-points, restore-loyalty-points | loyalty_adjust_points (Bug #198 dependency — key missing from matrix UI) |
+| E | Admin/Finance + dashboard | bulk-import, finance-reconciliation, generate-invoice, add-service, dashboard-summary | bulk_payment_import, view_finance, view_dashboard |
+| F | Special cases | system-health-v2 (parseJwtClaims target NOT checkPermission), set-portal-pin (customer-facing semantics — investigation first) | — |
+
+**Cross-cutting concerns flagged for Batch D and E:**
+- Batch D depends on Bug #198 fix (`loyalty_adjust_points` not in matrix UI yet) OR migration without UI exposure until #198 closes
+- `dashboard-summary` may not need a permission gate at all — read-only summary endpoint; investigate intent before migrating
+- Batch C cash payment keys may share `record_payment` permission with native payments OR have separate cash-specific keys — DB verification required
+
+**Status:** Items 1-3 of Phase 2 closed (Bug #192, #193, #196, #197). Item 4 = 5-6 future sessions, starts with Batch A in a fresh session.
