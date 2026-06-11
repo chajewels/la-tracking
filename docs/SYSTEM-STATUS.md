@@ -291,3 +291,26 @@ Batch F closes Phase 2 Item 4 — the matrix-driven access control migration. Al
 - Bug #198 final cleanup: 8 missing matrix UI keys
 - Bug #200 follow-up: UI gate audit (EditAccountDialog L1040 misgating fix + comprehensive can() audit)
 - riskFactor dead-code cleanup in dashboard-summary (L450, 455, 560, 562, 565)
+
+## Operational Cleanups Log
+
+### 2026-06-11 — Phantom Payment Cleanups (4 accounts, single-staff origin)
+
+**Context:** During Bug #206 reclassification work, identified 4 duplicate payment entries from staff user `69095b5d-3a96-4b67-adad-7cbf9d6c2aff` (Brendalyn Bumagat) created 2026-06-11. All were manual Record Payment entries created BEFORE the matching customer submission was reviewed — resulting in duplicate payment rows once the customer submission was confirmed by the same or another staff member.
+
+**Accounts cleaned:**
+
+| Invoice | Phantom Amount | Type | Cleanup notes |
+|---------|---------------|------|---------------|
+| 18271 | ¥7,200 | Installment | Simple cleanup — no competing legit payment; DELETE allocations + DELETE payment + reset schedule row |
+| 18437 | ¥5,597 | Installment | Required CORRECTIVE step: legit payment's allocation landed on Month 5 via waterfall post-phantom-delete; manually moved to Month 4 via UPDATE payment_allocations.schedule_id |
+| 18644 | ¥20,320 | Multi-month installment | Phantom had 5 allocations spanning Months 2/3/4 + 3 penalty_fees rows; standard cleanup left penalty_fees.status='paid' but legit ¥20,320 submission self-healed it on confirm via waterfall re-allocation |
+| 19090 | ¥3,000 | Downpayment | Simple cleanup — DPs don't allocate to layaway_schedule rows; DELETE payment only (no allocations to clean) |
+
+**Cleanup approach evolution (lessons captured during the session):**
+1. Initial pattern (18271): DELETE payment_allocations → DELETE payment → UPDATE layaway_schedule SET status='pending', paid_amount=0
+2. Refined (18437): Added "move legit allocation" step when the legit payment was placed on the wrong schedule row by waterfall after phantom delete
+3. Further refined (18644): Discovered `penalty_fees.status` does not auto-reset on allocation delete; if a legit submission is queued, status='paid' self-heals via re-allocation; otherwise manual UPDATE required
+4. Simplest (19090): DPs are account-level not schedule-level — only delete the phantom payment, no allocation/schedule reset
+
+**Operational concern:** 4 phantoms from one staff user in a single day indicates workflow misunderstanding (using Record Payment instead of Confirm Submission when a customer submission is queued). The matrix policy itself (staff.confirm_payment=true post-#206-revert) is correct; what needs adjusting is process awareness. Coaching message planned for 2026-06-12.

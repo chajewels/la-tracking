@@ -2875,6 +2875,107 @@ Both June 11 payments now visible in account payment history with View Proof but
 - Matrix-driven design = DB seed is source of truth, matrix UI is control surface, edge function enforces via `checkPermission`. All three layers must align with intended workflow semantics.
 - Storage `proof_url` drift can occur — files exist but referenced URLs can become stale. Worth auditing across submissions in a future cleanup pass.
 
+#### Reclassification (2026-06-11) — MISDIAGNOSIS, REVERTED
+
+**Updated status: Bug #206 fix REVERTED 2026-06-11 ~08:19 UTC.**
+
+The initial fix (matrix seed staff.confirm_payment=false) broke legitimate staff workflow that had been operating successfully for 3 days pre-Batch-A-F. Brenda Bumagat and Bogart Antonette could no longer confirm customer payment submissions, halting daily operations.
+
+**What was actually happening (re-analysis):**
+- Pre-Batch-A-F: Staff legitimately used Record Payment to log cash drop-offs and external rakuten payments (e.g., 18664 ¥19,131, 18010 ¥18,660) — these were NOT customer portal submissions, so direct payments-table inserts were the documented path
+- Staff ALSO legitimately confirmed customer-submitted payments via Confirm flow — also a valid path
+- The "bypass" framing in the original Bug #206 root cause was a misdiagnosis. Direct payment entry by staff is not a queue bypass; it's the documented path for non-portal payments.
+
+**Reversion SQL:**
+
+```sql
+UPDATE public.role_permissions
+SET is_allowed = true
+WHERE permission_key = 'confirm_payment' AND role = 'staff';
+```
+
+**Updated locked matrix:**
+
+| Role | confirm_payment |
+|------|----------------|
+| admin | true |
+| staff | **true (restored 2026-06-11)** |
+| finance | true |
+| csr | false |
+
+**Memory update:** Earlier instructions to "do not propose toggling admin/finance OFF and do not question this seed in future sessions" are SUPERSEDED. The matrix is what it is; staff CAN confirm payments — this is the working design.
+
+**Related operational cleanups:** 4 phantom payment entries were cleared via manual SQL during this incident — see `docs/SYSTEM-STATUS.md` "Operational Cleanups Log" entry for 2026-06-11. All were duplicate-entry artifacts from one staff user manually recording payments before the matching customer submission was confirmed (workflow misunderstanding, not a code bug).
+
+**Outstanding follow-up:**
+- Bug #208 (graceful 403 handling) remains valid — protects future scenarios where a role IS genuinely denied
+- Brenda coaching message planned (Taglish, sent separately) to prevent further phantom duplicates
+
+### Bug #208 — Graceful 403 handling on staff-side payment confirm UI (2026-06-11) ✅
+
+**Severity:** P1 — Staff confirmation flow surfaced generic error toast; modal stayed open; Lovable monitoring flagged has_blank_screen=true
+**Discovered:** 2026-06-11 during Bug #206 Batch F deploy fallout
+**Reporter:** Cynthia
+**Status:** ✅ FIXED 2026-06-11 (v1 commit `f043910` deployed past security gate manually; v2 commit `777ac14` pushed but NOT deployed — defense-in-depth for future scenarios)
+
+#### Symptom
+When staff attempted to confirm a customer payment submission via PaymentSubmissions page and lacked permission (post-Bug-#206 Batch F migration where staff.confirm_payment was briefly set to false), the edge function correctly returned 403 with `{ error: "Access denied" }` body — but the frontend displayed a generic "Edge Function returned a non-2xx status code" toast. Confirmation modal remained open. No graceful indicator that the action was permission-blocked vs a system error. Lovable monitoring flagged `has_blank_screen: true`.
+
+#### Root cause
+supabase-js wraps non-2xx edge function responses with `data=null` and the real error inside `error.context` (Response object). PaymentSubmissions.tsx `reviewMutation` handler threw based on `error` presence before checking `data?.error`, swallowing the structured `{ error: "..." }` body. The `onError` handler then matched only the generic wrapper message, not actual permission-denial keywords.
+
+#### Fix v1 — commit `f043910` (deployed)
+src/pages/PaymentSubmissions.tsx (reviewMutation + onError):
+- Swap throw order in mutationFn so `data?.error` is checked before `error`
+- onError: check `isPermissionError` via message keywords (`'access denied'` / `'permission'` / `'forbidden'`)
+- Permission toast shows "Permission denied — contact admin"; modal closes
+- Manually published past Lovable's security gate (9 critical + 11 warnings — 3 are real bugs deferred to next session)
+
+#### Fix v2 — commit `777ac14` (pushed, not deployed; defense-in-depth)
+Same file, two enhancements:
+- mutationFn Path 2: when `error` is set, attempt `ctx.clone().json()` to extract `body.error`, throw enriched error with `.status = ctx.status` attached
+- onError: read `status = err?.status ?? err?.context?.status`, prepend `status === 403 ||` to isPermissionError chain
+- Result: 403 handled gracefully regardless of body content
+
+v2 is dormant in production. With Bug #206 reclassification (staff.confirm_payment reverted to true), no current staff hits the 403 path. v2 will deploy with next natural prod push.
+
+#### Verification
+- v1: Brenda + Bogart confirmed payment submission successfully post-revert (visual confirmation 2026-06-11)
+- v2: Pushed to main, awaiting natural deploy
+
+#### Related
+Bug #206 (matrix policy revert, reclassified as misdiagnosis); Bug #199/#201 Batches A-F (matrix migration that exposed this gap)
+
+### Bug #209 — edit_schedule.finance matrix gap blocking underpayment carry-over (2026-06-11) ✅
+
+**Severity:** P2 — workflow gap; finance role could confirm payment but couldn't complete carry-over step
+**Discovered:** 2026-06-11 during Bug #206 work
+**Reporter:** Cynthia
+**Status:** ✅ FIXED 2026-06-11 (SQL UPDATE)
+
+#### Symptom
+Finance role users could call `confirm_payment` (Bug #206 Batch B migration granted them confirm rights) but the `carry-over` edge function (which finalizes underpayments by adjusting schedule) was gated by `edit_schedule` permission. The role_permissions seed for `edit_schedule` had finance=false. Result: finance could confirm an underpayment but hit 403 when attempting the follow-up carry-over.
+
+#### Root cause
+Bug #199/#201 Batches A-F migrated all staff-facing edge functions to matrix-driven `checkPermission`. The `edit_schedule` permission key seed had finance defaulted to `false`. The confirmation + carry-over flow spans two permission keys; the finance seed wasn't aligned across both.
+
+#### Fix
+SQL UPDATE in Supabase SQL Editor:
+
+```sql
+UPDATE public.role_permissions
+SET is_allowed = true
+WHERE permission_key = 'edit_schedule' AND role = 'finance';
+```
+
+Single row updated. No code change. The `carry-over` edge function correctly enforces the gate — the seed value was the gap.
+
+#### Verification
+Finance role completed carry-over flow on test underpayment scenario (2026-06-11). Workflow restored.
+
+#### Related
+Bug #206 (concurrent matrix policy work); Bug #199/#201 Batches A-F (migration that introduced this gap); Bug #168 (matrix-driven auth pattern)
+
 ### Bug #207 — Payment Proofs and Waivers search bars disconnected from PaymentsHub top-level search (2026-06-11) ✅
 
 **Severity:** P2 — UX broken, search filter not propagated across all tabs

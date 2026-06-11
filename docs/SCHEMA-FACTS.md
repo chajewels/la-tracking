@@ -310,3 +310,40 @@ Confirmed via `information_schema.columns` queries during Bug #193 cleanup. Use 
 **`payments` table columns** (full list, confirmed 2026-06-10): `id`, `account_id`, `amount_paid`, `currency`, `date_paid` (date type), `payment_method`, `reference_number`, `remarks`, `entered_by_user_id`, `created_at` (timestamp), `voided_at`, `voided_by_user_id`, `void_reason`, `submitted_by_type`, `submitted_by_name`. **No `paid_at` column** — use `date_paid` or `created_at`.
 
 **`payment_allocations` table columns**: `id`, `payment_id`, `schedule_id`, `allocation_type`, `allocated_amount`, `created_at`. **Only native payments** (from `record-payment` edge function) create rows here. Bulk-imported payments don't — see Bug #195.
+
+### Phantom Payment Identification Pattern (verified 2026-06-11)
+
+The `payments` table does NOT have a `linked_submission_id` column despite prior assumptions in some session notes. Submission linkage is implicit via `payments.remarks` text containing the submission identifier (e.g., `"Payment submitted. Submission #9fb8f99d"`).
+
+**Confirmed `payments` table columns (verified 2026-06-11 via SELECT *):**
+- `id`, `account_id`, `amount_paid`, `created_at`, `currency`, `date_paid`
+- `entered_by_user_id`, `payment_method`, `reference_number`, `remarks`
+- `submitted_by_name`, `submitted_by_type` (values: `'staff'`, `'customer'`)
+- `void_reason`, `voided_at`, `voided_by_user_id`
+
+**Phantom identifier (use these in cleanup queries):**
+- Phantom (staff-recorded duplicate before customer submission confirmed): `submitted_by_type = 'staff' AND remarks NOT LIKE 'Payment submitted%'`
+- Legitimate from customer submission (post-confirm): `submitted_by_type = 'customer' AND remarks LIKE 'Payment submitted%'`
+- Legitimate staff-recorded payment (cash drop-off, external rakuten, no portal submission): `submitted_by_type = 'staff' AND remarks NOT LIKE 'Payment submitted%' AND <no matching customer submission queued>`
+
+The phantom and the legitimate-staff-entry share the same column signature — the differentiator is context: is there a duplicate-amount customer submission on the same account on the same date? Always investigate with SELECT * before constructing DELETE.
+
+### penalty_fees Schema and Status Field Behavior (verified 2026-06-11)
+
+**Columns (verified 2026-06-11):**
+- `id`, `account_id`, `schedule_id`, `currency`, `penalty_amount`
+- `penalty_stage` (USER-DEFINED enum — observed values: `'week1'`, `'week2'`)
+- `penalty_cycle` (integer)
+- `penalty_date` (date)
+- `status` (USER-DEFINED enum — observed values: `'paid'`, `'unpaid'`; likely also `'waived'`)
+- `waived_at` (nullable)
+- `created_at`, `updated_at`
+
+**Status field behavior:**
+- When a row in `payment_allocations` referencing a penalty is DELETEd, `penalty_fees.status` does NOT auto-reset
+- Manual reset pattern: `UPDATE public.penalty_fees SET status='unpaid' WHERE schedule_id = <X> AND status='paid'`
+- **Self-heal exception:** if a legitimate `payment_submission` is queued and confirmed AFTER the phantom is cleaned, waterfall re-allocation re-fills the same penalty_fees rows — `status='paid'` becomes correct again. No manual reset needed.
+
+**Cleanup decision tree for installment phantoms touching penalties:**
+1. Is a matching legit submission queued? → **Yes:** clean phantom, confirm legit, penalty rows self-heal. No manual penalty_fees UPDATE needed.
+2. Is a matching legit submission queued? → **No:** clean phantom AND manually UPDATE penalty_fees.status back to 'unpaid'.
