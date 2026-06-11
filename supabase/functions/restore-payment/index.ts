@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -77,12 +78,10 @@ Deno.serve(async (req) => {
     }
 
     // Role check: only admin or finance may restore payments
-    const [{ data: isAdmin }, { data: isFinance }] = await Promise.all([
-      supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
-      supabase.rpc("has_role", { _user_id: user.id, _role: "finance" }),
-    ]);
-    if (!isAdmin && !isFinance) {
-      return new Response(JSON.stringify({ error: "Admin or finance role required" }), {
+    // Permission gate (Bug #201 Batch B: matrix-driven access)
+    const allowed = await checkPermission(supabase, user.id, "restore_payment");
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "restore_payment permission required" }), {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

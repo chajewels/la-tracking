@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -45,11 +46,8 @@ Deno.serve(async (req) => {
     }
 
     // ── Role check: only admin/finance can directly record payments ──
-    const [{ data: isAdmin }, { data: isFinance }] = await Promise.all([
-      supabase.rpc("has_role", { _user_id: userId, _role: "admin" }),
-      supabase.rpc("has_role", { _user_id: userId, _role: "finance" }),
-    ]);
-    const canConfirm = isAdmin || isFinance;
+    // Permission flag (Bug #201 Batch B: matrix-driven auto-confirm)
+    const canConfirm = await checkPermission(supabase, userId, "confirm_payment");
 
     const body = await req.json();
     const {

@@ -198,3 +198,18 @@ Batch A of the Item 4 batched migration plan complete. The role_permissions matr
 **Known UI follow-up:** Bug #200 — EditAccountDialog UI gate at AccountDetail.tsx L1040 misgated, broader UI gate audit recommended.
 
 **Remaining Item 4 scope:** Batch B (payment writes — 5 functions), Batch C (cash + schedule — 7 functions), Batch D (loyalty — 4 functions), Batch E (admin/finance + dashboard — 5 functions), Batch F (system-health-v2 + set-portal-pin — 2 special cases). 23 functions remain across 5 future sessions.
+
+### Phase 2 Item 4 Batch B complete — 5 payment write functions on checkPermission (2026-06-11)
+
+Batch B of the Item 4 batched migration plan complete. The role_permissions matrix UI in admin Settings is now the actual source of truth for payment record, void, restore, and underpayment acknowledgment operations. Admin toggling permissions in the matrix has real effect on these flows.
+
+**Functions migrated:** record-payment, record-multi-payment, void-payment, restore-payment, accept-underpayment.
+
+**Behavioral changes (user-approved, matches matrix intent):**
+- Staff GAINS auto-confirm capability when recording payments (was admin+finance only)
+- Staff + finance GAIN ability to accept underpayments (was admin-only)
+- Void / restore payment behavior preserved (admin+finance)
+
+**No DB pre-fix UPDATEs required** — matrix seeds already matched user policy intent per the "matrix is source of truth" directive.
+
+**Remaining Item 4 scope:** Batch C (cash + schedule — 7 functions), Batch D (loyalty — 4 functions), Batch E (admin/finance + dashboard — 5 functions), Batch F (system-health-v2 + set-portal-pin — 2 special cases). 18 functions remain across 4 future sessions.

@@ -2646,3 +2646,27 @@ Scanner flagged Warning. `record-payment` had a dual code path: admin/finance ca
   5. Cross-reference with PermissionMatrixTab matrix entries
 - **Scope note:** UI-only audit, no edge function changes (those are Phase 2 Item 4's edge function batches). Should be addressed after Phase 2 Item 4 completes OR in parallel as a UI-focused side workstream.
 - **Status:** Documented during Bug #199 (Batch A) closure when EditAccountDialog misgating was discovered during gate investigation. Defer to dedicated UI audit session.
+
+### Bug #201 — Phase 2 Batch B: 5 payment write edge functions migrated to checkPermission (2026-06-11) ✅
+
+- **Symptom:** Five payment-write edge functions (record-payment, record-multi-payment, void-payment, restore-payment, accept-underpayment) used hardcoded `supabase.rpc("has_role", {...})` checks that ignored the role_permissions matrix UI in admin Settings. For record-payment/record-multi-payment the role check was a flag controlling auto-confirm path (not a hard gate); for the others it was a 403 gate.
+- **Root cause:** Same as Bug #199 — pre-checkPermission era pattern from before Bug #196 shipped the `_shared/check-permission.ts` helper. Matrix UI toggles for record_payment/confirm_payment/void_payment/restore_payment had no effect on edge function behavior.
+- **Fix:** All 5 functions migrated to `checkPermission(supabase, userId, "<permission_key>")` pattern. Gate-vs-flag structure preserved (record-payment/record-multi-payment keep their canConfirm flag semantics; void/restore/accept stay as hard gates).
+- **Permission key mapping:**
+  - `record-payment` canConfirm flag → `confirm_payment`
+  - `record-multi-payment` canConfirm flag → `confirm_payment`
+  - `void-payment` gate → `void_payment`
+  - `restore-payment` gate → `restore_payment`
+  - `accept-underpayment` gate → `confirm_payment` (no dedicated accept_underpayment key exists; semantic match — acknowledging payment shortfall)
+- **Files:** 5 edge functions in `supabase/functions/`, `docs/FIXED-BUGS.md`, `docs/SYSTEM-STATUS.md`.
+- **Net code change:** −5 LOC per function avg (Promise.all blocks collapsed to single checkPermission call).
+- **Verification:**
+  - All 5 functions reachable via curl smoke test returning 401 (function exists + auth gate working)
+  - Admin retains access (admin bypass in checkPermission)
+  - Other roles controlled by current role_permissions DB rows; admin can adjust via Settings → Permissions matrix
+- **Net effect on existing users (per user directive — DB matrix is source of truth, no pre-fix UPDATEs applied):**
+  - `record-payment` / `record-multi-payment` canConfirm: was admin+finance auto-confirm. Now admin+staff+finance auto-confirm (staff GAINS auto-confirm capability — matches DB confirm_payment=true for staff, user confirmed intent). Eliminates pending-review workflow for staff-recorded payments.
+  - `void-payment`: behavior preserved (admin+finance, matches DB).
+  - `restore-payment`: behavior preserved (admin+finance, matches DB).
+  - `accept-underpayment`: was admin-only. Now admin+staff+finance per matrix confirm_payment. Staff/finance GAIN ability to acknowledge underpayments (audit-log-only, no row changes). User confirmed intent: "can accept if granted and toggle on the matrix by member."
+- **Related:** Item 4 Batch B of Phase 2 (Bug #199 sibling work — Batch A account lifecycle). Bug #200 UI gate audit remains open (separate scope). Batches C (cash + schedule, 7 functions), D (loyalty, 4 functions), E (admin/finance + dashboard, 5 functions), F (system-health-v2 + set-portal-pin, 2 special cases) remain.
