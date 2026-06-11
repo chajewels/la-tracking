@@ -88,6 +88,8 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
       { key: 'view_collections', label: 'View Collections' },
       { key: 'bulk_payment_import', label: 'Bulk Payment Import', section: 'Vault & Bulk Import' },
       { key: 'view_vault', label: 'View Payment Vault' },
+      { key: 'run_reconciliation', label: 'Run Finance Reconciliation', section: 'Reconciliation & Invoicing' },
+      { key: 'generate_invoice', label: 'Generate Invoice' },
     ],
   },
   {

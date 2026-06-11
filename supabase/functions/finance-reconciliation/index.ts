@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { parseJwtClaims } from "../_shared/jwt-claims.ts";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,12 +55,10 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
-    const [{ data: isAdmin }, { data: isFinance }] = await Promise.all([
-      svc.rpc("has_role", { _user_id: userData.user.id, _role: "admin" }),
-      svc.rpc("has_role", { _user_id: userData.user.id, _role: "finance" }),
-    ]);
-    if (!isAdmin && !isFinance) {
-      return new Response(JSON.stringify({ error: "Forbidden" }), {
+    // Permission gate (Bug #204 Batch E: matrix-driven access — user JWT path only, service_role unchanged)
+    const allowed = await checkPermission(svc, userData.user.id, "run_reconciliation");
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "run_reconciliation permission required" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

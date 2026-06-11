@@ -241,3 +241,19 @@ Batch D of the Item 4 batched migration plan complete. Manual loyalty point oper
 **Behavioral changes:** None for existing users — all migrations preserve current access (admin-only or admin+finance) per DB seeds matching prior code behavior. Future policy adjustments via matrix toggles.
 
 **Remaining Item 4 scope:** Batch E (admin/finance + dashboard — 5 functions), Batch F (system-health-v2 + set-portal-pin + submit-cash-payment — 3 special cases). 8 functions remain across 2 future sessions.
+
+### Phase 2 Item 4 Batch E complete — 5 edge functions on checkPermission + 2 new matrix UI keys + DB seed cleanups (2026-06-11)
+
+Batch E of the Item 4 batched migration plan complete. Read-heavy and finance-tier admin functions now matrix-driven. Service_role inter-function calls preserved unchanged in bulk-import (automated bulk import flows) and finance-reconciliation (Vault cron reconciliation).
+
+**Functions migrated:** bulk-import (user JWT path), finance-reconciliation (user JWT path), generate-invoice, add-service, dashboard-summary.
+
+**Matrix UI key reuse (no UI changes needed):** `bulk_payment_import` (existed at Finance → Vault & Bulk Import), `add_service` (existed at Services module, label "Manage Services"), `view_dashboard` (existed at Dashboard module).
+
+**New matrix UI keys introduced:** `run_reconciliation` (admin+finance) and `generate_invoice` (admin+staff+finance) appended to Finance module under new "Reconciliation & Invoicing" section.
+
+**Bug #198 advancement:** `run_reconciliation` was on the missing-keys list (DB had partial seed, matrix UI didn't surface it) — now surfaced. 8 of original 9 remain (approve_cash_order, edit_cash_order, manage_trade_ins, view_trade_ins, recalculate_balance, view_ai_risk, view_live_collection, view_operations_panel, view_system_health).
+
+**Behavioral changes:** None for existing users — all migrations preserve current access per DB seeds matching prior code behavior. DB seed cleanups (UPDATE add_service staff=false, UPDATE bulk_payment_import finance=false) tightened DB to match stated intent and code behavior; no roles GAINED or LOST access since the partial seeds didn't correspond to active code gates.
+
+**Remaining Item 4 scope:** Batch F (system-health-v2 + set-portal-pin + submit-cash-payment — 3 special cases). 3 functions remain across 1 future session.

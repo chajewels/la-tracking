@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { parseJwtClaims } from "../_shared/jwt-claims.ts";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -119,13 +120,10 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      // Role check: only admin or staff may bulk-import
-      const [{ data: isAdmin }, { data: isStaff }] = await Promise.all([
-        supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
-        supabase.rpc("has_role", { _user_id: user.id, _role: "staff" }),
-      ]);
-      if (!isAdmin && !isStaff) {
-        return new Response(JSON.stringify({ error: "Admin or staff role required" }), {
+      // Permission gate (Bug #204 Batch E: matrix-driven access — user JWT path only, service_role unchanged)
+      const allowed = await checkPermission(supabase, user.id, "bulk_payment_import");
+      if (!allowed) {
+        return new Response(JSON.stringify({ error: "bulk_payment_import permission required" }), {
           status: 403,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });

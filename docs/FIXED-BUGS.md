@@ -2737,3 +2737,51 @@ Scanner flagged Warning. `record-payment` had a dual code path: admin/finance ca
   - revoke-loyalty-points / restore-loyalty-points user JWT: behavior preserved (admin-only, matches DB).
   - Service_role automated paths: unchanged.
 - **Related:** Item 4 Batch D of Phase 2 (Bug #199/#201/#202 sibling work). Partially closes Bug #198 (matrix UI / DB drift). Batches E (admin/finance + dashboard, 5 functions), F (system-health-v2 + set-portal-pin + submit-cash-payment, 3 special cases) remain.
+
+### Bug #204 — Phase 2 Batch E: 5 edge functions migrated + 2 new matrix UI keys + 2 existing key seed cleanups (2026-06-11) ✅
+
+- **Symptom:** Five edge functions (bulk-import, finance-reconciliation, generate-invoice, add-service, dashboard-summary) used hardcoded `supabase.rpc("has_role", {...})` checks ignoring the role_permissions matrix UI. Two of the functions (bulk-import, finance-reconciliation) had dual-auth — only the user JWT path used has_role.
+- **Root cause:** Same pre-checkPermission era pattern as Bug #199/#201/#202/#203.
+- **Fix:** All 5 functions migrated; dual-auth structure preserved in the two with service_role inter-function call paths. Two existing matrix UI keys reused (`bulk_payment_import`, `add_service`) — DB seeds corrected to match Cynthia's stated intent and current code behavior. Two new matrix UI keys introduced (`run_reconciliation`, `generate_invoice`).
+- **Permission key mapping:**
+  - `bulk-import` user JWT path → existing `bulk_payment_import` (admin+staff; matrix UI label "Bulk Payment Import" at Finance → Vault & Bulk Import section)
+  - `finance-reconciliation` user JWT path → NEW `run_reconciliation` (admin+finance; previously partial-seeded in DB but missing from matrix UI — partially closes Bug #198)
+  - `generate-invoice` → NEW `generate_invoice` (admin+staff+finance; net new key)
+  - `add-service` → existing `add_service` (admin only; matrix UI label "Manage Services" at Services module)
+  - `dashboard-summary` → existing `view_dashboard` (all 4 roles=true; matrix UI label "View Dashboard" at Dashboard module)
+- **DB cleanup applied 2026-06-11 (pre-deploy, after initial pre-fix produced 2 orphan keys):**
+
+```sql
+  -- 1. DELETE orphan keys created in error during initial pre-fix (bulk_import × 4 + manage_services × 4)
+  DELETE FROM public.role_permissions
+  WHERE permission_key IN ('bulk_import', 'manage_services');
+
+  -- 2. UPDATE add_service: tighten staff to false (admin-only intent)
+  UPDATE public.role_permissions SET is_allowed = false
+  WHERE permission_key = 'add_service' AND role = 'staff';
+
+  -- 3. UPDATE bulk_payment_import: tighten finance to false (admin+staff intent)
+  UPDATE public.role_permissions SET is_allowed = false
+  WHERE permission_key = 'bulk_payment_import' AND role = 'finance';
+
+  -- 4. INSERT missing bulk_payment_import rows (staff=true, csr=false)
+  INSERT INTO public.role_permissions (role, permission_key, is_allowed) VALUES
+    ('staff', 'bulk_payment_import', true),
+    ('csr',   'bulk_payment_import', false);
+```
+
+  Plus the initial pre-fix that introduced `run_reconciliation` (already partially seeded, finance updated false → true) and `generate_invoice` (4 new rows).
+- **Process note:** During initial pre-fix the matrix UI taxonomy was not grepped before proposing key names. This led to 2 orphan keys being created in DB (`bulk_import`, `manage_services`) that paralleled the existing UI keys (`bulk_payment_import`, `add_service`). Orphans were DELETEd; existing keys were UPSERTed to correct seeds. SOP refinement for future batches: grep matrix UI taxonomy FIRST, then edge function code, then cross-reference before proposing any new keys.
+- **Files:** 5 edge functions in `supabase/functions/`, `src/components/settings/PermissionMatrixTab.tsx`, `docs/FIXED-BUGS.md`, `docs/SYSTEM-STATUS.md`.
+- **Matrix UI additions:** `run_reconciliation` (label "Run Finance Reconciliation") and `generate_invoice` (label "Generate Invoice") appended to Finance module under new "Reconciliation & Invoicing" section.
+- **Verification:**
+  - All 5 functions reachable via curl smoke test returning 401
+  - Admin retains access (admin bypass in checkPermission)
+  - Service_role inter-function calls unchanged (no regression on Vault cron triggering finance-reconciliation; no regression on automated bulk-import flows)
+- **Net effect on existing users:**
+  - bulk-import: admin+staff preserved (no change)
+  - finance-reconciliation: admin+finance preserved (no change — UPDATE finance=true reflected intent)
+  - generate-invoice: admin+finance+staff preserved (no change)
+  - add-service: admin-only preserved (UPDATE staff=false reflected intent)
+  - dashboard-summary: all 4 staff roles preserved (view_dashboard all roles=true)
+- **Related:** Item 4 Batch E of Phase 2 (Bug #199/#201/#202/#203 sibling work). Partially closes Bug #198 (1 of 9 missing keys now surfaced — `run_reconciliation`). Batch F (system-health-v2 + set-portal-pin + submit-cash-payment, 3 special cases) remains.

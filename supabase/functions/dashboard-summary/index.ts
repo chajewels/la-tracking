@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -40,16 +41,10 @@ Deno.serve(async (req) => {
 
     // Staff/admin/finance role gate — dashboard exposes business KPIs that
     // must never be visible to customers (Phase B portal users hold valid
-    // JWTs but are not staff).
-    const [adminRes, staffRes, financeRes, csrRes] = await Promise.all([
-      supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
-      supabase.rpc("has_role", { _user_id: user.id, _role: "staff" }),
-      supabase.rpc("has_role", { _user_id: user.id, _role: "finance" }),
-      supabase.rpc("has_role", { _user_id: user.id, _role: "csr" }),
-    ]);
-    const isStaff = !!(adminRes.data || staffRes.data || financeRes.data || csrRes.data);
-    if (!isStaff) {
-      return new Response(JSON.stringify({ error: "Forbidden" }), {
+    // Permission gate (Bug #204 Batch E: matrix-driven access)
+    const allowed = await checkPermission(supabase, user.id, "view_dashboard");
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "view_dashboard permission required" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getServiceAccountAccessToken } from "../_shared/google-auth.ts";
 import { appendManyReceipts, type CashReceiptSlot } from "../_shared/cash-receipt.ts";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -262,14 +263,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // --- Role gate (admin / finance / staff) ---
-    const [{ data: isAdmin }, { data: isFinance }, { data: isStaff }] = await Promise.all([
-      supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
-      supabase.rpc("has_role", { _user_id: user.id, _role: "finance" }),
-      supabase.rpc("has_role", { _user_id: user.id, _role: "staff" }),
-    ]);
-    if (!isAdmin && !isFinance && !isStaff) {
-      return new Response(JSON.stringify({ error: "Forbidden: admin/finance/staff role required" }), {
+    // Permission gate (Bug #204 Batch E: matrix-driven access)
+    const allowed = await checkPermission(supabase, user.id, "generate_invoice");
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "generate_invoice permission required" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
