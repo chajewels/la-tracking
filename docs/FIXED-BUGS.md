@@ -3015,3 +3015,120 @@ Commit `8854787` (push only, frontend-only, no edge functions affected). Two fil
 - Prop name inconsistency exists (PaymentSubmissions uses `searchValue`, Waivers uses `search`). Refactor for consistency would be a future ticket.
 - When child components carry their own search inputs AND a parent provides a top-level search, hide the child inputs when embedded so there is one clear control surface.
 - Frontend prop disconnects fail silently — users perceive "broken search" when in fact the prop wiring is the gap. Worth a broader audit on other tabbed surfaces.
+
+### Bug #210 — `carry-over` edge function gated on `edit_schedule` broke staff confirm→carry flow (2026-06-11) ✅
+
+**Severity:** P1 — staff could confirm an underpayment but hit 403 on the follow-up carry-over step. Bug #209 fixed it for finance via DB seed; staff hit the same gap because Bug #199 Batch A mapped `carry-over` to `edit_schedule` (admin-only seed).
+**Discovered:** 2026-06-11 by Cynthia during Bug #206/#209 reclassification work.
+**Reporter:** Cynthia.
+**Status:** ✅ FIXED 2026-06-11.
+
+#### Symptom
+Staff confirmed a partial payment (`confirm_payment` allowed per matrix), then clicked Carry Over to push the shortfall to the next installment. Carry-over edge function returned 403 `"edit_schedule permission required"`. The confirm and carry steps are conceptually one workflow but were gated by two different permission keys.
+
+#### Root cause
+`carry-over` was migrated in Bug #199 Batch A using `edit_schedule` as its permission key alongside `add-installment` / `delete-installment` / `extend-schedule`. Those three legitimately modify schedule structure (admin-only). Carry-over only adjusts the partial-paid amount on an existing row — semantically it's the closing step of a payment confirm, not schedule editing. The mismatch broke the staff flow that worked pre-Batch-A-F.
+
+#### Fix
+`supabase/functions/carry-over/index.ts` L35-L37:
+- `checkPermission(..., "edit_schedule")` → `checkPermission(..., "confirm_payment")`
+- Error string updated accordingly.
+
+`add-installment`, `delete-installment`, `extend-schedule` remain on `edit_schedule` — they truly are schedule edits.
+
+`CLAUDE.md` CARRY-OVER RULES section updated: "Bearer token + admin role required" → "Bearer token + confirm_payment permission via checkPermission (matrix-driven; overrides respected)".
+
+#### Verification
+Pending deploy. Staff with `confirm_payment=true` will complete the full confirm→carry flow without a second permission check.
+
+#### Related
+Bug #199 Batch A (migration that introduced the mismatch); Bug #209 (parallel finance fix via DB seed); Bug #206 reclassification (broader matrix policy revert).
+
+### Bug #211 — Permission refresh after matrix toggle unmounts the current page via ProtectedRoute spinner (2026-06-11) ✅
+
+**Severity:** P1 — toggling any permission switch in Settings → Permissions caused the entire app shell to remount with a full-screen spinner. Made the matrix UI feel unstable; in some scenarios the toggle didn't appear to "stick" because the user navigated away mid-refresh.
+**Discovered:** 2026-06-11 during Bug #206 work.
+**Reporter:** Cynthia.
+**Status:** ✅ FIXED 2026-06-11.
+
+#### Symptom
+After every successful permission write (role toggle, member override toggle, reset), `PermissionsProvider.fetchData()` ran with `setLoading(true)`, which flipped the context's `loading` flag. `ProtectedRoute` reads that flag and renders a full-screen spinner while loading — so the entire current page unmounted and remounted on every toggle.
+
+#### Root cause
+`src/contexts/PermissionsContext.tsx` `fetchData` set `setLoading(true)` unconditionally at the start. The same function powered both initial-load (where loading=true is correct — prevents stale-permission flashes on user switch) and post-toggle refresh (where loading=true is wrong — the page should stay mounted).
+
+#### Fix
+`fetchData` now accepts `{ silent?: boolean; retryCount?: number }`:
+- Initial-load path (useEffect on auth ready) calls `fetchData()` — non-silent, current behavior preserved
+- New `refresh` callback wraps `fetchData({ silent: true })` — skips both `setLoading(true)` and `setLoading(false)`, refetches in the background
+- Context's `refresh` value now exposes the silent wrapper (was previously `refresh: fetchData` raw)
+
+#### Verification
+Pending deploy. Matrix toggles should update inline without remount; ProtectedRoute spinner should only appear on initial load or user switch.
+
+#### Related
+Bug #208 (Lovable `has_blank_screen` monitoring — this remount pattern likely contributed to that signal in some scenarios).
+
+### Bug #212 — Member override toggle ambiguous OFF state (amber background read as "still on") (2026-06-11) ✅
+
+**Severity:** P2 — UX clarity; users couldn't tell at a glance whether an override was ON or OFF because both states used amber backgrounds.
+**Discovered:** 2026-06-11 by Cynthia during Bug #211 fix testing.
+**Reporter:** Cynthia.
+**Status:** ✅ FIXED 2026-06-11.
+
+#### Symptom
+On the Permission Matrix → By Member view, when a row had a custom override, the Switch used `data-[state=checked]:bg-amber-500` AND `data-[state=unchecked]:bg-amber-900/60`. Both states were amber. Without a clear off-track, users mistook OFF overrides for ON. Same row, two visually similar amber tones — confusing during a fast review.
+
+Additionally, the success toast said "Permission updated for {name}" — gave no indication of WHICH permission changed or to what state.
+
+#### Root cause
+`src/components/settings/PermissionMatrixTab.tsx` MemberMatrix Switch className: the override style differentiated ON/OFF only by alpha (`bg-amber-500` vs `bg-amber-900/60`), not by color. Toast string was a constant, not parameterized on the permission/state.
+
+#### Fix
+(a) Switch className updated:
+- Unchecked track: `bg-muted` (clearly off — matches the role-default off-state)
+- Amber identity preserved via `ring-1 ring-amber-500/60` around the whole track (so "custom override" is still recognizable in both states)
+- Checked track stays `bg-amber-500` for the ON-override signal
+
+(b) Toast message now includes permission label + new state:
+`${findPermissionLabel(key)}: ${newGranted ? 'Enabled' : 'Disabled'} (custom override) for ${selectedMember.full_name}`
+
+A new `findPermissionLabel(key)` helper scans PERMISSION_MODULES — keeps `handleToggle` signature stable.
+
+#### Verification
+Pending deploy. OFF overrides will read as a muted grey track with an amber ring; toast will identify the exact permission and new state.
+
+#### Related
+Bug #211 (same file, same review session).
+
+### Bug #213 — Multi-role members collapsed to single role in Permission Matrix UI (2026-06-11) ✅
+
+**Severity:** P1 — the Permission Matrix By-Member view misrepresented multi-role users. Backend `checkPermission` correctly ORs across all of a user's role rows (Bug #196), but the Matrix UI showed only one role (last-write-wins on the roleMap) and computed role defaults from that single role. Admin toggling for, say, a staff+finance composite user couldn't see the actual effective permission set.
+**Discovered:** 2026-06-11 by Cynthia during Bug #211/#212 work.
+**Reporter:** Cynthia.
+**Status:** ✅ FIXED 2026-06-11.
+
+#### Symptom
+`settings-team-members` query built `roleMap[r.user_id] = r.role` — last write wins. A user with two `user_roles` rows showed only one. `getRoleDefault(key)` then looked up a single role in `role_permissions`, producing wrong defaults for composite-role users. Backend OR semantics meant the user's actual effective permission could differ from what the matrix UI showed.
+
+#### Root cause
+`src/components/settings/PermissionMatrixTab.tsx`:
+- `TeamMember` interface had `role: string` (singular)
+- Query overwrote roleMap entries on duplicate user_id
+- Dropdown showed `({m.role})` — single
+- Role badge displayed a single badge
+- `getRoleDefault` queried `role_permissions` with `p.role === selectedMember.role`
+
+#### Fix
+- `TeamMember.role: string` → `TeamMember.roles: string[]`
+- Query aggregates: `roleMap[user_id]` becomes `string[]`, pushed-on-duplicate
+- Dropdown option label: `({m.roles.join(', ')})` — e.g. `"Maria (staff, finance)"`
+- Role badge: `selectedMember.roles.map(role => <Badge>...)` — one chip per role
+- `getRoleDefault(key)` mirrors backend OR semantics: `selectedMember.roles.some(role => allPermissions.find(...)?.is_allowed ?? false)`
+- `RoleMatrix` is unchanged — it operates on `role` strings (admin/staff/finance/csr), not `TeamMember`. No signature change needed.
+
+#### Verification
+Pending deploy. By-Member view will list each user once with all roles shown; the effective default tile will reflect the OR across all roles, matching what the edge functions enforce.
+
+#### Related
+Bug #196 (`_shared/check-permission.ts` multi-role fix — established the OR semantics this UI now mirrors).

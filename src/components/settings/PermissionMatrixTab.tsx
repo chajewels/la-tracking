@@ -122,7 +122,17 @@ type ViewMode = 'role' | 'member';
 interface TeamMember {
   user_id: string;
   full_name: string;
-  role: string;
+  roles: string[];
+}
+
+// Find the human-readable label for a permission key by scanning PERMISSION_MODULES.
+// Used by override toasts so messages identify what just changed.
+function findPermissionLabel(key: string): string {
+  for (const mod of PERMISSION_MODULES) {
+    const p = mod.permissions.find(p => p.key === key);
+    if (p) return p.label;
+  }
+  return key;
 }
 
 interface Override {
@@ -253,11 +263,13 @@ function MemberMatrix({
     [overrides],
   );
 
+  // Mirror backend checkPermission OR semantics: true if ANY of the member's
+  // roles has is_allowed = true in role_permissions for this key.
   const getRoleDefault = (key: string): boolean => {
     if (!selectedMember) return false;
-    return allPermissions.find(
-      p => p.role === selectedMember.role && p.permission_key === key,
-    )?.is_allowed ?? false;
+    return selectedMember.roles.some(role =>
+      (allPermissions.find(p => p.role === role && p.permission_key === key)?.is_allowed) ?? false,
+    );
   };
 
   const handleToggle = async (key: string) => {
@@ -280,7 +292,9 @@ function MemberMatrix({
       await refetchOverrides();
       await refresh();
       queryClient.invalidateQueries({ queryKey: ['user-permission-overrides-counts'] });
-      toast({ title: `Permission updated for ${selectedMember.full_name}` });
+      toast({
+        title: `${findPermissionLabel(key)}: ${newGranted ? 'Enabled' : 'Disabled'} (custom override) for ${selectedMember.full_name}`,
+      });
     } catch (e: any) {
       toast({ title: 'Error', description: e.message, variant: 'destructive' });
     }
@@ -342,19 +356,19 @@ function MemberMatrix({
           >
             {members.map(m => (
               <option key={m.user_id} value={m.user_id}>
-                {m.full_name} ({m.role})
+                {m.full_name} ({m.roles.join(', ')})
               </option>
             ))}
           </select>
           <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
         </div>
 
-        {selectedMember && (
-          <Badge variant={roleBadgeVariant(selectedMember.role)} className="text-[10px] capitalize">
+        {selectedMember && selectedMember.roles.map(role => (
+          <Badge key={role} variant={roleBadgeVariant(role)} className="text-[10px] capitalize">
             <Shield className="h-3 w-3 mr-1" />
-            {selectedMember.role}
+            {role}
           </Badge>
-        )}
+        ))}
 
         {overrideCount > 0 && (
           <Badge variant="outline" className="text-[10px] border-amber-500/50 text-amber-400 bg-amber-500/10">
@@ -433,7 +447,7 @@ function MemberMatrix({
                           onCheckedChange={(_newVal) => handleToggle(perm.key)}
                           className={
                             hasOverride
-                              ? 'data-[state=checked]:bg-amber-500 data-[state=unchecked]:bg-amber-900/60'
+                              ? 'data-[state=checked]:bg-amber-500 data-[state=unchecked]:bg-muted ring-1 ring-amber-500/60'
                               : 'data-[state=checked]:bg-primary/50 data-[state=unchecked]:bg-muted'
                           }
                         />
@@ -479,15 +493,20 @@ export default function PermissionMatrixTab() {
         supabase.from('profiles').select('user_id, full_name'),
         supabase.from('user_roles').select('user_id, role'),
       ]);
-      const roleMap: Record<string, string> = {};
-      (rolesRes.data || []).forEach((r: any) => { roleMap[r.user_id] = r.role; });
+      // Aggregate ALL roles per user — mirror backend checkPermission OR logic
+      // (admin+finance, staff+admin, etc.). last-write-wins would mask composite roles.
+      const roleMap: Record<string, string[]> = {};
+      (rolesRes.data || []).forEach((r: any) => {
+        if (!roleMap[r.user_id]) roleMap[r.user_id] = [];
+        roleMap[r.user_id].push(r.role);
+      });
       return (profilesRes.data || [])
         .map((p: any) => ({
           user_id: p.user_id,
           full_name: p.full_name,
-          role: roleMap[p.user_id],
+          roles: roleMap[p.user_id] || [],
         }))
-        .filter((p: any) => p.role);
+        .filter((p: any) => p.roles.length > 0);
     },
   });
 

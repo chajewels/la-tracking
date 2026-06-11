@@ -102,18 +102,23 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
 
   const userId = user?.id;
 
-  const fetchData = useCallback(async (retryCount = 0) => {
+  const fetchData = useCallback(async (opts?: { silent?: boolean; retryCount?: number }) => {
+    const silent = opts?.silent ?? false;
+    const retryCount = opts?.retryCount ?? 0;
+
     if (!userId) {
       setAllPermissions([]);
       setFeatureToggles([]);
-      setLoading(false);
+      if (!silent) setLoading(false);
       return;
     }
 
     // Mark loading while we (re)fetch permissions for a new user. Prevents
     // ProtectedRoute from flashing AccessDenied in the window after login
     // but before the new user's role permissions finish loading.
-    setLoading(true);
+    // Skipped when silent=true (matrix toggle refresh) so ProtectedRoute
+    // doesn't unmount the current page while we refetch in the background.
+    if (!silent) setLoading(true);
 
     try {
       const [permRes, toggleRes, overrideRes] = await Promise.all([
@@ -126,7 +131,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
         console.warn('Permissions fetch error:', permRes.error?.message, toggleRes.error?.message);
         if (retryCount < 2) {
           await new Promise(r => setTimeout(r, 1500 * (retryCount + 1)));
-          return fetchData(retryCount + 1);
+          return fetchData({ silent, retryCount: retryCount + 1 });
         }
       }
 
@@ -137,12 +142,16 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       console.error('Permissions fetch failed:', err);
       if (retryCount < 2) {
         await new Promise(r => setTimeout(r, 1500 * (retryCount + 1)));
-        return fetchData(retryCount + 1);
+        return fetchData({ silent, retryCount: retryCount + 1 });
       }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [userId]);
+
+  // Public refresh — always silent so ProtectedRoute doesn't unmount the
+  // current page when the Permission Matrix toggles trigger a refetch.
+  const refresh = useCallback(() => fetchData({ silent: true }), [fetchData]);
 
   useEffect(() => {
     if (!authLoading) {
@@ -251,7 +260,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       featureToggles,
       updatePermission,
       updateFeatureToggle,
-      refresh: fetchData,
+      refresh,
       loading,
     }}>
       {children}

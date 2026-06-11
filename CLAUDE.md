@@ -957,7 +957,7 @@ Consistent labels across the Finance dashboard. The underlying metrics are uncha
       WRONG:   total_due_amount = base_installment_amount + shortfall
       This preserves all previous Keep reductions on the destination row.
     Body: { schedule_row_id, account_id }
-    Auth: Bearer token + admin role required
+    Auth: Bearer token + confirm_payment permission via checkPermission (matrix-driven; overrides respected)
     Steps:
       1. Validates source row status === 'partially_paid'
       2. Validates source row paid_amount > 0

@@ -32,9 +32,9 @@ serve(async (req) => {
     }
 
     // Permission gate (Bug #199 Batch A: matrix-driven access)
-    const allowed = await checkPermission(supabase, user.id, "edit_schedule");
+    const allowed = await checkPermission(supabase, user.id, "confirm_payment");
     if (!allowed) {
-      return new Response(JSON.stringify({ error: "edit_schedule permission required" }), {
+      return new Response(JSON.stringify({ error: "confirm_payment permission required" }), {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
