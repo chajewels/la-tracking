@@ -227,3 +227,17 @@ Batch C of the Item 4 batched migration plan complete. Cash payment operations n
 **Scope carve-out:** submit-cash-payment deferred to Batch F. Its dual-path routing (customer self-submission vs staff submission) uses has_role for path discrimination, not permission gating. Requires careful refactor outside standard Batch C scope.
 
 **Remaining Item 4 scope:** Batch D (loyalty — 4 functions), Batch E (admin/finance + dashboard — 5 functions), Batch F (system-health-v2 + set-portal-pin + submit-cash-payment — 3 special cases). 12 functions remain across 3 future sessions.
+
+### Phase 2 Item 4 Batch D complete — 4 loyalty admin functions on checkPermission + new permission key + matrix UI (2026-06-11)
+
+Batch D of the Item 4 batched migration plan complete. Manual loyalty point operations (adjust/award/revoke/restore) now matrix-driven. Service_role inter-function calls preserved unchanged — automated loyalty flows triggered by payment voids, account forfeitures, and reactivations continue to operate without permission gates (correct behavior).
+
+**Functions migrated:** adjust-loyalty-points, award-loyalty-points, revoke-loyalty-points, restore-loyalty-points (user JWT paths only).
+
+**New permission key introduced (admin-only seed):** `loyalty_revoke_points`. Surfaced in PermissionMatrixTab UI alongside existing `loyalty_adjust_points` under new "Loyalty Admin" section in Loyalty module.
+
+**Bug #198 partial close:** 2 of 11 missing matrix UI keys now surfaced (loyalty_adjust_points + loyalty_revoke_points). 9 keys remain (approve_cash_order, edit_cash_order, manage_trade_ins, view_trade_ins, recalculate_balance, run_reconciliation, view_ai_risk, view_live_collection, view_operations_panel, view_system_health). Bug #198 remains open for follow-up.
+
+**Behavioral changes:** None for existing users — all migrations preserve current access (admin-only or admin+finance) per DB seeds matching prior code behavior. Future policy adjustments via matrix toggles.
+
+**Remaining Item 4 scope:** Batch E (admin/finance + dashboard — 5 functions), Batch F (system-health-v2 + set-portal-pin + submit-cash-payment — 3 special cases). 8 functions remain across 2 future sessions.

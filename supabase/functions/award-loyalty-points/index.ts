@@ -3,6 +3,7 @@ import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
 import { parseJwtClaims } from "../_shared/jwt-claims.ts";
+import { checkPermission } from "../_shared/check-permission.ts";
 import {
   buildPointsEarnedNotification,
   buildTierUpgradeNotification,
@@ -56,12 +57,10 @@ Deno.serve(async (req) => {
       if (authError || !user) {
         return json({ error: "Unauthorized" }, 401);
       }
-      const [{ data: isAdmin }, { data: isFinance }] = await Promise.all([
-        supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
-        supabase.rpc("has_role", { _user_id: user.id, _role: "finance" }),
-      ]);
-      if (!isAdmin && !isFinance) {
-        return json({ error: "Forbidden" }, 403);
+      // Permission gate (Bug #203 Batch D: matrix-driven access — user JWT path only, service_role unchanged)
+      const allowed = await checkPermission(supabase, user.id, "loyalty_adjust_points");
+      if (!allowed) {
+        return json({ error: "loyalty_adjust_points permission required" }, 403);
       }
     }
 

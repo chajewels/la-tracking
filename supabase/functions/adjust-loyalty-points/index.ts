@@ -12,6 +12,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { emitNotification } from "../_shared/emit-notification.ts";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 // In-portal notification taxonomy tag for adjustments. The DB
 // loyalty_notifications.category CHECK does not include this value, so
@@ -59,12 +60,10 @@ Deno.serve(async (req) => {
     const user = userData.user;
 
     // admin OR finance
-    const [{ data: isAdmin }, { data: isFinance }] = await Promise.all([
-      supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
-      supabase.rpc("has_role", { _user_id: user.id, _role: "finance" }),
-    ]);
-    if (!isAdmin && !isFinance) {
-      return json({ error: "Admin or finance role required" }, 403);
+    // Permission gate (Bug #203 Batch D: matrix-driven access)
+    const allowed = await checkPermission(supabase, user.id, "loyalty_adjust_points");
+    if (!allowed) {
+      return json({ error: "loyalty_adjust_points permission required" }, 403);
     }
 
     const body = (await req.json().catch(() => ({}))) as RequestBody;

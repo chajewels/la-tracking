@@ -76,6 +76,8 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
     module: 'Loyalty',
     permissions: [
       { key: 'view_dashboard', label: 'View Loyalty Dashboard', section: 'Loyalty Program' },
+      { key: 'loyalty_adjust_points', label: 'Adjust / Award Loyalty Points', section: 'Loyalty Admin' },
+      { key: 'loyalty_revoke_points', label: 'Revoke / Restore Loyalty Points' },
     ],
   },
   {

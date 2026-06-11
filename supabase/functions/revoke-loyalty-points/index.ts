@@ -3,6 +3,7 @@ import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
 import { parseJwtClaims } from "../_shared/jwt-claims.ts";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -69,11 +70,9 @@ Deno.serve(async (req) => {
     if (parseJwtClaims(token)?.role !== "service_role") {
       const { data: { user }, error: authError } = await supabase.auth.getUser(token);
       if (authError || !user) return json({ error: "Unauthorized" }, 401);
-      const { data: isAdmin } = await supabase.rpc("has_role", {
-        _user_id: user.id,
-        _role: "admin",
-      });
-      if (!isAdmin) return json({ error: "Admin access required" }, 403);
+      // Permission gate (Bug #203 Batch D: matrix-driven access — user JWT path only, service_role unchanged)
+      const allowed = await checkPermission(supabase, user.id, "loyalty_revoke_points");
+      if (!allowed) return json({ error: "loyalty_revoke_points permission required" }, 403);
       createdByUserId = user.id;
     }
 

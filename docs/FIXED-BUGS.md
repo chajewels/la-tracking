@@ -2706,3 +2706,34 @@ Scanner flagged Warning. `record-payment` had a dual code path: admin/finance ca
   - edit-payment-amount: behavior preserved (admin+finance — matches void_payment DB seed).
 - **submit-cash-payment NOT migrated in Batch C** — dual-path function (Path A customer portal, Path B staff Bearer JWT). `has_role` check discriminates between staff and customer JWT, not a permission gate. Moved to Batch F special cases alongside set-portal-pin for careful refactor.
 - **Related:** Item 4 Batch C of Phase 2 (Bug #199/#201 sibling work). Bug #200 UI gate audit remains open. Batches D (loyalty, 4 functions), E (admin/finance + dashboard, 5 functions), F (system-health-v2 + set-portal-pin + submit-cash-payment, 3 special cases) remain.
+
+### Bug #203 — Phase 2 Batch D: 4 loyalty admin edge functions migrated + 1 new permission key + matrix UI surface (2026-06-11) ✅
+
+- **Symptom:** Four loyalty admin edge functions (adjust-loyalty-points, award-loyalty-points, revoke-loyalty-points, restore-loyalty-points) used hardcoded `supabase.rpc("has_role", {...})` checks ignoring the role_permissions matrix UI. Matrix toggling had no effect on manual loyalty operations.
+- **Root cause:** Same pre-checkPermission era pattern as Bug #199/#201/#202. Three of four functions (award/revoke/restore) have dual-auth (service_role inter-function calls + user JWT manual operations) — only the user JWT path uses has_role.
+- **Fix:** All 4 functions migrated; dual-auth structure preserved. Service_role inter-function calls unchanged (parseJwtClaims branch); user JWT path now uses checkPermission. 1 new permission key (`loyalty_revoke_points`) introduced to preserve current admin-only design for revoke/restore (vs admin+finance for adjust/award).
+- **Permission key mapping:**
+  - `adjust-loyalty-points` → `loyalty_adjust_points` (existed in DB, admin+finance) ✅
+  - `award-loyalty-points` user JWT path → `loyalty_adjust_points` (same key — both adjust/award are admin+finance)
+  - `revoke-loyalty-points` user JWT path → NEW `loyalty_revoke_points` (admin-only seed)
+  - `restore-loyalty-points` user JWT path → NEW `loyalty_revoke_points` (same key — both revoke/restore are admin-only)
+- **DB pre-fix applied 2026-06-11 (pre-deploy):**
+
+```sql
+  INSERT INTO public.role_permissions (role, permission_key, is_allowed) VALUES
+    ('admin', 'loyalty_revoke_points', true), ('staff', 'loyalty_revoke_points', false),
+    ('finance', 'loyalty_revoke_points', false), ('csr', 'loyalty_revoke_points', false);
+```
+
+- **Files:** 4 edge functions in `supabase/functions/`, `src/components/settings/PermissionMatrixTab.tsx`, `docs/FIXED-BUGS.md`, `docs/SYSTEM-STATUS.md`.
+- **Matrix UI additions:** `loyalty_adjust_points` and `loyalty_revoke_points` added to Loyalty module under new "Loyalty Admin" section. Partially closes Bug #198 (2 of 11 missing keys now surfaced).
+- **Verification:**
+  - All 4 functions reachable via curl smoke test returning 401
+  - Admin retains access (admin bypass in checkPermission)
+  - Service_role inter-function calls unchanged (no regression on automated loyalty operations from payment voids/forfeitures/reactivations)
+  - Admin can independently toggle adjust vs revoke capabilities via matrix
+- **Net effect on existing users:**
+  - adjust-loyalty-points / award-loyalty-points user JWT: behavior preserved (admin+finance, matches DB).
+  - revoke-loyalty-points / restore-loyalty-points user JWT: behavior preserved (admin-only, matches DB).
+  - Service_role automated paths: unchanged.
+- **Related:** Item 4 Batch D of Phase 2 (Bug #199/#201/#202 sibling work). Partially closes Bug #198 (matrix UI / DB drift). Batches E (admin/finance + dashboard, 5 functions), F (system-health-v2 + set-portal-pin + submit-cash-payment, 3 special cases) remain.
