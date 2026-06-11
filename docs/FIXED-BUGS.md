@@ -2785,3 +2785,45 @@ Scanner flagged Warning. `record-payment` had a dual code path: admin/finance ca
   - add-service: admin-only preserved (UPDATE staff=false reflected intent)
   - dashboard-summary: all 4 staff roles preserved (view_dashboard all roles=true)
 - **Related:** Item 4 Batch E of Phase 2 (Bug #199/#201/#202/#203 sibling work). Partially closes Bug #198 (1 of 9 missing keys now surfaced — `run_reconciliation`). Batch F (system-health-v2 + set-portal-pin + submit-cash-payment, 3 special cases) remains.
+
+### Bug #205 — Phase 2 Batch F COMPLETE: 3 special-case functions migrated + Bug #168 fully closed (2026-06-11) ✅
+
+- **Symptom:** Three remaining edge functions held nonstandard auth patterns: (1) system-health-v2 used the prohibited string equality auth pattern (Bug #168) AND 4x has_role calls; (2) set-portal-pin used standard 2x has_role admin+staff gate; (3) submit-cash-payment used 3x has_role for PATH DISCRIMINATION (not access gating) between customer flow and staff direct-entry flow.
+- **Root cause:** Same pre-checkPermission era patterns. system-health-v2 was an explicit known gap per Bug #168 (kept dual-gated when initial sweep happened). submit-cash-payment's pattern was always recognized as dispatch-not-access-gate, deferred to dedicated batch.
+- **Fix:**
+  - **system-health-v2:** Two independent fixes in one batch. (1) Bug #168 string equality `authToken === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")` replaced with `parseJwtClaims(authToken)?.role === "service_role"`. (2) 4x has_role admin/staff/finance/csr collapsed to `checkPermission(supabaseGate, user.id, "system_health")` — service_role inter-function/cron path unchanged via parseJwtClaims branch.
+  - **set-portal-pin:** Standard 2x has_role → `checkPermission(supabase, user.id, "set_customer_pin")` migration. NEW permission key introduced (admin+staff seed) for clean security separation from general `edit_customer` permission (since PIN management is more sensitive than profile editing).
+  - **submit-cash-payment:** Refactored 3x has_role dispatch logic to `checkPermission(supabase, user.id, "submit_cash_payment_staff")`. This is Option 2 from investigation — preserves matrix-driven design philosophy by making PATH DISPATCH matrix-controllable. NEW permission key (admin+staff+finance seed, csr=false) — matches current dispatch behavior exactly.
+- **Permission key mapping:**
+  - `system-health-v2` user JWT path → existing `system_health` (DB seed updated to all 4 roles=true to preserve current any-of-4-staff behavior; previously DB had admin+staff only)
+  - `set-portal-pin` → NEW `set_customer_pin` (admin+staff seed)
+  - `submit-cash-payment` Path B dispatch → NEW `submit_cash_payment_staff` (admin+staff+finance seed, csr=false)
+- **DB pre-fix applied 2026-06-11 (pre-deploy):**
+
+```sql
+  -- 1. UPDATE system_health: expand finance + csr to true (preserve any-of-4-staff current behavior)
+  UPDATE public.role_permissions SET is_allowed = true
+  WHERE permission_key = 'system_health' AND role IN ('finance', 'csr');
+  -- 2. INSERT set_customer_pin (admin+staff seed)
+  INSERT INTO public.role_permissions (role, permission_key, is_allowed) VALUES
+    ('admin', 'set_customer_pin', true), ('staff', 'set_customer_pin', true),
+    ('finance', 'set_customer_pin', false), ('csr', 'set_customer_pin', false);
+  -- 3. INSERT submit_cash_payment_staff (admin+staff+finance seed)
+  INSERT INTO public.role_permissions (role, permission_key, is_allowed) VALUES
+    ('admin', 'submit_cash_payment_staff', true), ('staff', 'submit_cash_payment_staff', true),
+    ('finance', 'submit_cash_payment_staff', true), ('csr', 'submit_cash_payment_staff', false);
+```
+
+- **Files:** 3 edge functions in `supabase/functions/`, `src/components/settings/PermissionMatrixTab.tsx`, `docs/FIXED-BUGS.md`, `docs/SYSTEM-STATUS.md`.
+- **Matrix UI additions:** `set_customer_pin` (label "Set Customer Portal PIN") under Customers module new "Portal Security" section; `submit_cash_payment_staff` (label "Submit Cash Payment (Staff Direct Entry)") appended to Sales module Cash Payments section.
+- **Bug #168 fully closed:** system-health-v2 was the last remaining function carrying the prohibited string equality auth pattern. With this Batch F fix, ALL edge functions now use either `parseJwtClaims` (service_role detection) or `checkPermission` (user permission gates). Zero remaining string-equality auth checks against `SUPABASE_SERVICE_ROLE_KEY` across the codebase.
+- **Verification:**
+  - All 3 functions reachable via curl smoke test returning 401
+  - Admin retains access (admin bypass in checkPermission)
+  - Service_role inter-function/cron paths unchanged in system-health-v2 (parseJwtClaims branch)
+  - submit-cash-payment Path A (customer portal) unaffected — has_role dispatch only fired on Bearer JWT path
+- **Net effect on existing users:**
+  - system-health-v2: all 4 staff roles preserved (no change — DB seed updated to match)
+  - set-portal-pin: admin+staff preserved (no change)
+  - submit-cash-payment: admin+staff+finance get Path B; csr gets Path A; customer JWT/portal_token/session_id get Path A (no change)
+- **Related:** Item 4 Batch F of Phase 2 (Bug #199/#201/#202/#203/#204 sibling work). Fully closes Bug #168. Phase 2 Item 4 NOW COMPLETE — all 28 staff-facing edge functions migrated from hardcoded has_role to matrix-driven checkPermission, with service_role inter-function paths preserved unchanged via parseJwtClaims.

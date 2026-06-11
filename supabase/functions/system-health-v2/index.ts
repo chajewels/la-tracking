@@ -1,4 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { parseJwtClaims } from "../_shared/jwt-claims.ts";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -67,7 +69,8 @@ Deno.serve(async (req) => {
   const authHeader = req.headers.get("Authorization");
   const authToken = authHeader?.replace("Bearer ", "") ?? "";
   let authorized = false;
-  if (authToken && authToken === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) {
+  // Bug #168 fix (Batch F): use parseJwtClaims for service-role detection — never string equality
+  if (authToken && parseJwtClaims(authToken)?.role === "service_role") {
     authorized = true;
   } else if (authHeader?.startsWith("Bearer ")) {
     const anonClient = createClient(
@@ -81,13 +84,8 @@ Deno.serve(async (req) => {
         Deno.env.get("SUPABASE_URL")!,
         Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
       );
-      const [adminRes, staffRes, financeRes, csrRes] = await Promise.all([
-        supabaseGate.rpc("has_role", { _user_id: user.id, _role: "admin" }),
-        supabaseGate.rpc("has_role", { _user_id: user.id, _role: "staff" }),
-        supabaseGate.rpc("has_role", { _user_id: user.id, _role: "finance" }),
-        supabaseGate.rpc("has_role", { _user_id: user.id, _role: "csr" }),
-      ]);
-      authorized = !!(adminRes.data || staffRes.data || financeRes.data || csrRes.data);
+      // Permission gate (Bug #205 Batch F: matrix-driven access — user JWT path, service_role handled above)
+      authorized = await checkPermission(supabaseGate, user.id, "system_health");
     }
   }
   if (!authorized) {

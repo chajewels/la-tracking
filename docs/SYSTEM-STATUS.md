@@ -257,3 +257,37 @@ Batch E of the Item 4 batched migration plan complete. Read-heavy and finance-ti
 **Behavioral changes:** None for existing users — all migrations preserve current access per DB seeds matching prior code behavior. DB seed cleanups (UPDATE add_service staff=false, UPDATE bulk_payment_import finance=false) tightened DB to match stated intent and code behavior; no roles GAINED or LOST access since the partial seeds didn't correspond to active code gates.
 
 **Remaining Item 4 scope:** Batch F (system-health-v2 + set-portal-pin + submit-cash-payment — 3 special cases). 3 functions remain across 1 future session.
+
+### Phase 2 Item 4 Batch F complete — Phase 2 Item 4 NOW COMPLETE (28 of 28 functions migrated) (2026-06-11)
+
+Batch F closes Phase 2 Item 4 — the matrix-driven access control migration. All staff-facing edge functions now use `checkPermission` for access control with matrix UI as the source of truth. Service_role inter-function calls preserved unchanged via `parseJwtClaims` across all dual-auth functions.
+
+**Functions migrated in Batch F:**
+- system-health-v2 — Bug #168 fix (string equality → parseJwtClaims) + has_role → `system_health` (existing key, DB seed updated to preserve any-of-4-staff)
+- set-portal-pin — has_role → NEW `set_customer_pin` (admin+staff)
+- submit-cash-payment — has_role dispatch → NEW `submit_cash_payment_staff` (admin+staff+finance; matrix-driven path discrimination, not access gating)
+
+**Bug #168 fully closed:** Zero remaining string-equality auth checks against `SUPABASE_SERVICE_ROLE_KEY` across the entire `supabase/functions/` codebase.
+
+**Phase 2 Item 4 cumulative — 28 of 28 functions migrated across 6 batches:**
+- Batch A (commit 42cc3a6): 5 account lifecycle functions
+- Batch B (commit 8d06b8d): 5 payment write functions
+- Batch C (commit 573afd5): 6 cash + schedule functions
+- Batch D (commit 3714cb8): 4 loyalty admin functions
+- Batch E: 5 admin/finance + dashboard functions
+- Batch F: 3 special-case functions (this batch)
+
+**Permission keys introduced across Phase 2 Item 4:**
+- Batch C: void_cash_payment, restore_cash_payment
+- Batch D: loyalty_revoke_points (loyalty_adjust_points existed)
+- Batch E: run_reconciliation, generate_invoice (existing keys bulk_payment_import, add_service, view_dashboard reused)
+- Batch F: set_customer_pin, submit_cash_payment_staff (existing key system_health reused)
+
+**Bug #198 advancement:** Total of 3 missing matrix UI keys surfaced across Item 4 work (loyalty_adjust_points, loyalty_revoke_points, run_reconciliation). 8 remain (approve_cash_order, edit_cash_order, manage_trade_ins, view_trade_ins, recalculate_balance, view_ai_risk, view_live_collection, view_operations_panel, view_system_health). Bug #198 remains open for follow-up sweep.
+
+**Behavioral changes:** None for existing users — all migrations preserved current access per DB seeds matching prior code behavior. The matrix-driven design now functions end-to-end: admins toggle permissions in Settings UI, DB row_permissions table reflects intent, edge functions check against DB via checkPermission, access matches what UI shows.
+
+**Remaining Phase 2 work outside Item 4 scope (future sessions):**
+- Bug #198 final cleanup: 8 missing matrix UI keys
+- Bug #200 follow-up: UI gate audit (EditAccountDialog L1040 misgating fix + comprehensive can() audit)
+- riskFactor dead-code cleanup in dashboard-summary (L450, 455, 560, 562, 565)

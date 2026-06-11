@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { resolvePortalAuth } from "../_shared/portal-auth.ts";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -60,7 +61,7 @@ Deno.serve(async (req) => {
     //   1. portal_token OR session_id in body → Path A directly
     //   2. Authorization header only:
     //        a. validate Bearer JWT, get user
-    //        b. has_role check (admin / finance / staff)
+    //        b. checkPermission('submit_cash_payment_staff') — matrix-driven dispatch (Bug #205)
     //        c. user has any staff role → Path B (preserves staff
     //           role-gated submission)
     //        d. user has no staff role → Path A (Phase B customer
@@ -88,13 +89,11 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const [{ data: isAdmin }, { data: isFinance }, { data: isStaff }] = await Promise.all([
-        supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
-        supabase.rpc("has_role", { _user_id: user.id, _role: "finance" }),
-        supabase.rpc("has_role", { _user_id: user.id, _role: "staff" }),
-      ]);
+      // Permission gate dispatch (Bug #205 Batch F: matrix-driven path discrimination)
+      // Determines whether this Bearer JWT routes to Path B (staff direct entry) or Path A (customer flow).
+      // NOT an access gate — both paths submit cash payments; this only chooses which business logic runs.
       preResolvedUser = { id: user.id };
-      preResolvedIsStaffRole = !!(isAdmin || isFinance || isStaff);
+      preResolvedIsStaffRole = await checkPermission(supabase, user.id, "submit_cash_payment_staff");
     }
 
     if (portal_token || session_id || (headerAuth && !preResolvedIsStaffRole)) {

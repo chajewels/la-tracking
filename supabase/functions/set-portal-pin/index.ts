@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -37,12 +38,10 @@ Deno.serve(async (req) => {
     if (authError || !user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-    const [{ data: isAdmin }, { data: isStaff }] = await Promise.all([
-      supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
-      supabase.rpc("has_role", { _user_id: user.id, _role: "staff" }),
-    ]);
-    if (!isAdmin && !isStaff) {
-      return new Response(JSON.stringify({ error: "Admin or staff access required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    // Permission gate (Bug #205 Batch F: matrix-driven access)
+    const allowed = await checkPermission(supabase, user.id, "set_customer_pin");
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "set_customer_pin permission required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // 2. Validate input
