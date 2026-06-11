@@ -105,11 +105,11 @@ export default function PaymentsHub({ embedded = false, searchValue }: PaymentsH
           </TabsContent>
 
           <TabsContent value="proofs" className="mt-5" tabIndex={-1}>
-            <PaymentProofs embedded />
+            <PaymentProofs embedded searchValue={search} />
           </TabsContent>
 
           <TabsContent value="waivers" className="mt-5" tabIndex={-1}>
-            <Waivers embedded />
+            <Waivers embedded search={search} />
           </TabsContent>
         </Tabs>
       </div>

@@ -1,5 +1,5 @@
 // Payment Proofs — system-wide index sourced from customer payment_submissions
-import { useState, useMemo, useCallback, useRef, memo, type ReactNode } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect, memo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import AppLayout from '@/components/layout/AppLayout';
@@ -15,7 +15,7 @@ import { FileText, Search, Eye, Download } from 'lucide-react';
 import ProofsSearchBar from '@/components/search/ProofsSearchBar';
 import { getProofSignedUrl } from '@/lib/proof-url';
 
-const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedded?: boolean } = {}) {
+const PaymentProofs = memo(function PaymentProofs({ embedded = false, searchValue }: { embedded?: boolean; searchValue?: string } = {}) {
   const { roles } = useAuth();
   const isAdmin = (roles as any[]).includes('admin');
   const isFinance = (roles as any[]).includes('finance');
@@ -23,6 +23,15 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedd
   const searchRef = useRef('');
   const [filterTick, setFilterTick] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Bug #207: mirror parent search value when embedded so the top-level
+  // Sales/PaymentsHub search bar reaches PaymentProofs filtering.
+  useEffect(() => {
+    if (embedded && searchValue !== undefined) {
+      searchRef.current = searchValue;
+      setFilterTick(t => t + 1);
+    }
+  }, [embedded, searchValue]);
   const handleSearch = useCallback((v: string) => {
     searchRef.current = v;
     clearTimeout(debounceRef.current);
@@ -82,7 +91,7 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false }: { embedd
             </h1>
             <p className="text-xs text-muted-foreground mt-1">All proof-of-payment files submitted by customers via the portal.</p>
           </div>
-          <ProofsSearchBar onSearch={handleSearch} />
+          {!embedded && <ProofsSearchBar onSearch={handleSearch} />}
         </div>
 
         <div className="rounded-xl border border-border bg-card">
