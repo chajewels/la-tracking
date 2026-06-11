@@ -2827,3 +2827,38 @@ Scanner flagged Warning. `record-payment` had a dual code path: admin/finance ca
   - set-portal-pin: admin+staff preserved (no change)
   - submit-cash-payment: admin+staff+finance get Path B; csr gets Path A; customer JWT/portal_token/session_id get Path A (no change)
 - **Related:** Item 4 Batch F of Phase 2 (Bug #199/#201/#202/#203/#204 sibling work). Fully closes Bug #168. Phase 2 Item 4 NOW COMPLETE — all 28 staff-facing edge functions migrated from hardcoded has_role to matrix-driven checkPermission, with service_role inter-function paths preserved unchanged via parseJwtClaims.
+
+### Bug #206 — confirm_payment staff seed bypassed payment_submissions queue (regression from Bug #201 Batch B) (2026-06-11) ✅
+
+**Severity:** P1 — production data integrity / audit trail gap
+**Discovered:** 2026-06-11 by Cynthia during routine review
+**Reporter:** Cynthia
+**Status:** ✅ FIXED 2026-06-11
+
+#### Symptom
+Staff record-payment and record-multi-payment entries landed directly in payments table without creating payment_submissions row. Bypassed admin/finance review queue. Confirmed cases: accounts 18664 (¥19,131, 2026-06-11 03:32 UTC) and 18010 (¥18,660, 2026-06-11 02:46 UTC), both entered by staff user 69095b5d.
+
+#### Root cause
+Bug #201 Batch B (commit 8d06b8d, 2026-06-XX) made confirm_payment matrix-driven with seed admin=t, staff=t, finance=t, csr=f. The `canConfirm` flag in both record-payment (L112) and record-multi-payment (L50) calls `checkPermission(supabase, user.id, "confirm_payment")` which now returns true for staff. Both functions branch on canConfirm:
+- canConfirm=true → direct insert into payments table (auto-confirmed)
+- canConfirm=false → insert into payment_submissions with status='submitted' (review queue)
+
+Pre-Batch-B behavior had `has_role` check for `[isAdmin, isFinance]` only — staff naturally hit the submission-queue branch. Batch B granted staff canConfirm=true based on Cynthia's confirmation "staff can do all of these" (Q1), which was interpreted as auto-confirm permission rather than function access only.
+
+#### Fix
+Single matrix UI toggle: confirm_payment.staff = false. SQL equivalent:
+```sql
+UPDATE public.role_permissions SET is_allowed = false
+WHERE permission_key = 'confirm_payment' AND role = 'staff';
+```
+
+No code change. Both record-payment and record-multi-payment now correctly route staff entries to payment_submissions queue.
+
+#### Verification
+[Add after Step 1 completes — confirm staff record-payment creates payment_submissions row]
+
+#### Retroactive treatment
+[Add Step 2 decision — leave or void+resubmit]
+
+#### Lessons / SOP reinforcement
+When user says role "can do" a function, ask specifically about workflow side-effects (auto-confirm, queue bypass, etc.). "Access to function" ≠ "auto-confirm permission." Two separate semantic layers in this codebase.
