@@ -596,8 +596,9 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
       const { data, error } = await supabase.functions.invoke('review-payment-submission', {
         body: { submission_id: submissionId, action, reviewer_notes: notes, submission_type: actionDialog?.sub.submission_type ?? 'single' },
       });
-      if (error) throw error;
+      // Prefer the server's actual error message over the generic invoke wrapper
       if (data?.error) throw new Error(data.error);
+      if (error) throw error;
       return data;
     },
     onSuccess: async (data, vars) => {
@@ -681,7 +682,22 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
       }
     },
     onError: (err: any) => {
-      toast.error(err.message || 'Failed to process submission');
+      const message = err?.message || 'Failed to process submission';
+      const isPermissionError =
+        message.toLowerCase().includes('access denied') ||
+        message.toLowerCase().includes('permission') ||
+        message.toLowerCase().includes('forbidden');
+
+      if (isPermissionError) {
+        toast.error(
+          "You don't have permission to confirm payments. Please ask an admin or finance team member to confirm this submission."
+        );
+        // Close the modal so the user isn't stuck on a dead-end screen
+        setActionDialog(null);
+        setConfirmResults(null);
+      } else {
+        toast.error(message);
+      }
     },
   });
 
