@@ -2855,10 +2855,62 @@ WHERE permission_key = 'confirm_payment' AND role = 'staff';
 No code change. Both record-payment and record-multi-payment now correctly route staff entries to payment_submissions queue.
 
 #### Verification
-[Add after Step 1 completes — confirm staff record-payment creates payment_submissions row]
+- 2026-06-11: Matrix UI toggle applied — `confirm_payment.staff = false`. Final policy state: admin=true, staff=false, finance=true, csr=false.
+- DB state verified via `SELECT permission_key, role, is_allowed FROM role_permissions WHERE permission_key='confirm_payment'`.
+- Design rationale (LOCKED): admin + finance keep auto-confirm because they ARE the review authority — finance owns this function. Staff bypass intentionally removed. Do not propose toggling admin/finance to false in future sessions.
 
 #### Retroactive treatment
-[Add Step 2 decision — leave or void+resubmit]
+Two staff-bypassed payments detected during incident triage. Both audit trails recovered via SQL:
+
+1. **Account 18664** (¥19,131, payment id `5f6d2d04`, staff user `69095b5d`, 2026-06-11 03:32 UTC) — INSERT-ed new `payment_submissions` row `e874eade` linking to the staff payment with proof file `BrendalynBumagat_18664_Month3_2026-06-11_mq8xznsu.jpg`.
+
+2. **Account 18010** (¥18,660, payment id `67e4133b`, staff user `69095b5d`, 2026-06-11 02:46 UTC) — Restored the parallel cancelled customer-portal submission `33e0dda9` to `status='confirmed'` and linked it to the staff payment.
+
+3. **Side cleanup (pre-existing drift, not caused by the bypass):** May 11 submission `#73087cec` for 18664 had its `proof_url` incorrectly pointing at the June 11 file. Updated to point at the actual May 11 file `MariaCrisdeGuzman_18664_Month2_2026-05-11.jpg` (recovered from storage history).
+
+Both June 11 payments now visible in account payment history with View Proof button and in Proof of Payments page.
 
 #### Lessons / SOP reinforcement
-When user says role "can do" a function, ask specifically about workflow side-effects (auto-confirm, queue bypass, etc.). "Access to function" ≠ "auto-confirm permission." Two separate semantic layers in this codebase.
+- When user says a role "can do" a function, ask specifically about workflow side-effects (auto-confirm, queue bypass, etc.). "Access to function" ≠ "auto-confirm permission." Two separate semantic layers.
+- Matrix-driven design = DB seed is source of truth, matrix UI is control surface, edge function enforces via `checkPermission`. All three layers must align with intended workflow semantics.
+- Storage `proof_url` drift can occur — files exist but referenced URLs can become stale. Worth auditing across submissions in a future cleanup pass.
+
+### Bug #207 — Payment Proofs and Waivers search bars disconnected from PaymentsHub top-level search (2026-06-11) ✅
+
+**Severity:** P2 — UX broken, search filter not propagated across all tabs
+**Discovered:** 2026-06-11 by Cynthia during Bug #206 incident triage
+**Reporter:** Cynthia
+**Status:** ✅ FIXED 2026-06-11 (commit `8854787`)
+
+#### Symptom
+PaymentsHub (Sales page) hosts 3 tabs: Submissions, Proof of Payment, Waivers. Top-level search bar value was supposed to filter all 3 tabs in sync. In practice, the top bar only filtered the Submissions tab — Proof of Payment and Waivers ignored it. Users typing "18010" or "Brendalyn" in the top bar saw no result changes in Proof of Payment, leading to the impression the entire search was broken.
+
+#### Root cause
+Three layered issues in PaymentsHub.tsx and PaymentProofs.tsx:
+- PaymentsHub L104: `<PaymentSubmissions embedded searchValue={search} />` — wired correctly ✓
+- PaymentsHub L108: `<PaymentProofs embedded />` — `searchValue` NOT passed ✗
+- PaymentsHub L112: `<Waivers embedded />` — `search` NOT passed ✗ (Waivers accepts the prop with default `''`, just never received it)
+- PaymentProofs component did not declare or use a `searchValue` prop at all — only listened to its own redundant inline `<ProofsSearchBar>`.
+
+#### Fix
+Commit `8854787` (push only, frontend-only, no edge functions affected). Two files modified:
+
+1. `src/pages/PaymentsHub.tsx`
+   - L108: `<PaymentProofs embedded />` → `<PaymentProofs embedded searchValue={search} />`
+   - L112: `<Waivers embedded />` → `<Waivers embedded search={search} />`
+
+2. `src/pages/PaymentProofs.tsx`
+   - Added `useEffect` to React imports.
+   - Extended component signature: `({ embedded = false, searchValue }: { embedded?: boolean; searchValue?: string } = {})`.
+   - Added `useEffect` to mirror parent-supplied `searchValue` into `searchRef.current` and bump `filterTick` (triggers existing useMemo).
+   - Wrapped inline `<ProofsSearchBar onSearch={handleSearch} />` in `{!embedded && (...)}` to suppress the redundant inline search when embedded inside PaymentsHub.
+
+#### Verification
+- Top search bar on Sales page now filters all 3 tabs in sync after Firebase Hosting auto-deploy.
+- Inside PaymentsHub, the redundant right-side ProofsSearchBar is no longer rendered.
+- Direct route to PaymentProofs (non-embedded standalone) continues to render its inline search bar correctly.
+
+#### Lessons / SOP reinforcement
+- Prop name inconsistency exists (PaymentSubmissions uses `searchValue`, Waivers uses `search`). Refactor for consistency would be a future ticket.
+- When child components carry their own search inputs AND a parent provides a top-level search, hide the child inputs when embedded so there is one clear control surface.
+- Frontend prop disconnects fail silently — users perceive "broken search" when in fact the prop wiring is the gap. Worth a broader audit on other tabbed surfaces.
