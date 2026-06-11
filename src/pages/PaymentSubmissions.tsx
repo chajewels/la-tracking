@@ -596,9 +596,29 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
       const { data, error } = await supabase.functions.invoke('review-payment-submission', {
         body: { submission_id: submissionId, action, reviewer_notes: notes, submission_type: actionDialog?.sub.submission_type ?? 'single' },
       });
-      // Prefer the server's actual error message over the generic invoke wrapper
+      // Prefer the server's actual error message over the generic invoke wrapper.
+      // Path 1: supabase-js parsed the body into `data` (happens for some response shapes).
       if (data?.error) throw new Error(data.error);
-      if (error) throw error;
+      if (error) {
+        // Path 2: For non-2xx responses, supabase-js v2 wraps the Response in error.context.
+        // Extract the server's specific message and attach the HTTP status so onError can
+        // detect permission errors (403) reliably.
+        const ctx = (error as any)?.context;
+        if (ctx && typeof ctx.json === 'function') {
+          let body: any = null;
+          try {
+            body = typeof ctx.clone === 'function' ? await ctx.clone().json() : await ctx.json();
+          } catch {
+            // body parsing failed — fall through to throw the wrapper error below
+          }
+          if (body?.error) {
+            const serverError = new Error(body.error);
+            (serverError as any).status = ctx.status;
+            throw serverError;
+          }
+        }
+        throw error;
+      }
       return data;
     },
     onSuccess: async (data, vars) => {
@@ -683,7 +703,11 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
     },
     onError: (err: any) => {
       const message = err?.message || 'Failed to process submission';
+      // Read status from either the enrichedError thrown in mutationFn (err.status)
+      // OR from the original FunctionsHttpError's Response context (err.context.status).
+      const status: number | undefined = err?.status ?? err?.context?.status;
       const isPermissionError =
+        status === 403 ||
         message.toLowerCase().includes('access denied') ||
         message.toLowerCase().includes('permission') ||
         message.toLowerCase().includes('forbidden');
