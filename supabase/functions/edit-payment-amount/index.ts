@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -34,13 +35,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Only admin/finance can edit payment amounts
-    const [{ data: isAdmin }, { data: isFinance }] = await Promise.all([
-      supabase.rpc("has_role", { _user_id: user.id, _role: "admin" }),
-      supabase.rpc("has_role", { _user_id: user.id, _role: "finance" }),
-    ]);
-    if (!isAdmin && !isFinance) {
-      return new Response(JSON.stringify({ error: "Only admin/finance can edit payment amounts" }), {
+    // Permission gate (Bug #202 Batch C: matrix-driven access — reuses void_payment for post-creation payment modification)
+    const allowed = await checkPermission(supabase, user.id, "void_payment");
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "void_payment permission required" }), {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

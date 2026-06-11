@@ -2670,3 +2670,39 @@ Scanner flagged Warning. `record-payment` had a dual code path: admin/finance ca
   - `restore-payment`: behavior preserved (admin+finance, matches DB).
   - `accept-underpayment`: was admin-only. Now admin+staff+finance per matrix confirm_payment. Staff/finance GAIN ability to acknowledge underpayments (audit-log-only, no row changes). User confirmed intent: "can accept if granted and toggle on the matrix by member."
 - **Related:** Item 4 Batch B of Phase 2 (Bug #199 sibling work — Batch A account lifecycle). Bug #200 UI gate audit remains open (separate scope). Batches C (cash + schedule, 7 functions), D (loyalty, 4 functions), E (admin/finance + dashboard, 5 functions), F (system-health-v2 + set-portal-pin, 2 special cases) remain.
+
+### Bug #202 — Phase 2 Batch C: 6 cash payment + schedule edit functions migrated + 2 new cash permission keys (2026-06-11) ✅
+
+- **Symptom:** Six edge functions (void-cash-payment, restore-cash-payment, add-installment, delete-installment, extend-schedule, edit-payment-amount) used hardcoded `supabase.rpc("has_role", {...})` checks ignoring the role_permissions matrix UI. Cash payment void/restore were admin-only by design but shared no dedicated permission key. Schedule edits were admin-only with no matrix surface. Payment amount edits were admin+finance hardcoded.
+- **Root cause:** Same pre-checkPermission era pattern as Bug #199 / #201. Cash payment functions were stricter than regular payments per business design ("Admin only — staff/finance cannot void") but had no separate permission key.
+- **Fix:**
+  - 6 functions migrated to `checkPermission(supabase, user.id, "<permission_key>")` pattern.
+  - 2 NEW permission keys created in role_permissions table (admin-only seed): `void_cash_payment`, `restore_cash_payment`. Both added to PermissionMatrixTab UI under new "Cash Payments" section.
+- **Permission key mapping:**
+  - `void-cash-payment` → NEW `void_cash_payment` (admin-only, independently controllable from regular void_payment)
+  - `restore-cash-payment` → NEW `restore_cash_payment` (admin-only, independently controllable)
+  - `add-installment` → `edit_schedule`
+  - `delete-installment` → `edit_schedule`
+  - `extend-schedule` → `edit_schedule`
+  - `edit-payment-amount` → `void_payment` (reuse — post-creation payment modification, semantically similar to void)
+- **DB pre-fix applied 2026-06-11 (pre-deploy):**
+
+```sql
+  INSERT INTO public.role_permissions (role, permission_key, is_allowed) VALUES
+    ('admin', 'void_cash_payment', true), ('staff', 'void_cash_payment', false),
+    ('finance', 'void_cash_payment', false), ('csr', 'void_cash_payment', false),
+    ('admin', 'restore_cash_payment', true), ('staff', 'restore_cash_payment', false),
+    ('finance', 'restore_cash_payment', false), ('csr', 'restore_cash_payment', false);
+```
+
+- **Files:** 6 edge functions in `supabase/functions/`, `src/components/settings/PermissionMatrixTab.tsx`, `docs/FIXED-BUGS.md`, `docs/SYSTEM-STATUS.md`.
+- **Verification:**
+  - All 6 functions reachable via curl smoke test returning 401
+  - Admin retains access (admin bypass in checkPermission)
+  - Cash payment keys independently toggleable from regular payment keys
+- **Net effect on existing users:**
+  - void-cash-payment / restore-cash-payment: behavior preserved (admin-only). Independent control from regular void_payment / restore_payment via separate matrix keys.
+  - add-installment / delete-installment / extend-schedule: behavior preserved (admin-only — matches edit_schedule DB seed from Batch A pre-fix).
+  - edit-payment-amount: behavior preserved (admin+finance — matches void_payment DB seed).
+- **submit-cash-payment NOT migrated in Batch C** — dual-path function (Path A customer portal, Path B staff Bearer JWT). `has_role` check discriminates between staff and customer JWT, not a permission gate. Moved to Batch F special cases alongside set-portal-pin for careful refactor.
+- **Related:** Item 4 Batch C of Phase 2 (Bug #199/#201 sibling work). Bug #200 UI gate audit remains open. Batches D (loyalty, 4 functions), E (admin/finance + dashboard, 5 functions), F (system-health-v2 + set-portal-pin + submit-cash-payment, 3 special cases) remain.

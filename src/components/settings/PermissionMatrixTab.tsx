@@ -35,6 +35,8 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
       { key: 'reassign_owner', label: 'Reassign Owner' },
       { key: 'view_cash_orders', label: 'View Cash Orders', section: 'Cash Orders' },
       { key: 'create_cash_order', label: 'Create Cash Order' },
+      { key: 'void_cash_payment', label: 'Void Cash Payment', section: 'Cash Payments' },
+      { key: 'restore_cash_payment', label: 'Restore Cash Payment' },
       { key: 'record_payment', label: 'Record Payment', section: 'Payments' },
       { key: 'confirm_payment', label: 'Confirm Payment' },
       { key: 'void_payment', label: 'Void Payment' },

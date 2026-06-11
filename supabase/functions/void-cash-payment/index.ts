@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -34,10 +35,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 2. Admin only — staff/finance cannot void
-    const { data: isAdmin } = await supabase.rpc("has_role", { _user_id: user.id, _role: "admin" });
-    if (!isAdmin) {
-      return new Response(JSON.stringify({ error: "Admin access required" }), {
+    // 2. Permission gate (Bug #202 Batch C: matrix-driven access via dedicated void_cash_payment key)
+    const allowed = await checkPermission(supabase, user.id, "void_cash_payment");
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "void_cash_payment permission required" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

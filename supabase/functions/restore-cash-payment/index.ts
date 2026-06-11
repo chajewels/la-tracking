@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -34,12 +35,10 @@ Deno.serve(async (req) => {
     }
     const user = userData.user;
 
-    const { data: isAdminData, error: roleErr } = await supabase.rpc("has_role", {
-      _user_id: user.id,
-      _role: "admin",
-    });
-    if (roleErr || !isAdminData) {
-      return jsonResponse(403, { error: "Admin role required" });
+    // Permission gate (Bug #202 Batch C: matrix-driven access via dedicated restore_cash_payment key)
+    const allowed = await checkPermission(supabase, user.id, "restore_cash_payment");
+    if (!allowed) {
+      return jsonResponse(403, { error: "restore_cash_payment permission required" });
     }
 
     // --- Body validation ---

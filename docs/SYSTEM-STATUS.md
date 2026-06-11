@@ -213,3 +213,17 @@ Batch B of the Item 4 batched migration plan complete. The role_permissions matr
 **No DB pre-fix UPDATEs required** — matrix seeds already matched user policy intent per the "matrix is source of truth" directive.
 
 **Remaining Item 4 scope:** Batch C (cash + schedule — 7 functions), Batch D (loyalty — 4 functions), Batch E (admin/finance + dashboard — 5 functions), Batch F (system-health-v2 + set-portal-pin — 2 special cases). 18 functions remain across 4 future sessions.
+
+### Phase 2 Item 4 Batch C complete — 6 cash + schedule functions on checkPermission + 2 new cash keys (2026-06-11)
+
+Batch C of the Item 4 batched migration plan complete. Cash payment operations now have dedicated permission keys independent from regular payment keys, allowing admin to grant cash void/restore access without affecting regular void/restore access (or vice versa). Schedule edit functions and payment amount edit now matrix-driven.
+
+**Functions migrated:** void-cash-payment, restore-cash-payment, add-installment, delete-installment, extend-schedule, edit-payment-amount.
+
+**New permission keys introduced (admin-only seed):** `void_cash_payment`, `restore_cash_payment`. Surfaced in PermissionMatrixTab UI under new "Cash Payments" section.
+
+**Behavioral changes:** All migrations preserve current access (admin-only or admin+finance) per DB seeds matching prior code behavior. Future policy adjustments via matrix toggles.
+
+**Scope carve-out:** submit-cash-payment deferred to Batch F. Its dual-path routing (customer self-submission vs staff submission) uses has_role for path discrimination, not permission gating. Requires careful refactor outside standard Batch C scope.
+
+**Remaining Item 4 scope:** Batch D (loyalty — 4 functions), Batch E (admin/finance + dashboard — 5 functions), Batch F (system-health-v2 + set-portal-pin + submit-cash-payment — 3 special cases). 12 functions remain across 3 future sessions.
