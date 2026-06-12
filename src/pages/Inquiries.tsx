@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -920,14 +921,14 @@ export default function Inquiries() {
       }
       if (filterCategory.length > 0)      q = q.in('category', filterCategory);
       if (filterSource.length > 0)        q = q.in('source', filterSource);
-      // Blank-aware filter for action_needed only: "— Blank —" maps to
-      // (col IS NULL OR col = ''). PostgREST's .or() requires the empty-
-      // string value to be quoted as eq."" (eq. with nothing after
-      // returns 0 rows). Non-blank values are also quoted for safety
-      // against values containing spaces.
-      // order_placed is intentionally NOT blank-aware here: the import
-      // migration's clean_order() converted all blanks/empties to 'No',
-      // so there are no true blanks for the user to match.
+      // Blank-aware filters. "— Blank —" maps to NULL (and, for
+      // action_needed, also to empty string — the action_needed column
+      // has both null and '' rows; order_placed has 350 NULL rows after
+      // the 2026-06-12 backfill and zero empty-string rows).
+      // PostgREST quoting rules: use `col.is.null` for null (no
+      // string-quoting — that was the da7399b regression), `col.eq.""`
+      // for empty string, and `col.eq."<value>"` for non-blank values
+      // (quoted so spaces survive).
       if (filterActionNeeded.length > 0) {
         const hasBlank = filterActionNeeded.includes(BLANK_FILTER);
         const real = filterActionNeeded.filter(v => v !== BLANK_FILTER);
@@ -939,7 +940,19 @@ export default function Inquiries() {
           q = q.in('action_needed', real);
         }
       }
-      if (filterOrderPlaced.length > 0) q = q.in('order_placed', filterOrderPlaced);
+      if (filterOrderPlaced.length > 0) {
+        const hasBlank = filterOrderPlaced.includes(BLANK_FILTER);
+        const real = filterOrderPlaced.filter(v => v !== BLANK_FILTER);
+        if (hasBlank && real.length === 0) {
+          q = q.is('order_placed', null);
+        } else if (hasBlank) {
+          const orParts = ['order_placed.is.null'];
+          real.forEach(v => orParts.push(`order_placed.eq."${v}"`));
+          q = q.or(orParts.join(','));
+        } else {
+          q = q.in('order_placed', real);
+        }
+      }
       if (filterEnteredBy.length > 0)     q = q.in('entered_by', filterEnteredBy);
       if (dateFrom) q = q.gte('last_inquired_date', dateFrom);
       if (dateTo)   q = q.lte('last_inquired_date', dateTo);
@@ -1004,6 +1017,7 @@ export default function Inquiries() {
   };
 
   return (
+    <AppLayout>
     <div className="container mx-auto max-w-7xl space-y-4 p-4 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -1043,8 +1057,8 @@ export default function Inquiries() {
               <MultiSelectFilter label="Category"      options={dropdowns.category ?? []}       selected={filterCategory}     onChange={setFilterCategory} />
               <MultiSelectFilter label="Source"        options={dropdowns.source ?? []}         selected={filterSource}       onChange={setFilterSource} />
               <MultiSelectFilter label="Action Needed" options={dropdowns.action_needed ?? []}  selected={filterActionNeeded} onChange={setFilterActionNeeded} includeBlank />
-              {/* order_placed has no true blanks after migration (clean_order() converted '' to 'No'), so no — Blank — option here. */}
-              <MultiSelectFilter label="Order Placed"  options={dropdowns.order_placed ?? []}   selected={filterOrderPlaced}  onChange={setFilterOrderPlaced} />
+              {/* order_placed has 350 legitimately NULL rows after the 2026-06-12 backfill (No 367 / Yes 85 / Joy Mine 3 / null 350). */}
+              <MultiSelectFilter label="Order Placed"  options={dropdowns.order_placed ?? []}   selected={filterOrderPlaced}  onChange={setFilterOrderPlaced} includeBlank />
               <MultiSelectFilter label="Entered By"    options={dropdowns.entered_by ?? []}     selected={filterEnteredBy}    onChange={setFilterEnteredBy} />
               <div className="flex items-center gap-1 flex-shrink-0">
                 <Label className="text-sm text-white/60">Last Inquired</Label>
@@ -1210,5 +1224,6 @@ export default function Inquiries() {
         onSaved={refresh}
       />
     </div>
+    </AppLayout>
   );
 }

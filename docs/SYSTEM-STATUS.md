@@ -9,12 +9,18 @@
 - Demand Map: Top 20 most inquired items (gold bar chart), Demand
   Intelligence Quadrant (scatter: volume vs conversion rate), Top 20
   most frequent inquirers (purple bar chart)
-- 803 rows migrated from Google Sheet on launch
+- 805 rows migrated from Google Sheet on launch (803 initial + 2
+  multi-category source rows recovered via INSERT on 2026-06-12)
+- order_placed backfilled from source CSV on 2026-06-12:
+  No 367 / Yes 85 / Joy Mine 3 / blank 350
+- 18 date corrections applied 2026-06-12 (17 future-date typos
+  + 1 unparseable source date)
 - All dropdowns configurable via inquiry_dropdown_options table with
   inline + Add in form
 - Tables: product_inquiries, inquiry_dropdown_options
 - Permission keys: view_inquiries + manage_inquiries (all 4 roles)
-- Blank filter added to Action Needed for null/empty rows
+- Blank filter added to Action Needed (null + empty) and Order Placed
+  (null) for unset rows
 - Services + Trade-Ins sidebar converted to parent with sub-items
   (Service Jobs / Trade-Ins) — v1.1.1 fix carried forward
 

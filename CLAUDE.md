@@ -507,7 +507,8 @@ To add a new screenshot for any Help section:
 - Route: `/inquiries` (sub-item under CSR Monitoring sidebar)
 - Tables: `product_inquiries`, `inquiry_dropdown_options`
 - Permission keys: `view_inquiries` + `manage_inquiries` (all 4 roles, is_allowed=true)
-- 803 rows migrated from Google Sheet on 2026-06-12
+- 805 rows migrated from Google Sheet on 2026-06-12 (803 initial + 2 multi-category source rows recovered)
+- `order_placed` backfilled from source CSV on 2026-06-12 (No 367 / Yes 85 / Joy Mine 3 / null 350)
 - Two tabs: Inquiry List (filterable + paginated table, add/edit) + Demand Map (Top 20 bar chart + quadrant scatter)
 - All dropdowns configurable via `inquiry_dropdown_options` with inline + Add in form
 - No edge functions. No deploys needed.
