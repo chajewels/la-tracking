@@ -267,6 +267,14 @@ Neither RPC touches `loyalty_lot_consumption`. Lot reservation/consumption is no
 
 See `docs/SYSTEM-STATUS.md` "Loyalty redemption confirm — atomic via approve_redemption_atomic RPC (2026-06-08)" and "Loyalty redemption void — atomic via void_redemption_atomic RPC (2026-06-09)" entries for deploy history.
 
+### Guarded payment submission RPC (added 2026-06-12)
+
+- `public.insert_payment_submission_guarded(p_account_id uuid, p_customer_id uuid, p_submitted_amount numeric, p_payment_date date, p_payment_method text, p_reference_number text, p_notes text, p_submission_type text, p_sender_name text, p_force boolean DEFAULT false) RETURNS jsonb`
+- SECURITY DEFINER, search_path = public. EXECUTE granted to service_role only (revoked from public/anon/authenticated) — called exclusively by the `record-payment` edge function.
+- Behavior: takes `pg_advisory_xact_lock(hashtext('payment_submission:' || p_account_id::text))`, then (unless p_force) checks payment_submissions for a pending duplicate (status IN submitted/under_review, created within 30 minutes, abs(submitted_amount − p_submitted_amount) < 1). Duplicate → returns `{duplicate: true, minutes_ago, sender_name}` and writes nothing. Otherwise inserts the submission row (status 'submitted') and returns `{duplicate: false, submission_id}`.
+- Side-effect boundary: writes ONLY payment_submissions. Audit logging remains in the edge function. Does not touch payments, layaway_schedule, or allocations.
+- Added in Bug #220 to close the SELECT-then-INSERT race in record-payment's duplicate soft block.
+
 ### Atomic penalty waiver unwaive RPC (added 2026-06-10)
 
 `public.unwaive_penalty_atomic(p_waiver_id uuid, p_user_id uuid, p_user_email text) RETURNS jsonb` — reverses an approved penalty waiver atomically. Created 2026-06-10. Replaces the previous 3-step client-side write in `handleUnwaive` (Waivers.tsx L106-195) which was asymmetric (touched penalty_fees + layaway_schedule + layaway_accounts but never reset `penalty_waiver_requests.status`). **Same-day fix (2026-06-10):** initial deploy used `::layaway_account_status` enum cast which doesn't exist; corrected via CREATE OR REPLACE FUNCTION with `::account_status` (see Enum types table above).

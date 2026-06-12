@@ -3217,3 +3217,16 @@ Bug #196 (`_shared/check-permission.ts` multi-role fix — established the OR se
 - **CLAUDE.md update:** PAYMENT SUBMISSION FLOW section updated with the locked universal-submission policy (Step 2 collapses Staff/Admin/Finance/CSR into one row; Step 3 explicitly states that the reviewer's confirm action is what creates the `payments` row via review-payment-submission).
 - **Related:** Bug #218 (the coupling and dialog-fallback root cause that this redesign closes); Bug #201 Batch B (where the canConfirm coupling was introduced and is now reverted as policy); Bug #206 reclassification (related discussion of confirm vs submit semantics for staff).
 - **Remainder fix (2026-06-12, no new bug number):** `WorkspaceSplitButton.tsx` L68 was missed in the initial label sweep — `replace_all: true` in the original edit only matched the L58 occurrence because the two lines differed in leading-indent depth (10 spaces vs 8 spaces). One-line follow-up landed in the next commit; both menu items now read `Submit Payment`.
+
+### Bug #220 — CA Bot duplicate payment submissions: double event listener + dup-check race window (2026-06-12) ✅
+
+- **Severity:** P1 — produced real duplicate pending submissions (invoice 18671: two ₱6,063.38 rows 411ms apart, ids 961781eb / feb94fdc; the no-proof twin came from the second hidden modal instance).
+- **Root cause (two layers):**
+  1. The CustomEvent `open-record-payment-modal` had TWO listeners — `AppLayout.tsx` (the intended global path) and a legacy duplicate in `WorkspaceSplitButton.tsx` left behind when the CA Bot RECORD_PAYMENT flow was rerouted to the modal. One dispatch opened two stacked, identically pre-filled RecordPaymentModal instances; the per-instance `submittingRef` guard cannot protect across instances.
+  2. The duplicate-submission soft block in `record-payment` ran as a separate SELECT before a separate INSERT, so two near-simultaneous calls both passed the check before either insert committed (commit-visibility race).
+- **Fix:**
+  - Commit `a9b1a14`: removed the WorkspaceSplitButton listener, its four `initial*` state hooks, the `channelMap` const, and the `initial*` props on its `<RecordPaymentModal>` (−44 LOC). AppLayout's listener is now the single event path; the split button's own click flow is unchanged.
+  - Commit `72eca4c` (deployed): `record-payment` now calls the new `public.insert_payment_submission_guarded` RPC, which takes `pg_advisory_xact_lock(hashtext('payment_submission:' || account_id))`, re-runs the dup check (status submitted/under_review, 30 min, amount ±1, force bypass), and inserts atomically in one transaction. Concurrent callers serialize on the lock; the second receives the same 409 `duplicate_submission_detected` response as before.
+- **Verification:** grep — single listener remains in AppLayout + dispatch in AICommandModal, zero `open-record-payment-modal` hits in WorkspaceSplitButton; `thirtyMinAgo` zero hits in record-payment; RPC call present at ~L128; deployed function returns 401 to unauthenticated curl.
+- **Cleanup:** submission 961781eb rejected as duplicate; feb94fdc processed normally.
+- **Related:** Bug #218 (the prior duplicate-payment incident on the now-deleted dialog fallback path); Bug #219 (universal submission-only redesign — this RPC now guards its single write path).
