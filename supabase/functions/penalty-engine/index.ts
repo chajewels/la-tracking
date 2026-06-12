@@ -99,6 +99,11 @@ Deno.serve(async (req) => {
         .in("status", ["pending", "overdue", "partially_paid"])
         .lte("due_date", today)
         .in("layaway_accounts.status", ["active", "overdue", "extension_active"])
+        // Locked benchmark accounts are frozen — penalty accrual invalidates
+        // their documented baselines (docs/TEST-ACCOUNTS.md). TEST-004/TEST-005
+        // intentionally still accrue as live penalty-testing scaffolds.
+        // Same embedded-join filter pattern as the Bug #124 fix in CSR monitoring.
+        .not("layaway_accounts.invoice_number", "in", '("TEST-001","TEST-002","TEST-003")')
         .order("installment_number", { ascending: true })
         .range(page * pageSize, (page + 1) * pageSize - 1);
       if (!batch || batch.length === 0) break;
