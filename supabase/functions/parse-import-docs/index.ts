@@ -157,13 +157,7 @@ Deno.serve(async (req) => {
     }
 
     const token = authHeader.replace("Bearer ", "");
-    let isServiceRole = false;
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      isServiceRole = payload.role === 'service_role';
-    } catch (_) {}
-
-    if (!isServiceRole) {
+    if (!isServiceRole(token)) {
       const { data: { user }, error: authError } = await supabase.auth.getUser(token);
       if (authError || !user) {
         return new Response(JSON.stringify({ error: "Unauthorized" }), {

@@ -13,6 +13,7 @@
 // or retries don't double-send.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isServiceRole } from "../_shared/jwt-claims.ts";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { getPortalLinkForCustomer } from "../_shared/portal-link.ts";
 
@@ -29,22 +30,6 @@ const json = (body: unknown, status = 200) =>
 
 const BATCH_LIMIT = 100;
 const EMAIL_BATCH = 25;
-
-function isServiceRoleCaller(req: Request): boolean {
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) return false;
-  const token = authHeader.slice(7).trim();
-  const parts = token.split(".");
-  if (parts.length !== 3) return false;
-  try {
-    const payloadB64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const padded = payloadB64 + "=".repeat((4 - payloadB64.length % 4) % 4);
-    const payload = JSON.parse(atob(padded));
-    return payload.role === "service_role";
-  } catch {
-    return false;
-  }
-}
 
 interface NotificationRow {
   id: string;
@@ -228,7 +213,8 @@ function inBackground(promise: Promise<unknown>) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  if (!isServiceRoleCaller(req)) {
+  const authToken = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
+  if (!isServiceRole(authToken)) {
     return json({ error: "forbidden", detail: "service_role JWT required" }, 403);
   }
 

@@ -27,6 +27,7 @@
 // files).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isServiceRole } from "../_shared/jwt-claims.ts";
 import {
   LOYALTY_IMAGES_BUCKET,
   loyaltyImagesPath,
@@ -53,21 +54,6 @@ const SETTINGS_KEY = "cleanup_loyalty_images_dry_run";
 // loyalty_images_cleanup from loyalty_settings (a1).
 const AUDIT_SENTINEL_ID = "00000000-0000-0000-0000-0000000000a2";
 
-function isServiceRoleCaller(req: Request): boolean {
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) return false;
-  const token = authHeader.slice(7).trim();
-  const parts = token.split(".");
-  if (parts.length !== 3) return false;
-  try {
-    const payloadB64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const padded = payloadB64 + "=".repeat((4 - payloadB64.length % 4) % 4);
-    const payload = JSON.parse(atob(padded));
-    return payload.role === "service_role";
-  } catch {
-    return false;
-  }
-}
 
 // Resolve dry_run flag. ?dry_run=true|false overrides; otherwise read
 // system_settings.cleanup_loyalty_images_dry_run. Fail-safe to true on
@@ -127,7 +113,8 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  if (!isServiceRoleCaller(req)) {
+  const authToken = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
+  if (!isServiceRole(authToken)) {
     console.warn("[cleanup-loyalty-images] rejected: caller is not service_role");
     return json({ error: "service_role required" }, 403);
   }
