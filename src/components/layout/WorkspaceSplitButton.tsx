@@ -65,7 +65,7 @@ function resolveConfig(
       primaryAction: () => navigate('/accounts/new'),
       dropdownItems: [
         { label: 'New Cash Order', action: () => navigate('/cash-orders/new') },
-        { label: 'Record Payment', action: () => setRecordOpen(true) },
+        { label: 'Submit Payment', action: () => setRecordOpen(true) },
       ],
     };
   }
