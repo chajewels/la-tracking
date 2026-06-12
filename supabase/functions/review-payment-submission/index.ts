@@ -46,6 +46,100 @@ async function isCustomerLoyaltyEnrolled(
   return !!member;
 }
 
+/**
+ * Resolve the display context (full_name, invoice) for a loyalty award
+ * notification. Works for both layaway (account_id) and cash
+ * (cash_order_id) sources. Lookup failures degrade gracefully — the
+ * caller still gets a partial context rather than throwing, so the
+ * notification insert is never blocked on this resolver.
+ */
+async function resolveAwardNotifyContext(
+  supabase: any,
+  src: {
+    account_id?: string | null;
+    cash_order_id?: string | null;
+    customer_id?: string | null;
+    invoice_number?: string | null;
+  },
+): Promise<{ fullName: string | null; invoice: string | null }> {
+  if (src.cash_order_id) {
+    try {
+      let invoice = src.invoice_number ?? null;
+      let custId = src.customer_id ?? null;
+      if (!invoice || !custId) {
+        const { data: order } = await supabase
+          .from("cash_orders")
+          .select("invoice_number, customer_id")
+          .eq("id", src.cash_order_id)
+          .maybeSingle();
+        const row = order as { invoice_number?: string | null; customer_id?: string | null } | null;
+        invoice = invoice ?? row?.invoice_number ?? null;
+        custId = custId ?? row?.customer_id ?? null;
+      }
+      let fullName: string | null = null;
+      if (custId) {
+        const { data: cust } = await supabase
+          .from("customers")
+          .select("full_name")
+          .eq("id", custId)
+          .maybeSingle();
+        fullName = (cust as { full_name?: string | null } | null)?.full_name ?? null;
+      }
+      return { fullName, invoice };
+    } catch (_e) {
+      return { fullName: null, invoice: src.invoice_number ?? null };
+    }
+  }
+  if (src.account_id) {
+    try {
+      const { data: acct } = await supabase
+        .from("layaway_accounts")
+        .select("invoice_number, customers(full_name)")
+        .eq("id", src.account_id)
+        .maybeSingle();
+      const row = acct as { invoice_number?: string | null; customers?: { full_name?: string | null } | null } | null;
+      return {
+        fullName: row?.customers?.full_name ?? null,
+        invoice: row?.invoice_number ?? null,
+      };
+    } catch (_e) {
+      return { fullName: null, invoice: null };
+    }
+  }
+  return { fullName: null, invoice: null };
+}
+
+/** Number formatter for the loyalty notification — en-US comma grouping. */
+function fmtLoyaltyNum(n: number | null | undefined): string {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return String(n ?? 0);
+  return v.toLocaleString("en-US");
+}
+
+/**
+ * Compose the body of a successful loyalty award bell notification. Format:
+ *   `+<pts>[ (+<bonus> bonus)] pts[ to <name>] · Inv #<inv|?> · balance <rem>[ · Tier upgraded: …]`
+ * Mirrors the failing-notification customer-name policy and folds in the
+ * existing tier-upgrade tail.
+ */
+function buildLoyaltyAwardBody(
+  a: {
+    points_earned?: number;
+    bonus_points?: number;
+    remaining_points?: number;
+    tier_upgraded?: boolean;
+    old_tier?: string;
+    new_tier?: string;
+  },
+  ctx: { fullName: string | null; invoice: string | null },
+): string {
+  const bonus = a.bonus_points ? ` (+${fmtLoyaltyNum(a.bonus_points)} bonus)` : "";
+  const who = ctx.fullName ? ` to ${ctx.fullName}` : "";
+  const inv = ` · Inv #${ctx.invoice ?? "?"}`;
+  const tier = a.tier_upgraded ? ` · Tier upgraded: ${a.old_tier} → ${a.new_tier}` : "";
+  return `+${fmtLoyaltyNum(a.points_earned)}${bonus} pts${who}${inv} · balance ${fmtLoyaltyNum(a.remaining_points)}${tier}`;
+}
+
 async function allocatePaymentToAccount(
   supabase: any,
   accountId: string,
@@ -785,10 +879,15 @@ Deno.serve(async (req) => {
         try {
           const a: any = cashLoyaltyAward;
           if (a.awarded === true) {
+            const ctx = await resolveAwardNotifyContext(supabase, {
+              cash_order_id: cashOrder.id,
+              customer_id: cashOrder.customer_id,
+              invoice_number: cashOrder.invoice_number,
+            });
             await supabase.from("staff_notifications").insert({
               type: "loyalty_award",
               title: "Loyalty points awarded",
-              body: `+${a.points_earned}${a.bonus_points ? ` (+${a.bonus_points} bonus)` : ""} pts · balance ${a.remaining_points}${a.tier_upgraded ? ` · Tier upgraded: ${a.old_tier} → ${a.new_tier}` : ""} · Inv #${cashOrder.invoice_number}`,
+              body: buildLoyaltyAwardBody(a, ctx),
               customer_id: cashOrder.customer_id,
               invoice_number: cashOrder.invoice_number,
               metadata: cashLoyaltyAward,
@@ -1258,10 +1357,13 @@ Deno.serve(async (req) => {
       try {
         if ((award as any).awarded) {
           const a: any = award;
+          const ctx = await resolveAwardNotifyContext(supabase, {
+            account_id: a.account_id ?? null,
+          });
           await supabase.from("staff_notifications").insert({
             type: "loyalty_award",
             title: "Loyalty points awarded",
-            body: `+${a.points_earned}${a.bonus_points ? ` (+${a.bonus_points} bonus)` : ""} pts · balance ${a.remaining_points}${a.tier_upgraded ? ` · Tier upgraded: ${a.old_tier} → ${a.new_tier}` : ""}`,
+            body: buildLoyaltyAwardBody(a, ctx),
             account_id: a.account_id ?? null,
             metadata: a,
           });

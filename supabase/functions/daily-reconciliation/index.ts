@@ -40,6 +40,73 @@ async function fetchWithRetryOnRateLimit(
   throw new Error('fetchWithRetryOnRateLimit: exhausted retries unexpectedly');
 }
 
+/**
+ * Resolve (full_name, invoice) for a loyalty award notification. Mirrors
+ * the helper used in review-payment-submission. Lookup failures degrade
+ * to nulls so the notification insert is never blocked on a name miss.
+ */
+async function resolveAwardNotifyContext(
+  supabase: any,
+  src: {
+    account_id?: string | null;
+    cash_order_id?: string | null;
+    customer_id?: string | null;
+    invoice_number?: string | null;
+  },
+): Promise<{ fullName: string | null; invoice: string | null }> {
+  if (src.cash_order_id) {
+    try {
+      let invoice = src.invoice_number ?? null;
+      let custId = src.customer_id ?? null;
+      if (!invoice || !custId) {
+        const { data: order } = await supabase
+          .from("cash_orders")
+          .select("invoice_number, customer_id")
+          .eq("id", src.cash_order_id)
+          .maybeSingle();
+        const row = order as { invoice_number?: string | null; customer_id?: string | null } | null;
+        invoice = invoice ?? row?.invoice_number ?? null;
+        custId = custId ?? row?.customer_id ?? null;
+      }
+      let fullName: string | null = null;
+      if (custId) {
+        const { data: cust } = await supabase
+          .from("customers")
+          .select("full_name")
+          .eq("id", custId)
+          .maybeSingle();
+        fullName = (cust as { full_name?: string | null } | null)?.full_name ?? null;
+      }
+      return { fullName, invoice };
+    } catch (_e) {
+      return { fullName: null, invoice: src.invoice_number ?? null };
+    }
+  }
+  if (src.account_id) {
+    try {
+      const { data: acct } = await supabase
+        .from("layaway_accounts")
+        .select("invoice_number, customers(full_name)")
+        .eq("id", src.account_id)
+        .maybeSingle();
+      const row = acct as { invoice_number?: string | null; customers?: { full_name?: string | null } | null } | null;
+      return {
+        fullName: row?.customers?.full_name ?? null,
+        invoice: row?.invoice_number ?? null,
+      };
+    } catch (_e) {
+      return { fullName: null, invoice: null };
+    }
+  }
+  return { fullName: null, invoice: null };
+}
+
+function fmtLoyaltyNum(n: number | null | undefined): string {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return String(n ?? 0);
+  return v.toLocaleString("en-US");
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -250,11 +317,17 @@ Deno.serve(async (req) => {
         try {
           if (a.awarded === true) {
             recoveredCount++;
-            const invStr = cand.kind === "cash" ? (cand.invoice_number ?? "?") : "?";
+            const ctx = await resolveAwardNotifyContext(
+              supabase,
+              cand.kind === "cash"
+                ? { cash_order_id: cand.cash_order_id, customer_id: cand.customer_id, invoice_number: cand.invoice_number }
+                : { account_id: cand.account_id },
+            );
+            const who = ctx.fullName ? ` to ${ctx.fullName}` : "";
             await supabase.from("staff_notifications").insert({
               type: "loyalty_award_missing",
               title: "Loyalty award RECOVERED by daily checker",
-              body: `+${a.points_earned} pts awarded retroactively · Inv #${invStr}`,
+              body: `+${fmtLoyaltyNum(a.points_earned)} pts awarded retroactively${who} · Inv #${ctx.invoice ?? "?"}`,
               customer_id: cand.kind === "cash" ? cand.customer_id : null,
               invoice_number: cand.kind === "cash" ? cand.invoice_number : null,
               account_id: cand.kind === "layaway" ? cand.account_id : null,
