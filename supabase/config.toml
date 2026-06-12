@@ -27,6 +27,8 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.penalty-engine]
     verify_jwt = true
+  [functions.sync-backup-sheets]
+    verify_jwt = true
   [functions.process-email-queue]
     verify_jwt = true
   [functions.reactivate-account]
