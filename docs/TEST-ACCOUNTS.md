@@ -18,63 +18,76 @@
                sumOfPendingMonths: 0
                DP + sumBases:      26,000   (6,000 + 20,000)
                downPayment:        6,000
-               status:             active (completed on next reconcile)
+               status:             completed (verified 2026-05-19)
 
-  TEST-002 — Locked benchmark (waived penalty)
-             Never modify data. All 9 verify checks must always be green.
+  TEST-002 — Locked benchmark (waived penalty + forfeit lifecycle)
+             Never modify data. Frozen state below is the new baseline.
              Purpose: catches bugs where waived penalties still affect
-             totalLAAmount or remainingBalance.
+             totalLAAmount or remainingBalance; also pins post-forfeit
+             totals so the auto-forfeit / penalty-cap path stays auditable.
 
              Setup:
                Currency: PHP | Base LA: ₱20,000 | DP: ₱6,000 (paid)
                3 months | Month 1 Jan 22 2026 PAID | Month 2 Feb 22 2026 PAID
-               Month 3 Mar 22 2026 PENDING
-               Penalty: ₱500 on Month 2, status=waived
-               penalty_amount on schedule row = 0
+               Month 3 Mar 22 2026 was PENDING → cancelled on forfeit 2026-06-05
+               Penalty: ₱500 on Month 2, status=waived (penalty_amount on
+                        schedule row = 0)
+               Penalty: 6 × ₱500 on Month 3, status=unpaid (final-month cap
+                        ₱3,000 reached before auto-forfeit fired)
 
-             Expected verify values (all 9 must be green):
-               activePenalties:    0        (waived = excluded)
-               totalLAAmount:      20,000
+             Frozen verify values (re-baselined 2026-06-12, post-forfeit):
+               activePenalties:    3,000    (6 × 500 unwaived on M3)
+               totalLAAmount:      23,000   (20,000 + 3,000 activePenalties)
                amountPaid:         15,334   (6,000 + 4,667 + 4,667)
-               remainingBalance:   4,666
-               monthsRemaining:    1
-               sumOfPendingMonths: 4,666
+               remainingBalance:   7,666    (23,000 − 15,334)
+               monthsRemaining:    0        (M3 cancelled by PATH 2 forfeit)
+               sumOfPendingMonths: 0        (no pending/overdue rows)
                DP + sumBases:      20,000   (6,000 + 14,000)
                downPayment:        6,000    (ref: DP-TEST-002)
-               nextPaymentDate:    2026-03-22
+               waivedPenalties:    500
+               status:             forfeited (auto-forfeit cron, 2026-06-05)
 
-  TEST-003 — Locked benchmark (bulk import DP recognition)
-             Never modify data. All 9 verify checks must always be green.
+  TEST-003 — Locked benchmark (bulk import DP recognition + final_settlement)
+             Never modify data. Frozen state below is the new baseline.
              Purpose: catches bugs where bulk import downpayments are not
-             recognized by the verify check or totalPaid calculation.
+             recognized by the verify check or totalPaid calculation; also
+             pins the PATH 3 final_settlement lifecycle (6th-penalty trigger
+             without schedule cancellation).
 
              Setup:
                Currency: PHP | Base LA: ₱15,000 | DP: ₱4,500 (paid)
-               3 months | Month 1 Feb 22 2026 PAID | Month 2 Mar 22 2026 PENDING
-               Month 3 Apr 22 2026 PENDING
+               3 months | Month 1 Feb 22 2026 PAID
+               Month 2 Mar 22 2026 → overdue
+               Month 3 Apr 22 2026 → overdue (final month — accrued 6 penalty
+                                              events to the ₱3,000 cap)
                DP payment remarks: "Downpayment (bulk import)"
                (contains 'down' → recognized by isDownpaymentPayment)
+               Penalties: 6 × ₱500 on Month 3, status=unpaid (final-month cap)
+               Penalties waived: 0
 
-             Expected verify values (all 9 must be green):
-               activePenalties:    0
-               totalLAAmount:      15,000
+             Frozen verify values (re-baselined 2026-06-12, post-settlement):
+               activePenalties:    3,000    (6 × 500 unwaived on M3)
+               totalLAAmount:      18,000   (15,000 + 3,000 activePenalties)
                amountPaid:         8,000    (4,500 + 3,500)
-               remainingBalance:   7,000
-               monthsRemaining:    2
-               sumOfPendingMonths: 7,000
+               remainingBalance:   10,000   (18,000 − 8,000)
+               monthsRemaining:    2        (M2 + M3 stay overdue per
+                                             final_settlement rules)
+               sumOfPendingMonths: 10,000   (M2 base 3,500 + M3 base 3,500
+                                             + M3 penalty 3,000)
                DP + sumBases:      15,000   (4,500 + 10,500)
                downPayment:        4,500    (remarks contains 'down')
-               nextPaymentDate:    2026-03-22
+               waivedPenalties:    0
+               status:             final_settlement (PATH 3, 6th-penalty
+                                                     trigger)
 
-  BENCHMARK DRIFT NOTE (observed 2026-05-21):
-    TEST-002 and TEST-003 have drifted +2,000 each from the documented
-    "Expected verify values" above — penalty accrual on overdue
-    installments since Apr 2026 (TEST-002 remaining 4,666 → 6,666;
-    TEST-003 remaining 7,000 → 9,000). Both still PASS audit_account
-    (internally consistent; waived penalty still correctly excluded on
-    TEST-002). The documented numbers above are STALE — they are not a
-    regression. Re-baseline or update the docs — TBD; the locked
-    numbers have intentionally NOT been changed pending that decision.
+  Baseline freeze (2026-06-12): TEST-001/002/003 are excluded from
+  penalty-engine accrual as of commit 79e53c4, and all three now sit in
+  terminal/settlement statuses outside the cron's processing filters, so
+  these figures are stable. TEST-004/TEST-005 intentionally still accrue
+  penalties (live penalty-testing scaffolds). Note: auto-forfeit-settlement
+  has no test exclusion — it forfeited TEST-002 on 2026-06-05; if a locked
+  benchmark is ever reset to active for regression testing, account for
+  that cron or add a matching exclusion first.
 
   TEST-004 — Split payment testing (can record payments)
              2026-05-18: now also the layaway loyalty-redemption
