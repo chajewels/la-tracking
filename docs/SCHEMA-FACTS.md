@@ -403,6 +403,10 @@ Five keys exist in role_permissions with zero runtime references. They are inten
 - manage_trade_ins, view_trade_ins — pre-staged for the future trade-in UI; fully seeded (4 roles) as of the Bug #221 backfill.
 Rationale: unevaluated keys cost nothing; deleting and later re-seeding risks partial seeds (missing role row = silent checkPermission false, see role-permission seeding rule).
 
+### Service-role detection helper (added 2026-06-12, Bug #223)
+
+isServiceRole(token) in _shared/jwt-claims.ts is the ONLY correct way to detect internal service callers in edge function gates: it checks direct equality with the SUPABASE_SERVICE_ROLE_KEY env value first (works for both JWT and non-JWT key formats), then falls back to parseJwtClaims role inspection (vault-stored cron JWTs). Never use parseJwtClaims(token)?.role === "service_role" alone — it silently rejects non-JWT keys and caused the Bug #223 outage. Any function called internally via fetch to functions/v1/* must gate with isServiceRole.
+
 ### dashboard-summary: known-dead adjusted prediction fields (documented 2026-06-12)
 
 The dashboard-summary edge function computes a riskFactor (0.85) and four risk-adjusted output fields: the per-bucket `adjusted` totals, `predicted_30d`, `predicted_90d`, and `next_month_adjusted`. These are typed in src/hooks/use-supabase-data.ts but rendered NOWHERE — the Finance page displays only the `_raw` counterparts. Decision: kept intentionally (removal would touch the API shape, hook types, and a redeploy for zero visible gain; the fields are available if risk-adjusted predictions are ever surfaced). Do not re-flag as drift or dead code.
