@@ -1037,6 +1037,30 @@ export type Database = {
           },
         ]
       }
+      inquiry_dropdown_options: {
+        Row: {
+          created_at: string
+          dropdown_type: string
+          id: string
+          sort_order: number
+          value: string
+        }
+        Insert: {
+          created_at?: string
+          dropdown_type: string
+          id?: string
+          sort_order?: number
+          value: string
+        }
+        Update: {
+          created_at?: string
+          dropdown_type?: string
+          id?: string
+          sort_order?: number
+          value?: string
+        }
+        Relationships: []
+      }
       keep_fix_audit: {
         Row: {
           base_installment_amount: number | null
@@ -3005,6 +3029,57 @@ export type Database = {
           plan_months?: number
           risk_tier?: string
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      product_inquiries: {
+        Row: {
+          action_needed: string | null
+          category: string
+          created_at: string
+          entered_by: string | null
+          id: string
+          inquirer_name: string | null
+          inquiry_count: number
+          item_code: string | null
+          last_inquired_date: string | null
+          order_placed: string | null
+          popular_inquiries_notes: string | null
+          product_name: string | null
+          source: string | null
+          updated_at: string
+        }
+        Insert: {
+          action_needed?: string | null
+          category?: string
+          created_at?: string
+          entered_by?: string | null
+          id?: string
+          inquirer_name?: string | null
+          inquiry_count?: number
+          item_code?: string | null
+          last_inquired_date?: string | null
+          order_placed?: string | null
+          popular_inquiries_notes?: string | null
+          product_name?: string | null
+          source?: string | null
+          updated_at?: string
+        }
+        Update: {
+          action_needed?: string | null
+          category?: string
+          created_at?: string
+          entered_by?: string | null
+          id?: string
+          inquirer_name?: string | null
+          inquiry_count?: number
+          item_code?: string | null
+          last_inquired_date?: string | null
+          order_placed?: string | null
+          popular_inquiries_notes?: string | null
+          product_name?: string | null
+          source?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
