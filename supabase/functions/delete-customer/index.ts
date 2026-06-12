@@ -1,30 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
-
-async function hasPermission(supabase: any, userId: string, permissionKey: string) {
-  const { data: roles, error: roleError } = await supabase
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", userId);
-  if (roleError) throw roleError;
-
-  const roleNames = (roles ?? []).map((row: any) => row.role);
-  if (roleNames.length === 0) return false;
-
-  const { data: permissions, error: permissionError } = await supabase
-    .from("role_permissions")
-    .select("role, is_allowed")
-    .eq("permission_key", permissionKey)
-    .in("role", roleNames);
-  if (permissionError) throw permissionError;
-
-  return (permissions ?? []).some((row: any) => row.is_allowed);
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -45,7 +26,7 @@ Deno.serve(async (req) => {
     const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
     if (authErr || !user) throw new Error("Unauthorized");
 
-    const canDeleteCustomer = await hasPermission(supabase, user.id, "delete_customer");
+    const canDeleteCustomer = await checkPermission(supabase, user.id, "delete_customer");
     if (!canDeleteCustomer) throw new Error("You do not have permission to delete customers");
 
     const { customer_id } = await req.json();

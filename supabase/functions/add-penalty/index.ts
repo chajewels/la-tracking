@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -38,16 +39,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Role gate — mirrors dashboard-summary (commit 27a3877). Block
-    // session-auth CUSTOMER JWTs from invoking staff write paths.
-    const { data: roleRows } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .in("role", ["admin", "staff", "finance", "csr"])
-      .limit(1);
-    if (!roleRows || roleRows.length === 0) {
-      return new Response(JSON.stringify({ error: "Forbidden" }), {
+    // Permission gate — matrix-driven via add_penalty key.
+    const allowed = await checkPermission(supabase, user.id, "add_penalty");
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "add_penalty permission required" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

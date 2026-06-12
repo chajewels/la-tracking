@@ -19,6 +19,10 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
       { key: 'view_overdue_alerts', label: 'View Overdue Alerts' },
       { key: 'view_aging_buckets', label: 'View Aging Buckets' },
       { key: 'view_geo_breakdown', label: 'View Geographic Breakdown' },
+      { key: 'view_ai_risk', label: 'View AI Risk Panel' },
+      { key: 'view_live_collection', label: 'View Live Collection Panel' },
+      { key: 'view_operations_panel', label: 'View Operations Panel' },
+      { key: 'view_system_health', label: 'View System Health Panel' },
     ],
   },
   {
@@ -64,6 +68,7 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
   {
     module: 'Services',
     permissions: [
+      { key: 'view_services', label: 'View Services' },
       { key: 'add_service', label: 'Manage Services' },
     ],
   },
@@ -80,6 +85,7 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
       { key: 'view_dashboard', label: 'View Loyalty Dashboard', section: 'Loyalty Program' },
       { key: 'loyalty_adjust_points', label: 'Adjust / Award Loyalty Points', section: 'Loyalty Admin' },
       { key: 'loyalty_revoke_points', label: 'Revoke / Restore Loyalty Points' },
+      { key: 'view_loyalty_redemptions', label: 'View Loyalty Redemptions' },
     ],
   },
   {

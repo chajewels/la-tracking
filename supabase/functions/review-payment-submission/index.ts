@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,26 +10,6 @@ const corsHeaders = {
 // Benign skips (not_enrolled, below_minimum, already_awarded, no_loyalty_amount,
 // missing_source) stay silent.
 const ANOMALOUS_SKIP_REASONS = ["loyalty_disabled", "tier_not_found", "account_not_found", "cash_order_not_found"];
-
-async function hasPermission(supabase: any, userId: string, permissionKey: string) {
-  const { data: roles, error: roleError } = await supabase
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", userId);
-  if (roleError) throw roleError;
-
-  const roleNames = (roles ?? []).map((row: any) => row.role);
-  if (roleNames.length === 0) return false;
-
-  const { data: permissions, error: permissionError } = await supabase
-    .from("role_permissions")
-    .select("role, is_allowed")
-    .eq("permission_key", permissionKey)
-    .in("role", roleNames);
-  if (permissionError) throw permissionError;
-
-  return (permissions ?? []).some((row: any) => row.is_allowed);
-}
 
 async function allocatePaymentToAccount(
   supabase: any,
@@ -421,7 +402,7 @@ Deno.serve(async (req) => {
 
     const requiredPermission = permissionByAction[action];
     const isAllowed = requiredPermission
-      ? await hasPermission(supabase, user.id, requiredPermission)
+      ? await checkPermission(supabase, user.id, requiredPermission)
       : false;
 
     if (!isAllowed) {
