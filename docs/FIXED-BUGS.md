@@ -3230,3 +3230,24 @@ Bug #196 (`_shared/check-permission.ts` multi-role fix — established the OR se
 - **Verification:** grep — single listener remains in AppLayout + dispatch in AICommandModal, zero `open-record-payment-modal` hits in WorkspaceSplitButton; `thirtyMinAgo` zero hits in record-payment; RPC call present at ~L128; deployed function returns 401 to unauthenticated curl.
 - **Cleanup:** submission 961781eb rejected as duplicate; feb94fdc processed normally.
 - **Related:** Bug #218 (the prior duplicate-payment incident on the now-deleted dialog fallback path); Bug #219 (universal submission-only redesign — this RPC now guards its single write path).
+
+### Bug #221 — Permission Matrix UI/DB drift: 6 enforced keys invisible in matrix, 7 keys partially seeded (2026-06-12) ✅
+
+- **Severity:** P2 — six runtime-enforced permission keys (view_ai_risk, view_live_collection, view_operations_panel, view_system_health, view_services, view_loyalty_redemptions) were absent from the Permission Matrix UI, so admins could not see or adjust them; seven other keys (manage_announcements, manage_promotions, manage_trade_ins, manage_waivers, view_services, view_trade_ins, view_vault) had missing role rows in role_permissions, making toggles on those role cells silent no-ops (missing row = checkPermission resolves false).
+- **Fix:**
+  - SQL backfill (run 2026-06-12): inserted the 13 missing role rows with explicit is_allowed = false via a self-resolving CROSS JOIN + NOT EXISTS insert. Verified: all seven keys now have exactly 4 role rows.
+  - Commit `5852cc3`: added the six keys to PERMISSION_MODULES in src/components/settings/PermissionMatrixTab.tsx — four under Dashboard, view_services as the first Services entry, view_loyalty_redemptions under Loyalty.
+- **Reserved keys decision (locked):** five seeded keys with zero runtime references are KEPT as reserved, not deleted: approve_cash_order, edit_cash_order, recalculate_balance, manage_trade_ins, view_trade_ins. Rationale: trade keys pre-stage the future trade-in UI; deletion buys nothing (unevaluated keys cost nothing) and risks the silent-false trap on any future re-seed. Documented in docs/SCHEMA-FACTS.md "Reserved permission keys" section.
+- **Verification:** matrix file grep shows the six keys at L22/71/88-area; SQL count query returned 7 rows × roles_seeded = 4.
+- **Related:** Bug #198 (the original drift discovery); Bug #168 / Phase 2 Item 4 (the matrix-driven checkPermission migration this completes the UI side of).
+
+### Bug #222 — Last three staff-facing edge functions normalized to shared checkPermission; add-penalty csr gap closed (2026-06-12) ✅
+
+- **Severity:** P2 housekeeping with one P3 behavioral fix. review-payment-submission and delete-customer each carried a local hasPermission clone (user_roles → role_permissions lookup) — functionally matrix-driven but duplicated code outside the shared helper. add-penalty had a real gap: a coarse user_roles IN (admin, staff, finance, csr) gate with no role_permissions lookup, so csr could add penalties and member overrides were ignored.
+- **Fix (commit `5852cc3`, deployed):**
+  - review-payment-submission: local clone deleted; call site uses shared checkPermission from _shared/check-permission.ts. The per-action key map preserved exactly: under_review/needs_clarification → review_submission, rejected/restore → reject_submission, confirmed → confirm_payment. Zero behavior change.
+  - delete-customer: local clone deleted; shared checkPermission("delete_customer"). Zero behavior change.
+  - add-penalty: coarse role gate replaced with checkPermission("add_penalty") + standard 403. INTENDED behavior change: csr (seeded false) loses access; per-member overrides now apply.
+- **Key-alignment decision (locked):** review_submission / reject_submission / confirm_payment remain three separate keys — the per-action map is deliberate workflow design (staff triage the queue but cannot confirm; seeds: staff true/true/false). Do not propose collapsing these into confirm_payment in future sessions.
+- **Verification:** hasPermission count 0 in both files; checkPermission import + call present in add-penalty; all three deployed from 5852cc3; curl proof: review-payment-submission 401, add-penalty 401, delete-customer 400 {"error":"Missing authorization"} (handles auth in-function; gate intact, no action precedes auth).
+- **Related:** Bug #200 (the UI/backend gate audit that found these); Bug #168 (the prohibited string-equality / non-matrix auth pattern family). Note: edit-payment-submission was investigated and EXCLUDED — it is customer-portal-facing (resolvePortalAuth + ownership check), must never receive a staff checkPermission gate.

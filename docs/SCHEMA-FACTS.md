@@ -395,3 +395,10 @@ A cash order can be revived from `status='expired'` back to `status='pending'` b
 **Side effects intentionally NOT triggered:**
 - `payment_submissions` auto-rejected at expiry STAY rejected. Customers resubmit through the portal.
 - Loyalty awards (cash full-completion path) are unaffected — they fire on `payment` confirm, not on status transitions.
+
+### Reserved permission keys (decision locked 2026-06-12, Bug #221)
+
+Five keys exist in role_permissions with zero runtime references. They are intentionally KEPT as reserved — do not delete, do not flag as drift:
+- approve_cash_order, edit_cash_order, recalculate_balance — referenced only as types in the legacy static map src/lib/role-permissions.ts; reserved against future reintroduction.
+- manage_trade_ins, view_trade_ins — pre-staged for the future trade-in UI; fully seeded (4 roles) as of the Bug #221 backfill.
+Rationale: unevaluated keys cost nothing; deleting and later re-seeding risks partial seeds (missing role row = silent checkPermission false, see role-permission seeding rule).
