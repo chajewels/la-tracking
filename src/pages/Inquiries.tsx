@@ -598,8 +598,27 @@ function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + '…' : s;
 }
 
-function DemandMap({ allRows, loading }: { allRows: InquiryRow[]; loading: boolean }) {
-  const items = useMemo(() => aggregateByItem(allRows), [allRows]);
+function DemandMap({ allRows, loading, orderPlacedOptions }: {
+  allRows: InquiryRow[];
+  loading: boolean;
+  orderPlacedOptions: string[];
+}) {
+  // Order Placed filter (client-side; applies to ALL Demand Map content).
+  // "— Blank —" means order_placed === null (post-2026-06-12 backfill,
+  // 350 rows are legitimately NULL).
+  const [filterOrderPlaced, setFilterOrderPlaced] = useState<string[]>([]);
+
+  const filteredRows = useMemo(() => {
+    if (filterOrderPlaced.length === 0) return allRows;
+    const hasBlank = filterOrderPlaced.includes(BLANK_FILTER);
+    const real = filterOrderPlaced.filter(v => v !== BLANK_FILTER);
+    return allRows.filter(r => {
+      if (r.order_placed == null) return hasBlank;
+      return real.includes(r.order_placed);
+    });
+  }, [allRows, filterOrderPlaced]);
+
+  const items = useMemo(() => aggregateByItem(filteredRows), [filteredRows]);
 
   const top20 = useMemo(() => {
     const sorted = [...items].sort((a, b) => b.total_inquiries - a.total_inquiries).slice(0, 20);
@@ -613,7 +632,7 @@ function DemandMap({ allRows, loading }: { allRows: InquiryRow[]; loading: boole
   // inquirer_name and skips empty/null names.
   const topInquirers = useMemo(() => {
     const map = new Map<string, number>();
-    for (const r of allRows) {
+    for (const r of filteredRows) {
       const name = (r.inquirer_name ?? '').trim();
       if (!name) continue;
       map.set(name, (map.get(name) ?? 0) + (Number(r.inquiry_count) || 0));
@@ -626,7 +645,52 @@ function DemandMap({ allRows, loading }: { allRows: InquiryRow[]; loading: boole
       }))
       .sort((a, b) => b.total_inquiries - a.total_inquiries)
       .slice(0, 20);
-  }, [allRows]);
+  }, [filteredRows]);
+
+  // Repeat Inquirers (Section D). Group by (inquirer_name, item_code);
+  // both must be non-null; keep only groups with count >= 2.
+  const repeatInquirers = useMemo(() => {
+    type Group = {
+      inquirer_name: string;
+      item_code: string;
+      product_name: string;
+      times: number;
+      most_recent: string | null;
+      order_placed_set: Set<string>;
+    };
+    const map = new Map<string, Group>();
+    for (const r of filteredRows) {
+      const inq = (r.inquirer_name ?? '').trim();
+      const item = (r.item_code ?? '').trim();
+      if (!inq || !item) continue;
+      const key = `${inq.toLowerCase()}|${item.toLowerCase()}`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.times += 1;
+        if (r.last_inquired_date && (!existing.most_recent || r.last_inquired_date > existing.most_recent)) {
+          existing.most_recent = r.last_inquired_date;
+        }
+        if (r.order_placed) existing.order_placed_set.add(r.order_placed);
+      } else {
+        const set = new Set<string>();
+        if (r.order_placed) set.add(r.order_placed);
+        map.set(key, {
+          inquirer_name: inq,
+          item_code: item,
+          product_name: r.product_name,
+          times: 1,
+          most_recent: r.last_inquired_date ?? null,
+          order_placed_set: set,
+        });
+      }
+    }
+    return Array.from(map.values())
+      .filter(g => g.times >= 2)
+      .sort((a, b) => {
+        if (b.times !== a.times) return b.times - a.times;
+        return (b.most_recent ?? '').localeCompare(a.most_recent ?? '');
+      });
+  }, [filteredRows]);
 
   const { medianX, maxRadius } = useMemo(() => {
     if (items.length === 0) return { medianX: 0, maxRadius: 1 };
@@ -642,9 +706,28 @@ function DemandMap({ allRows, loading }: { allRows: InquiryRow[]; loading: boole
     [items]
   );
 
+  // Filter bar — always visible so users can clear an active filter even
+  // when the filtered set is empty.
+  const filterBar = (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-3">
+      <span className="text-xs text-muted-foreground">Filter:</span>
+      <MultiSelectFilter
+        label="Order Placed"
+        options={orderPlacedOptions}
+        selected={filterOrderPlaced}
+        onChange={setFilterOrderPlaced}
+        includeBlank
+      />
+      <span className="ml-auto text-xs text-muted-foreground">
+        {filteredRows.length.toLocaleString()} of {allRows.length.toLocaleString()} inquir{allRows.length === 1 ? 'y' : 'ies'}
+      </span>
+    </div>
+  );
+
   if (loading) {
     return (
       <div className="space-y-6">
+        {filterBar}
         <Skeleton className="h-[400px] w-full rounded-lg" />
         <Skeleton className="h-[500px] w-full rounded-lg" />
       </div>
@@ -653,14 +736,22 @@ function DemandMap({ allRows, loading }: { allRows: InquiryRow[]; loading: boole
 
   if (items.length === 0) {
     return (
-      <div className="rounded-lg border border-border bg-card p-12 text-center">
-        <p className="text-sm text-muted-foreground">No inquiry data yet. Add an inquiry to see the demand map.</p>
+      <div className="space-y-6">
+        {filterBar}
+        <div className="rounded-lg border border-border bg-card p-12 text-center">
+          <p className="text-sm text-muted-foreground">
+            {filterOrderPlaced.length > 0
+              ? 'No inquiries match the current filter.'
+              : 'No inquiry data yet. Add an inquiry to see the demand map.'}
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
+      {filterBar}
       {/* Section A — Top 20 bar chart */}
       <div className="rounded-lg border border-border bg-card p-4">
         <div className="mb-3 flex items-center justify-between">
@@ -830,6 +921,67 @@ function DemandMap({ allRows, loading }: { allRows: InquiryRow[]; loading: boole
             </ResponsiveContainer>
           </div>
         )}
+      </div>
+
+      {/* Section D — Repeat Inquirers (same customer, same item, 2+ inquiries) */}
+      <div className="rounded-lg border border-border bg-card">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <h3 className="text-sm font-semibold text-card-foreground">Repeat Inquirers</h3>
+          <span className="text-xs text-muted-foreground">
+            {repeatInquirers.length === 0
+              ? '—'
+              : `${repeatInquirers.length.toLocaleString()} customer–item pair${repeatInquirers.length === 1 ? '' : 's'}`}
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium">Customer</th>
+                <th className="px-3 py-2 text-left font-medium">Item Code</th>
+                <th className="px-3 py-2 text-left font-medium">Product Name</th>
+                <th className="px-3 py-2 text-right font-medium">Times Inquired</th>
+                <th className="px-3 py-2 text-left font-medium">Most Recent</th>
+                <th className="px-3 py-2 text-left font-medium">Order Placed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {repeatInquirers.length === 0 ? (
+                <tr className="border-t border-border">
+                  <td colSpan={6} className="px-3 py-10 text-center text-sm text-muted-foreground">
+                    No repeat inquirers match the current filter.
+                  </td>
+                </tr>
+              ) : (
+                repeatInquirers.map((g) => {
+                  const badges = Array.from(g.order_placed_set);
+                  return (
+                    <tr key={`${g.inquirer_name}|${g.item_code}`} className="border-t border-border hover:bg-muted/30">
+                      <td className="px-3 py-2 text-card-foreground">{g.inquirer_name}</td>
+                      <td className="px-3 py-2 font-mono text-xs">{g.item_code}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{g.product_name}</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-medium text-card-foreground">{g.times}</td>
+                      <td className="px-3 py-2 text-xs">{formatDate(g.most_recent)}</td>
+                      <td className="px-3 py-2">
+                        {badges.length === 0 ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            {badges.map((v) => (
+                              <Badge key={v} variant="outline" className={cn('text-[10px] font-medium', orderPlacedBadgeClass(v))}>
+                                {v}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -1211,7 +1363,7 @@ export default function Inquiries() {
 
         {/* ── Tab 2: Demand Map ─────────────────────────────────────────── */}
         <TabsContent value="demand" className="mt-4">
-          <DemandMap allRows={allRows} loading={demandLoading} />
+          <DemandMap allRows={allRows} loading={demandLoading} orderPlacedOptions={dropdowns.order_placed ?? []} />
         </TabsContent>
       </Tabs>
 

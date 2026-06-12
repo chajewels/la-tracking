@@ -21,6 +21,9 @@
 - Permission keys: view_inquiries + manage_inquiries (all 4 roles)
 - Blank filter added to Action Needed (null + empty) and Order Placed
   (null) for unset rows
+- 2026-06-12: Demand Map gained Order Placed filter (applies to all
+  charts) and Repeat Inquirers table (same customer, same item, 2+
+  inquiries)
 - Services + Trade-Ins sidebar converted to parent with sub-items
   (Service Jobs / Trade-Ins) — v1.1.1 fix carried forward
 
