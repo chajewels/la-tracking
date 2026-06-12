@@ -121,59 +121,22 @@ Deno.serve(async (req) => {
     //    review-payment-submission. The previous confirm_payment-coupled
     //    direct-write branch was removed (Bug #218).
     if (!preview_only) {
-      // ── Duplicate-submission soft block (bypass with force=true) ──
-      if (!force) {
-        try {
-          const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-          const { data: dupRows } = await supabase
-            .from("payment_submissions")
-            .select("id, created_at, sender_name, reference_number, submitted_amount")
-            .eq("account_id", account_id)
-            .in("status", ["submitted", "under_review"])
-            .gte("created_at", thirtyMinAgo)
-            .order("created_at", { ascending: false })
-            .limit(5);
-          const dup = (dupRows || []).find(
-            (r: any) => Math.abs(Number(r.submitted_amount) - Number(amount_paid)) < 1,
-          );
-          if (dup) {
-            const minutesAgo = Math.max(
-              1,
-              Math.round((Date.now() - new Date(dup.created_at).getTime()) / 60000),
-            );
-            return new Response(
-              JSON.stringify({
-                error: "duplicate_submission_detected",
-                message: `A ₱${Number(amount_paid).toLocaleString()} submission for this account is already pending review (submitted ${minutesAgo} minute${minutesAgo === 1 ? "" : "s"} ago by ${dup.sender_name ?? "unknown"}). If this is a different payment, add a distinguishing reference number or note, then retry with force=true.`,
-                existing_submission_id: dup.id,
-                existing_submitted_at: dup.created_at,
-                existing_sender_name: dup.sender_name,
-                existing_reference_number: dup.reference_number,
-              }),
-              { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-            );
-          }
-        } catch (dupErr) {
-          console.warn("[record-payment] duplicate-check query failed (non-blocking):", dupErr);
-        }
-      }
-
-      const { data: submission, error: subErr } = await supabase
-        .from("payment_submissions")
-        .insert({
-          account_id,
-          customer_id: account.customer_id,
-          submitted_amount: amount_paid,
-          payment_date: date_paid || new Date().toISOString().split("T")[0],
-          payment_method: payment_method || "cash",
-          reference_number: reference_number || null,
-          notes: remarks || null,
-          status: "submitted",
-          submission_type: submission_type ?? 'single',
-          sender_name: (user.user_metadata as any)?.full_name || user.email || null,
-        })
-        .select("id")
-        .single();
+      // Race-proof insert: insert_payment_submission_guarded takes a per-account
+      // advisory lock, re-runs the duplicate check, and inserts atomically. The
+      // prior separate-statement SELECT-then-INSERT could let two near-simultaneous
+      // calls both pass the dup check (observed 411ms apart).
+      const { data: guarded, error: subErr } = await supabase.rpc("insert_payment_submission_guarded", {
+        p_account_id: account_id,
+        p_customer_id: account.customer_id,
+        p_submitted_amount: amount_paid,
+        p_payment_date: date_paid || new Date().toISOString().split("T")[0],
+        p_payment_method: payment_method || "cash",
+        p_reference_number: reference_number || null,
+        p_notes: remarks || null,
+        p_submission_type: submission_type ?? "single",
+        p_sender_name: (user.user_metadata as any)?.full_name || user.email || null,
+        p_force: !!force,
+      });
 
       if (subErr) {
         return new Response(JSON.stringify({ error: subErr.message }), {
@@ -182,10 +145,26 @@ Deno.serve(async (req) => {
         });
       }
 
+      if (guarded?.duplicate === true) {
+        const minutesAgo = Number(guarded.minutes_ago) || 1;
+        const senderName = guarded.sender_name ?? "unknown";
+        return new Response(
+          JSON.stringify({
+            error: "duplicate_submission_detected",
+            message: `A ₱${Number(amount_paid).toLocaleString()} submission for this account is already pending review (submitted ${minutesAgo} minute${minutesAgo === 1 ? "" : "s"} ago by ${senderName}). If this is a different payment, add a distinguishing reference number or note, then retry with force=true.`,
+            existing_submission_id: guarded.existing_submission_id ?? null,
+            existing_submitted_at: guarded.existing_submitted_at ?? null,
+            existing_sender_name: guarded.sender_name ?? null,
+            existing_reference_number: guarded.existing_reference_number ?? null,
+          }),
+          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
       // Audit log
       await supabase.from("audit_logs").insert({
         entity_type: "payment_submission",
-        entity_id: submission.id,
+        entity_id: guarded.submission_id,
         action: "staff_payment_submitted",
         new_value_json: { amount_paid, account_id, payment_method, date_paid },
         performed_by_user_id: user.id,
@@ -193,7 +172,7 @@ Deno.serve(async (req) => {
 
       return new Response(JSON.stringify({
         submitted_for_confirmation: true,
-        submission_id: submission.id,
+        submission_id: guarded.submission_id,
         message: "Payment submitted for confirmation. An admin or finance user will review it.",
       }), {
         status: 201,
