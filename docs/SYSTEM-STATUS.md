@@ -1,7 +1,22 @@
-# System Status — last updated 2026-06-09
+# System Status — last updated 2026-06-12
 
 ## App Version
 1.2.0 (commit 02a040c)
+
+## 2026-06-12 — v1.2.0
+- Product Inquiry Tracker shipped under CSR Monitoring → Inquiries
+- Two tabs: Inquiry List (filterable, paginated, add/edit) + Demand Map
+- Demand Map: Top 20 most inquired items (gold bar chart), Demand
+  Intelligence Quadrant (scatter: volume vs conversion rate), Top 20
+  most frequent inquirers (purple bar chart)
+- 803 rows migrated from Google Sheet on launch
+- All dropdowns configurable via inquiry_dropdown_options table with
+  inline + Add in form
+- Tables: product_inquiries, inquiry_dropdown_options
+- Permission keys: view_inquiries + manage_inquiries (all 4 roles)
+- Blank filter added to Action Needed for null/empty rows
+- Services + Trade-Ins sidebar converted to parent with sub-items
+  (Service Jobs / Trade-Ins) — v1.1.1 fix carried forward
 
 ## Active Features (shipped)
 - CA Bot AI command interface (`✨` button in AppLayout)
