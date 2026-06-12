@@ -578,6 +578,25 @@ function DemandMap({ allRows, loading }: { allRows: InquiryRow[]; loading: boole
     }));
   }, [items]);
 
+  // Top 20 most frequent inquirers (Section C). Aggregates by trimmed
+  // inquirer_name and skips empty/null names.
+  const topInquirers = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of allRows) {
+      const name = (r.inquirer_name ?? '').trim();
+      if (!name) continue;
+      map.set(name, (map.get(name) ?? 0) + (Number(r.inquiry_count) || 0));
+    }
+    return Array.from(map.entries())
+      .map(([name, total]) => ({
+        inquirer_name: name,
+        total_inquiries: total,
+        label: truncate(name, 25),
+      }))
+      .sort((a, b) => b.total_inquiries - a.total_inquiries)
+      .slice(0, 20);
+  }, [allRows]);
+
   const { medianX, maxRadius } = useMemo(() => {
     if (items.length === 0) return { medianX: 0, maxRadius: 1 };
     const xs = items.map(i => i.total_inquiries).sort((a, b) => a - b);
@@ -734,6 +753,52 @@ function DemandMap({ allRows, loading }: { allRows: InquiryRow[]; loading: boole
         <p className="mt-2 text-[10px] text-muted-foreground">
           Dot size scales with inquiry volume (max {maxRadius}). Quadrant split at median volume = {medianX} and 50% conversion.
         </p>
+      </div>
+
+      {/* Section C — Top 20 most frequent inquirers */}
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-card-foreground">Top 20 Most Frequent Inquirers</h3>
+          <span className="text-xs text-muted-foreground">By total inquiry count</span>
+        </div>
+        {topInquirers.length === 0 ? (
+          <p className="px-2 py-8 text-center text-sm text-muted-foreground">No inquirers recorded yet.</p>
+        ) : (
+          <div style={{ height: Math.max(320, topInquirers.length * 28) }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={topInquirers}
+                layout="vertical"
+                margin={{ top: 4, right: 24, left: 8, bottom: 4 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis type="number" stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 11 }} />
+                <YAxis
+                  type="category"
+                  dataKey="label"
+                  width={180}
+                  stroke="hsl(var(--muted-foreground))"
+                  tick={{ fontSize: 11 }}
+                />
+                <Tooltip
+                  cursor={{ fill: 'hsl(var(--muted) / 0.3)' }}
+                  contentStyle={{
+                    background: 'hsl(var(--card))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: 6,
+                    fontSize: 12,
+                  }}
+                  formatter={(value: number, _name: string, ctx: { payload?: { inquirer_name: string } }) => [
+                    `${value} inquiries`,
+                    ctx?.payload?.inquirer_name ?? '',
+                  ]}
+                  labelFormatter={() => ''}
+                />
+                <Bar dataKey="total_inquiries" fill="#C084FC" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -915,8 +980,8 @@ export default function Inquiries() {
 
         {/* ── Tab 1: Inquiry List ───────────────────────────────────────── */}
         <TabsContent value="list" className="mt-4 space-y-3">
-          {/* Filters row */}
-          <div className="rounded-lg border border-border bg-card p-3 space-y-2.5">
+          {/* Filters row — single flex line */}
+          <div className="rounded-lg border border-border bg-card p-3">
             <div className="flex flex-wrap items-center gap-2">
               <div className="relative flex-1 min-w-[200px] max-w-sm">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -932,24 +997,20 @@ export default function Inquiries() {
               <MultiSelectFilter label="Action Needed" options={dropdowns.action_needed ?? []}  selected={filterActionNeeded} onChange={setFilterActionNeeded} />
               <MultiSelectFilter label="Order Placed"  options={dropdowns.order_placed ?? []}   selected={filterOrderPlaced}  onChange={setFilterOrderPlaced} />
               <MultiSelectFilter label="Entered By"    options={dropdowns.entered_by ?? []}     selected={filterEnteredBy}    onChange={setFilterEnteredBy} />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-1.5">
-                <Label className="text-xs text-muted-foreground">Last inquired</Label>
-                <Input
-                  type="date"
-                  value={dateFrom}
-                  onChange={(e) => setDateFrom(e.target.value)}
-                  className="h-9 w-[140px] text-xs"
-                />
-                <span className="text-xs text-muted-foreground">–</span>
-                <Input
-                  type="date"
-                  value={dateTo}
-                  onChange={(e) => setDateTo(e.target.value)}
-                  className="h-9 w-[140px] text-xs"
-                />
-              </div>
+              <Label className="text-sm text-white/60">Last Inquired</Label>
+              <Input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="h-9 w-[140px] rounded-md border-border bg-background text-sm"
+              />
+              <span className="text-sm text-white/60">–</span>
+              <Input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="h-9 w-[140px] rounded-md border-border bg-background text-sm"
+              />
               {hasActiveFilters && (
                 <Button variant="ghost" size="sm" onClick={clearFilters} className="h-9 text-xs text-muted-foreground">
                   <X className="mr-1 h-3.5 w-3.5" /> Clear Filters
