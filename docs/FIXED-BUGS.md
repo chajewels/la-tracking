@@ -3132,3 +3132,46 @@ Pending deploy. By-Member view will list each user once with all roles shown; th
 
 #### Related
 Bug #196 (`_shared/check-permission.ts` multi-role fix — established the OR semantics this UI now mirrors).
+
+### Bug #214 — `reconcile-account` edge function used coarse `is_staff` RPC instead of matrix-driven `run_reconciliation` key (2026-06-12) ✅
+
+- **Symptom:** Toggling `run_reconciliation` in the Permission Matrix had no effect on who could actually invoke `reconcile-account`. The function gated on `supabase.rpc("is_staff", { _user_id: user.id })` — a coarse role check that bypassed the matrix entirely.
+- **Root cause:** Pre-Phase 2 pattern that survived Batch A-F migrations because `reconcile-account` was treated as a read-only diagnostic and not surveyed for matrix migration. The `run_reconciliation` key already existed in `role_permissions` (admin=true, finance=true, staff=false, csr=false) but no edge function consumed it.
+- **Fix:** Replaced the `is_staff` RPC check with `checkPermission(supabase, user.id, "run_reconciliation")`. Import of `../_shared/check-permission.ts` added. 403 body now reads `"run_reconciliation permission required"` so future debugging matches the matrix key by name.
+- **Files:** `supabase/functions/reconcile-account/index.ts`.
+- **DB changes:** none — `run_reconciliation` already seeded in `role_permissions`.
+- **Net effect on existing users:** admin + finance retain access (matches existing seed); staff loses access (was implicitly granted via `is_staff` despite matrix saying staff=false). Admin can flip staff via matrix if needed.
+- **Related:** Bug #199 Batch A pattern; Bug #210 (`carry-over` → `edit_schedule` matrix migration); Bug #168 (matrix-driven auth pattern).
+
+### Bug #215 — `edit-schedule-item` edge function used coarse `is_staff` RPC instead of matrix-driven `edit_schedule` key (2026-06-12) ✅
+
+- **Symptom:** Toggling `edit_schedule` in the Permission Matrix had no effect on who could actually invoke `edit-schedule-item`. The function gated on `is_staff` RPC — a coarse role check that bypassed the matrix.
+- **Root cause:** Same pre-Phase 2 pattern as Bug #214. `edit_schedule` was already matrix-driven for `carry-over` (Bug #210) but `edit-schedule-item` (the function that rewrites `base_installment_amount`) was missed in the Batch C sweep.
+- **Fix:** Replaced `is_staff` RPC check with `checkPermission(supabase, user.id, "edit_schedule")`. Import of `../_shared/check-permission.ts` added. 403 body now reads `"edit_schedule permission required"`.
+- **Files:** `supabase/functions/edit-schedule-item/index.ts`.
+- **DB changes:** none — `edit_schedule` already seeded in `role_permissions` (admin=true, finance=true after Bug #209, staff=false, csr=false).
+- **Net effect on existing users:** admin + finance retain access (matches seed); staff loses implicit `is_staff` access (matches matrix). Admin can flip staff via matrix if needed.
+- **Related:** Bug #199 Batch A; Bug #202 Batch C (cash + schedule migrations); Bug #209/#210 (`edit_schedule` matrix-driven story); Bug #168.
+
+### Bug #216 — `ai-customer-insights` edge function had auth gate only, no role/permission check (2026-06-12) ✅
+
+- **Symptom:** Any authenticated user (including Phase B customer-portal users) could invoke `ai-customer-insights` for any `customer_id` and receive a staff-facing AI risk assessment containing aggregated layaway, payment, penalty, and loyalty data. No role gate, no permission gate — only `supabase.auth.getUser` validation.
+- **Severity:** P1 information disclosure — function surfaces cross-customer financial data + AI-summarized risk to anyone with a valid session JWT.
+- **Root cause:** Function shipped without a role check during the AI insights feature build; missed in Phase 2 Batch A-F because it was not surveyed (predates the matrix migration sweep).
+- **Fix:** Added `checkPermission(supabase, user.id, "view_accounts")` immediately after the `getUser` block — same key that gates the `/accounts` and `/customers` UI pages. Import of `../_shared/check-permission.ts` added. 403 body reads `"view_accounts permission required"`. OpenAI / Lovable AI Gateway call logic untouched.
+- **Files:** `supabase/functions/ai-customer-insights/index.ts`.
+- **DB changes:** none — `view_accounts` already seeded for admin/staff/finance/csr per existing matrix policy.
+- **Net effect on existing users:** all internal roles retain access (view_accounts is broadly seeded); customer-portal sessions now blocked at 403 (correct behavior — function is staff-facing).
+- **Related:** Bug #168 (matrix-driven auth pattern); Bug #199 Batch A and follow-on batches (Phase 2 migration sweep that should have caught this).
+
+### Bug #217 — Editing expiry on an EXPIRED cash order had no functional effect (2026-06-12) ✅
+
+- **Symptom:** Staff opening "Edit Expiration" on a cash order with `status='expired'` and picking a future date saw a success toast, but the order remained in `expired` status with `expired_at` set, and the order detail page continued to show the expired state. The new `expires_at` was written but the rest of the expiry state machine wasn't reset, so the revival was invisible to all downstream surfaces.
+- **Root cause:** `confirmEditExpiry` in `src/pages/CashOrderDetail.tsx` only `UPDATE`d `expires_at`. The auto-expire-cash-orders cron sets `status='expired'` AND `expired_at=NOW()` at expiry; partially undoing one column does not revive the order.
+- **Fix:** When `order.status === 'expired'` AND the new `expires_at` is in the future, the same UPDATE call now also writes `status: 'pending'` and `expired_at: null`. A second audit_logs row is written with action `'cash_order_revived'` and `new_value_json: { expires_at, invoice_number, revived_from_status: 'expired' }` (non-revival edits still log `expires_at_updated`). Toast on revival reads `Order revived — new expiration <date>`. `cash-orders` list query also invalidated so the list view reflects the status flip.
+- **Files:** `src/pages/CashOrderDetail.tsx` (`confirmEditExpiry`).
+- **DB changes:** none — RLS policy `staff_admin_update_cash_orders` already allows admin+staff to update `status`, `expires_at`, and `expired_at` on `cash_orders` rows.
+- **Out of scope (intentionally untouched):**
+  - `auto-expire-cash-orders` cron: its `status='pending'` race-guard already re-expires revived orders correctly when the new date passes.
+  - `payment_submissions` auto-rejected at expiry stay rejected — customers resubmit.
+- **Related:** SCHEMA-FACTS revival path note (same commit); cash_orders status lifecycle (`pending` → `expired` → `pending` via revival → `completed`/`cancelled`).

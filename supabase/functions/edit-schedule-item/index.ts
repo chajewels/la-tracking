@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -38,10 +39,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Staff-only gate — prevents Phase B customers from altering installment amounts
-    const { data: userIsStaff } = await supabase.rpc("is_staff", { _user_id: user.id });
-    if (!userIsStaff) {
-      return new Response(JSON.stringify({ error: "Staff access required" }), {
+    // Permission gate (Bug #215: matrix-driven access via edit_schedule key)
+    const allowed = await checkPermission(supabase, user.id, "edit_schedule");
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "edit_schedule permission required" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

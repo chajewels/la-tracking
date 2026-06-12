@@ -347,3 +347,22 @@ The phantom and the legitimate-staff-entry share the same column signature — t
 **Cleanup decision tree for installment phantoms touching penalties:**
 1. Is a matching legit submission queued? → **Yes:** clean phantom, confirm legit, penalty rows self-heal. No manual penalty_fees UPDATE needed.
 2. Is a matching legit submission queued? → **No:** clean phantom AND manually UPDATE penalty_fees.status back to 'unpaid'.
+
+### cash_orders revival path (added 2026-06-12, Bug #217)
+
+A cash order can be revived from `status='expired'` back to `status='pending'` by editing its expiration date to a future timestamp.
+
+**Path:** client-side, in `src/pages/CashOrderDetail.tsx → confirmEditExpiry`. NOT an edge function — revival runs through the existing `staff_admin_update_cash_orders` RLS policy on the `cash_orders` table, which already permits admin + staff UPDATE on `status`, `expires_at`, `expired_at`.
+
+**Single UPDATE writes three columns atomically when reviving:**
+- `expires_at` → new ISO timestamp
+- `status` → `'pending'`
+- `expired_at` → `null`
+
+**Audit:** revival writes `audit_logs` with `action='cash_order_revived'` and `new_value_json: { expires_at, invoice_number, revived_from_status: 'expired' }`. Plain (non-revival) expiry edits continue to write `action='expires_at_updated'`.
+
+**Race-safety:** `auto-expire-cash-orders` cron (jobid 17, `30 0 * * *`) guards on `status='pending'` — if the new expiry passes again, the cron will re-expire the order correctly. No special handling needed.
+
+**Side effects intentionally NOT triggered:**
+- `payment_submissions` auto-rejected at expiry STAY rejected. Customers resubmit through the portal.
+- Loyalty awards (cash full-completion path) are unaffected — they fire on `payment` confirm, not on status transitions.

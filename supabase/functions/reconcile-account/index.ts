@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -32,9 +33,12 @@ Deno.serve(async (req) => {
     if (authError || !user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-    const { data: userIsStaff } = await supabase.rpc("is_staff", { _user_id: user.id });
-    if (!userIsStaff) {
-      return new Response(JSON.stringify({ error: "Staff access required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    // Permission gate (Bug #214: matrix-driven access via run_reconciliation key)
+    const allowed = await checkPermission(supabase, user.id, "run_reconciliation");
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "run_reconciliation permission required" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const body = await req.json();

@@ -339,10 +339,25 @@ export default function CashOrderDetail() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const oldExpiresAt = order.expires_at;
+      const oldStatus = order.status;
       const newIso = new Date(editExpiryValue + 'T00:00:00Z').toISOString();
+
+      // Bug #217: revive an expired order when the new expiry is in the future.
+      // Same UPDATE call clears expired_at and flips status back to 'pending';
+      // auto-expire-cash-orders cron will re-expire it correctly if the new date
+      // passes (race-guard on status='pending' already handles that).
+      const isReviving =
+        oldStatus === 'expired' && new Date(newIso).getTime() > Date.now();
+
+      const updatePayload: Record<string, unknown> = { expires_at: newIso };
+      if (isReviving) {
+        updatePayload.status = 'pending';
+        updatePayload.expired_at = null;
+      }
+
       const { error } = await (supabase as any)
         .from('cash_orders')
-        .update({ expires_at: newIso })
+        .update(updatePayload)
         .eq('id', order.id);
       if (error) throw error;
       // Best-effort audit log
@@ -350,15 +365,28 @@ export default function CashOrderDetail() {
         await (supabase as any).from('audit_logs').insert({
           entity_type: 'cash_order',
           entity_id: order.id,
-          action: 'expires_at_updated',
+          action: isReviving ? 'cash_order_revived' : 'expires_at_updated',
           performed_by_user_id: user?.id ?? null,
-          old_value_json: { expires_at: oldExpiresAt },
-          new_value_json: { expires_at: newIso, invoice_number: order.invoice_number },
+          old_value_json: { expires_at: oldExpiresAt, status: oldStatus },
+          new_value_json: isReviving
+            ? { expires_at: newIso, invoice_number: order.invoice_number, revived_from_status: 'expired' }
+            : { expires_at: newIso, invoice_number: order.invoice_number },
         });
       } catch { /* non-blocking */ }
-      toast.success('Expiration date updated');
+      if (isReviving) {
+        const newLabel = new Intl.DateTimeFormat('en-US', {
+          timeZone: 'Asia/Manila',
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        }).format(new Date(newIso));
+        toast.success(`Order revived — new expiration ${newLabel}`);
+      } else {
+        toast.success('Expiration date updated');
+      }
       setEditExpiryOpen(false);
       qc.invalidateQueries({ queryKey: ['cash-order', id] });
+      qc.invalidateQueries({ queryKey: ['cash-orders'] });
     } catch (err: unknown) {
       toast.error((err as Error).message || 'Failed to update expiration');
     } finally {
