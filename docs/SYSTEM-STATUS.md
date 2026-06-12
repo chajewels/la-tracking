@@ -24,6 +24,7 @@
 - 2026-06-12: Demand Map gained Order Placed filter (applies to all
   charts) and Repeat Inquirers table (same customer, same item, 2+
   inquiries)
+- Sales Commission module (/commissions) live — sales_log/commission_agents/commission_splits, GAS algorithm replicated client-side (winner-take-all, one role per agent, amount tiebreaker), sheet retired to backup.
 - Services + Trade-Ins sidebar converted to parent with sub-items
   (Service Jobs / Trade-Ins) — v1.1.1 fix carried forward
 
