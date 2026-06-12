@@ -101,20 +101,28 @@ function formatDate(iso: string | null): string {
   }
 }
 
+// Sentinel value for the optional "— Blank —" entry in select-some filters.
+// Used as both the visible label and the in-memory selected[] marker; on the
+// query side it translates to (col IS NULL OR col = '').
+const BLANK_FILTER = '— Blank —';
+
 // ── Multi-select filter (Popover + Command-style checklist) ─────────────────
 
 function MultiSelectFilter({
-  label, options, selected, onChange,
+  label, options, selected, onChange, includeBlank = false,
 }: {
   label: string;
   options: string[];
   selected: string[];
   onChange: (next: string[]) => void;
+  /** Prepend a "— Blank —" entry that matches null/empty server-side. */
+  includeBlank?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const toggle = (value: string) => {
     onChange(selected.includes(value) ? selected.filter(s => s !== value) : [...selected, value]);
   };
+  const effectiveOptions = includeBlank ? [BLANK_FILTER, ...options] : options;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -137,10 +145,10 @@ function MultiSelectFilter({
       </PopoverTrigger>
       <PopoverContent align="start" className="w-56 p-2">
         <div className="max-h-64 overflow-y-auto space-y-1">
-          {options.length === 0 ? (
+          {effectiveOptions.length === 0 ? (
             <p className="px-2 py-3 text-xs text-muted-foreground">No options</p>
           ) : (
-            options.map(opt => (
+            effectiveOptions.map(opt => (
               <label
                 key={opt}
                 className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted"
@@ -149,7 +157,14 @@ function MultiSelectFilter({
                   checked={selected.includes(opt)}
                   onCheckedChange={() => toggle(opt)}
                 />
-                <span className="flex-1 truncate">{opt}</span>
+                <span
+                  className={cn(
+                    'flex-1 truncate',
+                    opt === BLANK_FILTER && 'italic text-white/50'
+                  )}
+                >
+                  {opt}
+                </span>
               </label>
             ))
           )}
@@ -890,8 +905,27 @@ export default function Inquiries() {
       }
       if (filterCategory.length > 0)      q = q.in('category', filterCategory);
       if (filterSource.length > 0)        q = q.in('source', filterSource);
-      if (filterActionNeeded.length > 0)  q = q.in('action_needed', filterActionNeeded);
-      if (filterOrderPlaced.length > 0)   q = q.in('order_placed', filterOrderPlaced);
+      // Blank-aware filters: "— Blank —" maps to (col IS NULL OR col = '').
+      // Combined with non-blank selections via an OR'd PostgREST expression.
+      const applyBlankAware = (
+        query: any,
+        col: 'action_needed' | 'order_placed',
+        selected: string[],
+      ) => {
+        if (selected.length === 0) return query;
+        const hasBlank = selected.includes(BLANK_FILTER);
+        const real = selected.filter(v => v !== BLANK_FILTER);
+        if (hasBlank && real.length === 0) {
+          return query.or(`${col}.is.null,${col}.eq.`);
+        }
+        if (hasBlank && real.length > 0) {
+          const eqs = real.map(v => `${col}.eq.${v}`).join(',');
+          return query.or(`${col}.is.null,${col}.eq.,${eqs}`);
+        }
+        return query.in(col, real);
+      };
+      q = applyBlankAware(q, 'action_needed', filterActionNeeded);
+      q = applyBlankAware(q, 'order_placed', filterOrderPlaced);
       if (filterEnteredBy.length > 0)     q = q.in('entered_by', filterEnteredBy);
       if (dateFrom) q = q.gte('last_inquired_date', dateFrom);
       if (dateTo)   q = q.lte('last_inquired_date', dateTo);
@@ -994,23 +1028,25 @@ export default function Inquiries() {
               </div>
               <MultiSelectFilter label="Category"      options={dropdowns.category ?? []}       selected={filterCategory}     onChange={setFilterCategory} />
               <MultiSelectFilter label="Source"        options={dropdowns.source ?? []}         selected={filterSource}       onChange={setFilterSource} />
-              <MultiSelectFilter label="Action Needed" options={dropdowns.action_needed ?? []}  selected={filterActionNeeded} onChange={setFilterActionNeeded} />
-              <MultiSelectFilter label="Order Placed"  options={dropdowns.order_placed ?? []}   selected={filterOrderPlaced}  onChange={setFilterOrderPlaced} />
+              <MultiSelectFilter label="Action Needed" options={dropdowns.action_needed ?? []}  selected={filterActionNeeded} onChange={setFilterActionNeeded} includeBlank />
+              <MultiSelectFilter label="Order Placed"  options={dropdowns.order_placed ?? []}   selected={filterOrderPlaced}  onChange={setFilterOrderPlaced}  includeBlank />
               <MultiSelectFilter label="Entered By"    options={dropdowns.entered_by ?? []}     selected={filterEnteredBy}    onChange={setFilterEnteredBy} />
-              <Label className="text-sm text-white/60">Last Inquired</Label>
-              <Input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="h-9 w-[140px] rounded-md border-border bg-background text-sm"
-              />
-              <span className="text-sm text-white/60">–</span>
-              <Input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="h-9 w-[140px] rounded-md border-border bg-background text-sm"
-              />
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <Label className="text-sm text-white/60">Last Inquired</Label>
+                <Input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="h-9 w-[140px] rounded-md border-border bg-background text-sm"
+                />
+                <span className="text-sm text-white/60">–</span>
+                <Input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="h-9 w-[140px] rounded-md border-border bg-background text-sm"
+                />
+              </div>
               {hasActiveFilters && (
                 <Button variant="ghost" size="sm" onClick={clearFilters} className="h-9 text-xs text-muted-foreground">
                   <X className="mr-1 h-3.5 w-3.5" /> Clear Filters
