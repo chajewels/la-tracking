@@ -1,6 +1,6 @@
 
 import { ROUTES } from "@/constants/routes";
-import { lazy, Suspense, ComponentType, useEffect } from "react";
+import { Component, ErrorInfo, ReactNode, lazy, Suspense, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -11,61 +11,88 @@ import { PermissionsProvider } from "@/contexts/PermissionsContext";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import { useRealtimeSync } from "@/hooks/useRealtimeSync";
 
-// Retry wrapper for lazy imports — handles stale chunks after dev server restart
-function lazyWithRetry(factory: () => Promise<{ default: ComponentType<any> }>) {
-  return lazy(() =>
-    factory().catch(() => {
-      // Chunk failed to load (stale hash) — force one reload
-      const key = 'chunk-reload';
-      if (!sessionStorage.getItem(key)) {
-        sessionStorage.setItem(key, '1');
-        window.location.reload();
-      } else {
-        sessionStorage.removeItem(key);
-      }
-      return factory();
-    })
-  );
+// Top-level error boundary — catches render-time errors that bypass the
+// vite:preloadError listener in main.tsx (e.g. an error thrown while the
+// imported chunk evaluates). Without this, a lazy-import rejection
+// reaches React 18, which unmounts the entire root and the user sees a
+// black screen with no recovery affordance.
+class RootErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error("[RootErrorBoundary] uncaught error during render:", error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen w-full flex items-center justify-center bg-gradient-to-b from-black/90 via-black/80 to-black/72 text-white px-6">
+          <div className="max-w-md w-full rounded-lg border border-primary/30 bg-card/95 p-6 text-center shadow-xl">
+            <h1 className="font-display text-xl text-card-foreground mb-2">
+              The app was just updated.
+            </h1>
+            <p className="text-sm text-muted-foreground mb-4">
+              Please refresh to load the latest version.
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="h-10 px-4 rounded-md gold-gradient text-primary-foreground font-medium"
+            >
+              Reload
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
-// All pages are lazy-loaded to keep initial bundle small
-const Login = lazyWithRetry(() => import("./pages/Login"));
-const ForgotPassword = lazyWithRetry(() => import("./pages/ForgotPassword"));
-const ResetPassword = lazyWithRetry(() => import("./pages/ResetPassword"));
-const PortalLogin = lazyWithRetry(() => import("./pages/PortalLogin"));
-const PortalForgotPassword = lazyWithRetry(() => import("./pages/PortalForgotPassword"));
-const PortalResetPassword = lazyWithRetry(() => import("./pages/PortalResetPassword"));
-const PortalSetup = lazyWithRetry(() => import("./pages/PortalSetup"));
-const Dashboard = lazyWithRetry(() => import("./pages/Dashboard"));
-const AccountList = lazyWithRetry(() => import("./pages/AccountList"));
-const AccountDetail = lazyWithRetry(() => import("./pages/AccountDetail"));
-const Customers = lazyWithRetry(() => import("./pages/Customers"));
-const CustomerDetail = lazyWithRetry(() => import("./pages/CustomerDetail"));
-const Monitoring = lazyWithRetry(() => import("./pages/Monitoring"));
-const Inquiries = lazyWithRetry(() => import("./pages/Inquiries"));
-const Commissions = lazyWithRetry(() => import("./pages/Commissions"));
-const CustomerPortal = lazyWithRetry(() => import("./pages/CustomerPortal"));
-const LoyaltyPortal = lazyWithRetry(() => import("./pages/LoyaltyPortal"));
-const Finance = lazyWithRetry(() => import("./pages/Finance"));
-const SettingsPage = lazyWithRetry(() => import("./pages/SettingsPage"));
-const AdminAudit = lazyWithRetry(() => import("./pages/AdminAudit"));
-const AdminActivityLog = lazyWithRetry(() => import("./pages/AdminActivityLog"));
-const NewAccount = lazyWithRetry(() => import("./pages/NewAccount"));
-const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
-const PaymentVault = lazyWithRetry(() => import("./pages/PaymentVault"));
-const PaymentsHub = lazyWithRetry(() => import("./pages/PaymentsHub"));
-const BulkPaymentImport = lazyWithRetry(() => import("./pages/BulkPaymentImport"));
-const Unsubscribe = lazyWithRetry(() => import("./pages/Unsubscribe"));
-const Promotions = lazyWithRetry(() => import("./pages/Promotions"));
-const LoyaltyAdmin = lazyWithRetry(() => import("./pages/LoyaltyAdmin"));
-const ExecutiveDashboard = lazyWithRetry(() => import("./pages/ExecutiveDashboard"));
-const NewCashOrder = lazyWithRetry(() => import("./pages/NewCashOrder"));
-const CashOrderDetail = lazyWithRetry(() => import("./pages/CashOrderDetail"));
-const Help = lazyWithRetry(() => import("./pages/Help"));
-const Services = lazyWithRetry(() => import("./pages/Services"));
-const Sales = lazyWithRetry(() => import("./pages/Sales"));
-const Waivers = lazyWithRetry(() => import("./pages/Waivers"));
-const PolicyHub = lazyWithRetry(() => import("./pages/PolicyHub"));
+// All pages are lazy-loaded to keep initial bundle small. Stale-chunk
+// recovery is handled by the window 'vite:preloadError' listener in
+// main.tsx plus the RootErrorBoundary below.
+const Login = lazy(() => import("./pages/Login"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
+const PortalLogin = lazy(() => import("./pages/PortalLogin"));
+const PortalForgotPassword = lazy(() => import("./pages/PortalForgotPassword"));
+const PortalResetPassword = lazy(() => import("./pages/PortalResetPassword"));
+const PortalSetup = lazy(() => import("./pages/PortalSetup"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const AccountList = lazy(() => import("./pages/AccountList"));
+const AccountDetail = lazy(() => import("./pages/AccountDetail"));
+const Customers = lazy(() => import("./pages/Customers"));
+const CustomerDetail = lazy(() => import("./pages/CustomerDetail"));
+const Monitoring = lazy(() => import("./pages/Monitoring"));
+const Inquiries = lazy(() => import("./pages/Inquiries"));
+const Commissions = lazy(() => import("./pages/Commissions"));
+const CustomerPortal = lazy(() => import("./pages/CustomerPortal"));
+const LoyaltyPortal = lazy(() => import("./pages/LoyaltyPortal"));
+const Finance = lazy(() => import("./pages/Finance"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const AdminAudit = lazy(() => import("./pages/AdminAudit"));
+const AdminActivityLog = lazy(() => import("./pages/AdminActivityLog"));
+const NewAccount = lazy(() => import("./pages/NewAccount"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const PaymentVault = lazy(() => import("./pages/PaymentVault"));
+const PaymentsHub = lazy(() => import("./pages/PaymentsHub"));
+const BulkPaymentImport = lazy(() => import("./pages/BulkPaymentImport"));
+const Unsubscribe = lazy(() => import("./pages/Unsubscribe"));
+const Promotions = lazy(() => import("./pages/Promotions"));
+const LoyaltyAdmin = lazy(() => import("./pages/LoyaltyAdmin"));
+const ExecutiveDashboard = lazy(() => import("./pages/ExecutiveDashboard"));
+const NewCashOrder = lazy(() => import("./pages/NewCashOrder"));
+const CashOrderDetail = lazy(() => import("./pages/CashOrderDetail"));
+const Help = lazy(() => import("./pages/Help"));
+const Services = lazy(() => import("./pages/Services"));
+const Sales = lazy(() => import("./pages/Sales"));
+const Waivers = lazy(() => import("./pages/Waivers"));
+const PolicyHub = lazy(() => import("./pages/PolicyHub"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -112,6 +139,7 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <PermissionsProvider>
+            <RootErrorBoundary>
             <Suspense fallback={<PageLoader />}>
               <RecoveryRedirect />
               <RealtimeSyncMount />
@@ -162,6 +190,7 @@ const App = () => (
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>
+            </RootErrorBoundary>
           </PermissionsProvider>
         </AuthProvider>
       </BrowserRouter>

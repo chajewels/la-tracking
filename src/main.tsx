@@ -29,6 +29,21 @@ if (isPreviewHost || isInIframe) {
   }
 }
 
+// Stale-chunk recovery — fires when a dynamic import (lazy route) can't
+// preload because the hashed asset URL the running bundle expects has
+// been replaced by a newer deploy. Time-gated so a single reload that
+// doesn't fix the underlying problem cannot infinite-loop.
+window.addEventListener("vite:preloadError", (event) => {
+  event.preventDefault();
+  const key = "chunk-reload-ts";
+  const last = Number(sessionStorage.getItem(key) ?? 0);
+  const now = Date.now();
+  if (!last || now - last > 10_000) {
+    sessionStorage.setItem(key, String(now));
+    window.location.reload();
+  }
+});
+
 createRoot(document.getElementById("root")!).render(
   <HelmetProvider>
     <App />
