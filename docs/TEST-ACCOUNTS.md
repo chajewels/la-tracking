@@ -105,4 +105,22 @@
   TEST-005 — Split payment testing (can record payments)
   TEST-007 — Cash order Bug #99 smoke test (¥1M, Test Customer Glimmer→Radiant)
   TEST-008_ELITE — Layaway DP restore lifecycle (Bug #66 + Bug #99 restore-loyalty test fixture)
+  TEST-4567 — created 2026-06-12 under Test Customer to verify the live
+              loyalty award path post-Bug #223. End-to-end run: DP
+              confirmed → +2,200 pts at 0.77s latency; payment voided →
+              lot revoked cleanly; account forfeited. Originally created
+              with a purely numeric invoice (4567), which leaked into
+              every KPI (Dashboard forfeited_accounts, Finance
+              totalForfeitedCollected, reporting RPCs) because the
+              canonical regex filter `^[0-9]+$` treats numeric invoices
+              as real. Renamed to `TEST-4567` across layaway_accounts,
+              loyalty_transactions, loyalty_point_lots, payments
+              (reference_number `DP-TEST-4567`), and staff_notifications.
+              This incident is what motivated the customers.is_test
+              flag + enforce_test_invoice_prefix() trigger pair on
+              layaway_accounts and cash_orders — see docs/SCHEMA-FACTS.md
+              "Test-customer enforcement" and the CLAUDE.md TEST ACCOUNT
+              EXCLUSION section's 2026-06-12 amendment for the new
+              "every new test customer MUST be flagged is_test = true"
+              rule that prevents this class of leak.
 

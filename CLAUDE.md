@@ -137,6 +137,8 @@ Re-runnable audit — find any reporting function still missing the filter:
   ORDER BY has_numeric_filter, p.proname;
   Expected false only for the four helpers named above — none are financial dashboard counts.
 
+DB-enforced as of 2026-06-12: the convention is now backed by a `customers.is_test` boolean flag plus the `enforce_test_invoice_prefix()` trigger function attached BEFORE INSERT OR UPDATE on both `layaway_accounts` and `cash_orders`. Any account written under a customer where `is_test = true` gets its `invoice_number` auto-prefixed to `TEST-<number>` at write time — staff cannot accidentally save a purely-numeric invoice for a test customer, so the regex filters exclude the account regardless of what was typed in. **The rule is now: every new test customer MUST be flagged `is_test = true`. That is the single manual step; everything downstream is automatic.** Test Customer (customer_id `4201767c-54e6-48d0-8c9e-c1b3c07a931e`) is already flagged. See `docs/SCHEMA-FACTS.md` for the column/trigger spec and `docs/FIXED-BUGS.md` Bug #220-era TEST-4567 incident for the original leak that motivated the trigger.
+
 ## PERMISSION RESOLUTION ORDER
 
 When checking whether a user can perform an action:

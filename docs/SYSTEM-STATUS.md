@@ -341,3 +341,8 @@ Batch F closes Phase 2 Item 4 — the matrix-driven access control migration. Al
 4. Simplest (19090): DPs are account-level not schedule-level — only delete the phantom payment, no allocation/schedule reset
 
 **Operational concern:** 4 phantoms from one staff user in a single day indicates workflow misunderstanding (using Record Payment instead of Confirm Submission when a customer submission is queued). The matrix policy itself (staff.confirm_payment=true post-#206-revert) is correct; what needs adjusting is process awareness. Coaching message planned for 2026-06-12.
+
+## Locked decisions (2026-06-12)
+
+- **Migration lot `fc235e5f` (member `eb89f10d`, 1,440 pts, earned_at 2026-10-29 / expires 2027-04-27):** the source-sheet earned_at carries a date-typo year (2026-10-29 instead of the intended earlier year), pushing the derived expiry to 2027-04-27. Owner decision 2026-06-12: leave as-is — the resulting member-favorable expiry is treated as a bonus rather than corrected backward. Do NOT re-flag in future audits.
+- **Backup-sheet mirror verification scope (2026-06-12):** mirror health is verified live (same-day sync timestamps, zero stale backlog). The verification scope covers MIRROR HEALTH ONLY — data content inside the backup sheets (legacy agent names Anna/Rea on the commission sheets, manual tabs, historical rows from the pre-migration sheet) is intentionally NOT reconciled against the live DB. Future audits should not surface those as drift.

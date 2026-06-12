@@ -410,3 +410,14 @@ isServiceRole(token) in _shared/jwt-claims.ts is the ONLY correct way to detect 
 ### dashboard-summary: known-dead adjusted prediction fields (documented 2026-06-12)
 
 The dashboard-summary edge function computes a riskFactor (0.85) and four risk-adjusted output fields: the per-bucket `adjusted` totals, `predicted_30d`, `predicted_90d`, and `next_month_adjusted`. These are typed in src/hooks/use-supabase-data.ts but rendered NOWHERE — the Finance page displays only the `_raw` counterparts. Decision: kept intentionally (removal would touch the API shape, hook types, and a redeploy for zero visible gain; the fields are available if risk-adjusted predictions are ever surfaced). Do not re-flag as drift or dead code.
+
+### Test-customer enforcement: customers.is_test + invoice prefix trigger (added 2026-06-12)
+
+Columns:
+- `customers.is_test` boolean NOT NULL DEFAULT false.
+
+Triggers:
+- `trg_test_invoice_prefix_layaway` on `layaway_accounts` — BEFORE INSERT OR UPDATE OF `invoice_number, customer_id`, executes `enforce_test_invoice_prefix()`.
+- `trg_test_invoice_prefix_cash` on `cash_orders` — BEFORE INSERT OR UPDATE OF `invoice_number, customer_id`, executes `enforce_test_invoice_prefix()`.
+
+Effect: when the row's `customer_id` resolves to a customer with `is_test = true` and the proposed `invoice_number` is purely numeric, the trigger rewrites it to `TEST-<number>` before the write commits. The numeric-invoice convention (CLAUDE.md TEST ACCOUNT EXCLUSION) becomes self-enforcing: staff cannot accidentally save a leak-prone numeric invoice under a test customer, so every regex filter — frontend, edge function, and the 20 reporting RPCs — excludes the account regardless of what was typed in. Motivated by the TEST-4567 incident (docs/TEST-ACCOUNTS.md).
