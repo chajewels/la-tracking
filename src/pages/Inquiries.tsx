@@ -920,27 +920,26 @@ export default function Inquiries() {
       }
       if (filterCategory.length > 0)      q = q.in('category', filterCategory);
       if (filterSource.length > 0)        q = q.in('source', filterSource);
-      // Blank-aware filters: "— Blank —" maps to (col IS NULL OR col = '').
-      // Combined with non-blank selections via an OR'd PostgREST expression.
-      const applyBlankAware = (
-        query: any,
-        col: 'action_needed' | 'order_placed',
-        selected: string[],
-      ) => {
-        if (selected.length === 0) return query;
-        const hasBlank = selected.includes(BLANK_FILTER);
-        const real = selected.filter(v => v !== BLANK_FILTER);
-        if (hasBlank && real.length === 0) {
-          return query.or(`${col}.is.null,${col}.eq.`);
+      // Blank-aware filter for action_needed only: "— Blank —" maps to
+      // (col IS NULL OR col = ''). PostgREST's .or() requires the empty-
+      // string value to be quoted as eq."" (eq. with nothing after
+      // returns 0 rows). Non-blank values are also quoted for safety
+      // against values containing spaces.
+      // order_placed is intentionally NOT blank-aware here: the import
+      // migration's clean_order() converted all blanks/empties to 'No',
+      // so there are no true blanks for the user to match.
+      if (filterActionNeeded.length > 0) {
+        const hasBlank = filterActionNeeded.includes(BLANK_FILTER);
+        const real = filterActionNeeded.filter(v => v !== BLANK_FILTER);
+        if (hasBlank) {
+          const orParts = ['action_needed.is.null', 'action_needed.eq.""'];
+          real.forEach(v => orParts.push(`action_needed.eq."${v}"`));
+          q = q.or(orParts.join(','));
+        } else {
+          q = q.in('action_needed', real);
         }
-        if (hasBlank && real.length > 0) {
-          const eqs = real.map(v => `${col}.eq.${v}`).join(',');
-          return query.or(`${col}.is.null,${col}.eq.,${eqs}`);
-        }
-        return query.in(col, real);
-      };
-      q = applyBlankAware(q, 'action_needed', filterActionNeeded);
-      q = applyBlankAware(q, 'order_placed', filterOrderPlaced);
+      }
+      if (filterOrderPlaced.length > 0) q = q.in('order_placed', filterOrderPlaced);
       if (filterEnteredBy.length > 0)     q = q.in('entered_by', filterEnteredBy);
       if (dateFrom) q = q.gte('last_inquired_date', dateFrom);
       if (dateTo)   q = q.lte('last_inquired_date', dateTo);
@@ -1044,7 +1043,8 @@ export default function Inquiries() {
               <MultiSelectFilter label="Category"      options={dropdowns.category ?? []}       selected={filterCategory}     onChange={setFilterCategory} />
               <MultiSelectFilter label="Source"        options={dropdowns.source ?? []}         selected={filterSource}       onChange={setFilterSource} />
               <MultiSelectFilter label="Action Needed" options={dropdowns.action_needed ?? []}  selected={filterActionNeeded} onChange={setFilterActionNeeded} includeBlank />
-              <MultiSelectFilter label="Order Placed"  options={dropdowns.order_placed ?? []}   selected={filterOrderPlaced}  onChange={setFilterOrderPlaced}  includeBlank />
+              {/* order_placed has no true blanks after migration (clean_order() converted '' to 'No'), so no — Blank — option here. */}
+              <MultiSelectFilter label="Order Placed"  options={dropdowns.order_placed ?? []}   selected={filterOrderPlaced}  onChange={setFilterOrderPlaced} />
               <MultiSelectFilter label="Entered By"    options={dropdowns.entered_by ?? []}     selected={filterEnteredBy}    onChange={setFilterEnteredBy} />
               <div className="flex items-center gap-1 flex-shrink-0">
                 <Label className="text-sm text-white/60">Last Inquired</Label>
