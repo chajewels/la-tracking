@@ -4097,6 +4097,21 @@ export type Database = {
         }
         Returns: string
       }
+      insert_payment_submission_guarded: {
+        Args: {
+          p_account_id: string
+          p_customer_id: string
+          p_force?: boolean
+          p_notes: string
+          p_payment_date: string
+          p_payment_method: string
+          p_reference_number: string
+          p_sender_name: string
+          p_submission_type: string
+          p_submitted_amount: number
+        }
+        Returns: Json
+      }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
       monthly_inflow_by_plan_6m: {
         Args: never
