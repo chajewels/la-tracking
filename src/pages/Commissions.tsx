@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, Fragment } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import AppLayout from '@/components/layout/AppLayout';
@@ -32,6 +32,7 @@ import { cn } from '@/lib/utils';
 import { getPHTToday } from '@/lib/date-utils';
 import {
   SaleRow, CommissionAgent, CommissionSplit, MonthlyComputation,
+  CanonicalRole, CANONICAL_ROLES, ROLE_LABEL_FULL, ROLE_LABEL_ABBREV,
   computeAllMonths, monthKeyFromDate, monthLabelFromKey,
   defaultEligible, formatPHP, formatJPY, agentColor,
 } from '@/lib/commissionEngine';
@@ -538,6 +539,136 @@ function MultiSelectFilter({
   );
 }
 
+// ── Merge-groups chip editor (Config tab, per-month sub-row) ────────────────
+
+function MergeChipsEditor({
+  split, onChange,
+}: {
+  split: CommissionSplit;
+  onChange: (groups: string[][]) => void;
+}) {
+  const [selected, setSelected] = useState<Set<CanonicalRole>>(new Set());
+
+  const pctMap: Record<CanonicalRole, number> = {
+    closer: Number(split.closer_pct) || 0,
+    processor: Number(split.processor_pct) || 0,
+    coordinator: Number(split.coordinator_pct) || 0,
+    support: Number(split.support_pct) || 0,
+    verifier: Number(split.verifier_pct) || 0,
+  };
+
+  const groups: CanonicalRole[][] = useMemo(() => {
+    if (!Array.isArray(split.merge_groups)) return [];
+    const used = new Set<CanonicalRole>();
+    const out: CanonicalRole[][] = [];
+    for (const g of split.merge_groups) {
+      if (!Array.isArray(g)) continue;
+      const valid: CanonicalRole[] = [];
+      for (const r of g) {
+        if (typeof r !== 'string') continue;
+        const lc = r.toLowerCase() as CanonicalRole;
+        if (!(CANONICAL_ROLES as readonly string[]).includes(lc)) continue;
+        if (used.has(lc) || valid.includes(lc)) continue;
+        valid.push(lc);
+      }
+      if (valid.length >= 2) {
+        valid.sort((a, b) => CANONICAL_ROLES.indexOf(a) - CANONICAL_ROLES.indexOf(b));
+        for (const r of valid) used.add(r);
+        out.push(valid);
+      }
+    }
+    return out;
+  }, [split.merge_groups]);
+
+  const inGroup = useMemo(() => {
+    const s = new Set<CanonicalRole>();
+    for (const g of groups) for (const r of g) s.add(r);
+    return s;
+  }, [groups]);
+
+  const standalone = useMemo(
+    () => CANONICAL_ROLES.filter(r => !inGroup.has(r)),
+    [inGroup]
+  );
+
+  function toggle(role: CanonicalRole) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(role)) next.delete(role);
+      else next.add(role);
+      return next;
+    });
+  }
+
+  function merge() {
+    const newGroup = CANONICAL_ROLES.filter(r => selected.has(r) && !inGroup.has(r));
+    if (newGroup.length < 2) return;
+    onChange([...groups.map(g => [...g]), newGroup]);
+    setSelected(new Set());
+  }
+
+  function unmerge(index: number) {
+    const next = groups.filter((_, i) => i !== index).map(g => [...g]);
+    onChange(next);
+    setSelected(new Set());
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="text-[10px] uppercase text-muted-foreground mr-1">Roles</span>
+      {standalone.map(r => {
+        const isSelected = selected.has(r);
+        return (
+          <button
+            key={r}
+            type="button"
+            onClick={() => toggle(r)}
+            className={cn(
+              'rounded-md px-2 py-1 text-[10px] font-medium border transition-colors',
+              isSelected
+                ? 'border-primary/50 bg-primary/15 text-primary'
+                : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted/50'
+            )}
+          >
+            {ROLE_LABEL_FULL[r]} {pctMap[r]}%
+          </button>
+        );
+      })}
+      {groups.map((g, i) => {
+        const sumPct = g.reduce((s, m) => s + pctMap[m], 0);
+        const label = g.map(m => ROLE_LABEL_ABBREV[m]).join('+');
+        return (
+          <button
+            key={`g-${i}`}
+            type="button"
+            onClick={() => unmerge(i)}
+            className="rounded-md px-2 py-1 text-[10px] font-medium border border-primary/50 bg-primary/10 text-primary hover:bg-primary/20"
+            title="Click to unmerge"
+          >
+            {label} {sumPct}% <span className="ml-1 opacity-70">×</span>
+          </button>
+        );
+      })}
+      {selected.size >= 2 && (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-7 text-[10px]"
+          onClick={merge}
+        >
+          + Merge ({selected.size})
+        </Button>
+      )}
+      {groups.length === 0 && selected.size < 2 && (
+        <span className="ml-1 text-[10px] text-muted-foreground italic">
+          Select 2+ chips to merge
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ── Tab: Overview ───────────────────────────────────────────────────────────
 
 function OverviewTab({
@@ -728,19 +859,16 @@ function AgentsTab({
     [monthly, selectedMonthKey]
   );
 
-  // YTD = sum of totals across months in the activeMonth's year.
-  const ytdByAgent = useMemo(() => {
-    if (!activeMonth) return new Map<string, number>();
-    const year = activeMonth.monthKey.slice(0, 4);
+  // Total across all months (Dec 2025 included alongside any 2026 months).
+  const totalByAgent = useMemo(() => {
     const map = new Map<string, number>();
     for (const m of monthly) {
-      if (!m.monthKey.startsWith(year)) continue;
       for (const a of m.agents) {
         map.set(a.canonicalKey, (map.get(a.canonicalKey) ?? 0) + a.total);
       }
     }
     return map;
-  }, [monthly, activeMonth]);
+  }, [monthly]);
 
   if (!activeMonth) {
     return (
@@ -767,7 +895,7 @@ function AgentsTab({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {activeMonth.agents.map(a => {
           const color = agentColor(a.name, agents, FALLBACK_AGENT_COLOR);
-          const ytd = ytdByAgent.get(a.canonicalKey) ?? 0;
+          const allMonthsTotal = totalByAgent.get(a.canonicalKey) ?? 0;
           return (
             <div key={a.canonicalKey} className="rounded-lg border border-border bg-card p-4" style={{ borderTop: `3px solid ${color}` }}>
               <div className="mb-2 flex items-center justify-between gap-2">
@@ -814,8 +942,8 @@ function AgentsTab({
                 </div>
               </div>
               <div className="mt-2 border-t border-border pt-2 flex justify-between text-[11px]">
-                <span className="text-muted-foreground">YTD ({activeMonth.monthKey.slice(0, 4)})</span>
-                <span className="font-medium tabular-nums">{formatPHP(ytd)}</span>
+                <span className="text-muted-foreground">Total (all months)</span>
+                <span className="font-medium tabular-nums">{formatPHP(allMonthsTotal)}</span>
               </div>
             </div>
           );
@@ -895,7 +1023,11 @@ function MonthlyTab({
                 {activeMonth.monthLabel} — Role Counts per Agent
               </h3>
               <span className="text-xs text-muted-foreground">
-                {activeMonth.split?.merged_support_verifier ? 'Sup+Ver merged' : (activeMonth.roles.length === 4 ? 'No Coordinator' : '5 roles')}
+                {(() => {
+                  const merged = activeMonth.roles.filter(r => r.members.length > 1);
+                  if (merged.length > 0) return `Merged: ${merged.map(r => r.label).join(', ')}`;
+                  return `${activeMonth.roles.length} role${activeMonth.roles.length === 1 ? '' : 's'}`;
+                })()}
               </span>
             </div>
             <div className="overflow-x-auto">
@@ -1160,8 +1292,12 @@ function ConfigTab({
     setSplitDrafts(drafts);
   }, [splits]);
 
-  function updateDraft(month: string, key: keyof CommissionSplit, value: number | boolean) {
-    setSplitDrafts(prev => ({ ...prev, [month]: { ...prev[month], [key]: value } }));
+  function updateDraft(
+    month: string,
+    key: keyof CommissionSplit,
+    value: number | boolean | string[][] | null,
+  ) {
+    setSplitDrafts(prev => ({ ...prev, [month]: { ...prev[month], [key]: value as never } }));
   }
 
   function totalPct(s: CommissionSplit): number {
@@ -1190,7 +1326,7 @@ function ConfigTab({
         support_pct: draft.support_pct,
         verifier_pct: draft.verifier_pct,
         top_sales_pct: draft.top_sales_pct,
-        merged_support_verifier: draft.merged_support_verifier,
+        merge_groups: draft.merge_groups ?? [],
         pool_per_item_php: draft.pool_per_item_php,
       };
       const exists = splits.some(s => s.month === month);
@@ -1216,12 +1352,12 @@ function ConfigTab({
     const sorted = [...splits].sort((a, b) => b.month.localeCompare(a.month));
     const seed = sorted.find(s => s.month <= firstOfMonth) ?? sorted[0] ?? null;
     const fresh: CommissionSplit = seed
-      ? { ...seed, month: firstOfMonth }
+      ? { ...seed, month: firstOfMonth, merge_groups: seed.merge_groups ? seed.merge_groups.map(g => [...g]) : [] }
       : {
           month: firstOfMonth,
           closer_pct: 30, processor_pct: 20, coordinator_pct: 0,
           support_pct: 20, verifier_pct: 20, top_sales_pct: 10,
-          merged_support_verifier: false, pool_per_item_php: 100,
+          merge_groups: [], pool_per_item_php: 100,
         };
     setSplitDrafts(prev => ({ ...prev, [firstOfMonth]: fresh }));
     setNewSplitMonth('');
@@ -1324,7 +1460,6 @@ function ConfigTab({
                 <th className="px-2 py-2 text-right font-medium">Sup %</th>
                 <th className="px-2 py-2 text-right font-medium">Ver %</th>
                 <th className="px-2 py-2 text-right font-medium">Top %</th>
-                <th className="px-2 py-2 text-center font-medium">Merged</th>
                 <th className="px-3 py-2 text-right font-medium">Pool/Item ₱</th>
                 <th className="px-2 py-2 text-right font-medium">Sum</th>
                 <th className="px-3 py-2 text-right font-medium">Actions</th>
@@ -1332,48 +1467,55 @@ function ConfigTab({
             </thead>
             <tbody>
               {splitMonths.length === 0 ? (
-                <tr><td colSpan={11} className="px-3 py-6 text-center text-sm text-muted-foreground">No splits configured</td></tr>
+                <tr><td colSpan={10} className="px-3 py-6 text-center text-sm text-muted-foreground">No splits configured</td></tr>
               ) : (
                 splitMonths.map(month => {
                   const d = splitDrafts[month];
                   const sum = totalPct(d);
                   const sumOk = sum === 100;
                   return (
-                    <tr key={month} className="border-t border-border">
-                      <td className="px-3 py-2 text-xs font-medium">{monthLabelFromKey(month.slice(0, 7))}</td>
-                      {(['closer_pct', 'processor_pct', 'coordinator_pct', 'support_pct', 'verifier_pct', 'top_sales_pct'] as const).map(k => (
-                        <td key={k} className="px-1 py-1">
+                    <Fragment key={month}>
+                      <tr className="border-t border-border">
+                        <td className="px-3 py-2 text-xs font-medium">{monthLabelFromKey(month.slice(0, 7))}</td>
+                        {(['closer_pct', 'processor_pct', 'coordinator_pct', 'support_pct', 'verifier_pct', 'top_sales_pct'] as const).map(k => (
+                          <td key={k} className="px-1 py-1">
+                            <Input
+                              type="number"
+                              value={d[k] as number}
+                              onChange={e => updateDraft(month, k, Number(e.target.value))}
+                              className="h-8 w-16 text-right text-xs tabular-nums"
+                              min={0}
+                              max={100}
+                            />
+                          </td>
+                        ))}
+                        <td className="px-2 py-1">
                           <Input
                             type="number"
-                            value={d[k] as number}
-                            onChange={e => updateDraft(month, k, Number(e.target.value))}
-                            className="h-8 w-16 text-right text-xs tabular-nums"
+                            value={d.pool_per_item_php}
+                            onChange={e => updateDraft(month, 'pool_per_item_php', Number(e.target.value))}
+                            className="h-8 w-20 text-right text-xs tabular-nums"
                             min={0}
-                            max={100}
                           />
                         </td>
-                      ))}
-                      <td className="px-2 py-2 text-center">
-                        <Switch checked={d.merged_support_verifier} onCheckedChange={v => updateDraft(month, 'merged_support_verifier', v)} />
-                      </td>
-                      <td className="px-2 py-1">
-                        <Input
-                          type="number"
-                          value={d.pool_per_item_php}
-                          onChange={e => updateDraft(month, 'pool_per_item_php', Number(e.target.value))}
-                          className="h-8 w-20 text-right text-xs tabular-nums"
-                          min={0}
-                        />
-                      </td>
-                      <td className={cn('px-2 py-2 text-right text-xs font-semibold tabular-nums', sumOk ? 'text-green-400' : 'text-destructive')}>
-                        {sum}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <Button size="sm" variant="outline" className="h-7" onClick={() => saveSplit(month)} disabled={savingMonth === month || !sumOk}>
-                          {savingMonth === month ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
-                        </Button>
-                      </td>
-                    </tr>
+                        <td className={cn('px-2 py-2 text-right text-xs font-semibold tabular-nums', sumOk ? 'text-green-400' : 'text-destructive')}>
+                          {sum}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <Button size="sm" variant="outline" className="h-7" onClick={() => saveSplit(month)} disabled={savingMonth === month || !sumOk}>
+                            {savingMonth === month ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+                          </Button>
+                        </td>
+                      </tr>
+                      <tr className="border-t border-border/40 bg-muted/10">
+                        <td colSpan={10} className="px-3 py-2">
+                          <MergeChipsEditor
+                            split={d}
+                            onChange={(groups) => updateDraft(month, 'merge_groups', groups)}
+                          />
+                        </td>
+                      </tr>
+                    </Fragment>
                   );
                 })
               )}
@@ -1460,7 +1602,7 @@ export default function Commissions() {
       const [salesRes, agentsRes, splitsRes] = await Promise.all([
         client.from('sales_log').select('id, sale_date, item_code, item_amount, client_name, closer, processor, coordinator, support, verifier, status, channel, source, opened_in_chat, closed_in_chat, eligible, notes').order('sale_date', { ascending: false }).limit(10000),
         client.from('commission_agents').select('id, name, color, active, start_month, sort_order'),
-        client.from('commission_splits').select('month, closer_pct, processor_pct, coordinator_pct, support_pct, verifier_pct, top_sales_pct, merged_support_verifier, pool_per_item_php').order('month', { ascending: true }),
+        client.from('commission_splits').select('month, closer_pct, processor_pct, coordinator_pct, support_pct, verifier_pct, top_sales_pct, merge_groups, pool_per_item_php').order('month', { ascending: true }),
       ]);
       if (salesRes.error) throw salesRes.error;
       if (agentsRes.error) throw agentsRes.error;

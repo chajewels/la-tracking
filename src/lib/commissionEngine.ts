@@ -8,24 +8,33 @@
  *   1. Resolve split: exact month match, else inherit latest split with
  *      month <= target.
  *   2. Pool = eligibleCount × pool_per_item_php.
- *   3. Role counts/amounts: per eligible row, increment the named agent
- *      in each of the 5 role columns. Case-insensitive canonical key.
- *      Includes inactive/historical agents.
- *   4. Role list:
- *        - merged_support_verifier=true → closer, processor,
- *          support+verifier (pct = support + verifier, count/amount
- *          aggregated)
- *        - else → closer, processor, coordinator (only if pct > 0),
- *          support, verifier
- *   5. Winner-take-all in role order. Highest count wins; tie (count>0)
- *      breaks by higher per-role amount. Winner excluded from later
- *      roles. earn += round(pool × pct / 100).
+ *   3. Role list is derived from the month's split row + its merge_groups:
+ *        - Canonical role order: closer, processor, coordinator, support,
+ *          verifier.
+ *        - Each merge group (e.g. ["support","verifier"]) becomes ONE
+ *          combined role: pct = sum of members, label = abbreviated
+ *          member names joined with '+'. List position = position of
+ *          the earliest member in canonical order.
+ *        - Roles not in any group remain individual entries in canonical
+ *          order.
+ *        - After assembly, drop any entry whose pct is 0 (handles Jan/Dec
+ *          "no coordinator" without special-casing).
+ *   4. Role counts/amounts: for each eligible row, for each role in the
+ *      role list, iterate its member columns; the named agent gets +1
+ *      count and += item_amount on that role key.
+ *   5. Winner-take-all in role-list order. Highest count wins; tie
+ *      (count>0) breaks by higher per-role amount. Winner excluded from
+ *      later roles. earn += round(pool × pct/100).
  *   6. tiedRole: any non-winning agent whose count in some role equals
  *      that role's winner's count gets a display-only tiedRole flag.
- *   7. Top Sales bonus: most CLOSER appearances, tie on closer amount.
- *      bonus = round(pool × top_sales_pct/100). May overlap a role win.
- *      Skipped when top_sales_pct = 0.
+ *   7. Top Sales bonus: most CLOSER-COLUMN appearances (independent of
+ *      any merging), tie on closer-column amount. bonus = round(
+ *      pool × top_sales_pct/100). May overlap a role win. Skipped when
+ *      top_sales_pct = 0.
  *   8. total = earn + bonus.
+ *   9. Defensive: missing/null merge_groups → []; a role appears in at
+ *      most one group; malformed group entries (< 2 valid members) are
+ *      ignored and their members stay as standalone roles.
  */
 
 export interface SaleRow {
@@ -65,14 +74,15 @@ export interface CommissionSplit {
   support_pct: number;
   verifier_pct: number;
   top_sales_pct: number;
-  merged_support_verifier: boolean;
+  merge_groups: string[][] | null; // [] or [["support","verifier"]] etc.
   pool_per_item_php: number;
 }
 
 export interface RoleDefinition {
-  key: string; // 'closer' | 'processor' | 'coordinator' | 'support' | 'verifier' | 'support+verifier'
-  label: string;
-  pct: number;
+  key: string;             // 'closer' | 'processor' | ... | 'closer+processor' | 'support+verifier' etc.
+  label: string;           // display label, e.g. 'Closer', 'Sup+Ver'
+  pct: number;             // sum of member pcts for groups, single pct for standalone
+  members: CanonicalRole[]; // contributing canonical columns
 }
 
 export interface AgentMonthResult {
@@ -106,6 +116,29 @@ export interface MonthlyComputation {
   topSalesBonus: number;
 }
 
+export const CANONICAL_ROLES = ['closer', 'processor', 'coordinator', 'support', 'verifier'] as const;
+export type CanonicalRole = typeof CANONICAL_ROLES[number];
+
+export const ROLE_LABEL_FULL: Record<CanonicalRole, string> = {
+  closer: 'Closer',
+  processor: 'Processor',
+  coordinator: 'Coord',
+  support: 'Support',
+  verifier: 'Verifier',
+};
+
+export const ROLE_LABEL_ABBREV: Record<CanonicalRole, string> = {
+  closer: 'Cls',
+  processor: 'Proc',
+  coordinator: 'Coord',
+  support: 'Sup',
+  verifier: 'Ver',
+};
+
+function isCanonicalRole(s: unknown): s is CanonicalRole {
+  return typeof s === 'string' && (CANONICAL_ROLES as readonly string[]).includes(s.toLowerCase());
+}
+
 export function monthKeyFromDate(iso: string | null | undefined): string | null {
   if (!iso || iso.length < 7) return null;
   return iso.slice(0, 7);
@@ -131,30 +164,73 @@ export function resolveSplit(monthKey: string, splits: CommissionSplit[]): Commi
   return eligible[0] ?? null;
 }
 
-function buildRoles(split: CommissionSplit): RoleDefinition[] {
-  if (split.merged_support_verifier) {
-    return [
-      { key: 'closer', label: 'Closer', pct: Number(split.closer_pct) || 0 },
-      { key: 'processor', label: 'Processor', pct: Number(split.processor_pct) || 0 },
-      { key: 'support+verifier', label: 'Sup+Ver', pct: (Number(split.support_pct) || 0) + (Number(split.verifier_pct) || 0) },
-    ];
+/** Normalize a raw merge_groups jsonb value into canonical-role tuples.
+ *  - Filters out non-canonical role names.
+ *  - Drops duplicates within a group.
+ *  - Drops groups with < 2 valid members (their members stay standalone).
+ *  - Ensures each canonical role appears in at most one group; later
+ *    duplicates are silently dropped from subsequent groups. */
+export function normalizeMergeGroups(raw: unknown): CanonicalRole[][] {
+  if (!Array.isArray(raw)) return [];
+  const result: CanonicalRole[][] = [];
+  const used = new Set<CanonicalRole>();
+  for (const g of raw) {
+    if (!Array.isArray(g)) continue;
+    const seenInGroup = new Set<CanonicalRole>();
+    const valid: CanonicalRole[] = [];
+    for (const r of g) {
+      if (!isCanonicalRole(r)) continue;
+      const lc = (r as string).toLowerCase() as CanonicalRole;
+      if (used.has(lc) || seenInGroup.has(lc)) continue;
+      seenInGroup.add(lc);
+      valid.push(lc);
+    }
+    if (valid.length >= 2) {
+      valid.sort((a, b) => CANONICAL_ROLES.indexOf(a) - CANONICAL_ROLES.indexOf(b));
+      for (const r of valid) used.add(r);
+      result.push(valid);
+    }
+    // Invalid groups (< 2 valid members) dropped without consuming role slots.
   }
-  const out: RoleDefinition[] = [
-    { key: 'closer', label: 'Closer', pct: Number(split.closer_pct) || 0 },
-    { key: 'processor', label: 'Processor', pct: Number(split.processor_pct) || 0 },
-  ];
-  if ((Number(split.coordinator_pct) || 0) > 0) {
-    out.push({ key: 'coordinator', label: 'Coordinator', pct: Number(split.coordinator_pct) || 0 });
+  return result;
+}
+
+export function buildRoles(split: CommissionSplit): RoleDefinition[] {
+  const pctMap: Record<CanonicalRole, number> = {
+    closer: Number(split.closer_pct) || 0,
+    processor: Number(split.processor_pct) || 0,
+    coordinator: Number(split.coordinator_pct) || 0,
+    support: Number(split.support_pct) || 0,
+    verifier: Number(split.verifier_pct) || 0,
+  };
+  const groups = normalizeMergeGroups(split.merge_groups);
+  const roleToGroup = new Map<CanonicalRole, CanonicalRole[]>();
+  for (const g of groups) {
+    for (const r of g) roleToGroup.set(r, g);
   }
-  out.push({ key: 'support', label: 'Support', pct: Number(split.support_pct) || 0 });
-  out.push({ key: 'verifier', label: 'Verifier', pct: Number(split.verifier_pct) || 0 });
-  return out;
+
+  const emitted = new Set<string>();
+  const out: RoleDefinition[] = [];
+  for (const r of CANONICAL_ROLES) {
+    const group = roleToGroup.get(r);
+    if (group) {
+      const key = group.join('+');
+      if (emitted.has(key)) continue;
+      emitted.add(key);
+      const pct = group.reduce((s, m) => s + pctMap[m], 0);
+      const label = group.map(m => ROLE_LABEL_ABBREV[m]).join('+');
+      out.push({ key, label, pct, members: [...group] });
+    } else {
+      out.push({ key: r, label: ROLE_LABEL_FULL[r], pct: pctMap[r], members: [r] });
+    }
+  }
+  return out.filter(role => role.pct > 0);
 }
 
 function bumpAgent(
   map: Map<string, AgentMonthResult>,
-  name: string | null,
-  role: string,
+  name: string | null | undefined,
+  roleKey: string,
   amt: number,
 ): void {
   if (!name) return;
@@ -177,8 +253,8 @@ function bumpAgent(
     };
     map.set(key, agent);
   }
-  agent.counts[role] = (agent.counts[role] ?? 0) + 1;
-  agent.amounts[role] = (agent.amounts[role] ?? 0) + amt;
+  agent.counts[roleKey] = (agent.counts[roleKey] ?? 0) + 1;
+  agent.amounts[roleKey] = (agent.amounts[roleKey] ?? 0) + amt;
 }
 
 export function computeMonth(
@@ -195,42 +271,42 @@ export function computeMonth(
   const cancelledCount = monthRows.filter(r => r.status === 'Cancelled').length;
   const pendingCount = monthRows.filter(r => r.status === 'Pending').length;
   const distinctClients = new Set(
-    eligibleRows
-      .map(r => (r.client_name ?? '').trim().toLowerCase())
-      .filter(Boolean)
+    eligibleRows.map(r => (r.client_name ?? '').trim().toLowerCase()).filter(Boolean)
   ).size;
   const distinctItems = new Set(
-    eligibleRows
-      .map(r => (r.item_code ?? '').trim().toLowerCase())
-      .filter(Boolean)
+    eligibleRows.map(r => (r.item_code ?? '').trim().toLowerCase()).filter(Boolean)
   ).size;
 
   const roles = split ? buildRoles(split) : [];
   const agentMap = new Map<string, AgentMonthResult>();
 
+  // Closer-column accumulator, kept independent of role merging — Top Sales
+  // is keyed on the CLOSER COLUMN, not the (possibly merged) closer role.
+  const closerCol = new Map<string, { name: string; count: number; amount: number }>();
+
   for (const r of eligibleRows) {
     const amt = Number(r.item_amount) || 0;
-    if (split?.merged_support_verifier) {
-      bumpAgent(agentMap, r.closer, 'closer', amt);
-      bumpAgent(agentMap, r.processor, 'processor', amt);
-      bumpAgent(agentMap, r.support, 'support+verifier', amt);
-      bumpAgent(agentMap, r.verifier, 'support+verifier', amt);
-    } else {
-      bumpAgent(agentMap, r.closer, 'closer', amt);
-      bumpAgent(agentMap, r.processor, 'processor', amt);
-      bumpAgent(agentMap, r.coordinator, 'coordinator', amt);
-      bumpAgent(agentMap, r.support, 'support', amt);
-      bumpAgent(agentMap, r.verifier, 'verifier', amt);
+
+    if (r.closer) {
+      const trimmed = r.closer.trim();
+      if (trimmed) {
+        const key = trimmed.toLowerCase();
+        const entry = closerCol.get(key) ?? { name: trimmed, count: 0, amount: 0 };
+        entry.count += 1;
+        entry.amount += amt;
+        closerCol.set(key, entry);
+      }
+    }
+
+    for (const role of roles) {
+      for (const member of role.members) {
+        const value = (r as unknown as Record<string, string | null | undefined>)[member];
+        bumpAgent(agentMap, value, role.key, amt);
+      }
     }
   }
 
-  // Also track closer counts/amounts for Top Sales when the role list
-  // uses merged mode (still derives from the closer column).
-  if (split?.merged_support_verifier) {
-    // closer counts already populated above via the merged branch.
-  }
-
-  // Winner-take-all
+  // Winner-take-all in role-list order.
   const assigned = new Set<string>();
   for (const role of roles) {
     let winner: AgentMonthResult | null = null;
@@ -258,7 +334,7 @@ export function computeMonth(
     }
   }
 
-  // Tied flag — display only
+  // ⚖ Tied display flag.
   for (const agent of agentMap.values()) {
     if (agent.wonRole) continue;
     for (const role of roles) {
@@ -278,29 +354,42 @@ export function computeMonth(
     }
   }
 
-  // Top Sales — most CLOSER appearances; tie on closer amount.
-  // Spec: may overlap a role win.
-  let topSalesWinner: AgentMonthResult | null = null;
+  // Top Sales — pure closer-column basis.
+  let topSalesWinnerName: string | null = null;
   const topPct = split ? Number(split.top_sales_pct) || 0 : 0;
-  if (topPct > 0) {
-    for (const agent of agentMap.values()) {
-      const c = agent.counts['closer'] ?? 0;
-      if (c <= 0) continue;
-      if (!topSalesWinner) {
-        topSalesWinner = agent;
-        continue;
+  let topSalesBonus = 0;
+  if (topPct > 0 && closerCol.size > 0) {
+    let bestKey: string | null = null;
+    let best: { name: string; count: number; amount: number } | null = null;
+    for (const [key, entry] of closerCol) {
+      if (entry.count <= 0) continue;
+      if (!best || entry.count > best.count || (entry.count === best.count && entry.amount > best.amount)) {
+        bestKey = key;
+        best = entry;
       }
-      const winC = topSalesWinner.counts['closer'] ?? 0;
-      const winA = topSalesWinner.amounts['closer'] ?? 0;
-      const agentA = agent.amounts['closer'] ?? 0;
-      if (c > winC) topSalesWinner = agent;
-      else if (c === winC && agentA > winA) topSalesWinner = agent;
     }
-  }
-  const topSalesBonus = topSalesWinner ? Math.round(pool * topPct / 100) : 0;
-  if (topSalesWinner) {
-    topSalesWinner.isTopSales = true;
-    topSalesWinner.bonus += topSalesBonus;
+    if (best && bestKey) {
+      topSalesBonus = Math.round(pool * topPct / 100);
+      topSalesWinnerName = best.name;
+      let agent = agentMap.get(bestKey);
+      if (!agent) {
+        agent = {
+          name: best.name,
+          canonicalKey: bestKey,
+          counts: {},
+          amounts: {},
+          wonRole: null,
+          tiedRole: null,
+          isTopSales: false,
+          earn: 0,
+          bonus: 0,
+          total: 0,
+        };
+        agentMap.set(bestKey, agent);
+      }
+      agent.isTopSales = true;
+      agent.bonus += topSalesBonus;
+    }
   }
 
   for (const agent of agentMap.values()) {
@@ -323,7 +412,7 @@ export function computeMonth(
     distinctItems,
     roles,
     agents,
-    topSalesWinner: topSalesWinner?.name ?? null,
+    topSalesWinner: topSalesWinnerName,
     topSalesBonus,
   };
 }
