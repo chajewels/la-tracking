@@ -335,6 +335,75 @@ export type Database = {
           },
         ]
       }
+      commission_agents: {
+        Row: {
+          active: boolean
+          color: string
+          created_at: string
+          id: string
+          name: string
+          sort_order: number
+          start_month: string
+        }
+        Insert: {
+          active?: boolean
+          color?: string
+          created_at?: string
+          id?: string
+          name: string
+          sort_order?: number
+          start_month?: string
+        }
+        Update: {
+          active?: boolean
+          color?: string
+          created_at?: string
+          id?: string
+          name?: string
+          sort_order?: number
+          start_month?: string
+        }
+        Relationships: []
+      }
+      commission_splits: {
+        Row: {
+          closer_pct: number
+          coordinator_pct: number
+          merge_groups: Json
+          month: string
+          pool_per_item_php: number
+          processor_pct: number
+          support_pct: number
+          top_sales_pct: number
+          updated_at: string
+          verifier_pct: number
+        }
+        Insert: {
+          closer_pct?: number
+          coordinator_pct?: number
+          merge_groups?: Json
+          month: string
+          pool_per_item_php?: number
+          processor_pct?: number
+          support_pct?: number
+          top_sales_pct?: number
+          updated_at?: string
+          verifier_pct?: number
+        }
+        Update: {
+          closer_pct?: number
+          coordinator_pct?: number
+          merge_groups?: Json
+          month?: string
+          pool_per_item_php?: number
+          processor_pct?: number
+          support_pct?: number
+          top_sales_pct?: number
+          updated_at?: string
+          verifier_pct?: number
+        }
+        Relationships: []
+      }
       csr_notifications: {
         Row: {
           account_id: string
@@ -3409,6 +3478,72 @@ export type Database = {
           role?: Database["public"]["Enums"]["app_role"]
           updated_at?: string
           updated_by_user_id?: string | null
+        }
+        Relationships: []
+      }
+      sales_log: {
+        Row: {
+          channel: string | null
+          client_name: string | null
+          closed_in_chat: boolean
+          closer: string | null
+          coordinator: string | null
+          created_at: string
+          eligible: boolean
+          id: string
+          item_amount: number | null
+          item_code: string | null
+          notes: string | null
+          opened_in_chat: boolean
+          processor: string | null
+          sale_date: string
+          source: string | null
+          status: string
+          support: string | null
+          updated_at: string
+          verifier: string | null
+        }
+        Insert: {
+          channel?: string | null
+          client_name?: string | null
+          closed_in_chat?: boolean
+          closer?: string | null
+          coordinator?: string | null
+          created_at?: string
+          eligible?: boolean
+          id?: string
+          item_amount?: number | null
+          item_code?: string | null
+          notes?: string | null
+          opened_in_chat?: boolean
+          processor?: string | null
+          sale_date: string
+          source?: string | null
+          status?: string
+          support?: string | null
+          updated_at?: string
+          verifier?: string | null
+        }
+        Update: {
+          channel?: string | null
+          client_name?: string | null
+          closed_in_chat?: boolean
+          closer?: string | null
+          coordinator?: string | null
+          created_at?: string
+          eligible?: boolean
+          id?: string
+          item_amount?: number | null
+          item_code?: string | null
+          notes?: string | null
+          opened_in_chat?: boolean
+          processor?: string | null
+          sale_date?: string
+          source?: string | null
+          status?: string
+          support?: string | null
+          updated_at?: string
+          verifier?: string | null
         }
         Relationships: []
       }
