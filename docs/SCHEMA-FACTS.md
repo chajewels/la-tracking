@@ -402,3 +402,7 @@ Five keys exist in role_permissions with zero runtime references. They are inten
 - approve_cash_order, edit_cash_order, recalculate_balance — referenced only as types in the legacy static map src/lib/role-permissions.ts; reserved against future reintroduction.
 - manage_trade_ins, view_trade_ins — pre-staged for the future trade-in UI; fully seeded (4 roles) as of the Bug #221 backfill.
 Rationale: unevaluated keys cost nothing; deleting and later re-seeding risks partial seeds (missing role row = silent checkPermission false, see role-permission seeding rule).
+
+### dashboard-summary: known-dead adjusted prediction fields (documented 2026-06-12)
+
+The dashboard-summary edge function computes a riskFactor (0.85) and four risk-adjusted output fields: the per-bucket `adjusted` totals, `predicted_30d`, `predicted_90d`, and `next_month_adjusted`. These are typed in src/hooks/use-supabase-data.ts but rendered NOWHERE — the Finance page displays only the `_raw` counterparts. Decision: kept intentionally (removal would touch the API shape, hook types, and a redeploy for zero visible gain; the fields are available if risk-adjusted predictions are ever surfaced). Do not re-flag as drift or dead code.
