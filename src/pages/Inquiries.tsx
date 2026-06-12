@@ -37,7 +37,7 @@ interface InquiryRow {
   category: string | null;
   inquiry_count: number;
   last_inquired_date: string | null;
-  notes: string | null;
+  popular_inquiries_notes: string | null;
   source: string | null;
   action_needed: string | null;
   order_placed: string | null;
@@ -99,6 +99,21 @@ function formatDate(iso: string | null): string {
   } catch {
     return '—';
   }
+}
+
+// Normalize any stored date-ish string (YYYY-MM-DD or full ISO timestamp)
+// into the YYYY-MM-DD format required by <input type="date">. Returns ''
+// when the input is missing or unparseable so the field stays editable
+// (an invalid value locks the input visually as "blank but uneditable").
+function toDateInputValue(value: string | null | undefined): string {
+  if (!value) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 // Sentinel value for the optional "— Blank —" entry in select-some filters.
@@ -266,7 +281,7 @@ interface InquiryFormState {
   category: string;
   inquiry_count: number;
   last_inquired_date: string;
-  notes: string;
+  popular_inquiries_notes: string;
   source: string;
   action_needed: string;
   order_placed: string;
@@ -281,7 +296,7 @@ function emptyForm(profileName?: string | null): InquiryFormState {
     category: '',
     inquiry_count: 1,
     last_inquired_date: getPHTToday(),
-    notes: '',
+    popular_inquiries_notes: '',
     source: '',
     action_needed: '',
     order_placed: '',
@@ -311,8 +326,8 @@ function InquiryFormSheet({
         product_name: editing.product_name ?? '',
         category: editing.category ?? '',
         inquiry_count: editing.inquiry_count ?? 1,
-        last_inquired_date: editing.last_inquired_date ?? getPHTToday(),
-        notes: editing.notes ?? '',
+        last_inquired_date: toDateInputValue(editing.last_inquired_date) || getPHTToday(),
+        popular_inquiries_notes: editing.popular_inquiries_notes ?? '',
         source: editing.source ?? '',
         action_needed: editing.action_needed ?? '',
         order_placed: editing.order_placed ?? '',
@@ -339,7 +354,7 @@ function InquiryFormSheet({
         category: form.category || null,
         inquiry_count: Number(form.inquiry_count) || 1,
         last_inquired_date: form.last_inquired_date || null,
-        notes: form.notes.trim() || null,
+        popular_inquiries_notes: form.popular_inquiries_notes.trim() || null,
         source: form.source || null,
         action_needed: form.action_needed || null,
         order_placed: form.order_placed || null,
@@ -421,7 +436,7 @@ function InquiryFormSheet({
               <Label className="text-xs">Last Inquired Date</Label>
               <Input
                 type="date"
-                value={form.last_inquired_date}
+                value={toDateInputValue(form.last_inquired_date)}
                 onChange={(e) => update('last_inquired_date', e.target.value)}
                 className="h-9"
               />
@@ -430,8 +445,8 @@ function InquiryFormSheet({
           <div className="space-y-1.5">
             <Label className="text-xs">Popular Inquiries / Notes</Label>
             <Textarea
-              value={form.notes}
-              onChange={(e) => update('notes', e.target.value)}
+              value={form.popular_inquiries_notes}
+              onChange={(e) => update('popular_inquiries_notes', e.target.value)}
               rows={2}
               className="resize-none"
             />
