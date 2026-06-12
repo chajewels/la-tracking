@@ -262,11 +262,43 @@ Deno.serve(async (req) => {
             });
           } else if (a.error) {
             failedCount++;
-            const invStr = cand.kind === "cash" ? (cand.invoice_number ?? "?") : "?";
+            let invStr: string = "?";
+            // Resolve customer name for the failure body. Cash awards have
+            // cand.customer_id directly; layaway awards resolve via the
+            // account_id → layaway_accounts → customers join (which also
+            // surfaces the invoice number). If the lookup itself fails we
+            // fall back to the original body — never skip the insert on a
+            // name miss.
+            let fullName: string | null = null;
+            try {
+              if (cand.kind === "cash") {
+                invStr = cand.invoice_number ?? "?";
+                const { data: cust } = await supabase
+                  .from("customers")
+                  .select("full_name")
+                  .eq("id", cand.customer_id)
+                  .maybeSingle();
+                fullName = (cust as { full_name?: string | null } | null)?.full_name ?? null;
+              } else if (cand.account_id) {
+                const { data: acct } = await supabase
+                  .from("layaway_accounts")
+                  .select("invoice_number, customers(full_name)")
+                  .eq("id", cand.account_id)
+                  .maybeSingle();
+                const row = acct as { invoice_number?: string | null; customers?: { full_name?: string | null } | null } | null;
+                fullName = row?.customers?.full_name ?? null;
+                invStr = row?.invoice_number ?? "?";
+              }
+            } catch (_lookupErr) {
+              fullName = null;
+            }
+            const failBody = fullName
+              ? `${fullName} · Inv #${invStr} — ${String(a.error)}`
+              : `${String(a.error)} · Inv #${invStr}`;
             await supabase.from("staff_notifications").insert({
               type: "loyalty_award_failed",
               title: "Loyalty award FAILED in daily checker",
-              body: `${String(a.error)} · Inv #${invStr}`,
+              body: failBody,
               customer_id: cand.kind === "cash" ? cand.customer_id : null,
               invoice_number: cand.kind === "cash" ? cand.invoice_number : null,
               account_id: cand.kind === "layaway" ? cand.account_id : null,

@@ -794,10 +794,27 @@ Deno.serve(async (req) => {
               metadata: cashLoyaltyAward,
             });
           } else if (a.error) {
+            // Resolve customer display name for the failure body. If the
+            // lookup itself fails, fall back to the existing body — the
+            // notification must NEVER be skipped because of a name miss.
+            let cashFullName: string | null = null;
+            try {
+              const { data: cust } = await supabase
+                .from("customers")
+                .select("full_name")
+                .eq("id", cashOrder.customer_id)
+                .maybeSingle();
+              cashFullName = (cust as { full_name?: string | null } | null)?.full_name ?? null;
+            } catch (_lookupErr) {
+              cashFullName = null;
+            }
+            const failBody = cashFullName
+              ? `${cashFullName} · Inv #${cashOrder.invoice_number ?? "?"} — ${String(a.error)}`
+              : String(a.error) + ` · Inv #${cashOrder.invoice_number}`;
             await supabase.from("staff_notifications").insert({
               type: "loyalty_award_failed",
               title: "Loyalty award FAILED — check wiring",
-              body: String(a.error) + ` · Inv #${cashOrder.invoice_number}`,
+              body: failBody,
               customer_id: cashOrder.customer_id,
               invoice_number: cashOrder.invoice_number,
               metadata: cashLoyaltyAward,
@@ -1250,10 +1267,33 @@ Deno.serve(async (req) => {
           });
         } else if ((award as any).error) {
           const a: any = award;
+          // Resolve customer name + invoice via layaway_accounts join. If
+          // the lookup itself fails, fall back to the original String(a.error)
+          // body — the notification must never be skipped on a name miss.
+          let layawayFullName: string | null = null;
+          let layawayInvoice: string | null = null;
+          if (a.account_id) {
+            try {
+              const { data: acct } = await supabase
+                .from("layaway_accounts")
+                .select("invoice_number, customers(full_name)")
+                .eq("id", a.account_id)
+                .maybeSingle();
+              const row = acct as { invoice_number?: string | null; customers?: { full_name?: string | null } | null } | null;
+              layawayFullName = row?.customers?.full_name ?? null;
+              layawayInvoice = row?.invoice_number ?? null;
+            } catch (_lookupErr) {
+              layawayFullName = null;
+              layawayInvoice = null;
+            }
+          }
+          const failBody = (layawayFullName || layawayInvoice)
+            ? `${layawayFullName ?? "Unknown"} · Inv #${layawayInvoice ?? "?"} — ${String(a.error)}`
+            : String(a.error);
           await supabase.from("staff_notifications").insert({
             type: "loyalty_award_failed",
             title: "Loyalty award FAILED — check wiring",
-            body: String(a.error),
+            body: failBody,
             account_id: a.account_id ?? null,
             metadata: a,
           });
