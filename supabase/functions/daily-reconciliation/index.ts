@@ -244,8 +244,17 @@ Deno.serve(async (req) => {
     // stamp below.
     // ──────────────────────────────────────────────────────────────
     try {
-      const loyaltyWindowMs = 25 * 60 * 60 * 1000;
+      // Lookback widened 25h -> 14 days after the 2026-06-08 -> 2026-06-12
+      // outage (Bug #223) — the 25h window guaranteed any outage longer
+      // than one daily cycle was permanently unrecoverable by the sweep.
+      // Ordered oldest-first so older missed awards aren't starved by the
+      // page LIMIT, and the LIMIT raised so a multi-week backlog can
+      // drain across a few daily runs. award-loyalty-points is idempotent
+      // via its already_awarded guard, so re-sweeping recently-awarded
+      // rows is a no-op.
+      const loyaltyWindowMs = 14 * 24 * 60 * 60 * 1000;
       const loyaltyCutoff = new Date(Date.now() - loyaltyWindowMs).toISOString();
+      const loyaltyPageLimit = 500;
       const lpUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`;
       const lpHeaders = {
         "Content-Type": "application/json",
@@ -262,7 +271,8 @@ Deno.serve(async (req) => {
         .from("cash_orders")
         .select("id, customer_id, invoice_number")
         .gte("completed_at", loyaltyCutoff)
-        .limit(200);
+        .order("completed_at", { ascending: true })
+        .limit(loyaltyPageLimit);
       for (const r of (cashRows ?? []) as any[]) {
         candidates.push({
           kind: "cash",
@@ -278,7 +288,8 @@ Deno.serve(async (req) => {
         .eq("status", "confirmed")
         .not("account_id", "is", null)
         .gte("updated_at", loyaltyCutoff)
-        .limit(200);
+        .order("updated_at", { ascending: true })
+        .limit(loyaltyPageLimit);
       const seenAccounts = new Set<string>();
       for (const r of (subRows ?? []) as any[]) {
         const aid = r.account_id as string | null;

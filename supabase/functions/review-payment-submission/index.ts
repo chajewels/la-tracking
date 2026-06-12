@@ -848,8 +848,11 @@ Deno.serve(async (req) => {
       // through as data on cashLoyaltyAward.
       //
       // Membership pre-check: skip the entire loyalty pipeline (no fetch,
-      // no cashLoyaltyAward, no notification) for non-enrolled customers.
-      // Only enrolled customers should produce a loyalty record.
+      // no failure notification) for non-enrolled customers. The skip is
+      // now surfaced as a benign trace (`pre_check_not_enrolled`) instead
+      // of silently leaving no record — see Bug #223 hardening. Reason
+      // isn't in ANOMALOUS_SKIP_REASONS, so the notification loop treats
+      // it as informational and emits nothing.
       let cashLoyaltyAward: Record<string, unknown> | null = null;
       if (isFullyPaid) {
         const enrolled = await isCustomerLoyaltyEnrolled(supabase, cashOrder.customer_id);
@@ -867,11 +870,29 @@ Deno.serve(async (req) => {
               }),
             });
             const lpJson = await lpRes.json().catch(() => null);
-            cashLoyaltyAward = { cash_order_id: cashOrder.id, ...(lpJson ?? { error: "no_response" }) };
+            if (!lpRes.ok) {
+              // Explicit HTTP-status check — closes the gap that let the
+              // 4-day 401 outage stay silent.
+              const bodyErr = (lpJson as { error?: string } | null)?.error;
+              cashLoyaltyAward = {
+                cash_order_id: cashOrder.id,
+                error: bodyErr ?? `http_${lpRes.status}`,
+                status: lpRes.status,
+                ...(lpJson ?? {}),
+              };
+            } else {
+              cashLoyaltyAward = { cash_order_id: cashOrder.id, ...(lpJson ?? { error: "no_response" }) };
+            }
           } catch (loyaltyErr) {
             console.warn("[review-payment-submission] award-loyalty-points failed (non-blocking):", loyaltyErr);
             cashLoyaltyAward = { cash_order_id: cashOrder.id, error: String(loyaltyErr) };
           }
+        } else {
+          cashLoyaltyAward = {
+            cash_order_id: cashOrder.id,
+            skipped: true,
+            reason: "pre_check_not_enrolled",
+          };
         }
       }
 
@@ -1095,11 +1116,32 @@ Deno.serve(async (req) => {
                 body: JSON.stringify({ account_id: submission.account_id }),
               });
               const lpJson = await lpRes.json().catch(() => null);
-              loyaltyAwards.push({ account_id: submission.account_id, ...(lpJson ?? { error: "no_response" }) });
+              if (!lpRes.ok) {
+                // Explicit HTTP-status check — closes the gap that let
+                // the 4-day 401 outage stay silent.
+                const bodyErr = (lpJson as { error?: string } | null)?.error;
+                loyaltyAwards.push({
+                  account_id: submission.account_id,
+                  error: bodyErr ?? `http_${lpRes.status}`,
+                  status: lpRes.status,
+                  ...(lpJson ?? {}),
+                });
+              } else {
+                loyaltyAwards.push({ account_id: submission.account_id, ...(lpJson ?? { error: "no_response" }) });
+              }
             } catch (err) {
               console.warn("[review-payment-submission] award-loyalty-points failed (non-blocking):", err);
               loyaltyAwards.push({ account_id: submission.account_id, error: String(err) });
             }
+          } else {
+            // Benign skip trace — reason isn't in ANOMALOUS_SKIP_REASONS,
+            // so the notification loop emits nothing, but the entry
+            // appears in the response payload for diagnosability.
+            loyaltyAwards.push({
+              account_id: submission.account_id,
+              skipped: true,
+              reason: "pre_check_not_enrolled",
+            });
           }
         }
       } else {
@@ -1153,11 +1195,31 @@ Deno.serve(async (req) => {
                   body: JSON.stringify({ account_id: alloc.account_id }),
                 });
                 const lpJson = await lpRes.json().catch(() => null);
-                loyaltyAwards.push({ account_id: alloc.account_id, ...(lpJson ?? { error: "no_response" }) });
+                if (!lpRes.ok) {
+                  // Explicit HTTP-status check — closes the gap that let
+                  // the 4-day 401 outage stay silent.
+                  const bodyErr = (lpJson as { error?: string } | null)?.error;
+                  loyaltyAwards.push({
+                    account_id: alloc.account_id,
+                    error: bodyErr ?? `http_${lpRes.status}`,
+                    status: lpRes.status,
+                    ...(lpJson ?? {}),
+                  });
+                } else {
+                  loyaltyAwards.push({ account_id: alloc.account_id, ...(lpJson ?? { error: "no_response" }) });
+                }
               } catch (err) {
                 console.warn("[review-payment-submission] award-loyalty-points failed (non-blocking):", err);
                 loyaltyAwards.push({ account_id: alloc.account_id, error: String(err) });
               }
+            } else {
+              // Benign skip trace — see comment on the single-submission
+              // branch. Informational only; no notification.
+              loyaltyAwards.push({
+                account_id: alloc.account_id,
+                skipped: true,
+                reason: "pre_check_not_enrolled",
+              });
             }
           }
         }
