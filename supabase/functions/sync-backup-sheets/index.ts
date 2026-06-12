@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { parseJwtClaims } from "../_shared/jwt-claims.ts";
+import { isServiceRole } from "../_shared/jwt-claims.ts";
 import { getServiceAccountAccessToken } from "../_shared/google-auth.ts";
 
 const corsHeaders = {
@@ -73,7 +73,7 @@ Deno.serve(async (req) => {
 
   // SECURITY: service-role only. Cron-only entry point; no user-facing access.
   const authToken = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
-  if (parseJwtClaims(authToken)?.role !== "service_role") {
+  if (!isServiceRole(authToken)) {
     return new Response(JSON.stringify({ error: "Forbidden" }), {
       status: 403,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
