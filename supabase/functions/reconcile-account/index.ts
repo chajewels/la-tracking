@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkPermission } from "../_shared/check-permission.ts";
+import { isServiceRole } from "../_shared/jwt-claims.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -29,16 +30,23 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-    // Permission gate (Bug #214: matrix-driven access via run_reconciliation key)
-    const allowed = await checkPermission(supabase, user.id, "run_reconciliation");
-    if (!allowed) {
-      return new Response(JSON.stringify({ error: "run_reconciliation permission required" }), {
-        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+
+    // Service short-circuit: internal callers (record-payment,
+    // record-multi-payment, carry-over, etc.) hit this endpoint with the
+    // service-role key. Skip the user-JWT path entirely for them; the
+    // existing matrix permission only applies to user sessions.
+    if (!isServiceRole(token)) {
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      // Permission gate (Bug #214: matrix-driven access via run_reconciliation key)
+      const allowed = await checkPermission(supabase, user.id, "run_reconciliation");
+      if (!allowed) {
+        return new Response(JSON.stringify({ error: "run_reconciliation permission required" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     const body = await req.json();

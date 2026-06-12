@@ -11,6 +11,41 @@ const corsHeaders = {
 // missing_source) stay silent.
 const ANOMALOUS_SKIP_REASONS = ["loyalty_disabled", "tier_not_found", "account_not_found", "cash_order_not_found"];
 
+/**
+ * Loyalty enrollment pre-check. Returns true iff a `loyalty_members` row
+ * exists for the resolved customer. Used to gate award-loyalty-points
+ * calls so non-enrolled customers never enter the loyalty pipeline (no
+ * fetch, no push to loyaltyAwards / cashLoyaltyAward, no notification).
+ *
+ * Resolves the customer in this order:
+ *   1. `customerId` arg if non-empty (cash path: cashOrder.customer_id;
+ *      layaway paths: submission.customer_id).
+ *   2. layaway_accounts.customer_id by `accountIdFallback` when the
+ *      submission row didn't carry a customer_id.
+ */
+async function isCustomerLoyaltyEnrolled(
+  supabase: any,
+  customerId: string | null | undefined,
+  accountIdFallback?: string | null,
+): Promise<boolean> {
+  let cid = customerId ?? null;
+  if (!cid && accountIdFallback) {
+    const { data: acct } = await supabase
+      .from("layaway_accounts")
+      .select("customer_id")
+      .eq("id", accountIdFallback)
+      .maybeSingle();
+    cid = (acct as { customer_id?: string } | null)?.customer_id ?? null;
+  }
+  if (!cid) return false;
+  const { data: member } = await supabase
+    .from("loyalty_members")
+    .select("id")
+    .eq("customer_id", cid)
+    .maybeSingle();
+  return !!member;
+}
+
 async function allocatePaymentToAccount(
   supabase: any,
   accountId: string,
@@ -717,25 +752,32 @@ Deno.serve(async (req) => {
       // 8. Capture-and-record: award-loyalty-points if order is now completed.
       // Failures here NEVER affect the confirmation outcome — they flow
       // through as data on cashLoyaltyAward.
+      //
+      // Membership pre-check: skip the entire loyalty pipeline (no fetch,
+      // no cashLoyaltyAward, no notification) for non-enrolled customers.
+      // Only enrolled customers should produce a loyalty record.
       let cashLoyaltyAward: Record<string, unknown> | null = null;
       if (isFullyPaid) {
-        try {
-          const lpRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-            },
-            body: JSON.stringify({
-              cash_order_id: cashOrder.id,
-              customer_id: cashOrder.customer_id,
-            }),
-          });
-          const lpJson = await lpRes.json().catch(() => null);
-          cashLoyaltyAward = { cash_order_id: cashOrder.id, ...(lpJson ?? { error: "no_response" }) };
-        } catch (loyaltyErr) {
-          console.warn("[review-payment-submission] award-loyalty-points failed (non-blocking):", loyaltyErr);
-          cashLoyaltyAward = { cash_order_id: cashOrder.id, error: String(loyaltyErr) };
+        const enrolled = await isCustomerLoyaltyEnrolled(supabase, cashOrder.customer_id);
+        if (enrolled) {
+          try {
+            const lpRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+              },
+              body: JSON.stringify({
+                cash_order_id: cashOrder.id,
+                customer_id: cashOrder.customer_id,
+              }),
+            });
+            const lpJson = await lpRes.json().catch(() => null);
+            cashLoyaltyAward = { cash_order_id: cashOrder.id, ...(lpJson ?? { error: "no_response" }) };
+          } catch (loyaltyErr) {
+            console.warn("[review-payment-submission] award-loyalty-points failed (non-blocking):", loyaltyErr);
+            cashLoyaltyAward = { cash_order_id: cashOrder.id, error: String(loyaltyErr) };
+          }
         }
       }
 
@@ -917,20 +959,31 @@ Deno.serve(async (req) => {
         confirmedPaymentIds.push(result.paymentId);
 
         if (submissionIsDP) {
-          try {
-            const lpRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-              },
-              body: JSON.stringify({ account_id: submission.account_id }),
-            });
-            const lpJson = await lpRes.json().catch(() => null);
-            loyaltyAwards.push({ account_id: submission.account_id, ...(lpJson ?? { error: "no_response" }) });
-          } catch (err) {
-            console.warn("[review-payment-submission] award-loyalty-points failed (non-blocking):", err);
-            loyaltyAwards.push({ account_id: submission.account_id, error: String(err) });
+          // Membership pre-check: skip the entire loyalty pipeline (no
+          // fetch, no push to loyaltyAwards, no notification) when the
+          // customer is not enrolled. Only enrolled customers should
+          // produce a loyalty record.
+          const enrolled = await isCustomerLoyaltyEnrolled(
+            supabase,
+            (submission as { customer_id?: string | null }).customer_id ?? null,
+            submission.account_id,
+          );
+          if (enrolled) {
+            try {
+              const lpRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                },
+                body: JSON.stringify({ account_id: submission.account_id }),
+              });
+              const lpJson = await lpRes.json().catch(() => null);
+              loyaltyAwards.push({ account_id: submission.account_id, ...(lpJson ?? { error: "no_response" }) });
+            } catch (err) {
+              console.warn("[review-payment-submission] award-loyalty-points failed (non-blocking):", err);
+              loyaltyAwards.push({ account_id: submission.account_id, error: String(err) });
+            }
           }
         }
       } else {
@@ -965,20 +1018,30 @@ Deno.serve(async (req) => {
           confirmedPaymentIds.push(result.paymentId);
 
           if (submissionIsDP) {
-            try {
-              const lpRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-                },
-                body: JSON.stringify({ account_id: alloc.account_id }),
-              });
-              const lpJson = await lpRes.json().catch(() => null);
-              loyaltyAwards.push({ account_id: alloc.account_id, ...(lpJson ?? { error: "no_response" }) });
-            } catch (err) {
-              console.warn("[review-payment-submission] award-loyalty-points failed (non-blocking):", err);
-              loyaltyAwards.push({ account_id: alloc.account_id, error: String(err) });
+            // Membership pre-check: see comment on the single-submission
+            // branch above. Skip the entire loyalty pipeline for
+            // non-enrolled customers.
+            const enrolled = await isCustomerLoyaltyEnrolled(
+              supabase,
+              (submission as { customer_id?: string | null }).customer_id ?? null,
+              alloc.account_id,
+            );
+            if (enrolled) {
+              try {
+                const lpRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                  },
+                  body: JSON.stringify({ account_id: alloc.account_id }),
+                });
+                const lpJson = await lpRes.json().catch(() => null);
+                loyaltyAwards.push({ account_id: alloc.account_id, ...(lpJson ?? { error: "no_response" }) });
+              } catch (err) {
+                console.warn("[review-payment-submission] award-loyalty-points failed (non-blocking):", err);
+                loyaltyAwards.push({ account_id: alloc.account_id, error: String(err) });
+              }
             }
           }
         }

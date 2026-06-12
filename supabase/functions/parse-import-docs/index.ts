@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { parseJwtClaims } from "../_shared/jwt-claims.ts";
+import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -134,7 +134,7 @@ Deno.serve(async (req) => {
   // that isn't carrying the service role key.
   {
     const incoming = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
-    if (!incoming || parseJwtClaims(incoming)?.role !== "service_role") {
+    if (!incoming || !isServiceRole(incoming)) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

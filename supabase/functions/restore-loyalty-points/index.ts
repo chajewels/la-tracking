@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
-import { parseJwtClaims } from "../_shared/jwt-claims.ts";
+import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
     if (!authHeader) return json({ error: "Unauthorized" }, 401);
     const token = authHeader.replace("Bearer ", "");
     let resolvedCreatedByUserId: string | null = null;
-    if (parseJwtClaims(token)?.role !== "service_role") {
+    if (!isServiceRole(token)) {
       const { data: { user }, error: authError } = await supabase.auth.getUser(token);
       if (authError || !user) return json({ error: "Unauthorized" }, 401);
       // Permission gate (Bug #203 Batch D: matrix-driven access — user JWT path only, service_role unchanged)

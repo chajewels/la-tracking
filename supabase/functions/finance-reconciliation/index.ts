@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { parseJwtClaims } from "../_shared/jwt-claims.ts";
+import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
@@ -42,8 +42,7 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-  const isServiceRole = parseJwtClaims(authToken)?.role === "service_role";
-  if (!isServiceRole) {
+  if (!isServiceRole(authToken)) {
     const { data: userData, error: userErr } = await supabaseAuth.auth.getUser(authToken);
     if (userErr || !userData?.user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {

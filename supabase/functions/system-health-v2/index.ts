@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { parseJwtClaims } from "../_shared/jwt-claims.ts";
+import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
@@ -70,7 +70,7 @@ Deno.serve(async (req) => {
   const authToken = authHeader?.replace("Bearer ", "") ?? "";
   let authorized = false;
   // Bug #168 fix (Batch F): use parseJwtClaims for service-role detection — never string equality
-  if (authToken && parseJwtClaims(authToken)?.role === "service_role") {
+  if (authToken && isServiceRole(authToken)) {
     authorized = true;
   } else if (authHeader?.startsWith("Bearer ")) {
     const anonClient = createClient(

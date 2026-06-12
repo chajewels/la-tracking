@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
-import { parseJwtClaims } from "../_shared/jwt-claims.ts";
+import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { checkPermission } from "../_shared/check-permission.ts";
 import {
   buildPointsEarnedNotification,
@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
     let authorized = false;
     // Service-role check: parseJwtClaims from shared helper (base64URL-safe,
     // works with both env-injected and Vault-backed service-role keys).
-    if (parseJwtClaims(token)?.role === "service_role") {
+    if (isServiceRole(token)) {
       authorized = true;
     }
     if (!authorized) {
