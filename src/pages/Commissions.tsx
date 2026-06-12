@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, Fragment } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1577,14 +1578,30 @@ function tabFromParam(s: string | null): TabValue {
 
 export default function Commissions() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [tab, setTab] = useState<TabValue>(tabFromParam(searchParams.get('tab')));
+
+  // Admin gate — Config tab is admin-only. Uses the same role source
+  // PermissionsContext reads from (useAuth().roles), so it matches the
+  // admin short-circuit in usePermissions().can().
+  const { roles } = useAuth();
+  const isAdmin = roles.includes('admin');
+
+  // Normalize the URL-derived tab against the admin gate: a deep link like
+  // ?tab=config silently falls back to Overview for non-admins.
+  function tabFromParamGated(s: string | null): TabValue {
+    const v = tabFromParam(s);
+    if (v === 'config' && !isAdmin) return 'overview';
+    return v;
+  }
+
+  const [tab, setTab] = useState<TabValue>(tabFromParamGated(searchParams.get('tab')));
 
   useEffect(() => {
-    setTab(tabFromParam(searchParams.get('tab')));
-  }, [searchParams]);
+    setTab(tabFromParamGated(searchParams.get('tab')));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, isAdmin]);
 
   function setTabAndUrl(next: string) {
-    const v = tabFromParam(next);
+    const v = tabFromParamGated(next);
     setTab(v);
     setSearchParams(v === 'overview' ? {} : { tab: v }, { replace: true });
   }
@@ -1656,7 +1673,7 @@ export default function Commissions() {
               <TabsTrigger value="agents">Agents</TabsTrigger>
               <TabsTrigger value="monthly">Monthly</TabsTrigger>
               <TabsTrigger value="sales-log">Sales Log</TabsTrigger>
-              <TabsTrigger value="config">Config</TabsTrigger>
+              {isAdmin && <TabsTrigger value="config">Config</TabsTrigger>}
             </TabsList>
 
             <TabsContent value="overview" className="mt-4">
@@ -1671,9 +1688,11 @@ export default function Commissions() {
             <TabsContent value="sales-log" className="mt-4">
               <SalesLogTab rows={rows} agents={agents} totalAvailable={rows.length} onRefresh={load} />
             </TabsContent>
-            <TabsContent value="config" className="mt-4">
-              <ConfigTab agents={agents} splits={splits} onRefresh={load} />
-            </TabsContent>
+            {isAdmin && (
+              <TabsContent value="config" className="mt-4">
+                <ConfigTab agents={agents} splits={splits} onRefresh={load} />
+              </TabsContent>
+            )}
           </Tabs>
         )}
       </div>
