@@ -664,6 +664,7 @@ export type Database = {
           facebook_name: string | null
           full_name: string
           id: string
+          is_test: boolean
           last_birthday_award_year: number | null
           location: string | null
           messenger_link: string | null
@@ -688,6 +689,7 @@ export type Database = {
           facebook_name?: string | null
           full_name: string
           id?: string
+          is_test?: boolean
           last_birthday_award_year?: number | null
           location?: string | null
           messenger_link?: string | null
@@ -712,6 +714,7 @@ export type Database = {
           facebook_name?: string | null
           full_name?: string
           id?: string
+          is_test?: boolean
           last_birthday_award_year?: number | null
           location?: string | null
           messenger_link?: string | null
