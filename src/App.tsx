@@ -42,6 +42,7 @@ const AccountDetail = lazyWithRetry(() => import("./pages/AccountDetail"));
 const Customers = lazyWithRetry(() => import("./pages/Customers"));
 const CustomerDetail = lazyWithRetry(() => import("./pages/CustomerDetail"));
 const Monitoring = lazyWithRetry(() => import("./pages/Monitoring"));
+const Inquiries = lazyWithRetry(() => import("./pages/Inquiries"));
 const CustomerPortal = lazyWithRetry(() => import("./pages/CustomerPortal"));
 const LoyaltyPortal = lazyWithRetry(() => import("./pages/LoyaltyPortal"));
 const Finance = lazyWithRetry(() => import("./pages/Finance"));
@@ -135,6 +136,7 @@ const App = () => (
                 <Route path="/sales" element={<Protected><Sales /></Protected>} />
                 <Route path="/waivers" element={<Protected><Waivers /></Protected>} />
                 <Route path="/monitoring" element={<Protected><Monitoring /></Protected>} />
+                <Route path="/inquiries" element={<Protected><Inquiries /></Protected>} />
                 <Route path="/finance" element={<Protected><Finance /></Protected>} />
                 <Route path="/admin-audit" element={<Protected><AdminAudit /></Protected>} />
                 <Route path="/admin-activity" element={<Protected><AdminActivityLog /></Protected>} />

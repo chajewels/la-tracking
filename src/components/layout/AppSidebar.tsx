@@ -45,6 +45,10 @@ import {
 type SubMenuItem = {
   label: string;
   tab: string;
+  // Optional override: when set, the sub-item navigates to this absolute path
+  // instead of `${parentPath}?tab=${tab}`. Used for sub-items that are real
+  // routes rather than tab states (e.g. Inquiries under CSR Operations).
+  path?: string;
   badgeKey?: 'finance_docs' | 'monitoring_extensions' | 'loyalty_redemptions' | 'sales_payments';
   permFilter?: (can: (key: string) => boolean) => boolean;
 };
@@ -140,6 +144,7 @@ const sidebarItems: (CategoryHeader | MenuItem)[] = [
       { label: 'Extensions', tab: 'extensions', badgeKey: 'monitoring_extensions' },
       { label: 'Notifications', tab: 'notifications' },
       { label: 'Audit', tab: 'audit' },
+      { label: 'Inquiries', tab: 'inquiries', path: ROUTES.INQUIRIES, permFilter: (can) => can('view_inquiries') },
     ],
   },
   {
@@ -344,11 +349,13 @@ export default function AppSidebar() {
                 {isExpanded && (
                   <SidebarMenuSub className="border-l border-l-primary/15 ml-4 pl-2 mt-0.5 mb-1">
                     {item.children.map((child) => {
-                      const isChildActive =
-                        location.pathname === item.parentPath &&
-                        (searchParams.get('tab') === child.tab ||
-                          (!searchParams.get('tab') && child.tab === item.children![0].tab));
+                      const isChildActive = child.path
+                        ? location.pathname === child.path
+                        : (location.pathname === item.parentPath &&
+                          (searchParams.get('tab') === child.tab ||
+                            (!searchParams.get('tab') && child.tab === item.children![0].tab)));
                       const subBadge = child.badgeKey ? (badgeBySubKey[child.badgeKey] ?? 0) : 0;
+                      const target = child.path ?? `${item.parentPath}?tab=${child.tab}`;
                       return (
                         <SidebarMenuSubItem key={child.tab}>
                           <SidebarMenuSubButton
@@ -360,7 +367,7 @@ export default function AppSidebar() {
                                 : 'text-white/55 hover:bg-primary/[0.06] hover:text-white/90'
                             )}
                           >
-                            <Link to={`${item.parentPath}?tab=${child.tab}`} className="flex w-full items-center gap-2">
+                            <Link to={target} className="flex w-full items-center gap-2">
                               <span className="flex-1">{child.label}</span>
                               {subBadge > 0 && (
                                 <span
