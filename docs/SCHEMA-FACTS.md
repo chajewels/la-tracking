@@ -348,6 +348,27 @@ The phantom and the legitimate-staff-entry share the same column signature — t
 1. Is a matching legit submission queued? → **Yes:** clean phantom, confirm legit, penalty rows self-heal. No manual penalty_fees UPDATE needed.
 2. Is a matching legit submission queued? → **No:** clean phantom AND manually UPDATE penalty_fees.status back to 'unpaid'.
 
+### payments table is written ONLY by the confirmation flow (added 2026-06-12, Bug #219)
+
+As of the universal-submission redesign on 2026-06-12, the `payments` table is written by ONE code path: `review-payment-submission` (the reviewer's Confirm click in the Submissions tab). No frontend, no other edge function, no DB trigger creates a `payments` row.
+
+**Producers of `payments` rows (write-side):**
+- `review-payment-submission` (sole producer of new payment rows for layaway + cash, regardless of submitter role)
+
+**Removed / dead paths (do not reintroduce):**
+- `record-payment` direct-write (admin/finance canConfirm branch) — removed Bug #219
+- `record-multi-payment` per-account direct-write (canConfirm branch) — removed Bug #219
+- `RecordPaymentDialog` admin/finance "search confirmed row → fallback INSERT a new pending submission" path — removed Bug #218
+
+**Producers of `payment_submissions` rows (queue-side):**
+- `submit-payment` (customer portal — layaway)
+- `submit-cash-payment` (customer portal — cash orders)
+- `record-payment` (staff / admin / finance / CSR — layaway, all roles)
+- `record-multi-payment` (staff / admin / finance / CSR — multi-invoice batch, all roles)
+- Restore action in review-payment-submission (rejected → submitted; does NOT mint a new row, only flips status)
+
+**Consequence for read queries:** Any analysis that needs "money actually received" reads `payments WHERE voided_at IS NULL` (INVARIANT 1). Any analysis that needs "money in flight pending review" reads `payment_submissions WHERE status IN ('submitted','under_review')`. The two sets are disjoint by construction now — a payment submission becomes a payment row only via the reviewer's Confirm click.
+
 ### cash_orders revival path (added 2026-06-12, Bug #217)
 
 A cash order can be revived from `status='expired'` back to `status='pending'` by editing its expiration date to a future timestamp.

@@ -38,7 +38,7 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
       { key: 'void_cash_payment', label: 'Void Cash Payment', section: 'Cash Payments' },
       { key: 'restore_cash_payment', label: 'Restore Cash Payment' },
       { key: 'submit_cash_payment_staff', label: 'Submit Cash Payment (Staff Direct Entry)' },
-      { key: 'record_payment', label: 'Record Payment', section: 'Payments' },
+      { key: 'record_payment', label: 'Submit Payment', section: 'Payments' },
       { key: 'confirm_payment', label: 'Confirm Payment' },
       { key: 'void_payment', label: 'Void Payment' },
       { key: 'restore_payment', label: 'Restore Payment' },

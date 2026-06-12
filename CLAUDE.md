@@ -1272,28 +1272,43 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
 - Active sub-item: full gold accent (matches leaf active styling)
 - No hover delay (immediate accordion switch) — can be revisited if jitter becomes an issue
 
-## PAYMENT SUBMISSION FLOW (locked — 2026-04-13, restore added 2026-06-04)
+## PAYMENT SUBMISSION FLOW (locked — 2026-04-13, restore added 2026-06-04, universal-submission redesign 2026-06-12)
 
   ALL payments regardless of submitter must go through
   Submissions review before appearing in Proof of Payment.
 
+  UNIVERSAL-SUBMISSION POLICY (locked 2026-06-12, Bug #219):
+    Recording a payment ALWAYS creates a pending payment_submissions
+    row, for EVERY role including admin and finance. Direct writes to
+    the payments table happen ONLY via the confirmation flow
+    (review-payment-submission). Cash orders already comply
+    (submit-cash-payment is submission-only for all roles).
+
+    The previous confirm_payment-coupled direct-write branches in
+    record-payment / record-multi-payment were removed. The dialog's
+    "find a confirmed row, else INSERT a fresh pending submission"
+    fallback in RecordPaymentDialog was removed (it was the root
+    cause of the 19115/18132 stray-pending incident).
+
   Flow:
     1. Customer submits via portal → status='submitted'
-    2. Staff submits from AccountDetail → status='submitted'
-    3. Admin/Finance submits from AccountDetail → status='submitted'
-    4. Admin/Finance reviews in Submissions tab → clicks Confirm
-       → status='confirmed'
-    5. ONLY confirmed submissions appear in Proof of Payment
+    2. Staff/Admin/Finance/CSR submits from AccountDetail → status='submitted'
+       (no role exception — every role goes through submissions)
+    3. Admin/Finance reviews in Submissions tab → clicks Confirm
+       → status='confirmed' AND payment row is created via
+       review-payment-submission
+    4. ONLY confirmed submissions appear in Proof of Payment
 
   NO payment goes directly to Proof of Payment without
-  confirmation in Submissions tab.
+  confirmation in Submissions tab. The payments table is written
+  ONLY by review-payment-submission (single source of writes).
 
   The only way status becomes 'confirmed' is via explicit reviewer
   click in the Submissions tab (review-payment-submission edge
   function). Nothing else writes status='confirmed' — all INSERT
-  paths (submit-payment, record-payment staff path, record-payment
-  admin/finance client-side insert from RecordPaymentDialog) use
-  status='submitted'.
+  paths (submit-payment, record-payment for every role,
+  record-multi-payment for every role, submit-cash-payment for
+  every role) use status='submitted'.
 
   RESTORE PATH (added 2026-06-04):
     A rejected submission can be restored to the review queue by users

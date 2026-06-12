@@ -1,5 +1,4 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -107,10 +106,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // ── Role check: only admin/finance can directly record payments ──
-    // Permission flag (Bug #201 Batch B: matrix-driven auto-confirm)
-    const canConfirm = await checkPermission(supabase, user.id, "confirm_payment");
-
+    // ── Account must be in a payable state ──
     const payableStatuses = ["active", "overdue", "extension_active", "reactivated", "final_settlement"];
     if (!payableStatuses.includes(account.status)) {
       return new Response(JSON.stringify({ error: "Account is not active" }), {
@@ -119,8 +115,12 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ── Staff/CSR: redirect to payment_submissions instead of direct payment ──
-    if (!canConfirm && !preview_only) {
+    // ── Universal submission-only path (Bug #219): every non-preview call,
+    //    regardless of role, creates a pending payment_submissions row.
+    //    Direct writes to the payments table happen ONLY via
+    //    review-payment-submission. The previous confirm_payment-coupled
+    //    direct-write branch was removed (Bug #218).
+    if (!preview_only) {
       // ── Duplicate-submission soft block (bypass with force=true) ──
       if (!force) {
         try {
@@ -201,7 +201,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ── From here: admin/finance flow (unchanged) OR preview_only ──
+    // ── preview_only: compute allocation plan without writing anything ──
 
     // Fetch schedule ordered by installment
     const { data: schedule } = await supabase
@@ -373,220 +373,17 @@ Deno.serve(async (req) => {
       ) * 100) / 100);
     const newStatus = newRemainingBalance <= 0 ? "completed" : account.status;
 
-    // Preview mode - return allocation plan without saving
-    if (preview_only) {
-      return new Response(JSON.stringify({
-        preview: true,
-        allocations,
-        new_total_paid: newTotalPaid,
-        new_remaining_balance: Math.max(0, newRemainingBalance),
-        new_status: newStatus,
-        schedule_updates: scheduleUpdates,
-        penalty_updates: penaltyUpdates,
-      }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Create payment record
-    const { data: payment, error: payErr } = await supabase
-      .from("payments")
-      .insert({
-        account_id,
-        amount_paid,
-        currency: account.currency,
-        date_paid: date_paid || new Date().toISOString().split("T")[0],
-        payment_method: payment_method || "cash",
-        reference_number,
-        remarks,
-        entered_by_user_id: user.id,
-        submitted_by_type: "staff",
-        submitted_by_name: (user.user_metadata as any)?.full_name || user.email || null,
-      })
-      .select()
-      .single();
-
-    if (payErr) {
-      return new Response(JSON.stringify({ error: payErr.message }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Merge multiple penalty allocations for the same schedule_id into a
-    // single row to avoid violating the unique constraint on
-    // (schedule_id, payment_id, allocation_type). Installment rows are
-    // naturally unique per schedule_id (one per loop iteration).
-    const mergedAllocations: typeof allocations = [];
-    const penaltyBySchedule = new Map<string, number>();
-    for (const alloc of allocations) {
-      if (alloc.allocation_type === 'penalty') {
-        penaltyBySchedule.set(
-          alloc.schedule_id,
-          (penaltyBySchedule.get(alloc.schedule_id) || 0) + alloc.allocated_amount
-        );
-      } else {
-        mergedAllocations.push(alloc);
-      }
-    }
-    for (const [scheduleId, totalPenalty] of penaltyBySchedule) {
-      mergedAllocations.push({
-        schedule_id: scheduleId,
-        allocation_type: 'penalty',
-        allocated_amount: totalPenalty,
-      });
-    }
-
-    // Create allocations (duplicate guard: skip if row already exists)
-    for (const alloc of mergedAllocations) {
-      const { data: existing } = await supabase
-        .from("payment_allocations")
-        .select("id")
-        .eq("schedule_id", alloc.schedule_id)
-        .eq("payment_id", payment.id)
-        .eq("allocation_type", alloc.allocation_type)
-        .maybeSingle();
-      if (existing) continue;
-
-      await supabase.from("payment_allocations").insert({
-        payment_id: payment.id,
-        schedule_id: alloc.schedule_id,
-        allocation_type: alloc.allocation_type,
-        allocated_amount: alloc.allocated_amount,
-      });
-    }
-
-    // Update penalty statuses
-    for (const pen of penaltyUpdates) {
-      await supabase.from("penalty_fees").update({ status: pen.status }).eq("id", pen.id);
-    }
-
-    // Update schedule items
-    for (const item of scheduleUpdates) {
-      const fields: any = { paid_amount: item.paid_amount, status: item.status };
-      if (item.total_due_amount !== undefined) fields.total_due_amount = item.total_due_amount;
-      await supabase.from("layaway_schedule").update(fields).eq("id", item.id);
-    }
-
-    // SINGLE SOURCE OF TRUTH: re-derive from all payments after insert
-    const { data: postInsertPayments } = await supabase
-      .from("payments")
-      .select("amount_paid")
-      .eq("account_id", account_id)
-      .is("voided_at", null);
-    const verifiedTotalPaid = (postInsertPayments || []).reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
-
-    // Canonical remaining_balance (CLAUDE.md):
-    // remaining = total_amount + Σ(non-waived penalty_fees) - total_paid
-    // Services are already in total_amount — do NOT add them separately.
-    const { data: verifiedPenaltiesData } = await supabase
-      .from("penalty_fees")
-      .select("penalty_amount")
-      .eq("account_id", account_id)
-      .neq("status", "waived");
-    const verifiedPenaltySum = (verifiedPenaltiesData || [])
-      .reduce((s: number, f: any) => s + Number(f.penalty_amount), 0);
-    const verifiedRemaining = Math.max(0,
-      Math.round((
-        Number(account.total_amount)
-        + verifiedPenaltySum
-        - verifiedTotalPaid
-      ) * 100) / 100);
-
-    // Recalculate correct status based on updated schedule state
-    let verifiedStatus = account.status;
-    if (verifiedRemaining <= 0) {
-      verifiedStatus = "completed";
-    } else if (["active", "overdue"].includes(account.status)) {
-      // Check if any unpaid schedule items are still past due
-      const todayStr = new Date().toISOString().split("T")[0];
-      const { data: updatedSchedule } = await supabase
-        .from("layaway_schedule")
-        .select("due_date, status")
-        .eq("account_id", account_id)
-        .not("status", "in", '("paid","cancelled")');
-      const hasOverdue = (updatedSchedule || []).some((s: any) => s.due_date < todayStr);
-      verifiedStatus = hasOverdue ? "overdue" : "active";
-    }
-
-    await supabase.from("layaway_accounts").update({
-      total_paid: verifiedTotalPaid,
-      remaining_balance: verifiedRemaining,
-      status: verifiedStatus,
-    }).eq("id", account_id);
-
-    // Audit log
-    await supabase.from("audit_logs").insert({
-      entity_type: "payment",
-      entity_id: payment.id,
-      action: "create",
-      new_value_json: { amount_paid, account_id, allocations },
-      performed_by_user_id: user.id,
-    });
-
-    // Trigger reconcile-account to sync schedule rows and verify totals
-    try {
-      await fetch(
-        `${Deno.env.get("SUPABASE_URL")}/functions/v1/reconcile-account`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-          },
-          body: JSON.stringify({ account_id }),
-        }
-      );
-    } catch (reconcileErr) {
-      console.warn(`[record-payment] reconcile-account call failed for ${account_id}:`, reconcileErr);
-    }
-
-    // Send payment receipt email (fire-and-forget)
-    try {
-      const { data: acctForEmail } = await supabase
-        .from("layaway_accounts")
-        .select("invoice_number, currency, customers(full_name, email)")
-        .eq("id", account_id)
-        .single();
-      const customerEmail = (acctForEmail as any)?.customers?.email;
-      const customerName = (acctForEmail as any)?.customers?.full_name;
-      if (customerEmail) {
-        const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
-        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-          },
-          body: JSON.stringify({
-            templateName: "payment-receipt",
-            recipientEmail: customerEmail,
-            idempotencyKey: `payment-receipt-${payment.id}`,
-            templateData: {
-              customerName,
-              invoiceNumber: (acctForEmail as any)?.invoice_number,
-              amountPaid: Number(amount_paid).toLocaleString("en-US"),
-              paymentDate: date_paid || new Date().toISOString().split("T")[0],
-              paymentMethod: payment_method || "cash",
-              currency: (acctForEmail as any)?.currency,
-              remainingBalance: Number(verifiedRemaining).toLocaleString("en-US"),
-              portalUrl,
-            },
-          }),
-        });
-      }
-    } catch (emailErr) {
-      console.warn("[record-payment] email send failed (non-blocking):", emailErr);
-    }
-
+    // Preview mode — return allocation plan without saving. Direct-write to
+    // payments has been removed entirely (Bug #219); see review-payment-submission.
     return new Response(JSON.stringify({
-      payment,
+      preview: true,
       allocations,
       new_total_paid: newTotalPaid,
       new_remaining_balance: Math.max(0, newRemainingBalance),
       new_status: newStatus,
+      schedule_updates: scheduleUpdates,
+      penalty_updates: penaltyUpdates,
     }), {
-      status: 201,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error: unknown) {

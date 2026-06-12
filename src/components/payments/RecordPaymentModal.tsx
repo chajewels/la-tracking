@@ -154,7 +154,7 @@ export default function RecordPaymentModal({ open, onOpenChange, initialInvoice,
         {step === 'search' && (
           <>
             <DialogHeader>
-              <DialogTitle>Record Payment</DialogTitle>
+              <DialogTitle>Submit Payment</DialogTitle>
               <DialogDescription>
                 Search for an account or customer to record a payment against.
               </DialogDescription>
@@ -217,7 +217,7 @@ export default function RecordPaymentModal({ open, onOpenChange, initialInvoice,
               <ChevronLeft className="h-3.5 w-3.5" /> Back
             </button>
             <DialogHeader>
-              <DialogTitle>Record Payment</DialogTitle>
+              <DialogTitle>Submit Payment</DialogTitle>
               <DialogDescription>
                 #{selected.invoice_number} · {selected.customers?.full_name}
               </DialogDescription>

@@ -1,5 +1,4 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { checkPermission } from "../_shared/check-permission.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -45,10 +44,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ── Role check: only admin/finance can directly record payments ──
-    // Permission flag (Bug #201 Batch B: matrix-driven auto-confirm)
-    const canConfirm = await checkPermission(supabase, userId, "confirm_payment");
-
+    // ── Universal submission-only path (Bug #219): every non-preview call,
+    //    regardless of role, creates pending payment_submissions rows.
+    //    Direct writes to the payments table happen ONLY via
+    //    review-payment-submission.
     const body = await req.json();
     const {
       customer_id,
@@ -306,9 +305,11 @@ Deno.serve(async (req) => {
         new_status: newStatus,
       });
 
-      // If not preview, persist changes
-      if (!preview_only && !canConfirm) {
-        // Staff: create payment submission instead
+      // If not preview, create a pending payment_submissions row for every
+      // role (Bug #219). Direct writes to the payments table happen ONLY via
+      // review-payment-submission. The prior canConfirm direct-write branch
+      // was removed (Bug #218).
+      if (!preview_only) {
         const { data: submission, error: subErr } = await supabase
           .from("payment_submissions")
           .insert({
@@ -338,148 +339,11 @@ Deno.serve(async (req) => {
           },
           performed_by_user_id: userId,
         });
-      } else if (!preview_only && canConfirm) {
-        console.log(`[multi-pay] Persisting payment for ${acct.invoice_number}: ${amountForAccount}, scheduleUpdates=${JSON.stringify(scheduleUpdates)}`);
-        
-        // Create payment record
-        const { data: payment, error: payErr } = await supabase
-          .from("payments")
-          .insert({
-            account_id: inputAlloc.account_id,
-            amount_paid: amountForAccount,
-            currency: acct.currency,
-            date_paid: effectiveDate,
-            payment_method: effectiveMethod,
-            reference_number: batchId,
-            remarks: remarks ? `[Multi-invoice] ${remarks}` : `[Multi-invoice batch: ${batchId}]`,
-            entered_by_user_id: userId,
-            submitted_by_type: "staff",
-            submitted_by_name: (claimsData.user.user_metadata as any)?.full_name || claimsData.user.email || null,
-          })
-          .select()
-          .single();
-
-        if (payErr) {
-          console.error(`[multi-pay] Payment insert error for ${acct.invoice_number}:`, payErr);
-          throw payErr;
-        }
-        console.log(`[multi-pay] Payment inserted: ${payment.id}`);
-
-        // Create allocations (duplicate guard: skip if row already exists)
-        for (const alloc of paymentAllocations) {
-          const { data: existing } = await supabase
-            .from("payment_allocations")
-            .select("id")
-            .eq("schedule_id", alloc.schedule_id)
-            .eq("payment_id", payment.id)
-            .eq("allocation_type", alloc.allocation_type)
-            .maybeSingle();
-          if (existing) continue;
-
-          const { error: allocErr } = await supabase.from("payment_allocations").insert({
-            payment_id: payment.id,
-            schedule_id: alloc.schedule_id,
-            allocation_type: alloc.allocation_type,
-            allocated_amount: alloc.allocated_amount,
-          });
-          if (allocErr) {
-            console.error(`[multi-pay] Allocation insert error:`, allocErr);
-            throw allocErr;
-          }
-        }
-
-        // Update penalties
-        for (const pen of penaltyUpdates) {
-          const { error: penErr } = await supabase.from("penalty_fees").update({ status: pen.status }).eq("id", pen.id);
-          if (penErr) {
-            console.error(`[multi-pay] Penalty update error:`, penErr);
-            throw penErr;
-          }
-        }
-
-        // Update schedule (base_installment_amount is IMMUTABLE; total_due_amount only updated for rollover)
-        for (const item of scheduleUpdates) {
-          const schedFields: any = { paid_amount: item.paid_amount, status: item.status };
-          if (item.total_due_amount !== undefined) schedFields.total_due_amount = item.total_due_amount;
-          const { error: schedErr } = await supabase.from("layaway_schedule").update(schedFields).eq("id", item.id);
-          if (schedErr) {
-            console.error(`[multi-pay] Schedule update error:`, schedErr);
-            throw schedErr;
-          }
-        }
-        console.log(`[multi-pay] Schedule updated for ${acct.invoice_number}`);
-
-        // Canonical formula (CLAUDE.md): total_paid = SUM(payments), remaining = total_amount + penalties - total_paid
-        const { data: verifiedPays } = await supabase
-          .from('payments')
-          .select('amount_paid')
-          .eq('account_id', inputAlloc.account_id)
-          .is('voided_at', null);
-        const verifiedTotalPaid = (verifiedPays || [])
-          .reduce((sum: number, p: any) => sum + Number(p.amount_paid), 0);
-        const { data: activePenaltiesData } = await supabase
-          .from('penalty_fees')
-          .select('penalty_amount')
-          .eq('account_id', inputAlloc.account_id)
-          .neq('status', 'waived');
-        const totalPenaltiesVerified = (activePenaltiesData || [])
-          .reduce((sum: number, p: any) => sum + Number(p.penalty_amount), 0);
-        const verifiedRemaining = Math.max(0,
-          Math.round((Number(acct.total_amount) + totalPenaltiesVerified - verifiedTotalPaid) * 100) / 100);
-        const verifiedStatus = verifiedRemaining <= 0 ? "completed" : newStatus;
-
-        // Update account
-        const { error: acctErr } = await supabase
-          .from("layaway_accounts")
-          .update({
-            total_paid: verifiedTotalPaid,
-            remaining_balance: verifiedRemaining,
-            status: verifiedStatus,
-          })
-          .eq("id", inputAlloc.account_id);
-        if (acctErr) {
-          console.error(`[multi-pay] Account update error:`, acctErr);
-          throw acctErr;
-        }
-        console.log(`[multi-pay] Account updated: total_paid=${verifiedTotalPaid}, remaining=${verifiedRemaining}, status=${verifiedStatus}`);
-
-        // Audit log
-        await supabase.from("audit_logs").insert({
-          entity_type: "payment",
-          entity_id: payment.id,
-          action: "create_multi",
-          new_value_json: {
-            batch_id: batchId,
-            amount_paid: amountForAccount,
-            account_id: inputAlloc.account_id,
-            total_batch_amount: totalAllocated,
-            allocations: paymentAllocations,
-          },
-          performed_by_user_id: userId,
-        });
-
-        // Trigger reconcile-account to sync schedule rows and verify totals
-        try {
-          await fetch(
-            `${Deno.env.get("SUPABASE_URL")}/functions/v1/reconcile-account`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-              },
-              body: JSON.stringify({ account_id: inputAlloc.account_id }),
-            }
-          );
-        } catch (reconcileErr) {
-          console.warn(`[multi-pay] reconcile-account call failed for ${acct.invoice_number}:`, reconcileErr);
-        }
-
       }
     }
 
-    // If staff submitted (not preview, not canConfirm), return submission info
-    if (!preview_only && !canConfirm) {
+    // Non-preview: every account in the batch was submitted for confirmation.
+    if (!preview_only) {
       return new Response(
         JSON.stringify({
           submitted_for_confirmation: true,
@@ -496,13 +360,13 @@ Deno.serve(async (req) => {
 
     return new Response(
       JSON.stringify({
-        preview: !!preview_only,
+        preview: true,
         batch_id: batchId,
         total_amount: totalAllocated,
         account_results: results,
       }),
       {
-        status: preview_only ? 200 : 201,
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );

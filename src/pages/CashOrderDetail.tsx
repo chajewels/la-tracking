@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  ArrowLeft, Banknote, RefreshCcw, Receipt, Upload, XCircle,
+  ArrowLeft, Banknote, RefreshCcw, Upload, XCircle,
   AlertTriangle, User as UserIcon, MessageCircle, Plus,
   CalendarClock, Send, Eye, CheckCircle, MessageSquare, FileText,
   Image as ImageIcon, Clock, Pencil, RotateCcw,
@@ -706,17 +706,8 @@ export default function CashOrderDetail() {
               className="gold-gradient text-primary-foreground font-medium shadow"
               onClick={() => setRecordOpen(true)}
             >
-              {(isAdmin || isFinance) ? (
-                <>
-                  <Receipt className="h-4 w-4 mr-1.5" />
-                  Record Payment
-                </>
-              ) : (
-                <>
-                  <Upload className="h-4 w-4 mr-1.5" />
-                  Submit Payment
-                </>
-              )}
+              <Upload className="h-4 w-4 mr-1.5" />
+              Submit Payment
             </Button>
           )}
           <InvoiceGeneratorSheet

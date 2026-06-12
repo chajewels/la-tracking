@@ -34,7 +34,7 @@ Supported intents:
 - CREATE_CUSTOMER: staff wants to add a new customer to the directory
 - CREATE_LAYAWAY_ACCOUNT: staff wants to create a new layaway account/invoice for a customer
 - CREATE_CASH_ORDER: staff wants to create a new cash order for a customer
-- RECORD_PAYMENT: staff wants to record a payment against a layaway account
+- RECORD_PAYMENT: staff wants to submit a payment against a layaway account (enters the Submissions queue; applied to the account after admin/finance confirms)
 - CREATE_LAYAWAY_ACCOUNT: staff wants to create a new layaway account/invoice for a customer
 - CREATE_CASH_ORDER: staff wants to create a new cash order for a customer
 - ASK_POLICY: staff is asking a question about Cha Jewels policies, rules, how the system works, or live data
@@ -476,13 +476,16 @@ How to create a cash order:
 Go to Sales → Cash tab → click + New Cash Order.
 Fill in customer, amount, and payment details.
 
-How to record a payment (staff):
-Go to Sales → Payments tab → click Record Payment.
+How to submit a payment (staff):
+Go to Sales → Payments tab → click Submit Payment.
 Search by invoice number or customer name.
 Select Single Payment (one installment/downpayment)
 or Split Payment (across multiple accounts).
 Enter amount, payment method, date, upload proof.
 Proof of payment is REQUIRED for all submissions.
+Every payment — regardless of role — enters the
+Submissions queue and is applied to the account only
+after an admin or finance reviewer confirms it.
 
 How to review and confirm a payment submission:
 Go to Sales → Payments tab → Submissions.

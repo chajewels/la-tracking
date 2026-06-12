@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Plus, ArrowRight, AlertTriangle, CheckCircle2, Clock, Save, Upload, X, Info } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, Save, Upload, X, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog';
@@ -17,29 +16,10 @@ import {
   methodMismatch,
 } from '@/lib/payment-method-registry';
 import { toast } from 'sonner';
-import { useRecordPayment } from '@/hooks/use-supabase-data';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { type AppRole } from '@/lib/role-permissions';
 import { usePaymentDraft } from '@/hooks/use-payment-draft';
 import { getPHTToday } from '@/lib/date-utils';
-
-interface Allocation {
-  schedule_id: string;
-  allocation_type: 'penalty' | 'installment';
-  allocated_amount: number;
-  penalty_fee_id?: string;
-}
-
-interface PreviewResult {
-  preview: boolean;
-  allocations: Allocation[];
-  new_total_paid: number;
-  new_remaining_balance: number;
-  new_status: string;
-  schedule_updates: Array<{ id: string; paid_amount: number; status: string }>;
-  penalty_updates: Array<{ id: string; status: string; paid_amount: number }>;
-}
 
 interface ScheduleItem {
   id: string;
@@ -79,15 +59,10 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   const [notes, setNotes] = useState('');
   const [paymentMethod, setPaymentMethod] = useState(initialPaymentMethod ?? 'cash');
   const [paymentType, setPaymentType] = useState<'installment' | 'downpayment'>('installment');
-  const [step, setStep] = useState<'input' | 'preview'>('input');
-  const [preview, setPreview] = useState<PreviewResult | null>(null);
-  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [proofFile, setProofFile] = useState<File | null>(null);
   const submittingRef = useRef(false); // duplicate-submission guard
-  const recordPayment = useRecordPayment();
-  const { roles, user, profile } = useAuth();
-  const r = roles as AppRole[];
-  const isAdminOrFinance = r.includes('admin') || r.includes('finance');
+  const { user, profile } = useAuth();
   const { loadDraft, saveDraft, clearDraft, restoredDraft, setRestoredDraft } = usePaymentDraft(accountId);
   const [targetMonth, setTargetMonth] = useState<string>('');
 
@@ -109,10 +84,10 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
 
   // Auto-save draft whenever form fields change (only when dialog is open)
   useEffect(() => {
-    if (open && !payFullBalance && step === 'input') {
+    if (open && !payFullBalance) {
       saveDraft({ amount, paymentDate, paymentMethod, notes });
     }
-  }, [amount, paymentDate, paymentMethod, notes, open, payFullBalance, step, saveDraft]);
+  }, [amount, paymentDate, paymentMethod, notes, open, payFullBalance, saveDraft]);
 
   // Restore draft when dialog opens
   const handleOpen = () => {
@@ -137,7 +112,9 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
 
   const parsedAmount = payFullBalance ? remainingBalance : (parseFloat(amount) || 0);
 
-  // Underpayment detection — compare entered amount against first installment's effective remaining
+  // Underpayment detection — compare entered amount against first installment's effective remaining.
+  // Universal-submission policy (Bug #219): the carry-over intent is captured on the
+  // submission and applied at confirm time; surface the option to every role.
   const firstUnpaid = unpaidItems[0];
   const firstUnpaidEffectiveDue = firstUnpaid
     ? (firstUnpaid.status === 'partially_paid' && Number(firstUnpaid.paid_amount) > Number(firstUnpaid.total_due_amount)
@@ -147,7 +124,6 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   const secondUnpaid = unpaidItems[1];
   const isUnderpayment =
     paymentType === 'installment' &&
-    isAdminOrFinance &&
     parsedAmount > 0 &&
     !!firstUnpaid &&
     parsedAmount < firstUnpaidEffectiveDue - 0.005;
@@ -174,15 +150,14 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
 
   const isValid = parsedAmount > 0 && parsedAmount <= remainingBalance + 0.005 && paymentDate && !!proofFile;
 
-  // Upload proof and insert/update a payment_submissions row linked to this payment.
-  // When existingSubmissionId is supplied (the staff path, where record-payment
-  // already created the row), UPDATE that row with proof_url + sender_name instead
-  // of inserting a duplicate. Returns proof_url on success, null on failure.
-  const uploadProofAndRecordSubmission = async (opts: { isDP: boolean; existingSubmissionId?: string | null }): Promise<string | null> => {
+  // Upload proof and attach it to the pending payment_submissions row that
+  // record-payment just created. The prior admin/finance fallback INSERT
+  // path (search confirmed row → insert new pending if missing) was removed
+  // (Bug #218 — that fallback created the 19115/18132 stray-pending incident).
+  const uploadProofAndAttach = async (opts: { isDP: boolean; existingSubmissionId: string }): Promise<string | null> => {
     if (!proofFile) return null;
     try {
       const isDP = opts.isDP;
-      const firstUnpaid = unpaidItems[0];
       const installmentNumber = isDP ? null : (firstUnpaid?.installment_number ?? null);
       const customerName = (profile?.full_name || 'Staff').replace(/[^a-zA-Z0-9]/g, '');
       const safeInvoice = (invoiceNumber || '').replace(/[^a-zA-Z0-9]/g, '');
@@ -190,7 +165,6 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
       const monthSegment = isDP ? 'DP' : (installmentNumber ? `Month${installmentNumber}` : 'MonthX');
       // Bug #178: append Date.now() suffix to guarantee uniqueness when
       // same customer + invoice + month/DP + date is uploaded multiple times.
-      // See docs/FIXED-BUGS.md.
       const fileName = `${customerName}_${safeInvoice}_${monthSegment}_${paymentDate}_${Date.now().toString(36)}.${ext}`;
       const storagePath = `${accountId}/${fileName}`;
 
@@ -206,135 +180,34 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
 
       const senderName = profile?.full_name || user?.email || 'Staff';
 
-      if (opts.existingSubmissionId) {
-        // Staff path: record-payment already created the payment_submissions row.
-        // Update that row in place — never insert a duplicate.
-        const updateFields: any = {
-          proof_url: proofUrl,
-          sender_name: senderName,
-        };
-        if (installmentNumber != null) updateFields.installment_number = installmentNumber;
-
-        const { error: updErr } = await supabase
-          .from('payment_submissions')
-          .update(updateFields)
-          .eq('id', opts.existingSubmissionId);
-        if (updErr) {
-          console.warn('[RecordPaymentDialog] payment_submissions update failed:', updErr.message);
-          toast.warning('Payment recorded, but proof could not be attached to the submission. Please re-upload via account page.');
-        }
-        return proofUrl;
-      }
-
-      // Admin/finance path: review-payment-submission already created a confirmed
-      // payment_submissions row when the reviewer clicked Confirm. Find that row
-      // and UPDATE it with the proof, rather than inserting a duplicate.
-      const updateProofFields: any = {
+      const updateFields: Record<string, unknown> = {
         proof_url: proofUrl,
         sender_name: senderName,
       };
-      if (installmentNumber != null) updateProofFields.installment_number = installmentNumber;
+      if (installmentNumber != null) updateFields.installment_number = installmentNumber;
 
-      const { data: existingSub } = await supabase
+      const { error: updErr } = await supabase
         .from('payment_submissions')
-        .select('id')
-        .eq('account_id', accountId)
-        .eq('status', 'confirmed')
-        .eq('submitted_amount', parsedAmount)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (existingSub) {
-        const { error: updExistErr } = await supabase
-          .from('payment_submissions')
-          .update(updateProofFields)
-          .eq('id', existingSub.id);
-        if (updExistErr) {
-          console.warn('[RecordPaymentDialog] payment_submissions confirmed-row update failed:', updExistErr.message);
-          toast.warning('Payment recorded, but proof could not be attached. Please re-upload via account page.');
-        }
-        return proofUrl;
-      }
-
-      // Fallback: no existing confirmed row found — INSERT a new one.
-      const { data: acct } = await supabase
-        .from('layaway_accounts')
-        .select('customer_id')
-        .eq('id', accountId)
-        .single();
-
-      const submissionRow: any = {
-        account_id: accountId,
-        customer_id: acct?.customer_id,
-        submitted_amount: parsedAmount,
-        payment_date: paymentDate,
-        payment_method: paymentMethod,
-        reference_number: isDP && invoiceNumber ? `DP-${invoiceNumber}` : null,
-        sender_name: senderName,
-        notes: notes || null,
-        proof_url: proofUrl,
-        status: 'submitted',
-        submission_type: isDP ? 'downpayment' : 'installment',
-      };
-      if (installmentNumber != null) submissionRow.installment_number = installmentNumber;
-
-      const { error: insErr } = await supabase
-        .from('payment_submissions')
-        .insert(submissionRow);
-      if (insErr) {
-        console.warn('[RecordPaymentDialog] payment_submissions insert failed:', insErr.message);
-        toast.warning('Payment recorded, but proof record could not be saved. Please re-upload via account page.');
+        .update(updateFields)
+        .eq('id', opts.existingSubmissionId);
+      if (updErr) {
+        console.warn('[RecordPaymentDialog] payment_submissions update failed:', updErr.message);
+        toast.warning('Payment submitted, but proof could not be attached to the submission. Please re-upload via account page.');
       }
       return proofUrl;
-    } catch (err: any) {
-      console.warn('[RecordPaymentDialog] proof upload failed:', err?.message);
-      toast.warning(`Proof upload failed: ${err?.message || 'unknown error'}`);
+    } catch (err: unknown) {
+      const msg = (err as Error)?.message || 'unknown error';
+      console.warn('[RecordPaymentDialog] proof upload failed:', msg);
+      toast.warning(`Proof upload failed: ${msg}`);
       return null;
     }
   };
 
-  const handlePreview = async () => {
+  const handleSubmit = async () => {
     if (!isValid) return;
-
-    // Staff doesn't need preview — they just submit
-    if (!isAdminOrFinance) {
-      handleSubmitForConfirmation();
-      return;
-    }
-
-    setLoadingPreview(true);
-    try {
-      const isDP = paymentType === 'downpayment';
-      const dpRef = isDP && invoiceNumber ? `DP-${invoiceNumber}` : undefined;
-      const dpRemarks = isDP ? 'Downpayment' : (notes || undefined);
-      const { data, error } = await supabase.functions.invoke('record-payment', {
-        body: {
-          account_id: accountId,
-          amount_paid: parsedAmount,
-          date_paid: paymentDate,
-          payment_method: paymentMethod,
-          reference_number: dpRef,
-          remarks: dpRemarks,
-          is_downpayment: isDP,
-          carry_over: carryOver,
-          preview_only: true,
-        },
-      });
-      if (error) throw error;
-      setPreview(data as PreviewResult);
-      setStep('preview');
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to generate preview');
-    } finally {
-      setLoadingPreview(false);
-    }
-  };
-
-  const handleSubmitForConfirmation = async () => {
     if (submittingRef.current) return; // prevent double-click
     submittingRef.current = true;
-    setLoadingPreview(true);
+    setSubmitting(true);
     try {
       const isDP = paymentType === 'downpayment';
       const dpRef = isDP && invoiceNumber ? `DP-${invoiceNumber}` : undefined;
@@ -353,64 +226,26 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
         },
       });
       if (error) throw error;
-      const result = data as any;
-      const existingSubmissionId: string | null = result?.submission_id ?? null;
-      await uploadProofAndRecordSubmission({ isDP, existingSubmissionId });
-      if (data?.submitted_for_confirmation) {
-        toast.success('Payment submitted for confirmation. Admin/Finance will review.');
-      } else {
-        toast.success(`Payment of ${formatCurrency(parsedAmount, currency)} recorded successfully`);
+      const result = data as { submission_id?: string; submitted_for_confirmation?: boolean };
+      const existingSubmissionId = result?.submission_id;
+      if (existingSubmissionId) {
+        await uploadProofAndAttach({ isDP, existingSubmissionId });
       }
+      toast.success('Payment submitted for confirmation. Admin/Finance will review.');
       if (paymentType !== 'downpayment') {
         const info = buildSessionPaymentInfo();
         onPaymentRecorded?.(info);
       }
       resetAndClose();
-    } catch (err: any) {
-      if (err?.message?.includes('Too many submissions') || err?.context?.status === 429) {
+    } catch (err: unknown) {
+      const e = err as { message?: string; context?: { status?: number } };
+      if (e?.message?.includes('Too many submissions') || e?.context?.status === 429) {
         toast.error('Too many submissions. Please wait 24 hours before submitting again.');
         return;
       }
-      toast.error(err.message || 'Failed to submit payment');
+      toast.error(e.message || 'Failed to submit payment');
     } finally {
-      setLoadingPreview(false);
-      submittingRef.current = false;
-    }
-  };
-
-  const handleConfirm = async () => {
-    if (submittingRef.current) return; // prevent double-click
-    submittingRef.current = true;
-    try {
-      const isDP = paymentType === 'downpayment';
-      const dpRef = isDP && invoiceNumber ? `DP-${invoiceNumber}` : undefined;
-      const dpRemarks = isDP ? 'Downpayment' : (notes || undefined);
-      await recordPayment.mutateAsync({
-        account_id: accountId,
-        amount: parsedAmount,
-        currency,
-        date_paid: paymentDate,
-        payment_method: paymentMethod,
-        reference_number: dpRef,
-        remarks: dpRemarks,
-        is_downpayment: isDP,
-        carry_over: carryOver,
-        submission_type: isDP ? 'downpayment' : 'installment',
-      });
-      await uploadProofAndRecordSubmission({ isDP });
-      toast.success(`Payment of ${formatCurrency(parsedAmount, currency)} recorded successfully`);
-      if (paymentType !== 'downpayment') {
-        const info = buildSessionPaymentInfo();
-        onPaymentRecorded?.(info);
-      }
-      resetAndClose();
-    } catch (err: any) {
-      if (err?.message?.includes('Too many submissions') || err?.context?.status === 429) {
-        toast.error('Too many submissions. Please wait 24 hours before submitting again.');
-        return;
-      }
-      toast.error(err.message || 'Failed to record payment');
-    } finally {
+      setSubmitting(false);
       submittingRef.current = false;
     }
   };
@@ -420,15 +255,14 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     if (isDP) {
       return { amount: parsedAmount, monthLabel: 'Down Payment', ordinal: '', method: paymentMethod };
     }
-    // Find which schedule item this payment was allocated to from preview
-    const firstInstallmentAlloc = preview?.allocations.find(a => a.allocation_type === 'installment');
-    const matchedSchedule = firstInstallmentAlloc && schedule
-      ? schedule.find(s => s.id === firstInstallmentAlloc.schedule_id)
-      : null;
-    const monthLabel = matchedSchedule
-      ? new Date(matchedSchedule.due_date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+    // Universal-submission policy: payment hasn't been applied yet, so we
+    // describe the intended target row (first unpaid) rather than a confirmed
+    // allocation. The reviewer's confirm step performs the actual waterfall.
+    const target = firstUnpaid;
+    const monthLabel = target
+      ? new Date(target.due_date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
       : '';
-    const ord = matchedSchedule ? formatOrdinal(matchedSchedule.installment_number) : '';
+    const ord = target ? formatOrdinal(target.installment_number) : '';
     return { amount: parsedAmount, monthLabel, ordinal: ord, method: paymentMethod };
   };
 
@@ -445,33 +279,11 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
     setPaymentMethod('cash');
     setPaymentType('installment');
     setPaymentDate(getPHTToday());
-    setStep('input');
-    setPreview(null);
     setProofFile(null);
     setTargetMonth('');
     clearDraft();
     setOpen(false);
   };
-
-  const totalPenaltyAlloc = preview?.allocations
-    .filter(a => a.allocation_type === 'penalty')
-    .reduce((s, a) => s + a.allocated_amount, 0) ?? 0;
-
-  // Consolidate installment allocations
-  const rawInstallmentAllocs = preview?.allocations.filter(a => a.allocation_type === 'installment') ?? [];
-  const installmentAllocsMap = new Map<string, number>();
-  for (const a of rawInstallmentAllocs) {
-    installmentAllocsMap.set(a.schedule_id, (installmentAllocsMap.get(a.schedule_id) || 0) + a.allocated_amount);
-  }
-  const installmentAllocs = Array.from(installmentAllocsMap.entries()).map(([schedule_id, allocated_amount]) => ({
-    schedule_id,
-    allocation_type: 'installment' as const,
-    allocated_amount,
-  }));
-  const displayAllocs = installmentAllocs.length <= 1
-    ? installmentAllocs
-    : installmentAllocs.filter(a => a.allocated_amount > 0);
-  const totalInstallmentAlloc = displayAllocs.reduce((s, a) => s + a.allocated_amount, 0);
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose(); else handleOpen(); }}>
@@ -482,385 +294,272 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
           </Button>
         ) : (
           <Button className="gold-gradient text-primary-foreground font-medium">
-            <Plus className="h-4 w-4 mr-1" /> {isAdminOrFinance ? 'Record Payment' : 'Submit Payment'}
+            <Upload className="h-4 w-4 mr-1" /> Submit Payment
           </Button>
         )}
       </DialogTrigger>
       <DialogContent className="bg-card border-border max-w-md">
         <DialogHeader>
           <DialogTitle className="font-display text-card-foreground">
-            {isAdminOrFinance ? 'Record Payment' : 'Submit Payment for Confirmation'}
+            Submit Payment for Confirmation
           </DialogTitle>
           <DialogDescription>
             {invoiceNumber && <span className="font-mono font-semibold">#{invoiceNumber} · </span>}Remaining balance: {formatCurrency(remainingBalance, currency)}
-            {!isAdminOrFinance && (
-              <span className="block mt-1 text-warning">
-                This payment will be submitted for admin/finance confirmation before it takes effect.
-              </span>
-            )}
+            <span className="block mt-1 text-warning">
+              This payment will be submitted for admin/finance confirmation before it takes effect.
+            </span>
           </DialogDescription>
         </DialogHeader>
 
-        {step === 'input' && (
-          <form onSubmit={(e) => { e.preventDefault(); handlePreview(); }} className="space-y-4">
-            {restoredDraft && !payFullBalance && (
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 rounded-md px-2.5 py-1.5">
-                <Save className="h-3.5 w-3.5" />
-                Draft restored — your previous entries have been loaded.
-              </div>
-            )}
-            {/* Payment Type Selector — only show when not pay-full and DP remaining exists */}
-            {!payFullBalance && downpaymentRemaining != null && downpaymentRemaining > 0 && (
-              <div className="space-y-2">
-                <Label className="text-card-foreground">Payment Type</Label>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPaymentType('installment');
-                      setPreview(null);
-                      setStep('input');
-                    }}
-                    className={`flex-1 px-3 py-2 rounded-md text-xs font-medium border transition-colors ${
-                      paymentType === 'installment'
-                        ? 'bg-primary/15 border-primary/30 text-primary'
-                        : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted'
-                    }`}
-                  >
-                    Installment
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPaymentType('downpayment');
-                      if (!amount) setAmount(String(downpaymentRemaining));
-                      setPreview(null);
-                      setStep('input');
-                    }}
-                    className={`flex-1 px-3 py-2 rounded-md text-xs font-medium border transition-colors ${
-                      paymentType === 'downpayment'
-                        ? 'bg-primary/15 border-primary/30 text-primary'
-                        : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted'
-                    }`}
-                  >
-                    Downpayment
-                    <span className="block text-[10px] opacity-75">
-                      Remaining: {formatCurrency(downpaymentRemaining, currency)}
-                    </span>
-                  </button>
-                </div>
-              </div>
-            )}
-            {/* Target Month Selector */}
-            {!payFullBalance && paymentType === 'installment' && unpaidItems.length > 0 && (
-              <div className="space-y-2">
-                <Label className="text-card-foreground">Target Month (optional)</Label>
-                <select
-                  value={targetMonth}
-                  onChange={e => setTargetMonth(e.target.value)}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="space-y-4">
+          {restoredDraft && !payFullBalance && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 rounded-md px-2.5 py-1.5">
+              <Save className="h-3.5 w-3.5" />
+              Draft restored — your previous entries have been loaded.
+            </div>
+          )}
+          {/* Payment Type Selector — only show when not pay-full and DP remaining exists */}
+          {!payFullBalance && downpaymentRemaining != null && downpaymentRemaining > 0 && (
+            <div className="space-y-2">
+              <Label className="text-card-foreground">Payment Type</Label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPaymentType('installment')}
+                  className={`flex-1 px-3 py-2 rounded-md text-xs font-medium border transition-colors ${
+                    paymentType === 'installment'
+                      ? 'bg-primary/15 border-primary/30 text-primary'
+                      : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted'
+                  }`}
                 >
-                  <option value="">Select month (optional)</option>
-                  {(schedule || [])
-                    .filter(s => s.status !== 'cancelled')
-                    .sort((a, b) => a.installment_number - b.installment_number)
-                    .map(s => {
-                      const remaining = Math.max(0, Number(s.total_due_amount) - Number(s.paid_amount));
-                      const dateLabel = new Date(s.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-                      return (
-                        <option key={s.id} value={s.id}>
-                          Month {s.installment_number} — {dateLabel} — {formatCurrency(remaining, currency)} remaining
-                        </option>
-                      );
-                    })}
-                </select>
-                {targetMonthWarnings.map((w, i) => (
-                  <div key={i} className={`flex items-center gap-2 text-xs px-3 py-2 rounded-md ${
-                    w.type === 'critical' ? 'bg-destructive/10 text-destructive border border-destructive/20' : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
-                  }`}>
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                    {w.message}
-                  </div>
-                ))}
-                {selectedScheduleRow && targetMonthWarnings.length === 0 && (
-                  <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                    <Info className="h-3 w-3" />
-                    Due for this month: {formatCurrency(Math.max(0, Number(selectedScheduleRow.total_due_amount) - Number(selectedScheduleRow.paid_amount)), currency)}
-                  </p>
-                )}
-              </div>
-            )}
-            {payFullBalance ? (
-              <div className="space-y-2">
-                <Label className="text-card-foreground">Amount ({currency})</Label>
-                <div className="text-2xl font-bold text-card-foreground">
-                  {formatCurrency(remainingBalance, currency)}
-                </div>
-                <p className="text-xs text-muted-foreground">Full remaining balance</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <Label className="text-card-foreground">Amount ({currency}) *</Label>
-                <Input
-                  type="number"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  placeholder={`Max ${remainingBalance.toLocaleString()}`}
-                  className="bg-background border-border"
-                  min={0.01}
-                  max={remainingBalance}
-                  step="any"
-                />
-                {parsedAmount > remainingBalance + 0.005 && (
-                  <p className="text-xs text-destructive">Amount exceeds remaining balance</p>
-                )}
-                {monthOptions.length > 0 && (
-                  <div className="space-y-1.5 pt-1">
-                    <span className="text-xs text-muted-foreground">Pay by month due:</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {monthOptions.map(opt => (
-                        <button
-                          key={opt.months}
-                          type="button"
-                          onClick={() => setAmount(String(opt.amount))}
-                          className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors border flex flex-col items-center min-w-[70px] ${
-                            parsedAmount === opt.amount
-                              ? 'bg-primary/15 border-primary/30 text-primary'
-                              : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted hover:text-card-foreground'
-                          }`}
-                        >
-                          <span>{opt.label}</span>
-                          <span className="text-[10px] opacity-75">{formatCurrency(opt.amount, currency)}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-            <div className="space-y-2">
-              <Label className="text-card-foreground">Payment Date *</Label>
-              <Input
-                type="date"
-                value={paymentDate}
-                onChange={(e) => setPaymentDate(e.target.value)}
-                className="bg-background border-border"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-card-foreground">Payment Method</Label>
-              <select
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value)}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
-              >
-                {PAYMENT_METHODS.map((m) => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
-                ))}
-              </select>
-              {currency && methodMismatch(paymentMethod, currency) && (
-                <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-200">
-                  ⚠️ {methodLabel(paymentMethod)} receives {methodCurrency(paymentMethod)} but this account is {currency}. Double-check the bank selection and make sure the amount is entered in {currency}.
-                </div>
-              )}
-            </div>
-            {paymentType === 'downpayment' && (
-              <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-sm">
-                <span className="text-amber-400 font-medium">
-                  📋 This payment will be recorded as a 30% Downpayment
-                </span>
-              </div>
-            )}
-            <div className="space-y-2">
-              <Label className="text-card-foreground">Notes</Label>
-              <Textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Optional notes..."
-                className="bg-background border-border resize-none"
-                rows={2}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-card-foreground">Proof of Payment *</Label>
-              {proofFile ? (
-                <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs">
-                  <Upload className="h-3.5 w-3.5 text-primary shrink-0" />
-                  <span className="truncate flex-1 text-card-foreground">{proofFile.name}</span>
-                  <button
-                    type="button"
-                    onClick={() => setProofFile(null)}
-                    className="text-muted-foreground hover:text-destructive"
-                    aria-label="Remove file">
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ) : (
-                <label className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background/50 px-3 py-3 text-xs text-muted-foreground cursor-pointer hover:border-primary/50 hover:text-primary transition-colors">
-                  <Upload className="h-4 w-4" />
-                  <span>Attach screenshot or receipt (required)</span>
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/jpg,image/png,image/webp,application/pdf"
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (!f) return;
-                      if (f.size > 10 * 1024 * 1024) { toast.error('File must be less than 10MB'); return; }
-                      setProofFile(f);
-                    }}
-                  />
-                </label>
-              )}
-              <p className="text-[10px] text-muted-foreground">
-                Required — images (JPG, PNG, WEBP) or PDF, max 10MB
-              </p>
-            </div>
-            {/* Underpayment warning — shown instead of normal footer when amount < first installment due */}
-            {isUnderpayment ? (
-              <div className="rounded-lg border border-warning/40 bg-warning/5 p-3 space-y-2.5">
-                <div className="flex items-center gap-2 text-sm font-semibold text-warning">
-                  <AlertTriangle className="h-4 w-4 shrink-0" />
-                  Underpayment detected
-                </div>
-                <div className="text-xs space-y-0.5 text-muted-foreground">
-                  <div className="flex justify-between"><span>Entered:</span><span className="tabular-nums">{formatCurrency(parsedAmount, currency)}</span></div>
-                  <div className="flex justify-between"><span>Due:</span><span className="tabular-nums">{formatCurrency(firstUnpaidEffectiveDue, currency)}</span></div>
-                  <div className="flex justify-between font-medium text-warning"><span>Shortfall:</span><span className="tabular-nums">{formatCurrency(underpaymentShortfall, currency)}</span></div>
-                </div>
-                <div className="flex gap-2 pt-0.5">
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="flex-1 bg-warning/15 text-warning border border-warning/30 hover:bg-warning/25"
-                    disabled={loadingPreview}
-                    onClick={() => { setCarryOver(true); handlePreview(); }}
-                  >
-                    Pay Partial — carry {formatCurrency(underpaymentShortfall, currency)} to{' '}
-                    {secondUnpaid
-                      ? new Date(secondUnpaid.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                      : 'next month'}
-                  </Button>
-                  <Button type="button" size="sm" variant="outline" onClick={() => setAmount('')}>
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={resetAndClose}>Cancel</Button>
-                {isAdminOrFinance ? (
-                  <Button type="submit" disabled={!isValid || loadingPreview} className="gold-gradient text-primary-foreground">
-                    {loadingPreview ? 'Loading…' : 'Preview Allocation'}
-                    <ArrowRight className="h-4 w-4 ml-1" />
-                  </Button>
-                ) : (
-                  <Button type="submit" disabled={!isValid || loadingPreview} className="gold-gradient text-primary-foreground">
-                    {loadingPreview ? 'Submitting…' : 'Submit for Confirmation'}
-                    <Clock className="h-4 w-4 ml-1" />
-                  </Button>
-                )}
-              </DialogFooter>
-            )}
-          </form>
-        )}
-
-        {step === 'preview' && preview && (
-          <div className="space-y-4">
-            {/* Allocation Breakdown */}
-            <div className="rounded-lg border border-border bg-background p-4 space-y-3">
-              <h4 className="text-sm font-semibold text-card-foreground flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-primary" />
-                {payFullBalance ? 'Full Balance Payment' : paymentType === 'downpayment' ? 'Downpayment' : 'Payment Breakdown'}
-              </h4>
-              <div className="text-2xl font-bold text-card-foreground">
-                {formatCurrency(parsedAmount, currency)}
-              </div>
-
-              {payFullBalance ? (
-                <p className="text-sm text-muted-foreground">
-                  This will settle all remaining installments{totalPenaltyAlloc > 0 ? ` and ${formatCurrency(totalPenaltyAlloc, currency)} in penalties` : ''} in one payment.
-                </p>
-              ) : (
-                <div className="space-y-2 text-sm">
-                  {totalPenaltyAlloc > 0 && (
-                    <div className="flex items-center justify-between py-1.5 border-b border-border">
-                      <span className="flex items-center gap-2 text-muted-foreground">
-                        <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
-                        Penalty Fees
-                      </span>
-                      <span className="font-medium text-destructive">
-                        {formatCurrency(totalPenaltyAlloc, currency)}
-                      </span>
-                    </div>
-                  )}
-
-                  {paymentType === 'downpayment' ? (
-                    <div className="flex justify-between items-center">
-                      <span>30% Downpayment</span>
-                      <span className="text-green-400 flex items-center gap-1">
-                        {formatCurrency(preview.new_total_paid, currency)} → PAID ✅
-                      </span>
-                    </div>
-                  ) : (
-                    displayAllocs.map((alloc, idx) => (
-                      <div key={alloc.schedule_id} className="flex items-center justify-between py-1.5 border-b border-border last:border-0">
-                        <span className="text-muted-foreground">
-                          Installment #{idx + 1}
-                        </span>
-                        <span className="font-medium text-card-foreground">
-                          {formatCurrency(alloc.allocated_amount, currency)}
-                        </span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Result Summary */}
-            <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1.5 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">New Total Paid</span>
-                <span className="font-medium text-card-foreground">{formatCurrency(preview.new_total_paid, currency)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Remaining Balance</span>
-                <span className="font-medium text-card-foreground">{formatCurrency(preview.new_remaining_balance, currency)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Account Status</span>
-                <Badge variant={preview.new_status === 'completed' ? 'default' : 'secondary'} className="capitalize">
-                  {preview.new_status}
-                </Badge>
-              </div>
-            </div>
-
-            {/* Installment statuses */}
-            {!payFullBalance && preview.schedule_updates.length > 0 && (
-              <div className="text-xs text-muted-foreground">
-                {preview.schedule_updates.map((su) => (
-                  <span key={su.id} className="inline-flex items-center mr-2">
-                    <Badge variant="outline" className="text-xs capitalize">{su.status.replace('_', ' ')}</Badge>
+                  Installment
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentType('downpayment');
+                    if (!amount) setAmount(String(downpaymentRemaining));
+                  }}
+                  className={`flex-1 px-3 py-2 rounded-md text-xs font-medium border transition-colors ${
+                    paymentType === 'downpayment'
+                      ? 'bg-primary/15 border-primary/30 text-primary'
+                      : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted'
+                  }`}
+                >
+                  Downpayment
+                  <span className="block text-[10px] opacity-75">
+                    Remaining: {formatCurrency(downpaymentRemaining, currency)}
                   </span>
-                ))}
+                </button>
+              </div>
+            </div>
+          )}
+          {/* Target Month Selector */}
+          {!payFullBalance && paymentType === 'installment' && unpaidItems.length > 0 && (
+            <div className="space-y-2">
+              <Label className="text-card-foreground">Target Month (optional)</Label>
+              <select
+                value={targetMonth}
+                onChange={e => setTargetMonth(e.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                <option value="">Select month (optional)</option>
+                {(schedule || [])
+                  .filter(s => s.status !== 'cancelled')
+                  .sort((a, b) => a.installment_number - b.installment_number)
+                  .map(s => {
+                    const remaining = Math.max(0, Number(s.total_due_amount) - Number(s.paid_amount));
+                    const dateLabel = new Date(s.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    return (
+                      <option key={s.id} value={s.id}>
+                        Month {s.installment_number} — {dateLabel} — {formatCurrency(remaining, currency)} remaining
+                      </option>
+                    );
+                  })}
+              </select>
+              {targetMonthWarnings.map((w, i) => (
+                <div key={i} className={`flex items-center gap-2 text-xs px-3 py-2 rounded-md ${
+                  w.type === 'critical' ? 'bg-destructive/10 text-destructive border border-destructive/20' : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+                }`}>
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  {w.message}
+                </div>
+              ))}
+              {selectedScheduleRow && targetMonthWarnings.length === 0 && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Info className="h-3 w-3" />
+                  Due for this month: {formatCurrency(Math.max(0, Number(selectedScheduleRow.total_due_amount) - Number(selectedScheduleRow.paid_amount)), currency)}
+                </p>
+              )}
+            </div>
+          )}
+          {payFullBalance ? (
+            <div className="space-y-2">
+              <Label className="text-card-foreground">Amount ({currency})</Label>
+              <div className="text-2xl font-bold text-card-foreground">
+                {formatCurrency(remainingBalance, currency)}
+              </div>
+              <p className="text-xs text-muted-foreground">Full remaining balance</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label className="text-card-foreground">Amount ({currency}) *</Label>
+              <Input
+                type="number"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder={`Max ${remainingBalance.toLocaleString()}`}
+                className="bg-background border-border"
+                min={0.01}
+                max={remainingBalance}
+                step="any"
+              />
+              {parsedAmount > remainingBalance + 0.005 && (
+                <p className="text-xs text-destructive">Amount exceeds remaining balance</p>
+              )}
+              {monthOptions.length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  <span className="text-xs text-muted-foreground">Pay by month due:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {monthOptions.map(opt => (
+                      <button
+                        key={opt.months}
+                        type="button"
+                        onClick={() => setAmount(String(opt.amount))}
+                        className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors border flex flex-col items-center min-w-[70px] ${
+                          parsedAmount === opt.amount
+                            ? 'bg-primary/15 border-primary/30 text-primary'
+                            : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted hover:text-card-foreground'
+                        }`}
+                      >
+                        <span>{opt.label}</span>
+                        <span className="text-[10px] opacity-75">{formatCurrency(opt.amount, currency)}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          <div className="space-y-2">
+            <Label className="text-card-foreground">Payment Date *</Label>
+            <Input
+              type="date"
+              value={paymentDate}
+              onChange={(e) => setPaymentDate(e.target.value)}
+              className="bg-background border-border"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label className="text-card-foreground">Payment Method</Label>
+            <select
+              value={paymentMethod}
+              onChange={(e) => setPaymentMethod(e.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+            >
+              {PAYMENT_METHODS.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+            {currency && methodMismatch(paymentMethod, currency) && (
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-200">
+                ⚠️ {methodLabel(paymentMethod)} receives {methodCurrency(paymentMethod)} but this account is {currency}. Double-check the bank selection and make sure the amount is entered in {currency}.
               </div>
             )}
-
-            <DialogFooter className="gap-2">
-              <Button type="button" variant="outline" onClick={() => setStep('input')}>
-                Edit Amount
-              </Button>
-              <Button
-                onClick={handleConfirm}
-                disabled={recordPayment.isPending}
-                className="gold-gradient text-primary-foreground"
-              >
-                {recordPayment.isPending ? 'Processing…' : 'Confirm Payment'}
+          </div>
+          {paymentType === 'downpayment' && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-sm">
+              <span className="text-amber-400 font-medium">
+                📋 This payment will be recorded as a 30% Downpayment
+              </span>
+            </div>
+          )}
+          <div className="space-y-2">
+            <Label className="text-card-foreground">Notes</Label>
+            <Textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Optional notes..."
+              className="bg-background border-border resize-none"
+              rows={2}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label className="text-card-foreground">Proof of Payment *</Label>
+            {proofFile ? (
+              <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs">
+                <Upload className="h-3.5 w-3.5 text-primary shrink-0" />
+                <span className="truncate flex-1 text-card-foreground">{proofFile.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setProofFile(null)}
+                  className="text-muted-foreground hover:text-destructive"
+                  aria-label="Remove file">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <label className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background/50 px-3 py-3 text-xs text-muted-foreground cursor-pointer hover:border-primary/50 hover:text-primary transition-colors">
+                <Upload className="h-4 w-4" />
+                <span>Attach screenshot or receipt (required)</span>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/jpg,image/png,image/webp,application/pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    if (f.size > 10 * 1024 * 1024) { toast.error('File must be less than 10MB'); return; }
+                    setProofFile(f);
+                  }}
+                />
+              </label>
+            )}
+            <p className="text-[10px] text-muted-foreground">
+              Required — images (JPG, PNG, WEBP) or PDF, max 10MB
+            </p>
+          </div>
+          {/* Underpayment warning — surfaces partial-payment + carry-over option to every role.
+              The carry intent rides on the submission and is applied at confirm time. */}
+          {isUnderpayment ? (
+            <div className="rounded-lg border border-warning/40 bg-warning/5 p-3 space-y-2.5">
+              <div className="flex items-center gap-2 text-sm font-semibold text-warning">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                Underpayment detected
+              </div>
+              <div className="text-xs space-y-0.5 text-muted-foreground">
+                <div className="flex justify-between"><span>Entered:</span><span className="tabular-nums">{formatCurrency(parsedAmount, currency)}</span></div>
+                <div className="flex justify-between"><span>Due:</span><span className="tabular-nums">{formatCurrency(firstUnpaidEffectiveDue, currency)}</span></div>
+                <div className="flex justify-between font-medium text-warning"><span>Shortfall:</span><span className="tabular-nums">{formatCurrency(underpaymentShortfall, currency)}</span></div>
+              </div>
+              <div className="flex gap-2 pt-0.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="flex-1 bg-warning/15 text-warning border border-warning/30 hover:bg-warning/25"
+                  disabled={submitting}
+                  onClick={() => { setCarryOver(true); handleSubmit(); }}
+                >
+                  Submit Partial — carry {formatCurrency(underpaymentShortfall, currency)} to{' '}
+                  {secondUnpaid
+                    ? new Date(secondUnpaid.due_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                    : 'next month'}
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => setAmount('')}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={resetAndClose}>Cancel</Button>
+              <Button type="submit" disabled={!isValid || submitting} className="gold-gradient text-primary-foreground">
+                {submitting ? 'Submitting…' : 'Submit for Confirmation'}
+                <Clock className="h-4 w-4 ml-1" />
               </Button>
             </DialogFooter>
-          </div>
-        )}
+          )}
+        </form>
       </DialogContent>
     </Dialog>
   );

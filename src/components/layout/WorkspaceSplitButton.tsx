@@ -55,7 +55,7 @@ function resolveConfig(
         primaryAction: () => navigate('/cash-orders/new'),
         dropdownItems: [
           { label: 'New Layaway Order', action: () => navigate('/accounts/new') },
-          { label: 'Record Payment', action: () => setRecordOpen(true) },
+          { label: 'Submit Payment', action: () => setRecordOpen(true) },
         ],
       };
     }
