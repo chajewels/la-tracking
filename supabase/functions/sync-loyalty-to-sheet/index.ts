@@ -90,17 +90,24 @@ function deriveActivityStatus(v: unknown): "Active" | "Inactive" {
   return Date.now() - d.getTime() >= ninetyDaysMs ? "Inactive" : "Active";
 }
 
-/** Signed integer with comma separators: 500 → "+500", -300 → "-300". */
-function formatSignedNumber(v: unknown): string {
+/**
+ * Signed plain number for Sheets numeric cells.
+ *   500 → 500, -300 → -300, null/non-finite → ""
+ * Returned as a raw JS number so the Sheets API serializes it as a
+ * numeric cell value under valueInputOption=USER_ENTERED. NEVER
+ * return a string like "+500" — Sheets parses the leading "+" as a
+ * formula start, and any comma-formatted "+2,200" then fails
+ * formula parse → #ERROR! in the cell. (Live bug, 2026-06-13.)
+ */
+function signedNumberOrBlank(v: unknown): number | "" {
   const n = Number(v);
-  if (!Number.isFinite(n)) return "";
-  const abs = Math.abs(n).toLocaleString("en-US");
-  return n < 0 ? `-${abs}` : `+${abs}`;
+  return Number.isFinite(n) ? n : "";
 }
 
-function plainNumber(v: unknown): string {
+/** Raw plain number for Sheets numeric cells, or "" when missing. */
+function plainNumberOrBlank(v: unknown): number | "" {
   const n = Number(v);
-  return Number.isFinite(n) ? n.toLocaleString("en-US") : "";
+  return Number.isFinite(n) ? n : "";
 }
 
 type CustomerBlock = {
@@ -113,7 +120,7 @@ function buildMembersRow(
   eventType: string,
   customer: CustomerBlock,
   payload: Record<string, unknown>,
-): string[] {
+): (string | number)[] {
   const lastPurchase = payload.last_purchase_at ?? payload.last_purchase_date ?? null;
   return [
     formatPHT(new Date()), // A timestamp
@@ -122,8 +129,8 @@ function buildMembersRow(
     customer.full_name ?? "", // D full_name
     customer.email ?? "", // E email
     (payload.current_tier as string) ?? "", // F current_tier
-    payload.lifetime_spend_jpy != null ? plainNumber(payload.lifetime_spend_jpy) : "", // G
-    payload.available_points != null ? plainNumber(payload.available_points) : "", // H
+    payload.lifetime_spend_jpy != null ? plainNumberOrBlank(payload.lifetime_spend_jpy) : "", // G
+    payload.available_points != null ? plainNumberOrBlank(payload.available_points) : "", // H
     deriveActivityStatus(lastPurchase), // I activity_status
     formatDateOnly(lastPurchase), // J last_purchase_date
     (payload.notes as string) ?? "", // K notes
@@ -134,15 +141,15 @@ function buildTransactionsRow(
   eventType: string,
   customer: CustomerBlock,
   payload: Record<string, unknown>,
-): string[] {
+): (string | number)[] {
   return [
     formatPHT(new Date()), // A timestamp
     (payload.transaction_id as string) ?? "", // B transaction_id
     eventType, // C event_type
     (payload.member_id as string) ?? "", // D member_id
     customer.full_name ?? "", // E full_name
-    payload.points_amount != null ? formatSignedNumber(payload.points_amount) : "", // F
-    payload.spend_amount_jpy != null ? plainNumber(payload.spend_amount_jpy) : "", // G
+    payload.points_amount != null ? signedNumberOrBlank(payload.points_amount) : "", // F
+    payload.spend_amount_jpy != null ? plainNumberOrBlank(payload.spend_amount_jpy) : "", // G
     payload.multiplier != null ? `${Number(payload.multiplier).toFixed(1)}x` : "", // H
     (payload.tier_at_time as string) ?? "", // I tier_at_time
     (payload.invoice_number as string) ?? "", // J invoice_number
