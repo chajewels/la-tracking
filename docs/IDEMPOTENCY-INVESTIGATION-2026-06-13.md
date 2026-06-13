@@ -180,3 +180,121 @@ Option 1 is structurally stronger (DB-enforced invariant) and survives any futur
 | Award guard scope (split DP / 54s) | Guard is keyed on `account_id` / `cash_order_id` (not invoice or payment), so the same account can only earn once. The 19031 incident pre-dates the guard (introduced 4833407, 2026-06-07). The guard would now block the same scenario at the 54-second gap and at much shorter gaps. | Working at any human-timescale gap. Millisecond-race window still exists. | Partial unique index on `loyalty_transactions(account_id) WHERE transaction_type='earned'` (and equivalent for cash_order_id), with `INSERT … ON CONFLICT DO NOTHING`. Closes the race at the DB level and survives any future bypass. |
 
 No code modified. No commit beyond this report file.
+
+---
+
+## Follow-up — answering the four specific questions (2026-06-13, post-audit_logs)
+
+### Q1 — Which function/code path writes account totals at SUBMISSION time?
+
+**Answer: none in the repo.** The user's premise that `total_paid = SUM(confirmed payments) + SUM(pending submissions)` is written at submission time does NOT appear in any edge function or committed SQL migration:
+
+- `supabase/functions/submit-payment/index.ts` writes only `payment_submissions` + (for single-payment) `payment_submission_allocations`. Zero `total_paid` mutations. Verified by `grep -n "total_paid\|layaway_accounts" submit-payment/index.ts` — every `.from("layaway_accounts")` call is a SELECT of `invoice_number`, never an UPDATE.
+- `supabase/functions/submit-cash-payment/index.ts` — same shape: submission-only writes.
+- `supabase/functions/record-payment/index.ts` and `record-multi-payment/index.ts` — POST Bug #219 (commit `b2a7cb1`, universal-submission redesign) the layaway path of both writes ONLY a `payment_submissions` row. No `total_paid` write at submission time.
+- `grep -rn "total_paid" supabase/migrations/*.sql` returns 7 files; **none** include `submitted_amount` or `payment_submissions` in the same SQL function/trigger body. No `BEFORE/AFTER INSERT ON payment_submissions` trigger committed to the repo touches `layaway_accounts.total_paid`.
+
+If the audit_log evidence shows `total_paid` going up at submission time, the mechanism is **NOT in this repo**. Most likely culprits to check outside the repo:
+- A DB trigger applied directly via the Supabase SQL Editor that was never committed as a migration.
+- A SECURITY DEFINER RPC referenced from a code path I haven't found (I greped `supabase.rpc(` in both functions — neither calls any RPC during submission).
+
+**Recommendation before fixing:** dump the live DB triggers on `payment_submissions` and the live functions in `public` to confirm what's actually running. CLAUDE.md "TOOL OWNERSHIP RULES" notes Cynthia owns SQL Editor access; she can run:
+```sql
+SELECT tgname, tgrelid::regclass, pg_get_triggerdef(oid)
+FROM pg_trigger
+WHERE tgrelid = 'public.payment_submissions'::regclass AND NOT tgisinternal;
+
+SELECT proname, pg_get_functiondef(oid)
+FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname='public' AND pg_get_functiondef(oid) ILIKE '%submitted_amount%' AND pg_get_functiondef(oid) ILIKE '%total_paid%';
+```
+
+### Q2 — review-payment-submission layaway-confirm order — exact quotes
+
+```
+Layer 1: review-payment-submission/index.ts:1075
+    const result = await allocatePaymentToAccount(supabase, submission.account_id, ...)
+
+Layer 2 (inside allocatePaymentToAccount, file lines):
+    L298+   INSERT into "payments"                            ← new payment row
+    L391+   INSERT into "payment_allocations" (installment)
+    L401+   UPDATE "penalty_fees".status (per fully-paid fee)
+    L411+   UPDATE "layaway_schedule".paid_amount + status
+    L424–446  RECOMPUTE: const totalPaidFromPayments =
+              SUM(payments.amount_paid WHERE voided_at IS NULL)  ← reads payments
+    L470–473  UPDATE "layaway_accounts".total_paid, remaining_balance, status
+
+Layer 3 (back in caller):
+    L1248–1252 UPDATE "payment_submissions".status = 'confirmed'   ← FIRST status flip
+```
+
+**Confirmed:** the recompute at L424–446 executes BEFORE the submission status flip at L1248. At the moment of the recompute, the `payment_submissions` row IS still in `'submitted'` status. The user's order claim is correct.
+
+**However:** the recompute formula visible at L424–446 reads STRICTLY from `payments WHERE voided_at IS NULL`. It does NOT include `submitted_amount` of pending submissions. So the doubling cannot arise from the edge-function recompute itself.
+
+For the audit-log-observed doubling to occur via the order described in the prompt, an OUTSIDE-THE-REPO mechanism (trigger or RPC) must be applying the "+ SUM(pending submissions)" addition somewhere between the payment INSERT at L298 and the status flip at L1248. The most plausible candidates:
+
+- An `AFTER INSERT ON payments` trigger that recomputes `total_paid = SUM(payments) + SUM(pending submissions)`. Would fire right after L298 and double-count because the submission is still 'submitted'. Q1 above documents how to confirm.
+- An `AFTER UPDATE ON payment_allocations` or `AFTER UPDATE ON layaway_schedule` trigger doing the same.
+- A SECURITY DEFINER RPC `recompute_account_totals(account_id)` that the trigger or some other code path calls.
+
+### Q3 — Did the ordering or the pending-submission term change in 2026-06-08..2026-06-12?
+
+`git log --since="2026-06-08" --until="2026-06-13" -- review-payment-submission/index.ts submit-payment/index.ts` returns 5 commits:
+
+```
+aaca9cd 2026-06-12  loyalty pipeline hardening (Bug #223 hardening — preloadError listener, isCustomerLoyaltyEnrolled trace, lpRes.ok at 3 award sites)
+62a049f 2026-06-12  customer name + invoice in award bell notifications
+85ff208 2026-06-12  identify customer + invoice on FAILURE notifications
+233fefc 2026-06-12  format-proof service-role detection (isServiceRole helper)
+5852cc3 2026-06-12  surface 6 matrix keys + normalize 3 edge functions to shared checkPermission
+```
+
+Filtering the diffs of all five commits for the strings `total_paid|submitted_amount|pending|SUM.*payment|verifiedTotalPaid|allocate`:
+
+```
+git log -p --since="2026-06-08" --until="2026-06-13" -- supabase/functions/review-payment-submission/index.ts \
+  | grep -E "^[+-]" | grep -iE "total_paid|submitted_amount|pending|SUM.*payment|verifiedTotalPaid|allocate"
+→ (no output)
+```
+
+**Zero changes to the layaway totals recompute, the call order, or the pending-submission term in review-payment-submission during this window.** All five 2026-06-12 commits touched only auth, notification bodies, and loyalty hardening — not the totals path. Same for submit-payment: its only ever commit is `4833407 (2026-06-07)` which introduced layaway_accounts SELECT calls (read-only) for the cash-receipt path; it never wrote `total_paid`.
+
+**Implication for the 2026-04/05 vs 2026-06-11 vs 2026-06-12 dating:**
+
+If the edge functions' totals path has been byte-identical across the window, the variable that changed must be DB-side. The most coherent explanation given the user's framing:
+
+- **Pre-2026-06-11 confirms (18437's April/May confirms):** either the alleged DB trigger didn't exist yet, OR it did exist but a subsequent edge-function recompute overwrote its result with the correct SUM(payments)-only value. The latter happens here at L470–473 — UPDATE writes the function's computed value. So even if a trigger had inflated `total_paid` mid-flow, the function's final UPDATE would overwrite it.
+- **2026-06-11 18437/19090 doubling:** if a DB trigger was added between the last clean confirm and 2026-06-11, AND the trigger fires AFTER L470–473 (e.g., `AFTER UPDATE ON layaway_accounts` recursing into a pending-submissions term), the function's clean value gets overwritten by the trigger. This fits the observation.
+- **2026-06-12 19115/19120 NOT doubling:** either the trigger was reverted between 2026-06-11 and 2026-06-12, OR the condition that caused it to fire stopped firing.
+
+Without DB access I cannot tell which of those happened. The repo shows no change in the edge functions across the entire 2026-06-08..2026-06-13 window that would explain a doubling that started 2026-06-11 and stopped by 2026-06-12.
+
+### Q4 — Minimal-fix recommendation
+
+Three options, in order of structural strength. **All require either DB-side or edge-side action — without confirming the actual writer of the +pending term, the right fix depends on which layer needs the change.**
+
+**Option A — Repo-side enforcement of "SUM(payments) only":**
+Add a clear assertion + audit_log entry at the bottom of `allocatePaymentToAccount` that the value being written matches `SUM(payments WHERE voided_at IS NULL)` exactly, AND drop any DB-side mutation that disagrees (after confirming via the Q1 trigger dump). This is the canonical fix per CLAUDE.md INVARIANT 1 ("total_paid source: ONLY SUM(payments.amount_paid WHERE voided_at IS NULL)"). Closes the bug at the data layer.
+
+**Option B — Status flip BEFORE recompute, in one transaction:**
+Reorder the layaway confirm path so the `payment_submissions.status='confirmed'` UPDATE runs BEFORE `allocatePaymentToAccount`. That way any +pending-submissions term in a trigger would see this submission as already-confirmed and not double-count. Requires either an RPC that does both writes atomically, OR a careful re-sequencing with rollback on payment INSERT failure (currently the function rolls forward in the cash path — see L759-781 — the layaway path would need analogous protection). Doesn't fix the underlying invariant violation if a trigger is misbehaving.
+
+**Option C — Conditional UPDATE at top of confirm flow (defense in depth, also closes the concurrent-confirm race from Q1 above):**
+```ts
+const { data: claimed } = await supabase
+  .from("payment_submissions")
+  .update({ status: 'under_review' })
+  .eq('id', submission_id)
+  .eq('status', 'submitted')      // ← row-level CAS guard
+  .select('id')
+  .maybeSingle();
+if (!claimed) {
+  return new Response(... "Already being reviewed or confirmed" ..., 409);
+}
+```
+Closes the concurrent-confirm race documented earlier in this report regardless of the totals mechanism, and makes any "+pending submissions" term see the submission as not-pending immediately. The cleanest single-edge-function change. Recommended as the **minimum** even if Option A is also adopted.
+
+**Preferred path:** Run the Q1 trigger/function dump → confirm what writes the +pending term → if a trigger exists, drop it (Option A); if no trigger exists, then the doubling must come from a concurrent-confirm race per my earlier report → adopt Option C. Pursue Option B only if there's a long-term reason to keep the alleged trigger.
+
+No code modified.
