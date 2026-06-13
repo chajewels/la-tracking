@@ -13,9 +13,10 @@ interface Props {
   customerName: string;
   token: string;
   messengerLink?: string | null;
+  customerPin: string;
 }
 
-function generateActivationMessage(customerName: string, portalUrl: string): string {
+function generateActivationMessage(customerName: string, portalUrl: string, customerPin: string): string {
   return `✨ Cha Jewels Customer Portal is Ready
 
 Hi ${customerName} 💛
@@ -32,6 +33,8 @@ You can now view your account details anytime, including:
 Access your portal here:
 👉 ${portalUrl}
 
+🔐 Your portal PIN is the last 4 digits of your mobile number on file: ${customerPin}
+
 For your security, please do not share this link with others.
 
 You may also use the portal to submit your payment proof after completing your transfer.
@@ -42,12 +45,12 @@ Thank you for trusting Cha Jewels —
 Everyday Layaway, Cha Jewels All the Way 💎`;
 }
 
-export default function PortalActivationModal({ open, onOpenChange, customerName, token, messengerLink }: Props) {
+export default function PortalActivationModal({ open, onOpenChange, customerName, token, messengerLink, customerPin }: Props) {
   const [copiedMsg, setCopiedMsg] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
   const portalUrl = `${PORTAL_BASE}/portal?token=${token}`;
-  const message = generateActivationMessage(customerName, portalUrl);
+  const message = generateActivationMessage(customerName, portalUrl, customerPin);
 
   const copyMessage = () => {
     navigator.clipboard.writeText(message);

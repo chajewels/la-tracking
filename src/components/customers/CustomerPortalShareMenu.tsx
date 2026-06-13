@@ -49,6 +49,7 @@ export default function CustomerPortalShareMenu({
   const [localSetupSentAt, setLocalSetupSentAt] = useState<string | null>(setupLinkSentAt ?? null);
   const [emailConflict, setEmailConflict] = useState<string | null>(null);
   const [conflictLoading, setConflictLoading] = useState(true);
+  const [customerPin, setCustomerPin] = useState<string>('----');
 
   const fetchToken = async () => {
     setLoading(true);
@@ -79,6 +80,19 @@ export default function CustomerPortalShareMenu({
   useEffect(() => {
     setLocalSetupSentAt(setupLinkSentAt ?? null);
   }, [setupLinkSentAt]);
+
+  useEffect(() => {
+    if (!customerId) return;
+    (async () => {
+      const { data } = await supabase
+        .from('customers')
+        .select('mobile_number')
+        .eq('id', customerId)
+        .maybeSingle();
+      const digits = (data?.mobile_number ?? '').replace(/\D/g, '');
+      setCustomerPin(digits.length >= 4 ? digits.slice(-4) : '----');
+    })();
+  }, [customerId]);
 
   useEffect(() => {
     if (!customerId || authUserId) {
@@ -380,6 +394,7 @@ export default function CustomerPortalShareMenu({
           customerName={customerName}
           token={token}
           messengerLink={messengerLink}
+          customerPin={customerPin}
         />
       )}
 
