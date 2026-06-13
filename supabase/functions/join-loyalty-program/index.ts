@@ -227,7 +227,7 @@ Deno.serve(async (req) => {
             awardBody.cash_order_id = row.cash_order_id ?? row.source_id ?? null;
           }
           if (awardBody.account_id || awardBody.cash_order_id) {
-            await fetch(
+            const _awRes = await fetch(
               `${Deno.env.get("SUPABASE_URL")}/functions/v1/award-loyalty-points`,
               {
                 method: "POST",
@@ -237,12 +237,17 @@ Deno.serve(async (req) => {
                 },
                 body: JSON.stringify(awardBody),
               },
-            ).catch((e) =>
+            ).catch((e) => {
               console.warn(
                 "[join-loyalty-program] retro award invoke failed (non-blocking):",
                 e,
-              )
-            );
+              );
+              return null;
+            });
+            if (_awRes && !_awRes.ok) {
+              const _t = await _awRes.text().catch(() => "<no body>");
+              console.error(`[join-loyalty-program] award-loyalty-points (retro) failed (${_awRes.status}): ${_t}`);
+            }
           }
         }
       }
@@ -268,7 +273,7 @@ Deno.serve(async (req) => {
             customerId,
             'loyalty',
           );
-          await fetch(
+          const _emRes = await fetch(
             `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
             {
               method: "POST",
@@ -287,9 +292,14 @@ Deno.serve(async (req) => {
                 },
               }),
             },
-          ).catch((e) =>
-            console.warn("[join-loyalty-program] welcome email failed:", e)
-          );
+          ).catch((e) => {
+            console.warn("[join-loyalty-program] welcome email failed:", e);
+            return null;
+          });
+          if (_emRes && !_emRes.ok) {
+            const _t = await _emRes.text().catch(() => "<no body>");
+            console.error(`[join-loyalty-program] send-transactional-email (welcome) failed (${_emRes.status}): ${_t}`);
+          }
         } else {
           console.log(
             "[email-gate] loyalty-welcome skipped — toggle 'loyalty_email_welcome' is OFF",
@@ -302,7 +312,7 @@ Deno.serve(async (req) => {
 
     // 7. Sheet sync — fire-and-forget
     try {
-      await fetch(
+      const _syRes = await fetch(
         `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-loyalty-to-sheet`,
         {
           method: "POST",
@@ -328,9 +338,14 @@ Deno.serve(async (req) => {
             },
           }),
         },
-      ).catch((e) =>
-        console.warn("[join-loyalty-program] sheet sync failed:", e)
-      );
+      ).catch((e) => {
+        console.warn("[join-loyalty-program] sheet sync failed:", e);
+        return null;
+      });
+      if (_syRes && !_syRes.ok) {
+        const _t = await _syRes.text().catch(() => "<no body>");
+        console.error(`[join-loyalty-program] sync-loyalty-to-sheet (enrolled) failed (${_syRes.status}): ${_t}`);
+      }
     } catch (sheetErr) {
       console.warn("[join-loyalty-program] sheet sync block failed:", sheetErr);
     }

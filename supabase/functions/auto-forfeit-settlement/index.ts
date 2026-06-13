@@ -85,7 +85,7 @@ Deno.serve(async (req) => {
           spendJpy = Number(account.total_paid ?? 0);
         }
         if (!(spendJpy > 0)) return; // nothing to revoke if no payments yet
-        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revoke-loyalty-points`, {
+        const _rvRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revoke-loyalty-points`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -100,7 +100,11 @@ Deno.serve(async (req) => {
             notes,
             trigger_event: triggerEvent,
           }),
-        }).catch((e) => console.warn(`[auto-forfeit] revoke-loyalty-points failed for ${account.invoice_number} (non-blocking):`, e));
+        }).catch((e) => { console.warn(`[auto-forfeit] revoke-loyalty-points failed for ${account.invoice_number} (non-blocking):`, e); return null; });
+        if (_rvRes && !_rvRes.ok) {
+          const _t = await _rvRes.text().catch(() => "<no body>");
+          console.error(`[auto-forfeit] revoke-loyalty-points failed (${_rvRes.status}) for ${account.invoice_number}: ${_t}`);
+        }
       } catch (revokeErr) {
         console.warn(`[auto-forfeit] revoke block failed for ${account.invoice_number} (non-blocking):`, revokeErr);
       }
@@ -122,7 +126,7 @@ Deno.serve(async (req) => {
         const customerName = (acctForEmail as any)?.customers?.full_name;
         if (!customerEmail) return;
         const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
-        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+        const _emRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -143,6 +147,10 @@ Deno.serve(async (req) => {
             },
           }),
         });
+        if (!_emRes.ok) {
+          const _t = await _emRes.text().catch(() => "<no body>");
+          console.error(`[auto-forfeit] send-transactional-email failed (${_emRes.status}): ${_t}`);
+        }
       } catch (emailErr) {
         console.warn("[auto-forfeit] email send failed (non-blocking):", emailErr);
       }

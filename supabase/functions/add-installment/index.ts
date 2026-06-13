@@ -8,7 +8,7 @@ const corsHeaders = {
 
 async function callReconcile(supabase: any, accountId: string) {
   try {
-    await fetch(
+    const _res = await fetch(
       `${Deno.env.get("SUPABASE_URL")}/functions/v1/reconcile-account`,
       {
         method: "POST",
@@ -19,6 +19,10 @@ async function callReconcile(supabase: any, accountId: string) {
         body: JSON.stringify({ account_id: accountId }),
       }
     );
+    if (!_res.ok) {
+      const _t = await _res.text().catch(() => "<no body>");
+      console.error(`[add-installment] reconcile-account failed (${_res.status}) for ${accountId}: ${_t}`);
+    }
   } catch (e) {
     console.warn(`[add-installment] reconcile call failed for ${accountId}:`, e);
   }

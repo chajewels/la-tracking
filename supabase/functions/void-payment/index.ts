@@ -241,7 +241,7 @@ Deno.serve(async (req) => {
 
     // Trigger reconcile-account to sync schedule rows and verify totals
     try {
-      await fetch(
+      const _rcRes = await fetch(
         `${Deno.env.get("SUPABASE_URL")}/functions/v1/reconcile-account`,
         {
           method: "POST",
@@ -252,6 +252,10 @@ Deno.serve(async (req) => {
           body: JSON.stringify({ account_id: payment.account_id }),
         }
       );
+      if (!_rcRes.ok) {
+        const _t = await _rcRes.text().catch(() => "<no body>");
+        console.error(`[void-payment] reconcile-account failed (${_rcRes.status}) for ${payment.account_id}: ${_t}`);
+      }
     } catch (reconcileErr) {
       console.warn(`[void-payment] reconcile-account call failed for ${payment.account_id}:`, reconcileErr);
     }
@@ -267,7 +271,7 @@ Deno.serve(async (req) => {
       const customerName = (acctForEmail as any)?.customers?.full_name;
       if (customerEmail) {
         const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
-        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+        const _emRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -288,6 +292,10 @@ Deno.serve(async (req) => {
             },
           }),
         });
+        if (!_emRes.ok) {
+          const _t = await _emRes.text().catch(() => "<no body>");
+          console.error(`[void-payment] send-transactional-email failed (${_emRes.status}): ${_t}`);
+        }
       }
     } catch (emailErr) {
       console.warn("[void-payment] email send failed (non-blocking):", emailErr);
@@ -333,7 +341,7 @@ Deno.serve(async (req) => {
             throw new Error("php_jpy_rate unusable");
           }
         }
-        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revoke-loyalty-points`, {
+        const _rvRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revoke-loyalty-points`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -349,7 +357,14 @@ Deno.serve(async (req) => {
             notes: `Layaway payment voided: ${payment.id}`,
             trigger_event: "void_layaway",
           }),
-        }).catch((e) => console.warn("[void-payment] revoke-loyalty-points failed (non-blocking):", e));
+        }).catch((e) => {
+          console.warn("[void-payment] revoke-loyalty-points failed (non-blocking):", e);
+          return null;
+        });
+        if (_rvRes && !_rvRes.ok) {
+          const _t = await _rvRes.text().catch(() => "<no body>");
+          console.error(`[void-payment] revoke-loyalty-points failed (${_rvRes.status}): ${_t}`);
+        }
       } catch (revokeErr) {
         console.warn("[void-payment] revoke block failed (non-blocking):", revokeErr);
       }

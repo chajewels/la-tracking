@@ -697,10 +697,8 @@ Deno.serve(async (req) => {
         }
       } else if (!earnedSheetRes.ok) {
         const errBody = await earnedSheetRes.text().catch(() => "");
-        console.warn(
-          "[award-loyalty-points] sheet sync (earned) returned non-2xx:",
-          earnedSheetRes.status,
-          errBody,
+        console.error(
+          `[award-loyalty-points] sync-loyalty-to-sheet (earned) failed (${earnedSheetRes.status}): ${errBody} — marker left NULL so loyalty-sheet-reconcile will retry`,
         );
       }
     } catch (sheetErr) {
@@ -742,10 +740,8 @@ Deno.serve(async (req) => {
           }
         } else if (!bonusSheetRes.ok) {
           const errBody = await bonusSheetRes.text().catch(() => "");
-          console.warn(
-            "[award-loyalty-points] sheet sync (bonus) returned non-2xx:",
-            bonusSheetRes.status,
-            errBody,
+          console.error(
+            `[award-loyalty-points] sync-loyalty-to-sheet (bonus) failed (${bonusSheetRes.status}): ${errBody} — marker left NULL so loyalty-sheet-reconcile will retry`,
           );
         }
       } catch (sheetErr) {
@@ -829,10 +825,8 @@ Deno.serve(async (req) => {
           }
         } else if (!tierSheetRes.ok) {
           const errBody = await tierSheetRes.text().catch(() => "");
-          console.warn(
-            "[award-loyalty-points] sheet sync (tier_changed) returned non-2xx:",
-            tierSheetRes.status,
-            errBody,
+          console.error(
+            `[award-loyalty-points] sync-loyalty-to-sheet (tier_changed) failed (${tierSheetRes.status}): ${errBody} — marker left NULL so loyalty-sheet-reconcile will retry`,
           );
         }
       } catch (sheetErr) {

@@ -506,7 +506,7 @@ Deno.serve(async (req) => {
         if (recipientEmail) {
           if (await gate("loyalty_email_redeem")) {
             const portalUrl = await buildPortalLinkForCustomerId(supabase, member.customer_id, 'loyalty');
-            await fetch(
+            const _emRes1 = await fetch(
               `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
               {
                 method: "POST",
@@ -533,9 +533,14 @@ Deno.serve(async (req) => {
                   },
                 }),
               },
-            ).catch((e) =>
-              console.warn("[process-loyalty-redemption] redeem email failed:", e)
-            );
+            ).catch((e) => {
+              console.warn("[process-loyalty-redemption] redeem email failed:", e);
+              return null;
+            });
+            if (_emRes1 && !_emRes1.ok) {
+              const _t = await _emRes1.text().catch(() => "<no body>");
+              console.error(`[process-loyalty-redemption] send-transactional-email (redeem) failed (${_emRes1.status}): ${_t}`);
+            }
           } else {
             console.log(
               "[email-gate] loyalty-redeem skipped — toggle 'loyalty_email_redeem' is OFF",
@@ -544,7 +549,7 @@ Deno.serve(async (req) => {
         }
 
         if (customer) {
-          await fetch(
+          const _syncRes1 = await fetch(
             `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-loyalty-to-sheet`,
             {
               method: "POST",
@@ -568,9 +573,14 @@ Deno.serve(async (req) => {
                 },
               }),
             },
-          ).catch((e) =>
-            console.warn("[process-loyalty-redemption] sheet sync failed:", e)
-          );
+          ).catch((e) => {
+            console.warn("[process-loyalty-redemption] sheet sync failed:", e);
+            return null;
+          });
+          if (_syncRes1 && !_syncRes1.ok) {
+            const _t = await _syncRes1.text().catch(() => "<no body>");
+            console.error(`[process-loyalty-redemption] sync-loyalty-to-sheet (redeemed) failed (${_syncRes1.status}): ${_t}`);
+          }
         }
       } catch (sideErr) {
         console.warn("[process-loyalty-redemption] side-effects block failed:", sideErr);
@@ -887,7 +897,7 @@ Deno.serve(async (req) => {
         if (recipientEmail) {
           if (await gate("loyalty_email_redemption_voided")) {
             const portalUrl = await buildPortalLinkForCustomerId(supabase, member?.customer_id, "loyalty");
-            await fetch(
+            const _emRes2 = await fetch(
               `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
               {
                 method: "POST",
@@ -911,9 +921,14 @@ Deno.serve(async (req) => {
                   },
                 }),
               },
-            ).catch((e) =>
-              console.warn("[process-loyalty-redemption] void email failed:", e)
-            );
+            ).catch((e) => {
+              console.warn("[process-loyalty-redemption] void email failed:", e);
+              return null;
+            });
+            if (_emRes2 && !_emRes2.ok) {
+              const _t = await _emRes2.text().catch(() => "<no body>");
+              console.error(`[process-loyalty-redemption] send-transactional-email (void) failed (${_emRes2.status}): ${_t}`);
+            }
           } else {
             console.log(
               "[email-gate] loyalty-redemption-voided skipped — toggle 'loyalty_email_redemption_voided' is OFF",
@@ -947,7 +962,7 @@ Deno.serve(async (req) => {
           .eq("id", member?.customer_id)
           .single();
         if (revokeCustomer) {
-          await fetch(
+          const _syncRes2 = await fetch(
             `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-loyalty-to-sheet`,
             {
               method: "POST",
@@ -972,9 +987,14 @@ Deno.serve(async (req) => {
                 },
               }),
             },
-          ).catch((e) =>
-            console.warn("[process-loyalty-redemption] sheet sync (revoked) failed:", e)
-          );
+          ).catch((e) => {
+            console.warn("[process-loyalty-redemption] sheet sync (revoked) failed:", e);
+            return null;
+          });
+          if (_syncRes2 && !_syncRes2.ok) {
+            const _t = await _syncRes2.text().catch(() => "<no body>");
+            console.error(`[process-loyalty-redemption] sync-loyalty-to-sheet (revoked) failed (${_syncRes2.status}): ${_t}`);
+          }
         }
       } catch (sheetErr) {
         console.warn(
