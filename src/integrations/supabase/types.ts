@@ -3806,11 +3806,33 @@ export type Database = {
         }
         Relationships: []
       }
+      timesheet_monthly_history: {
+        Row: {
+          created_at: string
+          csr_net: number
+          liveadmin_net: number
+          month_key: string
+        }
+        Insert: {
+          created_at?: string
+          csr_net?: number
+          liveadmin_net?: number
+          month_key: string
+        }
+        Update: {
+          created_at?: string
+          csr_net?: number
+          liveadmin_net?: number
+          month_key?: string
+        }
+        Relationships: []
+      }
       timesheet_profiles: {
         Row: {
           active: boolean
           allowance: number | null
           basic_salary: number | null
+          can_view_all: boolean
           created_at: string
           dayoff_divisor: number
           full_day_rate: number | null
@@ -3830,6 +3852,7 @@ export type Database = {
           active?: boolean
           allowance?: number | null
           basic_salary?: number | null
+          can_view_all?: boolean
           created_at?: string
           dayoff_divisor?: number
           full_day_rate?: number | null
@@ -3849,6 +3872,7 @@ export type Database = {
           active?: boolean
           allowance?: number | null
           basic_salary?: number | null
+          can_view_all?: boolean
           created_at?: string
           dayoff_divisor?: number
           full_day_rate?: number | null

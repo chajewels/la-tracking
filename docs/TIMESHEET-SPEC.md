@@ -39,10 +39,19 @@ Morning session + afternoon session, midday break excluded.
 - Allowance: monthly, with absence deduction (below)
 - Net pay = capped gross + allowance paid
 
-### Constants
-Stored as per-user config seeded with template defaults; overridable per user.
-- CSR: half_day_rate=400, full_day_threshold=6h, dayoff_divisor=4
-- Live Admin: half_day_rate=300, full_day_rate=500, full_day_threshold=4h
+### Constants — FIXED in code, NOT per-user (locked 2026-06-13)
+
+Per-day rates are CODE CONSTANTS in `src/lib/timesheetEngine.ts`. They are
+NOT configurable per user and NOT seeded from the profile. The four
+columns `half_day_rate`, `full_day_rate`, `full_day_threshold_hours`,
+`dayoff_divisor` on `timesheet_profiles` are intentionally unused (left
+null at write time, ignored by the engine).
+
+- CSR: half-day ₱400, full-day rate = `round(basic_salary / (days_in_month
+  − 4), 4)`, full-day threshold `> 5.99 hr`, day-off divisor 4.
+- Live Admin: half-day ₱300, full-day ₱500, full-day threshold `> 3.99 hr`.
+  Live Admin has NO `basic_salary` and NO `allowance` — those columns
+  stay null.
 
 ---
 
@@ -79,11 +88,14 @@ Count of days in the month with hours < 1.
 - timezone (default Asia/Manila)
 - assigned work schedule (work weekdays + expected hours) — drives
   absence/day-off detection and punch validation
-- pay config:
-  - CSR → basic_salary, allowance, half_day_rate(400),
-    full_day_threshold(6), dayoff_divisor(4)
-  - Live Admin → half_day_rate(300), full_day_rate(500),
-    full_day_threshold(4)
+- pay config — Assignments UI collects ONLY:
+  - CSR → `basic_salary`, `allowance` (both ₱). Per-day rates are derived
+    by the engine from constants + `basic_salary` (see "Constants" above).
+  - Live Admin → no money fields at all. Pay is computed entirely from
+    the fixed ₱300 / ₱500 tiers in code.
+  The four override columns (`half_day_rate`, `full_day_rate`,
+  `full_day_threshold_hours`, `dayoff_divisor`) are written as null and
+  never read by the engine.
 - active flag
 
 Pay/rate fields: visible to the user themselves + admin; hidden from

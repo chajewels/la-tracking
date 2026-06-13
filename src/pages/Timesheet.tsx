@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -16,14 +17,17 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Loader2, LogIn, LogOut, Pencil, Clock } from 'lucide-react';
+import { Loader2, LogIn, LogOut, Pencil, Clock, Copy, ClipboardPaste } from 'lucide-react';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from 'recharts';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { getPHTToday } from '@/lib/date-utils';
 import {
-  TemplateType, TimesheetProfile, TimesheetEntry,
-  TEMPLATE_DEFAULTS, TEMPLATE_LABEL,
-  computeMonth, computeConsolidation, monthLabelFromKey, daysInMonthOf,
+  TemplateType, TimesheetProfile, TimesheetEntry, MonthCostRow,
+  TEMPLATE_LABEL,
+  computeMonth, computeConsolidation, computeAllMonthsSummary, monthLabelFromKey, addDays, daysInMonthOf,
   isoDowOf, formatPHP, formatPHP2, formatHours,
 } from '@/lib/timesheetEngine';
 
@@ -161,28 +165,80 @@ function MyTimesheetTab({
 
   async function punch(kind: 'in' | 'out') {
     if (!profile) return;
+    const now = new Date();
+    // Hour-of-day in the user's IANA timezone. A 21:48 in Manila lands in PM;
+    // an 08:00 lands in AM. Routes by the CURRENT instant, never by which AM
+    // slots happen to be empty.
+    const hourParts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: tz, hour: '2-digit', hour12: false,
+    }).formatToParts(now);
+    const hour = Number(hourParts.find(p => p.type === 'hour')?.value ?? 0);
+    const isPM = hour >= 12;
+
     const todayEntry = entryByDate.get(today);
-    let field: PunchField | null = null;
-    if (kind === 'in') {
-      if (!todayEntry?.am_in) field = 'am_in';
-      else if (!todayEntry?.pm_in) field = 'pm_in';
-      else { toast.info('Both Time In slots are already filled for today.'); return; }
-    } else {
-      if (todayEntry?.am_in && !todayEntry?.am_out) field = 'am_out';
-      else if (todayEntry?.pm_in && !todayEntry?.pm_out) field = 'pm_out';
-      else { toast.info('No open session to time out of.'); return; }
+    const field: PunchField = kind === 'in'
+      ? (isPM ? 'pm_in' : 'am_in')
+      : (isPM ? 'pm_out' : 'am_out');
+    const half = isPM ? 'PM' : 'AM';
+
+    if (todayEntry?.[field]) {
+      toast.info(`${half} time-${kind} already recorded.`);
+      return;
     }
+
     // True instant — stored as timestamptz, displayed back in the profile tz.
-    const nowIso = new Date().toISOString();
+    const nowIso = now.toISOString();
     maybeWarnOutsideShift(isoToWall(nowIso, tz));
     await writeField(today, field, nowIso);
-    toast.success(`Punched ${kind === 'in' ? 'in' : 'out'} (${field.replace('_', ' ')})`);
+    toast.success(`Punched ${kind} (${field.replace('_', ' ').toUpperCase()})`);
   }
 
   function onTimeEdit(workDate: string, field: PunchField, hhmm: string) {
     const iso = hhmm ? zonedWallToISO(workDate, hhmm, tz) : null;
     writeField(workDate, field, iso);
   }
+
+  // ── Copy / paste a day's punch set ──────────────────────────────────────
+  // One clipboard slot: the four time-of-day values as HH:mm in the profile
+  // tz (blank = ''), extracted exactly the way the grid formats times for
+  // editing.
+  const [copied, setCopied] = useState<Record<PunchField, string> | null>(null);
+
+  function copyRow(entry: TimesheetEntry | null) {
+    setCopied({
+      am_in: isoToWall(entry ? entry.am_in : null, tz),
+      am_out: isoToWall(entry ? entry.am_out : null, tz),
+      pm_in: isoToWall(entry ? entry.pm_in : null, tz),
+      pm_out: isoToWall(entry ? entry.pm_out : null, tz),
+    });
+    toast.success('Punch times copied');
+  }
+
+  // Write all four punches of `copied` onto `workDate` in one upsert, through
+  // the same path manual edits use (blank → null; non-blank → composed
+  // timestamptz in the profile tz).
+  const pasteRow = useCallback(async (workDate: string) => {
+    if (!copied) return;
+    setBusy(true);
+    try {
+      const client = supabase as any;
+      const payload: Record<string, unknown> = { user_id: userId, work_date: workDate };
+      for (const f of PUNCH_FIELDS) {
+        const hhmm = copied[f];
+        payload[f] = hhmm ? zonedWallToISO(workDate, hhmm, tz) : null;
+      }
+      const { error } = await client
+        .from('timesheet_entries')
+        .upsert(payload, { onConflict: 'user_id,work_date' });
+      if (error) throw error;
+      onRefresh();
+      toast.success('Punch times pasted');
+    } catch (err: unknown) {
+      toast.error((err as Error)?.message ?? 'Failed to paste punch');
+    } finally {
+      setBusy(false);
+    }
+  }, [copied, onRefresh, userId, tz]);
 
   if (!profile) {
     return (
@@ -196,7 +252,8 @@ function MyTimesheetTab({
     );
   }
 
-  const daysInMonth = daysInMonthOf(monthKey);
+  // The sheet ALWAYS has 31 rows; shorter months spill into the next.
+  const sheetRowCount = month!.days.length;
   const isCsr = profile.template_type === 'csr';
 
   return (
@@ -241,6 +298,7 @@ function MyTimesheetTab({
                 <th className="px-2 py-2 text-center font-medium">PM Out</th>
                 <th className="px-3 py-2 text-right font-medium">Hours</th>
                 <th className="px-3 py-2 text-right font-medium">Salary</th>
+                <th className="px-2 py-2 text-center font-medium">Copy</th>
               </tr>
             </thead>
             <tbody>
@@ -271,15 +329,38 @@ function MyTimesheetTab({
                     ))}
                     <td className="px-3 py-1.5 text-right tabular-nums text-xs">{d.hours > 0 ? formatHours(d.hours) : '—'}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-xs">{d.salary > 0 ? formatPHP2(d.salary) : '—'}</td>
+                    <td className="px-2 py-1.5">
+                      <div className="flex items-center justify-center gap-1">
+                        <Button
+                          type="button" size="icon" variant="ghost"
+                          className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                          title="Copy this day's punch times"
+                          onClick={() => copyRow(entry)}
+                          disabled={busy}
+                        >
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          type="button" size="icon" variant="ghost"
+                          className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                          title={copied ? 'Paste copied punch times here' : 'Copy a day first'}
+                          onClick={() => pasteRow(d.date)}
+                          disabled={busy || !copied}
+                        >
+                          <ClipboardPaste className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
             <tfoot>
               <tr className="border-t border-border bg-muted/30 font-semibold">
-                <td className="px-3 py-2 text-xs" colSpan={6}>TOTAL — {daysInMonth} days</td>
+                <td className="px-3 py-2 text-xs" colSpan={6}>TOTAL — {sheetRowCount} days</td>
                 <td className="px-3 py-2 text-right tabular-nums text-xs">{formatHours(month!.total_hours)}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-xs">{formatPHP(month!.gross)}</td>
+                <td />
               </tr>
             </tfoot>
           </table>
@@ -381,6 +462,15 @@ function ConsolidationTab({
                     })}
                   </tr>
                 ))}
+                <tr className="border-t border-border bg-muted/20 font-medium">
+                  <td className="sticky left-0 z-10 bg-muted/20 px-3 py-1.5">ALLOWANCE</td>
+                  {result.users.map(u => (
+                    <Fragment2 key={u.user_id}>
+                      <td className="px-2 py-1.5 text-right tabular-nums border-l border-border text-muted-foreground">—</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{formatPHP(u.allowance_paid)}</td>
+                    </Fragment2>
+                  ))}
+                </tr>
                 <tr className="border-t border-border bg-muted/30 font-semibold">
                   <td className="sticky left-0 z-10 bg-muted/30 px-3 py-2">TOTAL (Net / Hrs)</td>
                   {result.users.map(u => (
@@ -524,9 +614,11 @@ interface ProfileFormState {
   full_day_threshold_hours: string;
   dayoff_divisor: string;
   active: boolean;
+  can_view_all: boolean;
 }
 
 function profileToForm(p: TimesheetProfile | null): ProfileFormState {
+  const pv = p as (TimesheetProfile & { can_view_all?: boolean }) | null;
   return {
     template_type: p?.template_type ?? 'csr',
     job_title: p?.job_title ?? '',
@@ -541,6 +633,7 @@ function profileToForm(p: TimesheetProfile | null): ProfileFormState {
     full_day_threshold_hours: p?.full_day_threshold_hours != null ? String(p.full_day_threshold_hours) : '',
     dayoff_divisor: p?.dayoff_divisor != null ? String(p.dayoff_divisor) : '4',
     active: p?.active ?? true,
+    can_view_all: pv?.can_view_all ?? false,
   };
 }
 
@@ -586,13 +679,18 @@ function AssignmentDialog({
         work_days: form.work_days,
         shift_start: form.shift_start || null,
         shift_end: form.shift_end || null,
-        basic_salary: numOrNull(form.basic_salary),
-        allowance: numOrNull(form.allowance),
-        half_day_rate: numOrNull(form.half_day_rate),
-        full_day_rate: numOrNull(form.full_day_rate),
-        full_day_threshold_hours: numOrNull(form.full_day_threshold_hours),
-        dayoff_divisor: form.dayoff_divisor.trim() === '' ? 4 : Number(form.dayoff_divisor),
+        // basic_salary / allowance only apply to CSR. live_admin pay is
+        // computed from fixed tiers — those columns stay null. The four
+        // rate-override columns are NEVER written from the UI; the engine
+        // ignores them.
+        basic_salary: form.template_type === 'csr' ? numOrNull(form.basic_salary) : null,
+        allowance: form.template_type === 'csr' ? numOrNull(form.allowance) : null,
+        half_day_rate: null,
+        full_day_rate: null,
+        full_day_threshold_hours: null,
+        dayoff_divisor: 4,
         active: form.active,
+        can_view_all: form.can_view_all,
       };
       const client = supabase as any;
       const { error } = existing
@@ -610,7 +708,6 @@ function AssignmentDialog({
   }
 
   const isCsr = form.template_type === 'csr';
-  const defaults = TEMPLATE_DEFAULTS[form.template_type];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -651,6 +748,12 @@ function AssignmentDialog({
             </div>
           </div>
 
+          <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border/60 bg-muted/10 px-3 py-2 text-sm">
+            <Checkbox checked={form.can_view_all} onCheckedChange={v => upd('can_view_all', v === true)} />
+            <span>Can view Consolidation + Cost Master</span>
+            <span className="ml-auto text-[10px] text-muted-foreground">timesheet-only, no role change</span>
+          </label>
+
           <div className="space-y-1.5">
             <Label className="text-xs">Work Days (ISO Mon→Sun)</Label>
             <div className="flex flex-wrap gap-1.5">
@@ -683,7 +786,7 @@ function AssignmentDialog({
             </div>
           </div>
 
-          {isCsr && (
+          {isCsr ? (
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs">Basic Salary (₱)</Label>
@@ -694,35 +797,11 @@ function AssignmentDialog({
                 <Input type="number" value={form.allowance} onChange={e => upd('allowance', e.target.value)} className="h-9" min={0} />
               </div>
             </div>
-          )}
-
-          <div className="rounded-md border border-border/60 bg-muted/10 p-3">
-            <p className="mb-2 text-[11px] uppercase text-muted-foreground">
-              Rate overrides (blank → template default)
+          ) : (
+            <p className="text-[11px] text-muted-foreground">
+              Pay is computed from fixed tiers: ₱300 (1–3.99 hr) / ₱500 (≥4 hr).
             </p>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Half-day ₱</Label>
-                <Input type="number" value={form.half_day_rate} onChange={e => upd('half_day_rate', e.target.value)} className="h-9" placeholder={String(defaults.half_day_rate)} />
-              </div>
-              {!isCsr && (
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Full-day ₱</Label>
-                  <Input type="number" value={form.full_day_rate} onChange={e => upd('full_day_rate', e.target.value)} className="h-9" placeholder={String(defaults.full_day_rate ?? '')} />
-                </div>
-              )}
-              <div className="space-y-1.5">
-                <Label className="text-xs">Full-day hrs</Label>
-                <Input type="number" value={form.full_day_threshold_hours} onChange={e => upd('full_day_threshold_hours', e.target.value)} className="h-9" placeholder={String(defaults.full_day_threshold_hours)} />
-              </div>
-              {isCsr && (
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Day-off divisor</Label>
-                  <Input type="number" value={form.dayoff_divisor} onChange={e => upd('dayoff_divisor', e.target.value)} className="h-9" placeholder="4" />
-                </div>
-              )}
-            </div>
-          </div>
+          )}
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
@@ -831,22 +910,205 @@ function SummaryCard({ label, value, sub, highlight }: { label: string; value: s
   );
 }
 
+// ── Tab: Full Summary (admin) ───────────────────────────────────────────────
+
+const CSR_BAR = '#D4AF37';
+const LIVE_ADMIN_BAR = '#1756A8';
+
+function FullSummaryTab({
+  profiles, allEntries,
+}: {
+  profiles: TimesheetProfile[];
+  allEntries: (TimesheetEntry & { user_id: string })[];
+}) {
+  const summary = useMemo(
+    () => computeAllMonthsSummary(profiles, allEntries),
+    [profiles, allEntries],
+  );
+
+  // Historical months persisted before the live data existed. Live computed
+  // rows always win on a month-key collision; history only fills gaps.
+  const [histRows, setHistRows] = useState<MonthCostRow[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await (supabase as any)
+        .from('timesheet_monthly_history')
+        .select('month_key, csr_net, liveadmin_net');
+      if (cancelled) return;
+      const mapped: MonthCostRow[] = ((data as { month_key: string; csr_net: number; liveadmin_net: number }[]) ?? [])
+        .map(r => ({
+          monthKey: r.month_key,
+          label: monthLabelFromKey(r.month_key),
+          csr: Number(r.csr_net),
+          liveAdmin: Number(r.liveadmin_net),
+          total: Number(r.csr_net) + Number(r.liveadmin_net),
+        }));
+      setHistRows(mapped);
+    })().catch(() => { if (!cancelled) setHistRows([]); });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Merge history + live by monthKey (live wins), ascending.
+  const mergedRows = useMemo<MonthCostRow[]>(() => {
+    const byKey = new Map<string, MonthCostRow>();
+    for (const r of histRows) byKey.set(r.monthKey, r);
+    for (const r of summary.rows) byKey.set(r.monthKey, r); // live overrides history
+    return Array.from(byKey.values()).sort((a, b) => a.monthKey.localeCompare(b.monthKey));
+  }, [histRows, summary.rows]);
+
+  // Year filter — "all" plus each distinct year present in the merged list.
+  const [year, setYear] = useState<string>('all');
+  const years = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of mergedRows) set.add(r.monthKey.slice(0, 4));
+    return Array.from(set).sort();
+  }, [mergedRows]);
+  // Reset to "all" if the selected year disappears from the data.
+  useEffect(() => {
+    if (year !== 'all' && !years.includes(year)) setYear('all');
+  }, [years, year]);
+
+  const filteredRows = useMemo(
+    () => (year === 'all' ? mergedRows : mergedRows.filter(r => r.monthKey.slice(0, 4) === year)),
+    [mergedRows, year],
+  );
+
+  const filteredTotals = useMemo(() => {
+    let csr = 0, liveAdmin = 0, total = 0;
+    for (const r of filteredRows) { csr += r.csr; liveAdmin += r.liveAdmin; total += r.total; }
+    return { csr, liveAdmin, total };
+  }, [filteredRows]);
+
+  const hasData = filteredRows.length > 0;
+  const headlineLabel = year === 'all' ? 'All-time payroll cost' : `${year} payroll cost`;
+  const footerLabel = year === 'all' ? 'All-time total' : `${year} total`;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="rounded-lg border border-border bg-card p-4 flex-1 min-w-[220px]">
+          <p className="text-xs text-muted-foreground">{headlineLabel}</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-primary">{formatPHP(filteredTotals.total)}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-muted-foreground">Year</Label>
+          <Select value={year} onValueChange={setYear}>
+            <SelectTrigger className="h-9 w-32"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              {years.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {!hasData ? (
+        <div className="rounded-lg border border-border bg-card p-12 text-center text-sm text-muted-foreground">
+          No timesheet data yet.
+        </div>
+      ) : (
+        <>
+          <div className="rounded-lg border border-border bg-card p-4">
+            <h3 className="mb-3 text-sm font-semibold text-card-foreground">Monthly Payroll Cost</h3>
+            <div className="h-[320px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={filteredRows} margin={{ top: 4, right: 24, left: 8, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="label" stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 11 }} />
+                  <YAxis stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 11 }} />
+                  <Tooltip
+                    cursor={{ fill: 'hsl(var(--muted) / 0.3)' }}
+                    contentStyle={{
+                      background: 'hsl(var(--card))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: 6,
+                      fontSize: 12,
+                    }}
+                    formatter={(value: number) => formatPHP(value)}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="csr" stackId="cost" fill={CSR_BAR} name="CSR" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="liveAdmin" stackId="cost" fill={LIVE_ADMIN_BAR} name="Live Admin" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-lg border border-border bg-card">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium">Month</th>
+                  <th className="px-3 py-2 text-right font-medium">CSR</th>
+                  <th className="px-3 py-2 text-right font-medium">Live Admin</th>
+                  <th className="px-3 py-2 text-right font-medium">Grand Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRows.map(r => (
+                  <tr key={r.monthKey} className="border-t border-border">
+                    <td className="px-3 py-2 font-medium">{r.label}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{formatPHP(r.csr)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{formatPHP(r.liveAdmin)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-semibold text-primary">{formatPHP(r.total)}</td>
+                  </tr>
+                ))}
+                <tr className="border-t-2 border-primary/40 bg-primary/5 font-semibold">
+                  <td className="px-3 py-2.5">{footerLabel}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{formatPHP(filteredTotals.csr)}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{formatPHP(filteredTotals.liveAdmin)}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-primary">{formatPHP(filteredTotals.total)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ───────────────────────────────────────────────────────────────
 
-const TAB_VALUES = ['my', 'consolidation', 'cost', 'assignments'] as const;
+const TAB_VALUES = ['my', 'fullsummary', 'consolidation', 'cost', 'assignments'] as const;
 type TabValue = typeof TAB_VALUES[number];
 
 export default function Timesheet() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, roles } = useAuth();
   const isAdmin = roles.includes('admin');
-  const canConsolidate = isAdmin || roles.includes('finance');
   const userId = user?.id ?? '';
 
+  const [monthKey, setMonthKey] = useState<string>(currentMonthKey());
+  const [loading, setLoading] = useState(true);
+
+  // My-tab data — loaded on every path (the current user's own profile +
+  // entries). myProfile carries the timesheet-only can_view_all flag.
+  const [myProfile, setMyProfile] = useState<TimesheetProfile | null>(null);
+  const [myEntries, setMyEntries] = useState<TimesheetEntry[]>([]);
+
+  // can_view_all is a timesheet-only visibility grant (NOT a finance/admin
+  // role). A flagged staff member sees Consolidation + Cost Master while
+  // keeping My Timesheet; they never get Full Summary or Assignments. It's
+  // not in the engine's TimesheetProfile interface, so read it via cast.
+  const canViewAll = !!(myProfile as (TimesheetProfile & { can_view_all?: boolean }) | null)?.can_view_all;
+
+  // Single source of truth for the two shared gates.
+  const canConsolidate = isAdmin || roles.includes('finance') || canViewAll;
+  const canViewCost = isAdmin || canViewAll;
+
+  // Admin lands on Full Summary and has NO "My Timesheet" tab; everyone
+  // else (incl. flagged staff) lands on My Timesheet.
+  const defaultTab: TabValue = isAdmin ? 'fullsummary' : 'my';
+
   function tabFromParamGated(s: string | null): TabValue {
-    const v = (s && (TAB_VALUES as readonly string[]).includes(s)) ? (s as TabValue) : 'my';
-    if ((v === 'consolidation') && !canConsolidate) return 'my';
-    if ((v === 'cost' || v === 'assignments') && !isAdmin) return 'my';
+    const v = (s && (TAB_VALUES as readonly string[]).includes(s)) ? (s as TabValue) : defaultTab;
+    if (v === 'fullsummary' && !isAdmin) return 'my';         // admin-only view
+    if (v === 'my' && isAdmin) return 'fullsummary';          // My Timesheet hidden from admin
+    if (v === 'consolidation' && !canConsolidate) return defaultTab;
+    if (v === 'cost' && !canViewCost) return defaultTab;
+    if (v === 'assignments' && !isAdmin) return defaultTab;
     return v;
   }
 
@@ -855,30 +1117,29 @@ export default function Timesheet() {
   useEffect(() => {
     setTab(tabFromParamGated(searchParams.get('tab')));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, isAdmin, canConsolidate]);
+  }, [searchParams, isAdmin, canConsolidate, canViewCost]);
 
   function setTabAndUrl(next: string) {
     const v = tabFromParamGated(next);
     setTab(v);
-    setSearchParams(v === 'my' ? {} : { tab: v }, { replace: true });
+    setSearchParams(v === defaultTab ? {} : { tab: v }, { replace: true });
   }
-
-  const [monthKey, setMonthKey] = useState<string>(currentMonthKey());
-  const [loading, setLoading] = useState(true);
-
-  // My-tab data
-  const [myProfile, setMyProfile] = useState<TimesheetProfile | null>(null);
-  const [myEntries, setMyEntries] = useState<TimesheetEntry[]>([]);
 
   // Admin/finance data
   const [allProfiles, setAllProfiles] = useState<TimesheetProfile[]>([]);
   const [allEntries, setAllEntries] = useState<(TimesheetEntry & { user_id: string })[]>([]);
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [nameByUser, setNameByUser] = useState<Map<string, string>>(new Map());
+  // All-time entries for the admin Full Summary (every month, no date range).
+  const [summaryEntries, setSummaryEntries] = useState<(TimesheetEntry & { user_id: string })[]>([]);
 
   const monthRange = useMemo(() => {
+    // Load only the ACTUAL calendar month. Spillover rows (the trailing
+    // next-month dates that pad the 31-row grid) are display-only and must
+    // NOT feed this month's hours/salary/absences, so we never fetch their
+    // entries here — they belong to the next month's sheet.
     const start = `${monthKey}-01`;
-    const end = `${monthKey}-${String(daysInMonthOf(monthKey)).padStart(2, '0')}`;
+    const end = addDays(start, daysInMonthOf(monthKey) - 1);
     return { start, end };
   }, [monthKey]);
 
@@ -887,7 +1148,7 @@ export default function Timesheet() {
     setLoading(true);
     try {
       const client = supabase as any;
-      const profileCols = 'id, user_id, template_type, job_title, timezone, work_days, shift_start, shift_end, basic_salary, allowance, half_day_rate, full_day_rate, full_day_threshold_hours, dayoff_divisor, active';
+      const profileCols = 'id, user_id, template_type, job_title, timezone, work_days, shift_start, shift_end, basic_salary, allowance, half_day_rate, full_day_rate, full_day_threshold_hours, dayoff_divisor, active, can_view_all';
       const entryCols = 'work_date, am_in, am_out, pm_in, pm_out, user_id';
 
       // My profile + entries (explicit user filter on top of RLS).
@@ -918,13 +1179,23 @@ export default function Timesheet() {
         setStaff(rows);
         setNameByUser(new Map(rows.map(r => [r.user_id, r.full_name])));
       }
+
+      // All-time entries for the admin Full Summary — every month, no date
+      // range (RLS returns all rows for admin). Active-profile filtering and
+      // per-month grouping happen inside computeAllMonthsSummary.
+      if (isAdmin) {
+        const { data: allTime } = await client
+          .from('timesheet_entries')
+          .select(entryCols);
+        setSummaryEntries((allTime as (TimesheetEntry & { user_id: string })[]) ?? []);
+      }
     } catch (err: unknown) {
       console.warn('Failed to load timesheet data:', (err as Error)?.message);
       toast.error('Failed to load timesheet data');
     } finally {
       setLoading(false);
     }
-  }, [userId, monthRange.start, monthRange.end, canConsolidate]);
+  }, [userId, monthRange.start, monthRange.end, canConsolidate, isAdmin]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -959,22 +1230,31 @@ export default function Timesheet() {
         ) : (
           <Tabs value={tab} onValueChange={setTabAndUrl}>
             <TabsList>
-              <TabsTrigger value="my">My Timesheet</TabsTrigger>
+              {isAdmin && <TabsTrigger value="fullsummary">Full Summary</TabsTrigger>}
+              {!isAdmin && <TabsTrigger value="my">My Timesheet</TabsTrigger>}
               {canConsolidate && <TabsTrigger value="consolidation">Consolidation</TabsTrigger>}
-              {isAdmin && <TabsTrigger value="cost">Cost Master</TabsTrigger>}
+              {canViewCost && <TabsTrigger value="cost">Cost Master</TabsTrigger>}
               {isAdmin && <TabsTrigger value="assignments">Assignments</TabsTrigger>}
             </TabsList>
 
-            <TabsContent value="my" className="mt-4">
-              <MyTimesheetTab
-                profile={myProfile}
-                entries={myEntries}
-                monthKey={monthKey}
-                onMonthChange={setMonthKey}
-                onRefresh={load}
-                userId={userId}
-              />
-            </TabsContent>
+            {isAdmin && (
+              <TabsContent value="fullsummary" className="mt-4">
+                <FullSummaryTab profiles={allProfiles} allEntries={summaryEntries} />
+              </TabsContent>
+            )}
+
+            {!isAdmin && (
+              <TabsContent value="my" className="mt-4">
+                <MyTimesheetTab
+                  profile={myProfile}
+                  entries={myEntries}
+                  monthKey={monthKey}
+                  onMonthChange={setMonthKey}
+                  onRefresh={load}
+                  userId={userId}
+                />
+              </TabsContent>
+            )}
 
             {canConsolidate && (
               <TabsContent value="consolidation" className="mt-4">
@@ -988,7 +1268,7 @@ export default function Timesheet() {
               </TabsContent>
             )}
 
-            {isAdmin && (
+            {canViewCost && (
               <TabsContent value="cost" className="mt-4">
                 <CostMasterTab
                   profiles={allProfiles}

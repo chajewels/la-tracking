@@ -40,11 +40,12 @@ export interface TimesheetEntry {
 export interface DayComputation {
   date: string;                  // 'YYYY-MM-DD'
   dow: number;                   // ISO 1..7
+  inMonth: boolean;              // date's YYYY-MM === monthKey (false = spillover row)
   hours: number;
   salary: number;
   isScheduled: boolean;
-  isAbsence: boolean;            // scheduled day with hours < 1
-  isDayoff: boolean;             // any day with hours < 1
+  isAbsence: boolean;            // IN-MONTH scheduled day with hours < 1
+  isDayoff: boolean;             // IN-MONTH day with hours < 1
   entry: TimesheetEntry | null;
 }
 
@@ -60,19 +61,30 @@ export interface MonthComputation {
   forfeitedWeeks: number;
 }
 
-// ── Template defaults (applied when a profile field is null) ────────────────
+// ── Fixed pay constants (LOCKED — not configurable per profile) ─────────────
+//
+// Per-day rates are CODE CONSTANTS. The four override columns on
+// timesheet_profiles (half_day_rate, full_day_rate,
+// full_day_threshold_hours, dayoff_divisor) are intentionally ignored
+// by this engine. They remain on the schema as unused/null. Only
+// basic_salary (CSR) and allowance (CSR) come from the profile.
+//
+// A monthly sheet ALWAYS has 31 day rows (matches the source
+// spreadsheet's fixed day-count cell). Shorter months (30-day,
+// February) spill into the next month's first days until 31 is
+// reached. The CSR full-day rate normalizes over 31, not the actual
+// calendar month length — divisor is (TIMESHEET_ROWS − 4) = 27.
 
-interface TemplateDefaults {
-  half_day_rate: number;
-  full_day_rate: number | null;
-  full_day_threshold_hours: number;
-  dayoff_divisor: number;
-}
+export const TIMESHEET_ROWS = 31;
 
-export const TEMPLATE_DEFAULTS: Record<TemplateType, TemplateDefaults> = {
-  live_admin: { half_day_rate: 300, full_day_rate: 500, full_day_threshold_hours: 4, dayoff_divisor: 4 },
-  csr:        { half_day_rate: 400, full_day_rate: null, full_day_threshold_hours: 6, dayoff_divisor: 4 },
-};
+const LIVE_ADMIN_HALF = 300;
+const LIVE_ADMIN_FULL = 500;
+const CSR_HALF = 400;
+const CSR_DAYOFF_DIVISOR = 4;
+
+// Thresholds reproduce the source sheet's >3.99 / >5.99 tests exactly.
+const LIVE_ADMIN_FULL_THRESHOLD = 3.99;
+const CSR_FULL_THRESHOLD = 5.99;
 
 export const TEMPLATE_LABEL: Record<TemplateType, string> = {
   live_admin: 'Live Admin',
@@ -130,47 +142,118 @@ export function hoursBetween(a: string | null, b: string | null): number {
   return (tb - ta) / 3600000;
 }
 
-/** Daily hours = AM session + PM session, null-safe, clamped to >= 0. */
-export function dailyHours(entry: TimesheetEntry | null | undefined): number {
+/** Wall-clock time-of-day of a timestamptz in the given IANA timezone,
+ *  expressed as decimal hours in 0..24. Null/empty/invalid → 0.
+ *  Mirrors the sheet's interpretation of a blank punch cell as 0. */
+export function timeOfDayHours(iso: string | null, timezone: string): number {
+  if (!iso) return 0;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 0;
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: timezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(d);
+  const get = (t: string) => Number(parts.find(p => p.type === t)?.value ?? 0);
+  const hour = get('hour');
+  const minute = get('minute');
+  const second = get('second');
+  // Some locales emit "24:00:00" for midnight under hour12:false — normalize.
+  const h = hour === 24 ? 0 : hour;
+  return h + minute / 60 + second / 3600;
+}
+
+/** Daily hours per the source sheet's literal formula:
+ *    ((E - B) - (D - C)) × 24
+ *  where B = am_in, C = am_out, D = pm_in, E = pm_out, each as a
+ *  time-of-day in decimal hours (blank → 0). We already work in
+ *  decimal hours, so the ×24 is implicit. Result is clamped to >= 0.
+ *
+ *  This correctly handles in+out only (no lunch punches), AM-only,
+ *  PM-only, and full days — any blank punch contributes 0, which is
+ *  the spreadsheet's behavior. */
+export function dailyHours(
+  entry: TimesheetEntry | null | undefined,
+  timezone: string,
+): number {
   if (!entry) return 0;
-  const h = hoursBetween(entry.am_in, entry.am_out) + hoursBetween(entry.pm_in, entry.pm_out);
-  return h > 0 ? h : 0;
+  const B = timeOfDayHours(entry.am_in, timezone);
+  const C = timeOfDayHours(entry.am_out, timezone);
+  const D = timeOfDayHours(entry.pm_in, timezone);
+  const E = timeOfDayHours(entry.pm_out, timezone);
+  const h = (E - B) - (D - C);
+  return h < 0 ? 0 : h;
 }
 
 /** Daily salary for the given worked hours under a profile.
- *  daysInMonth feeds the CSR full-day rate derivation. */
-export function dailySalary(hours: number, profile: TimesheetProfile, daysInMonth: number): number {
+ *  Rates are FIXED code constants — the profile's half_day_rate,
+ *  full_day_rate, full_day_threshold_hours and dayoff_divisor columns
+ *  are intentionally ignored. Only basic_salary feeds the CSR
+ *  derivation.
+ *
+ *  CSR full-day rate normalizes over the fixed 31-row sheet span,
+ *  NOT the actual month length: basic / (TIMESHEET_ROWS − 4) = basic / 27.
+ *  (Param kept for backward compatibility and is unused.)
+ */
+export function dailySalary(hours: number, profile: TimesheetProfile, _daysInMonth?: number): number {
+  void _daysInMonth;
   if (hours < 1) return 0;
-  const defaults = TEMPLATE_DEFAULTS[profile.template_type];
-  const threshold = profile.full_day_threshold_hours ?? defaults.full_day_threshold_hours;
 
   if (profile.template_type === 'live_admin') {
-    const fullRate = profile.full_day_rate ?? defaults.full_day_rate ?? 500;
-    const halfRate = profile.half_day_rate ?? defaults.half_day_rate;
-    return hours > (threshold - 0.01) ? fullRate : halfRate;
+    return hours > LIVE_ADMIN_FULL_THRESHOLD ? LIVE_ADMIN_FULL : LIVE_ADMIN_HALF;
   }
 
   // csr
   const basic = profile.basic_salary ?? 0;
-  const divisor = profile.dayoff_divisor ?? defaults.dayoff_divisor;
-  const fullRate = Math.round((basic / Math.max(1, daysInMonth - divisor)) * 10000) / 10000;
-  const halfRate = profile.half_day_rate ?? defaults.half_day_rate;
-  return hours > (threshold - 0.01) ? fullRate : halfRate;
+  const fullRate = Math.round((basic / (TIMESHEET_ROWS - CSR_DAYOFF_DIVISOR)) * 10000) / 10000;
+  return hours > CSR_FULL_THRESHOLD ? fullRate : CSR_HALF;
 }
 
-/** Bucket day numbers (1..daysInMonth) into Mon–Sun weeks.
- *  Week 1 = day 1 through the first Sunday; capped at 4 buckets — any
- *  5th-week days roll into bucket 4 (index 3). Returns an array of 4 arrays
- *  of day numbers. */
-export function weekBuckets(monthKey: string, daysInMonth: number): number[][] {
-  const buckets: number[][] = [[], [], [], []];
-  let bucketIdx = 0;
-  for (let day = 1; day <= daysInMonth; day++) {
-    const dow = isoDowOf(dateStrOf(monthKey, day));
-    const idx = Math.min(bucketIdx, 3);
-    buckets[idx].push(day);
-    // Sunday closes the current week → advance the bucket pointer.
-    if (dow === 7) bucketIdx++;
+/** Add `n` days to a 'YYYY-MM-DD' string and return the resulting
+ *  'YYYY-MM-DD'. DST-safe: works in UTC and never crosses local DST
+ *  boundaries. */
+export function addDays(dateStr: string, n: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const t = Date.UTC(y, (m || 1) - 1, d || 1) + n * 86400000;
+  const dt = new Date(t);
+  return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())}`;
+}
+
+/** The fixed 31 consecutive dates that form a month's sheet, starting
+ *  at the 1st of `monthKey`. Shorter months spill into the next month
+ *  automatically. */
+export function timesheetDatesOf(monthKey: string): string[] {
+  const first = `${monthKey}-01`;
+  const out: string[] = [];
+  for (let i = 0; i < TIMESHEET_ROWS; i++) out.push(addDays(first, i));
+  return out;
+}
+
+/** Bucket the IN-MONTH timesheet dates of `monthKey` into 4 Mon–Sun
+ *  weeks, anchored on MONDAYS. Spillover next-month dates are EXCLUDED
+ *  (they belong to the next month and must not feed this month's
+ *  forfeiture).
+ *
+ *  Anchoring on Mondays — rather than advancing on each Sunday — fixes
+ *  the lone-leading-partial-week bug: when a month starts on a Sunday
+ *  (e.g. Feb/Mar 2026) the old logic made the 1st its own 1-day bucket
+ *  that could never reach >= 3 absences, so its quarter of the
+ *  allowance was never forfeitable. Here the leading days before the
+ *  first Monday merge into week 1 (bucket 0), each subsequent Monday
+ *  opens the next bucket, and any 5th week rolls into bucket 3. */
+export function weekBuckets(monthKey: string): string[][] {
+  const buckets: string[][] = [[], [], [], []];
+  let idx = 0;
+  let seenMonday = false;
+  for (const date of timesheetDatesOf(monthKey)) {
+    if (date.slice(0, 7) !== monthKey) break; // spillover → out of this month
+    if (isoDowOf(date) === 1) {
+      if (seenMonday) idx = Math.min(idx + 1, 3);
+      seenMonday = true;
+    }
+    buckets[idx].push(date);
   }
   return buckets;
 }
@@ -182,10 +265,14 @@ export function computeMonth(
   entries: TimesheetEntry[],
   profile: TimesheetProfile,
 ): MonthComputation {
-  const daysInMonth = daysInMonthOf(monthKey);
+  // The sheet ALWAYS has 31 day rows. Shorter calendar months spill into
+  // the first days of the next month — `entryByDate` accepts any of those
+  // dates, not just dates whose monthKey matches `monthKey`.
+  const sheetDates = timesheetDatesOf(monthKey);
+  const dateSet = new Set(sheetDates);
   const entryByDate = new Map<string, TimesheetEntry>();
   for (const e of entries) {
-    if (monthKeyFromDate(e.work_date) === monthKey) entryByDate.set(e.work_date, e);
+    if (dateSet.has(e.work_date)) entryByDate.set(e.work_date, e);
   }
   const workDays = new Set(profile.work_days ?? []);
 
@@ -194,13 +281,25 @@ export function computeMonth(
   let sumDailySalary = 0;
   let dayoff_count = 0;
 
-  for (let day = 1; day <= daysInMonth; day++) {
-    const date = dateStrOf(monthKey, day);
+  for (const date of sheetDates) {
     const dow = isoDowOf(date);
-    const entry = entryByDate.get(date) ?? null;
-    const hours = entry ? dailyHours(entry) : 0;
-    const salary = dailySalary(hours, profile, daysInMonth);
+    const inMonth = date.slice(0, 7) === monthKey;
     const isScheduled = workDays.has(dow);
+
+    if (!inMonth) {
+      // Spillover row — DISPLAY ONLY. Belongs to the next month; it
+      // contributes no hours, salary, day-off, or absence here.
+      days.push({
+        date, dow, inMonth: false, hours: 0, salary: 0,
+        isScheduled, isAbsence: false, isDayoff: false, entry: null,
+      });
+      continue;
+    }
+
+    const entry = entryByDate.get(date) ?? null;
+    const hours = entry ? dailyHours(entry, profile.timezone || 'Asia/Manila') : 0;
+    const salary = dailySalary(hours, profile);
+    // A missing entry (hours 0) on a scheduled day is an absence.
     const isAbsence = isScheduled && hours < 1;
     const isDayoff = hours < 1;
 
@@ -208,7 +307,7 @@ export function computeMonth(
     sumDailySalary += salary;
     if (hours < 1) dayoff_count += 1;
 
-    days.push({ date, dow, hours, salary, isScheduled, isAbsence, isDayoff, entry });
+    days.push({ date, dow, inMonth: true, hours, salary, isScheduled, isAbsence, isDayoff, entry });
   }
 
   let gross: number;
@@ -218,19 +317,21 @@ export function computeMonth(
   if (profile.template_type === 'csr') {
     gross = profile.basic_salary != null ? Math.min(sumDailySalary, profile.basic_salary) : sumDailySalary;
 
-    // Allowance absence deduction — LOCKED. A week with >= 3 absences forfeits
-    // its quarter of the monthly allowance.
-    const absenceByDay = new Map<number, boolean>();
-    for (const d of days) {
-      absenceByDay.set(Number(d.date.slice(8, 10)), d.isAbsence);
-    }
-    const buckets = weekBuckets(monthKey, daysInMonth);
+    // Allowance absence deduction — LOCKED. Every IN-MONTH scheduled work
+    // day with hours < 1 (INCLUDING dates with no entry row) is an absence;
+    // those are exactly the days flagged isAbsence above. A Mon–Sun bucket
+    // with >= 3 absences forfeits its quarter. Buckets are built from
+    // in-month days only, so spillover never reduces the forfeiture and a
+    // fully-empty month forfeits all 4 → allowance 0.
+    const absenceByDate = new Map<string, boolean>();
+    for (const d of days) absenceByDate.set(d.date, d.isAbsence);
+    const buckets = weekBuckets(monthKey);
     for (const bucket of buckets) {
-      const absences = bucket.reduce((n, day) => n + (absenceByDay.get(day) ? 1 : 0), 0);
+      const absences = bucket.reduce((n, date) => n + (absenceByDate.get(date) ? 1 : 0), 0);
       if (absences >= 3) forfeitedWeeks += 1;
     }
     const allowance = profile.allowance ?? 0;
-    allowance_paid = allowance * (1 - Math.min(forfeitedWeeks, 4) / 4);
+    allowance_paid = Math.round(allowance * (1 - Math.min(forfeitedWeeks, 4) / 4) * 100) / 100;
   } else {
     gross = sumDailySalary; // live_admin: uncapped
     allowance_paid = 0;
@@ -259,6 +360,7 @@ export interface ConsolidationUserCol {
   template_type: TemplateType;
   net: number;
   total_hours: number;
+  allowance_paid: number;
 }
 
 export interface ConsolidationDayCell {
@@ -285,9 +387,12 @@ export function computeConsolidation(
   entriesByUser: Map<string, TimesheetEntry[]>,
   nameByUser: Map<string, string>,
 ): ConsolidationResult {
-  const daysInMonth = daysInMonthOf(monthKey);
-  const dates: string[] = [];
-  for (let day = 1; day <= daysInMonth; day++) dates.push(dateStrOf(monthKey, day));
+  // Fixed 31-row span (matches computeMonth). `daysInMonth` in the
+  // returned shape is the sheet row count, NOT the calendar month
+  // length — kept under that name for backward compatibility with the
+  // existing page caller.
+  const dates: string[] = timesheetDatesOf(monthKey);
+  const daysInMonth = dates.length;
 
   const users: ConsolidationUserCol[] = [];
   const matrix: Record<string, Record<string, ConsolidationDayCell>> = {};
@@ -302,6 +407,7 @@ export function computeConsolidation(
       template_type: profile.template_type,
       net: month.net,
       total_hours: month.total_hours,
+      allowance_paid: month.allowance_paid,
     });
     for (const d of month.days) {
       matrix[d.date][profile.user_id] = { hours: d.hours, salary: d.salary };
@@ -318,6 +424,72 @@ export function computeConsolidation(
     users,
     matrix,
   };
+}
+
+// ── Cross-month cost summary (admin Full Summary) ───────────────────────────
+
+export interface MonthCostRow {
+  monthKey: string;
+  label: string;
+  csr: number;
+  liveAdmin: number;
+  total: number;
+}
+
+export interface AllMonthsSummary {
+  rows: MonthCostRow[];
+  cumulative: { csr: number; liveAdmin: number; total: number };
+}
+
+/** Aggregate net payroll cost per month across every ACTIVE profile.
+ *  Net is the cost basis (same value Cost Master shows). Months are the
+ *  distinct YYYY-MM present in `allEntries`, ascending. For each month ×
+ *  active profile, the user's in-month entries are run through
+ *  computeMonth and the resulting net is summed by template_type. No pay
+ *  math is duplicated — this only sums computeMonth(...).net. */
+export function computeAllMonthsSummary(
+  profiles: TimesheetProfile[],
+  allEntries: (TimesheetEntry & { user_id: string })[],
+): AllMonthsSummary {
+  const active = profiles.filter(p => p.active);
+
+  // Distinct months present in the entry data, ascending.
+  const monthSet = new Set<string>();
+  for (const e of allEntries) {
+    const mk = monthKeyFromDate(e.work_date);
+    if (mk) monthSet.add(mk);
+  }
+  const monthKeys = Array.from(monthSet).sort();
+
+  // Group entries by user once, for per-month filtering.
+  const entriesByUser = new Map<string, (TimesheetEntry & { user_id: string })[]>();
+  for (const e of allEntries) {
+    const list = entriesByUser.get(e.user_id) ?? [];
+    list.push(e);
+    entriesByUser.set(e.user_id, list);
+  }
+
+  const rows: MonthCostRow[] = [];
+  const cumulative = { csr: 0, liveAdmin: 0, total: 0 };
+
+  for (const monthKey of monthKeys) {
+    let csr = 0;
+    let liveAdmin = 0;
+    for (const profile of active) {
+      const userEntries = (entriesByUser.get(profile.user_id) ?? [])
+        .filter(e => monthKeyFromDate(e.work_date) === monthKey);
+      const month = computeMonth(monthKey, userEntries, profile);
+      if (profile.template_type === 'csr') csr += month.net;
+      else liveAdmin += month.net;
+    }
+    const total = csr + liveAdmin;
+    rows.push({ monthKey, label: monthLabelFromKey(monthKey), csr, liveAdmin, total });
+    cumulative.csr += csr;
+    cumulative.liveAdmin += liveAdmin;
+    cumulative.total += total;
+  }
+
+  return { rows, cumulative };
 }
 
 // ── Formatting ──────────────────────────────────────────────────────────────
