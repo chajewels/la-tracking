@@ -71,6 +71,7 @@ const CustomerDetail = lazy(() => import("./pages/CustomerDetail"));
 const Monitoring = lazy(() => import("./pages/Monitoring"));
 const Inquiries = lazy(() => import("./pages/Inquiries"));
 const Commissions = lazy(() => import("./pages/Commissions"));
+const Timesheet = lazy(() => import("./pages/Timesheet"));
 const CustomerPortal = lazy(() => import("./pages/CustomerPortal"));
 const LoyaltyPortal = lazy(() => import("./pages/LoyaltyPortal"));
 const Finance = lazy(() => import("./pages/Finance"));
@@ -167,6 +168,7 @@ const App = () => (
                 <Route path="/monitoring" element={<Protected><Monitoring /></Protected>} />
                 <Route path="/inquiries" element={<Protected><Inquiries /></Protected>} />
                 <Route path="/commissions" element={<Protected><Commissions /></Protected>} />
+                <Route path="/timesheet" element={<Protected><Timesheet /></Protected>} />
                 <Route path="/finance" element={<Protected><Finance /></Protected>} />
                 <Route path="/admin-audit" element={<Protected><AdminAudit /></Protected>} />
                 <Route path="/admin-activity" element={<Protected><AdminActivityLog /></Protected>} />

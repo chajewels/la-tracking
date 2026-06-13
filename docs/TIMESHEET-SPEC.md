@@ -1,9 +1,11 @@
 # Timesheet Feature — Spec
 
-**Status:** Product/pay logic LOCKED (2026-06-13). Pre-implementation.
-Repo audit still pending — table names, `auth_user_id` mapping for staff,
-sidebar wiring, RLS patterns, and permission registration are finalized
-after the audit. Provisional names below are marked.
+**Status:** BUILT (2026-06-13). Product/pay logic LOCKED. Shipped as
+`src/pages/Timesheet.tsx` + `src/lib/timesheetEngine.ts` (pure-TS engine,
+Commissions precedent), reading `timesheet_profiles` / `timesheet_entries`
+under RLS — no edge function. Route `/timesheet` in
+`PUBLIC_AUTHENTICATED_PATHS`; admin/finance tabs gated in-page by
+`roles.includes(...)`. Repo audit resolved (see below).
 
 ---
 
@@ -131,11 +133,20 @@ CSR Operations → Timesheet child item; route on `app.chajewelsjp.com`.
 
 ---
 
-## Pending repo audit (blocks implementation)
+## Repo audit (RESOLVED 2026-06-13)
 
-- staff/users table name + `auth_user_id` mapping for staff
-- CSR Operations sidebar component + how to add a child item
-- existing RLS policy patterns
-- permission-key registration in `role_permissions` + the matrix UI
-- final table/column names (provisional: `timesheet_profiles`,
-  `timesheet_entries`)
+- ✅ staff/users table: `public.profiles` (`user_id`, `full_name`) drives
+  the Assignments list; `timesheet_*.user_id` = auth user id.
+- ✅ CSR Operations sidebar: child item added in
+  `src/components/layout/AppSidebar.tsx` (`{ label: 'Timesheet', tab,
+  path: ROUTES.TIMESHEET }`).
+- ✅ RLS: per-user isolation (own rows) + admin/finance read-all, applied
+  via SQL Editor. The My tab still filters explicitly by `user_id`.
+- ✅ Access control: NO `role_permissions` keys and NO edge function were
+  added (per build guardrails). Gating is RLS + in-page
+  `roles.includes('admin')` / `roles.includes('finance')`, and
+  `/timesheet` in `PUBLIC_AUTHENTICATED_PATHS`. The earlier
+  permission-key plan (view_own_timesheet etc.) was intentionally NOT
+  implemented.
+- ✅ Final table/column names confirmed: `timesheet_profiles`,
+  `timesheet_entries` (hand-added to `src/integrations/supabase/types.ts`).

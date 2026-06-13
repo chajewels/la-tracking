@@ -3767,6 +3767,105 @@ export type Database = {
         }
         Relationships: []
       }
+      timesheet_entries: {
+        Row: {
+          am_in: string | null
+          am_out: string | null
+          created_at: string
+          id: string
+          note: string | null
+          pm_in: string | null
+          pm_out: string | null
+          updated_at: string
+          user_id: string
+          work_date: string
+        }
+        Insert: {
+          am_in?: string | null
+          am_out?: string | null
+          created_at?: string
+          id?: string
+          note?: string | null
+          pm_in?: string | null
+          pm_out?: string | null
+          updated_at?: string
+          user_id: string
+          work_date: string
+        }
+        Update: {
+          am_in?: string | null
+          am_out?: string | null
+          created_at?: string
+          id?: string
+          note?: string | null
+          pm_in?: string | null
+          pm_out?: string | null
+          updated_at?: string
+          user_id?: string
+          work_date?: string
+        }
+        Relationships: []
+      }
+      timesheet_profiles: {
+        Row: {
+          active: boolean
+          allowance: number | null
+          basic_salary: number | null
+          created_at: string
+          dayoff_divisor: number
+          full_day_rate: number | null
+          full_day_threshold_hours: number | null
+          half_day_rate: number | null
+          id: string
+          job_title: string | null
+          shift_end: string | null
+          shift_start: string | null
+          template_type: string
+          timezone: string
+          updated_at: string
+          user_id: string
+          work_days: number[]
+        }
+        Insert: {
+          active?: boolean
+          allowance?: number | null
+          basic_salary?: number | null
+          created_at?: string
+          dayoff_divisor?: number
+          full_day_rate?: number | null
+          full_day_threshold_hours?: number | null
+          half_day_rate?: number | null
+          id?: string
+          job_title?: string | null
+          shift_end?: string | null
+          shift_start?: string | null
+          template_type: string
+          timezone?: string
+          updated_at?: string
+          user_id: string
+          work_days?: number[]
+        }
+        Update: {
+          active?: boolean
+          allowance?: number | null
+          basic_salary?: number | null
+          created_at?: string
+          dayoff_divisor?: number
+          full_day_rate?: number | null
+          full_day_threshold_hours?: number | null
+          half_day_rate?: number | null
+          id?: string
+          job_title?: string | null
+          shift_end?: string | null
+          shift_start?: string | null
+          template_type?: string
+          timezone?: string
+          updated_at?: string
+          user_id?: string
+          work_days?: number[]
+        }
+        Relationships: []
+      }
       trade_ins: {
         Row: {
           created_at: string

@@ -146,6 +146,7 @@ const sidebarItems: (CategoryHeader | MenuItem)[] = [
       { label: 'Audit', tab: 'audit' },
       { label: 'Inquiries', tab: 'inquiries', path: ROUTES.INQUIRIES, permFilter: (can) => can('view_inquiries') },
       { label: 'Commissions', tab: 'commissions', path: ROUTES.COMMISSIONS },
+      { label: 'Timesheet', tab: 'timesheet', path: ROUTES.TIMESHEET },
     ],
   },
   {
