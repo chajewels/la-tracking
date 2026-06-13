@@ -428,6 +428,32 @@ Deno.serve(async (req) => {
               performed_by_user_id: userId,
             });
 
+            // DB-verified totals — INVARIANT 1: total_paid = SUM(payments.amount_paid
+            // WHERE voided_at IS NULL). The downpayment is already a payments row
+            // (inserted above), so dbPaidSum alone is authoritative — adding the
+            // downpayment again would double-count. Query+UPDATE runs after all
+            // payment inserts because a query before them sees zero rows.
+            const { data: pmtRows } = await supabase
+              .from("payments")
+              .select("amount_paid")
+              .eq("account_id", account.id)
+              .is("voided_at", null);
+
+            const dbPaidSum = (pmtRows ?? []).reduce((sum, r) => sum + Number(r.amount_paid), 0);
+            const totalPaidWithDownpayment = dbPaidSum;
+            const verifiedRemainingBalance = a.total_amount - totalPaidWithDownpayment;
+            const verifiedAllPaid = a.schedule.every(s => s.is_paid) && verifiedRemainingBalance <= 0;
+            const verifiedStatus = verifiedAllPaid ? "completed" : "active";
+
+            await supabase
+              .from("layaway_accounts")
+              .update({
+                total_paid: totalPaidWithDownpayment,
+                remaining_balance: Math.max(0, verifiedRemainingBalance),
+                status: verifiedStatus,
+              })
+              .eq("id", account.id);
+
             console.warn(`Post-import reconcile caller disabled for safety on Inv#${a.invoice_number}`);
 
           } catch (acctError) {
