@@ -42,6 +42,7 @@ export interface AlertItem {
   messengerLink?: string | null;
   portalToken?: string | null;
   authUserId?: string | null;
+  customerPin?: string | null;
 }
 
 const iconMap: Record<string, any> = {
@@ -68,24 +69,27 @@ export function generateReminderMessage(alert: AlertItem): string {
   const portalLink = portalUrl
     ? `\n\n📱 View your account anytime:\n${portalUrl}`
     : '';
+  const pinLine = (alert.portalToken && !alert.authUserId && alert.customerPin)
+    ? `\n\n🔐 Your portal PIN is the last 4 digits of your mobile number on file: ${alert.customerPin}`
+    : '';
 
   if (alert.type === 'overdue') {
-    return `Hi ${alert.customer}! 👋\n\nThis is a friendly reminder from Cha Jewels that your layaway payment for INV #${alert.invoice} was due on ${dueStr} (${alert.daysOverdue} days ago).\n\nRemaining amount due: ${amtStr}\n\nPlease settle at your earliest convenience to avoid additional penalties.${portalLink}\n\nThank you! 💎`;
+    return `Hi ${alert.customer}! 👋\n\nThis is a friendly reminder from Cha Jewels that your layaway payment for INV #${alert.invoice} was due on ${dueStr} (${alert.daysOverdue} days ago).\n\nRemaining amount due: ${amtStr}\n\nPlease settle at your earliest convenience to avoid additional penalties.${portalLink}${pinLine}\n\nThank you! 💎`;
   } else if (alert.type === 'grace_period') {
     const graceEnd = new Date(alert.dueDate);
     graceEnd.setDate(graceEnd.getDate() + 7);
     const graceEndStr = graceEnd.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     const portalLine = portalUrl ? `\n\nSettle your payment here:\n${portalUrl}` : '';
-    return `⏳ Cha Jewels Grace Period Reminder\n\nHi ${alert.customer} 💎\n\nYour layaway payment for Invoice #${alert.invoice} was due on ${dueStr} (${alert.daysOverdue} day${alert.daysOverdue !== 1 ? 's' : ''} ago).\n\nAmount Due: ${amtStr}\n\nYou are currently within your 7-day grace period, which ends on ${graceEndStr}.\n\nTo avoid penalties, please settle your payment before the grace period expires.${portalLine}\n\nThank you for choosing Cha Jewels 💛`;
+    return `⏳ Cha Jewels Grace Period Reminder\n\nHi ${alert.customer} 💎\n\nYour layaway payment for Invoice #${alert.invoice} was due on ${dueStr} (${alert.daysOverdue} day${alert.daysOverdue !== 1 ? 's' : ''} ago).\n\nAmount Due: ${amtStr}\n\nYou are currently within your 7-day grace period, which ends on ${graceEndStr}.\n\nTo avoid penalties, please settle your payment before the grace period expires.${portalLine}${pinLine}\n\nThank you for choosing Cha Jewels 💛`;
   } else if (alert.type === 'due_today') {
     const dueDate = new Date(alert.dueDate);
     const graceEnd = new Date(dueDate);
     graceEnd.setDate(graceEnd.getDate() + 7);
     const graceEndStr = graceEnd.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     const portalLine = portalUrl ? `\n\nSecure your account by completing your payment here:\n${portalUrl}` : '';
-    return `⚠️ Cha Jewels Payment Due Today\n\nHi ${alert.customer} 💎\n\nYour layaway payment for Invoice #${alert.invoice} is due TODAY, ${dueStr}.\n\nAmount Due: ${amtStr}\n\nTo avoid any inconvenience, we highly encourage you to settle your payment today.\n\nYou are still within your 7-day grace period until ${graceEndStr}, after which penalties may apply.${portalLine}\n\nThank you for choosing Cha Jewels 💛`;
+    return `⚠️ Cha Jewels Payment Due Today\n\nHi ${alert.customer} 💎\n\nYour layaway payment for Invoice #${alert.invoice} is due TODAY, ${dueStr}.\n\nAmount Due: ${amtStr}\n\nTo avoid any inconvenience, we highly encourage you to settle your payment today.\n\nYou are still within your 7-day grace period until ${graceEndStr}, after which penalties may apply.${portalLine}${pinLine}\n\nThank you for choosing Cha Jewels 💛`;
   } else {
-    return `Hi ${alert.customer}! 👋\n\nThis is a friendly heads-up from Cha Jewels — your next layaway payment for INV #${alert.invoice} is coming up on ${dueStr}.\n\nAmount due: ${amtStr}${portalLink}\n\nThank you for staying on track! 💎`;
+    return `Hi ${alert.customer}! 👋\n\nThis is a friendly heads-up from Cha Jewels — your next layaway payment for INV #${alert.invoice} is coming up on ${dueStr}.\n\nAmount due: ${amtStr}${portalLink}${pinLine}\n\nThank you for staying on track! 💎`;
   }
 }
 

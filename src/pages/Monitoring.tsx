@@ -289,24 +289,31 @@ export default function Monitoring() {
           .order('created_at', { ascending: false }),
         supabase
           .from('customers')
-          .select('id, auth_user_id'),
+          .select('id, auth_user_id, mobile_number'),
       ]);
       if (tokensRes.error) throw tokensRes.error;
       if (customersRes.error) throw customersRes.error;
-      const authMap = new Map<string, string | null>();
+      const authMap = new Map<string, { authUserId: string | null; pin: string }>();
       for (const c of customersRes.data || []) {
-        authMap.set(c.id, c.auth_user_id);
+        const digits = (c.mobile_number ?? '').replace(/\D/g, '');
+        const pin = digits.length >= 4 ? digits.slice(-4) : '----';
+        authMap.set(c.id, { authUserId: c.auth_user_id, pin });
       }
-      const map = new Map<string, { token: string | null; authUserId: string | null }>();
+      const map = new Map<string, { token: string | null; authUserId: string | null; customerPin: string }>();
       for (const t of tokensRes.data || []) {
         if (map.has(t.customer_id)) continue;
         if (t.expires_at && new Date(t.expires_at) < new Date()) continue;
-        map.set(t.customer_id, { token: t.token, authUserId: authMap.get(t.customer_id) ?? null });
+        const entry = authMap.get(t.customer_id);
+        map.set(t.customer_id, {
+          token: t.token,
+          authUserId: entry?.authUserId ?? null,
+          customerPin: entry?.pin ?? '----',
+        });
       }
-      for (const [customerId, authUserId] of authMap.entries()) {
-        if (!authUserId) continue;
+      for (const [customerId, entry] of authMap.entries()) {
+        if (!entry.authUserId) continue;
         if (map.has(customerId)) continue;
-        map.set(customerId, { token: null, authUserId });
+        map.set(customerId, { token: null, authUserId: entry.authUserId, customerPin: entry.pin });
       }
       return map;
     },
@@ -371,6 +378,7 @@ export default function Monitoring() {
         messengerLink: acc.customers?.messenger_link,
         portalToken: portalTokens?.get(acc.customer_id)?.token ?? null,
         authUserId: portalTokens?.get(acc.customer_id)?.authUserId ?? null,
+        customerPin: portalTokens?.get(acc.customer_id)?.customerPin ?? '----',
       });
     }
 
