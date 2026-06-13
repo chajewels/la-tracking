@@ -213,7 +213,7 @@ Deno.serve(async (req) => {
       const customerName = (acctForEmail as any)?.customers?.full_name;
       if (customerEmail) {
         const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
-        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+        const _emRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -233,6 +233,10 @@ Deno.serve(async (req) => {
             },
           }),
         });
+        if (!_emRes.ok) {
+          const _t = await _emRes.text().catch(() => "<no body>");
+          console.error(`[approve-waiver] send-transactional-email failed (${_emRes.status}): ${_t}`);
+        }
       }
     } catch (emailErr) {
       console.warn("[approve-waiver] email send failed (non-blocking):", emailErr);

@@ -221,7 +221,7 @@ Deno.serve(async (req) => {
       const customerName = (acctForEmail as any)?.customers?.full_name;
       if (customerEmail) {
         const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${(acctForEmail as any)?.invoice_number || ""}`;
-        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+        const _emRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -241,6 +241,10 @@ Deno.serve(async (req) => {
             },
           }),
         });
+        if (!_emRes.ok) {
+          const _t = await _emRes.text().catch(() => "<no body>");
+          console.error(`[reactivate-account] send-transactional-email failed (${_emRes.status}): ${_t}`);
+        }
       }
     } catch (emailErr) {
       console.warn("[reactivate-account] email send failed (non-blocking):", emailErr);
@@ -261,7 +265,7 @@ Deno.serve(async (req) => {
         .maybeSingle();
 
       if (revokeTx?.id) {
-        await fetch(
+        const _rsRes = await fetch(
           `${Deno.env.get("SUPABASE_URL")}/functions/v1/restore-loyalty-points`,
           {
             method: "POST",
@@ -274,12 +278,17 @@ Deno.serve(async (req) => {
               trigger_event: "account_reactivated",
             }),
           },
-        ).catch((e) =>
+        ).catch((e) => {
           console.warn(
             `[reactivate-account] restore-loyalty-points failed for ${account.invoice_number} (non-blocking):`,
             e,
-          )
-        );
+          );
+          return null;
+        });
+        if (_rsRes && !_rsRes.ok) {
+          const _t = await _rsRes.text().catch(() => "<no body>");
+          console.error(`[reactivate-account] restore-loyalty-points failed (${_rsRes.status}): ${_t}`);
+        }
 
         console.log(
           `[reactivate-account] restore-loyalty-points invoked for ${account.invoice_number} with revoke_tx ${revokeTx.id}`,

@@ -57,7 +57,7 @@ async function sendEmail(
       );
       return;
     }
-    await fetch(
+    const _emRes = await fetch(
       `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`,
       {
         method: "POST",
@@ -72,9 +72,14 @@ async function sendEmail(
           templateData,
         }),
       },
-    ).catch((e) =>
-      console.warn(`[loyalty-inactivity-check] ${templateName} email failed:`, e)
-    );
+    ).catch((e) => {
+      console.warn(`[loyalty-inactivity-check] ${templateName} email failed:`, e);
+      return null;
+    });
+    if (_emRes && !_emRes.ok) {
+      const _t = await _emRes.text().catch(() => "<no body>");
+      console.error(`[loyalty-inactivity-check] ${templateName} email failed (${_emRes.status}): ${_t}`);
+    }
   } catch (e) {
     console.warn(`[loyalty-inactivity-check] ${templateName} email block failed:`, e);
   }
@@ -90,7 +95,7 @@ async function syncSheet(
   payload: Record<string, unknown>,
 ) {
   try {
-    await fetch(
+    const _syRes = await fetch(
       `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-loyalty-to-sheet`,
       {
         method: "POST",
@@ -104,9 +109,14 @@ async function syncSheet(
           payload,
         }),
       },
-    ).catch((e) =>
-      console.warn(`[loyalty-inactivity-check] sheet sync ${eventType} failed:`, e)
-    );
+    ).catch((e) => {
+      console.warn(`[loyalty-inactivity-check] sheet sync ${eventType} failed:`, e);
+      return null;
+    });
+    if (_syRes && !_syRes.ok) {
+      const _t = await _syRes.text().catch(() => "<no body>");
+      console.error(`[loyalty-inactivity-check] sheet sync ${eventType} failed (${_syRes.status}): ${_t}`);
+    }
   } catch (e) {
     console.warn(`[loyalty-inactivity-check] sheet sync ${eventType} block failed:`, e);
   }

@@ -238,7 +238,7 @@ Deno.serve(async (req) => {
         .select("id, customer_code, full_name, email")
         .eq("id", member.customer_id)
         .maybeSingle();
-      await fetch(
+      const _syRes = await fetch(
         `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-loyalty-to-sheet`,
         {
           method: "POST",
@@ -265,9 +265,11 @@ Deno.serve(async (req) => {
             },
           }),
         },
-      ).catch((e) =>
-        console.warn("[adjust-loyalty-points] sheet sync failed (non-blocking):", e)
-      );
+      ).catch((e) => { console.warn("[adjust-loyalty-points] sheet sync failed (non-blocking):", e); return null; });
+      if (_syRes && !_syRes.ok) {
+        const _t = await _syRes.text().catch(() => "<no body>");
+        console.error(`[adjust-loyalty-points] sync-loyalty-to-sheet (adjusted) failed (${_syRes.status}): ${_t}`);
+      }
     } catch (sheetErr) {
       console.warn(
         "[adjust-loyalty-points] sheet sync block failed (non-blocking):",

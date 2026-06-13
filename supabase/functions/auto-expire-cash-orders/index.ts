@@ -59,7 +59,7 @@ Deno.serve(async (req) => {
       if (!customerEmail) return;
       try {
         const portalUrl = `https://portal.chajewelsjp.com/portal?invoice=${invoiceNumber}`;
-        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+        const _emRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -81,6 +81,10 @@ Deno.serve(async (req) => {
             },
           }),
         });
+        if (!_emRes.ok) {
+          const _t = await _emRes.text().catch(() => "<no body>");
+          console.error(`[auto-expire-cash-orders] send-transactional-email failed (${_emRes.status}): ${_t}`);
+        }
       } catch (emailErr) {
         console.warn(`[auto-expire-cash-orders] email send failed for ${invoiceNumber} (non-blocking):`, emailErr);
       }

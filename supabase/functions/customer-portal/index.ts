@@ -229,7 +229,7 @@ Deno.serve(async (req) => {
           }
 
           if (cust) {
-            await fetch(
+            const _syRes = await fetch(
               `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-loyalty-to-sheet`,
               {
                 method: "POST",
@@ -247,7 +247,11 @@ Deno.serve(async (req) => {
                   },
                 }),
               },
-            ).catch((e) => console.warn("[customer-portal] birthday sheet sync failed:", e));
+            ).catch((e) => { console.warn("[customer-portal] birthday sheet sync failed:", e); return null; });
+            if (_syRes && !_syRes.ok) {
+              const _t = await _syRes.text().catch(() => "<no body>");
+              console.error(`[customer-portal] sync-loyalty-to-sheet (birthday) failed (${_syRes.status}): ${_t}`);
+            }
           }
 
           if (mem?.id) {

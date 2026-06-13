@@ -552,7 +552,7 @@ Deno.serve(async (req) => {
                 portalUrl,
               };
 
-        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+        const _emRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -565,6 +565,10 @@ Deno.serve(async (req) => {
             templateData,
           }),
         });
+        if (!_emRes.ok) {
+          const _t = await _emRes.text().catch(() => "<no body>");
+          console.error(`[penalty-engine] send-transactional-email failed (${_emRes.status}): ${_t}`);
+        }
       }
     } catch (emailErr) {
       console.warn("[penalty-engine] email dispatch failed (non-blocking):", emailErr);

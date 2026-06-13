@@ -188,6 +188,34 @@ Deno.serve(async (req) => {
       }
     }
 
+    // 4c. Partial-unique-index canary — matches
+    //     uq_lots_active_order_earn_source on loyalty_point_lots
+    //     (source_reference) WHERE revoked_at IS NULL AND
+    //     source_type = 'order_earn'. The DB-side ON CONFLICT DO
+    //     NOTHING semantics: if an active order_earn lot already
+    //     exists for this invoice, the eventual lot INSERT (RPC at
+    //     step 12b) would affect zero rows. Detect that condition
+    //     here BEFORE writing loyalty_transactions / member counters
+    //     so a duplicate award is treated identically to the
+    //     already_awarded skip path. Caught the invoice 19031
+    //     split-DP duplicate (2026-05-20, pre-guard) class.
+    {
+      const { data: activeOrderEarnLot } = await supabase
+        .from("loyalty_point_lots")
+        .select("id")
+        .eq("source_type", "order_earn")
+        .eq("source_reference", invoiceNumber)
+        .is("revoked_at", null)
+        .limit(1)
+        .maybeSingle();
+      if (activeOrderEarnLot) {
+        console.error(
+          `[award-loyalty-points] duplicate award blocked by unique index for ${invoiceNumber} (lot ${(activeOrderEarnLot as any).id})`,
+        );
+        return json({ skipped: true, reason: "already_awarded" });
+      }
+    }
+
     // 5. Current tier multiplier
     const { data: currentTier } = await supabase
       .from("loyalty_tiers")
@@ -511,7 +539,7 @@ Deno.serve(async (req) => {
         const portalUrl = await buildPortalLinkForCustomerId(supabase, customerId!, 'loyalty');
 
         if (await gate("loyalty_email_earned")) {
-          await fetch(baseUrl, {
+          const _emRes = await fetch(baseUrl, {
             method: "POST",
             headers: authHeader,
             body: JSON.stringify({
@@ -530,9 +558,11 @@ Deno.serve(async (req) => {
                 portalUrl,
               },
             }),
-          }).catch((e) =>
-            console.warn("[award-loyalty-points] loyalty-earned email failed:", e)
-          );
+          }).catch((e) => { console.warn("[award-loyalty-points] loyalty-earned email failed:", e); return null; });
+          if (_emRes && !_emRes.ok) {
+            const _t = await _emRes.text().catch(() => "<no body>");
+            console.error(`[award-loyalty-points] send-transactional-email (earned) failed (${_emRes.status}): ${_t}`);
+          }
         } else {
           console.log(
             "[email-gate] loyalty-earned skipped — toggle 'loyalty_email_earned' is OFF",

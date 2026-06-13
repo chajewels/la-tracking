@@ -222,7 +222,7 @@ Deno.serve(async (req) => {
           .limit(1)
           .maybeSingle();
         if (revokeTxn?.id) {
-          await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/restore-loyalty-points`, {
+          const _rsRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/restore-loyalty-points`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -232,7 +232,14 @@ Deno.serve(async (req) => {
               revoke_transaction_id: revokeTxn.id,
               created_by_user_id: user.id,
             }),
-          }).catch((e) => console.warn("[restore-payment] restore-loyalty-points failed (DP path, non-blocking):", e));
+          }).catch((e) => {
+            console.warn("[restore-payment] restore-loyalty-points failed (DP path, non-blocking):", e);
+            return null;
+          });
+          if (_rsRes && !_rsRes.ok) {
+            const _t = await _rsRes.text().catch(() => "<no body>");
+            console.error(`[restore-payment] restore-loyalty-points failed DP (${_rsRes.status}): ${_t}`);
+          }
         } else {
           console.log(`[restore-payment] no revoke transaction found for DP payment ${payment_id} — skipping loyalty restore`);
         }
@@ -458,7 +465,7 @@ Deno.serve(async (req) => {
 
     // Trigger reconcile-account to sync schedule rows and verify totals
     try {
-      await fetch(
+      const _rcRes = await fetch(
         `${Deno.env.get("SUPABASE_URL")}/functions/v1/reconcile-account`,
         {
           method: "POST",
@@ -469,6 +476,10 @@ Deno.serve(async (req) => {
           body: JSON.stringify({ account_id: payment.account_id }),
         }
       );
+      if (!_rcRes.ok) {
+        const _t = await _rcRes.text().catch(() => "<no body>");
+        console.error(`[restore-payment] reconcile-account failed (${_rcRes.status}) for ${payment.account_id}: ${_t}`);
+      }
     } catch (reconcileErr) {
       console.warn(`[restore-payment] reconcile-account call failed for ${payment.account_id}:`, reconcileErr);
     }
@@ -486,7 +497,7 @@ Deno.serve(async (req) => {
         .limit(1)
         .maybeSingle();
       if (revokeTxn?.id) {
-        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/restore-loyalty-points`, {
+        const _rsRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/restore-loyalty-points`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -496,7 +507,14 @@ Deno.serve(async (req) => {
             revoke_transaction_id: revokeTxn.id,
             created_by_user_id: user.id,
           }),
-        }).catch((e) => console.warn("[restore-payment] restore-loyalty-points failed (installment path, non-blocking):", e));
+        }).catch((e) => {
+          console.warn("[restore-payment] restore-loyalty-points failed (installment path, non-blocking):", e);
+          return null;
+        });
+        if (_rsRes && !_rsRes.ok) {
+          const _t = await _rsRes.text().catch(() => "<no body>");
+          console.error(`[restore-payment] restore-loyalty-points failed installment (${_rsRes.status}): ${_t}`);
+        }
       } else {
         console.log(`[restore-payment] no revoke transaction found for installment payment ${payment_id} — skipping loyalty restore`);
       }

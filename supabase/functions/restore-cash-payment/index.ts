@@ -171,7 +171,7 @@ Deno.serve(async (req) => {
           .maybeSingle();
 
         if (revokeTxn) {
-          await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/restore-loyalty-points`, {
+          const _rsRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/restore-loyalty-points`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -180,9 +180,11 @@ Deno.serve(async (req) => {
             body: JSON.stringify({
               revoke_transaction_id: revokeTxn.id,
             }),
-          }).catch((loyaltyErr) =>
-            console.warn("[restore-cash-payment] loyalty restore failed (non-blocking):", loyaltyErr)
-          );
+          }).catch((loyaltyErr) => { console.warn("[restore-cash-payment] loyalty restore failed (non-blocking):", loyaltyErr); return null; });
+          if (_rsRes && !_rsRes.ok) {
+            const _t = await _rsRes.text().catch(() => "<no body>");
+            console.error(`[restore-cash-payment] restore-loyalty-points failed (${_rsRes.status}): ${_t}`);
+          }
         } else {
           console.log(`[restore-cash-payment] no revoke transaction found for cash_order ${cashOrder.id} — skipping loyalty restore`);
         }

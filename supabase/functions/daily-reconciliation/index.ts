@@ -189,6 +189,11 @@ Deno.serve(async (req) => {
           }
         );
 
+        if (!res.ok) {
+          const _t = await res.clone().text().catch(() => "<no body>");
+          console.error(`[daily-reconciliation] reconcile-account failed (${res.status}) for ${acct.invoice_number}: ${_t}`);
+        }
+
         const body = await res.json();
         driftDetected = body.drift_detected ?? false;
         driftCount = body.drift_count ?? 0;
@@ -312,6 +317,10 @@ Deno.serve(async (req) => {
             headers: lpHeaders,
             body: JSON.stringify(body),
           });
+          if (!res.ok) {
+            const _t = await res.clone().text().catch(() => "<no body>");
+            console.error(`[daily-reconciliation] award-loyalty-points failed (${res.status}): ${_t}`);
+          }
           const lpJson = await res.json().catch(() => null);
           result = lpJson ?? { error: "no_response" };
         } catch (lpErr) {

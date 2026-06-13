@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
 
     // Bug #99 — fire-and-forget loyalty revoke BEFORE deletion (Decision 9 path-a)
     try {
-      await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revoke-loyalty-points`, {
+      const _rvRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revoke-loyalty-points`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -80,7 +80,11 @@ Deno.serve(async (req) => {
           trigger_event: "delete_account",
           spend_jpy: 0,
         }),
-      }).catch((e) => console.warn("[delete-account] revoke-loyalty-points failed (non-blocking):", e));
+      }).catch((e) => { console.warn("[delete-account] revoke-loyalty-points failed (non-blocking):", e); return null; });
+      if (_rvRes && !_rvRes.ok) {
+        const _t = await _rvRes.text().catch(() => "<no body>");
+        console.error(`[delete-account] revoke-loyalty-points failed (${_rvRes.status}): ${_t}`);
+      }
     } catch (revokeErr) {
       console.warn("[delete-account] revoke block failed (non-blocking):", revokeErr);
     }

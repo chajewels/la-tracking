@@ -223,7 +223,7 @@ Deno.serve(async (req) => {
         if (recipientEmail) {
           if (await gate("loyalty_email_tier_revoked")) {
             const baseUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`;
-            await fetch(baseUrl, {
+            const _emRes = await fetch(baseUrl, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
@@ -242,12 +242,17 @@ Deno.serve(async (req) => {
                   portalUrl,
                 },
               }),
-            }).catch((e) =>
+            }).catch((e) => {
               console.warn(
                 "[revoke-loyalty-points] loyalty-tier-revoked email failed:",
                 e,
-              )
-            );
+              );
+              return null;
+            });
+            if (_emRes && !_emRes.ok) {
+              const _t = await _emRes.text().catch(() => "<no body>");
+              console.error(`[revoke-loyalty-points] send-transactional-email (tier_revoked) failed (${_emRes.status}): ${_t}`);
+            }
           } else {
             console.log(
               "[email-gate] loyalty-tier-revoked skipped — toggle 'loyalty_email_tier_revoked' is OFF",

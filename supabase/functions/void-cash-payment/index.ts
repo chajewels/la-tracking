@@ -174,7 +174,7 @@ Deno.serve(async (req) => {
       console.log(`[void-cash-payment] order was not 'completed' pre-void, skipping loyalty revoke for cash_order ${order.id}`);
     } else {
       try {
-        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revoke-loyalty-points`, {
+        const _rvRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revoke-loyalty-points`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -189,7 +189,11 @@ Deno.serve(async (req) => {
             notes: `Cash payment voided: ${payment.id}`,
             trigger_event: "void_cash",
           }),
-        }).catch((e) => console.warn("[void-cash-payment] revoke-loyalty-points failed (non-blocking):", e));
+        }).catch((e) => { console.warn("[void-cash-payment] revoke-loyalty-points failed (non-blocking):", e); return null; });
+        if (_rvRes && !_rvRes.ok) {
+          const _t = await _rvRes.text().catch(() => "<no body>");
+          console.error(`[void-cash-payment] revoke-loyalty-points failed (${_rvRes.status}): ${_t}`);
+        }
       } catch (revokeErr) {
         console.warn("[void-cash-payment] revoke block failed (non-blocking):", revokeErr);
       }
