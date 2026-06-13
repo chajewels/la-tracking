@@ -311,7 +311,6 @@ export default function Monitoring() {
         });
       }
       for (const [customerId, entry] of authMap.entries()) {
-        if (!entry.authUserId) continue;
         if (map.has(customerId)) continue;
         map.set(customerId, { token: null, authUserId: entry.authUserId, customerPin: entry.pin });
       }
