@@ -27,7 +27,7 @@ import { getPHTToday } from '@/lib/date-utils';
 import {
   TemplateType, TimesheetProfile, TimesheetEntry, MonthCostRow,
   TEMPLATE_LABEL,
-  computeMonth, computeConsolidation, computeAllMonthsSummary, monthLabelFromKey, addDays, daysInMonthOf,
+  computeMonth, computeConsolidation, computeAllMonthsSummary, monthLabelFromKey, monthKeyFromDate, addDays, daysInMonthOf,
   isoDowOf, formatPHP, formatPHP2, formatHours,
 } from '@/lib/timesheetEngine';
 
@@ -949,13 +949,37 @@ function FullSummaryTab({
     return () => { cancelled = true; };
   }, []);
 
-  // Merge history + live by monthKey (live wins), ascending.
+  // Months that have at least one REAL punch, derived from the SAME entries
+  // array that feeds computeAllMonthsSummary. A month with only blank/₱0
+  // entry rows (current/recent month before anyone punches) does NOT count —
+  // its empty live row must not overwrite a real history month. computeAll-
+  // MonthsSummary already derives its months from the entries, so gating on
+  // mere row-presence would be a no-op; we require an actual punch.
+  const monthsWithPunches = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of allEntries) {
+      if (!e.am_in && !e.am_out && !e.pm_in && !e.pm_out) continue; // no real punch
+      const mk = monthKeyFromDate(e.work_date);
+      if (mk) set.add(mk);
+    }
+    return set;
+  }, [allEntries]);
+
+  // Merge history + live by monthKey, ascending. Seed with history, then
+  // overlay a live row ONLY when its month actually has punches — so a live
+  // row wins on collision only once the month is genuinely worked, and an
+  // empty/unpunched live month neither overrides history nor adds a blank
+  // month. Result: every history month (incl. May 2026) always shows; a
+  // month appears live only after it has punches (June stays blank until
+  // punched, then appears live).
   const mergedRows = useMemo<MonthCostRow[]>(() => {
     const byKey = new Map<string, MonthCostRow>();
     for (const r of histRows) byKey.set(r.monthKey, r);
-    for (const r of summary.rows) byKey.set(r.monthKey, r); // live overrides history
+    for (const r of summary.rows) {
+      if (monthsWithPunches.has(r.monthKey)) byKey.set(r.monthKey, r); // live wins only when punched
+    }
     return Array.from(byKey.values()).sort((a, b) => a.monthKey.localeCompare(b.monthKey));
-  }, [histRows, summary.rows]);
+  }, [histRows, summary.rows, monthsWithPunches]);
 
   // Year filter — "all" plus each distinct year present in the merged list.
   const [year, setYear] = useState<string>('all');
