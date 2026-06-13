@@ -342,6 +342,8 @@ Batch F closes Phase 2 Item 4 — the matrix-driven access control migration. Al
 
 **Operational concern:** 4 phantoms from one staff user in a single day indicates workflow misunderstanding (using Record Payment instead of Confirm Submission when a customer submission is queued). The matrix policy itself (staff.confirm_payment=true post-#206-revert) is correct; what needs adjusting is process awareness. Coaching message planned for 2026-06-12.
 
+**CLOSED 2026-06-13:** root cause = non-main deployed state of the confirm path on 2026-06-10/11 (formula including pending submissions, never present on main); overwritten by main-based deploys 2026-06-12; data corrected (18437, 19090); layaway confirm path now carries an atomic submission-status guard (e41e8b9) matching the cash path.
+
 ## Locked decisions (2026-06-12)
 
 - **Migration lot `fc235e5f` (member `eb89f10d`, 1,440 pts, earned_at 2026-10-29 / expires 2027-04-27):** the source-sheet earned_at carries a date-typo year (2026-10-29 instead of the intended earlier year), pushing the derived expiry to 2027-04-27. Owner decision 2026-06-12: leave as-is — the resulting member-favorable expiry is treated as a bonus rather than corrected backward. Do NOT re-flag in future audits.
