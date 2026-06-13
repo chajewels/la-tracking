@@ -185,11 +185,18 @@ export default function CustomerPortalShareMenu({
     setSendingInvite(true);
     try {
       const setupUrl = `${PORTAL_BASE}/portal/setup?email=${encodeURIComponent(customerEmail)}`;
+      const { data: customerRow } = await supabase
+        .from('customers')
+        .select('mobile_number')
+        .eq('id', customerId)
+        .maybeSingle();
+      const digits = (customerRow?.mobile_number ?? '').replace(/\D/g, '');
+      const customerPin = digits.length >= 4 ? digits.slice(-4) : '----';
       const { error: invokeError } = await supabase.functions.invoke('send-transactional-email', {
         body: {
           template_name: 'portal-setup-invite',
           recipient_email: customerEmail,
-          templateData: { customerName, setupUrl, customerEmail },
+          templateData: { customerName, setupUrl, customerEmail, customerPin },
         },
       });
       if (invokeError) throw invokeError;

@@ -18,12 +18,14 @@ interface PortalSetupInviteEmailProps {
   customerName: string
   setupUrl: string
   customerEmail: string
+  customerPin: string
 }
 
 export const PortalSetupInviteEmail = ({
   customerName,
   setupUrl,
   customerEmail,
+  customerPin,
 }: PortalSetupInviteEmailProps) => (
   <Html lang="en" dir="ltr">
     <Head />
@@ -35,6 +37,11 @@ export const PortalSetupInviteEmail = ({
         <Text style={text}>
           Cha Jewels has set up email and password access for your customer
           portal. Click the button below to choose your password and sign in.
+        </Text>
+        <Text style={pinText}>
+          In the meantime, you can still log in using your PIN. Your PIN is
+          the last 4 digits of your mobile number on file:{' '}
+          <strong>{customerPin}</strong>
         </Text>
         <Section style={{ textAlign: 'center' as const, margin: '24px 0' }}>
           <Button style={button} href={setupUrl}>
@@ -67,7 +74,8 @@ const main = { backgroundColor: '#ffffff', fontFamily: "'Montserrat', 'Inter', A
 const container = { padding: '30px 25px' }
 const h1 = { fontSize: '22px', fontWeight: '600' as const, color: '#0b0b0b', margin: '0 0 20px' }
 const greeting = { fontSize: '14px', color: '#0b0b0b', lineHeight: '1.6', margin: '0 0 12px' }
-const text = { fontSize: '14px', color: '#444444', lineHeight: '1.6', margin: '0 0 22px' }
+const text = { fontSize: '14px', color: '#444444', lineHeight: '1.6', margin: '0 0 12px' }
+const pinText = { fontSize: '14px', color: '#444444', lineHeight: '1.6', margin: '0 0 22px', backgroundColor: '#f9f6ee', borderLeft: '3px solid #CEA021', padding: '10px 14px', borderRadius: '4px' }
 const smallText = { fontSize: '13px', color: '#666666', lineHeight: '1.6', margin: '20px 0 0' }
 const button = { backgroundColor: '#CEA021', color: '#ffffff', fontSize: '14px', fontWeight: '600' as const, borderRadius: '10px', padding: '12px 24px', textDecoration: 'none', display: 'inline-block', margin: '4px 0 8px' }
 const footer = { fontSize: '12px', color: '#999999', margin: '20px 0 0', lineHeight: '1.5' }

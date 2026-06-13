@@ -142,8 +142,24 @@ Deno.serve(async (req) => {
     let failed = 0;
     const errors: { customer_code: string | null; error: string }[] = [];
 
+    // Batch-fetch mobile_number for all candidates in one query so the
+    // per-candidate loop can derive customerPin (last 4 digits) without an
+    // extra round-trip per row.
+    const mobileByCustomerId = new Map<string, string | null>();
+    if (rows.length > 0) {
+      const { data: mobileRows } = await supabase
+        .from("customers")
+        .select("id, mobile_number")
+        .in("id", rows.map((r) => r.id));
+      for (const m of (mobileRows ?? []) as { id: string; mobile_number: string | null }[]) {
+        mobileByCustomerId.set(m.id, m.mobile_number);
+      }
+    }
+
     for (const c of rows) {
       const setupUrl = `${PORTAL_BASE}/portal/setup?email=${encodeURIComponent(c.email)}`;
+      const digits = (mobileByCustomerId.get(c.id) ?? "").replace(/\D/g, "");
+      const customerPin = digits.length >= 4 ? digits.slice(-4) : "----";
 
       try {
         const { data: invokeData, error: invokeError } = await supabase.functions.invoke(
@@ -156,6 +172,7 @@ Deno.serve(async (req) => {
                 customerName: c.full_name,
                 setupUrl,
                 customerEmail: c.email,
+                customerPin,
               },
             },
           },
