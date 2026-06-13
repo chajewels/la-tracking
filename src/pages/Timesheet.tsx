@@ -27,7 +27,7 @@ import { getPHTToday } from '@/lib/date-utils';
 import {
   TemplateType, TimesheetProfile, TimesheetEntry, MonthCostRow,
   TEMPLATE_LABEL,
-  computeMonth, computeConsolidation, computeAllMonthsSummary, monthLabelFromKey, monthKeyFromDate, addDays, daysInMonthOf,
+  computeMonth, computeConsolidation, computeAllMonthsSummary, monthLabelFromKey, monthKeyFromDate, addDays, TIMESHEET_ROWS,
   isoDowOf, formatPHP, formatPHP2, formatHours,
 } from '@/lib/timesheetEngine';
 
@@ -1158,12 +1158,13 @@ export default function Timesheet() {
   const [summaryEntries, setSummaryEntries] = useState<(TimesheetEntry & { user_id: string })[]>([]);
 
   const monthRange = useMemo(() => {
-    // Load only the ACTUAL calendar month. Spillover rows (the trailing
-    // next-month dates that pad the 31-row grid) are display-only and must
-    // NOT feed this month's hours/salary/absences, so we never fetch their
-    // entries here — they belong to the next month's sheet.
+    // Load the FULL 31-row window, not just the calendar month: the grid's
+    // trailing spillover rows (next-month dates that pad the sheet to 31)
+    // both display and count toward this month's totals, so their entries
+    // must be fetched too. June loads 2026-06-01..2026-07-01 inclusive.
+    // (The all-time Full Summary fetch is separate and unaffected.)
     const start = `${monthKey}-01`;
-    const end = addDays(start, daysInMonthOf(monthKey) - 1);
+    const end = addDays(start, TIMESHEET_ROWS - 1);
     return { start, end };
   }, [monthKey]);
 
