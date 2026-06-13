@@ -231,10 +231,12 @@ export function timesheetDatesOf(monthKey: string): string[] {
   return out;
 }
 
-/** Bucket the IN-MONTH timesheet dates of `monthKey` into 4 Mon–Sun
- *  weeks, anchored on MONDAYS. Spillover next-month dates are EXCLUDED
- *  (they belong to the next month and must not feed this month's
- *  forfeiture).
+/** Bucket the 31 timesheet dates of `monthKey` into 4 Mon–Sun weeks,
+ *  anchored on MONDAYS. The full 31-row window is bucketed — INCLUDING
+ *  spillover dates in the next calendar month — because every row in a
+ *  month's grid counts toward that month's totals (incl. absence
+ *  forfeiture). Each month's grid is independent, so a shared boundary
+ *  day is bucketed in both adjacent months.
  *
  *  Anchoring on Mondays — rather than advancing on each Sunday — fixes
  *  the lone-leading-partial-week bug: when a month starts on a Sunday
@@ -248,7 +250,6 @@ export function weekBuckets(monthKey: string): string[][] {
   let idx = 0;
   let seenMonday = false;
   for (const date of timesheetDatesOf(monthKey)) {
-    if (date.slice(0, 7) !== monthKey) break; // spillover → out of this month
     if (isoDowOf(date) === 1) {
       if (seenMonday) idx = Math.min(idx + 1, 3);
       seenMonday = true;
@@ -265,9 +266,12 @@ export function computeMonth(
   entries: TimesheetEntry[],
   profile: TimesheetProfile,
 ): MonthComputation {
-  // The sheet ALWAYS has 31 day rows. Shorter calendar months spill into
-  // the first days of the next month — `entryByDate` accepts any of those
-  // dates, not just dates whose monthKey matches `monthKey`.
+  // The sheet ALWAYS has 31 day rows starting at monthKey/01. EVERY row in
+  // that window — including spillover rows dated in the NEXT calendar month
+  // (e.g. 7/1 for June) — counts toward THIS month's totals. Each month's
+  // grid is independent: a boundary day shared by two adjacent months is
+  // summed in BOTH (no deduplication). `entryByDate` accepts any date in the
+  // window, so a boundary-day entry is picked up by both months.
   const sheetDates = timesheetDatesOf(monthKey);
   const dateSet = new Set(sheetDates);
   const entryByDate = new Map<string, TimesheetEntry>();
@@ -283,18 +287,8 @@ export function computeMonth(
 
   for (const date of sheetDates) {
     const dow = isoDowOf(date);
-    const inMonth = date.slice(0, 7) === monthKey;
+    const inMonth = date.slice(0, 7) === monthKey; // metadata only; spillover still counts
     const isScheduled = workDays.has(dow);
-
-    if (!inMonth) {
-      // Spillover row — DISPLAY ONLY. Belongs to the next month; it
-      // contributes no hours, salary, day-off, or absence here.
-      days.push({
-        date, dow, inMonth: false, hours: 0, salary: 0,
-        isScheduled, isAbsence: false, isDayoff: false, entry: null,
-      });
-      continue;
-    }
 
     const entry = entryByDate.get(date) ?? null;
     const hours = entry ? dailyHours(entry, profile.timezone || 'Asia/Manila') : 0;
@@ -307,7 +301,7 @@ export function computeMonth(
     sumDailySalary += salary;
     if (hours < 1) dayoff_count += 1;
 
-    days.push({ date, dow, inMonth: true, hours, salary, isScheduled, isAbsence, isDayoff, entry });
+    days.push({ date, dow, inMonth, hours, salary, isScheduled, isAbsence, isDayoff, entry });
   }
 
   let gross: number;
@@ -317,12 +311,12 @@ export function computeMonth(
   if (profile.template_type === 'csr') {
     gross = profile.basic_salary != null ? Math.min(sumDailySalary, profile.basic_salary) : sumDailySalary;
 
-    // Allowance absence deduction — LOCKED. Every IN-MONTH scheduled work
-    // day with hours < 1 (INCLUDING dates with no entry row) is an absence;
-    // those are exactly the days flagged isAbsence above. A Mon–Sun bucket
-    // with >= 3 absences forfeits its quarter. Buckets are built from
-    // in-month days only, so spillover never reduces the forfeiture and a
-    // fully-empty month forfeits all 4 → allowance 0.
+    // Allowance absence deduction — LOCKED. Every scheduled work day in the
+    // 31-row window with hours < 1 (INCLUDING dates with no entry row, and
+    // INCLUDING spillover rows) is an absence; those are exactly the days
+    // flagged isAbsence above. A Mon–Sun bucket with >= 3 absences forfeits
+    // its quarter. Buckets span the full window, so a fully-empty month
+    // forfeits all 4 → allowance 0.
     const absenceByDate = new Map<string, boolean>();
     for (const d of days) absenceByDate.set(d.date, d.isAbsence);
     const buckets = weekBuckets(monthKey);
@@ -441,27 +435,44 @@ export interface AllMonthsSummary {
   cumulative: { csr: number; liveAdmin: number; total: number };
 }
 
+/** The months whose 31-row window contains `dateStr`: always the date's own
+ *  month, plus the PRECEDING month when the date is a spillover day of it
+ *  (i.e. it falls within `[prev/01 .. prev/01 + 30 days]`). A boundary day
+ *  like 7/1 therefore belongs to both July's and June's window. */
+function monthsWindowingDate(dateStr: string): string[] {
+  const own = monthKeyFromDate(dateStr);
+  if (!own) return [];
+  const result = [own];
+  const [y, m] = own.split('-').map(Number);
+  const prevY = m === 1 ? y - 1 : y;
+  const prevM = m === 1 ? 12 : m - 1;
+  const prev = `${prevY}-${pad2(prevM)}`;
+  if (dateStr <= addDays(`${prev}-01`, TIMESHEET_ROWS - 1)) result.push(prev);
+  return result;
+}
+
 /** Aggregate net payroll cost per month across every ACTIVE profile.
- *  Net is the cost basis (same value Cost Master shows). Months are the
- *  distinct YYYY-MM present in `allEntries`, ascending. For each month ×
- *  active profile, the user's in-month entries are run through
- *  computeMonth and the resulting net is summed by template_type. No pay
- *  math is duplicated — this only sums computeMonth(...).net. */
+ *  Net is the cost basis (same value Cost Master shows). A month SURFACES
+ *  and SUMS on its 31-row window: a month appears if any entry falls in its
+ *  window, and its net is computed from every window entry — in-month AND
+ *  spillover. A boundary-day entry (e.g. 7/1) therefore contributes to both
+ *  June's and July's window. computeMonth windows the entries it receives,
+ *  so this only sums computeMonth(...).net — no pay math is duplicated. */
 export function computeAllMonthsSummary(
   profiles: TimesheetProfile[],
   allEntries: (TimesheetEntry & { user_id: string })[],
 ): AllMonthsSummary {
   const active = profiles.filter(p => p.active);
 
-  // Distinct months present in the entry data, ascending.
+  // Months whose 31-row window contains at least one entry, ascending. A
+  // boundary-day entry surfaces both the date's month and the preceding one.
   const monthSet = new Set<string>();
   for (const e of allEntries) {
-    const mk = monthKeyFromDate(e.work_date);
-    if (mk) monthSet.add(mk);
+    for (const mk of monthsWindowingDate(e.work_date)) monthSet.add(mk);
   }
   const monthKeys = Array.from(monthSet).sort();
 
-  // Group entries by user once, for per-month filtering.
+  // Group entries by user once, for per-month windowing.
   const entriesByUser = new Map<string, (TimesheetEntry & { user_id: string })[]>();
   for (const e of allEntries) {
     const list = entriesByUser.get(e.user_id) ?? [];
@@ -473,11 +484,12 @@ export function computeAllMonthsSummary(
   const cumulative = { csr: 0, liveAdmin: 0, total: 0 };
 
   for (const monthKey of monthKeys) {
+    const windowSet = new Set(timesheetDatesOf(monthKey));
     let csr = 0;
     let liveAdmin = 0;
     for (const profile of active) {
       const userEntries = (entriesByUser.get(profile.user_id) ?? [])
-        .filter(e => monthKeyFromDate(e.work_date) === monthKey);
+        .filter(e => windowSet.has(e.work_date));
       const month = computeMonth(monthKey, userEntries, profile);
       if (profile.template_type === 'csr') csr += month.net;
       else liveAdmin += month.net;
