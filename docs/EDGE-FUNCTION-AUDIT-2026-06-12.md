@@ -226,6 +226,37 @@ The repo doesn't contain the canonical cron schedule — that lives in `cron.job
 3. `sync-backup-sheets` cron row exists or is queued for the next deploy.
 4. `deactivate-expired-promotions` and `fc-alert-evaluation` are accounted for (likely live but with a different function name or RPC trigger).
 
+### Live reconcile 2026-06-13
+
+Live `cron.job` dump (2026-06-12, authoritative):
+- HTTP jobs (Vault-backed Bearer secret `email_queue_service_role_key`):
+  send-reminders 00:00 daily · penalty-engine 00:05 daily ·
+  auto-forfeit-settlement 00:10 daily · daily-reconciliation 00:20 daily ·
+  loyalty-inactivity-check 00:25 daily · auto-expire-cash-orders 00:30 daily ·
+  cleanup-loyalty-images Sun 03:00 · process-loyalty-notification-queue hourly ·
+  loyalty-sheet-reconcile hourly at :07 · process-email-queue every 5s (gated)
+- SQL-only jobs (no edge function call):
+  deactivate_expired_promotions hourly · fc_evaluate_alerts every 30 min
+
+**(1) Functions Check 5 expects to be cron-wired but NOT in the live dump:**
+- `sync-backup-sheets` — expected per Check 5 row "0 18 * * * UTC (03:00 JST)" and explicitly flagged "NOT YET DEPLOYED". Live confirms still not scheduled. Track as a queued first-deploy item, not a regression.
+- `finance-reconciliation` — Check 5 row flagged "unclear from docs… Verify against cron.job". Live confirms NOT scheduled. The function carries cron-shape service-role auth scaffolding but has no live invoker. Either (a) intentional — the schedule will be added when a real caller is identified — or (b) stale scaffolding from an earlier design. Owner decision needed; no operational impact today.
+
+**(2) Live jobs NOT documented in Check 5:** none. All 12 live jobs (10 HTTP + 2 SQL) appear in the Check 5 table.
+
+**(3) Schedule mismatches:** none. Every documented "cron-only=YES" row matches the live schedule minute-for-minute:
+  - 00:00 / 00:05 / 00:10 / 00:20 / 00:25 / 00:30 daily ✓
+  - Sun 03:00 UTC ✓
+  - hourly (process-loyalty-notification-queue) ✓
+  - hourly at :07 (loyalty-sheet-reconcile) ✓
+  - every 5 seconds (process-email-queue) ✓
+  - every 30 minutes (fc_evaluate_alerts SQL) ✓
+  - hourly (deactivate_expired_promotions SQL) ✓
+
+Naming reconciliation: live uses the unprefixed function names (`send-reminders`, `penalty-engine`, `auto-forfeit-settlement`) — Check 5 enumerated both `daily-*` and unprefixed variants on those rows, so the live names already match. The "Function not present in repo — investigate" notes on rows 212 (deactivate-expired-promotions) and 214 (fc-alert-evaluation) are RESOLVED: both are intentionally SQL-only cron jobs, not missing edge functions.
+
+**Result:** repo + live cron are in sync. Only outstanding items are the two known gaps in Check 5 column 4 (`sync-backup-sheets` queued, `finance-reconciliation` needs an owner decision).
+
 ---
 
 ## Check 6 detail — Sync pipelines
