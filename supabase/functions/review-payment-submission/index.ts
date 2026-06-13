@@ -1040,6 +1040,30 @@ Deno.serve(async (req) => {
 
     // If confirming, create actual payment records
     if (action === "confirmed") {
+      // Idempotency guard — atomic verify-and-flip from a pre-confirm
+      // state ('submitted' or 'under_review') to 'confirmed'. If zero
+      // rows match, the submission was already processed concurrently;
+      // return 409 and make NO payment insert and NO totals update.
+      // Mirrors the cash confirm path's submission-status guard at L631.
+      const { data: flipped, error: flipErr } = await supabase
+        .from("payment_submissions")
+        .update({ status: "confirmed" })
+        .eq("id", submission_id)
+        .in("status", ["submitted", "under_review"])
+        .select("id");
+      if (flipErr) {
+        console.error("[review-payment-submission] CAS flip failed for layaway confirm:", flipErr);
+        return new Response(JSON.stringify({ error: "Failed to lock submission" }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (!flipped || flipped.length === 0) {
+        return new Response(JSON.stringify({
+          error: "Submission already processed",
+          confirmed_payment_id: submission.confirmed_payment_id ?? null,
+        }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       // Detect DP submissions using the same heuristics as the payments table
       const subRef = String(submission.reference_number || '');
       const subNotes = String(submission.notes || '');
