@@ -362,7 +362,7 @@ Deno.serve(async (req) => {
       for (const upd of waivedUpdates) {
         const { error: wErr } = await supabase
           .from("penalty_fees")
-          .update({ status: "unpaid", waived_at: null, penalty_date: upd.penaltyDate })
+          .update({ status: "unpaid", waived_at: null, waiver_status: null, penalty_date: upd.penaltyDate })
           .eq("id", upd.id);
         if (wErr) console.error(`[penalty-engine] failed to unwaive ${upd.id}:`, wErr);
       }
