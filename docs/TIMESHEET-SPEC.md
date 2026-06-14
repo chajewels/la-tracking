@@ -1,6 +1,6 @@
 # Timesheet Feature — Spec
 
-**Status:** BUILT (2026-06-13). Product/pay logic LOCKED. Shipped as
+**Status:** BUILT & LIVE (2026-06-14, on main/production). Product/pay logic LOCKED. Shipped as
 `src/pages/Timesheet.tsx` + `src/lib/timesheetEngine.ts` (pure-TS engine,
 Commissions precedent), reading `timesheet_profiles` / `timesheet_entries`
 under RLS — no edge function. Route `/timesheet` in
@@ -69,6 +69,12 @@ null at write time, ignored by the engine).
 ## NO OF DAY-OFF
 
 Count of days in the month with hours < 1.
+
+---
+
+## 31-row grid & spillover
+
+31-row grid from the 1st (TIMESHEET_ROWS=31 consecutive dates). Spillover rows — the next calendar month's first day(s) filling rows past the current month's last day — COUNT toward the displaying month's totals (daily hours, salary, and the Monday-anchored absence/allowance week-bucketing), exactly like in-month rows. Each month's grid is independent, so a boundary day shared by two adjacent months counts in BOTH; the CSR min(gross,basic) cap prevents double-pay. Implemented 2026-06-14: engine sums the full window (9f835f0a); per-month entry fetch widened to 1st..1st+30 days (e8878d05).
 
 ---
 

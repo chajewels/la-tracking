@@ -515,6 +515,12 @@ To add a new screenshot for any Help section:
 - All dropdowns configurable via `inquiry_dropdown_options` with inline + Add in form
 - No edge functions. No deploys needed.
 
+### Timesheet — BUILT & LIVE (see docs/TIMESHEET-SPEC.md, docs/SYSTEM-STATUS.md)
+
+- Staff monthly timesheet under CSR Operations → Timesheet (`/timesheet`). Pure-TS pay engine + RLS, no edge function.
+- Spillover rows count toward the month (NOT display-only) — see docs/TIMESHEET-SPEC.md "31-row grid & spillover".
+- Schema + RLS detail: docs/SCHEMA-FACTS.md "Timesheet tables".
+
 ## Project Overview
 
 Jewelry layaway management system built with:

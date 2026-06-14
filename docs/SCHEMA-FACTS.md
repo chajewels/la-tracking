@@ -421,3 +421,21 @@ Triggers:
 - `trg_test_invoice_prefix_cash` on `cash_orders` — BEFORE INSERT OR UPDATE OF `invoice_number, customer_id`, executes `enforce_test_invoice_prefix()`.
 
 Effect: when the row's `customer_id` resolves to a customer with `is_test = true` and the proposed `invoice_number` is purely numeric, the trigger rewrites it to `TEST-<number>` before the write commits. The numeric-invoice convention (CLAUDE.md TEST ACCOUNT EXCLUSION) becomes self-enforcing: staff cannot accidentally save a leak-prone numeric invoice under a test customer, so every regex filter — frontend, edge function, and the 20 reporting RPCs — excludes the account regardless of what was typed in. Motivated by the TEST-4567 incident (docs/TEST-ACCOUNTS.md).
+
+### Timesheet tables (added 2026-06-14, feature SHIPPED & LIVE)
+
+Three tables back the staff Timesheet feature (pure-TS engine in `src/lib/timesheetEngine.ts`, page `src/pages/Timesheet.tsx`; no edge function). See docs/TIMESHEET-SPEC.md for pay logic.
+
+- **`timesheet_profiles`** — one row per staff member.
+  Columns: `id`; `user_id` (UNIQUE, = auth uid); `template_type` CHECK(`'live_admin'` | `'csr'`); `job_title`; `timezone` (default `'Asia/Manila'`); `work_days` smallint[] (ISO dow — **Sunday IS a valid workday, treated as 1..7**); `shift_start`; `shift_end`; `basic_salary`; `allowance`; `half_day_rate` / `full_day_rate` / `full_day_threshold_hours` (**VESTIGIAL — the engine ignores these; rates are fixed code constants, CSR full rate = basic/27**); `dayoff_divisor` (default 4); `active`; `can_view_all` (bool, default false); timestamps.
+  RLS: own row + admin/finance + `public.timesheet_can_view_all(auth.uid())`.
+
+- **`timesheet_entries`** — one row per (user, day).
+  Columns: `id`; `user_id`; `work_date` (date); `am_in` / `am_out` / `pm_in` / `pm_out` (timestamptz); `note`. UNIQUE(`user_id`, `work_date`). `work_date` is stamped via `getPHTToday()` (Asia/Manila).
+  RLS: own + admin/finance + `can_view_all`.
+
+- **`timesheet_monthly_history`** — SUMMARY-ONLY historical payroll.
+  Columns: `month_key` (text PK, `'YYYY-MM'`); `csr_net` (numeric); `liveadmin_net` (numeric); `created_at`. RLS admin-only (EXISTS in `public.user_roles` where `role::text='admin'`).
+  Holds pre-go-live months (`<= 2026-05`); live months (`2026-06` onward) are computed from `timesheet_entries`, NOT this table. The Full Summary tab blends history rows with live months, live winning on any month with punches.
+
+- **Helper `public.timesheet_can_view_all(uuid)`** — SECURITY DEFINER STABLE; reads `timesheet_profiles.can_view_all` for the given user. Grants timesheet-only Consolidation + Cost Master visibility WITHOUT a global role. Brendalyn (`bumagatbrenda@gmail.com`) is flagged `can_view_all = true`.
