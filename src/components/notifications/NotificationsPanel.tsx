@@ -54,6 +54,10 @@ function iconForType(type: string) {
     case 'loyalty_award_failed':
     case 'loyalty_award_missing':
       return <ShieldAlert className="h-4 w-4 text-destructive" />;
+    case 'penalty_applied':
+      return <ShieldAlert className="h-4 w-4 text-destructive" />;
+    case 'account_forfeited':
+      return <Ban className="h-4 w-4 text-destructive" />;
     case 'submission_created':
     case 'submission_confirmed':
     case 'submission_rejected':

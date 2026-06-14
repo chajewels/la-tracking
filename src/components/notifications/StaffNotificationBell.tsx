@@ -15,14 +15,18 @@ import {
   Award,
   XCircle,
   Ban,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Slider } from '@/components/ui/slider';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { ROUTES } from '@/constants/routes';
 import { cn } from '@/lib/utils';
+import { useNotificationSound } from '@/hooks/useNotificationSound';
 
 interface StaffNotificationRow {
   id: string;
@@ -42,6 +46,10 @@ function iconForType(type: string) {
       return <Sparkles className="h-3.5 w-3.5 text-primary" />;
     case 'loyalty_award_failed':
       return <ShieldAlert className="h-3.5 w-3.5 text-destructive" />;
+    case 'penalty_applied':
+      return <ShieldAlert className="h-3.5 w-3.5 text-destructive" />;
+    case 'account_forfeited':
+      return <Ban className="h-3.5 w-3.5 text-destructive" />;
     case 'submission_created':
     case 'submission_confirmed':
     case 'submission_rejected':
@@ -77,7 +85,7 @@ export default function StaffNotificationBell() {
   const { data: notifications = [] } = useQuery<StaffNotificationRow[]>({
     queryKey: ['staff-notifications'],
     enabled: !!session,
-    refetchInterval: 60_000,
+    refetchInterval: 30_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('staff_notifications' as any)
@@ -116,6 +124,9 @@ export default function StaffNotificationBell() {
     () => notifications.filter((n) => !readIds.has(n.id)).length,
     [notifications, readIds]
   );
+
+  // Staff-bell sound alerts (chime + speech for important types).
+  const { muted, setMuted, volume, setVolume } = useNotificationSound(notifications, readIds);
 
   const markRead = useMutation({
     mutationFn: async (ids: string[]) => {
@@ -191,15 +202,37 @@ export default function StaffNotificationBell() {
               </span>
             )}
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs text-primary hover:text-primary/80"
-            onClick={handleMarkAllRead}
-            disabled={unreadCount === 0 || markRead.isPending}
-          >
-            Mark all read
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-primary"
+              onClick={() => setMuted(!muted)}
+              aria-label={muted ? 'Unmute notification sounds' : 'Mute notification sounds'}
+              title={muted ? 'Unmute notification sounds' : 'Mute notification sounds'}
+            >
+              {muted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+            </Button>
+            <Slider
+              value={[Math.round(volume * 100)]}
+              min={0}
+              max={100}
+              step={5}
+              onValueChange={(v) => setVolume((v[0] ?? 0) / 100)}
+              disabled={muted}
+              aria-label="Notification volume"
+              className="w-16"
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs text-primary hover:text-primary/80"
+              onClick={handleMarkAllRead}
+              disabled={unreadCount === 0 || markRead.isPending}
+            >
+              Mark all read
+            </Button>
+          </div>
         </div>
 
         <ScrollArea className="max-h-[70vh] overflow-y-auto">
