@@ -47,8 +47,10 @@ columns `half_day_rate`, `full_day_rate`, `full_day_threshold_hours`,
 `dayoff_divisor` on `timesheet_profiles` are intentionally unused (left
 null at write time, ignored by the engine).
 
-- CSR: half-day ₱400, full-day rate = `round(basic_salary / (days_in_month
-  − 4), 4)`, full-day threshold `> 5.99 hr`, day-off divisor 4.
+- CSR: half-day ₱400, full-day rate = `round(basic_salary / (TIMESHEET_ROWS
+  − 4), 4)` = `round(basic_salary / 27, 4)` — fixed /27 every month (31-row
+  grid − 4 day-off divisor), not calendar-month-variable; full-day threshold
+  `> 5.99 hr`, day-off divisor 4.
 - Live Admin: half-day ₱300, full-day ₱500, full-day threshold `> 3.99 hr`.
   Live Admin has NO `basic_salary` and NO `allowance` — those columns
   stay null.
