@@ -442,7 +442,8 @@ Three tables back the staff Timesheet feature (pure-TS engine in `src/lib/timesh
 
 ### staff_notifications — additional types (added 2026-06-14)
 
-The staff bell (`staff_notifications`) now also carries these types, all emitted fire-and-forget (try/catch, console.warn on error, never throw):
-- `submission_confirmed` — producer: `review-payment-submission` (both cash and layaway confirm paths).
+`submission_confirmed` is produced by the existing Postgres trigger `notify_submission_reviewed` (on `payment_submissions` UPDATE), which writes the "Payment confirmed" `staff_notifications` row on confirm. It is NOT emitted by an edge function — earlier duplicate inserts in `review-payment-submission` were removed (2026-06-14) so the bell row + chime/speech ride solely on the trigger.
+
+The only NEW edge-emitted bell types from the sound-notifications feature are (both fire-and-forget — try/catch, console.warn on error, never throw):
 - `penalty_applied` — producer: `penalty-engine` (one aggregated row per run when `penalties_created > 0`).
 - `account_forfeited` — producers: `auto-forfeit-settlement` (the two extension paths emit `metadata.kind='final_forfeited'`; the final-month-penalty-cap and 3-month-overdue paths emit `kind='forfeited'`) and `manual-forfeit` (`kind='forfeited'`, `manual:true`).

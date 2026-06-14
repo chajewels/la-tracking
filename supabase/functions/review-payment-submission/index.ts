@@ -1024,20 +1024,6 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Staff bell — payment confirmed (cash order)
-      try {
-        await supabase.from("staff_notifications").insert({
-          type: "submission_confirmed",
-          title: "Payment confirmed",
-          body: `Payment confirmed · ${cashOrder.currency} ${Number(submittedAmount).toLocaleString("en-US")} · Inv #${cashOrder.invoice_number}`,
-          customer_id: cashOrder.customer_id,
-          invoice_number: cashOrder.invoice_number,
-          metadata: { cash_order_id: submission.cash_order_id, amount: submittedAmount },
-        });
-      } catch (nErr) {
-        console.warn("[review-payment-submission] submission_confirmed (cash) insert failed (non-blocking):", nErr);
-      }
-
       // 10. Early return — do NOT fall through to layaway logic below
       return new Response(JSON.stringify({
         success: true,
@@ -1401,27 +1387,6 @@ Deno.serve(async (req) => {
       },
       old_value_json: { status: submission.status },
     });
-
-    // Staff bell — payment confirmed (layaway)
-    if (action === "confirmed") {
-      try {
-        const { data: acctNotif } = await supabase
-          .from("layaway_accounts")
-          .select("invoice_number, currency")
-          .eq("id", submission.account_id)
-          .single();
-        await supabase.from("staff_notifications").insert({
-          type: "submission_confirmed",
-          title: "Payment confirmed",
-          body: `Payment confirmed · ${(acctNotif as any)?.currency ?? ""} ${Number(submission.submitted_amount).toLocaleString("en-US")} · Inv #${(acctNotif as any)?.invoice_number ?? "?"}`,
-          account_id: submission.account_id,
-          invoice_number: (acctNotif as any)?.invoice_number ?? null,
-          metadata: { submission_id, amount: submission.submitted_amount },
-        });
-      } catch (nErr) {
-        console.warn("[review-payment-submission] submission_confirmed (layaway) insert failed (non-blocking):", nErr);
-      }
-    }
 
     // Send status-change email to customer (fire-and-forget)
     try {
