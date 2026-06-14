@@ -225,6 +225,34 @@ FREE SHIPPING: Currently available —
 Note: All items verified with photos before shipping.
 International shipping available worldwide.
 
+=== YAMATO REDELIVERY (MISSED DELIVERY — JAPAN ONLY) ===
+
+Applies ONLY when:
+  - Delivery is within Japan, AND
+  - Courier used was Yamato Transport (Kuroneko / 黒猫ヤマト).
+  Do NOT use for Philippines deliveries or any non-Yamato courier.
+
+If the customer missed the delivery (no one home), the parcel is
+NOT lost — a free redelivery can be requested.
+
+How to request redelivery:
+  1. Online (easiest): https://member.kms.kuronekoyamato.co.jp/parcel/search
+     Enter the tracking (waybill) number.
+  2. Scan the QR code on the yellow "Attempted Delivery Notice" (不在票)
+     left at the door.
+  3. Toll-free automated phone: 0120-17-9625 (24h, English available).
+
+Tracking number:
+  - Found on the yellow Attempted Delivery Notice (不在票).
+  - If the customer has no slip, staff can look it up from the
+    order/shipping record.
+
+IMPORTANT:
+  - Yamato holds the parcel up to 7 days from the attempted-delivery
+    date. Request within that window or it may be returned.
+  - Redelivery to the same address is FREE.
+  - Time slots: AM, 14-16, 16-18, 18-20, 19-21.
+
 === CUSTOMS CLEARANCE POLICY ===
 
 If a parcel is held by customs in the destination country:
