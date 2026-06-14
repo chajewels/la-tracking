@@ -439,3 +439,10 @@ Three tables back the staff Timesheet feature (pure-TS engine in `src/lib/timesh
   Holds pre-go-live months (`<= 2026-05`); live months (`2026-06` onward) are computed from `timesheet_entries`, NOT this table. The Full Summary tab blends history rows with live months, live winning on any month with punches.
 
 - **Helper `public.timesheet_can_view_all(uuid)`** — SECURITY DEFINER STABLE; reads `timesheet_profiles.can_view_all` for the given user. Grants timesheet-only Consolidation + Cost Master visibility WITHOUT a global role. Brendalyn (`bumagatbrenda@gmail.com`) is flagged `can_view_all = true`.
+
+### staff_notifications — additional types (added 2026-06-14)
+
+The staff bell (`staff_notifications`) now also carries these types, all emitted fire-and-forget (try/catch, console.warn on error, never throw):
+- `submission_confirmed` — producer: `review-payment-submission` (both cash and layaway confirm paths).
+- `penalty_applied` — producer: `penalty-engine` (one aggregated row per run when `penalties_created > 0`).
+- `account_forfeited` — producers: `auto-forfeit-settlement` (the two extension paths emit `metadata.kind='final_forfeited'`; the final-month-penalty-cap and 3-month-overdue paths emit `kind='forfeited'`) and `manual-forfeit` (`kind='forfeited'`, `manual:true`).

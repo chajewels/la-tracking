@@ -574,6 +574,21 @@ Deno.serve(async (req) => {
       console.warn("[penalty-engine] email dispatch failed (non-blocking):", emailErr);
     }
 
+    // ── Step 10: Staff bell — aggregated penalty notification ──
+    if (penaltiesCreated > 0) {
+      try {
+        const uniqueAccts = new Set(successfulPenalties.map((p: any) => p.account_id)).size;
+        await supabase.from("staff_notifications").insert({
+          type: "penalty_applied",
+          title: "Penalties applied",
+          body: `${penaltiesCreated} penalty event(s) across ${uniqueAccts} account(s)`,
+          metadata: { penalties_created: penaltiesCreated, accounts_affected: uniqueAccts, run_at: new Date().toISOString() },
+        });
+      } catch (nErr) {
+        console.warn("[penalty-engine] penalty_applied notification insert failed (non-blocking):", nErr);
+      }
+    }
+
     return new Response(JSON.stringify({
       message: "Penalty engine completed",
       penalties_created: penaltiesCreated,

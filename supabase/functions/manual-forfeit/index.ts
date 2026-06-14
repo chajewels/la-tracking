@@ -114,6 +114,21 @@ Deno.serve(async (req) => {
       },
     });
 
+    // Staff bell — account forfeited (fire-and-forget)
+    try {
+      await supabase.from("staff_notifications").insert({
+        type: "account_forfeited",
+        title: "Account forfeited",
+        body: `Inv #${account.invoice_number} — forfeited (manual) by ${user.email ?? "Admin"}`,
+        account_id,
+        customer_id: account.customer_id,
+        invoice_number: account.invoice_number,
+        metadata: { kind: "forfeited", manual: true },
+      });
+    } catch (nErr) {
+      console.warn("[manual-forfeit] account_forfeited notification insert failed (non-blocking):", nErr);
+    }
+
     // Send account-forfeited email (fire-and-forget)
     try {
       const { data: acctForEmail } = await supabase

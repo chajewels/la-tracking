@@ -156,6 +156,23 @@ Deno.serve(async (req) => {
       }
     };
 
+    // Staff bell — account forfeited (fire-and-forget)
+    const notifyForfeit = async (acct: any, kind: string) => {
+      try {
+        await supabase.from("staff_notifications").insert({
+          type: "account_forfeited",
+          title: "Account forfeited",
+          body: `Inv #${acct.invoice_number} — ${customerMap.get(acct.customer_id) || "Unknown"}${kind === "final_forfeited" ? " (final)" : ""}`,
+          account_id: acct.id,
+          customer_id: acct.customer_id,
+          invoice_number: acct.invoice_number,
+          metadata: { kind },
+        });
+      } catch (nErr) {
+        console.warn("[auto-forfeit] account_forfeited notification insert failed (non-blocking):", nErr);
+      }
+    };
+
     // Fetch all active/overdue/extension_active accounts
     const { data: accounts, error: accErr } = await supabase
       .from("layaway_accounts")
@@ -241,6 +258,7 @@ Deno.serve(async (req) => {
             "Extension period has expired without payment — account permanently forfeited",
             false,
           );
+          await notifyForfeit(account, "final_forfeited");
           await fireLoyaltyRevoke(account, "final_forfeit", `Final forfeit (extension expired): ${account.invoice_number}`);
           continue;
         }
@@ -301,6 +319,7 @@ Deno.serve(async (req) => {
               "Extension period has expired without payment — account permanently forfeited",
               false,
             );
+            await notifyForfeit(account, "final_forfeited");
             await fireLoyaltyRevoke(account, "final_forfeit", `Final forfeit (extension month penalty cap): ${account.invoice_number}`);
             continue;
           }
@@ -376,6 +395,7 @@ Deno.serve(async (req) => {
             "Account forfeited due to non-payment after extended overdue period",
             true,
           );
+          await notifyForfeit(account, "forfeited");
           await fireLoyaltyRevoke(account, "auto_forfeit", `Auto-forfeit (penalty cap): ${account.invoice_number}`);
           continue;
         }
@@ -479,6 +499,8 @@ Deno.serve(async (req) => {
           "Account forfeited due to non-payment after extended overdue period",
           true,
         );
+
+        await notifyForfeit(account, "forfeited");
 
         await fireLoyaltyRevoke(account, "auto_forfeit", `Auto-forfeit (3-month overdue): ${account.invoice_number}`);
 
