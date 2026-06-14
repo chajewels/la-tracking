@@ -4523,6 +4523,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      timesheet_can_view_all: { Args: { uid: string }; Returns: boolean }
       unwaive_penalty_atomic: {
         Args: { p_user_email: string; p_user_id: string; p_waiver_id: string }
         Returns: Json
