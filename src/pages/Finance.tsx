@@ -257,6 +257,24 @@ export default function Finance() {
     enabled: (tab === 'overview' || tab === 'analytics') && !!session,
   });
 
+  const { data: dailyLayawaySales, isLoading: dailyLayawayLoading } = useQuery({
+    queryKey: ['daily-new-layaway', currencyFilter],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc('get_daily_new_layaway_sales', { currency_mode: currencyFilter });
+      if (error) throw error;
+      return (Array.isArray(data) ? data : []) as Array<{ day: string; new_sales_count: number; total_sales_value: number }>;
+    },
+    enabled: tab === 'overview' && !!session,
+  });
+
+  const dailyLayawaySeries = useMemo(() => {
+    const now = new Date();
+    const today = now.getDate();
+    const byDay = new Map<number, number>();
+    (dailyLayawaySales ?? []).forEach(r => { byDay.set(new Date(r.day + 'T00:00:00').getDate(), Number(r.total_sales_value) || 0); });
+    return Array.from({ length: today }, (_, i) => ({ day: i + 1, value: Math.round(byDay.get(i + 1) ?? 0) }));
+  }, [dailyLayawaySales]);
+
   const { data: tradeKpis } = useQuery({
     queryKey: ['trade-kpis'],
     queryFn: async () => {
@@ -569,27 +587,12 @@ export default function Finance() {
             {/* KPI Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {summaryLoading ? (
-                [...Array(8)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+                [...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
               ) : (
                 <>
                   <StatCard title="Total Receivables" value={formatCurrency(summary?.total_receivables ?? 0, displayCurrency)} icon={DollarSign} variant="gold" />
                   <StatCard title="Expected Next Month" value={formatCurrency(summary?.next_month_expected ?? 0, displayCurrency)} icon={Sparkles} variant="gold" />
-                  <StatCard title="Expected (30d)" value={formatCurrency(summary?.predicted_30d_raw ?? 0, displayCurrency)} icon={TrendingUp} variant="success" />
-                  <StatCard title="Expected (90d)" value={formatCurrency(summary?.predicted_90d_raw ?? 0, displayCurrency)} icon={TrendingUp} />
                   <StatCard title="Collections This Month" value={formatCurrency(summary?.collections_this_month ?? 0, displayCurrency)} icon={BarChart3} variant="success" />
-                  <StatCard
-                    title="Cash Revenue Today (JPY)"
-                    value={`¥ ${Math.round(summary?.cash_revenue_today_jpy ?? 0).toLocaleString()}`}
-                    icon={Banknote}
-                    variant="success"
-                  />
-                  <StatCard
-                    title="Total Overdue"
-                    value={(summary?.overdue_accounts ?? 0).toString()}
-                    subtitle={formatCurrency(summary?.overdue_amount ?? 0, displayCurrency)}
-                    icon={AlertTriangle}
-                    variant="danger"
-                  />
                   <StatCard
                     title="New Layaway Sales"
                     value={formatCurrency(thisMonthSales.total, displayCurrency)}
@@ -597,63 +600,6 @@ export default function Finance() {
                     icon={ShoppingBag}
                     variant="gold"
                     trend={thisMonthSales.change !== 0 ? { value: `${Math.abs(thisMonthSales.change)}% vs last month`, positive: thisMonthSales.change > 0 } : undefined}
-                  />
-                </>
-              )}
-            </div>
-
-            {/* Cash Orders row — always JPY regardless of displayCurrency */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {summaryLoading ? (
-                [...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
-              ) : (
-                <>
-                  <StatCard
-                    title="Total Cash Sales (JPY)"
-                    value={formatCurrency(summary?.cash_revenue_total_jpy ?? 0, 'JPY')}
-                    subtitle={`${formatCurrency(summary?.cash_revenue_month_jpy ?? 0, 'JPY')} this month`}
-                    icon={Banknote}
-                    variant="gold"
-                  />
-                  <StatCard
-                    title="Cash Conversion Rate"
-                    value={`${(summary?.cash_conversion_rate?.this_month ?? 0).toFixed(1)}%`}
-                    subtitle={`${(summary?.cash_conversion_rate?.all_time ?? 0).toFixed(1)}% all-time`}
-                    icon={Activity}
-                  />
-                  <CashVsLayawaySplitCard
-                    cashJpy={summary?.cash_vs_layaway_split?.this_month?.cash_revenue_jpy ?? 0}
-                    layawayJpy={summary?.cash_vs_layaway_split?.this_month?.layaway_revenue_jpy ?? 0}
-                    cashPct={summary?.cash_vs_layaway_split?.this_month?.cash_percentage ?? 0}
-                  />
-                </>
-              )}
-            </div>
-
-            {/* Trade Program row */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {!tradeKpis ? (
-                [...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
-              ) : (
-                <>
-                  <StatCard
-                    title="Trade Accounts"
-                    value={tradeKpis.total_count.toString()}
-                    subtitle={`${tradeKpis.active_count} active · ${tradeKpis.completed_count} completed`}
-                    icon={RefreshCw}
-                    variant="gold"
-                  />
-                  <StatCard
-                    title="Total Trade Value (JPY)"
-                    value={`¥ ${Math.round(tradeKpis.total_value_jpy).toLocaleString()}`}
-                    icon={Banknote}
-                    variant="gold"
-                  />
-                  <StatCard
-                    title="Trade Share"
-                    value={`${tradeKpis.share_percent.toFixed(1)}%`}
-                    subtitle={`${tradeKpis.total_count} of ${tradeKpis.all_accounts_count} accounts`}
-                    icon={Activity}
                   />
                 </>
               )}
@@ -691,7 +637,88 @@ export default function Finance() {
               </div>
             </div>
 
+            {/* New Layaway Sales — daily (month-to-date) */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-primary" /> New Layaway Sales · This month</h3>
+              {dailyLayawayLoading ? (
+                <Skeleton className="h-[220px] rounded-lg" />
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={dailyLayawaySeries}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                    <XAxis dataKey="day" fontSize={11} tickLine={false} stroke="hsl(var(--muted-foreground))" interval={Math.max(0, Math.ceil(dailyLayawaySeries.length / 8) - 1)} />
+                    <YAxis hide />
+                    <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} labelFormatter={(d) => `Day ${d}`} />
+                    <Line type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            {/* Cash Orders row — always JPY regardless of displayCurrency */}
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+              {summaryLoading ? (
+                [...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+              ) : (
+                <>
+                  <StatCard
+                    title="Cash Revenue Today (JPY)"
+                    value={`¥ ${Math.round(summary?.cash_revenue_today_jpy ?? 0).toLocaleString()}`}
+                    icon={Banknote}
+                    variant="success"
+                  />
+                  <StatCard
+                    title="Total Cash Sales (JPY)"
+                    value={formatCurrency(summary?.cash_revenue_total_jpy ?? 0, 'JPY')}
+                    subtitle={`${formatCurrency(summary?.cash_revenue_month_jpy ?? 0, 'JPY')} this month`}
+                    icon={Banknote}
+                    variant="gold"
+                  />
+                  <StatCard
+                    title="Cash Conversion Rate"
+                    value={`${(summary?.cash_conversion_rate?.this_month ?? 0).toFixed(1)}%`}
+                    subtitle={`${(summary?.cash_conversion_rate?.all_time ?? 0).toFixed(1)}% all-time`}
+                    icon={Activity}
+                  />
+                  <CashVsLayawaySplitCard
+                    cashJpy={summary?.cash_vs_layaway_split?.this_month?.cash_revenue_jpy ?? 0}
+                    layawayJpy={summary?.cash_vs_layaway_split?.this_month?.layaway_revenue_jpy ?? 0}
+                    cashPct={summary?.cash_vs_layaway_split?.this_month?.cash_percentage ?? 0}
+                  />
+                </>
+              )}
+            </div>
+
             <MonthlyAnalyticsChart monthlySalesData={monthlySalesData} />
+
+            {/* Trade Program row */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {!tradeKpis ? (
+                [...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+              ) : (
+                <>
+                  <StatCard
+                    title="Trade Accounts"
+                    value={tradeKpis.total_count.toString()}
+                    subtitle={`${tradeKpis.active_count} active · ${tradeKpis.completed_count} completed`}
+                    icon={RefreshCw}
+                    variant="gold"
+                  />
+                  <StatCard
+                    title="Total Trade Value (JPY)"
+                    value={`¥ ${Math.round(tradeKpis.total_value_jpy).toLocaleString()}`}
+                    icon={Banknote}
+                    variant="gold"
+                  />
+                  <StatCard
+                    title="Trade Share"
+                    value={`${tradeKpis.share_percent.toFixed(1)}%`}
+                    subtitle={`${tradeKpis.total_count} of ${tradeKpis.all_accounts_count} accounts`}
+                    icon={Activity}
+                  />
+                </>
+              )}
+            </div>
 
             <TradeProgramTrends data={tradeMonthlyTrends ?? []} />
 
