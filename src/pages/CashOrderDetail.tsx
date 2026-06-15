@@ -6,7 +6,7 @@ import {
   ArrowLeft, Banknote, RefreshCcw, Upload, XCircle,
   AlertTriangle, User as UserIcon, MessageCircle, Plus,
   CalendarClock, Send, Eye, CheckCircle, MessageSquare, FileText,
-  Image as ImageIcon, Clock, Pencil, RotateCcw,
+  Image as ImageIcon, Clock, Pencil, RotateCcw, Settings,
 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -394,6 +394,89 @@ export default function CashOrderDetail() {
     }
   }, [order, editExpiryValue, qc, id]);
 
+  // Manage Invoice dialog — admin-only total_amount correction (encode fixes).
+  // Mirrors the layaway EditAccountDialog Manage Invoice flow. Loyalty
+  // (loyalty_jpy_amount) is NEVER touched; total_paid is NEVER modified.
+  const [manageOpen, setManageOpen] = useState(false);
+  const [manageTotal, setManageTotal] = useState('');
+  const [manageSaving, setManageSaving] = useState(false);
+  const openManageInvoice = useCallback(() => {
+    if (!order) return;
+    setManageTotal(String(Number(order.total_amount)));
+    setManageOpen(true);
+  }, [order]);
+
+  const confirmManageInvoice = useCallback(async () => {
+    if (!order) return;
+    setManageSaving(true);
+    try {
+      const newTotal = Math.round(parseFloat(manageTotal) * 100) / 100;
+      if (isNaN(newTotal)) {
+        toast.error('Enter a valid amount');
+        setManageSaving(false);
+        return;
+      }
+      // Skip the write entirely if unchanged.
+      if (newTotal === Number(order.total_amount)) {
+        setManageOpen(false);
+        setManageSaving(false);
+        return;
+      }
+
+      const remaining_balance = Math.max(
+        0,
+        Math.round((newTotal - Number(order.total_paid)) * 100) / 100,
+      );
+
+      // Defensive admin gate: RLS allows staff UPDATE at row level, so this
+      // frontend strip is the real gate. Non-admins write nothing here.
+      const updatePayload: Record<string, unknown> = {
+        total_amount: newTotal,
+        remaining_balance,
+      };
+      if (!isAdmin) {
+        delete (updatePayload as any).total_amount;
+        delete (updatePayload as any).remaining_balance;
+      }
+      if (Object.keys(updatePayload).length === 0) {
+        toast.error('Only admins can edit the cash order total');
+        setManageSaving(false);
+        return;
+      }
+
+      const { error } = await (supabase as any)
+        .from('cash_orders')
+        .update(updatePayload)
+        .eq('id', order.id);
+      if (error) throw error;
+
+      // Best-effort audit log
+      try {
+        await (supabase as any).from('audit_logs').insert({
+          entity_type: 'cash_order',
+          entity_id: order.id,
+          action: 'cash_order_total_edited',
+          old_value_json: {
+            total_amount: Number(order.total_amount),
+            remaining_balance: Number(order.remaining_balance),
+          },
+          new_value_json: { total_amount: newTotal, remaining_balance },
+          performed_by_user_id: (await supabase.auth.getUser()).data.user?.id ?? null,
+        });
+      } catch { /* non-blocking */ }
+
+      toast.success('Cash order total updated');
+      setManageOpen(false);
+      qc.invalidateQueries({ queryKey: ['cash-order', id] });
+      qc.invalidateQueries({ queryKey: ['cash-orders'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-summary'] });
+    } catch (err: unknown) {
+      toast.error((err as Error).message || 'Failed to update total');
+    } finally {
+      setManageSaving(false);
+    }
+  }, [order, manageTotal, isAdmin, qc, id]);
+
   const confirmCancel = useCallback(async () => {
     if (!order || !cancelReason.trim()) {
       toast.error('Please enter a cancellation reason');
@@ -740,6 +823,15 @@ export default function CashOrderDetail() {
             >
               <Pencil className="h-4 w-4 mr-1.5" />
               Edit Expiry
+            </Button>
+          )}
+          {(isAdmin || isStaff) && (
+            <Button
+              variant="outline"
+              onClick={openManageInvoice}
+            >
+              <Settings className="h-4 w-4 mr-1.5" />
+              Manage Invoice
             </Button>
           )}
         </div>
@@ -1211,6 +1303,57 @@ export default function CashOrderDetail() {
               className="gold-gradient text-primary-foreground font-medium"
             >
               {editExpirySaving ? 'Saving…' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manage Invoice — admin-only total correction */}
+      <Dialog open={manageOpen} onOpenChange={setManageOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings className="h-5 w-5 text-primary" />
+              Manage Invoice
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Correct the total for cash order #{order.invoice_number}. This does
+            not change the amount paid or loyalty.
+          </p>
+          <div className="space-y-2">
+            <Label htmlFor="manage-total">Total Amount ({currency})</Label>
+            <Input
+              id="manage-total"
+              type="number"
+              step="0.01"
+              value={manageTotal}
+              onChange={e => setManageTotal(e.target.value)}
+              readOnly={!isAdmin}
+              disabled={!isAdmin}
+              className={`h-9 text-sm tabular-nums ${isAdmin ? 'bg-background border-border' : 'bg-muted cursor-not-allowed'}`}
+              title={isAdmin ? undefined : 'Only admins can edit the cash order total.'}
+            />
+            {!isAdmin && (
+              <p className="text-[11px] text-muted-foreground">
+                Read-only — admin only.
+              </p>
+            )}
+            <div className="flex justify-between text-[11px] text-muted-foreground pt-1">
+              <span>Paid</span>
+              <span className="tabular-nums">{formatCurrency(Number(order.total_paid), currency)}</span>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setManageOpen(false)} disabled={manageSaving}>
+              Back
+            </Button>
+            <Button
+              onClick={confirmManageInvoice}
+              disabled={manageSaving || !isAdmin}
+              className="gold-gradient text-primary-foreground font-medium"
+            >
+              {manageSaving ? 'Saving…' : 'Save'}
             </Button>
           </DialogFooter>
         </DialogContent>
