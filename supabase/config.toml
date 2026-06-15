@@ -73,6 +73,8 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.append-cash-receipt]
     verify_jwt = true
+  [functions.append-payment-tracking]
+    verify_jwt = false
   [functions.fix-account-totals]
     verify_jwt = true
   [functions.set-portal-pin]

@@ -840,6 +840,38 @@ Deno.serve(async (req) => {
         });
       }
 
+      // Fire-and-forget: incrementally update the payment tracking sheet (cash order).
+      try {
+        let phpJpyRate = 1.0;
+        const { data: rateRow } = await supabase
+          .from("system_settings")
+          .select("value")
+          .eq("key", "php_jpy_rate")
+          .single();
+        if (rateRow?.value) {
+          const parsed = parseFloat(String(rateRow.value));
+          if (!isNaN(parsed) && parsed > 0) phpJpyRate = parsed;
+        }
+        const amount_jpy = cashOrder.currency === "JPY"
+          ? submission.submitted_amount
+          : Math.round(submission.submitted_amount / phpJpyRate);
+        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/append-payment-tracking`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            invoice_number: cashOrder.invoice_number,
+            payment_date: submission.payment_date,
+            amount_jpy,
+            currency: cashOrder.currency,
+          }),
+        }).catch(err => console.warn("[review-payment-submission] append-payment-tracking failed:", err));
+      } catch (e) {
+        console.warn("[review-payment-submission] append-payment-tracking (cash) prep failed (non-blocking):", e);
+      }
+
       // 7. Fire-and-forget: cash-payment-confirmed email
       try {
         const { data: customer } = await supabase
@@ -1356,6 +1388,48 @@ Deno.serve(async (req) => {
       }).then(({ error }: { error: unknown }) => {
         if (error) console.warn("[review-payment-submission] sales_log insert (layaway) failed (non-blocking):", error);
       });
+    }
+
+    // Fire-and-forget: incrementally update the payment tracking sheet (layaway).
+    if (confirmedPaymentIds.length === 1 && submission.account_id && layawayInvoiceNumber) {
+      try {
+        // `account` is not in scope here — fetch the account's currency the same
+        // way layawayInvoiceNumber was fetched above.
+        const { data: acctRow } = await supabase
+          .from("layaway_accounts")
+          .select("currency")
+          .eq("id", submission.account_id)
+          .single();
+        const acctCurrency = acctRow?.currency ?? "JPY";
+        let phpJpyRate = 1.0;
+        const { data: rateRow } = await supabase
+          .from("system_settings")
+          .select("value")
+          .eq("key", "php_jpy_rate")
+          .single();
+        if (rateRow?.value) {
+          const parsed = parseFloat(String(rateRow.value));
+          if (!isNaN(parsed) && parsed > 0) phpJpyRate = parsed;
+        }
+        const amount_jpy = acctCurrency === "JPY"
+          ? submission.submitted_amount
+          : Math.round(submission.submitted_amount / phpJpyRate);
+        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/append-payment-tracking`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            invoice_number: layawayInvoiceNumber,
+            payment_date: submission.payment_date,
+            amount_jpy,
+            currency: acctCurrency,
+          }),
+        }).catch(err => console.warn("[review-payment-submission] append-payment-tracking failed:", err));
+      } catch (e) {
+        console.warn("[review-payment-submission] append-payment-tracking (layaway) prep failed (non-blocking):", e);
+      }
     }
 
     // Fire-and-forget: append-cash-receipt for single-allocation submissions
