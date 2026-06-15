@@ -180,6 +180,11 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
   }, [featureToggles]);
 
   const canAccessPage = useCallback((path: string): boolean => {
+    // Admin always passes — never deny admin on any route. Without this,
+    // a route not yet in PAGE_PERMISSION_MAP hits the `return false`
+    // fall-through and denies even admin (the recurring new-feature lockout).
+    if (roles.includes('admin')) return true;
+
     // Public to all authenticated users — bypass permission lookup
     if (PUBLIC_AUTHENTICATED_PATHS.includes(path)) return roles.length > 0;
 
