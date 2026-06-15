@@ -8,7 +8,7 @@ import { toast } from '@/hooks/use-toast';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
-export const ROLES = ['admin', 'staff', 'finance', 'csr'] as const;
+export const ROLES = ['admin', 'staff', 'finance', 'csr', 'live_agent'] as const;
 
 export const PERMISSION_MODULES: { module: string; permissions: { key: string; label: string; section?: string }[] }[] = [
   {

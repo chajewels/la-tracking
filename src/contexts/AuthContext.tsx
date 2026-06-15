@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, useRef, useCallback, Re
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 
-type AppRole = 'admin' | 'staff' | 'finance' | 'csr';
+type AppRole = 'admin' | 'staff' | 'finance' | 'csr' | 'customer' | 'live_agent';
 
 // Idle-timeout constants (applies to both the internal app and the customer portal)
 const IDLE_TIMEOUT_MS = 2 * 60 * 60 * 1000;   // 2 hours
