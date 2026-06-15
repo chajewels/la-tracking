@@ -48,7 +48,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   const roleLabel =
     roles.length > 0
-      ? roles[0].charAt(0).toUpperCase() + roles[0].slice(1)
+      ? roles[0].split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
       : 'User';
 
   return (
