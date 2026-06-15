@@ -1616,15 +1616,36 @@ export default function Commissions() {
     setLoading(true);
     try {
       const client = supabase as any;
-      const [salesRes, agentsRes, splitsRes] = await Promise.all([
-        client.from('sales_log').select('id, sale_date, item_code, item_amount, client_name, closer, processor, coordinator, support, verifier, status, channel, source, opened_in_chat, closed_in_chat, eligible, notes').order('sale_date', { ascending: false }).limit(10000),
+      // sales_log can exceed PostgREST's 1,000-row server cap (.limit(10000)
+      // does NOT override it), which truncated the dataset to the most recent
+      // ~1,000 sales and made computeAllMonths see only 2 months. Paginate
+      // with .range() until every row is fetched.
+      async function fetchAllSalesLog() {
+        const pageSize = 1000;
+        let from = 0;
+        let all: any[] = [];
+        while (true) {
+          const { data, error } = await client
+            .from('sales_log')
+            .select('id, sale_date, item_code, item_amount, client_name, closer, processor, coordinator, support, verifier, status, channel, source, opened_in_chat, closed_in_chat, eligible, notes')
+            .order('sale_date', { ascending: false })
+            .range(from, from + pageSize - 1);
+          if (error) throw error;
+          if (!data || data.length === 0) break;
+          all = all.concat(data);
+          if (data.length < pageSize) break;
+          from += pageSize;
+        }
+        return all;
+      }
+      const [salesData, agentsRes, splitsRes] = await Promise.all([
+        fetchAllSalesLog(),
         client.from('commission_agents').select('id, name, color, active, start_month, sort_order'),
         client.from('commission_splits').select('month, closer_pct, processor_pct, coordinator_pct, support_pct, verifier_pct, top_sales_pct, merge_groups, pool_per_item_php').order('month', { ascending: true }),
       ]);
-      if (salesRes.error) throw salesRes.error;
       if (agentsRes.error) throw agentsRes.error;
       if (splitsRes.error) throw splitsRes.error;
-      setRows((salesRes.data as SaleRow[]) ?? []);
+      setRows((salesData as SaleRow[]) ?? []);
       setAgents((agentsRes.data as CommissionAgent[]) ?? []);
       setSplits((splitsRes.data as CommissionSplit[]) ?? []);
     } catch (err: unknown) {
