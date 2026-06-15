@@ -4576,7 +4576,7 @@ export type Database = {
         | "extension_active"
         | "final_forfeited"
       allocation_type: "penalty" | "installment"
-      app_role: "admin" | "staff" | "finance" | "csr" | "customer"
+      app_role: "admin" | "staff" | "finance" | "csr" | "customer" | "live_agent"
       cash_order_status: "pending" | "completed" | "cancelled" | "expired"
       clv_tier: "bronze" | "silver" | "gold" | "vip"
       loyalty_lot_source_type:
@@ -4778,7 +4778,7 @@ export const Constants = {
         "final_forfeited",
       ],
       allocation_type: ["penalty", "installment"],
-      app_role: ["admin", "staff", "finance", "csr", "customer"],
+      app_role: ["admin", "staff", "finance", "csr", "customer", "live_agent"],
       cash_order_status: ["pending", "completed", "cancelled", "expired"],
       clv_tier: ["bronze", "silver", "gold", "vip"],
       loyalty_lot_source_type: [
