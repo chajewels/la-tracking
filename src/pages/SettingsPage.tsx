@@ -567,6 +567,7 @@ export default function SettingsPage() {
                               <SelectItem value="staff">Staff</SelectItem>
                               <SelectItem value="finance">Finance</SelectItem>
                               <SelectItem value="csr">CSR</SelectItem>
+                              <SelectItem value="live_agent">Live Agent</SelectItem>
                             </SelectContent>
                           </Select>
                           <p className="text-[10px] text-muted-foreground">

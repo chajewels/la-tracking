@@ -159,7 +159,7 @@ function RoleMatrix({
   const getPermission = (role: string, key: string) =>
     allPermissions.find(p => p.role === role && p.permission_key === key)?.is_allowed ?? false;
 
-  const roleLabel = (r: string) => r.charAt(0).toUpperCase() + r.slice(1);
+  const roleLabel = (r: string) => r.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
   return (
     <div className="space-y-6">
