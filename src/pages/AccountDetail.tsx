@@ -69,6 +69,7 @@ export default function AccountDetail() {
   const { data: submissionProofs } = useQuery({
     queryKey: ['submission-proofs', id],
     enabled: !!id,
+    staleTime: 0,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('payment_submissions')
@@ -294,6 +295,7 @@ export default function AccountDetail() {
       queryClient.invalidateQueries({ queryKey: ['account', account.id] });
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['submission-proofs', id] });
       toast.success(`Invoice number updated to ${trimmed}`);
       setEditingInvoice(false);
     } catch (err: any) {
@@ -324,6 +326,7 @@ export default function AccountDetail() {
       queryClient.invalidateQueries({ queryKey: ['account-services', id] });
       queryClient.invalidateQueries({ queryKey: ['payments', id] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['submission-proofs', id] });
       setEditingScheduleId(null);
     } catch (err: any) {
       toast.error(err.message || 'Failed to update');
@@ -357,6 +360,7 @@ export default function AccountDetail() {
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
       queryClient.invalidateQueries({ queryKey: ['customer-detail'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['submission-proofs', id] });
       toast.success(`Installment added successfully`);
       setAddingInstallment(false);
       setNewInstDueDate('');
@@ -388,6 +392,7 @@ export default function AccountDetail() {
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
       queryClient.invalidateQueries({ queryKey: ['customer-detail'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['submission-proofs', id] });
       toast.success(`Installment #${deleteScheduleTarget.installment_number} removed`);
       setDeleteScheduleTarget(null);
       setDeleteScheduleError('');
@@ -411,6 +416,7 @@ export default function AccountDetail() {
       toast.success('Carry-over applied successfully');
       queryClient.invalidateQueries({ queryKey: ['schedule', id] });
       queryClient.invalidateQueries({ queryKey: ['account', id] });
+      queryClient.invalidateQueries({ queryKey: ['submission-proofs', id] });
       setAcceptCarryTarget(null);
       setAcceptCarryReason('');
     } catch (err: any) {
@@ -444,6 +450,7 @@ export default function AccountDetail() {
       if (rpcErr) throw rpcErr;
       queryClient.invalidateQueries({ queryKey: ['account', id] });
       queryClient.invalidateQueries({ queryKey: ['schedule', id] });
+      queryClient.invalidateQueries({ queryKey: ['submission-proofs', id] });
       setEditingPaidId(null);
       setEditingPaidAmount('');
       toast.success('Paid amount updated');
@@ -1134,6 +1141,7 @@ export default function AccountDetail() {
                     queryClient.invalidateQueries({ queryKey: ['accounts'] });
                     queryClient.invalidateQueries({ queryKey: ['schedule', id] });
                     queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+                    queryClient.invalidateQueries({ queryKey: ['submission-proofs', id] });
                   } catch (err: any) {
                     toast.error(err.message || 'Failed to reactivate');
                   } finally {
@@ -1999,6 +2007,7 @@ export default function AccountDetail() {
                           setNoteText('');
                           setNoteFormOpen(false);
                           queryClient.invalidateQueries({ queryKey: ['account-notes', id] });
+                          queryClient.invalidateQueries({ queryKey: ['submission-proofs', id] });
                         } catch (err: any) {
                           toast.error(err.message || 'Failed to add note');
                         } finally {
