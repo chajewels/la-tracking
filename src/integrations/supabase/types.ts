@@ -2624,7 +2624,7 @@ export type Database = {
       }
       payment_proofs: {
         Row: {
-          account_id: string
+          account_id: string | null
           cash_order_id: string | null
           cash_payment_id: string | null
           created_at: string
@@ -2638,7 +2638,7 @@ export type Database = {
           uploaded_by_user_id: string | null
         }
         Insert: {
-          account_id: string
+          account_id?: string | null
           cash_order_id?: string | null
           cash_payment_id?: string | null
           created_at?: string
@@ -2652,7 +2652,7 @@ export type Database = {
           uploaded_by_user_id?: string | null
         }
         Update: {
-          account_id?: string
+          account_id?: string | null
           cash_order_id?: string | null
           cash_payment_id?: string | null
           created_at?: string
@@ -2671,6 +2671,20 @@ export type Database = {
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_proofs_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_proofs_cash_payment_id_fkey"
+            columns: ["cash_payment_id"]
+            isOneToOne: false
+            referencedRelation: "cash_payments"
             referencedColumns: ["id"]
           },
           {
