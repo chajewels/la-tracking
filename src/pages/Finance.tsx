@@ -647,8 +647,8 @@ export default function Finance() {
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                       <XAxis dataKey="day" fontSize={11} tickLine={false} stroke="hsl(var(--muted-foreground))" interval={Math.max(0, Math.ceil(dailyLayawaySeries.length / 8) - 1)} />
                       <YAxis hide />
-                      <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} labelFormatter={(d) => `Day ${d}`} />
-                      <Line type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3, fill: 'hsl(var(--primary))' }} activeDot={{ r: 5 }} />
+                      <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} cursor={{ stroke: 'hsl(var(--primary))', strokeWidth: 1, strokeDasharray: '3 3' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} labelFormatter={(d) => `Day ${d}`} />
+                      <Line type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4, fill: 'hsl(var(--primary))' }} activeDot={{ r: 6, stroke: '#fff', strokeWidth: 2 }} />
                     </LineChart>
                   </ResponsiveContainer>
                 )}
