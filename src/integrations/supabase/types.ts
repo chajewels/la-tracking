@@ -4318,6 +4318,10 @@ export type Database = {
         Args: { currency_mode?: string; months_back?: number }
         Returns: Json
       }
+      get_daily_new_layaway_sales: {
+        Args: { currency_mode?: string }
+        Returns: Json
+      }
       get_forecast_6m: {
         Args: never
         Returns: {
