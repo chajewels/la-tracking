@@ -605,7 +605,7 @@ export default function Finance() {
               )}
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <AgingBuckets currency={displayCurrency} />
               {/* 6-Month Forecast */}
               <div className="rounded-xl border border-border bg-card p-5">
@@ -635,24 +635,24 @@ export default function Finance() {
                   <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground"><div className="h-2 w-2 rounded-full bg-primary/20" /> Expected (due)</div>
                 </div>
               </div>
-            </div>
 
-            {/* New Layaway Sales — daily (month-to-date) */}
-            <div className="rounded-xl border border-border bg-card p-5">
-              <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-primary" /> New Layaway Sales · This month</h3>
-              {dailyLayawayLoading ? (
-                <Skeleton className="h-[220px] rounded-lg" />
-              ) : (
-                <ResponsiveContainer width="100%" height={220}>
-                  <LineChart data={dailyLayawaySeries}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis dataKey="day" fontSize={11} tickLine={false} stroke="hsl(var(--muted-foreground))" interval={Math.max(0, Math.ceil(dailyLayawaySeries.length / 8) - 1)} />
-                    <YAxis hide />
-                    <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} labelFormatter={(d) => `Day ${d}`} />
-                    <Line type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              )}
+              {/* New Layaway Sales — daily (month-to-date) */}
+              <div className="rounded-xl border border-border bg-card p-5">
+                <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-primary" /> New Layaway Sales · This month</h3>
+                {dailyLayawayLoading ? (
+                  <Skeleton className="h-[220px] rounded-lg" />
+                ) : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={dailyLayawaySeries}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                      <XAxis dataKey="day" fontSize={11} tickLine={false} stroke="hsl(var(--muted-foreground))" interval={Math.max(0, Math.ceil(dailyLayawaySeries.length / 8) - 1)} />
+                      <YAxis hide />
+                      <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} labelFormatter={(d) => `Day ${d}`} />
+                      <Line type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
             </div>
 
             {/* Cash Orders row — always JPY regardless of displayCurrency */}
