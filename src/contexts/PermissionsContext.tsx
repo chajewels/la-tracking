@@ -185,6 +185,17 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
     // fall-through and denies even admin (the recurring new-feature lockout).
     if (roles.includes('admin')) return true;
 
+    // Live agents are timesheet-only. Scoped to users who hold live_agent and
+    // NO other internal role (admin/staff/finance/csr) — so a hypothetical
+    // composite role keeps its broader access. A pure live_agent may reach
+    // ONLY /timesheet; everything else (including PUBLIC_AUTHENTICATED_PATHS
+    // like /commissions, /help, /policy-hub) is denied → the ProtectedRoute
+    // redirect bounces them back to /timesheet.
+    const isInternal = roles.some(r => ['admin','staff','finance','csr'].includes(r));
+    if (roles.includes('live_agent') && !isInternal) {
+      return path === '/timesheet';
+    }
+
     // Public to all authenticated users — bypass permission lookup
     if (PUBLIC_AUTHENTICATED_PATHS.includes(path)) return roles.length > 0;
 
