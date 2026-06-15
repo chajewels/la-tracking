@@ -2625,6 +2625,8 @@ export type Database = {
       payment_proofs: {
         Row: {
           account_id: string
+          cash_order_id: string | null
+          cash_payment_id: string | null
           created_at: string
           file_name: string | null
           file_url: string
@@ -2637,6 +2639,8 @@ export type Database = {
         }
         Insert: {
           account_id: string
+          cash_order_id?: string | null
+          cash_payment_id?: string | null
           created_at?: string
           file_name?: string | null
           file_url: string
@@ -2649,6 +2653,8 @@ export type Database = {
         }
         Update: {
           account_id?: string
+          cash_order_id?: string | null
+          cash_payment_id?: string | null
           created_at?: string
           file_name?: string | null
           file_url?: string

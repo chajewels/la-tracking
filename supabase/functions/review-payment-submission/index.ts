@@ -807,6 +807,20 @@ Deno.serve(async (req) => {
         old_value_json: { status: submission.status },
       });
 
+      // Fire-and-forget: archive the proof into payment_proofs (cash order).
+      if (submission.proof_url) {
+        await supabase.from("payment_proofs").insert({
+          cash_order_id: cashOrder.id,
+          cash_payment_id: cashPayment.id,
+          submission_date: submission.payment_date,
+          file_url: submission.proof_url,
+          file_name: submission.proof_url?.split("/").pop() ?? null,
+          uploaded_by_name: submission.sender_name ?? null,
+        }).then(({ error }) => {
+          if (error) console.warn("[review-payment-submission] payment_proofs insert (cash order) failed (non-blocking):", error);
+        });
+      }
+
       // 7. Fire-and-forget: cash-payment-confirmed email
       try {
         const { data: customer } = await supabase
@@ -1279,6 +1293,20 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Failed to update submission" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Fire-and-forget: archive the proof into payment_proofs (layaway).
+    if (confirmedPaymentIds.length === 1 && submission.proof_url && submission.account_id) {
+      await supabase.from("payment_proofs").insert({
+        account_id: submission.account_id,
+        payment_id: confirmedPaymentIds[0],
+        submission_date: submission.payment_date,
+        file_url: submission.proof_url,
+        file_name: submission.proof_url?.split("/").pop() ?? null,
+        uploaded_by_name: submission.sender_name ?? null,
+      }).then(({ error }) => {
+        if (error) console.warn("[review-payment-submission] payment_proofs insert (layaway) failed (non-blocking):", error);
       });
     }
 
