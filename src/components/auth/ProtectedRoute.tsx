@@ -26,7 +26,7 @@ function AccessDenied() {
 }
 
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { session, loading } = useAuth();
+  const { session, roles, loading } = useAuth();
   const { canAccessPage, loading: permLoading } = usePermissions();
   const location = useLocation();
 
@@ -44,6 +44,13 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
 
   // Check dynamic role-based + feature-toggle page access
   if (!canAccessPage(location.pathname)) {
+    // Timesheet-only roles (e.g. live_agent) can't access the dashboard at '/'.
+    // Instead of a dead-end Access Denied, send them to their home page (/timesheet),
+    // which they CAN access (it's in PUBLIC_AUTHENTICATED_PATHS + own-row RLS).
+    // Guard against a redirect loop: only redirect when they're NOT already on /timesheet.
+    if (roles.includes('live_agent') && location.pathname !== '/timesheet') {
+      return <Navigate to="/timesheet" replace />;
+    }
     return <AccessDenied />;
   }
 
