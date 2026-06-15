@@ -3266,3 +3266,9 @@ Bug #196 (`_shared/check-permission.ts` multi-role fix — established the OR se
 - **Note:** sync-backup-sheets (new, not yet deployed) still carries the old pattern — apply the isServiceRole swap before its first deploy.
 - **Related:** Bugs #199/#201–#205 (the Batch D/F migrations that introduced the pattern); Bug #222 (same-day normalization work that led to discovering this); Bug #218/#220 (account #19115 also featured in the morning's duplicate-submission incident).
 - **Follow-ups (same day):** commit 85ff208 — loyalty failure notifications now identify the customer (`full_name · Inv #` prefix) in both review-payment-submission and daily-reconciliation emitters; commit c76806c — sync-backup-sheets migrated off the banned raw parseJwtClaims pattern to isServiceRole and deployed. All three functions deployed with 401/403 curl proof.
+
+### Bug #224 — Layaway payment-confirm bell showed "confirmed by Unknown" (2026-06-15) ✅
+
+The staff-bell "Payment confirmed" notification (written by the `notify_submission_reviewed` Postgres trigger on `payment_submissions` UPDATE) showed the reviewer as "Unknown" for LAYAWAY confirms. Root cause: the layaway confirm path's CAS status-flip update (`UPDATE … SET status='confirmed' WHERE id=? AND status IN ('submitted','under_review')`) fired the trigger BEFORE `reviewer_user_id` was written — and the later reviewer-detail update (review-payment-submission ~L1263) no longer changes `status`, so the trigger never re-fires and never sees the reviewer.
+
+Fix: write `reviewer_user_id` (and `reviewer_notes`) atomically in the CAS flip itself: `.update({ status: "confirmed", reviewer_user_id: user.id, reviewer_notes: reviewer_notes || null })`. The trigger now fires with the reviewer already set. The cash path was already correct (its `.update(subUpdate)` sets status + reviewer atomically); the general/restore paths were untouched.

@@ -1047,7 +1047,7 @@ Deno.serve(async (req) => {
       // Mirrors the cash confirm path's submission-status guard at L631.
       const { data: flipped, error: flipErr } = await supabase
         .from("payment_submissions")
-        .update({ status: "confirmed" })
+        .update({ status: "confirmed", reviewer_user_id: user.id, reviewer_notes: reviewer_notes || null })
         .eq("id", submission_id)
         .in("status", ["submitted", "under_review"])
         .select("id");
