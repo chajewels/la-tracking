@@ -821,6 +821,25 @@ Deno.serve(async (req) => {
         });
       }
 
+      // Fire-and-forget: mirror the confirmed payment into sales_log (cash order).
+      if (submission.proof_url || true) { // always write for cash orders
+        await (supabase as any).from("sales_log").insert({
+          sale_date: submission.payment_date,
+          item_code: cashOrder.invoice_number,
+          item_amount: submission.submitted_amount,
+          client_name: null, // fetched below if available — see note
+          status: "Pending",
+          channel: null,
+          source: null,
+          opened_in_chat: false,
+          closed_in_chat: false,
+          eligible: false,
+          notes: "Auto-synced from payment confirmation",
+        }).then(({ error }: { error: unknown }) => {
+          if (error) console.warn("[review-payment-submission] sales_log insert (cash order) failed (non-blocking):", error);
+        });
+      }
+
       // 7. Fire-and-forget: cash-payment-confirmed email
       try {
         const { data: customer } = await supabase
@@ -1307,6 +1326,31 @@ Deno.serve(async (req) => {
         uploaded_by_name: submission.sender_name ?? null,
       }).then(({ error }) => {
         if (error) console.warn("[review-payment-submission] payment_proofs insert (layaway) failed (non-blocking):", error);
+      });
+    }
+
+    // Fire-and-forget: mirror the confirmed payment into sales_log (layaway).
+    if (confirmedPaymentIds.length === 1 && submission.account_id) {
+      // account's invoice_number is already in scope from the cash-receipt block
+      // (fetched as `account.invoice_number`). Use it if available, else fall back
+      // to a separate fetch.
+      const invNum = (typeof account !== "undefined" && account?.invoice_number)
+        ? account.invoice_number
+        : null;
+      await (supabase as any).from("sales_log").insert({
+        sale_date: submission.payment_date,
+        item_code: invNum,
+        item_amount: submission.submitted_amount,
+        client_name: null,
+        status: "Pending",
+        channel: null,
+        source: null,
+        opened_in_chat: false,
+        closed_in_chat: false,
+        eligible: false,
+        notes: "Auto-synced from payment confirmation",
+      }).then(({ error }: { error: unknown }) => {
+        if (error) console.warn("[review-payment-submission] sales_log insert (layaway) failed (non-blocking):", error);
       });
     }
 
