@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 
 interface TradeMonthlyTrend {
@@ -85,7 +85,17 @@ export default function TradeProgramTrends({ data }: { data: TradeMonthlyTrend[]
       ) : (
         <div className="h-72 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+            <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="tradeProgramGradient1" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#a855f7" stopOpacity={0.6} />
+                  <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="tradeProgramGradient2" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#22c55e" stopOpacity={0.6} />
+                  <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
               <XAxis
                 dataKey="label"
@@ -108,7 +118,7 @@ export default function TradeProgramTrends({ data }: { data: TradeMonthlyTrend[]
               />
               <Tooltip content={<CustomTooltip />} />
               <Legend wrapperStyle={{ fontSize: 11, paddingBottom: 8 }} verticalAlign="top" />
-              <Line
+              <Area
                 yAxisId="left"
                 type="monotone"
                 dataKey="trade_count"
@@ -117,8 +127,9 @@ export default function TradeProgramTrends({ data }: { data: TradeMonthlyTrend[]
                 name="Count"
                 dot={{ r: 3 }}
                 activeDot={{ r: 5 }}
+                fill="url(#tradeProgramGradient1)"
               />
-              <Line
+              <Area
                 yAxisId="right"
                 type="monotone"
                 dataKey="trade_value_jpy"
@@ -127,8 +138,9 @@ export default function TradeProgramTrends({ data }: { data: TradeMonthlyTrend[]
                 name="Value (¥)"
                 dot={{ r: 3 }}
                 activeDot={{ r: 5 }}
+                fill="url(#tradeProgramGradient2)"
               />
-            </LineChart>
+            </AreaChart>
           </ResponsiveContainer>
         </div>
       )}

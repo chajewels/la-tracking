@@ -643,13 +643,19 @@ export default function Finance() {
                   <Skeleton className="h-[220px] rounded-lg" />
                 ) : (
                   <ResponsiveContainer width="100%" height={220}>
-                    <LineChart data={dailyLayawaySeries}>
+                    <AreaChart data={dailyLayawaySeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="dailyLayawayGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.6} />
+                          <stop offset="95%" stopColor="#D4AF37" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                       <XAxis dataKey="day" fontSize={11} tickLine={false} stroke="hsl(var(--muted-foreground))" interval={Math.max(0, Math.ceil(dailyLayawaySeries.length / 8) - 1)} />
                       <YAxis hide />
                       <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} labelFormatter={(d) => `Day ${d}`} />
-                      <Line type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                    </LineChart>
+                      <Area type="monotone" dataKey="value" stroke="#D4AF37" strokeWidth={2} fill="url(#dailyLayawayGradient)" dot={{ r: 3, fill: '#D4AF37' }} />
+                    </AreaChart>
                   </ResponsiveContainer>
                 )}
               </div>
