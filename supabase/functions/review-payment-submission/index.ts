@@ -1329,17 +1329,21 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Fire-and-forget: mirror the confirmed payment into sales_log (layaway).
+    // Fetch invoice_number for sales_log (non-blocking — failure just leaves item_code null)
+    let layawayInvoiceNumber: string | null = null;
     if (confirmedPaymentIds.length === 1 && submission.account_id) {
-      // account's invoice_number is already in scope from the cash-receipt block
-      // (fetched as `account.invoice_number`). Use it if available, else fall back
-      // to a separate fetch.
-      const invNum = (typeof account !== "undefined" && account?.invoice_number)
-        ? account.invoice_number
-        : null;
+      const { data: invRow } = await supabase
+        .from("layaway_accounts")
+        .select("invoice_number")
+        .eq("id", submission.account_id)
+        .single();
+      layawayInvoiceNumber = invRow?.invoice_number ?? null;
+    }
+
+    if (confirmedPaymentIds.length === 1 && submission.account_id) {
       await (supabase as any).from("sales_log").insert({
         sale_date: submission.payment_date,
-        item_code: invNum,
+        item_code: layawayInvoiceNumber,
         item_amount: submission.submitted_amount,
         client_name: null,
         status: "Pending",
