@@ -277,7 +277,24 @@ export function RedemptionForm({
         onClose();
       }, 2000);
     } catch (err: any) {
-      const msg = err?.message || 'Could not submit redemption — please try again';
+      let msg = err?.message || 'Could not submit redemption — please try again';
+      // A non-2xx from functions.invoke THROWS, and the JSON body is on
+      // err.context (a Response), not err.message. Surface the server's
+      // message (e.g. the duplicate-redemption 409) when available.
+      try {
+        const ctx = err?.context;
+        let parsed: any = null;
+        if (ctx && typeof ctx.json === 'function') {
+          parsed = await ctx.json();
+        } else if (ctx?.body) {
+          parsed = typeof ctx.body === 'string' ? JSON.parse(ctx.body) : ctx.body;
+        }
+        if (parsed?.message || parsed?.error) {
+          msg = parsed.message || parsed.error;
+        }
+      } catch {
+        /* keep the default msg */
+      }
       setErrorMsg(msg);
       toast.error(msg);
     } finally {

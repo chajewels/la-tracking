@@ -366,6 +366,28 @@ Deno.serve(async (req) => {
       // types carry no invoice). No REDEEM-{id} placeholder anymore.
       const insertInvoice = trimmedInvoice ?? null;
 
+      // ── DUPLICATE GUARD (new_order_discount only) ──────────────────────
+      // Block a repeat request with the SAME member + SAME invoice + SAME
+      // points while a prior request is still active (pending or confirmed).
+      // A cancelled prior does NOT block — customer may re-request.
+      if (redemption_type === 'new_order_discount' && insertInvoice) {
+        const { data: dupe } = await supabase
+          .from("loyalty_redemptions")
+          .select("id")
+          .eq("member_id", member_id)
+          .eq("invoice_number", insertInvoice)
+          .eq("points_redeemed", pts)
+          .in("status", ["pending", "confirmed"])
+          .maybeSingle();
+        if (dupe) {
+          return json(
+            { error: "duplicate_redemption",
+              message: "This redemption request has already been submitted." },
+            409,
+          );
+        }
+      }
+
       const { data: redemption, error: insertErr } = await supabase
         .from("loyalty_redemptions")
         .insert({
