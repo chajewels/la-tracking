@@ -670,9 +670,14 @@ export default function Finance() {
               )}
             </div>
 
-            <MonthlyCashOrdersChart />
-
-            <MonthlyAnalyticsChart monthlySalesData={monthlySalesData} show="sales" />
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:items-start">
+              <div className="lg:col-span-2">
+                <MonthlyAnalyticsChart monthlySalesData={monthlySalesData} show="sales" />
+              </div>
+              <div className="lg:col-span-1">
+                <MonthlyCashOrdersChart />
+              </div>
+            </div>
 
             {/* Trade Program row */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

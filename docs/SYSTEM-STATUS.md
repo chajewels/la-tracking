@@ -12,6 +12,11 @@
   single 3-column row right under the KPI cards. The "Monthly Layaway Sales"
   chart (show="sales") sits below the Monthly Cash Orders chart, where the full
   combined MonthlyAnalyticsChart used to sit.
+- Lower row now mirrors the top row's column widths: Monthly Layaway Sales
+  (show="sales", lg:col-span-2, left — aligned under Monthly Performance) beside
+  Monthly Cash Orders (lg:col-span-1, right — aligned under the New Layaway daily
+  card), in a 3-column grid with lg:items-start. The Monthly Cash Orders chart
+  now renders as an area chart with a green gradient fill (was a plain line).
 - Aging Buckets and the "6-Month Cashflow Forecast" block MOVED OUT of
   Overview into the Analytics tab, in a 2-column grid directly above the
   Staff Performance section.

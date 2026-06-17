@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { subMonths, startOfMonth, parseISO, isValid, format } from 'date-fns';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { supabase } from '@/integrations/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -88,13 +88,19 @@ export default function MonthlyCashOrdersChart() {
       ) : (
         <>
           <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <AreaChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="cashOrdersGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#22c55e" stopOpacity={0.5} />
+                  <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" vertical={false} />
               <XAxis dataKey="label" tick={{ fill: '#a1a1aa', fontSize: 11 }} axisLine={false} tickLine={false} />
               <YAxis tickFormatter={fmtJpy} tick={{ fill: '#a1a1aa', fontSize: 11 }} axisLine={false} tickLine={false} width={56} />
               <Tooltip content={<CashTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.1)' }} />
-              <Line type="monotone" dataKey="cash" stroke="#22c55e" strokeWidth={2} dot={{ r: 3, fill: '#22c55e' }} />
-            </LineChart>
+              <Area type="monotone" dataKey="cash" stroke="#22c55e" strokeWidth={2} fill="url(#cashOrdersGradient)" dot={{ r: 3, fill: '#22c55e' }} />
+            </AreaChart>
           </ResponsiveContainer>
           <p className="text-xs text-zinc-400 mt-3 text-center">
             Total: {fmtFull(total)} across {chartData.length} month{chartData.length !== 1 ? 's' : ''}
