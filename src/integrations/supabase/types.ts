@@ -3570,6 +3570,72 @@ export type Database = {
         }
         Relationships: []
       }
+      sales_log_backup_20260616: {
+        Row: {
+          channel: string | null
+          client_name: string | null
+          closed_in_chat: boolean | null
+          closer: string | null
+          coordinator: string | null
+          created_at: string | null
+          eligible: boolean | null
+          id: string | null
+          item_amount: number | null
+          item_code: string | null
+          notes: string | null
+          opened_in_chat: boolean | null
+          processor: string | null
+          sale_date: string | null
+          source: string | null
+          status: string | null
+          support: string | null
+          updated_at: string | null
+          verifier: string | null
+        }
+        Insert: {
+          channel?: string | null
+          client_name?: string | null
+          closed_in_chat?: boolean | null
+          closer?: string | null
+          coordinator?: string | null
+          created_at?: string | null
+          eligible?: boolean | null
+          id?: string | null
+          item_amount?: number | null
+          item_code?: string | null
+          notes?: string | null
+          opened_in_chat?: boolean | null
+          processor?: string | null
+          sale_date?: string | null
+          source?: string | null
+          status?: string | null
+          support?: string | null
+          updated_at?: string | null
+          verifier?: string | null
+        }
+        Update: {
+          channel?: string | null
+          client_name?: string | null
+          closed_in_chat?: boolean | null
+          closer?: string | null
+          coordinator?: string | null
+          created_at?: string | null
+          eligible?: boolean | null
+          id?: string | null
+          item_amount?: number | null
+          item_code?: string | null
+          notes?: string | null
+          opened_in_chat?: boolean | null
+          processor?: string | null
+          sale_date?: string | null
+          source?: string | null
+          status?: string | null
+          support?: string | null
+          updated_at?: string | null
+          verifier?: string | null
+        }
+        Relationships: []
+      }
       schedule_audit_log: {
         Row: {
           account_id: string
@@ -4332,6 +4398,14 @@ export type Database = {
           full_name: string
           id: string
           total_eligible: number
+        }[]
+      }
+      get_cash_orders_monthly: {
+        Args: never
+        Returns: {
+          cash_jpy: number
+          month: string
+          order_count: number
         }[]
       }
       get_collection_analytics: {
