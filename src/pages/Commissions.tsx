@@ -79,6 +79,7 @@ function toDateInputValue(value: string | null | undefined): string {
 interface SalesLogFormState {
   sale_date: string;
   item_code: string;
+  invoice_number: string;
   item_amount: string;
   client_name: string;
   closer: string;
@@ -100,6 +101,7 @@ function emptyForm(): SalesLogFormState {
   return {
     sale_date: getPHTToday(),
     item_code: '',
+    invoice_number: '',
     item_amount: '',
     client_name: '',
     closer: '',
@@ -150,6 +152,7 @@ function SalesLogDialog({
       setForm({
         sale_date: toDateInputValue(editing.sale_date) || getPHTToday(),
         item_code: editing.item_code ?? '',
+        invoice_number: (editing as any).invoice_number ?? '',
         item_amount: editing.item_amount != null ? String(editing.item_amount) : '',
         client_name: editing.client_name ?? '',
         closer: editing.closer ?? '',
@@ -197,6 +200,7 @@ function SalesLogDialog({
       const payload = {
         sale_date: form.sale_date,
         item_code: form.item_code.trim() || null,
+        invoice_number: form.invoice_number.trim() || null,
         item_amount: amount,
         client_name: form.client_name.trim() || null,
         closer: form.closer.trim() || null,
@@ -271,6 +275,18 @@ function SalesLogDialog({
               <Label className="text-xs">Amount (¥) *</Label>
               <Input type="number" inputMode="numeric" value={form.item_amount} onChange={e => update('item_amount', e.target.value)} className="h-9" min={0} />
             </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">HUB Invoice #</Label>
+            <Input
+              value={form.invoice_number}
+              onChange={e => update('invoice_number', e.target.value)}
+              className="h-9"
+              placeholder="e.g. 19131"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Auto-marks this row as Paid when the payment confirms in HUB.
+            </p>
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Client Name</Label>
@@ -1627,7 +1643,7 @@ export default function Commissions() {
         while (true) {
           const { data, error } = await client
             .from('sales_log')
-            .select('id, sale_date, item_code, item_amount, client_name, closer, processor, coordinator, support, verifier, status, channel, source, opened_in_chat, closed_in_chat, eligible, notes')
+            .select('id, sale_date, item_code, invoice_number, item_amount, client_name, closer, processor, coordinator, support, verifier, status, channel, source, opened_in_chat, closed_in_chat, eligible, notes')
             .order('sale_date', { ascending: false })
             .range(from, from + pageSize - 1);
           if (error) throw error;
