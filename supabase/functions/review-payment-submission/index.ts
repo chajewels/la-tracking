@@ -821,6 +821,16 @@ Deno.serve(async (req) => {
         });
       }
 
+      // Fire-and-forget: auto-flip matching sales_log row to Paid (cash order).
+      // Matches by invoice_number. Silent no-op if no row exists or status is already Paid.
+      await (supabase as any).from("sales_log")
+        .update({ status: "Paid" })
+        .eq("invoice_number", cashOrder.invoice_number)
+        .neq("status", "Paid")
+        .then(({ error }: { error: unknown }) => {
+          if (error) console.warn("[review-payment-submission] sales_log auto-flip (cash order) failed (non-blocking):", error);
+        });
+
       // Fire-and-forget: incrementally update the payment tracking sheet (cash order).
       try {
         let phpJpyRate = 1.0;
@@ -1351,6 +1361,20 @@ Deno.serve(async (req) => {
         .eq("id", submission.account_id)
         .single();
       layawayInvoiceNumber = invRow?.invoice_number ?? null;
+    }
+
+    // Fire-and-forget: auto-flip matching sales_log row to Paid (layaway).
+    // Matches by invoice_number. Silent no-op if no row exists or status is already Paid.
+    // Gated on the same condition as the layawayInvoiceNumber lookup above (single
+    // payment with an account context — typically the DP confirmation).
+    if (confirmedPaymentIds.length === 1 && submission.account_id && layawayInvoiceNumber) {
+      await (supabase as any).from("sales_log")
+        .update({ status: "Paid" })
+        .eq("invoice_number", layawayInvoiceNumber)
+        .neq("status", "Paid")
+        .then(({ error }: { error: unknown }) => {
+          if (error) console.warn("[review-payment-submission] sales_log auto-flip (layaway) failed (non-blocking):", error);
+        });
     }
 
     // Fire-and-forget: incrementally update the payment tracking sheet (layaway).
