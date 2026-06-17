@@ -3514,6 +3514,7 @@ export type Database = {
           created_at: string
           eligible: boolean
           id: string
+          invoice_number: string | null
           item_amount: number | null
           item_code: string | null
           notes: string | null
@@ -3535,6 +3536,7 @@ export type Database = {
           created_at?: string
           eligible?: boolean
           id?: string
+          invoice_number?: string | null
           item_amount?: number | null
           item_code?: string | null
           notes?: string | null
@@ -3556,6 +3558,7 @@ export type Database = {
           created_at?: string
           eligible?: boolean
           id?: string
+          invoice_number?: string | null
           item_amount?: number | null
           item_code?: string | null
           notes?: string | null
