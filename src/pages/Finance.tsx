@@ -606,30 +606,34 @@ export default function Finance() {
               )}
             </div>
 
-            <MonthlyAnalyticsChart monthlySalesData={monthlySalesData} />
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2">
+                <MonthlyAnalyticsChart monthlySalesData={monthlySalesData} show="performance" />
+              </div>
 
-            {/* New Layaway Sales — daily (month-to-date) */}
-            <div className="rounded-xl border border-border bg-card p-5">
-              <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-primary" /> New Layaway Sales · This month</h3>
-              {dailyLayawayLoading ? (
-                <Skeleton className="h-[220px] rounded-lg" />
-              ) : (
-                <ResponsiveContainer width="100%" height={220}>
-                  <AreaChart data={dailyLayawaySeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="dailyLayawayGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.6} />
-                        <stop offset="95%" stopColor="#D4AF37" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis dataKey="day" fontSize={11} tickLine={false} stroke="hsl(var(--muted-foreground))" interval={Math.max(0, Math.ceil(dailyLayawaySeries.length / 8) - 1)} />
-                    <YAxis hide />
-                    <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} labelFormatter={(d) => `Day ${d}`} />
-                    <Area type="monotone" dataKey="value" stroke="#D4AF37" strokeWidth={2} fill="url(#dailyLayawayGradient)" dot={{ r: 3, fill: '#D4AF37' }} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
+              {/* New Layaway Sales — daily (month-to-date) */}
+              <div className="rounded-xl border border-border bg-card p-5">
+                <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-primary" /> New Layaway Sales · This month</h3>
+                {dailyLayawayLoading ? (
+                  <Skeleton className="h-[220px] rounded-lg" />
+                ) : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <AreaChart data={dailyLayawaySeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="dailyLayawayGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.6} />
+                          <stop offset="95%" stopColor="#D4AF37" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                      <XAxis dataKey="day" fontSize={11} tickLine={false} stroke="hsl(var(--muted-foreground))" interval={Math.max(0, Math.ceil(dailyLayawaySeries.length / 8) - 1)} />
+                      <YAxis hide />
+                      <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} labelFormatter={(d) => `Day ${d}`} />
+                      <Area type="monotone" dataKey="value" stroke="#D4AF37" strokeWidth={2} fill="url(#dailyLayawayGradient)" dot={{ r: 3, fill: '#D4AF37' }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
             </div>
 
             {/* Cash Orders row — always JPY regardless of displayCurrency */}
@@ -667,6 +671,8 @@ export default function Finance() {
             </div>
 
             <MonthlyCashOrdersChart />
+
+            <MonthlyAnalyticsChart monthlySalesData={monthlySalesData} show="sales" />
 
             {/* Trade Program row */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

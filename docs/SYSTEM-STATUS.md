@@ -4,10 +4,14 @@
 1.2.0 (commit 02a040c)
 
 ## 2026-06-17 — Finance dashboard layout + Monthly Cash Orders chart
-- Finance → Overview reflowed: "Monthly Performance" (MonthlyAnalyticsChart)
-  moved to the top of Overview (immediately after the KPI cards), and the
-  "New Layaway Sales · This month" daily area chart is now a full-width card
-  directly beneath it.
+- Finance → Overview reflowed for a more compact top: MonthlyAnalyticsChart
+  now renders its two charts independently via a `show` prop
+  ('both' | 'performance' | 'sales'). The "Monthly Performance" bar chart
+  (show="performance", lg:col-span-2) now fills the former Aging/Cashflow slot
+  beside the "New Layaway Sales · This month" daily card (lg:col-span-1) in a
+  single 3-column row right under the KPI cards. The "Monthly Layaway Sales"
+  chart (show="sales") sits below the Monthly Cash Orders chart, where the full
+  combined MonthlyAnalyticsChart used to sit.
 - Aging Buckets and the "6-Month Cashflow Forecast" block MOVED OUT of
   Overview into the Analytics tab, in a 2-column grid directly above the
   Staff Performance section.

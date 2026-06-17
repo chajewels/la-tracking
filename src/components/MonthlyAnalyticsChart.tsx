@@ -135,7 +135,7 @@ const renderSalesLegend = (props: any) => {
   );
 };
 
-export default function MonthlyAnalyticsChart({ monthlySalesData }: { monthlySalesData?: MonthlySalesRow[] } = {}) {
+export default function MonthlyAnalyticsChart({ monthlySalesData, show = 'both' }: { monthlySalesData?: MonthlySalesRow[]; show?: 'both' | 'performance' | 'sales' } = {}) {
   const [range, setRange] = useState<Range>('1Y');
   const today = format(new Date(), 'yyyy-MM-dd');
 
@@ -262,6 +262,7 @@ export default function MonthlyAnalyticsChart({ monthlySalesData }: { monthlySal
 
   return (
     <>
+      {show !== 'sales' && (
       <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-6">
         {/* Header */}
         <div className="flex items-start justify-between mb-5">
@@ -412,9 +413,10 @@ export default function MonthlyAnalyticsChart({ monthlySalesData }: { monthlySal
           </>
         )}
       </div>
+      )}
 
       {/* ── Monthly Layaway Sales chart ── */}
-      {monthlySalesData && monthlySalesData.length > 0 && (
+      {show !== 'performance' && monthlySalesData && monthlySalesData.length > 0 && (
         <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-6">
           <div className="flex items-start justify-between mb-5">
             <div>
