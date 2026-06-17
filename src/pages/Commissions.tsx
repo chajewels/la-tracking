@@ -1237,12 +1237,13 @@ function SalesLogTab({
                 <th className="px-3 py-2 text-left font-medium">Status</th>
                 <th className="px-3 py-2 text-left font-medium">Channel</th>
                 <th className="px-3 py-2 text-center font-medium">Eligible</th>
+                <th className="px-3 py-2 text-center font-medium">Invoice #</th>
                 <th className="px-3 py-2 text-right font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredRows.length === 0 ? (
-                <tr><td colSpan={13} className="px-3 py-10 text-center text-sm text-muted-foreground">
+                <tr><td colSpan={14} className="px-3 py-10 text-center text-sm text-muted-foreground">
                   {hasFilters ? 'No sales match the current filter.' : 'No sales recorded yet.'}
                 </td></tr>
               ) : (
@@ -1262,6 +1263,7 @@ function SalesLogTab({
                     </td>
                     <td className="px-3 py-2 text-xs">{r.channel || '—'}</td>
                     <td className="px-3 py-2 text-center">{r.eligible ? '✓' : <span className="text-muted-foreground">—</span>}</td>
+                    <td className="px-3 py-2 text-center font-mono text-xs">{(r as any).invoice_number || '—'}</td>
                     <td className="px-3 py-2 text-right">
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditing(r); setDialogOpen(true); }} aria-label="Edit">
                         <Pencil className="h-3.5 w-3.5" />
