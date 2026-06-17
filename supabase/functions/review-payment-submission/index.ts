@@ -821,25 +821,6 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Fire-and-forget: mirror the confirmed payment into sales_log (cash order).
-      if (submission.proof_url || true) { // always write for cash orders
-        await (supabase as any).from("sales_log").insert({
-          sale_date: submission.payment_date,
-          item_code: cashOrder.invoice_number,
-          item_amount: submission.submitted_amount,
-          client_name: null, // fetched below if available — see note
-          status: "Pending",
-          channel: null,
-          source: null,
-          opened_in_chat: false,
-          closed_in_chat: false,
-          eligible: false,
-          notes: "Auto-synced from payment confirmation",
-        }).then(({ error }: { error: unknown }) => {
-          if (error) console.warn("[review-payment-submission] sales_log insert (cash order) failed (non-blocking):", error);
-        });
-      }
-
       // Fire-and-forget: incrementally update the payment tracking sheet (cash order).
       try {
         let phpJpyRate = 1.0;
@@ -1370,24 +1351,6 @@ Deno.serve(async (req) => {
         .eq("id", submission.account_id)
         .single();
       layawayInvoiceNumber = invRow?.invoice_number ?? null;
-    }
-
-    if (confirmedPaymentIds.length === 1 && submission.account_id) {
-      await (supabase as any).from("sales_log").insert({
-        sale_date: submission.payment_date,
-        item_code: layawayInvoiceNumber,
-        item_amount: submission.submitted_amount,
-        client_name: null,
-        status: "Pending",
-        channel: null,
-        source: null,
-        opened_in_chat: false,
-        closed_in_chat: false,
-        eligible: false,
-        notes: "Auto-synced from payment confirmation",
-      }).then(({ error }: { error: unknown }) => {
-        if (error) console.warn("[review-payment-submission] sales_log insert (layaway) failed (non-blocking):", error);
-      });
     }
 
     // Fire-and-forget: incrementally update the payment tracking sheet (layaway).
