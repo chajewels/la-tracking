@@ -152,7 +152,7 @@ function SalesLogDialog({
       setForm({
         sale_date: toDateInputValue(editing.sale_date) || getPHTToday(),
         item_code: editing.item_code ?? '',
-        invoice_number: (editing as any).invoice_number ?? '',
+        invoice_number: editing.invoice_number ?? '',
         item_amount: editing.item_amount != null ? String(editing.item_amount) : '',
         client_name: editing.client_name ?? '',
         closer: editing.closer ?? '',
@@ -1263,7 +1263,7 @@ function SalesLogTab({
                     </td>
                     <td className="px-3 py-2 text-xs">{r.channel || '—'}</td>
                     <td className="px-3 py-2 text-center">{r.eligible ? '✓' : <span className="text-muted-foreground">—</span>}</td>
-                    <td className="px-3 py-2 text-center font-mono text-xs">{(r as any).invoice_number || '—'}</td>
+                    <td className="px-3 py-2 text-center font-mono text-xs">{r.invoice_number || '—'}</td>
                     <td className="px-3 py-2 text-right">
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditing(r); setDialogOpen(true); }} aria-label="Edit">
                         <Pencil className="h-3.5 w-3.5" />

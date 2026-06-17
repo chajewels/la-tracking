@@ -41,6 +41,7 @@ export interface SaleRow {
   id: string;
   sale_date: string; // YYYY-MM-DD
   item_code: string | null;
+  invoice_number: string | null;
   item_amount: number;
   client_name: string | null;
   closer: string | null;
