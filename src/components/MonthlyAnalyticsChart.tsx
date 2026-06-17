@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { subMonths, startOfMonth, format, parseISO } from 'date-fns';
+import { subMonths, startOfMonth, format, parseISO, isValid } from 'date-fns';
 import {
   BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, ReferenceLine,
@@ -189,7 +189,11 @@ export default function MonthlyAnalyticsChart({ monthlySalesData }: { monthlySal
       range === '1Y' ? startOfMonth(subMonths(now, 11)) :
       null;
 
-    const filtered = rows.filter(r => !cutoff || parseISO(r.month) >= cutoff);
+    const isSaneMonth = (m: string) => {
+      const d = parseISO(m);
+      return isValid(d) && d.getFullYear() >= 2020 && d.getFullYear() <= now.getFullYear() + 1;
+    };
+    const filtered = rows.filter(r => isSaneMonth(r.month) && (!cutoff || parseISO(r.month) >= cutoff));
 
     const chartData: ChartRow[] = filtered.map(r => {
       const label = format(parseISO(r.month), 'MMM yy');

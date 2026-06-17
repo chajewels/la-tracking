@@ -9,6 +9,7 @@ const SYNC_TABLES = [
   'payment_allocations',
   'layaway_schedule',
   'layaway_accounts',
+  'cash_orders',
   'penalty_fees',
   'payment_submissions',
   'account_services',

@@ -6,6 +6,7 @@ import {
   ResponsiveContainer, Legend, Brush,
 } from 'recharts';
 import MonthlyAnalyticsChart from '@/components/MonthlyAnalyticsChart';
+import MonthlyCashOrdersChart from '@/components/finance/MonthlyCashOrdersChart';
 import TradeProgramTrends from '@/components/dashboard/TradeProgramTrends';
 import AppLayout from '@/components/layout/AppLayout';
 import StatCard from '@/components/dashboard/StatCard';
@@ -605,60 +606,30 @@ export default function Finance() {
               )}
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <AgingBuckets currency={displayCurrency} />
-              {/* 6-Month Forecast */}
-              <div className="rounded-xl border border-border bg-card p-5">
-                <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2">
-                  <CalendarClock className="h-4 w-4 text-primary" /> 6-Month Cashflow Forecast
-                </h3>
-                {summaryLoading || forecastData.length === 0 ? (
-                  <div className="flex items-center justify-center h-40"><Skeleton className="h-full w-full rounded-lg" /></div>
-                ) : (
-                  <div className="space-y-3">
-                    {forecastData.map(d => (
-                      <div key={d.month} className="space-y-1">
-                        <div className="flex justify-between text-xs">
-                          <span className="text-muted-foreground">{d.month}</span>
-                          <div className="flex items-center gap-3">
-                            <span className="font-medium text-card-foreground tabular-nums">{formatCurrency(d.expected, displayCurrency)}</span>
-                          </div>
-                        </div>
-                        <div className="relative h-2.5 rounded-full bg-muted overflow-hidden">
-                          <div className="absolute h-full bg-primary/20 rounded-full transition-all" style={{ width: `${(d.expected / maxForecast) * 100}%` }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div className="flex items-center gap-4 mt-4 pt-3 border-t border-border">
-                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground"><div className="h-2 w-2 rounded-full bg-primary/20" /> Expected (due)</div>
-                </div>
-              </div>
+            <MonthlyAnalyticsChart monthlySalesData={monthlySalesData} />
 
-              {/* New Layaway Sales — daily (month-to-date) */}
-              <div className="rounded-xl border border-border bg-card p-5">
-                <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-primary" /> New Layaway Sales · This month</h3>
-                {dailyLayawayLoading ? (
-                  <Skeleton className="h-[220px] rounded-lg" />
-                ) : (
-                  <ResponsiveContainer width="100%" height={220}>
-                    <AreaChart data={dailyLayawaySeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="dailyLayawayGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.6} />
-                          <stop offset="95%" stopColor="#D4AF37" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                      <XAxis dataKey="day" fontSize={11} tickLine={false} stroke="hsl(var(--muted-foreground))" interval={Math.max(0, Math.ceil(dailyLayawaySeries.length / 8) - 1)} />
-                      <YAxis hide />
-                      <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} labelFormatter={(d) => `Day ${d}`} />
-                      <Area type="monotone" dataKey="value" stroke="#D4AF37" strokeWidth={2} fill="url(#dailyLayawayGradient)" dot={{ r: 3, fill: '#D4AF37' }} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
+            {/* New Layaway Sales — daily (month-to-date) */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-primary" /> New Layaway Sales · This month</h3>
+              {dailyLayawayLoading ? (
+                <Skeleton className="h-[220px] rounded-lg" />
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <AreaChart data={dailyLayawaySeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="dailyLayawayGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.6} />
+                        <stop offset="95%" stopColor="#D4AF37" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                    <XAxis dataKey="day" fontSize={11} tickLine={false} stroke="hsl(var(--muted-foreground))" interval={Math.max(0, Math.ceil(dailyLayawaySeries.length / 8) - 1)} />
+                    <YAxis hide />
+                    <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} labelFormatter={(d) => `Day ${d}`} />
+                    <Area type="monotone" dataKey="value" stroke="#D4AF37" strokeWidth={2} fill="url(#dailyLayawayGradient)" dot={{ r: 3, fill: '#D4AF37' }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </div>
 
             {/* Cash Orders row — always JPY regardless of displayCurrency */}
@@ -695,7 +666,7 @@ export default function Finance() {
               )}
             </div>
 
-            <MonthlyAnalyticsChart monthlySalesData={monthlySalesData} />
+            <MonthlyCashOrdersChart />
 
             {/* Trade Program row */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -857,6 +828,39 @@ export default function Finance() {
                 )}
               </div>
             )}
+
+            {/* Aging Buckets + 6-Month Cashflow Forecast (moved from Overview) */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <AgingBuckets currency={displayCurrency} />
+              {/* 6-Month Forecast */}
+              <div className="rounded-xl border border-border bg-card p-5">
+                <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2">
+                  <CalendarClock className="h-4 w-4 text-primary" /> 6-Month Cashflow Forecast
+                </h3>
+                {summaryLoading || forecastData.length === 0 ? (
+                  <div className="flex items-center justify-center h-40"><Skeleton className="h-full w-full rounded-lg" /></div>
+                ) : (
+                  <div className="space-y-3">
+                    {forecastData.map(d => (
+                      <div key={d.month} className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground">{d.month}</span>
+                          <div className="flex items-center gap-3">
+                            <span className="font-medium text-card-foreground tabular-nums">{formatCurrency(d.expected, displayCurrency)}</span>
+                          </div>
+                        </div>
+                        <div className="relative h-2.5 rounded-full bg-muted overflow-hidden">
+                          <div className="absolute h-full bg-primary/20 rounded-full transition-all" style={{ width: `${(d.expected / maxForecast) * 100}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-center gap-4 mt-4 pt-3 border-t border-border">
+                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground"><div className="h-2 w-2 rounded-full bg-primary/20" /> Expected (due)</div>
+                </div>
+              </div>
+            </div>
 
             {/* Section 3 — Staff Performance */}
             <div className="rounded-xl border border-border bg-card p-5">

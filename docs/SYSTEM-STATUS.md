@@ -1,7 +1,26 @@
-# System Status — last updated 2026-06-12
+# System Status — last updated 2026-06-17
 
 ## App Version
 1.2.0 (commit 02a040c)
+
+## 2026-06-17 — Finance dashboard layout + Monthly Cash Orders chart
+- Finance → Overview reflowed: "Monthly Performance" (MonthlyAnalyticsChart)
+  moved to the top of Overview (immediately after the KPI cards), and the
+  "New Layaway Sales · This month" daily area chart is now a full-width card
+  directly beneath it.
+- Aging Buckets and the "6-Month Cashflow Forecast" block MOVED OUT of
+  Overview into the Analytics tab, in a 2-column grid directly above the
+  Staff Performance section.
+- New chart: Monthly Cash Orders (src/components/finance/MonthlyCashOrdersChart.tsx)
+  — a JPY line chart (PHP converted) rendered on Overview immediately after
+  the Cash Orders KPI row. Backed by new RPC get_cash_orders_monthly()
+  (returns month / cash_jpy / order_count). 6M/1Y/All range toggle; shares
+  the isValid + year-range corrupt-date guard with MonthlyAnalyticsChart.
+- Realtime: cash_orders added to useRealtimeSync SYNC_TABLES, and
+  'cash-orders-monthly' added to REALTIME_INVALIDATE_KEYS, so the cash chart
+  refetches live on cash-order writes.
+- Bug #225: Monthly Performance "All" range no longer crashes on corrupt-date
+  rows (years 0002/0004/32025) from get_monthly_analytics — see FIXED-BUGS.md.
 
 ## 2026-06-12 — v1.2.0
 - Product Inquiry Tracker shipped under CSR Monitoring → Inquiries

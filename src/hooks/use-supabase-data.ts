@@ -31,6 +31,7 @@ export const REALTIME_INVALIDATE_KEYS = [
   ...SERVICES_KEYS,
   'account',
   'customer-detail',
+  'cash-orders-monthly',
 ] as const;
 
 function invalidateAll(qc: ReturnType<typeof useQueryClient>) {
