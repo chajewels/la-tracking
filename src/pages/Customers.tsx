@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useCustomers, useAccountsLight } from '@/hooks/use-supabase-data';
+import { useCustomers, useAccountsLight, useCashOrdersLight } from '@/hooks/use-supabase-data';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import NewCustomerDialog from '@/components/customers/NewCustomerDialog';
@@ -25,6 +25,7 @@ type ViewMode = 'all' | 'filter' | 'grouped';
 export default function Customers() {
   const { data: customers, isLoading } = useCustomers();
   const { data: accounts } = useAccountsLight();
+  const { data: cashOrders } = useCashOrdersLight();
 
   // Loyalty tier per customer (LEFT JOIN loyalty_members + current tier).
   // Non-members simply have no map entry → no badge.
@@ -199,8 +200,20 @@ export default function Customers() {
       }
       map.set(a.customer_id, stats);
     }
+    // NEW — parallel cash_orders aggregation (cash orders are first-class accounts)
+    for (const co of (cashOrders ?? [])) {
+      if (co.status === 'cancelled' || co.status === 'expired') continue;
+      const stats = map.get(co.customer_id) || { active: 0, completed: 0 };
+      if (co.status === 'completed') {
+        stats.completed++;
+      } else {
+        // co.status === 'pending'
+        stats.active++;
+      }
+      map.set(co.customer_id, stats);
+    }
     return map;
-  }, [accounts]);
+  }, [accounts, cashOrders]);
 
   const handleLetterSelect = useCallback((letter: string | null) => {
     setActiveLetter(letter);

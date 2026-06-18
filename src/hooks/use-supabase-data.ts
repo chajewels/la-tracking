@@ -162,6 +162,48 @@ export function useAccountsLight() {
   });
 }
 
+// useCashOrdersLight — cash_orders in a unified lean shape
+// (id, customer_id, status only) so consumers can aggregate
+// them alongside useAccountsLight's layaway rows. Cash orders
+// are pay-in-full, so there is no remaining_balance / totals
+// concept to carry here.
+//
+// Kept strictly PARALLEL to (not merged into) useAccountsLight
+// on purpose — useAccountsLight has three consumers (Dashboard,
+// NewAccount, GeoBreakdown / Customers) and widening or merging
+// its shape would risk breaking them.
+export function useCashOrdersLight() {
+  return useQuery({
+    queryKey: ['cash-orders-light'],
+    staleTime: STALE_SHORT,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
+    queryFn: async () => {
+      // Paginated fetch — PostgREST default cap is 1000 rows.
+      // Without this loop the oldest rows are silently dropped.
+      const PAGE_SIZE = 1000;
+      const MAX_PAGES = 1000; // safety: stops at 1,000,000 rows
+      let allData: any[] = [];
+      let page = 0;
+      while (page < MAX_PAGES) {
+        const from = page * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
+        const { data, error } = await supabase
+          .from('cash_orders')
+          .select('id, customer_id, status')
+          .order('created_at', { ascending: false })
+          .range(from, to);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        allData = allData.concat(data);
+        if (data.length < PAGE_SIZE) break;
+        page++;
+      }
+      return allData;
+    },
+  });
+}
+
 export function useAccount(id: string | undefined) {
   return useQuery({
     queryKey: ['account', id],
