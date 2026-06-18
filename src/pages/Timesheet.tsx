@@ -159,6 +159,8 @@ function MyTimesheetTab({
       if (error) throw error;
     } catch (err: unknown) {
       toast.error((err as Error)?.message ?? 'Failed to save punch');
+    } finally {
+      setBusy(false);
     }
   }, [entryByDate, onEntrySaved, userId]);
 
