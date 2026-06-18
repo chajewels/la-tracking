@@ -1,7 +1,23 @@
-# System Status — last updated 2026-06-17
+# System Status — last updated 2026-06-18
 
 ## App Version
 1.2.0 (commit 02a040c)
+
+## 2026-06-18 — Timesheet manual-fill + overnight punch fixes
+- Timesheet (CSR Operations → Timesheet) manual fill is usable again. Cell
+  edits and punches no longer trigger the page-level `load()` (which flipped
+  `loading`, swapped the grid for the skeleton, and unmounted the editing input
+  every keystroke). The My Timesheet tab now merges each saved row into
+  `myEntries` in place via `onEntrySaved` (replacing `onRefresh`), and the grid
+  time inputs dropped `disabled={busy}` so typing is never blocked. (Bug #226)
+- Overnight punch-out handled (Option A): the workday runs 08:00 → 00:00, so an
+  out-punch before 08:00 with no open shift today but an unclosed clock-in
+  yesterday now closes yesterday's `pm_out` at 23:59 (clamped — the single-row
+  day-grid model can't carry a punch past midnight), instead of filing a stray
+  next-day `am_out` that left the prior shift open at 0 hours / ₱0 pay. (Bug #227)
+- KNOWN FOLLOW-UP: historical rows already corrupted by the old overnight
+  behavior (split shifts with a stray am_out / unclosed pm_out) are NOT
+  retroactively repaired by this change — they await a separate data-repair pass.
 
 ## 2026-06-17 — Finance dashboard layout + Monthly Cash Orders chart
 - Finance → Overview reflowed for a more compact top: MonthlyAnalyticsChart

@@ -34,6 +34,10 @@ import {
 const DOW_LABELS = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const ALL_DOW = [1, 2, 3, 4, 5, 6, 7];
 
+// Out-punches before this local hour close the PRIOR day's shift: the workday
+// runs 08:00 → 00:00, so an early-hours out-punch belongs to last night.
+const OVERNIGHT_CUTOFF = 8;
+
 // ── Month + timezone helpers ────────────────────────────────────────────────
 
 /** Current 'YYYY-MM' in PHT. */
@@ -94,13 +98,13 @@ const PUNCH_FIELDS: PunchField[] = ['am_in', 'am_out', 'pm_in', 'pm_out'];
 // ── Tab: My Timesheet ───────────────────────────────────────────────────────
 
 function MyTimesheetTab({
-  profile, entries, monthKey, onMonthChange, onRefresh, userId,
+  profile, entries, monthKey, onMonthChange, onEntrySaved, userId,
 }: {
   profile: TimesheetProfile | null;
   entries: TimesheetEntry[];
   monthKey: string;
   onMonthChange: (k: string) => void;
-  onRefresh: () => void;
+  onEntrySaved: (entry: TimesheetEntry) => void;
   userId: string;
 }) {
   const [busy, setBusy] = useState(false);
@@ -140,13 +144,23 @@ function MyTimesheetTab({
         .from('timesheet_entries')
         .upsert(payload, { onConflict: 'user_id,work_date' });
       if (error) throw error;
-      onRefresh();
+      // Update local state in place — no global reload, so the grid never
+      // unmounts mid-edit. The row we just wrote is authoritative.
+      const saved: TimesheetEntry = {
+        work_date: workDate,
+        am_in: existing?.am_in ?? null,
+        am_out: existing?.am_out ?? null,
+        pm_in: existing?.pm_in ?? null,
+        pm_out: existing?.pm_out ?? null,
+      };
+      saved[field] = iso;
+      onEntrySaved(saved);
     } catch (err: unknown) {
       toast.error((err as Error)?.message ?? 'Failed to save punch');
     } finally {
       setBusy(false);
     }
-  }, [entryByDate, onRefresh, userId]);
+  }, [entryByDate, onEntrySaved, userId]);
 
   // Soft shift-window warning (non-blocking).
   function maybeWarnOutsideShift(hhmm: string) {
@@ -176,6 +190,24 @@ function MyTimesheetTab({
     const isPM = hour >= 12;
 
     const todayEntry = entryByDate.get(today);
+
+    // Overnight close (Option A). Workday runs 08:00 → 00:00, so an out-punch
+    // before 08:00 with no open shift today but an unclosed clock-in yesterday
+    // belongs to last night. Close yesterday's pm_out, clamped to 23:59 (the
+    // day-grid model can't carry a punch past midnight on a single row).
+    if (kind === 'out' && hour < OVERNIGHT_CUTOFF) {
+      const todayHasOpenIn = !!todayEntry &&
+        ((!!todayEntry.am_in && !todayEntry.am_out) || (!!todayEntry.pm_in && !todayEntry.pm_out));
+      const yesterday = addDays(today, -1);
+      const yEntry = entryByDate.get(yesterday);
+      const yesterdayOpenShift = !!yEntry && (!!yEntry.am_in || !!yEntry.pm_in) && !yEntry.pm_out;
+      if (!todayHasOpenIn && yesterdayOpenShift) {
+        await writeField(yesterday, 'pm_out', zonedWallToISO(yesterday, '23:59', tz));
+        toast.success('Punched out — overnight shift closed (recorded 23:59).');
+        return;
+      }
+    }
+
     const field: PunchField = kind === 'in'
       ? (isPM ? 'pm_in' : 'am_in')
       : (isPM ? 'pm_out' : 'am_out');
@@ -231,14 +263,20 @@ function MyTimesheetTab({
         .from('timesheet_entries')
         .upsert(payload, { onConflict: 'user_id,work_date' });
       if (error) throw error;
-      onRefresh();
+      onEntrySaved({
+        work_date: workDate,
+        am_in: (payload.am_in as string | null) ?? null,
+        am_out: (payload.am_out as string | null) ?? null,
+        pm_in: (payload.pm_in as string | null) ?? null,
+        pm_out: (payload.pm_out as string | null) ?? null,
+      });
       toast.success('Punch times pasted');
     } catch (err: unknown) {
       toast.error((err as Error)?.message ?? 'Failed to paste punch');
     } finally {
       setBusy(false);
     }
-  }, [copied, onRefresh, userId, tz]);
+  }, [copied, onEntrySaved, userId, tz]);
 
   if (!profile) {
     return (
@@ -322,7 +360,6 @@ function MyTimesheetTab({
                           type="time"
                           value={isoToWall(entry ? entry[f] : null, tz)}
                           onChange={(e) => onTimeEdit(d.date, f, e.target.value)}
-                          disabled={busy}
                           className="h-7 w-[5.5rem] px-1 text-center text-xs tabular-nums"
                         />
                       </td>
@@ -1234,6 +1271,19 @@ export default function Timesheet() {
     return map;
   }, [allEntries]);
 
+  // Merge a single saved row into myEntries in place — the My Timesheet tab
+  // uses this so a punch/manual edit never fires the global reload (which
+  // would unmount the grid mid-edit).
+  const applyMyEntryUpsert = useCallback((entry: TimesheetEntry) => {
+    setMyEntries(prev => {
+      const idx = prev.findIndex(e => e.work_date === entry.work_date);
+      if (idx === -1) return [...prev, entry];
+      const next = prev.slice();
+      next[idx] = entry;
+      return next;
+    });
+  }, []);
+
   return (
     <AppLayout>
       <div className="container mx-auto max-w-7xl space-y-4 p-4 sm:p-6">
@@ -1275,7 +1325,7 @@ export default function Timesheet() {
                   entries={myEntries}
                   monthKey={monthKey}
                   onMonthChange={setMonthKey}
-                  onRefresh={load}
+                  onEntrySaved={applyMyEntryUpsert}
                   userId={userId}
                 />
               </TabsContent>

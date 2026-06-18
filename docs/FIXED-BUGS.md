@@ -3278,3 +3278,11 @@ Fix: write `reviewer_user_id` (and `reviewer_notes`) atomically in the CAS flip 
 `MonthlyAnalyticsChart` (Finance → Overview) threw under the "All" range. `get_monthly_analytics` returns a few corrupt-date rows (years like `0002`, `0004`, `32025`) that survived the null "All" cutoff (the only range with no lower bound). `format(parseISO(badMonth), 'MMM yy')` then threw `RangeError: Invalid time value`, which `RootErrorBoundary` caught and surfaced as the misleading "the app was just updated" screen. The 6M/1Y ranges masked it because their `cutoff` filter excluded the bad rows.
 
 Fix: added an `isSaneMonth` guard to the `chartData` useMemo — `isValid(parseISO(m)) && year >= 2020 && year <= currentYear + 1` — applied in the row filter alongside the cutoff, so corrupt-date rows are dropped in every range. Same guard applied to the new `MonthlyCashOrdersChart`. No backend change (the corrupt source rows are left in place; the chart just refuses to render them).
+
+### Bug #226 — Timesheet manual fill unusable (grid unmounted on every keystroke) (2026-06-18) ✅
+
+Timesheet manual fill unusable — every cell edit called the page-level load(), flipping `loading` and swapping the whole grid for the skeleton, unmounting the editing input on each keystroke. Fixed by an in-place myEntries merge (onEntrySaved) instead of onRefresh, plus removing disabled={busy} from grid time inputs.
+
+### Bug #227 — Timesheet overnight punch-out filed next day as stray am_out (2026-06-18) ✅
+
+Timesheet overnight punch-out filed the next day as a stray am_out, leaving the prior shift open and computing 0 hours/₱0 pay. Fixed (Option A): an out-punch before 08:00 with no open shift today but an unclosed clock-in yesterday closes yesterday's pm_out at 23:59 (clamped; the day-grid model can't carry a punch past midnight). Pre-existing split rows still need a separate data repair.
