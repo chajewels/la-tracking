@@ -40,7 +40,7 @@ import {
 
 const STATUS_OPTIONS = ['Paid', 'Cancelled', 'Pending'] as const;
 const CHANNEL_OPTIONS = ['Chat', 'Posting', 'Live'] as const;
-const SOURCE_OPTIONS = ['Admin Post', 'DM'] as const;
+const SOURCE_OPTIONS = ['Admin Post', 'DM', 'Live Post', 'Online Store', 'Other'] as const;
 const FALLBACK_AGENT_COLOR = '#1756A8';
 
 function statusBadgeClass(status: string | null): string {
