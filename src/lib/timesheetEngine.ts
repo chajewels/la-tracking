@@ -182,7 +182,12 @@ export function dailyHours(
   const B = timeOfDayHours(entry.am_in, timezone);
   const C = timeOfDayHours(entry.am_out, timezone);
   const D = timeOfDayHours(entry.pm_in, timezone);
-  const E = timeOfDayHours(entry.pm_out, timezone);
+  let E = timeOfDayHours(entry.pm_out, timezone);
+  // A non-blank pm_out at 00:00 reads as 0h, which the time-of-day formula
+  // can't distinguish from "before pm_in". The workday ends at 00:00 midnight,
+  // so a real midnight punch-out means END OF DAY = 24:00. Blank pm_out (null)
+  // stays 0 — only an actual midnight punch is lifted.
+  if (entry.pm_out && E === 0) E = 24;
   const h = (E - B) - (D - C);
   return h < 0 ? 0 : h;
 }
