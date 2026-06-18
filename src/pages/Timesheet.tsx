@@ -98,7 +98,7 @@ const PUNCH_FIELDS: PunchField[] = ['am_in', 'am_out', 'pm_in', 'pm_out'];
 // ── Tab: My Timesheet ───────────────────────────────────────────────────────
 
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
-const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
+const MINUTES = ['00', '30'];
 
 // Uniform HH:MM picker, rendered identically on every device (24-hour, no
 // AM/PM, no seconds) regardless of the OS time-format locale. Emits the same
@@ -128,6 +128,13 @@ function TimeSelect({ value, onChange }: { value: string; onChange: (v: string) 
     'h-7 rounded-md bg-transparent border border-border/40 px-0.5 text-xs tabular-nums ' +
     'text-center focus:outline-none focus:ring-1 focus:ring-ring';
 
+  // Minute dropdown offers 00 / 30 for manual entry. A stored value with an
+  // off-grid minute (e.g. a live punch at :57, or the 12:10 / 14:25 admin rows)
+  // keeps its exact minute as a selectable option so the cell still displays it.
+  const minuteOptions = mm && !MINUTES.includes(mm)
+    ? [...MINUTES, mm].sort((a, b) => Number(a) - Number(b))
+    : MINUTES;
+
   return (
     <div className="flex items-center justify-center gap-0.5">
       <select aria-label="hour" value={hh} onChange={(e) => emit(e.target.value, mm)} className={selCls}>
@@ -137,7 +144,7 @@ function TimeSelect({ value, onChange }: { value: string; onChange: (v: string) 
       <span className="text-xs text-muted-foreground">:</span>
       <select aria-label="minute" value={mm} onChange={(e) => emit(hh, e.target.value)} className={selCls}>
         <option value="">--</option>
-        {MINUTES.map((m) => <option key={m} value={m}>{m}</option>)}
+        {minuteOptions.map((m) => <option key={m} value={m}>{m}</option>)}
       </select>
     </div>
   );
