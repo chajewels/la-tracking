@@ -125,40 +125,40 @@ function MyTimesheetTab({
 
   // Upsert a single punch/edit field onto today's (or a given date's) row.
   const writeField = useCallback(async (workDate: string, field: PunchField, iso: string | null) => {
+    const existing = entryByDate.get(workDate);
+    // Apply the edit to local state FIRST — synchronously, before setBusy and
+    // before the await — so the controlled <input type="time"> immediately
+    // reflects the new value. Without this, the setBusy(true) re-render fires
+    // while the save hasn't landed, React reasserts the OLD value onto the
+    // input, and the caret/focus is lost mid-edit. The DB write happens after.
+    const saved: TimesheetEntry = {
+      work_date: workDate,
+      am_in: existing?.am_in ?? null,
+      am_out: existing?.am_out ?? null,
+      pm_in: existing?.pm_in ?? null,
+      pm_out: existing?.pm_out ?? null,
+    };
+    saved[field] = iso;
+    onEntrySaved(saved);
     setBusy(true);
     try {
       const client = supabase as any;
-      const existing = entryByDate.get(workDate);
-      const payload: Record<string, unknown> = {
-        user_id: userId,
-        work_date: workDate,
-        [field]: iso,
-      };
-      // Carry forward the other fields so an upsert doesn't clobber them.
-      if (existing) {
-        for (const f of PUNCH_FIELDS) {
-          if (f !== field) payload[f] = existing[f];
-        }
-      }
       const { error } = await client
         .from('timesheet_entries')
-        .upsert(payload, { onConflict: 'user_id,work_date' });
+        .upsert(
+          {
+            user_id: userId,
+            work_date: workDate,
+            am_in: saved.am_in,
+            am_out: saved.am_out,
+            pm_in: saved.pm_in,
+            pm_out: saved.pm_out,
+          },
+          { onConflict: 'user_id,work_date' },
+        );
       if (error) throw error;
-      // Update local state in place — no global reload, so the grid never
-      // unmounts mid-edit. The row we just wrote is authoritative.
-      const saved: TimesheetEntry = {
-        work_date: workDate,
-        am_in: existing?.am_in ?? null,
-        am_out: existing?.am_out ?? null,
-        pm_in: existing?.pm_in ?? null,
-        pm_out: existing?.pm_out ?? null,
-      };
-      saved[field] = iso;
-      onEntrySaved(saved);
     } catch (err: unknown) {
       toast.error((err as Error)?.message ?? 'Failed to save punch');
-    } finally {
-      setBusy(false);
     }
   }, [entryByDate, onEntrySaved, userId]);
 
