@@ -276,6 +276,24 @@ export default function Finance() {
     return Array.from({ length: today }, (_, i) => ({ day: i + 1, value: Math.round(byDay.get(i + 1) ?? 0) }));
   }, [dailyLayawaySales]);
 
+  const { data: dailyLayawayLastMonth, isLoading: dailyLayawayLastMonthLoading } = useQuery({
+    queryKey: ['daily-new-layaway-last-month', currencyFilter],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc('get_daily_new_layaway_sales_last_month', { currency_mode: currencyFilter });
+      if (error) throw error;
+      return (Array.isArray(data) ? data : []) as Array<{ day: string; new_sales_count: number; total_sales_value: number }>;
+    },
+    enabled: tab === 'overview' && !!session,
+  });
+
+  const dailyLayawayLastMonthSeries = useMemo(() => {
+    const now = new Date();
+    const lastDay = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+    const byDay = new Map<number, number>();
+    (dailyLayawayLastMonth ?? []).forEach(r => { byDay.set(new Date(r.day + 'T00:00:00').getDate(), Number(r.total_sales_value) || 0); });
+    return Array.from({ length: lastDay }, (_, i) => ({ day: i + 1, value: Math.round(byDay.get(i + 1) ?? 0) }));
+  }, [dailyLayawayLastMonth]);
+
   const { data: tradeKpis } = useQuery({
     queryKey: ['trade-kpis'],
     queryFn: async () => {
@@ -611,6 +629,8 @@ export default function Finance() {
                 <MonthlyAnalyticsChart monthlySalesData={monthlySalesData} show="performance" />
               </div>
 
+              {/* Layaway daily charts — this month + last month, stacked in the right column */}
+              <div className="lg:col-span-1 flex flex-col gap-6">
               {/* New Layaway Sales — daily (month-to-date) */}
               <div className="rounded-xl border border-border bg-card p-5">
                 <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-primary" /> New Layaway Sales · This month</h3>
@@ -633,6 +653,30 @@ export default function Finance() {
                     </AreaChart>
                   </ResponsiveContainer>
                 )}
+              </div>
+              {/* Layaway Sales — last month (full previous month) */}
+              <div className="rounded-xl border border-border bg-card p-5">
+                <h3 className="text-sm font-semibold text-card-foreground mb-4 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-primary" /> Layaway Sales · Last month</h3>
+                {dailyLayawayLastMonthLoading ? (
+                  <Skeleton className="h-[220px] rounded-lg" />
+                ) : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <AreaChart data={dailyLayawayLastMonthSeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="dailyLayawayLastGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.6} />
+                          <stop offset="95%" stopColor="#D4AF37" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                      <XAxis dataKey="day" fontSize={11} tickLine={false} stroke="hsl(var(--muted-foreground))" interval={Math.max(0, Math.ceil(dailyLayawayLastMonthSeries.length / 8) - 1)} />
+                      <YAxis hide />
+                      <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} labelFormatter={(d) => `Day ${d}`} />
+                      <Area type="monotone" dataKey="value" stroke="#D4AF37" strokeWidth={2} fill="url(#dailyLayawayLastGradient)" dot={{ r: 3, fill: '#D4AF37' }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
               </div>
             </div>
 
