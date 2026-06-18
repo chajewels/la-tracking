@@ -97,6 +97,52 @@ const PUNCH_FIELDS: PunchField[] = ['am_in', 'am_out', 'pm_in', 'pm_out'];
 
 // ── Tab: My Timesheet ───────────────────────────────────────────────────────
 
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
+
+// Uniform HH:MM picker, rendered identically on every device (24-hour, no
+// AM/PM, no seconds) regardless of the OS time-format locale. Emits the same
+// "HH:MM"/"" string the native <input type="time"> produced, so it plugs
+// straight into onTimeEdit with no change to the save path.
+function TimeSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [hh, setHh] = useState('');
+  const [mm, setMm] = useState('');
+
+  useEffect(() => {
+    if (value && /^\d{2}:\d{2}$/.test(value)) {
+      const [h, m] = value.split(':');
+      setHh(h); setMm(m);
+    } else {
+      setHh(''); setMm('');
+    }
+  }, [value]);
+
+  const emit = (h: string, m: string) => {
+    setHh(h); setMm(m);
+    if (h === '') { onChange(''); return; }   // no hour selected = cleared (set hour to -- to clear a cell)
+    if (m === '') return;                       // hour set, minute pending — wait for minute
+    onChange(`${h}:${m}`);
+  };
+
+  const selCls =
+    'h-7 rounded-md bg-transparent border border-border/40 px-0.5 text-xs tabular-nums ' +
+    'text-center focus:outline-none focus:ring-1 focus:ring-ring';
+
+  return (
+    <div className="flex items-center justify-center gap-0.5">
+      <select aria-label="hour" value={hh} onChange={(e) => emit(e.target.value, mm)} className={selCls}>
+        <option value="">--</option>
+        {HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
+      </select>
+      <span className="text-xs text-muted-foreground">:</span>
+      <select aria-label="minute" value={mm} onChange={(e) => emit(hh, e.target.value)} className={selCls}>
+        <option value="">--</option>
+        {MINUTES.map((m) => <option key={m} value={m}>{m}</option>)}
+      </select>
+    </div>
+  );
+}
+
 function MyTimesheetTab({
   profile, entries, monthKey, onMonthChange, onEntrySaved, userId,
 }: {
@@ -358,11 +404,9 @@ function MyTimesheetTab({
                     <td className={cn('px-3 py-1.5 text-xs', d.dow >= 6 && 'text-muted-foreground')}>{DOW_LABELS[d.dow]}</td>
                     {PUNCH_FIELDS.map(f => (
                       <td key={f} className="px-1.5 py-1.5 text-center">
-                        <Input
-                          type="time"
+                        <TimeSelect
                           value={isoToWall(entry ? entry[f] : null, tz)}
-                          onChange={(e) => onTimeEdit(d.date, f, e.target.value)}
-                          className="h-7 w-[5.5rem] px-1 text-center text-xs tabular-nums"
+                          onChange={(v) => onTimeEdit(d.date, f, v)}
                         />
                       </td>
                     ))}
