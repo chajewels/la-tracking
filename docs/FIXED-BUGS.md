@@ -3286,3 +3286,19 @@ Timesheet manual fill unusable — every cell edit called the page-level load(),
 ### Bug #227 — Timesheet overnight punch-out filed next day as stray am_out (2026-06-18) ✅
 
 Timesheet overnight punch-out filed the next day as a stray am_out, leaving the prior shift open and computing 0 hours/₱0 pay. Fixed (Option A): an out-punch before 08:00 with no open shift today but an unclosed clock-in yesterday closes yesterday's pm_out at 23:59 (clamped; the day-grid model can't carry a punch past midnight). Pre-existing split rows still need a separate data repair.
+
+### Bug #228 — Timesheet manual-fill busy-latch regression (punch buttons stuck disabled) (2026-06-19) ✅
+
+Punch In/Out buttons stuck disabled after typing in the manual-fill grid. Cause: the focus-fix refinement (commit 1a51842) dropped the `finally { setBusy(false) }` in `writeField`, so `busy` never reset after a save. Fixed in commit f1ec119 by restoring the `finally` (writeField now has both setBusy(true) and setBusy(false), alongside pasteRow's).
+
+### Bug #229 — Timesheet time fields rendered per-device (OS locale) (2026-06-19) ✅
+
+Native `<input type="time">` showed 12-hour AM/PM on some devices and 24-hour on others — looked like a deploy gap but wasn't; native time inputs render per OS locale. Fixed in commit 31585c2 by replacing the punch-grid input with a custom `TimeSelect` (two `<select>` dropdowns) that renders identical text on every device. Commit d4a32fb then limited manual minute choices to 00/30 while preserving any off-grid stored minute as a selectable option; the Time In/Out buttons still record exact minutes.
+
+### Bug #230 — PWA stale deploy (updates reached some users, not others) (2026-06-19) ✅
+
+Some users stayed on the old build after a deploy. Cause: CDN/browser caching of `sw.js` and `index.html`. Fixed in commit f1ec119 — firebase.json sets `Cache-Control: no-cache` on `/index.html` and `/sw.js`, while `/assets/**` stays immutable (hashed filenames). Stale long-open tabs need one reload, after which updates auto-propagate.
+
+### Bug #231 — Midnight PM-out paid ₱0 (2026-06-19) ✅
+
+PM OUT = 00:00 made Hours and Salary show "—" (e.g. pm_in 13:00 → pm_out 00:00). Cause: `timeOfDayHours` returns 0 for both a blank punch and a real 00:00, so `dailyHours` computed `(0 − in)` → negative → clamped to 0. Surfaced after the 00/30 minute limit (Bug #229) removed the old 23:59 workaround. Fixed in commit 9360961 — in `dailyHours`, a non-blank `pm_out` resolving to 0 (midnight) is lifted to 24:00 (end of the 08:00→00:00 workday); a blank pm_out stays 0. 13:00→00:00 now computes 11h. Retroactive, since pay is computed live, not stored.

@@ -26,6 +26,8 @@ Two template types assigned per user: `live_admin`, `csr`.
 `((pm_out − am_in) − (pm_in − am_out)) × 24` → hours.
 Morning session + afternoon session, midday break excluded.
 
+**Midnight rule (2026-06-19):** a non-blank pm_out at 00:00 is interpreted as 24:00 — end of the 08:00→00:00 workday. A blank pm_out stays 0. Only pm_out is lifted; am_in, am_out, pm_in are unaffected.
+
 ### Live Admin
 - Daily salary: `<1 hr → 0`; `1–3.99 hr → 300`; `≥4 hr → 500`
 - Monthly salary = sum of daily salaries (uncapped)
