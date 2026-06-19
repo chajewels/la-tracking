@@ -1797,3 +1797,21 @@ Customer / Amount), non-blocking relative to the tracking output.
 - Void path unchanged: matches reference_number 'LOYALTY-%'; its allocation-reversal loop is a no-op with no allocations; totals revert off amount_paid.
 
 - Cash (cash_order_id) branch is unchanged.
+
+## FRONTEND / DESIGN WORKFLOW (added 2026-06-19)
+
+1. Before writing any library/framework code (React, Tailwind, Firebase),
+   consult Context7 for current docs — don't rely on memory.
+
+2. Build structure with shadcn/ui primitives by default. Check the shadcn
+   MCP registry before hand-rolling any component (buttons, cards, dialogs,
+   forms, etc.).
+
+3. Only when a component needs motion or visual richness, layer Magic on
+   TOP of the shadcn foundation — animated counters, bento grids, shimmer,
+   hover effects. Do not reach for Magic for plain/static UI.
+
+4. After any frontend change, verify in a real browser with Playwright:
+   start the dev server, navigate to the route, screenshot it, check
+   desktop and mobile (~375px), and read the console for errors before
+   saying it's done.
