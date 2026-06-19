@@ -10,6 +10,16 @@
   button in AccountDetail (admin + finance). Returns JSONB
   with checks array, each entry { label, expected, stored, pass }.
 
+  CHECK-10 ("sum of pending months matches remaining balance") —
+  2026-06-19 addition: a new `v_dp_overpaid` term =
+  `GREATEST(0, v_dp_paid - downpayment_amount)` is subtracted from
+  `v_sum_pending`. This mirrors the existing `v_unpaid_dp` term but for
+  the OVERPAID direction. When the downpayment collected exceeds
+  `downpayment_amount`, the overage reduces remaining_balance via
+  total_paid but was never reflected on the pending side, so CHECK-10
+  fired false positives. Subtracting `v_dp_overpaid` reconciles the two
+  sides. Examples that previously false-failed: invoices 19119, 19128.
+
 ### audit_all_accounts() RETURNS TABLE
 
   System-wide audit. Calls audit_account() per account in a
@@ -115,10 +125,13 @@
         ('delete-account',  'layaway_accounts', 'layaway_schedule',               false, false),
         -- delete-customer (supabase/functions/delete-customer/index.ts)
         ('delete-customer', 'customers',        'customer_analytics',             true,  false),
-        ('delete-customer', 'customers',        'layaway_accounts',               false, true)
-        -- cash_orders has no delete function — allowlist intentionally
-        -- empty so any blocking FK to cash_orders surfaces as a
-        -- preventive finding.
+        ('delete-customer', 'customers',        'layaway_accounts',               false, true),
+        -- cash_orders has no delete function (soft-cancel only). The
+        -- payment_proofs.cash_order_id FK (added 2026-06-15) is a blocking
+        -- FK to cash_orders; it is allowlisted (NOT given a DELETE step)
+        -- so the otherwise-preventive 'info' finding is suppressed. Any
+        -- NEW blocking FK to cash_orders not listed here still surfaces.
+        ('(none - soft-cancel only)', 'cash_orders', 'payment_proofs',             false, false)
     ),
     parents (parent_table, delete_function) AS (
       VALUES

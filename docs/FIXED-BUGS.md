@@ -3302,3 +3302,11 @@ Some users stayed on the old build after a deploy. Cause: CDN/browser caching of
 ### Bug #231 — Midnight PM-out paid ₱0 (2026-06-19) ✅
 
 PM OUT = 00:00 made Hours and Salary show "—" (e.g. pm_in 13:00 → pm_out 00:00). Cause: `timeOfDayHours` returns 0 for both a blank punch and a real 00:00, so `dailyHours` computed `(0 − in)` → negative → clamped to 0. Surfaced after the 00/30 minute limit (Bug #229) removed the old 23:59 workaround. Fixed in commit 9360961 — in `dailyHours`, a non-blank `pm_out` resolving to 0 (midnight) is lifted to 24:00 (end of the 08:00→00:00 workday); a blank pm_out stays 0. 13:00→00:00 now computes 11h. Retroactive, since pay is computed live, not stored.
+
+### Bug #232 — audit_delete_cleanup_invariants flagged payment_proofs→cash_orders FK (preventive info) (2026-06-19) ✅
+
+The `payment_proofs.cash_order_id` FK to `cash_orders` (added 2026-06-15) is a blocking FK to a parent that has no delete function (cash_orders is soft-cancel only), so `audit_delete_cleanup_invariants()` surfaced it as a preventive `info` finding. Resolved by allowlisting it — adding `('(none - soft-cancel only)', 'cash_orders', 'payment_proofs', false, false)` to the RPC's allowlist CTE. cash_orders is NOT given a DELETE step (it is never hard-deleted); the allowlist entry simply acknowledges the FK so the finding clears. RPC now returns zero rows. SQL-Editor-only change (RPCs are not repo migrations); docs/AUDIT-RPCS.md updated to match.
+
+### Bug #233 — audit_account CHECK-10 false positive on DP overpayment (2026-06-19) ✅
+
+CHECK-10 ("sum of pending months matches remaining balance") in `audit_account()` fired false positives on accounts where the downpayment collected exceeds `downpayment_amount`. The overage reduces remaining_balance via total_paid but was never reflected on the pending side, so the two sides disagreed. Fixed by adding a `v_dp_overpaid = GREATEST(0, v_dp_paid - downpayment_amount)` term subtracted from `v_sum_pending` — mirroring the existing `v_unpaid_dp` term for the overpaid direction. Examples that previously false-failed: invoices 19119, 19128. SQL-Editor-only change; docs/AUDIT-RPCS.md updated.

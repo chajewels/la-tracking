@@ -220,7 +220,7 @@
 | `date_paid` | date NOT NULL | NOT `payment_date`; the actual transfer date |
 | `payment_method` | text NULLABLE | |
 | `reference_number` | text NULLABLE | NOT `ref`; bank/transfer reference |
-| `remarks` | text NULLABLE | also used to identify DP submissions via `remarks LIKE '%down%' AND voided_at IS NULL` |
+| `remarks` | text NULLABLE | part of DP detection (see note below) |
 | `entered_by_user_id` | uuid NULLABLE | staff member who recorded the row |
 | `created_at` | timestamptz NOT NULL | row insertion time — diverges from `date_paid` on back-entered records |
 | `voided_at` | timestamptz NULLABLE | void marker; filter `voided_at IS NULL` for active payments |
@@ -228,6 +228,8 @@
 | `void_reason` | text NULLABLE | |
 | `submitted_by_type` | text NULLABLE | |
 | `submitted_by_name` | text NULLABLE | |
+
+**Downpayment detection** (corrected 2026-06-19): the column is `reference_number`, NOT `ref`. A payment is a downpayment when `reference_number LIKE 'DP-%' OR remarks ILIKE '%down%'`, always with `voided_at IS NULL`. Any doc/snippet that writes `ref LIKE 'DP-%'` is using the wrong column name.
 
 **Naming corrections from prior incorrect documentation** (verified 2026-06-07):
 - `amount` → actual column is `amount_paid`

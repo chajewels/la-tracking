@@ -3,6 +3,11 @@
 ## App Version
 1.2.0 (commit 02a040c)
 
+## 2026-06-19 — System Audit clean
+- System Audit clean as of 2026-06-19: 0 schema-drift rows, 0 per-account health failures.
+- `audit_delete_cleanup_invariants()` returns zero rows — the `payment_proofs.cash_order_id`→`cash_orders` FK (2026-06-15) is now allowlisted (cash_orders is soft-cancel only, no DELETE step). See Bug #232.
+- `audit_account()` CHECK-10 gained a `v_dp_overpaid` term so DP overpayment no longer false-fails the pending-vs-remaining reconciliation (e.g. invoices 19119, 19128). See Bug #233.
+
 ## 2026-06-19 — Timesheet hardening + payroll data repairs
 - Timesheet hardening (2026-06-18→06-19): manual-fill focus fix + busy-latch regression resolved (f1ec119); overnight punch-out auto-closes prior day at 23:59 (f3e0a70); custom TimeSelect replaced native time input, manual minutes limited to 00/30 with off-grid values preserved (31585c2, d4a32fb); PWA cache headers added (f1ec119); midnight pm_out=00:00 read as 24:00 (9360961).
 - Payroll data repairs (2026-06-18): night-shift split rows restored (b84ce337); migration column misfill corrected by moving out-times am_out→pm_out — Block 1 = 3 rows (live_admin, am_in also a PM time), Block 2 = 55 rows (incl. 30 noon=12:00); post-check returned 0 remaining; pay proven unchanged (formula symmetric) and both UPDATEs idempotent.
