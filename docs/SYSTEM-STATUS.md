@@ -8,6 +8,7 @@
 - `audit_delete_cleanup_invariants()` returns zero rows — the `payment_proofs.cash_order_id`→`cash_orders` FK (2026-06-15) is now allowlisted (cash_orders is soft-cancel only, no DELETE step). See Bug #232.
 - `audit_account()` CHECK-10 gained a `v_dp_overpaid` term so DP overpayment no longer false-fails the pending-vs-remaining reconciliation (e.g. invoices 19119, 19128). See Bug #233.
 - Commission `sales_log.eligible` auto-check fixed (Bug #234) — Pending→Paid transitions now auto-qualify; trigger `autocheck_sales_log_eligible()` rewritten.
+- Extension/forfeiture clean-vs-dirty rule shipped (48d5cfab): penalty-engine extension bump gated on all-earlier-paid; auto-forfeit Rule A gated on priorUnpaid (LOCKED file, owner-authorized). Open: reactivate-account `extension_end_date` should be cycle-accurate. See Bug #235.
 
 ## 2026-06-19 — Timesheet hardening + payroll data repairs
 - Timesheet hardening (2026-06-18→06-19): manual-fill focus fix + busy-latch regression resolved (f1ec119); overnight punch-out auto-closes prior day at 23:59 (f3e0a70); custom TimeSelect replaced native time input, manual minutes limited to 00/30 with off-grid values preserved (31585c2, d4a32fb); PWA cache headers added (f1ec119); midnight pm_out=00:00 read as 24:00 (9360961).

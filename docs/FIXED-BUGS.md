@@ -3319,3 +3319,21 @@ CHECK-10 ("sum of pending months matches remaining balance") in `audit_account()
 - **Accepted edge:** an opt-out applied while a row is still Pending won't survive its later Paid transition (re-included); recoverable by re-unchecking on the now-Paid row.
 - **Data correction:** two stranded already-Paid rows (`4860bd05-fa2d-47ad-800c-9a2d2fc9aca3` / inv 19195, and `096dcab9-fcb9-47e8-b832-9606b18ddd97` / null-invoice Admin Post) flipped to `eligible=true` directly.
 - **Verified:** stranding surfacing query returns 0 rows.
+
+### Bug #235 — Extension/forfeiture: clean-vs-dirty accounts (penalty bump gate + Rule A guard) (2026-06-19) ✅
+
+Commit `48d5cfab` — `penalty-engine` + `auto-forfeit-settlement`. The `auto-forfeit-settlement` change is an **OWNER-AUTHORIZED** modification to the LOCKED file.
+
+**Rule (owner-confirmed):**
+- **CLEAN account** (all earlier installments paid): forfeits via the final-month cap (PHP 3000 / JPY 6000). Extension grants one more month on the final installment: **+PHP 1000 / JPY 2000 → PHP 4000 / JPY 8000**. Final forfeiture at the next penalty cycle tick after that fills.
+- **DIRTY account** (an earlier installment unpaid): forfeits via the **3-month-no-payment rule (RULE 2)**. The final-month cap is dead — no +1000/2000 bump; the final installment stays at PHP 3000 / JPY 6000. Final forfeiture at the next tick after the cap fills.
+
+**Fixes:**
+- `penalty-engine`: built `accountsWithEarlierUnpaid` from the Step 1 batch (unpaid-only rows; any `installment_number < final month` ⇒ dirty). The extension bump on the final installment is gated `&& !accountsWithEarlierUnpaid.has(accountId)`.
+- `auto-forfeit-settlement` (LOCKED, owner-authorized): added `priorUnpaid = schedItems.some(s => s.installment_number < payment_plan_months && s.status !== 'paid')`; **Rule A** (final-month cap forfeiture) now requires `!priorUnpaid`. The cap re-activates automatically once earlier months clear. No forfeiture-timing logic in the locked engine was changed.
+
+**Forfeiture date:** driven by the existing extension expiry path (`extension_end_date + 1 day`). Set manually for current accounts — **17059 = 2026-07-06** (forfeit Jul 7), **17325 = 2026-07-04** (forfeit Jul 5).
+
+**Verification:** 17325 (dirty) holds at PHP 3000. 17059 (clean) confirmed in-scope; its bump correctly did not fire because an open payment submission (a full PHP 22,593 payoff of Month 6, pending review) **froze** the account — the freeze guard correctly prevented a PHP 1000 shortfall against the customer's payment.
+
+**Open follow-up:** `reactivate-account` still sets `extension_end_date = reactivated_at + 1 month`, which is not the cycle-accurate forfeiture tick (differs clean vs dirty). Future reactivations need `extension_end_date` computed from the final installment's penalty cycle. Not yet implemented.
