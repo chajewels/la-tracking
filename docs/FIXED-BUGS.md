@@ -3310,3 +3310,12 @@ The `payment_proofs.cash_order_id` FK to `cash_orders` (added 2026-06-15) is a b
 ### Bug #233 — audit_account CHECK-10 false positive on DP overpayment (2026-06-19) ✅
 
 CHECK-10 ("sum of pending months matches remaining balance") in `audit_account()` fired false positives on accounts where the downpayment collected exceeds `downpayment_amount`. The overage reduces remaining_balance via total_paid but was never reflected on the pending side, so the two sides disagreed. Fixed by adding a `v_dp_overpaid = GREATEST(0, v_dp_paid - downpayment_amount)` term subtracted from `v_sum_pending` — mirroring the existing `v_unpaid_dp` term for the overpaid direction. Examples that previously false-failed: invoices 19119, 19128. SQL-Editor-only change; docs/AUDIT-RPCS.md updated.
+
+### Bug #234 — sales_log `eligible` checkmark not auto-checking after payment confirmation (2026-06-19) ✅
+
+- **Symptom:** after the auto-flip set `status='Paid'`, `eligible` stayed false, excluding the row from the commission pool despite meeting all criteria.
+- **Root cause:** `Commissions.tsx` auto-stamps `eligible=false` on non-Paid rows via `defaultEligible()` (overriding the DB default `true`). `computeMonth()` pools purely on `eligible===true` with NO status gate, so that `false` is load-bearing while pending. When the auto-flip set `status='Paid'` directly in the DB, the BEFORE trigger `autocheck_sales_log_eligible()` was blocked by its `NEW.eligible IS DISTINCT FROM false` guard → `eligible` stayed false → row stranded.
+- **Fix (trigger rewrite):** on a non-Paid→Paid UPDATE transition, force `eligible=true` for qualifying rows (channel != 'Live', source not in Live Post / Online Store / Other), overriding the auto-stamped `false`; on INSERT, still honor an explicit `eligible=false` (creation-time opt-out); already-Paid edits hit neither branch, so admin opt-outs on Paid rows are preserved.
+- **Accepted edge:** an opt-out applied while a row is still Pending won't survive its later Paid transition (re-included); recoverable by re-unchecking on the now-Paid row.
+- **Data correction:** two stranded already-Paid rows (`4860bd05-fa2d-47ad-800c-9a2d2fc9aca3` / inv 19195, and `096dcab9-fcb9-47e8-b832-9606b18ddd97` / null-invoice Admin Post) flipped to `eligible=true` directly.
+- **Verified:** stranding surfacing query returns 0 rows.

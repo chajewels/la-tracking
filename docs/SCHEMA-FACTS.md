@@ -449,3 +449,7 @@ Three tables back the staff Timesheet feature (pure-TS engine in `src/lib/timesh
 The only NEW edge-emitted bell types from the sound-notifications feature are (both fire-and-forget — try/catch, console.warn on error, never throw):
 - `penalty_applied` — producer: `penalty-engine` (one aggregated row per run when `penalties_created > 0`).
 - `account_forfeited` — producers: `auto-forfeit-settlement` (the two extension paths emit `metadata.kind='final_forfeited'`; the final-month-penalty-cap and 3-month-overdue paths emit `kind='forfeited'`) and `manual-forfeit` (`kind='forfeited'`, `manual:true`).
+
+### sales_log eligible invariant (added 2026-06-19, Bug #234)
+
+`computeMonth()` (in `src/lib/commissionEngine.ts`, called from `src/pages/Commissions.tsx`) builds the per-month commission pool **purely** from rows with `eligible === true`, with **NO separate status filter**. `eligible` is therefore the **sole** pool gate: non-Paid rows must carry `eligible=false` to stay out of the pool. The DB column default is `true`, but the page auto-stamps `defaultEligible()` (false on non-Paid) on creation so non-Paid rows are excluded by default; on a non-Paid→Paid transition the `autocheck_sales_log_eligible()` trigger (rewritten 2026-06-19) flips `eligible=true` for qualifying rows (channel ≠ 'Live', source ∉ {'Live Post','Online Store','Other'}), overriding the page-stamped false. INSERTs still honor an explicit `eligible=false` (creation-time opt-out); already-Paid edits hit neither branch so admin opt-outs on Paid rows are preserved.
