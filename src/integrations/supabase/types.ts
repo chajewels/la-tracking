@@ -344,6 +344,7 @@ export type Database = {
           name: string
           sort_order: number
           start_month: string
+          user_id: string | null
         }
         Insert: {
           active?: boolean
@@ -353,6 +354,7 @@ export type Database = {
           name: string
           sort_order?: number
           start_month?: string
+          user_id?: string | null
         }
         Update: {
           active?: boolean
@@ -362,6 +364,7 @@ export type Database = {
           name?: string
           sort_order?: number
           start_month?: string
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -4416,6 +4419,10 @@ export type Database = {
         Returns: Json
       }
       get_daily_new_layaway_sales: {
+        Args: { currency_mode?: string }
+        Returns: Json
+      }
+      get_daily_new_layaway_sales_last_month: {
         Args: { currency_mode?: string }
         Returns: Json
       }
