@@ -95,7 +95,7 @@ Deno.serve(async (req) => {
     while (true) {
       const { data: batch } = await supabase
         .from("layaway_schedule")
-        .select("*, layaway_accounts!inner(id, currency, status, payment_plan_months)")
+        .select("*, layaway_accounts!inner(id, currency, status, payment_plan_months, is_reactivated)")
         .in("status", ["pending", "overdue", "partially_paid"])
         .lte("due_date", today)
         .in("layaway_accounts.status", ["active", "overdue", "extension_active"])
@@ -252,9 +252,17 @@ Deno.serve(async (req) => {
 
       const currentTotal = currentPenaltyTotals.get(item.id) || 0;
       const overrideCap = overrideMap.get(accountId);
-      const cap = overrideCap !== undefined
+      let cap = overrideCap !== undefined
         ? (installmentNumber >= planMonths ? (currency === "PHP" ? 3000 : 6000) : overrideCap)
         : getPenaltyCap(currency, installmentNumber, planMonths);
+
+      // Extension month: a reactivated account in extension gets ONE more month
+      // of penalties on its FINAL installment (+PHP 1000 / JPY 2000), capping it
+      // at PHP 4000 / JPY 8000. Drives the final forfeiture at the next cycle tick.
+      const acct = (item as any).layaway_accounts;
+      if (acct.is_reactivated && acct.status === "extension_active" && installmentNumber === planMonths) {
+        cap += currency === "PHP" ? 1000 : 2000;
+      }
 
       if (currentTotal >= cap) continue;
 
