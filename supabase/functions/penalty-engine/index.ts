@@ -118,6 +118,17 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Accounts with an unpaid installment BEFORE their final month = "dirty".
+    // Dirty accounts do NOT get the extension penalty bump — their final-month
+    // cap stays at the normal PHP 3000 / JPY 6000.
+    const accountsWithEarlierUnpaid = new Set<string>();
+    for (const it of allOverdueItems) {
+      const a = (it as any).layaway_accounts;
+      if (a && it.installment_number < (a.payment_plan_months || 6)) {
+        accountsWithEarlierUnpaid.add(a.id);
+      }
+    }
+
     // ── Guard 1: Remove any items where paid_amount >= base_installment_amount ──
     // Even if status hasn't been updated to "paid", a fully-covered installment must never get a penalty
     allOverdueItems = allOverdueItems.filter(item => {
@@ -256,11 +267,16 @@ Deno.serve(async (req) => {
         ? (installmentNumber >= planMonths ? (currency === "PHP" ? 3000 : 6000) : overrideCap)
         : getPenaltyCap(currency, installmentNumber, planMonths);
 
-      // Extension month: a reactivated account in extension gets ONE more month
-      // of penalties on its FINAL installment (+PHP 1000 / JPY 2000), capping it
-      // at PHP 4000 / JPY 8000. Drives the final forfeiture at the next cycle tick.
       const acct = (item as any).layaway_accounts;
-      if (acct.is_reactivated && acct.status === "extension_active" && installmentNumber === planMonths) {
+      if (
+        acct.is_reactivated &&
+        acct.status === "extension_active" &&
+        installmentNumber === planMonths &&
+        !accountsWithEarlierUnpaid.has(accountId)
+      ) {
+        // CLEAN account (all earlier installments paid): extension grants ONE more
+        // month on the final installment, +PHP 1000 / JPY 2000 (cap 4000 / 8000).
+        // DIRTY accounts get no bump — final installment stays at 3000 / 6000.
         cap += currency === "PHP" ? 1000 : 2000;
       }
 

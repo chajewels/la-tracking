@@ -341,6 +341,13 @@ Deno.serve(async (req) => {
         (s: any) => s.installment_number === account.payment_plan_months
       ) || schedItems[schedItems.length - 1];
       if (finalMonthItem) {
+        // GUARD (owner-approved): the month-6 cap may only forfeit when every earlier
+        // installment is paid. If a previous month is unpaid, the cap is dead and
+        // forfeiture goes through the 3-month-no-payment rule (RULE 2). Once earlier
+        // months clear, the cap re-activates automatically.
+        const priorUnpaid = schedItems.some(
+          (s: any) => s.installment_number < account.payment_plan_months && s.status !== "paid"
+        );
         const finalMonthPenalties = penalties.filter((p: any) =>
           p.schedule_id === finalMonthItem.id &&
           (p.status === "unpaid" || p.status === "paid")
@@ -351,6 +358,7 @@ Deno.serve(async (req) => {
         const finalMonthCap = currency === "PHP" ? 3000 : 6000;
 
         if (
+          !priorUnpaid &&
           finalMonthPenaltyTotal >= finalMonthCap &&
           new Date(finalMonthItem.due_date + "T00:00:00Z") <= now
         ) {
