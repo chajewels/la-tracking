@@ -68,6 +68,10 @@ export default defineConfig(({ mode }) => ({
         ],
         runtimeCaching: [
           {
+            urlPattern: ({ url }) => url.pathname === '/version.json',
+            handler: 'NetworkOnly',
+          },
+          {
             // NetworkFirst for SPA navigations — ensures fresh HTML/bundle
             // on each visit with offline cache fallback. Fixes 404s when
             // the client has stale cached index.html from before new routes
@@ -91,6 +95,17 @@ export default defineConfig(({ mode }) => ({
         ],
       },
     }),
+    {
+      name: 'emit-version-json',
+      apply: 'build',
+      generateBundle() {
+        this.emitFile({
+          type: 'asset',
+          fileName: 'version.json',
+          source: JSON.stringify({ version: APP_VERSION }),
+        });
+      },
+    },
   ].filter(Boolean),
   resolve: {
     alias: {

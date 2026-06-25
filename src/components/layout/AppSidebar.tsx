@@ -168,7 +168,7 @@ function isCategory(item: CategoryHeader | MenuItem): item is CategoryHeader {
   return (item as CategoryHeader).type === 'category';
 }
 
-export default function AppSidebar() {
+export default function AppSidebar({ updateAvailable = false }: { updateAvailable?: boolean }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -424,9 +424,15 @@ export default function AppSidebar() {
           Logout
         </button>
 
-        <p className="mt-1 text-center text-[10px] text-muted-foreground select-none">
-          v {__APP_VERSION__}
-        </p>
+        {updateAvailable ? (
+          <p className="mt-1 text-center text-[10px] text-amber-400 select-none">
+            v {__APP_VERSION__} · update pending
+          </p>
+        ) : (
+          <p className="mt-1 text-center text-[10px] text-muted-foreground select-none">
+            v {__APP_VERSION__}
+          </p>
+        )}
       </SidebarFooter>
     </Sidebar>
   );

@@ -3,6 +3,22 @@
 ## App Version
 1.2.0 (commit 02a040c)
 
+## 2026-06-25 — Proactive update-notification signal (frontend-only)
+- Proactive "new version available" signal for staff shipped. The build emits
+  `/version.json` (the 7-char commit SHA) via an inline `emit-version-json` Vite
+  plugin; a `/version.json` `NetworkOnly` runtimeCaching rule keeps the poll out
+  of the SW cache.
+- `useVersionCheck` (`src/hooks/useVersionCheck.ts`) polls `/version.json` every
+  60s and on tab-focus, comparing the served SHA to the booted SHA (`__APP_VERSION__`).
+- `AppLayout` shows a dismissible banner (Reload / X) when an update is detected
+  and passes `updateAvailable` to `AppSidebar`, which renders an amber
+  "v … · update pending" version label.
+- Purely additive — does NOT touch the PWA `autoUpdate` registration, the
+  `vite:preloadError` listener, or the `RootErrorBoundary` (stale-chunk recovery
+  stays as-is).
+- KNOWN LIMITATION: the deploy that ships this feature does not itself surface a
+  banner (booted SHA == served SHA); only subsequent deploys trigger it.
+
 ## 2026-06-19 — System Audit clean
 - System Audit clean as of 2026-06-19: 0 schema-drift rows, 0 per-account health failures.
 - `audit_delete_cleanup_invariants()` returns zero rows — the `payment_proofs.cash_order_id`→`cash_orders` FK (2026-06-15) is now allowlisted (cash_orders is soft-cancel only, no DELETE step). See Bug #232.
