@@ -3,6 +3,28 @@
 ## App Version
 1.2.0 (commit 02a040c)
 
+## Firebase Hosting CI auto-deploy — FIXED 2026-06-26 (commit 349cf91)
+
+**Symptom:** Every GitHub Actions deploy failed at the auth step with:
+`Error: Invalid response body while trying to fetch https://www.googleapis.com/oauth2/v4/token: Premature close`
+→ `Failed to authenticate, have you run firebase login?`
+Broken since ~mid-May 2026. Previously misattributed to "secret issues."
+
+**Real root cause:** A Node.js bug (nodejs/node#63989, firebase-tools#10692). A recent Node security release broke keep-alive socket handling in the node-fetch/gaxios HTTP stack that firebase-tools uses to fetch OAuth tokens from googleapis.com. Affects Node 22.23.0 and 24.17.0. NOT a credentials, secret-format, firebase-tools-version, or network/infra problem — every auth method failed identically because all hit the same broken token fetch.
+
+**Fix:** Pinned the runner's Node version to 24.16.0 in .github/workflows/firebase-deploy.yml (actions/setup-node node-version: '24.16.0'). 24.16.0 is the last Node release before the regression — the firebase team's own documented mitigation. One-line change; deploy went green immediately.
+
+**Ruled out during debugging (do not re-try these):** regenerating the service-account key; FIREBASE_TOKEN / firebase login:ci (Google now invalidates these tokens immediately — deprecated path, dead end); echo vs printf for the JSON; gcloud auth activate-service-account; wrong project ID. None were the cause.
+
+**Auth mechanism in use:** service-account JSON in GitHub secret FIREBASE_SERVICE_ACCOUNT, written to a file at deploy time with GOOGLE_APPLICATION_CREDENTIALS. firebase-tools pinned to @13.
+
+**TODO — remove the Node pin later:** firebase-tools has merged a fix (retry without keep-alive) but it is NOT yet on npm (latest is still the broken 15.22.2 as of 2026-06-26). Once a patched firebase-tools is published, the Node 24.16.0 pin can be removed and setup-node returned to a normal LTS version. Until then, leave the pin in place.
+
+**Manual deploy fallback (always works, ~1 min):**
+Run as sales@chajewelsjp.com (owns project cha-jewels-la-tracking):
+`cd ~/la-tracking && git pull origin main && npm run build && firebase deploy --only hosting --project cha-jewels-la-tracking`
+If CLI is on the wrong account: `firebase login:use sales@chajewelsjp.com` first.
+
 ## 2026-06-25 — Proactive update-notification signal (frontend-only)
 - Proactive "new version available" signal for staff shipped. The build emits
   `/version.json` (the 7-char commit SHA) via an inline `emit-version-json` Vite
