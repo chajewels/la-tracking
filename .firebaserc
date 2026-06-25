@@ -1,9 +1,9 @@
 {
   "projects": {
-    "default": "cha-jewels-la-tracking"
+    "default": "cha-jewels-layaway"
   },
   "targets": {
-    "cha-jewels-la-tracking": {
+    "cha-jewels-layaway": {
       "hosting": {
         "main": [
           "chajewelslayaway"
