@@ -328,7 +328,7 @@ Deno.serve(async (req) => {
 
     const accountIds = (accounts || []).map((a: any) => a.id);
 
-    const [schedulesRes, paymentsRes, servicesRes, methodsRes, submissionsRes, penaltiesRes, cashOrdersRes] = await Promise.all([
+    const [schedulesRes, paymentsRes, servicesRes, methodsRes, submissionsRes, penaltiesRes, cashOrdersRes, serviceJobsRes] = await Promise.all([
       accountIds.length > 0
         ? supabase.from("layaway_schedule").select("*").in("account_id", accountIds).order("installment_number")
         : Promise.resolve({ data: [], error: null }),
@@ -347,6 +347,8 @@ Deno.serve(async (req) => {
         : Promise.resolve({ data: [], error: null }),
       // Cash orders — queried by customer_id independently of layaway accounts
       supabase.from("cash_orders").select("*").eq("customer_id", customerId).order("created_at", { ascending: false }),
+      // Service jobs — queried by customer_id, nested by invoice into account/cash cards below
+      supabase.from("service_jobs").select("id, account_type, invoice_number, service_type, service_status, service_description, service_fee, date_received, estimated_completion, date_completed").eq("customer_id", customerId).order("date_received", { ascending: false }),
     ]);
 
     const schedules = schedulesRes.data || [];
@@ -356,6 +358,7 @@ Deno.serve(async (req) => {
     const submissions = submissionsRes.data || [];
     const penalties = penaltiesRes.data || [];
     const cashOrdersRaw = cashOrdersRes.data || [];
+    const serviceJobsRaw = serviceJobsRes.data || [];
     const cashOrderIds = (cashOrdersRaw as any[]).map((o: any) => o.id);
 
     // Second round-trip: cash_payments filtered by the cash_order_ids we just loaded.
@@ -883,6 +886,48 @@ Deno.serve(async (req) => {
       birthdayMonth === currentPhtMonth &&
       (customer.last_birthday_award_year ?? null) !== currentPhtYear;
 
+    // ---- Service Status (service_jobs): nest by invoice, guard bucket for unresolved ----
+    const SERVICE_STATUS_LABELS: Record<string, string> = {
+      "Logged": "Received",
+      "Process": "In Progress",
+      "On-going": "In Progress",
+      "Pending": "On Hold",
+      "Cancelled": "Cancelled",
+      "Completed": "Completed",
+    };
+    const shapeServiceJob = (j: any) => ({
+      id: j.id,
+      service_type: j.service_type,
+      service_status: j.service_status,
+      status_label: SERVICE_STATUS_LABELS[j.service_status] ?? j.service_status,
+      service_description: j.service_description,
+      service_fee: j.service_fee,
+      date_received: j.date_received,
+      estimated_completion: j.estimated_completion,
+      date_completed: j.date_completed,
+      invoice_number: j.invoice_number,
+    });
+    const layawayInvoiceSet = new Set((accountCards as any[]).map((c: any) => c.invoice_number));
+    const cashInvoiceSet = new Set((cashOrdersPayload as any[]).map((o: any) => o.invoice_number));
+    for (const card of accountCards as any[]) {
+      card.service_jobs = (serviceJobsRaw as any[])
+        .filter((j: any) => j.account_type === "layaway" && j.invoice_number === card.invoice_number)
+        .map(shapeServiceJob);
+    }
+    for (const o of cashOrdersPayload as any[]) {
+      o.service_jobs = (serviceJobsRaw as any[])
+        .filter((j: any) => j.account_type === "cash_order" && j.invoice_number === o.invoice_number)
+        .map(shapeServiceJob);
+    }
+    const otherServices = (serviceJobsRaw as any[])
+      .filter((j: any) => {
+        const resolved =
+          (j.account_type === "layaway" && layawayInvoiceSet.has(j.invoice_number)) ||
+          (j.account_type === "cash_order" && cashInvoiceSet.has(j.invoice_number));
+        return !resolved;
+      })
+      .map(shapeServiceJob);
+
     return new Response(JSON.stringify({
       customer_name: customer.full_name,
       customer_code: customer.customer_code,
@@ -924,6 +969,7 @@ Deno.serve(async (req) => {
       })),
       cash_orders: cashOrdersPayload,
       cash_payments: cashPaymentsPayload,
+      other_services: otherServices,
       loyalty_member: loyaltyMemberRow ?? null,
       loyalty_tiers: loyaltyTiersRows ?? [],
       loyalty_transactions: loyaltyTransactions,
