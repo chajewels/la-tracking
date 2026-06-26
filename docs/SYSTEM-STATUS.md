@@ -1,7 +1,25 @@
 # System Status — last updated 2026-06-19
 
 ## App Version
-1.2.0 (commit 02a040c)
+1.3.0 (commit 02a040c)
+
+## 2026-06-26 — Service Status in customer portal
+- `service_jobs` are now surfaced read-only in the customer portal. Each job
+  exposes customer-safe fields only: `id`, `service_type`, `service_status`,
+  `status_label`, `service_description`, `service_fee`, `date_received`,
+  `estimated_completion`, `date_completed`, `invoice_number`.
+- Jobs are nested per layaway account and per cash order by `invoice_number`,
+  rendered as a "Service Status" panel mirroring the existing "Additional
+  Services" markup (layaway account detail view + cash order card).
+- Jobs that don't resolve to a card land in a top-level `other_services` guard
+  bucket, rendered as an "Other Services" section on the portal home (shows a
+  "Re: INV #…" reference line when an invoice number is present).
+- Status label map: Logged→Received, Process/On-going→In Progress,
+  Pending→On Hold, Cancelled, Completed. Badges are dark-gold/dark-theme pills.
+- `service_fee` is displayed in the parent card's currency (other_services uses
+  `summary.primary_currency`); no per-job currency is invented.
+- Edge change (nest + guard bucket in customer-portal) shipped in commit
+  1e37e88; frontend rendering ships in this commit. No edge deploy in this push.
 
 ## Firebase Hosting CI auto-deploy — FIXED 2026-06-26 (commit 349cf91)
 

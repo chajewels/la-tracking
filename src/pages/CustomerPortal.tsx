@@ -108,6 +108,7 @@ interface PortalAccount {
     remarks: string | null;
   }>;
   services: Array<{ service_type: string; description: string | null; amount: number; currency: string }>;
+  service_jobs?: Array<{ id: string; service_type: string; service_status: string; status_label: string; service_description: string; service_fee: number; date_received: string; estimated_completion: string | null; date_completed: string | null; invoice_number: string | null }>;
   submissions: Submission[];
 }
 
@@ -173,6 +174,7 @@ interface PortalData {
   payment_methods: PaymentMethod[];
   cash_orders?: PortalCashOrder[];
   cash_payments?: PortalCashPayment[];
+  other_services?: Array<{ id: string; service_type: string; service_status: string; status_label: string; service_description: string; service_fee: number; date_received: string; estimated_completion: string | null; date_completed: string | null; invoice_number: string | null }>;
   loyalty_member?: {
     id: string;
     remaining_points: number;
@@ -868,6 +870,47 @@ export default function CustomerPortal() {
               portalToken={token!}
               onRefresh={fetchPortal}
             />
+
+            {/* Other Services — guard bucket for service jobs not nested under a card */}
+            {data.other_services && data.other_services.length > 0 && (
+              <div style={{background:P.s,border:`1px solid ${P.br}`,borderRadius:'2px',padding:'16px'}}>
+                <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'12px'}}>Other Services</p>
+                <div>
+                  {data.other_services.map((job) => {
+                    const SERVICE_LABELS: Record<string, string> = {
+                      resize: 'Resize', certificate: 'Certificate', polish: 'Polish',
+                      change_color: 'Change Color', engraving: 'Engraving', repair: 'Repair', other: 'Other',
+                    };
+                    const SERVICE_BADGE: Record<string, { color: string; opacity?: number }> = {
+                      'Received': { color: P.ts },
+                      'In Progress': { color: P.gp },
+                      'On Hold': { color: '#C9881E' },
+                      'Cancelled': { color: P.ts, opacity: 0.6 },
+                      'Completed': { color: '#5CB86A' },
+                    };
+                    const badge = SERVICE_BADGE[job.status_label] ?? { color: P.ts };
+                    const otherCurrency = (data.summary.primary_currency as 'JPY' | 'PHP');
+                    const timeline = `Received ${fmtDate(job.date_received)}` +
+                      (job.date_completed ? ` · Completed ${fmtDate(job.date_completed)}`
+                        : job.estimated_completion ? ` · Est. ${fmtDate(job.estimated_completion)}` : '');
+                    return (
+                      <div key={job.id} className="flex items-center justify-between py-3" style={{borderBottom:`1px solid ${P.s2}`}}>
+                        <div>
+                          <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:P.tp,fontWeight:500}}>{SERVICE_LABELS[job.service_type] || job.service_type}</p>
+                          {job.service_description && <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,marginTop:'2px'}}>{job.service_description}</p>}
+                          {job.invoice_number && <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,marginTop:'2px'}}>Re: INV #{job.invoice_number}</p>}
+                          <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,marginTop:'2px'}}>{timeline}</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          <span style={{fontFamily:"Inter,sans-serif",fontSize:'9px',textTransform:'uppercase' as const,letterSpacing:'0.1em',padding:'0 8px',borderRadius:'2px',border:`1px solid ${badge.color}`,color:badge.color,background:'transparent',opacity:badge.opacity ?? 1}}>{job.status_label}</span>
+                          <p style={{fontFamily:"Inter,sans-serif",fontSize:'14px',fontWeight:600,color:P.gp}}>{fmt(job.service_fee, otherCurrency)}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </>
         )}
 
@@ -1854,6 +1897,45 @@ function OverviewTab({ account, today }: {
                     {svc.description && <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,marginTop:'2px'}}>{svc.description}</p>}
                   </div>
                   <p style={{fontFamily:"Inter,sans-serif",fontSize:'14px',fontWeight:600,color:P.gp}}>{fmt(svc.amount, currency)}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Service Status */}
+      {account.service_jobs && account.service_jobs.length > 0 && (
+        <div>
+          <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'12px'}}>Service Status</p>
+          <div>
+            {account.service_jobs.map((job) => {
+              const SERVICE_LABELS: Record<string, string> = {
+                resize: 'Resize', certificate: 'Certificate', polish: 'Polish',
+                change_color: 'Change Color', engraving: 'Engraving', repair: 'Repair', other: 'Other',
+              };
+              const SERVICE_BADGE: Record<string, { color: string; opacity?: number }> = {
+                'Received': { color: P.ts },
+                'In Progress': { color: P.gp },
+                'On Hold': { color: '#C9881E' },
+                'Cancelled': { color: P.ts, opacity: 0.6 },
+                'Completed': { color: '#5CB86A' },
+              };
+              const badge = SERVICE_BADGE[job.status_label] ?? { color: P.ts };
+              const timeline = `Received ${fmtDate(job.date_received)}` +
+                (job.date_completed ? ` · Completed ${fmtDate(job.date_completed)}`
+                  : job.estimated_completion ? ` · Est. ${fmtDate(job.estimated_completion)}` : '');
+              return (
+                <div key={job.id} className="flex items-center justify-between py-3" style={{borderBottom:`1px solid ${P.s2}`}}>
+                  <div>
+                    <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:P.tp,fontWeight:500}}>{SERVICE_LABELS[job.service_type] || job.service_type}</p>
+                    {job.service_description && <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,marginTop:'2px'}}>{job.service_description}</p>}
+                    <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,marginTop:'2px'}}>{timeline}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <span style={{fontFamily:"Inter,sans-serif",fontSize:'9px',textTransform:'uppercase' as const,letterSpacing:'0.1em',padding:'0 8px',borderRadius:'2px',border:`1px solid ${badge.color}`,color:badge.color,background:'transparent',opacity:badge.opacity ?? 1}}>{job.status_label}</span>
+                    <p style={{fontFamily:"Inter,sans-serif",fontSize:'14px',fontWeight:600,color:P.gp}}>{fmt(job.service_fee, currency)}</p>
+                  </div>
                 </div>
               );
             })}

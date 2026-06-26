@@ -39,6 +39,7 @@ export interface PortalCashOrder {
   cancelled_at: string | null;
   completed_at: string | null;
   created_at: string;
+  service_jobs?: Array<{ id: string; service_type: string; service_status: string; status_label: string; service_description: string; service_fee: number; date_received: string; estimated_completion: string | null; date_completed: string | null; invoice_number: string | null }>;
 }
 
 export interface PortalCashPayment {
@@ -295,6 +296,45 @@ function CashOrderCard({
           </p>
         </div>
       </div>
+
+      {/* Service Status */}
+      {order.service_jobs && order.service_jobs.length > 0 && (
+        <div className="mt-4">
+          <p style={{ fontFamily: 'Inter,sans-serif', fontSize: '9px', fontWeight: 500, letterSpacing: '0.2em', textTransform: 'uppercase', color: P.ts, marginBottom: '12px' }}>Service Status</p>
+          <div>
+            {order.service_jobs.map((job) => {
+              const SERVICE_LABELS: Record<string, string> = {
+                resize: 'Resize', certificate: 'Certificate', polish: 'Polish',
+                change_color: 'Change Color', engraving: 'Engraving', repair: 'Repair', other: 'Other',
+              };
+              const SERVICE_BADGE: Record<string, { color: string; opacity?: number }> = {
+                'Received': { color: P.ts },
+                'In Progress': { color: P.gp },
+                'On Hold': { color: '#C9881E' },
+                'Cancelled': { color: P.ts, opacity: 0.6 },
+                'Completed': { color: '#5CB86A' },
+              };
+              const badge = SERVICE_BADGE[job.status_label] ?? { color: P.ts };
+              const timeline = `Received ${fmtDate(job.date_received)}` +
+                (job.date_completed ? ` · Completed ${fmtDate(job.date_completed)}`
+                  : job.estimated_completion ? ` · Est. ${fmtDate(job.estimated_completion)}` : '');
+              return (
+                <div key={job.id} className="flex items-center justify-between py-3" style={{ borderBottom: `1px solid ${P.s2}` }}>
+                  <div>
+                    <p style={{ fontFamily: 'Inter,sans-serif', fontSize: '13px', color: P.tp, fontWeight: 500 }}>{SERVICE_LABELS[job.service_type] || job.service_type}</p>
+                    {job.service_description && <p style={{ fontFamily: 'Inter,sans-serif', fontSize: '11px', color: P.ts, marginTop: '2px' }}>{job.service_description}</p>}
+                    <p style={{ fontFamily: 'Inter,sans-serif', fontSize: '10px', color: P.ts, marginTop: '2px' }}>{timeline}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <span style={{ fontFamily: 'Inter,sans-serif', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.1em', padding: '0 8px', borderRadius: '2px', border: `1px solid ${badge.color}`, color: badge.color, background: 'transparent', opacity: badge.opacity ?? 1 }}>{job.status_label}</span>
+                    <p style={{ fontFamily: 'Inter,sans-serif', fontSize: '14px', fontWeight: 600, color: P.gp }}>{fmt(job.service_fee, currency)}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Action — pending-submission banner takes precedence over the Submit button */}
       {isPending && pendingSubmission ? (
