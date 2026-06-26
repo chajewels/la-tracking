@@ -4,6 +4,7 @@ import AppSidebar from './AppSidebar';
 import { LogOut, Sparkles, RefreshCw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useVersionCheck } from '@/hooks/useVersionCheck';
+import { applyUpdate } from '@/lib/pwaUpdate';
 import { useAuth } from '@/contexts/AuthContext';
 import StaffNotificationBell from '@/components/notifications/StaffNotificationBell';
 import AICommandModal from '@/components/ai/AICommandModal';
@@ -106,7 +107,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                     <span>A new version of the app is available. Reload to load the latest update.</span>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <Button size="sm" onClick={() => window.location.reload()} className="h-8 gold-gradient text-primary-foreground">
+                    <Button size="sm" onClick={() => applyUpdate()} className="h-8 gold-gradient text-primary-foreground">
                       Reload
                     </Button>
                     <Button variant="ghost" size="icon" onClick={() => setUpdateDismissed(true)} className="h-8 w-8 text-primary hover:text-white hover:bg-white/10" aria-label="Dismiss">

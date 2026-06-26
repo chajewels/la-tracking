@@ -37,6 +37,8 @@ import { getPHTToday } from '@/lib/date-utils';
 import { getPortalAuthHeaders } from '@/lib/portal-auth';
 import { getPortalLinkForCustomer } from '@/lib/portal-link';
 import PageMeta from '@/components/seo/PageMeta';
+import { usePwaUpdate } from '@/hooks/usePwaUpdate';
+import { markFormDirty, markFormClean } from '@/lib/pwaUpdate';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -404,6 +406,7 @@ export default function CustomerPortal() {
   const [sortBy, setSortBy] = useState<string>('newest');
   const [portalView, setPortalView] = useState<'accounts' | 'profile'>('accounts');
   const [accountSelectModal, setAccountSelectModal] = useState<'single' | 'split' | null>(null);
+  const { updateReady, applyUpdate, hasDirtyForm } = usePwaUpdate();
 
   const openAccountPay = (account: PortalAccount, mode: 'single' | 'split' = 'single') => {
     setInitialDetailTab('pay');
@@ -482,6 +485,21 @@ export default function CustomerPortal() {
   };
 
   useEffect(() => { fetchPortal(); }, [token, authMode, accessToken, bootstrapping]);
+
+  // Guarded one-time auto-reload when a new build activates. On a clean landing
+  // (no dirty guarded form) reload automatically; time-gated via sessionStorage
+  // so a single reload can't infinite-loop (mirrors vite:preloadError in main.tsx).
+  useEffect(() => {
+    if (!updateReady) return;
+    if (hasDirtyForm()) return;
+    const key = 'pwa-update-ts';
+    const last = Number(sessionStorage.getItem(key) ?? 0);
+    const now = Date.now();
+    if (!last || now - last > 10_000) {
+      sessionStorage.setItem(key, String(now));
+      applyUpdate();
+    }
+  }, [updateReady, applyUpdate, hasDirtyForm]);
 
   if (showSplash) {
     return <SplashScreen onComplete={() => setShowSplash(false)} />;
@@ -694,6 +712,21 @@ export default function CustomerPortal() {
       </div>
 
       <div className="max-w-lg sm:max-w-2xl lg:max-w-5xl mx-auto px-4 py-6 space-y-6">
+        {updateReady && (
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'12px',background:P.s,border:`1px solid ${P.br}`,borderRadius:'2px',padding:'12px 16px'}}>
+            <div className="flex items-center gap-2">
+              <Diamond className="h-4 w-4 shrink-0" style={{color:P.gp}} />
+              <span style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:P.tp}}>A new version is available. Reload to load the latest update.</span>
+            </div>
+            <button
+              onClick={() => applyUpdate()}
+              className="shrink-0"
+              style={{background:P.gr,border:'none',borderRadius:'2px',color:P.bg,padding:'6px 14px',fontFamily:"Inter,sans-serif",fontSize:'11px',fontWeight:600,letterSpacing:'0.1em',textTransform:'uppercase' as const,cursor:'pointer'}}
+            >
+              Reload
+            </button>
+          </div>
+        )}
         {portalView === 'profile' ? (
           <ProfileEditor
             profile={data.profile}
@@ -2116,6 +2149,19 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
   const [proofPreview, setProofPreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Guard the PWA one-time auto-reload while the customer is entering a payment.
+  // Dirty when any user-entered field is non-empty; clean on submit success
+  // (below), on cancel/close (unmount), and here when the fields are emptied.
+  useEffect(() => {
+    const dirty =
+      referenceNumber.trim() !== '' ||
+      senderName.trim() !== '' ||
+      notes.trim() !== '' ||
+      proofFile !== null;
+    if (dirty) markFormDirty('portal-payment'); else markFormClean('portal-payment');
+  }, [referenceNumber, senderName, notes, proofFile]);
+  useEffect(() => () => markFormClean('portal-payment'), []);
+
   // Target month selector
   const [targetMonth, setTargetMonth] = useState<number | ''>('');
   const unpaidScheduleRows = account.schedule
@@ -2283,6 +2329,7 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
       }
 
       setStep('success');
+      markFormClean('portal-payment');
       onSuccess();
     } catch {
       setFormError('Something went wrong. Please try again.');
@@ -3065,6 +3112,13 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
   const [mobileNumber, setMobileNumber] = useState(profile.mobile_number || '');
   const [email, setEmail] = useState(profile.email || '');
   const [notes, setNotes] = useState(profile.notes || '');
+
+  // Guard the PWA one-time auto-reload while the profile edit form is open.
+  // Dirty while editing; clean on save/cancel (editing flips false) and unmount.
+  useEffect(() => {
+    if (editing) markFormDirty('portal-profile'); else markFormClean('portal-profile');
+  }, [editing]);
+  useEffect(() => () => markFormClean('portal-profile'), []);
 
   const resetForm = () => {
     const p = parseLocation(profile.location);

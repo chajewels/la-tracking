@@ -1,7 +1,34 @@
 # System Status — last updated 2026-06-19
 
 ## App Version
-1.3.0 (commit 02a040c)
+1.4.0 (commit 02a040c)
+
+## 2026-06-26 — PWA prompt-with-auto-apply update flow
+- Changed the service worker update semantics from silent auto-update to
+  prompt-with-auto-apply. `registerType` is now `'prompt'` (was `'autoUpdate'`)
+  with `injectRegister: false`; the SW is registered explicitly in `main.tsx`
+  via `registerSW({ onNeedRefresh })`. The `workbox`/`manifest` config is
+  unchanged.
+- On a new build activating, `onNeedRefresh` dispatches a `pwa:need-refresh`
+  window event. `usePwaUpdate()` surfaces this as `updateReady`.
+- `src/lib/pwaUpdate.ts` holds the `updateSW` handle (`setUpdateSW`) and a
+  dirty-form registry (`markFormDirty`/`markFormClean`/`hasDirtyForm`).
+  `applyUpdate()` calls `updateSW(true)` (activates the waiting SW + reloads),
+  falling back to `window.location.reload()` if the handle isn't set yet.
+- Customer portal: a guarded one-time auto-reload effect fires on a clean
+  landing (time-gated via `sessionStorage` key `pwa-update-ts`, 10s window —
+  mirrors the `vite:preloadError` pattern in `main.tsx`). When a guarded form
+  is dirty it does NOT auto-reload; instead a portal-styled banner ("A new
+  version is available. Reload to load the latest update." + Reload button)
+  lingers until the user reloads. Guarded forms: payment submission
+  (`portal-payment`) and profile edit (`portal-profile`). The extension-request
+  flow is intentionally NOT guarded.
+- Hub: the existing update banner's Reload button now calls `applyUpdate()`
+  instead of a bare `window.location.reload()` (a bare reload won't activate the
+  waiting SW under `'prompt'`). `useVersionCheck` is otherwise unchanged.
+- Both surfaces (portal + Hub) covered. Net effect: customers and Hub users
+  land on the latest build with no manual reload, except when a guarded form is
+  mid-edit (then they choose when via the banner).
 
 ## 2026-06-26 — Service Status in customer portal
 - `service_jobs` are now surfaced read-only in the customer portal. Each job

@@ -1,6 +1,8 @@
 import { createRoot } from "react-dom/client";
 import { HelmetProvider } from "react-helmet-async";
+import { registerSW } from 'virtual:pwa-register';
 import App from "./App.tsx";
+import { setUpdateSW } from './lib/pwaUpdate';
 import "./index.css";
 
 // Unregister any service worker inside Lovable preview / iframe contexts.
@@ -43,6 +45,14 @@ window.addEventListener("vite:preloadError", (event) => {
     window.location.reload();
   }
 });
+
+const updateSW = registerSW({
+  onNeedRefresh() {
+    window.dispatchEvent(new CustomEvent('pwa:need-refresh'));
+  },
+  onOfflineReady() {},
+});
+setUpdateSW(updateSW);
 
 createRoot(document.getElementById("root")!).render(
   <HelmetProvider>
