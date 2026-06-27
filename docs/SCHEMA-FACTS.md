@@ -457,3 +457,15 @@ The only NEW edge-emitted bell types from the sound-notifications feature are (b
 ### Final-installment penalty cap + auto-forfeit Rule A gate (added 2026-06-19, Bug #235)
 
 Final-installment penalty cap is **PHP 3000 / JPY 6000**. Reactivated `extension_active` accounts: **CLEAN** (all earlier installments paid) get **+PHP 1000 / JPY 2000** on the final installment (cap 4000 / 8000); **DIRTY** (an earlier installment unpaid) get no bump — final installment stays at 3000 / 6000. `auto-forfeit-settlement` **Rule A** (final-month cap forfeiture) is gated on `priorUnpaid` — only fires when every earlier installment is paid; otherwise the **3-month-no-payment rule** governs. Open payment submissions (status `submitted` / `under_review`) freeze all penalty accrual for that account.
+
+### Order-level is_test KPI guard (added 2026-06-27, test-account leak fix)
+
+Supersedes the regex/prefix framing in the trigger section above: KPI/alert exclusion no longer relies on the `TEST-` prefix or an `invoice_number` regex. The canonical, queryable guard is now an order-level boolean column.
+
+- **`customers.is_test`** (pre-existing) — the canonical *structural* test marker. Drives the inherit trigger; flagged `true` only for pure-test customers (every order is a test).
+- **`cash_orders.is_test`** / **`layaway_accounts.is_test`** — `boolean NOT NULL DEFAULT false`, added 2026-06-27. The queryable KPI guard. Backfilled `WHERE invoice_number !~ '^[0-9]{5}$'` (real invoices are 5-digit `19xxx`); flagged exactly 19 historical test orders (7 cash, 12 layaway).
+- **`enforce_test_invoice_prefix()`** now ALSO sets `NEW.is_test := true` when the row's customer is a test customer (reads `customers.is_test` into a local), in addition to the existing `TEST-` numeric-invoice rewrite. A future test-customer order is therefore flagged at insert even if the invoice is bare-numeric. (The trigger-section description above predates this is_test stamping.)
+
+Why the column, not the prefix/regex: the prefix is only applied by the trigger at insert, so test orders created *before* their customer was flagged stayed bare-numeric and slipped every `invoice_number ~ '^[0-9]+$'` guard (which only catches *lettered* tests) and every `NOT LIKE 'TEST-%'` guard (which only catches *prefixed* ones). Both patterns are now swept to `is_test = false` across 24 RPCs, 2 edge functions, and 13 frontend sites. See docs/FIXED-BUGS.md Bug #237.
+
+Order-level is_test can be set/unset per order without touching a real customer's real orders. `service_jobs` and `trade_ins` have NO is_test column and are intentionally left on prior conventions (no test rows, manual inputs).

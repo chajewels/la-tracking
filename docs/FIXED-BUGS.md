@@ -3347,3 +3347,22 @@ Commit `243999f` (`fix(pwa): let updateSW drive the reload to avoid stale-cache 
 - **Fix:** When a SW handle exists, call `void _updateSW(true)` and let the SW drive the reload on `controllerchange`, with a `setTimeout(reload, 3000)` fallback for the no-waiting-SW case (the Hub banner can fire from `version.json` polling before a new SW installs, so the button must never be a silent no-op). Plain `reload()` only when no SW handle is present.
 - **Ruled out / not changed:** `firebase.json` already serves `index.html` and `sw.js` as `no-cache` (browser HTTP cache was not the cause); single SW registration via `main.tsx` (no competing workers); `caches.delete('navigation-cache')` hardening considered and not needed — single-click update verified, so `updateSW(true)`'s activation reliably drives the reload.
 - **Verification:** Booted Hub on the fixed build (footer `243999f`), deployed a newer build (`ae59365`) via empty trigger commit, confirmed `version.json` served `ae59365` on both `app.` and `portal.` hosts (NetworkOnly), banner fired, one Reload click flipped the footer `243999f → ae59365`. Pre-fix, the same action on `10fc4b2` required multiple clicks. `tsc` clean.
+
+### Bug #237 — Test accounts leaking into KPIs (bare-numeric tests bypass prefix/regex guards) (2026-06-27) ✅
+
+Commits `5b2526d` (edge), `4436777` + `2cbe4f8` + `d565ceb` (frontend), plus SQL-Editor column DDL + 24-RPC sweep (LIVE DB, not in migrations — see CLAUDE.md "Live DB ahead of repo migrations").
+
+- **Symptom:** Expired test orders (cash `1234`/`3456`, ¥176,524 combined) showed in Finance KPIs; 6 test accounts (¥1,200,000) showed in the Executive Dashboard monthly-inflow-by-plan chart.
+- **Root cause:** Two leaky guard patterns fleet-wide. The `TEST-` prefix is applied only by `enforce_test_invoice_prefix()` at insert, so test orders created before their customer was flagged `is_test` stayed bare-numeric. `invoice_number ~ '^[0-9]+$'` only catches *lettered* tests; `NOT LIKE 'TEST-%'` only catches *prefixed* ones — bare-numeric tests passed both. The structural marker `customers.is_test` existed but only 1 of 755 customers was flagged.
+- **Fix:** Added order-level `is_test boolean NOT NULL DEFAULT false` to `cash_orders` + `layaway_accounts`; backfilled (19 orders, `WHERE invoice_number !~ '^[0-9]{5}$'`); flagged 5 pure-test customers. Rewrote `enforce_test_invoice_prefix()` to set `NEW.is_test` from `customers.is_test` at insert. Swept BOTH guard patterns to `is_test = false` across **24 RPCs** (atomic pg_get_functiondef DO-block, excluding the trigger fn), **2 edge functions** (dashboard-summary ×19, send-reminders ×1), and **13 frontend sites** (Monitoring, AdminAudit, OverdueAlerts, PenaltyCapAuditPanel, PenaltyFollowUpSection, Finance, useExecutiveDashboard, Dashboard).
+- **Left by design:** `service_jobs` / `trade_ins` (no is_test, no test rows, manual inputs); display-badge sites (CashOrdersList, CustomerCashOrdersTab); AccountDetail hardcoded fixture set; input-validation/search regex (ServiceJobDialog, TradeInDialog, CustomerDetail, CustomerPortal, ActivityLogTab).
+- **Verification:** Live function dump confirmed all 24 RPCs on `is_test = false`. Finance cash leg dropped ¥2,332,759 → ¥2,156,235 (matches Overview); inflow chart shed ¥1,200,000. `get_monthly_sales` unchanged at ¥7,406,048.57 (its tests were already lettered).
+
+### Bug #238 — "Total Sales · This Month" card layaway leg disagreed with the rest of the app (2026-06-27) ✅
+
+Commit `e05f019` — `dashboard-summary/index.ts` (deployed via Lovable).
+
+- **Symptom:** The Finance "Total Sales · This Month" card's layaway leg read ¥8,342,014 while the New Layaway Sales card and the Collected-vs-Sales chart Sales line both read ¥7,406,049.
+- **Root cause:** The card computed the layaway leg by `order_date` — a different basis than the canonical figure. Every other "layaway sales" number derives from `get_monthly_sales.total_sales_value` (first-payment-month basis, DISTINCT ON account_id earliest payment).
+- **Fix:** Repointed the card's layaway leg to `rpc('get_monthly_sales', { currency_mode:'ALL', months_back:0 })`, summing `total_sales_value` for the current PHT month label. Single source of truth — the card can no longer drift from the chart. Cash leg untouched.
+- **Verification:** Card reads ¥9,562,284 = ¥7,406,049 layaway · ¥2,156,235 cash; layaway now matches the New Layaway Sales card and the chart Sales line. Footer confirmed build `e05f019`.
