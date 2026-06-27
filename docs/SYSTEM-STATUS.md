@@ -1,7 +1,24 @@
 # System Status — last updated 2026-06-19
 
 ## App Version
-1.4.0 (commit 02a040c)
+1.5.0 (commit 02a040c)
+
+## 2026-06-26 — Total Sales · This Month KPI in Finance analytics
+- Replaced the "Penalties Collected" stat card in the Finance analytics KPI row
+  with a "Total Sales · This Month" card: layaway + cash revenue for the current
+  month in JPY, sourced directly from
+  `summary.cash_vs_layaway_split.this_month` (`layaway_revenue_jpy` +
+  `cash_revenue_jpy`), with a subtitle breaking out the layaway and cash legs.
+- No RPC/migration change: `get_monthly_sales` and `get_collection_analytics`
+  are untouched. The value is a true JPY total independent of the currency
+  filter, formatted like the existing cash cards (¥ prefix, `Math.round`,
+  `toLocaleString`).
+- The `totalPenalties` useMemo stays — it still feeds the collection chart
+  series; only the StatCard was swapped. The "New Layaway Sales" card remains
+  layaway-only.
+- Note (original question): the "Collected vs Sales" tab is layaway-only by
+  design; the cash total is now surfaced via this new KPI plus the existing
+  Cash Orders row, not by folding cash into that chart.
 
 ## 2026-06-26 — PWA prompt-with-auto-apply update flow
 - Changed the service worker update semantics from silent auto-update to

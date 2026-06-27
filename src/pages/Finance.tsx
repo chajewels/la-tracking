@@ -786,7 +786,13 @@ export default function Finance() {
                   <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                     <StatCard title="Best Month" value={bestMonth ? `${bestMonth.collection_rate}%` : '—'} subtitle={bestMonth?.month} icon={Trophy} variant="gold" />
                     <StatCard title="Average Rate" value={`${avgRate}%`} icon={TrendingUp} variant="success" />
-                    <StatCard title="Penalties Collected" value={formatCurrency(totalPenalties, displayCurrency)} icon={DollarSign} />
+                    <StatCard
+                      title="Total Sales · This Month"
+                      value={`¥ ${Math.round((summary?.cash_vs_layaway_split?.this_month?.layaway_revenue_jpy ?? 0) + (summary?.cash_vs_layaway_split?.this_month?.cash_revenue_jpy ?? 0)).toLocaleString()}`}
+                      subtitle={`¥ ${Math.round(summary?.cash_vs_layaway_split?.this_month?.layaway_revenue_jpy ?? 0).toLocaleString()} layaway · ¥ ${Math.round(summary?.cash_vs_layaway_split?.this_month?.cash_revenue_jpy ?? 0).toLocaleString()} cash`}
+                      icon={DollarSign}
+                      variant="gold"
+                    />
                     <StatCard title="Recovered (Forfeited)" value={formatCurrency(totalForfeitedCollected, displayCurrency)} icon={ShieldAlert} />
                   </div>
                   {collectionAnalytics && collectionAnalytics.length > 0 && (
