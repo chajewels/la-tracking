@@ -21,7 +21,7 @@ export default function OverdueAlerts() {
         .select('*, layaway_accounts!inner(*, customers(*))')
         .in('computed_status', ['pending', 'overdue', 'partially_paid'])
         .in('layaway_accounts.status', ['active', 'overdue'])
-        .filter('layaway_accounts.invoice_number', 'match', '^[0-9]+$')
+        .filter('layaway_accounts.is_test', 'eq', false)
         .lte('due_date', threeDaysFromNow)
         .order('due_date', { ascending: true })
         .limit(5);

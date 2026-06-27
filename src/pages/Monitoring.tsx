@@ -106,7 +106,7 @@ export default function Monitoring() {
     queryFn: async () => {
       const { data, error } = await supabase.from('reminder_logs')
         .select('*, customers(full_name, messenger_link), layaway_accounts!inner(invoice_number, currency, remaining_balance)')
-        .filter('layaway_accounts.invoice_number', 'match', '^[0-9]+$')
+        .filter('layaway_accounts.is_test', 'eq', false)
         .order('created_at', { ascending: false }).limit(100);
       if (error) throw error;
       return data;
@@ -123,7 +123,7 @@ export default function Monitoring() {
       const { data, error } = await supabase.from('schedule_with_actuals')
         .select('*, layaway_accounts!inner(id, status, currency, invoice_number, customer_id, customers(full_name, messenger_link))')
         .in('layaway_accounts.status', ['active', 'overdue', 'final_settlement', 'extension_active'])
-        .filter('layaway_accounts.invoice_number', 'match', '^[0-9]+$')
+        .filter('layaway_accounts.is_test', 'eq', false)
         .in('computed_status', ['pending', 'partially_paid', 'overdue'])
         .gte('due_date', past730).lte('due_date', in7days)
         .order('due_date', { ascending: true });
@@ -138,7 +138,7 @@ export default function Monitoring() {
       const { count, error } = await supabase.from('reminder_logs')
         .select('layaway_accounts!inner(invoice_number)', { count: 'exact', head: true })
         .eq('delivery_status', 'sent')
-        .filter('layaway_accounts.invoice_number', 'match', '^[0-9]+$');
+        .filter('layaway_accounts.is_test', 'eq', false);
       if (error) throw error;
       return count ?? 0;
     },
@@ -226,7 +226,7 @@ export default function Monitoring() {
           .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, remaining_balance, customers(full_name, messenger_link))')
           .in('computed_status', ['pending', 'overdue', 'partially_paid'])
           .in('layaway_accounts.status', ACTIVE_STATUSES)
-          .filter('layaway_accounts.invoice_number', 'match', '^[0-9]+$')
+          .filter('layaway_accounts.is_test', 'eq', false)
           .lt('due_date', today)
           .order('due_date', { ascending: true })
           .limit(500),
@@ -235,7 +235,7 @@ export default function Monitoring() {
           .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, remaining_balance, customers(full_name, messenger_link))')
           .in('computed_status', ['pending', 'overdue', 'partially_paid'])
           .in('layaway_accounts.status', ACTIVE_STATUSES)
-          .filter('layaway_accounts.invoice_number', 'match', '^[0-9]+$')
+          .filter('layaway_accounts.is_test', 'eq', false)
           .gte('due_date', today)
           .lte('due_date', next7Str)
           .order('due_date', { ascending: true })
@@ -820,7 +820,7 @@ function ExtensionRequestsPanel() {
       const { data, error } = await supabase
         .from('extension_requests' as any)
         .select('*, layaway_accounts!inner(id, invoice_number, currency, remaining_balance, status, customer_id, customers(full_name))')
-        .filter('layaway_accounts.invoice_number', 'match', '^[0-9]+$')
+        .filter('layaway_accounts.is_test', 'eq', false)
         .eq('status', filter === 'pending' ? 'pending' : 'approved')
         .order('requested_at', { ascending: false });
 
