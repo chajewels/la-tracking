@@ -1,7 +1,24 @@
 # System Status — last updated 2026-06-19
 
 ## App Version
-1.5.1 (commit 02a040c)
+1.6.0 (commit 02a040c)
+
+## 2026-06-26 — Total Sales · This Month KPI now true booked sales
+- The Finance "Total Sales · This Month" KPI now reflects true booked sales —
+  the full order value (`total_amount`) of cash + layaway orders placed in the
+  current calendar month — instead of money received. Basis: `order_date` in the
+  current month, cancelled excluded, summed to JPY (currency-filter independent),
+  test accounts excluded via the numeric `invoice_number` regex.
+- New `dashboard-summary` field `total_sales_booked_this_month` (`{ layaway_jpy,
+  cash_jpy }`) computed from two new value queries (`cashSalesMonthQ` /
+  `layawaySalesMonthQ`) that sum `total_amount` by `order_date`, via the existing
+  `toJpy` helper. `cash_vs_layaway_split`, `cash_conversion_rate`, and all other
+  fields are unchanged.
+- Hook type (`useDashboardSummary`) and the Finance StatCard repointed to the new
+  field. `get_monthly_sales`, `get_collection_analytics`, and the Collected vs
+  Sales chart are untouched (still layaway money-received by design).
+- NOTE: edge function changed (`dashboard-summary`) but NOT deployed in this push
+  — deploy is handled separately via Lovable/Supabase Dashboard.
 
 ## 2026-06-26 — Fix: PWA Reload button no-op
 - `applyUpdate()` now ALWAYS reloads: it calls `_updateSW(true)` to trigger the

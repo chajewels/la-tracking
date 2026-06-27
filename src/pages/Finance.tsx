@@ -788,8 +788,8 @@ export default function Finance() {
                     <StatCard title="Average Rate" value={`${avgRate}%`} icon={TrendingUp} variant="success" />
                     <StatCard
                       title="Total Sales · This Month"
-                      value={`¥ ${Math.round((summary?.cash_vs_layaway_split?.this_month?.layaway_revenue_jpy ?? 0) + (summary?.cash_vs_layaway_split?.this_month?.cash_revenue_jpy ?? 0)).toLocaleString()}`}
-                      subtitle={`¥ ${Math.round(summary?.cash_vs_layaway_split?.this_month?.layaway_revenue_jpy ?? 0).toLocaleString()} layaway · ¥ ${Math.round(summary?.cash_vs_layaway_split?.this_month?.cash_revenue_jpy ?? 0).toLocaleString()} cash`}
+                      value={`¥ ${Math.round((summary?.total_sales_booked_this_month?.layaway_jpy ?? 0) + (summary?.total_sales_booked_this_month?.cash_jpy ?? 0)).toLocaleString()}`}
+                      subtitle={`¥ ${Math.round(summary?.total_sales_booked_this_month?.layaway_jpy ?? 0).toLocaleString()} layaway · ¥ ${Math.round(summary?.total_sales_booked_this_month?.cash_jpy ?? 0).toLocaleString()} cash`}
                       icon={DollarSign}
                       variant="gold"
                     />

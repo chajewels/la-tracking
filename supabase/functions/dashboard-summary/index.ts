@@ -223,6 +223,24 @@ Deno.serve(async (req) => {
       .select("id", { count: "exact", head: true })
       .filter("invoice_number", "match", "^[0-9]+$");
 
+    // Booked-sales VALUE this month — full order value (total_amount) by order_date,
+    // cancelled excluded. Summed to JPY below; always a true total, currency-filter independent.
+    const cashSalesMonthQ = supabase
+      .from("cash_orders")
+      .select("total_amount, currency")
+      .gte("order_date", monthStartPht)
+      .lt("order_date", nextMonthStartPht)
+      .neq("status", "cancelled")
+      .filter("invoice_number", "match", "^[0-9]+$");
+
+    const layawaySalesMonthQ = supabase
+      .from("layaway_accounts")
+      .select("total_amount, currency")
+      .gte("order_date", monthStartPht)
+      .lt("order_date", nextMonthStartPht)
+      .neq("status", "cancelled")
+      .filter("invoice_number", "match", "^[0-9]+$");
+
     // Non-voided cash_payments joined to cash_orders for currency + TEST filter — single fetch covers
     // today / this month / all time aggregations (bucketed in JS to save round trips).
     const cashPaymentsAllTimeQ = supabase
@@ -284,6 +302,8 @@ Deno.serve(async (req) => {
       { count: layawayCreatedAll },
       { data: cashPaymentsAllTime },
       { data: layawayPaymentsAllTime },
+      { data: cashSalesMonthRows },
+      { data: layawaySalesMonthRows },
     ] = await Promise.all([
       accountsQ, todayPayQ, monthPayQ, completedThisMonthQ, forfeitedQ,
       penaltiesTodayQ, pendingWaiversQ,
@@ -292,6 +312,7 @@ Deno.serve(async (req) => {
       cashActiveQ, cashCompletedMonthQ, cashCompletedAllQ, cashCancelledQ,
       cashCreatedMonthQ, cashCreatedAllQ, layawayCreatedMonthQ, layawayCreatedAllQ,
       cashPaymentsAllTimeQ, layawayPaymentsAllTimeQ,
+      cashSalesMonthQ, layawaySalesMonthQ,
     ]);
 
     // ── Build account currency map ──
@@ -515,6 +536,12 @@ Deno.serve(async (req) => {
       },
     };
 
+    // Booked sales this month — full order value (total_amount) in JPY, currency-filter independent.
+    const cashSalesMonthJpy = (cashSalesMonthRows ?? []).reduce(
+      (s: number, r: any) => s + toJpy(Number(r.total_amount) || 0, r.currency), 0);
+    const layawaySalesMonthJpy = (layawaySalesMonthRows ?? []).reduce(
+      (s: number, r: any) => s + toJpy(Number(r.total_amount) || 0, r.currency), 0);
+
     const cashCreatedMonthVal = cashCreatedMonth ?? 0;
     const cashCreatedAllVal = cashCreatedAll ?? 0;
     const layawayCreatedMonthVal = layawayCreatedMonth ?? 0;
@@ -567,6 +594,10 @@ Deno.serve(async (req) => {
       cash_revenue_month_jpy: cashRevenueMonthRound,
       cash_revenue_total_jpy: cashRevenueTotalRound,
       cash_vs_layaway_split: cashVsLayawaySplit,
+      total_sales_booked_this_month: {
+        layaway_jpy: Math.round(layawaySalesMonthJpy),
+        cash_jpy: Math.round(cashSalesMonthJpy),
+      },
       cash_conversion_rate: cashConversionRate,
       // Predictions
       predicted_30d: Math.round(predicted30Raw * riskFactor),

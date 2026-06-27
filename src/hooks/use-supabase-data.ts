@@ -512,6 +512,7 @@ export function useDashboardSummary(currencyMode: 'PHP' | 'JPY' | 'ALL', enabled
           this_month: { cash_revenue_jpy: number; layaway_revenue_jpy: number; cash_percentage: number };
           all_time:   { cash_revenue_jpy: number; layaway_revenue_jpy: number; cash_percentage: number };
         };
+        total_sales_booked_this_month: { layaway_jpy: number; cash_jpy: number };
         cash_conversion_rate: { this_month: number; all_time: number };
       };
     },
