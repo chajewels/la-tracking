@@ -194,7 +194,7 @@ export function useActiveByPlan() {
       .from('layaway_accounts')
       .select('payment_plan_months')
       .in('status', ['active', 'overdue'])
-      .not('invoice_number', 'like', 'TEST-%');
+      .eq('is_test', false);
 
     if (!rows) { setData([]); return; }
 

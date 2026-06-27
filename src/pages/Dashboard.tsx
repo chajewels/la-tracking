@@ -66,7 +66,7 @@ export default function Dashboard() {
       accounts
         .filter((a: any) =>
           a.currency === currencyFilter &&
-          !String(a.invoice_number).startsWith('TEST-')
+          a.is_test === false
         )
         .map((a: any) => a.customer_id)
     );
@@ -84,7 +84,7 @@ export default function Dashboard() {
     for (const t of PLAN_TIERS) counts.set(t, 0);
     for (const a of accounts ?? []) {
       if (!ACTIVE_FLOW_STATUSES.has(String((a as any).status))) continue;
-      if (String((a as any).invoice_number).startsWith('TEST-')) continue;
+      if ((a as any).is_test !== false) continue;
       const m = Number((a as any).payment_plan_months);
       if (!counts.has(m)) continue;
       counts.set(m, (counts.get(m) ?? 0) + 1);
