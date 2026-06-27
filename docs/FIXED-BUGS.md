@@ -3366,7 +3366,6 @@ Commit `e05f019` — `dashboard-summary/index.ts` (deployed via Lovable).
 - **Root cause:** The card computed the layaway leg by `order_date` — a different basis than the canonical figure. Every other "layaway sales" number derives from `get_monthly_sales.total_sales_value` (first-payment-month basis, DISTINCT ON account_id earliest payment).
 - **Fix:** Repointed the card's layaway leg to `rpc('get_monthly_sales', { currency_mode:'ALL', months_back:0 })`, summing `total_sales_value` for the current PHT month label. Single source of truth — the card can no longer drift from the chart. Cash leg untouched.
 - **Verification:** Card reads ¥9,562,284 = ¥7,406,049 layaway · ¥2,156,235 cash; layaway now matches the New Layaway Sales card and the chart Sales line. Footer confirmed build `e05f019`.
-<paste the Bug #237 block above here, including its leading blank line>
 
 ### Bug #237 — PWA reload still served stale build: skipWaiting stale-handle + navigateFallback precache (corrects #236) (2026-06-27) ✅
 
