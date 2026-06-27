@@ -3367,7 +3367,7 @@ Commit `e05f019` — `dashboard-summary/index.ts` (deployed via Lovable).
 - **Fix:** Repointed the card's layaway leg to `rpc('get_monthly_sales', { currency_mode:'ALL', months_back:0 })`, summing `total_sales_value` for the current PHT month label. Single source of truth — the card can no longer drift from the chart. Cash leg untouched.
 - **Verification:** Card reads ¥9,562,284 = ¥7,406,049 layaway · ¥2,156,235 cash; layaway now matches the New Layaway Sales card and the chart Sales line. Footer confirmed build `e05f019`.
 
-### Bug #237 — PWA reload still served stale build: skipWaiting stale-handle + navigateFallback precache (corrects #236) (2026-06-27) ✅
+### Bug #239 — PWA reload still served stale build: skipWaiting stale-handle + navigateFallback precache (corrects #236) (2026-06-27) ✅
 
 Follow-up to **#236**. That entry fixed one cause (`243999f` — same-tick `window.location.reload()` racing SW activation) and was marked "single-click verified," but that pass held only for an isolated single deploy. Under successive deploys the Reload button still loaded the old commit. Investigation (live DevTools SW panel + precache inspection) found two further causes beneath the first. The reload failure was three layers, not one.
 
