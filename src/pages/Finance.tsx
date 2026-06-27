@@ -87,7 +87,7 @@ export default function Finance() {
   const { data: rawAccounts } = useAccounts();
   const accounts = useMemo(
     () => (rawAccounts ?? []).filter(
-      (a: any) => /^[0-9]+$/.test(String(a.invoice_number ?? ''))
+      (a: any) => a.is_test === false
     ),
     [rawAccounts]
   );
