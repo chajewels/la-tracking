@@ -233,13 +233,10 @@ Deno.serve(async (req) => {
       .neq("status", "cancelled")
       .filter("is_test", "eq", false);
 
-    const layawaySalesMonthQ = supabase
-      .from("layaway_accounts")
-      .select("total_amount, currency")
-      .gte("order_date", monthStartPht)
-      .lt("order_date", nextMonthStartPht)
-      .neq("status", "cancelled")
-      .filter("is_test", "eq", false);
+    const layawaySalesMonthQ = supabase.rpc('get_monthly_sales', {
+      currency_mode: 'ALL',
+      months_back: 0,
+    });
 
     // Non-voided cash_payments joined to cash_orders for currency + TEST filter — single fetch covers
     // today / this month / all time aggregations (bucketed in JS to save round trips).
@@ -539,8 +536,10 @@ Deno.serve(async (req) => {
     // Booked sales this month — full order value (total_amount) in JPY, currency-filter independent.
     const cashSalesMonthJpy = (cashSalesMonthRows ?? []).reduce(
       (s: number, r: any) => s + toJpy(Number(r.total_amount) || 0, r.currency), 0);
-    const layawaySalesMonthJpy = (layawaySalesMonthRows ?? []).reduce(
-      (s: number, r: any) => s + toJpy(Number(r.total_amount) || 0, r.currency), 0);
+    const nowMonthLabel = new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'Asia/Manila' });
+    const layawaySalesMonthJpy = (Array.isArray(layawaySalesMonthRows) ? layawaySalesMonthRows : [])
+      .filter((r: any) => r.month === nowMonthLabel)
+      .reduce((s: number, r: any) => s + (Number(r.total_sales_value) || 0), 0);
 
     const cashCreatedMonthVal = cashCreatedMonth ?? 0;
     const cashCreatedAllVal = cashCreatedAll ?? 0;
