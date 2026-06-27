@@ -63,10 +63,14 @@ export default defineConfig(({ mode }) => ({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         cleanupOutdatedCaches: true,
-        navigateFallback: 'index.html',
-        navigateFallbackDenylist: [
-          /\/[^/?]+\.[^/]+$/, // requests for files with extensions (don't redirect to index.html)
-        ],
+        // navigateFallback removed: it served SPA navigations from the
+        // precached index.html, which lagged behind deploys (the precache
+        // retained multiple index.html revisions), so reloads loaded stale
+        // HTML → old bundle → app stuck on the previous commit even after
+        // the new SW activated. Navigations now fall through to the
+        // NetworkFirst 'navigation-cache' rule below, which fetches fresh
+        // index.html from Firebase (served no-cache) with a 3s timeout and
+        // offline cache fallback.
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname === '/version.json',
