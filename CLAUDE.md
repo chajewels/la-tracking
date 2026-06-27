@@ -1815,3 +1815,29 @@ Customer / Amount), non-blocking relative to the tracking output.
    start the dev server, navigate to the route, screenshot it, check
    desktop and mobile (~375px), and read the console for errors before
    saying it's done.
+
+## ⚠️ Live DB ahead of repo migrations (2026-06-27)
+
+The test-account isolation work done 2026-06-27 was applied directly via the
+Supabase SQL Editor and is NOT captured in supabase/migrations/. The migration
+files still contain the OLD regex/prefix guards. The LIVE DB is authoritative
+and correct; a rebuild from migrations (supabase db reset, fresh staging/local
+DB) would silently restore the leaks.
+
+Live DB has, not in migrations:
+- is_test boolean NOT NULL DEFAULT false on cash_orders and layaway_accounts (backfilled)
+- enforce_test_invoice_prefix() rewritten: sets NEW.is_test from customers.is_test,
+  still prepends TEST- for numeric invoices of test customers
+- 23 RPCs swept from regex / NOT LIKE 'TEST-%' guards to is_test = false
+  (all fc_* functions, get_aging_buckets, get_collection_analytics, get_monthly_sales,
+   get_monthly_analytics, get_forecast_6m, get_forecast_drilldown,
+   get_top_outstanding_customers, get_daily_new_layaway_sales[_last_month],
+   monthly_inflow_by_plan_6m)
+
+Canonical test marker: customers.is_test. Order-level is_test is the queryable
+guard for all KPIs. If rebuilding from migrations, re-apply the above first.
+
+Known pre-existing quirk (NOT from this work): fc_cohort_timeline.collection_rate
+can exceed 100% because actual_collected includes downpayment while
+expected_collected excludes it. Drives a noisy quality-degradation alert.
+Separate ticket if undesired.
