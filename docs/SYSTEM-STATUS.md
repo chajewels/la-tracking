@@ -1,7 +1,18 @@
 # System Status — last updated 2026-06-19
 
 ## App Version
-1.5.0 (commit 02a040c)
+1.5.1 (commit 02a040c)
+
+## 2026-06-26 — Fix: PWA Reload button no-op
+- `applyUpdate()` now ALWAYS reloads: it calls `_updateSW(true)` to trigger the
+  service-worker activation path when a waiting worker is available, then
+  unconditionally runs `window.location.reload()` in a `finally`. This fixes the
+  dead Reload button under `registerType: 'prompt'` — previously `_updateSW(true)`
+  resolved without reloading when no waiting worker was present at click-time,
+  and the `window.location.reload()` fallback was unreachable in the `else`
+  branch. Reload-loop safety is unchanged (the user-initiated click plus the
+  CustomerPortal one-time `sessionStorage` time-gate and the `vite:preloadError`
+  guard prevent loops).
 
 ## 2026-06-26 — Total Sales · This Month KPI in Finance analytics
 - Replaced the "Penalties Collected" stat card in the Finance analytics KPI row

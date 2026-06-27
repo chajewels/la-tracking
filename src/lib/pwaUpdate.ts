@@ -7,6 +7,9 @@ export function markFormDirty(id: string) { dirtyForms.add(id); }
 export function markFormClean(id: string) { dirtyForms.delete(id); }
 export function hasDirtyForm() { return dirtyForms.size > 0; }
 export function applyUpdate() {
-  if (_updateSW) { void _updateSW(true); }
-  else { window.location.reload(); }
+  try {
+    if (_updateSW) { void _updateSW(true); }
+  } finally {
+    window.location.reload();
+  }
 }
