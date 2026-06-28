@@ -3387,3 +3387,17 @@ Commit `2d524e9` — `firebase.json` rewrite source `"**"` → `"!/assets/**"`. 
 - **Fix:** changed the rewrite source to "!/assets/**" so requests under /assets/** are NOT rewritten — a missing hashed chunk now returns a genuine 404. The dynamic import() then fails cleanly and triggers the existing `vite:preloadError` handler in main.tsx (time-gated reload → fresh index.html → correct chunk hashes). The /assets/** immutable header is intentionally unchanged: it is correct for content-hashed filenames; the bug was the rewrite serving HTML under it, not the header.
 - **Verified (curl against live 2d524e9):** missing chunk (AppLayout-DHl-1c_6.js) → HTTP 404; current chunk (index-DQ1PSNaV.js, pulled live from index.html) → 200 text/javascript; navigation route (/finance) → 200 text/html (SPA routing intact, negation did not over-exclude). Fresh client loads with no MIME errors.
 - **Note:** clients still holding a poisoned immutable HTML-as-JS response from before 2d524e9 need one cache-clearing reload to recover; new requests self-heal via the 404 → preloadError path.
+
+### Bug #241 — Cash-receipt slips attached row-major (printed out of sequence / split across pages) (2026-06-28) ✅
+
+**Symptom.** On the invoice generator's "Cash Receipt" tab, auto-attached payment slips filled left-to-right across the top row (slot 1→B5, 2→I5, 3→P5) instead of top-to-bottom down the leftmost column. Printing cannot reorder cells, so the printed sequence was wrong; the template's own slot labels were already column-major, disagreeing with the code.
+
+**Root cause.** The `SLOTS` map in `supabase/functions/_shared/cash-receipt.ts` was numbered ROW-MAJOR: `index = (band-1)*4 + col`, placing consecutive receipts across each band. The caller (`review-payment-submission`) correctly computes `slot_index` as the chronological count of confirmed receipts and hands it in 1,2,3…; the mis-order was entirely in the cell map.
+
+**Fix (commit `3554ca1`, all three consuming functions redeployed via Lovable).**
+- Rewrote `SLOTS` to COLUMN-MAJOR: slots 1-6 → column B (top to bottom), 7-12 → I, 13-18 → P, 19-24 → W. Each slot's cell address is otherwise unchanged; only the index→cell assignment was reordered.
+- Corrected band-5/6 anchor rows from 216/251 and 269/304 to **214/249 and 265/300** — the higher rows pushed the bottom slips onto a second print page; the corrected rows keep all 24 on one page. (Owner-verified against the live template via the Name Box.)
+- Raised the cash-receipt slot cap in `review-payment-submission` from `> 13` to `> 24` (BOTH guard occurrences, ~lines 1032 and 1463) — the 13 cap was silently dropping receipts 14-24, which the 24-slot grid supports.
+- Redeployed `append-cash-receipt`, `review-payment-submission`, and `generate-invoice` (all import the shared module; shared code bundles at deploy time). Deploy verified live (append-cash-receipt 401 auth-gate, Date header matched deploy time).
+
+**No backfill required.** Query of all production cash-receipt sheets (`is_test = false`) confirmed every existing sheet holds exactly one slip, which sits at B5 under both the old and new maps — so no historical sheet was mis-placed. Invoice 18954 (the 3-slip example) was a demo/manual sheet with no matching `cash_order` record, not production data. Forward-only fix; the first production cash order to receive a 2nd confirmed receipt will place it at B58 (down), proving column-major fill.
