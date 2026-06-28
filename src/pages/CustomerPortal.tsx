@@ -2249,27 +2249,25 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
         // same customer submits multiple same-day payments of the same type.
         // See docs/FIXED-BUGS.md.
         const fileName = `${safeCustomer}_${safeInvoice}_${monthSegment}_${paymentDate}_${Date.now().toString(36)}.${ext}`;
-        const filePath = `${primaryAccountForName.id}/${fileName}`;
         try {
-          const uploadRes = await fetch(
-            `${SUPABASE_URL}/storage/v1/object/payment-proofs/${filePath}`,
-            {
-              method: 'POST',
-              headers: {
-                apikey: SUPABASE_KEY,
-                Authorization: `Bearer ${SUPABASE_KEY}`,
-                'Content-Type': proofFile.type,
-                ...(portalToken ? { 'x-portal-token': portalToken } : {}),
-              },
-              body: proofFile,
-            }
-          );
+          const uploadAuthHeaders = await getPortalAuthHeaders(portalToken);
+          const fd = new FormData();
+          fd.append('file', proofFile);
+          fd.append('account_id', primaryAccountForName.id);
+          fd.append('file_name', fileName);
+          if (portalToken) fd.append('portal_token', portalToken);
+          const uploadRes = await fetch(`${SUPABASE_URL}/functions/v1/upload-proof`, {
+            method: 'POST',
+            headers: { apikey: SUPABASE_KEY, ...uploadAuthHeaders },
+            body: fd,
+          });
           if (!uploadRes.ok) {
             setFormError('Proof upload failed — please try again.');
             setSubmitting(false);
             return;
           }
-          proofUrl = `${SUPABASE_URL}/storage/v1/object/public/payment-proofs/${filePath}`;
+          const uploadJson = await uploadRes.json();
+          proofUrl = uploadJson.proof_url;
         } catch {
           setFormError('Proof upload failed — please try again.');
           setSubmitting(false);
@@ -2786,27 +2784,26 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
       if (editProofFile) {
         const ext = editProofFile.name.split('.').pop() || 'jpg';
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const filePath = `${sub.account_id}/${timestamp}_${editProofFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')}.${ext}`;
+        const editFileName = `${timestamp}_${editProofFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')}.${ext}`;
         try {
-          const uploadRes = await fetch(
-            `${SUPABASE_URL}/storage/v1/object/payment-proofs/${filePath}`,
-            {
-              method: 'POST',
-              headers: {
-                apikey: SUPABASE_KEY,
-                Authorization: `Bearer ${SUPABASE_KEY}`,
-                'Content-Type': editProofFile.type,
-                ...(portalToken ? { 'x-portal-token': portalToken } : {}),
-              },
-              body: editProofFile,
-            }
-          );
+          const editUploadAuthHeaders = await getPortalAuthHeaders(portalToken);
+          const fd = new FormData();
+          fd.append('file', editProofFile);
+          fd.append('account_id', sub.account_id);
+          fd.append('file_name', editFileName);
+          if (portalToken) fd.append('portal_token', portalToken);
+          const uploadRes = await fetch(`${SUPABASE_URL}/functions/v1/upload-proof`, {
+            method: 'POST',
+            headers: { apikey: SUPABASE_KEY, ...editUploadAuthHeaders },
+            body: fd,
+          });
           if (!uploadRes.ok) {
             setEditError('Proof upload failed — please try again.');
             setEditSubmitting(false);
             return;
           }
-          proofUrl = `${SUPABASE_URL}/storage/v1/object/public/payment-proofs/${filePath}`;
+          const uploadJson = await uploadRes.json();
+          proofUrl = uploadJson.proof_url;
         } catch {
           setEditError('Proof upload failed — please try again.');
           setEditSubmitting(false);

@@ -131,27 +131,25 @@ export default function CashPortalPaymentDialog({
     if (!proofFile) return null;
     const timestamp = Date.now();
     const fileExt = (proofFile.name.split('.').pop() || 'jpg').toLowerCase();
-    const uniqueFilePath = `${cashOrder.id}/${timestamp}_${safeForFilename(cashOrder.invoice_number)}_Cash.${fileExt}`;
-    const uploadRes = await fetch(
-      `${SUPABASE_URL}/storage/v1/object/payment-proofs/${uniqueFilePath}`,
-      {
-        method: 'POST',
-        headers: {
-          apikey: SUPABASE_KEY,
-          Authorization: `Bearer ${SUPABASE_KEY}`,
-          'Content-Type': proofFile.type,
-          'x-upsert': 'true',
-          ...(portalToken ? { 'x-portal-token': portalToken } : {}),
-        },
-        body: proofFile,
-      },
-    );
+    const fileName = `${timestamp}_${safeForFilename(cashOrder.invoice_number)}_Cash.${fileExt}`;
+    const fd = new FormData();
+    fd.append('file', proofFile);
+    fd.append('account_id', cashOrder.id);
+    fd.append('file_name', fileName);
+    fd.append('upsert', 'true');
+    if (portalToken) fd.append('portal_token', portalToken);
+    const uploadRes = await fetch(`${SUPABASE_URL}/functions/v1/upload-proof`, {
+      method: 'POST',
+      headers: { apikey: SUPABASE_KEY },
+      body: fd,
+    });
     if (!uploadRes.ok) {
       const text = await uploadRes.text();
       throw new Error(text || 'Proof upload failed');
     }
-    return `${SUPABASE_URL}/storage/v1/object/public/payment-proofs/${uniqueFilePath}`;
-  }, [proofFile, cashOrder.invoice_number, cashOrder.id]);
+    const uploadJson = await uploadRes.json();
+    return uploadJson.proof_url;
+  }, [proofFile, cashOrder.invoice_number, cashOrder.id, portalToken]);
 
   const handleSubmit = async () => {
     setFormError(null);
