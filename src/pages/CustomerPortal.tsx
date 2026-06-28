@@ -1765,7 +1765,7 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
           </div>
         )}
         {activeTab === 'submissions' && (
-          <SubmissionsTab submissions={account.submissions || []} currency={currency} portalToken={portalToken} onRefresh={onRefresh} />
+          <SubmissionsTab submissions={account.submissions || []} accountId={account.id} currency={currency} portalToken={portalToken} onRefresh={onRefresh} />
         )}
       </div>
 
@@ -2718,8 +2718,9 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
 }
 
 /* ─── Submissions Tab ─── */
-function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
+function SubmissionsTab({ submissions, accountId, currency, portalToken, onRefresh }: {
   submissions: Submission[];
+  accountId: string;
   currency: string;
   portalToken: string;
   onRefresh: () => void;
@@ -2789,7 +2790,7 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
           const editUploadAuthHeaders = await getPortalAuthHeaders(portalToken);
           const fd = new FormData();
           fd.append('file', editProofFile);
-          fd.append('account_id', sub.account_id);
+          fd.append('account_id', accountId);
           fd.append('file_name', editFileName);
           if (portalToken) fd.append('portal_token', portalToken);
           const uploadRes = await fetch(`${SUPABASE_URL}/functions/v1/upload-proof`, {
