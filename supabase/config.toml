@@ -1,6 +1,8 @@
 project_id = "pfoicalpzdcmyxzvwyhz"
 
 [functions]
+  [functions.upload-proof]
+    verify_jwt = false
   [functions.add-penalty]
     verify_jwt = false
   [functions.edit-payment-submission]
