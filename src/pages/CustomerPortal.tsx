@@ -2258,7 +2258,7 @@ function PayNowTab({ account, allAccounts, paymentMethods: _dbMethods, portalTok
           if (portalToken) fd.append('portal_token', portalToken);
           const uploadRes = await fetch(`${SUPABASE_URL}/functions/v1/upload-proof`, {
             method: 'POST',
-            headers: { apikey: SUPABASE_KEY, ...uploadAuthHeaders },
+            headers: { apikey: SUPABASE_KEY, Authorization: `Bearer `, ...uploadAuthHeaders },
             body: fd,
           });
           if (!uploadRes.ok) {
@@ -2794,7 +2794,7 @@ function SubmissionsTab({ submissions, currency, portalToken, onRefresh }: {
           if (portalToken) fd.append('portal_token', portalToken);
           const uploadRes = await fetch(`${SUPABASE_URL}/functions/v1/upload-proof`, {
             method: 'POST',
-            headers: { apikey: SUPABASE_KEY, ...editUploadAuthHeaders },
+            headers: { apikey: SUPABASE_KEY, Authorization: `Bearer `, ...editUploadAuthHeaders },
             body: fd,
           });
           if (!uploadRes.ok) {

@@ -140,7 +140,7 @@ export default function CashPortalPaymentDialog({
     if (portalToken) fd.append('portal_token', portalToken);
     const uploadRes = await fetch(`${SUPABASE_URL}/functions/v1/upload-proof`, {
       method: 'POST',
-      headers: { apikey: SUPABASE_KEY },
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
       body: fd,
     });
     if (!uploadRes.ok) {
