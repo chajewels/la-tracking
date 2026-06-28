@@ -91,3 +91,5 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.award-loyalty-points]
     verify_jwt = true
+  [functions.reposition-cash-receipts]
+    verify_jwt = true
