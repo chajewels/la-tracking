@@ -25,47 +25,45 @@ export const TAB = "Cash Receipt";
  * - metadata: receives multi-line "INVOICE #: ... DATE: ... AMOUNT: ..." text
  *
  * Layout: 4 columns (B, I, P, W) × 6 bands = 24 slots, numbered
- * ROW-MAJOR (left-to-right across each band, then down) so that
- * receipts — filled in chronological order — read in correct
- * sequence when the Cash Receipt tab is printed.
+ * COLUMN-MAJOR (top-to-bottom down each column, then right to the
+ * next column) so that receipts — filled in chronological order —
+ * read in correct sequence AND print on a single page when the
+ * Cash Receipt tab is printed. Slots 1-6 fill column B, 7-12 fill
+ * column I, 13-18 fill column P, 19-24 fill column W.
  *
  * Band anchor rows (image/metadata): 5/40, 58/93, 110/145,
- * 163/198, 216/251, 269/304. Image cell = anchor + 27 rows × 5
- * cols; metadata cell = anchor + 5 rows × 5 cols. (Band 2→3
- * pitch is 52 not 53 — a historical quirk in the template; this
- * explicit map absorbs it.)
+ * 163/198, 214/249, 265/300. (Band 5/6 anchors are 214/265, not
+ * 216/269 — the higher rows split the print across two pages.)
  */
 export const SLOTS: Record<number, SlotCells> = {
-  // Band 1
+  // Column B (slots 1-6, top to bottom)
   1:  { image: `${TAB}!B5`,   metadata: `${TAB}!B40`  },
-  2:  { image: `${TAB}!I5`,   metadata: `${TAB}!I40`  },
-  3:  { image: `${TAB}!P5`,   metadata: `${TAB}!P40`  },
-  4:  { image: `${TAB}!W5`,   metadata: `${TAB}!W40`  },
-  // Band 2
-  5:  { image: `${TAB}!B58`,  metadata: `${TAB}!B93`  },
-  6:  { image: `${TAB}!I58`,  metadata: `${TAB}!I93`  },
-  7:  { image: `${TAB}!P58`,  metadata: `${TAB}!P93`  },
-  8:  { image: `${TAB}!W58`,  metadata: `${TAB}!W93`  },
-  // Band 3
-  9:  { image: `${TAB}!B110`, metadata: `${TAB}!B145` },
-  10: { image: `${TAB}!I110`, metadata: `${TAB}!I145` },
-  11: { image: `${TAB}!P110`, metadata: `${TAB}!P145` },
-  12: { image: `${TAB}!W110`, metadata: `${TAB}!W145` },
-  // Band 4
-  13: { image: `${TAB}!B163`, metadata: `${TAB}!B198` },
-  14: { image: `${TAB}!I163`, metadata: `${TAB}!I198` },
-  15: { image: `${TAB}!P163`, metadata: `${TAB}!P198` },
-  16: { image: `${TAB}!W163`, metadata: `${TAB}!W198` },
-  // Band 5
-  17: { image: `${TAB}!B216`, metadata: `${TAB}!B251` },
-  18: { image: `${TAB}!I216`, metadata: `${TAB}!I251` },
-  19: { image: `${TAB}!P216`, metadata: `${TAB}!P251` },
-  20: { image: `${TAB}!W216`, metadata: `${TAB}!W251` },
-  // Band 6
-  21: { image: `${TAB}!B269`, metadata: `${TAB}!B304` },
-  22: { image: `${TAB}!I269`, metadata: `${TAB}!I304` },
-  23: { image: `${TAB}!P269`, metadata: `${TAB}!P304` },
-  24: { image: `${TAB}!W269`, metadata: `${TAB}!W304` },
+  2:  { image: `${TAB}!B58`,  metadata: `${TAB}!B93`  },
+  3:  { image: `${TAB}!B110`, metadata: `${TAB}!B145` },
+  4:  { image: `${TAB}!B163`, metadata: `${TAB}!B198` },
+  5:  { image: `${TAB}!B214`, metadata: `${TAB}!B249` },
+  6:  { image: `${TAB}!B265`, metadata: `${TAB}!B300` },
+  // Column I (slots 7-12, top to bottom)
+  7:  { image: `${TAB}!I5`,   metadata: `${TAB}!I40`  },
+  8:  { image: `${TAB}!I58`,  metadata: `${TAB}!I93`  },
+  9:  { image: `${TAB}!I110`, metadata: `${TAB}!I145` },
+  10: { image: `${TAB}!I163`, metadata: `${TAB}!I198` },
+  11: { image: `${TAB}!I214`, metadata: `${TAB}!I249` },
+  12: { image: `${TAB}!I265`, metadata: `${TAB}!I300` },
+  // Column P (slots 13-18, top to bottom)
+  13: { image: `${TAB}!P5`,   metadata: `${TAB}!P40`  },
+  14: { image: `${TAB}!P58`,  metadata: `${TAB}!P93`  },
+  15: { image: `${TAB}!P110`, metadata: `${TAB}!P145` },
+  16: { image: `${TAB}!P163`, metadata: `${TAB}!P198` },
+  17: { image: `${TAB}!P214`, metadata: `${TAB}!P249` },
+  18: { image: `${TAB}!P265`, metadata: `${TAB}!P300` },
+  // Column W (slots 19-24, top to bottom)
+  19: { image: `${TAB}!W5`,   metadata: `${TAB}!W40`  },
+  20: { image: `${TAB}!W58`,  metadata: `${TAB}!W93`  },
+  21: { image: `${TAB}!W110`, metadata: `${TAB}!W145` },
+  22: { image: `${TAB}!W163`, metadata: `${TAB}!W198` },
+  23: { image: `${TAB}!W214`, metadata: `${TAB}!W249` },
+  24: { image: `${TAB}!W265`, metadata: `${TAB}!W300` },
 };
 
 /**

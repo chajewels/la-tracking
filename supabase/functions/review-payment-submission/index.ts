@@ -1029,9 +1029,9 @@ Deno.serve(async (req) => {
               "[review-payment-submission] cash-receipt: failed to compute slot_index (non-blocking):",
               countErr,
             );
-          } else if (slotIndex < 1 || slotIndex > 13) {
+          } else if (slotIndex < 1 || slotIndex > 24) {
             console.warn(
-              `[review-payment-submission] cash-receipt: slot_index ${slotIndex} out of range (1-13), skipping append`,
+              `[review-payment-submission] cash-receipt: slot_index ${slotIndex} out of range (1-24), skipping append`,
             );
           } else {
             // Fetch PHP→JPY rate for amount conversion
@@ -1460,9 +1460,9 @@ Deno.serve(async (req) => {
               "[review-payment-submission] cash-receipt: failed to compute slot_index (non-blocking):",
               countErr,
             );
-          } else if (slotIndex < 1 || slotIndex > 13) {
+          } else if (slotIndex < 1 || slotIndex > 24) {
             console.warn(
-              `[review-payment-submission] cash-receipt: slot_index ${slotIndex} out of range (1-13), skipping append`,
+              `[review-payment-submission] cash-receipt: slot_index ${slotIndex} out of range (1-24), skipping append`,
             );
           } else {
             // Fetch PHP→JPY rate
