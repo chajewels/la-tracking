@@ -43,16 +43,49 @@ const NEW_SLOTS: Record<number, { image: string; metadata: string }> = {
 
 interface Body {
   sheet_id: string;
-  slots: Array<{ slot_index: number; proof_url: string }>; // chronological, 1-based
+  slots: Array<{ slot_index: number; proof_url: string }>;
   dry_run?: boolean;
 }
 
-async function valuesGet(sheetId: string, range: string, token: string): Promise<string> {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}?valueRenderOption=FORMATTED_VALUE`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) throw new Error(`values.get ${range} failed ${res.status}: ${await res.text()}`);
+// fetch wrapper: exponential backoff on 429 (rate limit) / 503. Other errors throw immediately.
+async function fetchWithBackoff(url: string, init: RequestInit, label: string): Promise<Response> {
+  const delays = [1000, 2000, 4000, 8000];
+  let lastErr = "";
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    const res = await fetch(url, init);
+    if (res.ok) return res;
+    const status = res.status;
+    if (status === 429 || status === 503) {
+      lastErr = `${label} ${status}: ${await res.text()}`;
+      if (attempt < delays.length) {
+        await new Promise((r) => setTimeout(r, delays[attempt]));
+        continue;
+      }
+    } else {
+      throw new Error(`${label} failed ${status}: ${await res.text()}`);
+    }
+  }
+  throw new Error(`${label} exhausted retries: ${lastErr}`);
+}
+
+// Read all metadata cells for the given slots in ONE batchGet (1 read instead of N).
+async function batchReadMetadata(
+  sheetId: string,
+  slots: Array<{ slot_index: number }>,
+  token: string,
+): Promise<Record<number, string>> {
+  const ordered = [...slots].sort((a, b) => a.slot_index - b.slot_index);
+  const ranges = ordered.map((s) => OLD_SLOTS[s.slot_index].metadata);
+  const params = ranges.map((r) => `ranges=${encodeURIComponent(r)}`).join("&");
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values:batchGet?${params}&valueRenderOption=FORMATTED_VALUE`;
+  const res = await fetchWithBackoff(url, { headers: { Authorization: `Bearer ${token}` } }, "values:batchGet");
   const j = await res.json();
-  return (j.values?.[0]?.[0] ?? "") as string;
+  const valueRanges = j.valueRanges ?? [];
+  const meta: Record<number, string> = {};
+  ordered.forEach((s, i) => {
+    meta[s.slot_index] = (valueRanges[i]?.values?.[0]?.[0] ?? "") as string;
+  });
+  return meta;
 }
 
 Deno.serve(async (req) => {
@@ -70,43 +103,43 @@ Deno.serve(async (req) => {
     }
     const token = await getServiceAccountAccessToken();
 
-    // 1. READ existing metadata text from OLD positions.
-    const meta: Record<number, string> = {};
-    for (const s of body.slots) {
-      meta[s.slot_index] = await valuesGet(body.sheet_id, OLD_SLOTS[s.slot_index].metadata, token);
-    }
+    // 1. READ existing metadata text from OLD positions — single batchGet.
+    const meta = await batchReadMetadata(body.sheet_id, body.slots, token);
 
-    // 2. Build CLEAR list (all old image+meta cells for slots 1..n) and WRITE list (new cells).
-    const clearRanges: string[] = [];
-    for (const s of body.slots) {
-      clearRanges.push(OLD_SLOTS[s.slot_index].image, OLD_SLOTS[s.slot_index].metadata);
-    }
+    // 2. WRITE list = new image + preserved metadata at NEW positions.
     const writeData: Array<{ range: string; values: string[][] }> = [];
     for (const s of body.slots) {
       const url = s.proof_url.replace(/"/g, '""');
       writeData.push({ range: NEW_SLOTS[s.slot_index].image, values: [[`=IMAGE("${url}", 1)`]] });
       writeData.push({ range: NEW_SLOTS[s.slot_index].metadata, values: [[meta[s.slot_index]]] });
     }
-
-    if (body.dry_run) {
-      return new Response(JSON.stringify({ dry_run: true, sheet_id: body.sheet_id, n, read_metadata: meta, clear: clearRanges, write: writeData }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    // BLANK list = OLD cells that are NOT reused as NEW cells (vacated positions).
+    const writeRangeSet = new Set(writeData.map((w) => w.range));
+    const blankData: Array<{ range: string; values: string[][] }> = [];
+    for (const s of body.slots) {
+      for (const cell of [OLD_SLOTS[s.slot_index].image, OLD_SLOTS[s.slot_index].metadata]) {
+        if (!writeRangeSet.has(cell)) blankData.push({ range: cell, values: [[""]] });
+      }
     }
 
-    // 3. CLEAR old cells (batchClear), then 4. WRITE new cells (values:batchUpdate).
-    const clearRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${body.sheet_id}/values:batchClear`, {
-      method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ ranges: clearRanges }),
-    });
-    if (!clearRes.ok) throw new Error(`batchClear failed ${clearRes.status}: ${await clearRes.text()}`);
+    if (body.dry_run) {
+      return new Response(JSON.stringify({ dry_run: true, sheet_id: body.sheet_id, n, read_metadata: meta, write: writeData, blank: blankData }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
-    const writeRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${body.sheet_id}/values:batchUpdate`, {
-      method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ valueInputOption: "USER_ENTERED", data: writeData }),
-    });
-    if (!writeRes.ok) throw new Error(`batchUpdate failed ${writeRes.status}: ${await writeRes.text()}`);
+    // 3. ATOMIC: new content + blanks in ONE batchUpdate. All-or-nothing; no half-applied state.
+    const allData = [...writeData, ...blankData];
+    const writeRes = await fetchWithBackoff(
+      `https://sheets.googleapis.com/v4/spreadsheets/${body.sheet_id}/values:batchUpdate`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ valueInputOption: "USER_ENTERED", data: allData }),
+      },
+      "values:batchUpdate",
+    );
     const wj = await writeRes.json();
 
-    return new Response(JSON.stringify({ success: true, sheet_id: body.sheet_id, slots_repositioned: n, cells_cleared: clearRanges.length, cells_written: wj.totalUpdatedCells ?? 0 }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ success: true, sheet_id: body.sheet_id, slots_repositioned: n, cells_written: writeData.length, cells_blanked: blankData.length, total_updated_cells: wj.totalUpdatedCells ?? 0 }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err) {
     return new Response(JSON.stringify({ error: (err as Error).message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
