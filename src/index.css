@@ -161,7 +161,10 @@
   }
   .card-hover:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(212, 175, 55, 0.12);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4),
+                0 0 0 1px hsl(var(--primary) / 0.55),
+                0 0 18px hsl(var(--primary) / 0.30),
+                0 0 40px hsl(var(--primary) / 0.12);
   }
 
   /* Status glow pulse for overdue */
@@ -225,4 +228,10 @@
 @keyframes soft-glow {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 0.8; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in { animation: none; }
+  .card-hover { transition: none; }
+  .card-hover:hover { transform: none; }
 }

@@ -9,6 +9,7 @@ interface StatCardProps {
   trend?: { value: string; positive: boolean };
   variant?: 'default' | 'gold' | 'success' | 'warning' | 'danger';
   href?: string;
+  staggerIndex?: number;
 }
 
 const variantStyles = {
@@ -43,14 +44,15 @@ const accentBarStyles = {
   danger: 'bg-destructive/60',
 };
 
-export default function StatCard({ title, value, subtitle, icon: Icon, trend, variant = 'default', href }: StatCardProps) {
+export default function StatCard({ title, value, subtitle, icon: Icon, trend, variant = 'default', href, staggerIndex }: StatCardProps) {
   const navigate = useNavigate();
 
   return (
     <div
       className={`group relative overflow-hidden rounded-xl border p-4 sm:p-5 card-hover ${variantStyles[variant]} ${
         href ? 'cursor-pointer' : ''
-      }`}
+      }${staggerIndex !== undefined ? ' animate-fade-in' : ''}`}
+      style={staggerIndex !== undefined ? { animationDelay: `${staggerIndex * 80}ms` } : undefined}
       onClick={href ? () => navigate(href) : undefined}
       role={href ? 'link' : undefined}
     >

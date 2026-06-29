@@ -99,7 +99,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             </header>
 
             {/* Main Content */}
-            <main className="flex-1 p-4 md:p-6 animate-fade-in">
+            <main className="flex-1 p-4 md:p-6">
               {updateAvailable && !updateDismissed && (
                 <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-primary/40 bg-primary/10 px-4 py-2.5 backdrop-blur-sm">
                   <div className="flex items-center gap-2 text-sm text-white">

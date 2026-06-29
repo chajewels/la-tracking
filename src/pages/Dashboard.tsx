@@ -183,6 +183,7 @@ export default function Dashboard() {
               <>
                 <StatCard
                   title="Total Customers"
+                  staggerIndex={0}
                   value={customerCount.toString()}
                   subtitle={
                     currencyFilter === 'ALL'
@@ -193,6 +194,7 @@ export default function Dashboard() {
                 />
                 <StatCard
                   title="Total Active Accounts"
+                  staggerIndex={1}
                   value={(summary?.active_layaways ?? 0).toString()}
                   subtitle={currencyFilter === 'ALL' ? 'PHP & JPY' : `${currencyFilter} only`}
                   icon={FileText}
@@ -248,6 +250,7 @@ export default function Dashboard() {
               <>
                 <StatCard
                   title="Overdue"
+                  staggerIndex={0}
                   value={(summary?.overdue_accounts ?? 0).toString()}
                   icon={AlertTriangle}
                   variant="danger"
@@ -255,6 +258,7 @@ export default function Dashboard() {
                 />
                 <StatCard
                   title="Completed"
+                  staggerIndex={1}
                   value={(summary?.completed_this_month ?? 0).toString()}
                   subtitle="This month"
                   icon={CheckCircle2}
@@ -263,6 +267,7 @@ export default function Dashboard() {
                 />
                 <StatCard
                   title="Forfeited"
+                  staggerIndex={2}
                   value={(summary?.forfeited_accounts ?? 0).toString()}
                   icon={ShieldAlert}
                   variant="danger"
@@ -270,6 +275,7 @@ export default function Dashboard() {
                 />
                 <StatCard
                   title="Forfeited Today"
+                  staggerIndex={3}
                   value={(summary?.forfeited_today ?? 0).toString()}
                   icon={Flame}
                   variant="warning"
@@ -277,6 +283,7 @@ export default function Dashboard() {
                 />
                 <StatCard
                   title="All Time Completed"
+                  staggerIndex={4}
                   value={(summary?.completed_all_time ?? 0).toString()}
                   icon={Award}
                   variant="success"
@@ -297,12 +304,14 @@ export default function Dashboard() {
               <>
                 <StatCard
                   title="Active Orders"
+                  staggerIndex={0}
                   value={(summary?.cash_orders_active ?? 0).toString()}
                   subtitle="Pending"
                   icon={FileText}
                 />
                 <StatCard
                   title="Completed"
+                  staggerIndex={1}
                   value={(summary?.cash_orders_completed_this_month ?? 0).toString()}
                   subtitle="This month"
                   icon={CheckCircle2}
@@ -335,6 +344,7 @@ export default function Dashboard() {
               <>
                 <StatCard
                   title="Due Today"
+                  staggerIndex={0}
                   value={(summary?.due_today_count ?? 0).toString()}
                   icon={Clock}
                   variant="warning"
@@ -342,11 +352,13 @@ export default function Dashboard() {
                 />
                 <StatCard
                   title="Due in 3 Days"
+                  staggerIndex={1}
                   value={(summary?.due_3_days_count ?? 0).toString()}
                   icon={CalendarCheck}
                 />
                 <StatCard
                   title="Due in 7 Days"
+                  staggerIndex={2}
                   value={(summary?.due_7_days_count ?? 0).toString()}
                   icon={Calendar}
                 />
