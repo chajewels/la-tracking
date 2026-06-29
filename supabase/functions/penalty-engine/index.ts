@@ -598,16 +598,54 @@ Deno.serve(async (req) => {
       console.warn("[penalty-engine] email dispatch failed (non-blocking):", emailErr);
     }
 
-    // ── Step 10: Staff bell — aggregated penalty notification ──
+    // ── Step 10: Staff bell — per-account penalty notifications ──
     if (penaltiesCreated > 0) {
       try {
-        const uniqueAccts = new Set(successfulPenalties.map((p: any) => p.account_id)).size;
-        await supabase.from("staff_notifications").insert({
-          type: "penalty_applied",
-          title: "Penalties applied",
-          body: `${penaltiesCreated} penalty event(s) across ${uniqueAccts} account(s)`,
-          metadata: { penalties_created: penaltiesCreated, accounts_affected: uniqueAccts, run_at: new Date().toISOString() },
+        // Group successful penalties by account: event count + summed amount + currency
+        const perAccount = new Map<string, { count: number; total: number; currency: string }>();
+        for (const p of successfulPenalties as any[]) {
+          const cur = perAccount.get(p.account_id) ?? { count: 0, total: 0, currency: p.currency };
+          cur.count += 1;
+          cur.total += Number(p.penalty_amount);
+          cur.currency = p.currency;
+          perAccount.set(p.account_id, cur);
+        }
+
+        // Resolve invoice_number + customer per affected account (single batched fetch)
+        const acctIds = [...perAccount.keys()];
+        const { data: acctRows } = await supabase
+          .from("layaway_accounts")
+          .select("id, invoice_number, customer_id, customers(full_name)")
+          .in("id", acctIds);
+        const acctMeta = new Map<string, { invoice_number: string | null; customer_id: string | null; full_name: string | null }>();
+        for (const r of (acctRows ?? []) as any[]) {
+          acctMeta.set(r.id, {
+            invoice_number: r.invoice_number ?? null,
+            customer_id: r.customer_id ?? null,
+            full_name: r.customers?.full_name ?? null,
+          });
+        }
+
+        const rows = acctIds.map((accountId) => {
+          const agg = perAccount.get(accountId)!;
+          const meta = acctMeta.get(accountId);
+          const symbol = agg.currency === "PHP" ? "₱" : "¥";
+          const who = meta?.full_name ? ` — ${meta.full_name}` : "";
+          const plural = agg.count === 1 ? "" : "s";
+          return {
+            type: "penalty_applied",
+            title: "Penalties applied",
+            body: `Inv #${meta?.invoice_number ?? "?"}${who} · ${agg.count} penalty event${plural} (${symbol}${agg.total.toLocaleString("en-US")})`,
+            account_id: accountId,
+            customer_id: meta?.customer_id ?? null,
+            invoice_number: meta?.invoice_number ?? null,
+            metadata: { penalty_events: agg.count, penalty_total: agg.total, currency: agg.currency, run_at: new Date().toISOString() },
+          };
         });
+
+        if (rows.length > 0) {
+          await supabase.from("staff_notifications").insert(rows);
+        }
       } catch (nErr) {
         console.warn("[penalty-engine] penalty_applied notification insert failed (non-blocking):", nErr);
       }
