@@ -246,12 +246,15 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
           borderBottom: '1px solid rgba(212,175,55,0.1)',
         }}
       >
-        <h1
-          className="font-display text-lg tracking-wide"
-          style={{ color: '#D4AF37' }}
-        >
-          Cha Jewels Hub
-        </h1>
+        <div className="flex items-center gap-3">
+          <img src="https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets/cha-jewels-logo.jpeg" alt="Cha Jewels" className="h-9 w-9 rounded-full object-contain shrink-0" />
+          <h1
+            className="font-display text-lg tracking-wide"
+            style={{ color: '#D4AF37' }}
+          >
+            Cha Jewels Hub
+          </h1>
+        </div>
       </SidebarHeader>
 
       <SidebarContent className="px-3 py-4" style={{ background: '#1A1410' }}>

@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
-import { FileText, AlertTriangle, CheckCircle2, Users, ShieldAlert, Gem, Award, Flame, ShieldCheck, Loader2, Clock, CalendarCheck, Calendar } from 'lucide-react';
+import { FileText, AlertTriangle, CheckCircle2, Users, ShieldAlert, Award, Flame, ShieldCheck, Loader2, Clock, CalendarCheck, Calendar } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import NewAccountsTodayAlert from '@/components/dashboard/NewAccountsTodayAlert';
 import AppLayout from '@/components/layout/AppLayout';
@@ -158,9 +158,7 @@ export default function Dashboard() {
           <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full -translate-y-1/2 translate-x-1/3 blur-3xl" />
           <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl gold-gradient shadow-lg">
-                <Gem className="h-6 w-6 text-primary-foreground" />
-              </div>
+              <img src="https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets/cha-jewels-logo.jpeg" alt="Cha Jewels" className="h-14 w-14 rounded-full object-contain shadow-lg shrink-0" />
               <div>
                 <h1 className="text-xl sm:text-2xl font-bold text-foreground font-display">
                   Cha Jewels Hub Dashboard
