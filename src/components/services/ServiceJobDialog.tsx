@@ -318,16 +318,17 @@ export default function ServiceJobDialog({
   };
 
   // Status side-effects. Auto-set rules:
-  //   Logged / Process    → nothing
-  //   On-going            → estimated_completion = date_received + 7 working days
+  //   Logged              → nothing
+  //   Process             → estimated_completion = PHT today (date entered Process) + 7 working days
+  //   On-going            → nothing (preserves the Process-anchored estimate)
   //   Completed           → date_completed = getPHTToday()
   //   Pending / Cancelled → clear date_completed
-  // Switching away from On-going does NOT clear estimated_completion.
+  // Switching away from Process does NOT clear estimated_completion.
   const handleStatusChange = (next: ServiceStatus) => {
     setServiceStatus(next);
-    if (next === 'On-going') {
-      const base = dateReceived || getPHTToday();
-      setEstimatedCompletion(addWorkingDays(base, 7));
+    if (next === 'Process') {
+      // Count starts the day the job ENTERS Process (PHT today), not date_received. 7 working days.
+      setEstimatedCompletion(addWorkingDays(getPHTToday(), 7));
     } else if (next === 'Completed') {
       setDateCompleted(getPHTToday());
     } else if (next === 'Pending' || next === 'Cancelled') {
