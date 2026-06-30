@@ -313,7 +313,7 @@ const ActionDialogModal = memo(function ActionDialogModal({
           <Button variant="ghost" onClick={onCancel}>Cancel</Button>
           <Button
             variant={actionDialog.action === 'rejected' ? 'destructive' : 'default'}
-            disabled={isPending || (actionDialog.action !== 'confirmed' && actionDialog.action !== 'restore' && !reviewerNotes.trim())}
+            disabled={isPending || (actionDialog.action !== 'confirmed' && actionDialog.action !== 'restore' && !reviewerNotes.trim()) || (actionDialog.action === 'confirmed' && (!actionDialog.sub.proof_url || actionDialog.sub.proof_url.trim().length === 0))}
             onClick={() => onSubmit(reviewerNotes)}
           >
             {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
@@ -445,6 +445,47 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
   const [actionDialog, setActionDialog] = useState<{ sub: SubmissionRow; action: string } | null>(null);
   const [proofDialog, setProofDialog] = useState<string | null>(null);
   const [expandedAllocs, setExpandedAllocs] = useState<string | null>(null);
+
+  // Staff attach/replace-proof dialog (proof-only; supports layaway + cash subs)
+  const [attachProofSub, setAttachProofSub] = useState<SubmissionRow | null>(null);
+  const [attachFile, setAttachFile] = useState<File | null>(null);
+  const [attachUploading, setAttachUploading] = useState(false);
+
+  const handleAttachProofSave = async () => {
+    if (!attachProofSub || !attachFile) return;
+    setAttachUploading(true);
+    try {
+      const sub = attachProofSub;
+      const folder = sub.account_id ?? sub.cash_order_id;
+      const invoice = (sub.layaway_accounts?.invoice_number || sub.cash_orders?.invoice_number || '').replace(/[^a-zA-Z0-9]/g, '');
+      const customerName = (sub.customers?.full_name || sub.cash_orders?.customers?.full_name || 'Customer').replace(/[^a-zA-Z0-9]/g, '');
+      const ext = (attachFile.name.split('.').pop() || 'jpg').toLowerCase();
+      const fileName = `${customerName}_${invoice}_${sub.payment_date}_${Date.now().toString(36)}.${ext}`;
+      const storagePath = `${folder}/${fileName}`;
+
+      const { error: uploadErr } = await supabase.storage
+        .from('payment-proofs')
+        .upload(storagePath, attachFile, { cacheControl: '3600', upsert: false });
+      if (uploadErr) throw uploadErr;
+
+      const { data: urlData } = supabase.storage.from('payment-proofs').getPublicUrl(storagePath);
+
+      const { error: updErr } = await supabase
+        .from('payment_submissions')
+        .update({ proof_url: urlData.publicUrl })
+        .eq('id', sub.id);
+      if (updErr) throw updErr;
+
+      queryClient.invalidateQueries({ queryKey: ['payment-submissions'] });
+      toast.success('Proof attached.');
+      setAttachProofSub(null);
+      setAttachFile(null);
+    } catch (err: unknown) {
+      toast.error((err as Error)?.message || 'Failed to attach proof');
+    } finally {
+      setAttachUploading(false);
+    }
+  };
 
   // Waterfall state for confirm dialog
   const [confirmScheduleRows, setConfirmScheduleRows] = useState<ScheduleViewRow[]>([]);
@@ -999,7 +1040,10 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
                         {isPending && canModerate && (
                           <>
                             {canConfirm && (
-                              <Button size="sm" variant="default" className="gap-1.5 text-xs" onClick={() => setActionDialog({ sub, action: 'confirmed' })}>
+                              <Button size="sm" variant="default" className="gap-1.5 text-xs"
+                                disabled={!sub.proof_url || sub.proof_url.trim().length === 0}
+                                title={(!sub.proof_url || sub.proof_url.trim().length === 0) ? 'Proof of payment required to confirm' : undefined}
+                                onClick={() => setActionDialog({ sub, action: 'confirmed' })}>
                                 <Check className="h-3.5 w-3.5" /> Confirm
                               </Button>
                             )}
@@ -1013,6 +1057,9 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
                                 <MessageSquare className="h-3.5 w-3.5" /> Clarify
                               </Button>
                             )}
+                            <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => { setAttachProofSub(sub); setAttachFile(null); }}>
+                              <ImageIcon className="h-3.5 w-3.5" /> Attach / Replace proof
+                            </Button>
                           </>
                         )}
                         {isPending && !canModerate && (
@@ -1100,6 +1147,35 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
           }}
         />
       )}
+
+      {/* Staff Attach / Replace proof dialog (proof-only) */}
+      <Dialog open={!!attachProofSub} onOpenChange={(open) => { if (!open) { setAttachProofSub(null); setAttachFile(null); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Attach / Replace proof of payment</DialogTitle>
+            <DialogDescription>
+              Upload an image or PDF. This attaches proof to the submission so it can be confirmed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <Input
+              type="file"
+              accept="image/*,application/pdf"
+              onChange={(e) => setAttachFile(e.target.files?.[0] ?? null)}
+            />
+            {attachFile && (
+              <p className="mt-2 text-xs text-muted-foreground truncate" title={attachFile.name}>{attachFile.name}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => { setAttachProofSub(null); setAttachFile(null); }}>Cancel</Button>
+            <Button disabled={!attachFile || attachUploading} onClick={handleAttachProofSave}>
+              {attachUploading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Save proof
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Underpayment Decision Modal — must layer above the Action Dialog */}
       {!!underpaymentModal && (

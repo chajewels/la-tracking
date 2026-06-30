@@ -327,6 +327,32 @@ export default function MultiInvoicePaymentDialog({
         amount: parseFloat(amounts[a.id] || '0'),
         carry_over: carryOverMap[a.id] || false,
       }));
+
+      // Upload-first: proof_url is sent to record-multi-payment, which attaches
+      // it to the created submissions and enforces its presence server-side.
+      // canSubmit already guarantees proofFile; narrow for TS. batchId isn't
+      // known pre-invoke, so the filename uses a Date.now() suffix instead.
+      if (!proofFile) return;
+      let proofUrl: string;
+      try {
+        const staffName = (profile?.full_name || user?.email || 'Staff').replace(/[^a-zA-Z0-9]/g, '');
+        const ext = (proofFile.name.split('.').pop() || 'jpg').toLowerCase();
+        const fileName = `${staffName}_Multi_${paymentDate}_${Date.now().toString(36)}.${ext}`;
+        const storagePath = `${selectedAccounts[0].id}/${fileName}`;
+        const { error: uploadErr } = await supabase.storage
+          .from('payment-proofs')
+          .upload(storagePath, proofFile, { cacheControl: '3600', upsert: false });
+        if (uploadErr) throw uploadErr;
+        const { data: urlData } = supabase.storage
+          .from('payment-proofs')
+          .getPublicUrl(storagePath);
+        proofUrl = urlData.publicUrl;
+      } catch (err: any) {
+        console.warn('[MultiInvoicePaymentDialog] proof upload failed:', err?.message);
+        toast.warning(`Proof upload failed: ${err?.message || 'unknown error'}`);
+        return;
+      }
+
       const { data, error } = await supabase.functions.invoke('record-multi-payment', {
         body: {
           customer_id: customerId,
@@ -336,46 +362,10 @@ export default function MultiInvoicePaymentDialog({
           remarks: referenceNumber ? `Ref: ${referenceNumber}` : undefined,
           preview_only: false,
           allocations,
+          proof_url: proofUrl,
         },
       });
       if (error) throw error;
-
-      // Upload proof and attach to the payment_submissions rows created by record-multi-payment.
-      // batch_id is returned on both submitted_for_confirmation and the direct-record path.
-      const batchId: string | null = (data as any)?.batch_id ?? null;
-      if (proofFile && batchId) {
-        try {
-          const staffName = (profile?.full_name || user?.email || 'Staff').replace(/[^a-zA-Z0-9]/g, '');
-          const ext = (proofFile.name.split('.').pop() || 'jpg').toLowerCase();
-          const fileName = `${staffName}_Multi_${batchId}_${paymentDate}.${ext}`;
-          const primaryAccountId = selectedAccounts[0]?.id;
-          const storagePath = `${primaryAccountId}/${fileName}`;
-
-          const { error: uploadErr } = await supabase.storage
-            .from('payment-proofs')
-            .upload(storagePath, proofFile, { cacheControl: '3600', upsert: false });
-          if (uploadErr) throw uploadErr;
-
-          const { data: urlData } = supabase.storage
-            .from('payment-proofs')
-            .getPublicUrl(storagePath);
-          const proofUrl = urlData.publicUrl;
-
-          const senderName = profile?.full_name || user?.email || 'Staff';
-
-          const { error: updErr } = await supabase
-            .from('payment_submissions')
-            .update({ proof_url: proofUrl, sender_name: senderName })
-            .eq('reference_number', batchId);
-          if (updErr) {
-            console.warn('[MultiInvoicePaymentDialog] payment_submissions update failed:', updErr.message);
-            toast.warning('Payment recorded, but proof could not be attached to the submissions. Please re-upload via account page.');
-          }
-        } catch (err: any) {
-          console.warn('[MultiInvoicePaymentDialog] proof upload failed:', err?.message);
-          toast.warning(`Proof upload failed: ${err?.message || 'unknown error'}`);
-        }
-      }
 
       if (data?.submitted_for_confirmation) {
         toast.success('Payments submitted for confirmation. Admin/Finance will review.');

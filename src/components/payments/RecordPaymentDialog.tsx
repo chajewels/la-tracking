@@ -62,7 +62,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
   const [submitting, setSubmitting] = useState(false);
   const [proofFile, setProofFile] = useState<File | null>(null);
   const submittingRef = useRef(false); // duplicate-submission guard
-  const { user, profile } = useAuth();
+  const { profile } = useAuth();
   const { loadDraft, saveDraft, clearDraft, restoredDraft, setRestoredDraft } = usePaymentDraft(accountId);
   const [targetMonth, setTargetMonth] = useState<string>('');
 
@@ -150,11 +150,11 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
 
   const isValid = parsedAmount > 0 && parsedAmount <= remainingBalance + 0.005 && paymentDate && !!proofFile;
 
-  // Upload proof and attach it to the pending payment_submissions row that
-  // record-payment just created. The prior admin/finance fallback INSERT
-  // path (search confirmed row → insert new pending if missing) was removed
-  // (Bug #218 — that fallback created the 19115/18132 stray-pending incident).
-  const uploadProofAndAttach = async (opts: { isDP: boolean; existingSubmissionId: string }): Promise<string | null> => {
+  // Upload proof to the payment-proofs bucket and RETURN its public URL.
+  // Upload-first: the URL is passed to record-payment, which attaches it
+  // server-side (and enforces proof presence). This helper no longer writes
+  // to payment_submissions — the edge function is the sole writer.
+  const uploadProof = async (opts: { isDP: boolean }): Promise<string | null> => {
     if (!proofFile) return null;
     try {
       const isDP = opts.isDP;
@@ -176,25 +176,7 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
       const { data: urlData } = supabase.storage
         .from('payment-proofs')
         .getPublicUrl(storagePath);
-      const proofUrl = urlData.publicUrl;
-
-      const senderName = profile?.full_name || user?.email || 'Staff';
-
-      const updateFields: Record<string, unknown> = {
-        proof_url: proofUrl,
-        sender_name: senderName,
-      };
-      if (installmentNumber != null) updateFields.installment_number = installmentNumber;
-
-      const { error: updErr } = await supabase
-        .from('payment_submissions')
-        .update(updateFields)
-        .eq('id', opts.existingSubmissionId);
-      if (updErr) {
-        console.warn('[RecordPaymentDialog] payment_submissions update failed:', updErr.message);
-        toast.warning('Payment submitted, but proof could not be attached to the submission. Please re-upload via account page.');
-      }
-      return proofUrl;
+      return urlData.publicUrl;
     } catch (err: unknown) {
       const msg = (err as Error)?.message || 'unknown error';
       console.warn('[RecordPaymentDialog] proof upload failed:', msg);
@@ -212,7 +194,13 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
       const isDP = paymentType === 'downpayment';
       const dpRef = isDP && invoiceNumber ? `DP-${invoiceNumber}` : undefined;
       const dpRemarks = isDP ? 'Downpayment' : (notes || undefined);
-      const { data, error } = await supabase.functions.invoke('record-payment', {
+
+      // Upload-first: proof_url is sent to record-payment, which attaches it
+      // and enforces its presence server-side. Abort if the upload fails.
+      const proofUrl = await uploadProof({ isDP });
+      if (!proofUrl) return;
+
+      const { error } = await supabase.functions.invoke('record-payment', {
         body: {
           account_id: accountId,
           amount_paid: parsedAmount,
@@ -223,14 +211,10 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
           is_downpayment: isDP,
           carry_over: carryOver,
           submission_type: isDP ? 'downpayment' : 'installment',
+          proof_url: proofUrl,
         },
       });
       if (error) throw error;
-      const result = data as { submission_id?: string; submitted_for_confirmation?: boolean };
-      const existingSubmissionId = result?.submission_id;
-      if (existingSubmissionId) {
-        await uploadProofAndAttach({ isDP, existingSubmissionId });
-      }
       toast.success('Payment submitted for confirmation. Admin/Finance will review.');
       if (paymentType !== 'downpayment') {
         const info = buildSessionPaymentInfo();
