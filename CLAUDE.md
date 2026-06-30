@@ -327,6 +327,7 @@ To add a new screenshot for any Help section:
 - Never bypass the payment validation flow
 - The "Downpayment Paid" input field does NOT exist on the creation form
 - DP redistribution into installments is NOT supported (removed)
+- Loyalty Product Amount (JPY) is REQUIRED when the selected customer has a loyalty tier (any tier), on BOTH layaway and cash-order creation. Enforced on two layers: frontend UX (NewAccount.tsx / NewCashOrder.tsx) and the authoritative edge function (create-layaway-account / create-cash-order return 400 LOYALTY_AMOUNT_REQUIRED). Optional for non-members.
 
 ## PAYMENT HISTORY AS SOURCE OF TRUTH — NON-NEGOTIABLE
 

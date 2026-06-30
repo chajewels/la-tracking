@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { getPHTToday } from '@/lib/date-utils';
+import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
 
 type InvoiceCheck = 'idle' | 'checking' | 'available' | 'taken';
 
@@ -57,6 +58,15 @@ export default function NewCashOrder() {
   const [notes, setNotes] = useState('');
   const [acceptAgreement, setAcceptAgreement] = useState(false);
   const [isTrade, setIsTrade] = useState(false);
+
+  // Loyalty tier of the selected customer. Non-null => the customer is a
+  // loyalty member (any tier) and Loyalty Product Amount (JPY) is required.
+  // Mirrors NewAccount.tsx; create-cash-order edge function is the authoritative gate.
+  const { data: loyaltyTier } = useCustomerLoyaltyTier(customerId);
+  const isLoyaltyAmountRequired = !!loyaltyTier;
+  const loyaltyAmountMissing =
+    isLoyaltyAmountRequired &&
+    (!loyaltyJpyInput.trim() || !(Number(loyaltyJpyInput) > 0));
 
   // Customer search combobox (matches NewAccount pattern)
   const [customerSearch, setCustomerSearch] = useState(urlCustomerName ?? '');
@@ -170,6 +180,12 @@ export default function NewCashOrder() {
     e.preventDefault();
     if (!isFormValid) {
       toast.error('Please complete all required fields');
+      return;
+    }
+    if (loyaltyAmountMissing) {
+      toast.error(
+        `This customer is a ${loyaltyTier?.current_tier_name} loyalty member. Loyalty Product Amount (JPY) is required.`
+      );
       return;
     }
     if ((invoiceCheck as InvoiceCheck) === 'taken') {
@@ -484,9 +500,15 @@ export default function NewCashOrder() {
             {/* Loyalty product amount (admin/finance only) */}
             {canSeeLoyaltyField && (
               <div className="space-y-2">
-                <Label className="text-card-foreground">
-                  Product Amount (JPY) — Loyalty Only
-                </Label>
+                {isLoyaltyAmountRequired ? (
+                  <Label className="text-destructive">
+                    Loyalty Product Amount (JPY) <span className="text-destructive">*</span>
+                  </Label>
+                ) : (
+                  <Label className="text-card-foreground">
+                    Product Amount (JPY) — Loyalty Only
+                  </Label>
+                )}
                 <Input
                   type="number"
                   min={0}
@@ -497,6 +519,11 @@ export default function NewCashOrder() {
                   placeholder="e.g. 107143"
                   className="bg-background border-border"
                 />
+                {loyaltyAmountMissing && (
+                  <p className="text-xs text-destructive font-medium">
+                    Required for loyalty tier members
+                  </p>
+                )}
                 <p className="text-[10px] text-muted-foreground">
                   Product value in JPY only. Exclude shipping, service fees,
                   and insurance. Used for loyalty points — not shown to
@@ -589,8 +616,8 @@ export default function NewCashOrder() {
             </Button>
             <Button
               type="submit"
-              disabled={submitting || !isFormValid || invoiceCheck === 'checking'}
-              className="gold-gradient text-primary-foreground font-medium"
+              disabled={submitting || !isFormValid || invoiceCheck === 'checking' || loyaltyAmountMissing}
+              className={`gold-gradient text-primary-foreground font-medium ${loyaltyAmountMissing ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               {submitting ? (
                 <>
