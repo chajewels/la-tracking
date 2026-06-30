@@ -61,6 +61,7 @@ export default function CustomerDetail() {
 
   // Portal link for split payment confirmation message
   const [portalLink, setPortalLink] = useState<string | null>(null);
+  const [customerPin, setCustomerPin] = useState<string | null>(null);
   useEffect(() => {
     if (!customerId || !data?.customer) return;
     (async () => {
@@ -74,6 +75,9 @@ export default function CustomerDetail() {
         .maybeSingle();
       const authUserId = data.customer.auth_user_id ?? null;
       const tokenValue = tokenRow?.token ?? null;
+      const _digits = (data.customer.mobile_number ?? '').replace(/\D/g, '');
+      const _last4 = _digits.length >= 4 ? _digits.slice(-4) : null;
+      setCustomerPin((!authUserId && tokenValue && _last4) ? _last4 : null);
       const hasAuthMeans = !!authUserId || !!tokenValue;
       if (hasAuthMeans) {
         setPortalLink(getPortalLinkForCustomer(
@@ -440,6 +444,7 @@ export default function CustomerDetail() {
               customerId={customer.id}
               customerName={customer.full_name}
               portalLink={portalLink}
+              customerPin={customerPin}
               accounts={accounts.map(({ account, schedule }) => ({
                 id: account.id,
                 invoice_number: account.invoice_number,

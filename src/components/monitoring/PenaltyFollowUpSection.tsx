@@ -96,6 +96,7 @@ export function generatePenaltyReminderMessage(
   currency: Currency,
   portalToken?: string | null,
   authUserId?: string | null,
+  customerPin?: string | null,
 ): string {
   const dueStr = new Date(dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   const amtStr = formatCurrency(installmentAmount, currency);
@@ -104,8 +105,11 @@ export function generatePenaltyReminderMessage(
   const portalUrl = (authUserId || portalToken)
     ? getPortalLinkForCustomer({ auth_user_id: authUserId ?? null, portal_token: portalToken })
     : null;
+  const pinLine = (portalToken && !authUserId && customerPin)
+    ? `\n🔐 Your portal PIN is the last 4 digits of your mobile number on file: ${customerPin}`
+    : '';
   const portalLink = portalUrl
-    ? `\n\nYou may view and pay here:\n${portalUrl}`
+    ? `\n\nYou may view and pay here:\n${portalUrl}${pinLine}`
     : '';
 
   const templates: Record<PenaltyStage, string> = {
@@ -146,6 +150,8 @@ export interface PenaltyAlertItem {
   portalToken?: string | null;
   messengerLink?: string | null;
   authUserId?: string | null;
+  mobileNumber?: string | null;
+  customerPin?: string | null;
 }
 
 interface StageBucket {
@@ -185,7 +191,7 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
     queryFn: async () => {
       const { data, error } = await supabase
         .from('layaway_schedule')
-        .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, remaining_balance, customers(full_name, messenger_link))')
+        .select('*, layaway_accounts!inner(id, invoice_number, currency, status, customer_id, remaining_balance, customers(full_name, messenger_link, mobile_number))')
         .in('layaway_accounts.status', ['active', 'overdue', 'extension_active', 'final_settlement'])
         .filter('layaway_accounts.is_test', 'eq', false)
         .in('status', ['pending', 'overdue', 'partially_paid'])
@@ -230,6 +236,7 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
           scheduleId: item.id,
           customerId: acc.customer_id,
           messengerLink: acc.customers?.messenger_link || null,
+          mobileNumber: acc.customers?.mobile_number || null,
         });
       }
       return results;
@@ -301,11 +308,9 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
     if (!penaltyAlerts) return [];
     return penaltyAlerts.map(a => {
       const tokenRow = portalTokens?.get(a.customerId);
-      return {
-        ...a,
-        portalToken: tokenRow?.token ?? null,
-        authUserId: tokenRow?.authUserId ?? null,
-      };
+      const _digits = (a.mobileNumber ?? '').replace(/\D/g, '');
+      const customerPin = _digits.length >= 4 ? _digits.slice(-4) : null;
+      return { ...a, portalToken: tokenRow?.token ?? null, authUserId: tokenRow?.authUserId ?? null, customerPin };
     });
   }, [penaltyAlerts, portalTokens]);
 
@@ -444,7 +449,7 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
     const msg = generatePenaltyReminderMessage(
       alert.stage, alert.customer, alert.invoice, alert.dueDate,
       alert.installmentAmount, alert.penaltyAmount, alert.remainingBalance,
-      alert.currency, alert.portalToken, alert.authUserId,
+      alert.currency, alert.portalToken, alert.authUserId, alert.customerPin,
     );
     setMessengerDialog({ alert, message: msg });
     setCopied(false);

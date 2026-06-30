@@ -778,6 +778,12 @@ export default function AccountDetail() {
         )
       : null;
 
+    const _pinDigits = (account?.customers?.mobile_number ?? '').replace(/\D/g, '');
+    const customerPin = _pinDigits.length >= 4 ? _pinDigits.slice(-4) : null;
+    const pinLine = (!!portalToken && !authUserId && customerPin)
+      ? `🔐 Your portal PIN is the last 4 digits of your mobile number on file: ${customerPin}\n`
+      : '';
+
     // Determine next due month info — priority: partially_paid → overdue → pending
     // Use BOTH DB status AND computed flags: DB status may be stale ('paid'/'pending')
     // while computed isPartial may be wrong post-reconcile (paid_amount >= reduced total_due_amount)
@@ -820,6 +826,7 @@ export default function AccountDetail() {
         if (portalUrl) {
           message += `\nView your updated account and payment schedule here:\n🔗 ${portalUrl}\n`;
         }
+        if (pinLine) message += pinLine;
         message += buildNextPaymentLine(isDownpaymentOnly);
         message += `\n\nThank you for your continued trust in Cha Jewels! 🧡`;
       } else {
@@ -843,6 +850,7 @@ export default function AccountDetail() {
         if (portalUrl) {
           message += `\nView your updated account and payment schedule here:\n🔗 ${portalUrl}\n`;
         }
+        if (pinLine) message += pinLine;
         message += buildNextPaymentLine(false);
         message += `\n\nThank you for your continued trust in Cha Jewels! 🧡`;
       }
@@ -860,12 +868,13 @@ export default function AccountDetail() {
       if (portalUrl) {
         message += `\nView your updated account and payment schedule here:\n🔗 ${portalUrl}\n`;
       }
+      if (pinLine) message += pinLine;
       message += buildNextPaymentLine(false);
       message += `\n\nThank you for your continued trust in Cha Jewels! 🧡`;
     }
   }
   return message;
-  }, [account?.id, account?.status, summary, scheduleItems, currency, mostRecentPayment?.id, paymentBreakdownText, accountServices, unpaidSchedule, penaltyCapOverride, downpaymentAmount, dpPaidAmount, sessionPayments, portalToken, authUserId]);
+  }, [account?.id, account?.status, summary, scheduleItems, currency, mostRecentPayment?.id, paymentBreakdownText, accountServices, unpaidSchedule, penaltyCapOverride, downpaymentAmount, dpPaidAmount, sessionPayments, portalToken, authUserId, account?.customers?.mobile_number]);
 
 
   if (accountLoading) {

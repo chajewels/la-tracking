@@ -568,6 +568,7 @@ All values come from computeLayaway() in business-rules.ts
   Inv # [invoiceNumber]
   View your updated account and payment schedule here:
   🔗 [portalLink]
+  🔐 Your portal PIN is the last 4 digits of your mobile number on file: [pin]   (only for legacy token-link customers — omitted when auth_user_id is set)
   Next payment: [nextDueMonth] — ₱ [nextMonthAmount]
   Thank you for your continued trust in Cha Jewels! 🧡
 
@@ -580,6 +581,7 @@ All values come from computeLayaway() in business-rules.ts
     Inv #[num] — [label]: ₱ [amount]
   View your accounts here:
   🔗 [portalLink]
+  🔐 Your portal PIN is the last 4 digits of your mobile number on file: [pin]   (only for legacy token-link customers — omitted when auth_user_id is set)
   Next payments:
     [label] — [nextDueMonth]: ₱ [nextDueAmount]
     [label] — [nextDueMonth]: ₱ [nextDueAmount]

@@ -56,6 +56,7 @@ interface MultiInvoicePaymentDialogProps {
   customerName: string;
   accounts: AccountInfo[];
   portalLink?: string | null;
+  customerPin?: string | null;
   initialPaymentMethod?: string;
   initialAmount?: number | null;
   initialInvoice?: string | null;
@@ -132,6 +133,7 @@ export default function MultiInvoicePaymentDialog({
   customerName,
   accounts,
   portalLink,
+  customerPin,
   initialPaymentMethod,
   initialAmount,
   initialInvoice,
@@ -449,6 +451,9 @@ export default function MultiInvoicePaymentDialog({
     // Portal link
     if (portalLink) {
       msg += `\nView your accounts here:\n🔗 ${portalLink}\n`;
+    }
+    if (portalLink && customerPin) {
+      msg += `🔐 Your portal PIN is the last 4 digits of your mobile number on file: ${customerPin}\n`;
     }
 
     // Next payments
