@@ -121,6 +121,31 @@ Deno.serve(async (req) => {
         ? Math.round(body.loyalty_jpy_amount)
         : null;
 
+    // 6b. Loyalty enforcement: if the customer is a loyalty member (any tier),
+    // Loyalty Product Amount (JPY) is mandatory. Authoritative gate — the
+    // NewCashOrder.tsx mirror is UX only. Matches create-layaway-account.
+    const { data: memberRow } = await supabase
+      .from("loyalty_members")
+      .select("current_tier_id, current_tier:current_tier_id(name)")
+      .eq("customer_id", customer_id)
+      .maybeSingle();
+
+    const hasLoyaltyTier = memberRow?.current_tier_id != null;
+    if (hasLoyaltyTier && (loyaltyJpyAmount === null || loyaltyJpyAmount <= 0)) {
+      return new Response(
+        JSON.stringify({
+          error: "LOYALTY_AMOUNT_REQUIRED",
+          message: `Customer is a ${
+            (memberRow.current_tier as any)?.name ?? "loyalty"
+          } tier member. Loyalty Product Amount (JPY) is required.`,
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
     // 7. Resolve order_date (defaults to today UTC date)
     const resolvedOrderDate = order_date || new Date().toISOString().split("T")[0];
 
