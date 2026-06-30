@@ -57,6 +57,7 @@ Deno.serve(async (req) => {
       remarks,
       preview_only,
       allocations: inputAllocations,
+      proof_url,
     } = body as {
       customer_id: string;
       total_amount_paid: number;
@@ -65,6 +66,7 @@ Deno.serve(async (req) => {
       remarks?: string;
       preview_only?: boolean;
       allocations: Array<{ account_id: string; amount: number; is_downpayment?: boolean; carry_over?: boolean }>;
+      proof_url?: string;
     };
 
     // Validate input
@@ -73,6 +75,13 @@ Deno.serve(async (req) => {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // PROOF REQUIRED (2026-06-30): every non-preview submit must carry a
+    // non-empty proof_url. Preview writes nothing, so it is exempt.
+    if (!preview_only && (typeof proof_url !== "string" || proof_url.trim().length === 0)) {
+      return new Response(JSON.stringify({ error: "Proof of payment is required" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     const totalAllocated = inputAllocations.reduce((s, a) => s + Number(a.amount), 0);
@@ -323,6 +332,7 @@ Deno.serve(async (req) => {
             status: "submitted",
             submission_type: inputAlloc.is_downpayment ? 'downpayment' : 'installment',
             sender_name: (claimsData.user.user_metadata as any)?.full_name || claimsData.user.email || null,
+            proof_url: proof_url.trim(),
           })
           .select("id")
           .single();

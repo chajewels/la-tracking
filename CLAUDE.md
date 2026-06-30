@@ -1346,15 +1346,25 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
     - Does NOT create or modify payments, allocations, schedule, or
       cash_orders — only flips submission.status
 
-  PROOF REQUIRED — customer-portal submissions (added 2026-06-06):
-    Customer-portal submissions REQUIRE a non-empty proof_url —
-    enforced both in the portal UI (CustomerPortal.tsx main + edit
-    flows, CashPortalPaymentDialog.tsx) and server-side in
-    submit-payment + submit-cash-payment (400 "Proof of payment is
-    required" when proof_url is missing/empty/whitespace). The staff
-    record-payment edge function and its insert-then-attach-proof
-    flow are unchanged — staff continue to submit without proof and
-    upload afterward.
+  PROOF REQUIRED — ALL submit paths + confirm (updated 2026-06-30):
+    proof_url is now REQUIRED for EVERY submit path, enforced
+    server-side with a 400 "Proof of payment is required" when
+    proof_url is missing/empty/whitespace:
+      - Portal: submit-payment + submit-cash-payment (added 2026-06-06).
+      - Staff: record-payment + record-multi-payment (added 2026-06-30) —
+        the prior staff exemption / insert-then-attach-without-proof flow
+        is GONE. Staff dialogs now upload proof FIRST and pass proof_url
+        in the invoke body; the edge function attaches it to the created
+        submission. Preview calls (preview_only) write nothing and are
+        exempt.
+    No submission can be CONFIRMED without proof: review-payment-submission
+    returns 400 "Proof of payment is required to confirm this submission."
+    when action='confirmed' and proof_url is empty — covers both layaway
+    and cash-order confirm branches.
+    Staff can attach/replace proof on a pending submission directly from
+    the Submissions tab (proof-only action; layaway + cash).
+    BulkPaymentImport requires proof per row — proofless bulk rows are
+    rejected.
 
   2026-06-06: record-payment + record-multi-payment now set sender_name
     at payment_submissions insert (staff name from user_metadata/email),

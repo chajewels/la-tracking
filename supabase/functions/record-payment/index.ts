@@ -44,13 +44,20 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { account_id, amount_paid, date_paid, payment_method, reference_number, remarks, preview_only, is_downpayment, carry_over = false, submission_type, force } = body;
+    const { account_id, amount_paid, date_paid, payment_method, reference_number, remarks, preview_only, is_downpayment, carry_over = false, submission_type, force, proof_url } = body;
 
     if (!account_id || !amount_paid || amount_paid <= 0) {
       return new Response(JSON.stringify({ error: "Invalid payment data" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // PROOF REQUIRED (2026-06-30): every non-preview submit must carry a
+    // non-empty proof_url. Preview writes nothing, so it is exempt.
+    if (!preview_only && (typeof proof_url !== "string" || proof_url.trim().length === 0)) {
+      return new Response(JSON.stringify({ error: "Proof of payment is required" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // Fetch account
@@ -169,6 +176,9 @@ Deno.serve(async (req) => {
         new_value_json: { amount_paid, account_id, payment_method, date_paid },
         performed_by_user_id: user.id,
       });
+
+      // Attach proof to the submission (proof_url validated above).
+      await supabase.from("payment_submissions").update({ proof_url: proof_url.trim() }).eq("id", guarded.submission_id);
 
       return new Response(JSON.stringify({
         submitted_for_confirmation: true,

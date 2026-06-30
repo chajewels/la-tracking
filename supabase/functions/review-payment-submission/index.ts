@@ -555,6 +555,14 @@ Deno.serve(async (req) => {
       });
     }
 
+    // PROOF REQUIRED TO CONFIRM (2026-06-30): cannot confirm without non-empty proof_url.
+    // Authoritative gate; covers both cash-order and layaway confirm branches.
+    if (action === "confirmed" && (typeof submission.proof_url !== "string" || submission.proof_url.trim().length === 0)) {
+      return new Response(JSON.stringify({ error: "Proof of payment is required to confirm this submission." }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Get allocations for this submission
     const { data: subAllocations } = await supabase
       .from("payment_submission_allocations")
