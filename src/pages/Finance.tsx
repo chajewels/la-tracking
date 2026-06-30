@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, memo } from 'react';
-import { addMonths, endOfMonth, format, startOfMonth } from 'date-fns';
+import { addMonths, endOfMonth, format, isValid, parseISO, startOfMonth } from 'date-fns';
 import { DollarSign, TrendingUp, BarChart3, Sparkles, CalendarClock, Trophy, Clock, AlertTriangle, ShieldAlert, Crown, UserCheck, Target, Users, Activity, Banknote, X, ShoppingBag, RefreshCw } from 'lucide-react';
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -258,6 +258,16 @@ export default function Finance() {
     enabled: (tab === 'overview' || tab === 'analytics') && !!session,
   });
 
+  const { data: cashMonthlyData } = useQuery({
+    queryKey: ['cash-orders-monthly'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc('get_cash_orders_monthly');
+      if (error) throw error;
+      return (Array.isArray(data) ? data : []) as Array<{ month: string; cash_jpy: number; order_count: number }>;
+    },
+    enabled: tab === 'analytics' && !!session,
+  });
+
   const { data: dailyLayawaySales, isLoading: dailyLayawayLoading } = useQuery({
     queryKey: ['daily-new-layaway', currencyFilter],
     queryFn: async () => {
@@ -375,12 +385,20 @@ export default function Finance() {
       const key = s.month.replace(/^(\w{3}) \d{2}(\d{2})$/, '$1 $2'); // "Jun 2026" -> "Jun 26"
       salesByMonth.set(key, Number(s.total_sales_value) || 0);
     });
+    // Cash leg — get_cash_orders_monthly is JPY-only, so only fold into Sales in ALL (JPY-normalized) mode.
+    const cashByMonth = new Map<string, number>();
+    if (isAllMode) {
+      (cashMonthlyData ?? []).forEach((c) => {
+        const d = parseISO(c.month);
+        if (isValid(d)) cashByMonth.set(format(d, 'MMM yy'), Number(c.cash_jpy) || 0);
+      });
+    }
     return collectionAnalytics.map((m: any) => ({
       month: m.month,
       collected: Number(m.collected) || 0,
-      sales: salesByMonth.get(m.month) ?? 0,
+      sales: (salesByMonth.get(m.month) ?? 0) + (cashByMonth.get(m.month) ?? 0),
     }));
-  }, [collectionAnalytics, monthlySalesData]);
+  }, [collectionAnalytics, monthlySalesData, cashMonthlyData, isAllMode]);
 
   const { data: staffPerformance, isLoading: staffLoading } = useQuery({
     queryKey: ['staff-performance'],
