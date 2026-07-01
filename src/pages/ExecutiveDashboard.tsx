@@ -185,7 +185,7 @@ export default function ExecutiveDashboard() {
             {/* Cash Sales — always JPY, from dashboard-summary */}
             <KPI
               label="Cash Sales (This Month · JPY)"
-              value={fmtFull(cashSummary?.cash_revenue_month_jpy ?? 0)}
+              value={fmtFull(cashSummary?.total_sales_booked_this_month?.cash_jpy ?? 0)}
               sub={`${fmtFull(cashSummary?.cash_revenue_total_jpy ?? 0)} all-time · ${cashSummary?.cash_orders_active ?? 0} pending`}
             />
             {/* At-Risk */}
