@@ -1,10 +1,18 @@
-# System Status — last updated 2026-06-19
+# System Status — last updated 2026-07-01
 
 ## App Version
 1.6.0 (commit 02a040c)
 
 ## 2026-06-30 — AccountList: status tab strip + collapsible folders
 - AccountList reworked from a flat card grid + status pills into a status tab strip + collapsible per-status folders (Active / Overdue / Extension / Completed / Settlement / Forfeited / Perm. Forfeited). Read-side (client-side presentation) only — no hook/RPC/edge/schema change.
+
+## 2026-07-01 — "Sales" re-based to order date system-wide (supersedes the 2026-06-26 layaway-only-by-design decision)
+- All layaway "sales" analytics moved from first-payment month (date_paid) to ORDER date. get_monthly_sales, get_daily_new_layaway_sales, get_daily_new_layaway_sales_last_month rewritten (SQL Editor, CREATE OR REPLACE): scan layaway_accounts directly, bucket by order_date, gate on EXISTS non-voided payment, exclude status='cancelled', preserve is_test=false + ALL-mode PHP→JPY. Output shapes unchanged → all consumers (Collected-vs-Sales chart Sales line, New Layaway Sales KPI, MonthlyAnalyticsChart, Total Sales KPI layaway leg) re-based automatically. Verified: get_monthly_sales('ALL',12) → Jun 2026 ¥11,158,745 / 62 accts, no Jul 2026 row.
+- Collected-vs-Sales chart now folds the cash leg into Sales in ALL mode (commit 9e93351) via get_cash_orders_monthly (JPY-only), which also gained the missing is_test=false filter (was leaking 3 test cash orders / ¥191,524 into June; the Overview Monthly Cash Orders chart is corrected too). This REVERSES the 2026-06-26 "layaway-only by design" note below.
+- Executive "Cash Sales (This Month)" KPI repointed from cash_revenue_month_jpy (collected, date_paid) to total_sales_booked_this_month.cash_jpy (booked, order_date) (commit 56dada3).
+- get_trade_monthly_trends gained is_test=false + EXISTS payment gate on both legs (payments for layaway, cash_payments for cash); already order/creation-date based, so no basis change (no-op on current data).
+- Boundary audit: all collections/inflow/profit/exposure metrics (get_monthly_analytics, fc_monthly_inflow, fc_gross_profit, fc_plan_performance, fc_cohort_timeline, fc_cfo_insights, revenue-mix/cash_revenue_*, get_collection_analytics, fc_penalty_revenue, portfolio/exposure/aging/outstanding) confirmed correctly on their payment/balance basis — deliberately NOT flipped.
+- Effect: Total Sales · This Month reads ¥0 until a current-month-ordered account has a payment; the phantom "sales land on first payment" behavior is gone. See FIXED-BUGS #243.
 
 ## 2026-06-26 — Total Sales · This Month KPI now true booked sales
 - The Finance "Total Sales · This Month" KPI now reflects true booked sales —
@@ -19,7 +27,7 @@
   fields are unchanged.
 - Hook type (`useDashboardSummary`) and the Finance StatCard repointed to the new
   field. `get_monthly_sales`, `get_collection_analytics`, and the Collected vs
-  Sales chart are untouched (still layaway money-received by design).
+  Sales chart are untouched (still layaway money-received by design). **[SUPERSEDED 2026-07-01: get_monthly_sales re-based to order_date + payment gate, and the chart now folds cash in ALL mode — see the 2026-07-01 entry above / FIXED-BUGS #243.]**
 - NOTE: edge function changed (`dashboard-summary`) but NOT deployed in this push
   — deploy is handled separately via Lovable/Supabase Dashboard.
 
@@ -49,7 +57,7 @@
   layaway-only.
 - Note (original question): the "Collected vs Sales" tab is layaway-only by
   design; the cash total is now surfaced via this new KPI plus the existing
-  Cash Orders row, not by folding cash into that chart.
+  Cash Orders row, not by folding cash into that chart. **[SUPERSEDED 2026-07-01: cash IS now folded into the chart (ALL mode) and the layaway leg is order_date — see the 2026-07-01 entry above / FIXED-BUGS #243.]**
 
 ## 2026-06-26 — PWA prompt-with-auto-apply update flow
 - Changed the service worker update semantics from silent auto-update to
