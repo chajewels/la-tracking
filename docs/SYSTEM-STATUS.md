@@ -3,6 +3,9 @@
 ## App Version
 1.6.0 (commit 02a040c)
 
+## 2026-06-30 — AccountList: status tab strip + collapsible folders
+- AccountList reworked from a flat card grid + status pills into a status tab strip + collapsible per-status folders (Active / Overdue / Extension / Completed / Settlement / Forfeited / Perm. Forfeited). Read-side (client-side presentation) only — no hook/RPC/edge/schema change.
+
 ## 2026-06-26 — Total Sales · This Month KPI now true booked sales
 - The Finance "Total Sales · This Month" KPI now reflects true booked sales —
   the full order value (`total_amount`) of cash + layaway orders placed in the
