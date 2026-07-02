@@ -31,7 +31,7 @@ import {
   buildFullDetails,
   copyToClipboard,
 } from '@/lib/payment-methods';
-import { normalizeMethod, methodCurrency } from '@/lib/payment-method-registry';
+import { normalizeMethod, methodCurrency, methodLabel } from '@/lib/payment-method-registry';
 import { LocationType, parseLocation, toLocationString } from '@/lib/countries';
 import { getPHTToday } from '@/lib/date-utils';
 import { getPortalAuthHeaders } from '@/lib/portal-auth';
@@ -2908,7 +2908,7 @@ function SubmissionsTab({ submissions, accountId, currency, portalToken, onRefre
               <div className="grid grid-cols-2 gap-x-4 gap-y-1" style={{borderTop:`1px solid ${P.s2}`,paddingTop:'8px'}}>
                 <div>
                   <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts}}>Method: </span>
-                  <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.tp}}>{sub.payment_method}</span>
+                  <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.tp}}>{methodLabel(sub.payment_method)}</span>
                 </div>
                 <div>
                   <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts}}>Date: </span>

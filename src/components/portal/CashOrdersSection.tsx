@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, Banknote, CheckCircle, XCircle } from 'lucide-r
 import { createClient } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import CashPortalPaymentDialog from './CashPortalPaymentDialog';
+import { methodLabel } from '@/lib/payment-method-registry';
 
 interface PortalPendingSubmission {
   id: string;
@@ -83,13 +84,6 @@ function fmtDate(dateStr: string | null | undefined): string {
   }
 }
 
-function prettyMethod(m: string | null | undefined): string {
-  if (!m) return '—';
-  if (m === 'gcash') return 'GCash';
-  if (m === 'bank') return 'Bank Transfer';
-  if (m === 'cash') return 'Cash';
-  return m;
-}
 
 interface CashOrdersSectionProps {
   cashOrders: PortalCashOrder[];
@@ -346,7 +340,7 @@ function CashOrderCard({
           </p>
           <p style={{ color: '#888', fontSize: 11, marginTop: 4 }}>
             {fmt(Number(pendingSubmission.submitted_amount), currency)}
-            {pendingSubmission.payment_method ? ` via ${pendingSubmission.payment_method}` : ''}
+            {pendingSubmission.payment_method ? ` via ${methodLabel(pendingSubmission.payment_method)}` : ''}
           </p>
           <button
             type="button"
@@ -427,7 +421,7 @@ function CashOrderCard({
                     <span style={{ color: P.ts, fontSize: '10px' }}>{fmtDate(p.date_paid)}</span>
                   </div>
                   <div className="flex items-center gap-2 mt-1">
-                    <span style={{ color: P.ts, fontSize: '10px' }}>{prettyMethod(p.payment_method)}</span>
+                    <span style={{ color: P.ts, fontSize: '10px' }}>{p.payment_method ? methodLabel(p.payment_method) : '—'}</span>
                     {p.reference_number && (
                       <span style={{ color: P.ts, fontSize: '10px' }}>· Ref {p.reference_number}</span>
                     )}

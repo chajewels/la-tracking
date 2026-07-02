@@ -471,3 +471,4 @@ Why the column, not the prefix/regex: the prefix is only applied by the trigger 
 Order-level is_test can be set/unset per order without touching a real customer's real orders. `service_jobs` and `trade_ins` have NO is_test column and are intentionally left on prior conventions (no test rows, manual inputs).
 
 - Payment method canonical identity: stored value `cash_pickup`, display label `Cash Pick Up` (via payment-method-registry `methodLabel`). Staff-cash, portal, record/multi, and the submission-edit dropdown all resolve to `cash_pickup`.
+- Customer portal now displays payment methods via payment-method-registry `methodLabel` (store path already canonical via `normalizeMethod`), matching staff surfaces.
