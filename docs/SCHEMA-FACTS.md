@@ -469,3 +469,5 @@ Supersedes the regex/prefix framing in the trigger section above: KPI/alert excl
 Why the column, not the prefix/regex: the prefix is only applied by the trigger at insert, so test orders created *before* their customer was flagged stayed bare-numeric and slipped every `invoice_number ~ '^[0-9]+$'` guard (which only catches *lettered* tests) and every `NOT LIKE 'TEST-%'` guard (which only catches *prefixed* ones). Both patterns are now swept to `is_test = false` across 24 RPCs, 2 edge functions, and 13 frontend sites. See docs/FIXED-BUGS.md Bug #237.
 
 Order-level is_test can be set/unset per order without touching a real customer's real orders. `service_jobs` and `trade_ins` have NO is_test column and are intentionally left on prior conventions (no test rows, manual inputs).
+
+- Payment method canonical identity: stored value `cash_pickup`, display label `Cash Pick Up` (via payment-method-registry `methodLabel`). Staff-cash, portal, record/multi, and the submission-edit dropdown all resolve to `cash_pickup`.

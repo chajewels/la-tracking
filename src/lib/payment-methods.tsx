@@ -79,7 +79,7 @@ export const CHA_PAYMENT_METHODS: ChaPaymentMethod[] = [
     ],
   },
   {
-    id: 'cash-pickup', name: 'Cash Pickup', group: 'PH',
+    id: 'cash-pickup', name: 'Cash Pick Up', group: 'PH',
     icon: <MapPin className="h-5 w-5" />,
     accountName: 'Cesar Magsino',
     location: 'San Juan Batangas',

@@ -42,6 +42,7 @@ export const METHOD_ALIASES: Record<string, string> = {
   gcash: 'gcash',
   cash_pickup: 'cash_pickup',
   'cash pickup': 'cash_pickup',
+  'cash pick up': 'cash_pickup',
   'cash-pickup': 'cash_pickup',
   rakuten: 'rakuten',
   'rakuten bank': 'rakuten',

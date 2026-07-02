@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/calculations';
+import { methodLabel } from '@/lib/payment-method-registry';
 import { Link } from 'react-router-dom';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import SubmissionsSearchBar from '@/components/search/SubmissionsSearchBar';
@@ -378,12 +379,12 @@ const InlinePaymentMethodSelect = memo(function InlinePaymentMethodSelect({
         onClick={(e) => e.stopPropagation()}
         className="h-6 px-2 py-0 text-sm font-medium inline-flex w-auto min-w-0 gap-1 shrink-0 bg-card/40 border-border/50 hover:bg-card/70 text-foreground"
       >
-        <SelectValue placeholder={currentMethod} />
+        <SelectValue placeholder={methodLabel(currentMethod)} />
       </SelectTrigger>
       <SelectContent>
         {options.map((m) => (
           <SelectItem key={m} value={m} className="text-sm">
-            {m}
+            {methodLabel(m)}
           </SelectItem>
         ))}
       </SelectContent>

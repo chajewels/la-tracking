@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Currency } from '@/lib/types';
 import { formatCurrency } from '@/lib/calculations';
 import { CHA_PAYMENT_METHODS } from '@/lib/payment-methods';
+import { normalizeMethod } from '@/lib/payment-method-registry';
 import { supabase } from '@/integrations/supabase/client';
 import { getPHTToday } from '@/lib/date-utils';
 
@@ -166,7 +167,7 @@ export default function RecordCashPaymentDialog({
       const body: Record<string, unknown> = {
         cash_order_id: cashOrder.id,
         submitted_amount: amount,
-        payment_method: paymentMethod,
+        payment_method: normalizeMethod(paymentMethod),
         payment_date: paymentDate,
         sender_name: senderName.trim(),
       };
