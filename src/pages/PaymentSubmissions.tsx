@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/calculations';
-import { methodLabel } from '@/lib/payment-method-registry';
+import { methodLabel, normalizeMethod } from '@/lib/payment-method-registry';
 import { Link } from 'react-router-dom';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import SubmissionsSearchBar from '@/components/search/SubmissionsSearchBar';
@@ -341,14 +341,15 @@ const InlinePaymentMethodSelect = memo(function InlinePaymentMethodSelect({
   const queryClient = useQueryClient();
   const [pending, setPending] = useState(false);
 
+  const currentCanon = currentMethod ? normalizeMethod(currentMethod) : currentMethod;
   const options = useMemo(() => {
-    const set = new Set(availableMethods);
-    if (currentMethod) set.add(currentMethod);
+    const set = new Set(availableMethods.map(normalizeMethod));
+    if (currentMethod) set.add(normalizeMethod(currentMethod));
     return Array.from(set);
   }, [availableMethods, currentMethod]);
 
   const handleChange = async (newValue: string) => {
-    if (newValue === currentMethod) return;
+    if (newValue === currentCanon) return;
     setPending(true);
 
     queryClient.setQueriesData<SubmissionRow[]>(
@@ -374,7 +375,7 @@ const InlinePaymentMethodSelect = memo(function InlinePaymentMethodSelect({
   };
 
   return (
-    <Select value={currentMethod} onValueChange={handleChange} disabled={pending}>
+    <Select value={currentCanon} onValueChange={handleChange} disabled={pending}>
       <SelectTrigger
         onClick={(e) => e.stopPropagation()}
         className="h-6 px-2 py-0 text-sm font-medium inline-flex w-auto min-w-0 gap-1 shrink-0 bg-card/40 border-border/50 hover:bg-card/70 text-foreground"

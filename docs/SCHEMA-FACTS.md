@@ -472,3 +472,4 @@ Order-level is_test can be set/unset per order without touching a real customer'
 
 - Payment method canonical identity: stored value `cash_pickup`, display label `Cash Pick Up` (via payment-method-registry `methodLabel`). Staff-cash, portal, record/multi, and the submission-edit dropdown all resolve to `cash_pickup`.
 - Customer portal now displays payment methods via payment-method-registry `methodLabel` (store path already canonical via `normalizeMethod`), matching staff surfaces.
+- Submission-edit method dropdown dedupes options by canonical value (normalizeMethod) and stores canonical; "Bank Transfer" removed from all pickers (registry entry retained for legacy display; DB payment_methods row deleted).

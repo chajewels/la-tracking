@@ -678,7 +678,7 @@ export default function MultiInvoicePaymentDialog({
                     onChange={e => setPaymentMethod(e.target.value)}
                     className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
                   >
-                    {PAYMENT_METHODS.map((m) => (
+                    {PAYMENT_METHODS.filter((m) => m.value !== 'bank_transfer').map((m) => (
                       <option key={m.value} value={m.value}>{m.label}</option>
                     ))}
                   </select>

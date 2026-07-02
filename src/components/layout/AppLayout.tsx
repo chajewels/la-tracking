@@ -29,7 +29,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       const channelMap: Record<string, string> = {
         gcash: 'gcash', bdo: 'bdo', bpi: 'bpi',
         paypal: 'paypal', cash: 'cash', maya: 'maya',
-        paymaya: 'maya', 'bank transfer': 'bank_transfer',
+        paymaya: 'maya',
       };
       const rawChannel = (detail.payment_channel ?? '').toLowerCase();
       setInitialPaymentMethod(channelMap[rawChannel] ?? null);
