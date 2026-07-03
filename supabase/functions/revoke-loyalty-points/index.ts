@@ -280,6 +280,59 @@ Deno.serve(async (req) => {
       });
     }
 
+    // 9c. Sync to Google Sheet (revoked) — mirrors award-loyalty-points; fire-and-forget, non-blocking.
+    try {
+      const { data: txRow } = await supabase
+        .from("loyalty_transactions")
+        .select("points_amount, spend_amount_jpy, invoice_number, notes")
+        .eq("id", transactionId)
+        .single();
+      const { data: cust } = await supabase
+        .from("customers")
+        .select("customer_code, full_name, email")
+        .eq("id", (preMember as any).customer_id)
+        .single();
+      const revSyncRes = await fetch(
+        `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-loyalty-to-sheet`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            event_type: "revoked",
+            customer: {
+              customer_id: (preMember as any).customer_id,
+              full_name: (cust as any)?.full_name ?? null,
+              email: (cust as any)?.email ?? null,
+            },
+            payload: {
+              member_id: (cust as any)?.customer_code ?? null,
+              transaction_id: transactionId,
+              points_amount: (txRow as any)?.points_amount ?? null,
+              spend_amount_jpy: (txRow as any)?.spend_amount_jpy ?? spend_jpy ?? null,
+              tier_at_time: postTierName,
+              invoice_number: (txRow as any)?.invoice_number ?? invoice_number ?? null,
+              account_id: account_id ?? null,
+              notes: (txRow as any)?.notes ?? notes ?? "",
+              created_by: "system",
+            },
+          }),
+        },
+      );
+      if (revSyncRes.ok) {
+        await supabase.from("loyalty_transactions")
+          .update({ synced_to_sheet_at: new Date().toISOString() })
+          .eq("id", transactionId);
+      } else {
+        const _t = await revSyncRes.text().catch(() => "");
+        console.error(`[revoke-loyalty-points] sync-loyalty-to-sheet (revoked) failed (${revSyncRes.status}): ${_t} — marker left NULL so loyalty-sheet-reconcile will retry`);
+      }
+    } catch (sheetErr) {
+      console.warn("[revoke-loyalty-points] sheet sync (revoked) block failed (non-blocking):", sheetErr);
+    }
+
     // 10. Return
     return json({
       ok: true,
