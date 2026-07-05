@@ -225,7 +225,7 @@ export function useFinancialAlerts() {
     let isMounted = true;
 
     const fetchAlerts = async () => {
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from('financial_alerts')
         .select('*')
         .is('resolved_at', null)

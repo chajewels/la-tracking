@@ -1022,7 +1022,7 @@ function FullSummaryTab({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from('timesheet_monthly_history')
         .select('month_key, csr_net, liveadmin_net');
       if (cancelled) return;

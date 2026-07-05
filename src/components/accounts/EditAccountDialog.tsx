@@ -119,7 +119,7 @@ export default function EditAccountDialog({ account, schedule }: EditAccountDial
             .select('penalty_amount')
             .eq('account_id', account.id)
             .neq('status', 'waived'),
-          (supabase as any)
+          supabase
             .from('account_services')
             .select('amount')
             .eq('account_id', account.id),

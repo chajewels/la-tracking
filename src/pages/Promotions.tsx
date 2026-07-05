@@ -610,7 +610,7 @@ export default function Promotions() {
   const { data: announcements } = useQuery({
     queryKey: ['announcements'],
     queryFn: async () => {
-      const { data, error } = await (supabase as any).from('announcements').select('*').order('created_at', { ascending: false });
+      const { data, error } = await supabase.from('announcements').select('*').order('created_at', { ascending: false });
       if (error) throw error;
       return (data || []) as any[];
     },
@@ -634,11 +634,11 @@ export default function Promotions() {
       }
       const payload = { title: annForm.title.trim(), content: annForm.content.trim(), image_url: imageUrl, link_url: annForm.link_url?.trim() || null, link_label: annForm.link_label?.trim() || null, is_active: annForm.is_active ?? true, show_once: annForm.show_once ?? true };
       if (annForm.id) {
-        const { error } = await (supabase as any).from('announcements').update(payload).eq('id', annForm.id);
+        const { error } = await supabase.from('announcements').update(payload).eq('id', annForm.id);
         if (error) throw error;
         toast.success('Announcement updated');
       } else {
-        const { error } = await (supabase as any).from('announcements').insert({ ...payload, created_by: user?.id });
+        const { error } = await supabase.from('announcements').insert({ ...payload, created_by: user?.id });
         if (error) throw error;
         toast.success('Announcement created');
       }
@@ -648,9 +648,9 @@ export default function Promotions() {
     finally { setAnnSaving(false); }
   };
 
-  const toggleAnnActive = async (a: any) => { await (supabase as any).from('announcements').update({ is_active: !a.is_active }).eq('id', a.id); queryClient.invalidateQueries({ queryKey: ['announcements'] }); };
-  const toggleAnnShowOnce = async (a: any) => { await (supabase as any).from('announcements').update({ show_once: !a.show_once }).eq('id', a.id); queryClient.invalidateQueries({ queryKey: ['announcements'] }); };
-  const handleDeleteAnn = async () => { if (!annDeleteTarget) return; await (supabase as any).from('announcements').delete().eq('id', annDeleteTarget.id); toast.success('Deleted'); setAnnDeleteTarget(null); queryClient.invalidateQueries({ queryKey: ['announcements'] }); };
+  const toggleAnnActive = async (a: any) => { await supabase.from('announcements').update({ is_active: !a.is_active }).eq('id', a.id); queryClient.invalidateQueries({ queryKey: ['announcements'] }); };
+  const toggleAnnShowOnce = async (a: any) => { await supabase.from('announcements').update({ show_once: !a.show_once }).eq('id', a.id); queryClient.invalidateQueries({ queryKey: ['announcements'] }); };
+  const handleDeleteAnn = async () => { if (!annDeleteTarget) return; await supabase.from('announcements').delete().eq('id', annDeleteTarget.id); toast.success('Deleted'); setAnnDeleteTarget(null); queryClient.invalidateQueries({ queryKey: ['announcements'] }); };
 
   return (
     <AppLayout>

@@ -53,7 +53,7 @@ export default function CustomerPortalShareMenu({
 
   const fetchToken = async () => {
     setLoading(true);
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from('customer_portal_tokens')
       .select('*')
       .eq('customer_id', customerId)
@@ -119,13 +119,13 @@ export default function CustomerPortalShareMenu({
     setGenerating(true);
     try {
       // Deactivate old tokens
-      await (supabase as any)
+      await supabase
         .from('customer_portal_tokens')
         .update({ is_active: false })
         .eq('customer_id', customerId);
 
       // Create new token
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('customer_portal_tokens')
         .insert({ customer_id: customerId, created_by_user_id: user?.id })
         .select()
@@ -136,7 +136,7 @@ export default function CustomerPortalShareMenu({
       setExpiresAt(data.expires_at);
 
       // Audit log
-      await (supabase as any).from('audit_logs').insert({
+      await supabase.from('audit_logs').insert({
         action: 'PORTAL_LINK_GENERATED',
         entity_type: 'customer_portal_tokens',
         entity_id: customerId,
@@ -217,7 +217,7 @@ export default function CustomerPortalShareMenu({
 
       // Tracking update — non-blocking on email success
       const nowIso = new Date().toISOString();
-      const { error: updateError } = await (supabase as any)
+      const { error: updateError } = await supabase
         .from('customers')
         .update({ setup_link_sent_at: nowIso })
         .eq('id', customerId);

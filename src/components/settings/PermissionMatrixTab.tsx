@@ -255,7 +255,7 @@ function MemberMatrix({
     enabled: !!selectedId,
     staleTime: 0,
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('user_permission_overrides')
         .select('permission_key, granted')
         .eq('user_id', selectedId);
@@ -288,7 +288,7 @@ function MemberMatrix({
 
     setSaving(key);
     try {
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from('user_permission_overrides')
         .upsert(
           { user_id: selectedId, permission_key: key, granted: newGranted },
@@ -311,7 +311,7 @@ function MemberMatrix({
     if (!selectedMember) return;
     setSaving(key);
     try {
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from('user_permission_overrides')
         .delete()
         .eq('user_id', selectedId)
@@ -331,7 +331,7 @@ function MemberMatrix({
     if (!selectedMember) return;
     setResettingAll(true);
     try {
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from('user_permission_overrides')
         .delete()
         .eq('user_id', selectedId);

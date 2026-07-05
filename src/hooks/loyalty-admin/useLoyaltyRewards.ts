@@ -110,7 +110,7 @@ export function useCreateLoyaltyReward() {
         created_by_user_id: user?.id ?? null,
       };
 
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('loyalty_rewards')
         .insert(payload)
         .select('id')

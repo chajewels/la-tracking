@@ -126,7 +126,7 @@ export function useUpdateLoyaltySetting() {
     mutationFn: async (input) => {
       const { key, newValue, oldValue } = input;
 
-      const { error: upsertErr } = await (supabase as any)
+      const { error: upsertErr } = await supabase
         .from('system_settings')
         .upsert(
           { key, value: JSON.stringify(newValue) },

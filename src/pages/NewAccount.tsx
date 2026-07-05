@@ -234,7 +234,7 @@ export default function NewAccount() {
   const { data: planConfigs } = useQuery({
     queryKey: ['plan-configurations'],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('plan_configurations')
         .select('plan_months, min_amount_jpy, min_amount_php')
         .eq('is_active', true);

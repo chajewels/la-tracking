@@ -145,7 +145,7 @@ export function useCreateLoyaltyBanner() {
         created_by_user_id: user?.id ?? null,
       };
 
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('loyalty_banners')
         .insert(payload)
         .select('id')

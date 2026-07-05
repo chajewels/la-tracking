@@ -190,7 +190,7 @@ export default function SettingsPage() {
     enabled: isAdmin,
     staleTime: 30_000,
     queryFn: async () => {
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from('user_permission_overrides')
         .select('user_id');
       const ids = new Set<string>((data || []).map((r: any) => r.user_id as string));

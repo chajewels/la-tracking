@@ -100,7 +100,7 @@ export function useAddBetaMember() {
       addedByUserId: string | null;
       notes?: string | null;
     }) => {
-      const { error } = await (supabase as any).from('loyalty_beta_members').insert({
+      const { error } = await supabase.from('loyalty_beta_members').insert({
         customer_id: customerId,
         added_by_user_id: addedByUserId,
         notes: notes ?? null,
@@ -202,7 +202,7 @@ export function useSetLoyaltyEnabled() {
         }
       }
 
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from('system_settings')
         .upsert(
           { key: 'loyalty_enabled', value: JSON.stringify(enabled) },

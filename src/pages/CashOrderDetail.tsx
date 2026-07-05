@@ -114,7 +114,7 @@ function useCashOrderDetail(id: string | undefined) {
     enabled: !!id,
     staleTime: 30_000,
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('cash_orders')
         .select('*, customers(id, full_name, address_line1, city, postal_code, country, mobile_number)')
         .eq('id', id)
@@ -131,7 +131,7 @@ function useCashPayments(orderId: string | undefined) {
     enabled: !!orderId,
     staleTime: 30_000,
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('cash_payments')
         .select('*')
         .eq('cash_order_id', orderId)
@@ -148,7 +148,7 @@ function useCashSubmissions(orderId: string | undefined) {
     enabled: !!orderId,
     staleTime: 30_000,
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('payment_submissions')
         .select('id, cash_order_id, submitted_amount, payment_method, payment_date, sender_name, reference_number, proof_url, notes, reviewer_notes, customer_edited_at, submission_type, status, created_at')
         .eq('cash_order_id', orderId)
@@ -166,7 +166,7 @@ function useCashSubmissionProofs(orderId: string | undefined) {
     enabled: !!orderId,
     staleTime: 30_000,
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('payment_submissions')
         .select('proof_url, payment_date, sender_name')
         .eq('cash_order_id', orderId)
@@ -185,7 +185,7 @@ function useCashOrderNotes(orderId: string | undefined) {
     enabled: !!orderId,
     staleTime: 30_000,
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('account_notes')
         .select('id, note_text, created_by_name, created_at')
         .eq('cash_order_id', orderId!)
@@ -355,14 +355,14 @@ export default function CashOrderDetail() {
         updatePayload.expired_at = null;
       }
 
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from('cash_orders')
         .update(updatePayload)
         .eq('id', order.id);
       if (error) throw error;
       // Best-effort audit log
       try {
-        await (supabase as any).from('audit_logs').insert({
+        await supabase.from('audit_logs').insert({
           entity_type: 'cash_order',
           entity_id: order.id,
           action: isReviving ? 'cash_order_revived' : 'expires_at_updated',
@@ -444,7 +444,7 @@ export default function CashOrderDetail() {
         return;
       }
 
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from('cash_orders')
         .update(updatePayload)
         .eq('id', order.id);
@@ -452,7 +452,7 @@ export default function CashOrderDetail() {
 
       // Best-effort audit log
       try {
-        await (supabase as any).from('audit_logs').insert({
+        await supabase.from('audit_logs').insert({
           entity_type: 'cash_order',
           entity_id: order.id,
           action: 'cash_order_total_edited',
@@ -485,7 +485,7 @@ export default function CashOrderDetail() {
     setCancelling(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from('cash_orders')
         .update({
           status: 'cancelled',

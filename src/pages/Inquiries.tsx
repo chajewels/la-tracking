@@ -217,7 +217,7 @@ function AddOptionInline({
     if (!trimmed) return;
     setSaving(true);
     try {
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from('inquiry_dropdown_options')
         .insert({ dropdown_type: type, value: trimmed });
       if (error) throw error;
@@ -1008,7 +1008,7 @@ export default function Inquiries() {
   const [dropdowns, setDropdowns] = useState<DropdownMap>({});
 
   const loadDropdowns = useCallback(async () => {
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from('inquiry_dropdown_options')
       .select('dropdown_type, value, sort_order')
       .order('sort_order', { ascending: true, nullsFirst: false });

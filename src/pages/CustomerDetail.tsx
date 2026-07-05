@@ -65,7 +65,7 @@ export default function CustomerDetail() {
   useEffect(() => {
     if (!customerId || !data?.customer) return;
     (async () => {
-      const { data: tokenRow } = await (supabase as any)
+      const { data: tokenRow } = await supabase
         .from('customer_portal_tokens')
         .select('token')
         .eq('customer_id', customerId)

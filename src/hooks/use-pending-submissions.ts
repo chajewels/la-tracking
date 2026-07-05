@@ -11,7 +11,7 @@ export function usePendingSubmissionCount() {
   return useQuery({
     queryKey: ['pending-submission-count'],
     queryFn: async () => {
-      const { count, error } = await (supabase as any)
+      const { count, error } = await supabase
         .from('payment_submissions')
         .select('id', { count: 'exact', head: true })
         .in('status', ['submitted', 'under_review']);
@@ -43,7 +43,7 @@ export function usePendingSubmissions(limit = 5) {
   return useQuery({
     queryKey: ['pending-submissions-summary', limit],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('payment_submissions')
         .select('id, submitted_amount, payment_method, created_at, status, account_id, customers(full_name), layaway_accounts(invoice_number, currency)')
         .in('status', ['submitted', 'under_review'])

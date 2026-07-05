@@ -120,7 +120,7 @@ export default function Finance() {
     enabled: !!selectedCard,
     queryFn: async () => {
       if (!selectedCard) return [];
-      const { data, error } = await (supabase as any).rpc('get_forecast_drilldown', {
+      const { data, error } = await supabase.rpc('get_forecast_drilldown', {
         p_month: selectedCard.key,
       });
       if (error) throw error;
@@ -243,7 +243,7 @@ export default function Finance() {
   const { data: monthlySalesData } = useQuery({
     queryKey: ['monthly-sales', currencyFilter],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .rpc('get_monthly_sales', {
           currency_mode: currencyFilter,
           months_back: 12,
@@ -261,7 +261,7 @@ export default function Finance() {
   const { data: cashMonthlyData } = useQuery({
     queryKey: ['cash-orders-monthly'],
     queryFn: async () => {
-      const { data, error } = await (supabase as any).rpc('get_cash_orders_monthly');
+      const { data, error } = await supabase.rpc('get_cash_orders_monthly');
       if (error) throw error;
       return (Array.isArray(data) ? data : []) as Array<{ month: string; cash_jpy: number; order_count: number }>;
     },
@@ -271,7 +271,7 @@ export default function Finance() {
   const { data: dailyLayawaySales, isLoading: dailyLayawayLoading } = useQuery({
     queryKey: ['daily-new-layaway', currencyFilter],
     queryFn: async () => {
-      const { data, error } = await (supabase as any).rpc('get_daily_new_layaway_sales', { currency_mode: currencyFilter });
+      const { data, error } = await supabase.rpc('get_daily_new_layaway_sales', { currency_mode: currencyFilter });
       if (error) throw error;
       return (Array.isArray(data) ? data : []) as Array<{ day: string; new_sales_count: number; total_sales_value: number }>;
     },
@@ -289,7 +289,7 @@ export default function Finance() {
   const { data: dailyLayawayLastMonth, isLoading: dailyLayawayLastMonthLoading } = useQuery({
     queryKey: ['daily-new-layaway-last-month', currencyFilter],
     queryFn: async () => {
-      const { data, error } = await (supabase as any).rpc('get_daily_new_layaway_sales_last_month', { currency_mode: currencyFilter });
+      const { data, error } = await supabase.rpc('get_daily_new_layaway_sales_last_month', { currency_mode: currencyFilter });
       if (error) throw error;
       return (Array.isArray(data) ? data : []) as Array<{ day: string; new_sales_count: number; total_sales_value: number }>;
     },
@@ -307,7 +307,7 @@ export default function Finance() {
   const { data: tradeKpis } = useQuery({
     queryKey: ['trade-kpis'],
     queryFn: async () => {
-      const { data, error } = await (supabase as any).rpc('get_trade_kpis');
+      const { data, error } = await supabase.rpc('get_trade_kpis');
       if (error) throw error;
       return data as {
         active_count: number;
@@ -324,7 +324,7 @@ export default function Finance() {
   const { data: tradeMonthlyTrends } = useQuery({
     queryKey: ['trade-monthly-trends'],
     queryFn: async () => {
-      const { data, error } = await (supabase as any).rpc('get_trade_monthly_trends', { p_months_back: 12 });
+      const { data, error } = await supabase.rpc('get_trade_monthly_trends', { p_months_back: 12 });
       if (error) throw error;
       return (Array.isArray(data) ? data : []) as Array<{
         month: string;
@@ -360,7 +360,7 @@ export default function Finance() {
   const { data: collectionAnalytics, isLoading: analyticsLoading } = useQuery({
     queryKey: ['collection-analytics', currencyFilter],
     queryFn: async () => {
-      const { data, error } = await (supabase as any).rpc('get_collection_analytics', {
+      const { data, error } = await supabase.rpc('get_collection_analytics', {
         currency_mode: currencyFilter,
         months_back: 12,
       });
@@ -403,7 +403,7 @@ export default function Finance() {
   const { data: staffPerformance, isLoading: staffLoading } = useQuery({
     queryKey: ['staff-performance'],
     queryFn: async () => {
-      const { data, error } = await (supabase as any).rpc('get_staff_performance', { months_back: 1 });
+      const { data, error } = await supabase.rpc('get_staff_performance', { months_back: 1 });
       if (error) throw error;
       return (Array.isArray(data) ? data : []) as Array<{
         staff_email: string;
@@ -417,9 +417,9 @@ export default function Finance() {
   const { data: topOutstandingCustomers, isLoading: topCustomersLoading } = useQuery({
     queryKey: ['top-outstanding-customers'],
     queryFn: async () => {
-      const { data, error } = await (supabase as any).rpc('get_top_outstanding_customers');
+      const { data, error } = await supabase.rpc('get_top_outstanding_customers');
       if (error) throw error;
-      return (data?.[0]?.get_top_outstanding_customers ?? data ?? []) as Array<{
+      return ((data?.[0] as { get_top_outstanding_customers?: unknown })?.get_top_outstanding_customers ?? data ?? []) as Array<{
         full_name: string;
         account_count: number;
         total_paid_jpy: number;

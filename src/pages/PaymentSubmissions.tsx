@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef, memo, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import type { Database } from '@/integrations/supabase/types';
 import { getProofSignedUrl } from '@/lib/proof-url';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/layout/AppLayout';
@@ -597,7 +598,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
   const { data: submissions, isLoading } = useQuery({
     queryKey: ['payment-submissions', statusFilter],
     queryFn: async () => {
-      let query = (supabase as any)
+      let query = supabase
         .from('payment_submissions')
         .select('*, customers(full_name, customer_code), layaway_accounts(invoice_number, currency, remaining_balance, total_amount), cash_orders(invoice_number, currency, customer_id, customers(full_name, customer_code))')
         .order('created_at', { ascending: false });
@@ -605,7 +606,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
       if (statusFilter === 'pending') {
         query = query.in('status', ['submitted', 'under_review']);
       } else if (statusFilter !== 'all') {
-        query = query.eq('status', statusFilter);
+        query = query.eq('status', statusFilter as Database['public']['Enums']['submission_status']);
       }
 
       const { data, error } = await query;
@@ -621,7 +622,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
     queryKey: ['submission-allocations', submissionIds],
     queryFn: async () => {
       if (submissionIds.length === 0) return [];
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('payment_submission_allocations')
         .select('*')
         .in('submission_id', submissionIds);

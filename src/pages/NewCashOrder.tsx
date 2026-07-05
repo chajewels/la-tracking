@@ -153,7 +153,7 @@ export default function NewCashOrder() {
     }
     setInvoiceCheck('checking');
     const [cashRes, layawayRes] = await Promise.all([
-      (supabase as any).from('cash_orders').select('id').eq('invoice_number', trimmed).maybeSingle(),
+      supabase.from('cash_orders').select('id').eq('invoice_number', trimmed).maybeSingle(),
       supabase.from('layaway_accounts').select('id').eq('invoice_number', trimmed).maybeSingle(),
     ]);
     if (cashRes.data || layawayRes.data) setInvoiceCheck('taken');

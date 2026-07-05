@@ -119,7 +119,7 @@ export function useCreateLoyaltyPromo() {
   return useMutation({
     mutationFn: async (input: CreatePromoInput) => {
       const { data: { user } } = await supabase.auth.getUser();
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('loyalty_promos')
         .insert({
           name: input.name,

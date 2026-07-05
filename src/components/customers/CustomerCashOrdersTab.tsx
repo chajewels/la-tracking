@@ -31,7 +31,7 @@ function useCustomerCashOrders(customerId: string | undefined) {
     enabled: !!customerId,
     staleTime: 30_000,
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('cash_orders')
         .select('id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at')
         .eq('customer_id', customerId)
