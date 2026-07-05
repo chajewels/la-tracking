@@ -4166,6 +4166,23 @@ export type Database = {
         }
         Returns: undefined
       }
+      allocate_payment_atomic: {
+        Args: {
+          p_account_id: string
+          p_amount_paid: number
+          p_currency: string
+          p_is_downpayment?: boolean
+          p_payment_date: string
+          p_payment_method: string
+          p_preview?: boolean
+          p_reference_number: string
+          p_remarks: string
+          p_submitted_by_name?: string
+          p_submitted_by_type?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       approve_redemption_atomic: {
         Args: {
           p_redemption_id: string
