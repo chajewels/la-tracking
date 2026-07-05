@@ -103,7 +103,7 @@ export default defineConfig(({ mode }) => ({
     {
       name: 'emit-version-json',
       apply: 'build' as const,
-      generateBundle() {
+      generateBundle(this: { emitFile: (f: { type: 'asset'; fileName: string; source: string }) => void }) {
         this.emitFile({
           type: 'asset',
           fileName: 'version.json',
