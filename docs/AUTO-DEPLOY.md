@@ -1,3 +1,5 @@
+> ARCHIVED 2026-07-05: the workflow this document describes was removed after investigation proved it never deployed anything (secrets never existed under Lovable Cloud). Edge functions deploy via Lovable IDE only. Retained for history.
+
 ## AUTO-DEPLOY RULES (updated 2026-05-13)
 
   ⚠️ DEPLOYMENT MODEL (updated

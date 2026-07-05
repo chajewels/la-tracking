@@ -363,21 +363,7 @@
 
 ### Workflow gaps (surfaced 2026-05-01)
 
-  - 2 edge functions are completely missing from
-    .github/workflows/supabase-functions-deploy.yml:
-      - auth-email-hook (imports 6 templates from
-        _shared/email-templates/)
-      - reactivate-account (imports check-permission.ts)
-
-    These functions deploy manually only. Pre-existing
-    gap separate from bug #77 (which fixed the OR clause
-    propagation for functions already in the workflow).
-    Lower severity since manual deploys are tracked, but
-    future Lovable changes to these functions will not
-    auto-deploy.
-
-    Surfaced 2026-05-01 during workflow gap investigation
-    for bug #77.
+  Retired 2026-07-05: moot — the deploy workflow itself was proven inert (never deployed anything) and removed; ALL edge functions deploy via Lovable IDE, so no function is 'missing' from any deploy path.
 
 ### Currency toggle behavior (surfaced 2026-04-30) — RESOLVED 2026-05-23
 

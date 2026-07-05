@@ -33,7 +33,7 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/KNOWN-ISSUES.md — DP-detection caveats
 - docs/VERIFICATION.md — how to run account health verification
 - docs/TEST-ACCOUNTS.md — benchmark test account setups (TEST-001..005)
-- docs/AUTO-DEPLOY.md — VERIFY: may be stale (deploy is now via Lovable IDE)
+- docs/AUTO-DEPLOY.md — STALE/ARCHIVED: describes the removed GitHub Actions deploy workflow, which never functioned; deploys are via Lovable IDE only
 - docs/PORTAL-PIN-AUTH.md — VERIFY: may be stale (portal migrated to email/password)
 - docs/RECENT-UPDATES.md — older changelog (archived)
 
@@ -497,11 +497,12 @@ To add a new screenshot for any Help section:
   Lovable → src/ AND supabase/functions/ file creation and editing.
             Lovable ALSO handles ALL Supabase edge function
             deployments via direct Supabase Dashboard tooling access.
-            NOTE (factual): edge functions ALSO auto-deploy via
-            .github/workflows (GitHub Actions workflow "Deploy Supabase
-            Edge Functions", observed run #274 on push to main,
-            2026-07-05); the Lovable IDE deploy-prompt path above remains
-            the documented manual procedure.
+            NOTE (corrected 2026-07-05): the GitHub Actions workflow "Deploy Supabase
+            Edge Functions" was removed — investigation proved it NEVER deployed
+            anything (required secrets never existed and cannot be created under
+            Lovable Cloud; its green runs were 100% skipped steps). Lovable IDE is
+            the ONLY edge-function deploy path. Never assume GitHub CI deploys any
+            Supabase resource for this repo.
   Claude Code → src/ AND supabase/functions/ editing when explicitly
                 directed by Cynthia. Default mode is read-only audit
                 and diagnosis. May commit and push to git when asked.

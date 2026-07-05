@@ -109,8 +109,7 @@
       2486963 — post-tax discount math (final correction)
 
     File: supabase/functions/generate-invoice/index.ts (~600 lines)
-    Workflow: .github/workflows/supabase-functions-deploy.yml has
-              path-trigger + deploy step (NO --no-verify-jwt)
+    Deploys: via Lovable IDE only (the former GitHub deploy workflow was inert and removed 2026-07-05); gateway verify_jwt stays ON for this function
 
     End-to-end test (TEST-004, 13-item payload, ¥5,000 discount,
     ¥1,500 shipping):
