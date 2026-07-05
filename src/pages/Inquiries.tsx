@@ -362,7 +362,7 @@ function InquiryFormSheet({
         inquirer_name: form.inquirer_name.trim() || null,
         entered_by: form.entered_by.trim() || null,
       };
-      const client = supabase as any;
+      const client = supabase;
       const { error } = editing
         ? await client.from('product_inquiries').update(payload).eq('id', editing.id)
         : await client.from('product_inquiries').insert(payload);
@@ -1058,7 +1058,7 @@ export default function Inquiries() {
   const loadList = useCallback(async () => {
     setListLoading(true);
     try {
-      const client = supabase as any;
+      const client = supabase;
       let q = client
         .from('product_inquiries')
         .select('*', { count: 'exact' })
@@ -1128,7 +1128,7 @@ export default function Inquiries() {
   const loadAll = useCallback(async () => {
     setDemandLoading(true);
     try {
-      const client = supabase as any;
+      const client = supabase;
       const { data, error } = await client
         .from('product_inquiries')
         .select('id, item_code, product_name, category, inquiry_count, last_inquired_date, source, action_needed, order_placed, inquirer_name, entered_by');

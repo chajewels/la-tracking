@@ -6,7 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 // Cast for typed-table-name calls until the types are regenerated.
 // Same pattern used by useLoyaltyRewards / useLoyaltyBanners.
 // deno-lint-ignore no-explicit-any
-const sb = supabase as any;
+const sb = supabase;
 
 // ─────────── Types ───────────────────────────────────────────────
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import type { Database } from '@/integrations/supabase/types';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -195,7 +196,7 @@ function MyTimesheetTab({
     onEntrySaved(saved);
     setBusy(true);
     try {
-      const client = supabase as any;
+      const client = supabase;
       const { error } = await client
         .from('timesheet_entries')
         .upsert(
@@ -308,8 +309,8 @@ function MyTimesheetTab({
     if (!copied) return;
     setBusy(true);
     try {
-      const client = supabase as any;
-      const payload: Record<string, unknown> = { user_id: userId, work_date: workDate };
+      const client = supabase;
+      const payload: Database['public']['Tables']['timesheet_entries']['Insert'] = { user_id: userId, work_date: workDate };
       for (const f of PUNCH_FIELDS) {
         const hhmm = copied[f];
         payload[f] = hhmm ? zonedWallToISO(workDate, hhmm, tz) : null;
@@ -782,7 +783,7 @@ function AssignmentDialog({
         active: form.active,
         can_view_all: form.can_view_all,
       };
-      const client = supabase as any;
+      const client = supabase;
       const { error } = existing
         ? await client.from('timesheet_profiles').update(payload).eq('id', existing.id)
         : await client.from('timesheet_profiles').upsert(payload, { onConflict: 'user_id' });
@@ -1262,7 +1263,7 @@ export default function Timesheet() {
     if (!userId) return;
     setLoading(true);
     try {
-      const client = supabase as any;
+      const client = supabase;
       const profileCols = 'id, user_id, template_type, job_title, timezone, work_days, shift_start, shift_end, basic_salary, allowance, half_day_rate, full_day_rate, full_day_threshold_hours, dayoff_divisor, active, can_view_all';
       const entryCols = 'work_date, am_in, am_out, pm_in, pm_out, user_id';
 

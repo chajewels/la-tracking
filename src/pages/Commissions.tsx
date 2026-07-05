@@ -216,7 +216,7 @@ function SalesLogDialog({
         eligible: form.eligible,
         notes: form.notes.trim() || null,
       };
-      const client = supabase as any;
+      const client = supabase;
       const { error } = editing
         ? await client.from('sales_log').update(payload).eq('id', editing.id)
         : await client.from('sales_log').insert(payload);
@@ -236,7 +236,7 @@ function SalesLogDialog({
     if (!window.confirm('Delete this sale entry? This cannot be undone.')) return;
     setDeleting(true);
     try {
-      const client = supabase as any;
+      const client = supabase;
       const { error } = await client.from('sales_log').delete().eq('id', editing.id);
       if (error) throw error;
       toast.success('Sale deleted');
@@ -432,7 +432,7 @@ function AgentDialog({
         start_month: startMonth || null,
         sort_order: Number(sortOrder) || 0,
       };
-      const client = supabase as any;
+      const client = supabase;
       const { error } = editing
         ? await client.from('commission_agents').update(payload).eq('id', editing.id)
         : await client.from('commission_agents').insert(payload);
@@ -1337,7 +1337,7 @@ function ConfigTab({
     }
     setSavingMonth(month);
     try {
-      const client = supabase as any;
+      const client = supabase;
       const payload = {
         closer_pct: draft.closer_pct,
         processor_pct: draft.processor_pct,
@@ -1394,7 +1394,7 @@ function ConfigTab({
 
   async function toggleAgentActive(a: CommissionAgent, value: boolean) {
     try {
-      const client = supabase as any;
+      const client = supabase;
       const { error } = await client.from('commission_agents').update({ active: value }).eq('id', a.id);
       if (error) throw error;
       toast.success(`${a.name} ${value ? 'activated' : 'deactivated'}`);
@@ -1633,7 +1633,7 @@ export default function Commissions() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const client = supabase as any;
+      const client = supabase;
       // sales_log can exceed PostgREST's 1,000-row server cap (.limit(10000)
       // does NOT override it), which truncated the dataset to the most recent
       // ~1,000 sales and made computeAllMonths see only 2 months. Paginate
