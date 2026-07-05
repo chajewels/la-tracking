@@ -165,128 +165,31 @@ Deno.serve(async (req) => {
         .eq("account_id", inputAlloc.account_id)
         .order("installment_number", { ascending: true });
 
-      // Fetch unpaid penalties
-      const { data: unpaidPenalties } = await supabase
-        .from("penalty_fees")
-        .select("*")
-        .eq("account_id", inputAlloc.account_id)
-        .eq("status", "unpaid")
-        .order("penalty_date", { ascending: true });
-
-      // Allocate: penalties first, then installments
-      let remaining = Math.round(amountForAccount * 100) / 100;
-      const paymentAllocations: Array<{
-        schedule_id: string;
-        allocation_type: "penalty" | "installment";
-        allocated_amount: number;
-        penalty_fee_id?: string;
-      }> = [];
-      const penaltyUpdates: Array<{ id: string; status: string }> = [];
-      const scheduleUpdates: Array<{
-        id: string;
-        paid_amount: number;
-        status: string;
-        total_due_amount?: number;
-      }> = [];
-
-      // DP payments skip all schedule and penalty allocation.
-      const isDP = !!inputAlloc.is_downpayment;
-
-      if (!isDP && unpaidPenalties) {
-        for (const pen of unpaidPenalties) {
-          if (remaining <= 0) break;
-          const penAmount = Number(pen.penalty_amount);
-          const toPay = Math.round(Math.min(remaining, penAmount) * 100) / 100;
-          remaining = Math.round((remaining - toPay) * 100) / 100;
-          paymentAllocations.push({
-            schedule_id: pen.schedule_id,
-            allocation_type: "penalty",
-            allocated_amount: toPay,
-            penalty_fee_id: pen.id,
-          });
-          penaltyUpdates.push({
-            id: pen.id,
-            status: toPay >= penAmount ? "paid" : "unpaid",
-          });
-        }
+      const { data, error } = await supabase.rpc('allocate_payment_atomic', {
+        p_account_id: inputAlloc.account_id,
+        p_amount_paid: amountForAccount,
+        p_payment_date: effectiveDate,
+        p_payment_method: effectiveMethod,
+        p_reference_number: batchId,
+        p_remarks: remarks ?? null,
+        p_user_id: userId,
+        p_currency: acct.currency,
+        p_is_downpayment: !!inputAlloc.is_downpayment,
+        p_submitted_by_type: "staff",
+        p_submitted_by_name: null,
+        p_preview: true,
+      });
+      if (error) {
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
-      // Allocate remaining to installments sequentially — not for DP payments.
-      if (!isDP && schedule && remaining > 0) {
-        // Fetch existing allocations from payment_allocations — never use stale paid_amount cache
-        const { data: existingAllocsRaw } = await supabase
-          .from("payment_allocations")
-          .select("schedule_id, allocated_amount, allocation_type, payment_id")
-          .in("schedule_id", schedule.map((s: any) => s.id));
-
-        const { data: voidedPmts } = await supabase
-          .from("payments")
-          .select("id")
-          .eq("account_id", inputAlloc.account_id)
-          .not("voided_at", "is", null);
-        const voidedIds = new Set((voidedPmts || []).map((p: any) => p.id));
-
-        const allocatedBySchedule = new Map<string, number>();
-        const penaltyAllocBySchedule = new Map<string, number>();
-        for (const alloc of (existingAllocsRaw || [])) {
-          if (voidedIds.has(alloc.payment_id)) continue;
-          if (alloc.allocation_type === "installment") {
-            allocatedBySchedule.set(alloc.schedule_id,
-              (allocatedBySchedule.get(alloc.schedule_id) || 0) + Number(alloc.allocated_amount));
-          } else if (alloc.allocation_type === "penalty") {
-            penaltyAllocBySchedule.set(alloc.schedule_id,
-              (penaltyAllocBySchedule.get(alloc.schedule_id) || 0) + Number(alloc.allocated_amount));
-          }
-        }
-
-        const unpaidItems = schedule.filter(
-          (item: any) => item.status !== "paid" && item.status !== "cancelled"
-        ).sort((a: any, b: any) => a.installment_number - b.installment_number);
-
-        for (const item of unpaidItems) {
-          if (remaining <= 0) break;
-
-          const base = Number(item.base_installment_amount);
-          const penalty = Number(item.penalty_amount || 0);
-          const carried = Number(item.carried_amount || 0);
-          const alreadyAllocated = allocatedBySchedule.get(item.id) || 0;
-          const alreadyAllocatedPenalty = (penaltyAllocBySchedule.get(item.id) || 0) +
-            paymentAllocations.filter(a => a.schedule_id === item.id && a.allocation_type === "penalty")
-              .reduce((sum, a) => sum + a.allocated_amount, 0);
-
-          const naturalCeiling = base + penalty + carried;
-          const rowCeiling = item.total_due_amount
-            ? Math.min(naturalCeiling, Number(item.total_due_amount))
-            : naturalCeiling;
-          const due = Math.max(0, rowCeiling - alreadyAllocated - alreadyAllocatedPenalty);
-          if (due <= 0) continue;
-
-          const toApply = Math.round(Math.min(remaining, due) * 100) / 100;
-          remaining = Math.round((remaining - toApply) * 100) / 100;
-          const newPaid = Math.round((alreadyAllocated + toApply) * 100) / 100;
-          const isNowFullyPaid = newPaid + alreadyAllocatedPenalty >= rowCeiling - 0.005;
-
-          paymentAllocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
-          scheduleUpdates.push({
-            id: item.id,
-            paid_amount: newPaid,
-            status: isNowFullyPaid ? "paid" : "partially_paid",
-          });
-        }
-      }
-
-      const newTotalPaid = Number(acct.total_paid) + amountForAccount;
-      // Preview approximation: total_amount + activePenalties - newTotalPaid
-      // (uses cached acct.total_paid + new amount as approximation before DB insert)
-      const { data: previewPens } = await supabase
-        .from("penalty_fees")
-        .select("penalty_amount")
-        .eq("account_id", inputAlloc.account_id)
-        .neq("status", "waived");
-      const previewPenaltySum = (previewPens || [])
-        .reduce((s: number, p: any) => s + Number(p.penalty_amount), 0);
-      const newRemainingBalance = Math.max(0,
-        Math.round((Number(acct.total_amount) + previewPenaltySum - newTotalPaid) * 100) / 100);
+      // INVARIANT-1-exact preview totals from allocate_payment_atomic (p_preview:true),
+      // replacing the prior cached-total approximation.
+      const newTotalPaid = data.new_total_paid;
+      const newRemainingBalance = Math.max(0, data.new_remaining_balance);
 
       // Recalculate correct status based on updated schedule state
       let newStatus: string;
@@ -294,8 +197,8 @@ Deno.serve(async (req) => {
         newStatus = "completed";
       } else if (["active", "overdue"].includes(acct.status)) {
         const todayStr = new Date().toISOString().split("T")[0];
-        // Check if there will still be overdue items after applying scheduleUpdates
-        const paidIds = new Set(scheduleUpdates.filter((u: any) => u.status === "paid").map((u: any) => u.id));
+        // Check if there will still be overdue items after applying the RPC's schedule updates
+        const paidIds = new Set((data.schedule_updates || []).filter((u: any) => u.status === "paid").map((u: any) => u.id));
         const stillOverdue = (schedule || []).some((s: any) =>
           s.status !== "paid" && s.status !== "cancelled" && !paidIds.has(s.id) && s.due_date < todayStr
         );
@@ -308,7 +211,7 @@ Deno.serve(async (req) => {
         account_id: inputAlloc.account_id,
         invoice_number: acct.invoice_number,
         amount_allocated: amountForAccount,
-        payment_allocations: paymentAllocations,
+        payment_allocations: data.allocations,
         new_total_paid: newTotalPaid,
         new_remaining_balance: Math.max(0, newRemainingBalance),
         new_status: newStatus,

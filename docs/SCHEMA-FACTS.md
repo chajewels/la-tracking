@@ -473,3 +473,20 @@ Order-level is_test can be set/unset per order without touching a real customer'
 - Payment method canonical identity: stored value `cash_pickup`, display label `Cash Pick Up` (via payment-method-registry `methodLabel`). Staff-cash, portal, record/multi, and the submission-edit dropdown all resolve to `cash_pickup`.
 - Customer portal now displays payment methods via payment-method-registry `methodLabel` (store path already canonical via `normalizeMethod`), matching staff surfaces.
 - Submission-edit method dropdown dedupes options by canonical value (normalizeMethod) and stores canonical; "Bank Transfer" removed from all pickers (registry entry retained for legacy display; DB payment_methods row deleted).
+
+### allocate_payment_atomic RPC (added 2026-07-05)
+
+Consolidates the installment payment-allocation waterfall + all downstream writes into a single Postgres transaction. Live in the DB (not in `supabase/migrations/` — DB is authoritative per the "Live DB ahead of repo migrations" CLAUDE.md note). `service_role`-only grant.
+
+**Params** (all `p_`-prefixed):
+`p_account_id uuid`, `p_amount_paid numeric`, `p_payment_date date`, `p_payment_method text`, `p_reference_number text`, `p_remarks text`, `p_user_id uuid`, `p_currency text`, `p_is_downpayment boolean`, `p_submitted_by_type text` (`'customer'|'staff'`), `p_submitted_by_name text`, `p_preview boolean`.
+
+**Return** — `jsonb`, two shapes by mode:
+- **Write mode** (`p_preview = false`): `{ payment_id }` (the inserted `payments.id`). Performs the full row-by-row waterfall (penalty-then-base per schedule row, carry-over guard, Keep-credit ceiling), inserts the `payments` row, merges + inserts `payment_allocations`, updates `penalty_fees.status`, updates `layaway_schedule` (`paid_amount`/`status`), and recomputes `layaway_accounts` totals (`total_paid` via INVARIANT 1 = SUM non-voided `payments.amount_paid`; `remaining_balance` = `total_amount` + non-waived penalties − total_paid; `status`). DP payments (`p_is_downpayment = true`) skip schedule/penalty allocation entirely — payment row only, totals via INVARIANT 1.
+- **Preview mode** (`p_preview = true`): `{ allocations, new_total_paid, new_remaining_balance, new_status, schedule_updates, penalty_updates }` — the exact plan, NO writes. `allocations[]` elements carry `schedule_id` / `allocation_type` / `allocated_amount` (no `penalty_fee_id`). `schedule_updates[]` carry `id` / `status` (+ paid_amount). Values are INVARIANT-1-exact, replacing the prior frontend-side cached-total approximation.
+
+**Callers:**
+- `review-payment-submission` `allocatePaymentToAccount()` — SOLE write-mode caller (`p_preview:false`); its former inline body (schedule/penalty fetch, waterfall, payment insert, TS idempotency guard, rollback helper, merged-allocation inserts, penalty/schedule updates, account-totals recompute) is now entirely delegated to the RPC.
+- `record-payment` (preview_only branch) and `record-multi-payment` (per-account loop) — `p_preview:true` only.
+
+**Atomicity note:** the TS-side idempotency guard (`skipWaterfall` when the payment already has allocations) and the best-effort `rollbackPayment` delete are superseded — a single DB transaction makes partial writes impossible, so there is no half-inserted payment to guard against or roll back.

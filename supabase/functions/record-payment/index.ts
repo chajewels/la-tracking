@@ -192,186 +192,37 @@ Deno.serve(async (req) => {
 
     // ── preview_only: compute allocation plan without writing anything ──
 
-    // Fetch schedule ordered by installment
-    const { data: schedule } = await supabase
-      .from("layaway_schedule")
-      .select("*")
-      .eq("account_id", account_id)
-      .order("installment_number", { ascending: true });
-
-    if (!schedule) {
-      return new Response(JSON.stringify({ error: "Schedule not found" }), {
-        status: 404,
+    const { data, error } = await supabase.rpc('allocate_payment_atomic', {
+      p_account_id: account_id,
+      p_amount_paid: amount_paid,
+      p_payment_date: date_paid,
+      p_payment_method: payment_method,
+      p_reference_number: reference_number,
+      p_remarks: remarks,
+      p_user_id: user.id,
+      p_currency: account.currency,
+      p_is_downpayment: is_downpayment,
+      p_submitted_by_type: "staff",
+      p_submitted_by_name: null,
+      p_preview: true,
+    });
+    if (error) {
+      return new Response(JSON.stringify({ error: error.message }), {
+        status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Fetch unpaid penalties
-    const { data: unpaidPenalties } = await supabase
-      .from("penalty_fees")
-      .select("*")
-      .eq("account_id", account_id)
-      .eq("status", "unpaid")
-      .order("penalty_date", { ascending: true });
-
-    // Allocate payment: penalties first, then installments
-    let remaining = Math.round(Number(amount_paid) * 100) / 100;
-    const allocations: Array<{
-      schedule_id: string;
-      allocation_type: "penalty" | "installment";
-      allocated_amount: number;
-      penalty_fee_id?: string;
-    }> = [];
-    const penaltyUpdates: Array<{ id: string; status: string; paid_amount: number }> = [];
-    const scheduleUpdates: Array<{
-      id: string;
-      paid_amount: number;
-      status: string;
-      total_due_amount?: number;
-    }> = [];
-
-    // Unified row-by-row waterfall — allocate penalty + installment for
-    // EACH schedule row before advancing. Prevents cross-row penalty
-    // leakage where a later month's penalty events could drain the
-    // payment budget before the target month's base is covered.
-    //
-    // DP payments NEVER touch schedule rows; they are recorded purely
-    // as a payment entry and reflected in total_paid/remaining_balance.
-    if (!is_downpayment && schedule) {
-      // Fetch existing allocations from payment_allocations — never use stale paid_amount cache
-      const { data: existingAllocsRaw } = await supabase
-        .from("payment_allocations")
-        .select("schedule_id, allocated_amount, allocation_type, payment_id")
-        .in("schedule_id", schedule.map((s: any) => s.id));
-
-      const { data: voidedPmts } = await supabase
-        .from("payments")
-        .select("id")
-        .eq("account_id", account_id)
-        .not("voided_at", "is", null);
-      const voidedIds = new Set((voidedPmts || []).map((p: any) => p.id));
-
-      const allocatedBySchedule = new Map<string, number>();
-      const penaltyAllocBySchedule = new Map<string, number>();
-      for (const alloc of (existingAllocsRaw || [])) {
-        if (voidedIds.has(alloc.payment_id)) continue;
-        if (alloc.allocation_type === "installment") {
-          allocatedBySchedule.set(alloc.schedule_id,
-            (allocatedBySchedule.get(alloc.schedule_id) || 0) + Number(alloc.allocated_amount));
-        } else if (alloc.allocation_type === "penalty") {
-          penaltyAllocBySchedule.set(alloc.schedule_id,
-            (penaltyAllocBySchedule.get(alloc.schedule_id) || 0) + Number(alloc.allocated_amount));
-        }
-      }
-
-      const unpaidItems = schedule.filter(
-        (item: any) => item.status !== "paid" && item.status !== "cancelled"
-      ).sort((a: any, b: any) => a.installment_number - b.installment_number);
-
-      for (const item of unpaidItems) {
-        if (remaining <= 0) break;
-
-        // STEP A — Pay THIS row's penalties only (scoped to this schedule_id)
-        if (unpaidPenalties) {
-          const itemPenalties = unpaidPenalties.filter((pen: any) => pen.schedule_id === item.id);
-          for (const pen of itemPenalties) {
-            if (remaining <= 0) break;
-            const penAmount = Number(pen.penalty_amount);
-            const toPay = Math.round(Math.min(remaining, penAmount) * 100) / 100;
-            remaining = Math.round((remaining - toPay) * 100) / 100;
-            allocations.push({
-              schedule_id: pen.schedule_id,
-              allocation_type: "penalty",
-              allocated_amount: toPay,
-              penalty_fee_id: pen.id,
-            });
-            penaltyUpdates.push({
-              id: pen.id,
-              status: toPay >= penAmount ? "paid" : "unpaid",
-              paid_amount: toPay,
-            });
-          }
-        }
-
-        if (remaining <= 0) break;
-
-        // STEP B — Pay THIS row's base installment
-        const base = Number(item.base_installment_amount);
-        const penalty = Number(item.penalty_amount || 0);
-        const carried = Number(item.carried_amount || 0);
-        const alreadyAllocated = allocatedBySchedule.get(item.id) || 0;
-        // Include in-memory penalty allocations made in Step A for this row
-        const alreadyAllocatedPenalty = (penaltyAllocBySchedule.get(item.id) || 0) +
-          allocations.filter(a => a.schedule_id === item.id && a.allocation_type === "penalty")
-            .reduce((sum, a) => sum + a.allocated_amount, 0);
-
-        const naturalCeiling = base + penalty + carried;
-        const rowCeiling = item.total_due_amount
-          ? Math.min(naturalCeiling, Number(item.total_due_amount))
-          : naturalCeiling;
-        const due = Math.max(0, rowCeiling - alreadyAllocated - alreadyAllocatedPenalty);
-        if (due <= 0) continue;
-
-        const toApply = Math.round(Math.min(remaining, due) * 100) / 100;
-        const newPaid = Math.round((alreadyAllocated + toApply) * 100) / 100;
-        const isNowFullyPaid = newPaid + alreadyAllocatedPenalty >= rowCeiling - 0.005;
-
-        // STEP C — Push allocation + schedule update (before decrementing remaining
-        // so the explicit break right after remaining -= toApply does not skip it)
-        allocations.push({ schedule_id: item.id, allocation_type: "installment", allocated_amount: toApply });
-        scheduleUpdates.push({
-          id: item.id,
-          paid_amount: newPaid,
-          status: isNowFullyPaid ? "paid" : "partially_paid",
-        });
-
-        remaining = Math.round((remaining - toApply) * 100) / 100;
-
-        // STEP D — exhausted? stop immediately after Step B's remaining decrement,
-        // before any chance of visiting the next row.
-        if (remaining <= 0) break;
-      }
-    }
-
-    // SINGLE SOURCE OF TRUTH: derive total_paid from SUM of all confirmed payments
-    // (not from stored account.total_paid which may be stale)
-    const { data: allActivePayments } = await supabase
-      .from("payments")
-      .select("amount_paid")
-      .eq("account_id", account_id)
-      .is("voided_at", null);
-    const existingPaidSum = (allActivePayments || []).reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
-    // Add current payment amount (not yet inserted)
-    const newTotalPaid = existingPaidSum + Number(amount_paid);
-
-    // Canonical remaining_balance (CLAUDE.md):
-    // remaining = total_amount + Σ(non-waived penalty_fees) - total_paid
-    // Services are already in total_amount — do NOT add them separately.
-    const { data: activePenaltiesData } = await supabase
-      .from("penalty_fees")
-      .select("penalty_amount")
-      .eq("account_id", account_id)
-      .neq("status", "waived");
-    const activePenaltySum = (activePenaltiesData || [])
-      .reduce((s: number, f: any) => s + Number(f.penalty_amount), 0);
-    const newRemainingBalance = Math.max(0,
-      Math.round((
-        Number(account.total_amount)
-        + activePenaltySum
-        - newTotalPaid
-      ) * 100) / 100);
-    const newStatus = newRemainingBalance <= 0 ? "completed" : account.status;
-
-    // Preview mode — return allocation plan without saving. Direct-write to
-    // payments has been removed entirely (Bug #219); see review-payment-submission.
+    // Preview mode — exact allocation plan from allocate_payment_atomic (p_preview:true).
+    // Values are INVARIANT-1-exact; direct writes happen only in review-payment-submission.
     return new Response(JSON.stringify({
       preview: true,
-      allocations,
-      new_total_paid: newTotalPaid,
-      new_remaining_balance: Math.max(0, newRemainingBalance),
-      new_status: newStatus,
-      schedule_updates: scheduleUpdates,
-      penalty_updates: penaltyUpdates,
+      allocations: data.allocations,
+      new_total_paid: data.new_total_paid,
+      new_remaining_balance: data.new_remaining_balance,
+      new_status: data.new_status,
+      schedule_updates: data.schedule_updates,
+      penalty_updates: data.penalty_updates,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

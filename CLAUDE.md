@@ -380,6 +380,20 @@ To add a new screenshot for any Help section:
     redemption Phase B Patch 2 (commit 8130ace) — inline waterfall
     allocation + per-row schedule UPDATE + account totals UPDATE.
 
+    SUPERSEDED (2026-07-05): the inline-waterfall pattern above for
+    the confirm/write path is now consolidated in the
+    allocate_payment_atomic Postgres RPC (single transaction:
+    waterfall + payment insert + payment_allocations + penalty_fees
+    + layaway_schedule + layaway_accounts totals). review-payment-
+    submission is the ONLY write-mode caller (p_preview:false) — it
+    delegates its allocatePaymentToAccount body entirely to the RPC.
+    record-payment and record-multi-payment call the SAME RPC with
+    p_preview:true to compute an exact (INVARIANT-1-accurate) plan
+    without writing. Any OTHER function needing to apply allocations
+    should call allocate_payment_atomic rather than re-inlining the
+    waterfall; process-loyalty-redemption's downpayment path stays
+    inline (DP payments never allocate to schedule).
+
 ## ENUM VALUES — NON-NEGOTIABLE
 
 ### penalty_fee_status
@@ -1763,6 +1777,7 @@ Customer / Amount), non-blocking relative to the tracking output.
   REFERENCE IMPLEMENTATIONS:
   - delete_schedule_row_atomic (2026-05-17, schedule row deletion)
   - delete_account_atomic (updated 2026-05-17 to use this pattern)
+  - allocate_payment_atomic (payment allocation waterfall + payment insert + schedule/penalty/account-totals writes, all in one transaction; preview mode computes the exact plan without writing)
 
   AUDIT REQUIRED: any existing supabase-js 2-call GUC bypass pattern
   (e.g., app.allow_total_amount_edit set_config followed by .update())
