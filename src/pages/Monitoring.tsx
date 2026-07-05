@@ -146,8 +146,14 @@ export default function Monitoring() {
 
   const remCategorized = useMemo(() => {
     if (!actionableItems) return { overdue: [], dueToday: [], upcoming: [] };
-    const accountMap = new Map<string, typeof actionableItems[0]>();
-    for (const row of actionableItems) {
+    // schedule_with_actuals view columns are nullable in the generated types but
+    // are always present for a real schedule row; narrow to the non-null shape the
+    // business-rules helpers require. Runtime unchanged — no row is dropped.
+    const rows = actionableItems as Array<
+      (typeof actionableItems)[number] & { due_date: string; total_due_amount: number; paid_amount: number }
+    >;
+    const accountMap = new Map<string, (typeof rows)[number]>();
+    for (const row of rows) {
       if (remainingDue(row) <= 0) continue;
       const acctId = (row as any).account_id as string;
       const existing = accountMap.get(acctId);
@@ -247,7 +253,7 @@ export default function Monitoring() {
 
       const map = new Map<string, any>();
       for (const item of [...(overdueRes.data || []), ...(upcomingRes.data || [])]) {
-        map.set(item.id, item);
+        map.set(item.id!, item);
       }
       return [...map.values()];
     },

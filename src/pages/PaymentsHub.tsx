@@ -1,12 +1,17 @@
 // Financial Documentation — combines Submissions, Proof of Payment, and Waivers
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode, type FC } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Wallet } from 'lucide-react';
-import PaymentSubmissions from './PaymentSubmissions';
-import PaymentProofs from './PaymentProofs';
+import PaymentSubmissionsImpl from './PaymentSubmissions';
+import PaymentProofsImpl from './PaymentProofs';
 import Waivers from './Waivers';
+
+// Typed re-exports: the memo() wrappers on these components widen their inferred
+// props to `object`; re-point each import at its real prop interface.
+const PaymentSubmissions = PaymentSubmissionsImpl as FC<{ embedded?: boolean; searchValue?: string }>;
+const PaymentProofs = PaymentProofsImpl as FC<{ embedded?: boolean; searchValue?: string }>;
 import { useWaiverRequestCount } from '@/hooks/useWaiverRequestCount';
 import WorkspaceToolbar from '@/components/layout/WorkspaceToolbar';
 import WorkspaceSplitButton from '@/components/layout/WorkspaceSplitButton';

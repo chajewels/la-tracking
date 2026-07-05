@@ -117,7 +117,7 @@ function useCashOrderDetail(id: string | undefined) {
       const { data, error } = await supabase
         .from('cash_orders')
         .select('*, customers(id, full_name, address_line1, city, postal_code, country, mobile_number)')
-        .eq('id', id)
+        .eq('id', id!)
         .maybeSingle();
       if (error) throw error;
       return (data as unknown as CashOrderRow) || null;
@@ -134,7 +134,7 @@ function useCashPayments(orderId: string | undefined) {
       const { data, error } = await supabase
         .from('cash_payments')
         .select('*')
-        .eq('cash_order_id', orderId)
+        .eq('cash_order_id', orderId!)
         .order('created_at', { ascending: true });
       if (error) throw error;
       return ((data || []) as unknown as CashPaymentRow[]);
@@ -151,7 +151,7 @@ function useCashSubmissions(orderId: string | undefined) {
       const { data, error } = await supabase
         .from('payment_submissions')
         .select('id, cash_order_id, submitted_amount, payment_method, payment_date, sender_name, reference_number, proof_url, notes, reviewer_notes, customer_edited_at, submission_type, status, created_at')
-        .eq('cash_order_id', orderId)
+        .eq('cash_order_id', orderId!)
         .in('status', ['submitted', 'under_review', 'needs_clarification'])
         .order('created_at', { ascending: false });
       if (error) throw error;
@@ -169,7 +169,7 @@ function useCashSubmissionProofs(orderId: string | undefined) {
       const { data, error } = await supabase
         .from('payment_submissions')
         .select('proof_url, payment_date, sender_name')
-        .eq('cash_order_id', orderId)
+        .eq('cash_order_id', orderId!)
         .eq('status', 'confirmed')
         .not('proof_url', 'is', null)
         .order('created_at', { ascending: false });

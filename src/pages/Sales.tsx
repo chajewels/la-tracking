@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, memo } from 'react';
+import { useCallback, useEffect, useRef, useState, memo, type FC, type MutableRefObject } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ShoppingBag } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
@@ -10,9 +10,9 @@ import AccountList from './AccountList';
 import PaymentsHub from './PaymentsHub';
 import Waivers from './Waivers';
 
-const MemoCashOrdersList = memo(CashOrdersList);
-const MemoAccountList = memo(AccountList);
-const MemoPaymentsHub = memo(PaymentsHub);
+const MemoCashOrdersList = memo(CashOrdersList) as FC<{ embedded?: boolean; searchValue?: string; exportRef?: MutableRefObject<(() => void) | null> }>;
+const MemoAccountList = memo(AccountList) as FC<{ embedded?: boolean; searchValue?: string; exportRef?: MutableRefObject<(() => void) | null> }>;
+const MemoPaymentsHub = memo(PaymentsHub) as FC<{ embedded?: boolean; searchValue?: string }>;
 const MemoWaivers = memo(Waivers);
 
 type SalesTabKey = 'cash' | 'layaway' | 'payments' | 'waivers';

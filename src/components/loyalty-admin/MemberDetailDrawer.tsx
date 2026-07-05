@@ -107,7 +107,7 @@ export default function MemberDetailDrawer({
       const { data: row, error } = await supabase
         .from('customers')
         .select('birthday, birthday_locked_at, birthday_admin_edits_used')
-        .eq('id', customerId)
+        .eq('id', customerId!)
         .maybeSingle();
       if (error) throw error;
       return row;

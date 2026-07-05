@@ -307,8 +307,8 @@ export function useCancelNotification() {
           action: 'cancelled',
           performed_by_user_id: user.id,
           old_value_json: {
-            title: (updated as any).title,
-            scheduled_for: (updated as any).scheduled_for,
+            title: updated.title,
+            scheduled_for: updated.scheduled_for,
             status: 'scheduled',
           },
           new_value_json: { status: 'cancelled' },

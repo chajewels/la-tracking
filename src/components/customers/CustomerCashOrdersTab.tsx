@@ -34,7 +34,7 @@ function useCustomerCashOrders(customerId: string | undefined) {
       const { data, error } = await supabase
         .from('cash_orders')
         .select('id, invoice_number, currency, total_amount, total_paid, remaining_balance, status, order_date, item_description, created_at')
-        .eq('customer_id', customerId)
+        .eq('customer_id', customerId!)
         .order('created_at', { ascending: false });
       if (error) throw error;
       return ((data || []) as unknown as CashOrderRow[]);

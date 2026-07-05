@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, memo } from 'react';
+import { useState, useEffect, useMemo, memo, type FC } from 'react';
 import { addMonths, endOfMonth, format, isValid, parseISO, startOfMonth } from 'date-fns';
 import { DollarSign, TrendingUp, BarChart3, Sparkles, CalendarClock, Trophy, Clock, AlertTriangle, ShieldAlert, Crown, UserCheck, Target, Users, Activity, Banknote, X, ShoppingBag, RefreshCw } from 'lucide-react';
 import {
@@ -34,7 +34,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import PaymentVault from './PaymentVault';
 import PaymentTrackingReport from '@/components/finance/PaymentTrackingReport';
 
-const MemoPaymentVault = memo(PaymentVault);
+const MemoPaymentVault = memo(PaymentVault) as FC<{ embedded?: boolean }>;
 import {
   assessRisk, predictCompletion, assessCLV, riskStyles,
 } from '@/lib/business-rules';

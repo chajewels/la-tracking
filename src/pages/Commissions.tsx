@@ -429,7 +429,7 @@ function AgentDialog({
         name: name.trim(),
         color,
         active,
-        start_month: startMonth || null,
+        start_month: (startMonth || null) as string,
         sort_order: Number(sortOrder) || 0,
       };
       const client = supabase;

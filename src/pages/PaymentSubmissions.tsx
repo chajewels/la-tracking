@@ -544,7 +544,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
       const { data } = await supabase
         .from('schedule_with_actuals')
         .select('*')
-        .eq('account_id', actionDialog.sub.account_id)
+        .eq('account_id', actionDialog.sub.account_id!)
         .order('due_date', { ascending: true });
       if (cancelled) return;
       const rows: ScheduleViewRow[] = (data || []).map((r: any) => ({
@@ -723,7 +723,7 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
               paidAmount: Number(actionDialog.sub.submitted_amount),
               surplus: partialAlloc.amount,
               currency: cur,
-              accountId: actionDialog.sub.account_id,
+              accountId: actionDialog.sub.account_id!,
               paymentId: (data as any)?.confirmed_payment_ids?.[0] ?? null,
             });
             setActionDialog(null);

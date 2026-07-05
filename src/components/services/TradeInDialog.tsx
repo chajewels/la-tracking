@@ -199,7 +199,7 @@ export default function TradeInDialog({ open, onOpenChange, mode, initialTradeIn
       const resaleNum = resaleAmount === '' ? null : Math.round(Number(resaleAmount));
       const basePayload = {
         date_trade: dateTrade,
-        customer_id: customerId,
+        customer_id: customerId as string,
         old_invoice_number: oldInvoice.trim(),
         new_invoice_number: newInvoice.trim() || null,
         item_code: itemCode.trim(),

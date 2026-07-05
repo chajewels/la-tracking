@@ -352,7 +352,7 @@ function InquiryFormSheet({
       const payload = {
         item_code: form.item_code.trim() || null,
         product_name: form.product_name.trim(),
-        category: form.category || null,
+        category: (form.category || null) as string,
         inquiry_count: Number(form.inquiry_count) || 1,
         last_inquired_date: form.last_inquired_date || null,
         popular_inquiries_notes: form.popular_inquiries_notes.trim() || null,
