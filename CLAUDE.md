@@ -1867,8 +1867,7 @@ pg_attribute, pg_constraint, pg_proc via `pg_get_functiondef`, pg_trigger via
 `information_schema.routine_privileges`) and captures the full public-schema
 DDL: extensions, enums, tables + constraints, foreign keys, functions, views,
 triggers, indexes, RLS + policies, function EXECUTE grants, and the realtime
-publication. Cron jobs are NOT captured (cron.job is unreadable from the
-introspection environment) — the section is marked accordingly.
+publication. All 12 live cron jobs are captured as cron.schedule() statements (extracted from cron.job via the SQL Editor, 2026-07-05).
 
 The 100 pre-baseline migration files are archived in
 `supabase/migrations-archive/` (filenames preserved). They are kept for

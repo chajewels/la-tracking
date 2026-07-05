@@ -8859,5 +8859,26 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.penalty_fees;
 -- ---------------------------------------------------------------------------
 -- Cron jobs
 -- ---------------------------------------------------------------------------
--- CRON JOBS: NOT CAPTURED (cron.job unreadable from this environment)
--- error: Command '['psql', '-A', '-t', '-c', "\n    SELECT COALESCE(jsonb_agg(jsonb_build_object(\n      'jobname', jobname,\n      'schedule', schedule,\n      'command', command\n    ) ORDER BY jobname), '[]'::jsonb)::text\n    FROM cron.job;\n    "]' returned non-zero exit status 1.
+SELECT cron.schedule('auto-expire-cash-orders', '30 0 * * *', ' SELECT net.http_post( url := ''https://pfoicalpzdcmyxzvwyhz.supabase.co/functions/v1/auto-expire-cash-orders'', headers := jsonb_build_object( ''Content-Type'', ''application/json'', ''Authorization'', ''Bearer '' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = ''email_queue_service_role_key'') ), body := ''{}''::jsonb ); ');
+
+SELECT cron.schedule('cleanup-loyalty-images', '0 3 * * 0', ' SELECT net.http_post( url := ''https://pfoicalpzdcmyxzvwyhz.supabase.co/functions/v1/cleanup-loyalty-images'', headers := jsonb_build_object( ''Content-Type'', ''application/json'', ''Authorization'', ''Bearer '' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = ''email_queue_service_role_key'') ), body := ''{}''::jsonb ); ');
+
+SELECT cron.schedule('daily-auto-forfeit', '10 0 * * *', 'SELECT net.http_post( url := ''https://pfoicalpzdcmyxzvwyhz.supabase.co/functions/v1/auto-forfeit-settlement'', headers := jsonb_build_object(''Content-Type'',''application/json'',''Authorization'',''Bearer '' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = ''email_queue_service_role_key'')), body := ''{}''::jsonb ) AS request_id;');
+
+SELECT cron.schedule('daily-penalty-engine', '5 0 * * *', 'SELECT net.http_post( url := ''https://pfoicalpzdcmyxzvwyhz.supabase.co/functions/v1/penalty-engine'', headers := jsonb_build_object(''Content-Type'',''application/json'',''Authorization'',''Bearer '' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = ''email_queue_service_role_key'')), body := ''{}''::jsonb ) AS request_id;');
+
+SELECT cron.schedule('daily-reconciliation', '20 0 * * *', ' SELECT net.http_post( url := ''https://pfoicalpzdcmyxzvwyhz.supabase.co/functions/v1/daily-reconciliation'', headers := jsonb_build_object( ''Content-Type'', ''application/json'', ''Authorization'', ''Bearer '' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = ''email_queue_service_role_key'') ), body := ''{}''::jsonb ); ');
+
+SELECT cron.schedule('daily-send-reminders', '0 0 * * *', ' SELECT net.http_post( url := ''https://pfoicalpzdcmyxzvwyhz.supabase.co/functions/v1/send-reminders'', headers := jsonb_build_object( ''Content-Type'', ''application/json'', ''Authorization'', ''Bearer '' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = ''email_queue_service_role_key'') ), body := ''{"source": "cron"}''::jsonb ) AS request_id; ');
+
+SELECT cron.schedule('deactivate-expired-promotions', '0 * * * *', 'SELECT deactivate_expired_promotions();');
+
+SELECT cron.schedule('fc-alert-evaluation', '*/30 * * * *', 'SELECT fc_evaluate_alerts()');
+
+SELECT cron.schedule('loyalty-inactivity-check', '25 0 * * *', ' SELECT net.http_post( url := ''https://pfoicalpzdcmyxzvwyhz.supabase.co/functions/v1/loyalty-inactivity-check'', headers := jsonb_build_object( ''Content-Type'', ''application/json'', ''Authorization'', ''Bearer '' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = ''email_queue_service_role_key'') ), body := ''{}''::jsonb ); ');
+
+SELECT cron.schedule('loyalty-notification-queue', '0 * * * *', ' SELECT net.http_post( url := ''https://pfoicalpzdcmyxzvwyhz.supabase.co/functions/v1/process-loyalty-notification-queue'', headers := jsonb_build_object( ''Content-Type'', ''application/json'', ''Authorization'', ''Bearer '' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = ''email_queue_service_role_key'') ), body := ''{}''::jsonb ); ');
+
+SELECT cron.schedule('loyalty-sheet-reconcile', '7 * * * *', ' SELECT net.http_post( url := ''https://pfoicalpzdcmyxzvwyhz.supabase.co/functions/v1/loyalty-sheet-reconcile'', headers := jsonb_build_object( ''Content-Type'', ''application/json'', ''Authorization'', ''Bearer '' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = ''email_queue_service_role_key'') ), body := ''{}''::jsonb ); ');
+
+SELECT cron.schedule('sync-backup-sheets', '0 18 * * *', ' SELECT net.http_post( url := ''https://pfoicalpzdcmyxzvwyhz.supabase.co/functions/v1/sync-backup-sheets'', headers := jsonb_build_object( ''Content-Type'', ''application/json'', ''Authorization'', ''Bearer '' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = ''email_queue_service_role_key'') ), body := ''{}''::jsonb ); ');
