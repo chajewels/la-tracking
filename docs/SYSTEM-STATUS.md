@@ -3,6 +3,9 @@
 ## App Version
 1.6.0 (commit 02a040c)
 
+## 2026-07-05 — Phase 2 Batch 0: shared edge-function helpers added
+- Shared edge-function helpers added (`_shared/cors.ts` superset CORS + `_shared/handler.ts` `requireAuth`/`requirePermission` encoding the Bug #168/#170 locked rules); no function migrated yet, zero behavior change; the `_shared` path push benignly redeploys the 20 workflow steps carrying the `_shared` clause.
+
 ## 2026-07-05 — allocate_payment_atomic RPC shipped & deployed
 - Payment allocation consolidated into the `allocate_payment_atomic` Postgres RPC (single transaction: waterfall + payment insert + payment_allocations + penalty_fees + layaway_schedule + layaway_accounts totals). `review-payment-submission` is the SOLE write-mode caller (`p_preview:false`); `record-payment` (preview_only) and `record-multi-payment` (per-account loop) call it with `p_preview:true`. Shipped commit 136118d; deployed via GitHub Actions "Deploy Supabase Edge Functions" #274 (Firebase #1860/#1861). See docs/SCHEMA-FACTS.md for the RPC contract.
 - **Verification record:**
