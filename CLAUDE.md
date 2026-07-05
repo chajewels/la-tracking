@@ -1857,26 +1857,33 @@ Customer / Amount), non-blocking relative to the tracking output.
    desktop and mobile (~375px), and read the console for errors before
    saying it's done.
 
-## ⚠️ Live DB ahead of repo migrations (2026-06-27)
+## Migrations baseline (2026-07-05)
 
-The test-account isolation work done 2026-06-27 was applied directly via the
-Supabase SQL Editor and is NOT captured in supabase/migrations/. The migration
-files still contain the OLD regex/prefix guards. The LIVE DB is authoritative
-and correct; a rebuild from migrations (supabase db reset, fresh staging/local
-DB) would silently restore the leaks.
+`supabase/migrations/` now holds a single live-introspected baseline:
+`20260705230000_baseline_live_schema.sql`. It was generated on 2026-07-05
+directly from the live Postgres catalogs (pg_type/pg_enum, pg_class,
+pg_attribute, pg_constraint, pg_proc via `pg_get_functiondef`, pg_trigger via
+`pg_get_triggerdef`, pg_indexes, pg_policies, pg_publication_tables, and
+`information_schema.routine_privileges`) and captures the full public-schema
+DDL: extensions, enums, tables + constraints, foreign keys, functions, views,
+triggers, indexes, RLS + policies, function EXECUTE grants, and the realtime
+publication. Cron jobs are NOT captured (cron.job is unreadable from the
+introspection environment) — the section is marked accordingly.
 
-Live DB has, not in migrations:
-- is_test boolean NOT NULL DEFAULT false on cash_orders and layaway_accounts (backfilled)
-- enforce_test_invoice_prefix() rewritten: sets NEW.is_test from customers.is_test,
-  still prepends TEST- for numeric invoices of test customers
-- 23 RPCs swept from regex / NOT LIKE 'TEST-%' guards to is_test = false
-  (all fc_* functions, get_aging_buckets, get_collection_analytics, get_monthly_sales,
-   get_monthly_analytics, get_forecast_6m, get_forecast_drilldown,
-   get_top_outstanding_customers, get_daily_new_layaway_sales[_last_month],
-   monthly_inflow_by_plan_6m)
+The 100 pre-baseline migration files are archived in
+`supabase/migrations-archive/` (filenames preserved). They are kept for
+historical reference only and are NOT applied by any tooling — Supabase CLI
+reads `supabase/migrations/` exclusively.
 
-Canonical test marker: customers.is_test. Order-level is_test is the queryable
-guard for all KPIs. If rebuilding from migrations, re-apply the above first.
+The LIVE DB remains authoritative. The baseline reflects live state at the
+moment of generation but is NOT a replacement for it — NEVER push the
+baseline to the live project (`supabase db push`, `supabase migration up`, or
+equivalent). Migration-history mismatch against live is expected and
+irrelevant. Purpose: faithful fresh rebuilds (local dev, staging bootstrap)
+and an in-repo source of truth. Any future schema change to the live DB must
+be added as a NEW migration file in `supabase/migrations/` alongside the
+baseline (do not edit the baseline in place).
+
 
 Known pre-existing quirk (NOT from this work): fc_cohort_timeline.collection_rate
 can exceed 100% because actual_collected includes downpayment while
