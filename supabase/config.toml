@@ -2,7 +2,7 @@ project_id = "pfoicalpzdcmyxzvwyhz"
 
 [functions]
   [functions.upload-proof]
-    verify_jwt = false
+    verify_jwt = true
   [functions.add-penalty]
     verify_jwt = false
   [functions.edit-payment-submission]
@@ -95,3 +95,65 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.reposition-cash-receipts]
     verify_jwt = true
+  [functions.accept-underpayment]
+    verify_jwt = false
+  [functions.add-installment]
+    verify_jwt = false
+  [functions.add-service]
+    verify_jwt = false
+  [functions.adjust-loyalty-points]
+    verify_jwt = false
+  [functions.ai-command-parser]
+    verify_jwt = false
+  [functions.ai-customer-insights]
+    verify_jwt = false
+  [functions.approve-waiver]
+    verify_jwt = false
+  [functions.bulk-send-setup-invites]
+    verify_jwt = false
+  [functions.create-cash-order]
+    verify_jwt = false
+  [functions.customer-portal]
+    verify_jwt = false
+  [functions.delete-account]
+    verify_jwt = false
+  [functions.delete-customer]
+    verify_jwt = false
+  [functions.delete-installment]
+    verify_jwt = false
+  [functions.edit-payment-amount]
+    verify_jwt = false
+  [functions.extend-schedule]
+    verify_jwt = false
+  [functions.fill-payment-tracking]
+    verify_jwt = false
+  [functions.generate-invoice]
+    verify_jwt = false
+  [functions.join-loyalty-program]
+    verify_jwt = false
+  [functions.manual-forfeit]
+    verify_jwt = false
+  [functions.mark-loyalty-notification-read]
+    verify_jwt = false
+  [functions.process-loyalty-redemption]
+    verify_jwt = false
+  [functions.recalculate-penalties]
+    verify_jwt = false
+  [functions.redeem-portal-token]
+    verify_jwt = false
+  [functions.restore-cash-payment]
+    verify_jwt = false
+  [functions.review-payment-submission]
+    verify_jwt = false
+  [functions.send-loyalty-notification]
+    verify_jwt = false
+  [functions.setup-customer-account]
+    verify_jwt = false
+  [functions.submit-cash-payment]
+    verify_jwt = false
+  [functions.submit-payment]
+    verify_jwt = false
+  [functions.unwaive-waiver]
+    verify_jwt = false
+  [functions.verify-portal-pin]
+    verify_jwt = false
