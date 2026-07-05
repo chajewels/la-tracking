@@ -157,3 +157,5 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = false
   [functions.verify-portal-pin]
     verify_jwt = false
+  [functions.void-cash-payment]
+    verify_jwt = false
