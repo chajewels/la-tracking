@@ -348,6 +348,23 @@ Deno.serve(async (req) => {
           .eq("id", member.id);
         if (updErr) throw updErr;
 
+        // Retire the member's open point lots to match the zeroed counter.
+        // Best-effort: a failure here must not abort the remaining members'
+        // expiry processing — residual stale lots are caught by the lot/counter
+        // reconcile census (docs/SCHEMA-FACTS.md, loyalty lot invariant).
+        const { error: lotErr } = await supabase
+          .from("loyalty_point_lots")
+          .update({
+            expired_at: new Date().toISOString(),
+            remaining_amount: 0,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("member_id", member.id)
+          .is("revoked_at", null)
+          .is("expired_at", null)
+          .gt("remaining_amount", 0);
+        if (lotErr) console.error(`lot expiry stamp failed for member ${member.id}:`, lotErr.message);
+
         summary.expiries_processed += 1;
 
         if (customer?.email) {

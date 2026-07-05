@@ -498,6 +498,7 @@ Deno.serve(async (req) => {
         .eq("member_id", memberId)
         .is("revoked_at", null)
         .is("consumed_at", null)
+        .is("expired_at", null)
         .order("expires_at", { ascending: true, nullsFirst: false });
       if (lotsErr) {
         console.error("[customer-portal] loyalty lots query failed:", lotsErr);

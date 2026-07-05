@@ -490,3 +490,7 @@ Consolidates the installment payment-allocation waterfall + all downstream write
 - `record-payment` (preview_only branch) and `record-multi-payment` (per-account loop) — `p_preview:true` only.
 
 **Atomicity note:** the TS-side idempotency guard (`skipWaterfall` when the payment already has allocations) and the best-effort `rollbackPayment` delete are superseded — a single DB transaction makes partial writes impossible, so there is no half-inserted payment to guard against or roll back.
+
+### Loyalty lot invariant (2026-07-05)
+
+For every member, SUM(loyalty_point_lots.remaining_amount) over rows with revoked_at IS NULL AND expired_at IS NULL must equal loyalty_members.remaining_points. Expiry (loyalty-inactivity-check) now stamps open lots expired_at + remaining_amount=0 alongside the counter zeroing (best-effort; reconcile via the lot/counter census query). Portal lot display filters revoked_at, consumed_at, AND expired_at.
