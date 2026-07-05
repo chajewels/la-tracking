@@ -497,6 +497,11 @@ To add a new screenshot for any Help section:
   Lovable → src/ AND supabase/functions/ file creation and editing.
             Lovable ALSO handles ALL Supabase edge function
             deployments via direct Supabase Dashboard tooling access.
+            NOTE (factual): edge functions ALSO auto-deploy via
+            .github/workflows (GitHub Actions workflow "Deploy Supabase
+            Edge Functions", observed run #274 on push to main,
+            2026-07-05); the Lovable IDE deploy-prompt path above remains
+            the documented manual procedure.
   Claude Code → src/ AND supabase/functions/ editing when explicitly
                 directed by Cynthia. Default mode is read-only audit
                 and diagnosis. May commit and push to git when asked.

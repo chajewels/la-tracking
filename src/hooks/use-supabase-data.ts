@@ -147,7 +147,7 @@ export function useAccountsLight() {
         const { data, error } = await supabase
           .from('layaway_accounts')
           .select(
-            'id, customer_id, status, currency, invoice_number, total_amount, total_paid, remaining_balance, payment_plan_months, created_at, updated_at, created_by_user_id',
+            'id, customer_id, status, currency, invoice_number, total_amount, total_paid, remaining_balance, payment_plan_months, created_at, updated_at, created_by_user_id, is_test',
           )
           .order('created_at', { ascending: false })
           .range(from, to);

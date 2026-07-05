@@ -3,6 +3,15 @@
 ## App Version
 1.6.0 (commit 02a040c)
 
+## 2026-07-05 — allocate_payment_atomic RPC shipped & deployed
+- Payment allocation consolidated into the `allocate_payment_atomic` Postgres RPC (single transaction: waterfall + payment insert + payment_allocations + penalty_fees + layaway_schedule + layaway_accounts totals). `review-payment-submission` is the SOLE write-mode caller (`p_preview:false`); `record-payment` (preview_only) and `record-multi-payment` (per-account loop) call it with `p_preview:true`. Shipped commit 136118d; deployed via GitHub Actions "Deploy Supabase Edge Functions" #274 (Firebase #1860/#1861). See docs/SCHEMA-FACTS.md for the RPC contract.
+- **Verification record:**
+  - Installment write path: preview plan vs confirmed rows parity proven on TEST-004 (merged penalty 2500 + installment 2000, alloc_sum 4500, account → completed, INVARIANT 1 and remaining-balance formula both true, 5/5 penalty_fees → paid).
+  - Deploy smoke: unauthenticated POST to record-payment / record-multi-payment / review-payment-submission all returned 401 (auth gates intact on deployed functions).
+  - DP path (INVARIANT 11): verified through the LIVE deployed record-payment in preview mode against TEST-003 (final_settlement, payable) — response returned empty allocations, schedule_updates, and penalty_updates arrays, proving the RPC's DP branch skips schedule/penalty allocation entirely. Write-mode DP confirm not exercised (no DP-eligible test fixture; all test accounts in terminal statuses under the no-new-test-account constraint).
+  - Multi-invoice path: verified at deploy-smoke + code-translation level only; record-multi-payment's server-side gate requires an active/overdue account, and none exists among test fixtures — full E2E deferred until such a fixture exists.
+  - Dashboard plan-tier zeros root-caused to `useAccountsLight` missing `is_test` in its select; fixed this commit.
+
 ## 2026-06-30 — AccountList: status tab strip + collapsible folders
 - AccountList reworked from a flat card grid + status pills into a status tab strip + collapsible per-status folders (Active / Overdue / Extension / Completed / Settlement / Forfeited / Perm. Forfeited). Read-side (client-side presentation) only — no hook/RPC/edge/schema change.
 
