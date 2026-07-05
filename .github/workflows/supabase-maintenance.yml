@@ -1,0 +1,47 @@
+name: Supabase Maintenance
+
+on:
+  workflow_dispatch:
+
+jobs:
+  maintenance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.109.0
+
+      - name: Live verify_jwt matrix (authoritative per-function state)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          npx supabase functions list --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} | tee functions-live.txt
+          {
+            echo '## Live edge-function verify_jwt matrix'
+            echo '```'
+            cat functions-live.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Schema dump (baseline; skipped if SUPABASE_DB_URL secret absent)
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo 'NOTICE: SUPABASE_DB_URL secret not set — schema dump skipped.' | tee -a "$GITHUB_STEP_SUMMARY"
+            echo 'To enable: repo Settings → Secrets and variables → Actions → new secret SUPABASE_DB_URL (Supabase Dashboard → Settings → Database → connection string, session pooler).' >> "$GITHUB_STEP_SUMMARY"
+          else
+            npx supabase db dump --db-url "$SUPABASE_DB_URL" -f schema_baseline.sql
+            echo "Schema dump written: $(wc -l < schema_baseline.sql) lines" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-maintenance
+          path: |
+            functions-live.txt
+            schema_baseline.sql
+          if-no-files-found: warn

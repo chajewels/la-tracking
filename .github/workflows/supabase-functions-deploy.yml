@@ -61,7 +61,7 @@ jobs:
 
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.109.0
 
       - name: Deploy reconcile-account
         if: github.event_name == 'workflow_dispatch' || contains(format('{0} {1}', join(github.event.commits.*.modified, ' '), join(github.event.commits.*.added, ' ')), 'supabase/functions/reconcile-account/')

@@ -5,6 +5,9 @@
 
 ## 2026-07-05 — Phase 2 Batch 0: shared edge-function helpers added
 - Shared edge-function helpers added (`_shared/cors.ts` superset CORS + `_shared/handler.ts` `requireAuth`/`requirePermission` encoding the Bug #168/#170 locked rules); no function migrated yet, zero behavior change; the `_shared` path push benignly redeploys the 20 workflow steps carrying the `_shared` clause.
+- Smoke-test convention: functions with `verify_jwt=true` answer a bare unauthenticated POST with 401; portal/no-verify functions must be probed with an empty JSON body (`{}`) and answer with their first documented gate (400 or 401 per function).
+- OPEN FINDING: `send-transactional-email` and `cleanup-loyalty-images` have `config.toml` `verify_jwt=true` but their CI deploy steps pass `--no-verify-jwt` — gate state is deploy-path-dependent (currently OFF after the 2026-07-05 CI redeploy). 32 functions have no `config.toml` `verify_jwt` entry at all (implicit). Resolution pending the live matrix from the new Supabase Maintenance workflow.
+- Supabase CLI pinned to 2.109.0 in both the deploy and new maintenance workflows; `supabase-maintenance.yml` (workflow_dispatch) added to produce the authoritative live `verify_jwt` matrix and an optional schema baseline dump (requires one-time `SUPABASE_DB_URL` secret).
 
 ## 2026-07-05 — allocate_payment_atomic RPC shipped & deployed
 - Payment allocation consolidated into the `allocate_payment_atomic` Postgres RPC (single transaction: waterfall + payment insert + payment_allocations + penalty_fees + layaway_schedule + layaway_accounts totals). `review-payment-submission` is the SOLE write-mode caller (`p_preview:false`); `record-payment` (preview_only) and `record-multi-payment` (per-account loop) call it with `p_preview:true`. Shipped commit 136118d; deployed via GitHub Actions "Deploy Supabase Edge Functions" #274 (Firebase #1860/#1861). See docs/SCHEMA-FACTS.md for the RPC contract.

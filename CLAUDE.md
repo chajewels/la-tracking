@@ -811,6 +811,13 @@ When completing a partially_paid month:
     `supabase/functions/_shared/jwt-claims.ts` (`parseJwtClaims`).
     Root-caused as Bug #168 (2026-06-06, commit `04a7f47`).
 
+    SHARED-HELPER CONVENTION (locked — added 2026-07-05):
+    NEW edge functions, and any existing function being edited for
+    other reasons, MUST use _shared/cors.ts (corsHeaders/corsPreflight/
+    jsonResponse) and _shared/handler.ts (requireAuth/requirePermission)
+    instead of inline copies. The fleet converges opportunistically —
+    no dedicated migration batches.
+
     NEVER accept the anon key as an internal-bypass credential, and
     NEVER allow a missing Authorization header to skip the gate
     (added 2026-06-06 after Bug #170):
