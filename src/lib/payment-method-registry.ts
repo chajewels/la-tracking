@@ -1,7 +1,8 @@
 // Canonical payment-method registry.
 // Replaces the 4+ independent hardcoded option lists across the app.
-// See docs/SYSTEM-STATUS.md "Payment method registry (shipped …)" for
-// rationale, and CLAUDE.md routing rules for how to extend this.
+// Canonical identity + currency rules documented in docs/SCHEMA-FACTS.md
+// ("Payment method canonical identity" entries). Extend by adding a
+// PaymentMethodSpec entry + METHOD_ALIASES mappings here.
 
 export type MethodCurrency = 'PHP' | 'JPY' | 'any';
 
