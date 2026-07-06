@@ -1730,6 +1730,8 @@ Customer / Amount), non-blocking relative to the tracking output.
 
 2026-07-06: on success, fill-payment-tracking upserts its output sheet ID into system_settings.payment_tracking_sheet_id so append-payment-tracking always targets the newest generated sheet.
 
+2026-07-06: pre-cohort payment months are totalled into the first month column (merged by column), not dropped — Bug #246.
+
 ## SERVICES RULE (added 2026-04-12)
 
   account_services are included in total_amount at the time of service creation.

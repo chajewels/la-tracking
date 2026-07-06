@@ -275,15 +275,20 @@ Deno.serve(async (req) => {
 
         const mp = byInvoice.get(rr.colB);
         if (mp) {
-          const cells: Array<{ col: number; value: number }> = [];
+          // Merge amounts by column: pre-cohort months (offset < 0 — backdated
+          // history such as trade-in downpayments, Bug #246) redirect into the
+          // FIRST month column instead of dropping, so several source months can
+          // target the same column and must aggregate rather than overwrite.
+          const byCol = new Map<number, number>();
           for (const [ym, value] of Object.entries(mp)) {
             const m = /^(\d{4})-(\d{2})$/.exec(ym);
             if (!m) continue;
             const offset = (parseInt(m[1], 10) - cohortYear) * 12 + (parseInt(m[2], 10) - cohortMonth);
-            const colIndex = FIRST_MONTH_COL + offset;
-            if (offset < 0 || colIndex >= totalCol) continue;
-            cells.push({ col: colIndex, value: Number(value) });
+            const colIndex = offset < 0 ? FIRST_MONTH_COL : FIRST_MONTH_COL + offset;
+            if (colIndex >= totalCol) continue;
+            byCol.set(colIndex, (byCol.get(colIndex) ?? 0) + Number(value));
           }
+          const cells: Array<{ col: number; value: number }> = [...byCol.entries()].map(([col, value]) => ({ col, value }));
           if (rr.total !== null && cells.length > 0) {
             const sum = cells.reduce((a, c) => a + c.value, 0);
             if (sum > rr.total) { const diff = sum - rr.total; cells.sort((a, b) => b.value - a.value); cells[0].value = Math.max(0, cells[0].value - diff); }
