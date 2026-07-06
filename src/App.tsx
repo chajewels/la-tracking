@@ -3,6 +3,7 @@ import { ROUTES } from "@/constants/routes";
 import { Component, ErrorInfo, ReactNode, lazy, Suspense, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { MotionConfig } from "framer-motion";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -134,6 +135,9 @@ function RealtimeSyncMount() {
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
+    {/* reducedMotion="user": all framer-motion transforms collapse to
+        fade-only when the OS prefers reduced motion (Deco Ledger rule). */}
+    <MotionConfig reducedMotion="user">
     <TooltipProvider>
       <Toaster />
       <Sonner />
@@ -197,6 +201,7 @@ const App = () => (
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
+    </MotionConfig>
   </QueryClientProvider>
 );
 
