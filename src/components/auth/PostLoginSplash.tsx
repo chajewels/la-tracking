@@ -9,6 +9,11 @@ import { transition } from '@/theme/motion';
  * component.
  *
  * Deco Ledger tokens only — no hex literals in this file.
+ *
+ * The video renders CONTAINED and centered (square aspect preserved,
+ * max ~80vh/90vw) on the surface-0 backdrop — never cropped. There is no
+ * auto-navigate timer: the splash waits for the user; onError and the 5s
+ * canplay watchdog exist purely as broken-video protection.
  */
 
 // Production asset (Supabase Storage, public). The DOUBLE SLASH before the
@@ -19,8 +24,6 @@ const SPLASH_VIDEO_URL =
 
 /** "Enter Dashboard" fades in at ~1.2s (durations/easing from theme/motion). */
 const CTA_DELAY_MS = 1200;
-/** Failsafe: never hold the user longer than this. */
-const AUTO_NAVIGATE_MS = 15_000;
 /** If the video hasn't reached canplay by then, proceed immediately. */
 const CANPLAY_WATCHDOG_MS = 5_000;
 
@@ -51,15 +54,15 @@ export default function PostLoginSplash({ onEnter, srcOverride }: PostLoginSplas
     onEnter();
   }, [onEnter]);
 
-  // CTA reveal + 15s auto-navigate failsafe.
+  // CTA reveal. No auto-navigate: the splash waits for the user (button /
+  // Enter / ESC) — the 15s failsafe was removed by owner decision
+  // (2026-07-06). Broken-video protection (onError + canplay watchdog)
+  // remains below.
   useEffect(() => {
-    const ctaTimer = prefersReducedMotion ? null : setTimeout(() => setShowCta(true), CTA_DELAY_MS);
-    const failsafe = setTimeout(proceed, AUTO_NAVIGATE_MS);
-    return () => {
-      if (ctaTimer) clearTimeout(ctaTimer);
-      clearTimeout(failsafe);
-    };
-  }, [prefersReducedMotion, proceed]);
+    if (prefersReducedMotion) return;
+    const ctaTimer = setTimeout(() => setShowCta(true), CTA_DELAY_MS);
+    return () => clearTimeout(ctaTimer);
+  }, [prefersReducedMotion]);
 
   // canplay watchdog — video variant only.
   useEffect(() => {
@@ -99,7 +102,7 @@ export default function PostLoginSplash({ onEnter, srcOverride }: PostLoginSplas
               shimmer treatment — never a black flash (no poster exists). */}
           {!canPlay && <div className="absolute inset-0 skeleton-shimmer" aria-hidden="true" />}
           <motion.video
-            className="absolute inset-0 h-full w-full object-cover"
+            className="absolute inset-0 m-auto max-h-[80vh] max-w-[90vw] object-contain"
             initial={{ opacity: 0 }}
             animate={{ opacity: canPlay ? 1 : 0 }}
             transition={transition.standard}

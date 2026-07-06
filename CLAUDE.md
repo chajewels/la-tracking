@@ -298,11 +298,15 @@ To add a new screenshot for any Help section:
       are independent and unchanged.
 
   Failsafes (all mandatory, all timers cleaned up on unmount):
-    15s auto-navigate; video onError → proceed immediately; 5s canplay
-    watchdog → proceed; prefers-reduced-motion → no video, backdrop +
-    "Enter Dashboard" button immediately. Until canplay: surface-0
-    backdrop with the shimmer treatment — never a black flash (no poster
-    asset exists). Enter/ESC also proceed; all exits are idempotent.
+    video onError → proceed immediately; 5s canplay watchdog → proceed;
+    prefers-reduced-motion → no video, backdrop + "Enter Dashboard"
+    button immediately. These are BROKEN-VIDEO protection only — there is
+    NO auto-navigate timer: the splash waits for the user (button / Enter
+    / ESC). The former 15s auto-navigate was removed by owner decision
+    (2026-07-06). The video renders CONTAINED and centered (square aspect
+    preserved, max ~80vh/90vw) — never cropped by object-cover. Until
+    canplay: surface-0 backdrop with the shimmer treatment — never a
+    black flash (no poster asset exists). All exits are idempotent.
 
   Video URL constant (in PostLoginSplash.tsx): the DOUBLE SLASH in
   .../brand-assets//AdminSpalshScreen.mp4 is part of the real storage
