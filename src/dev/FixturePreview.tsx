@@ -7,6 +7,7 @@ import CashOrdersList from '@/components/customers/CashOrdersList';
 import KpiStrip from '@/components/dashboard/KpiStrip';
 import NeedsAttentionPanel from '@/components/dashboard/NeedsAttentionPanel';
 import PaymentTimeline, { CashOrderTimeline } from '@/components/accounts/PaymentTimeline';
+import PostLoginSplash from '@/components/auth/PostLoginSplash';
 import FloatingField from '@/components/forms/FloatingField';
 import CurrencyInput from '@/components/forms/CurrencyInput';
 import TypedConfirmField from '@/components/forms/TypedConfirmField';
@@ -151,6 +152,19 @@ export default function FixturePreview() {
           { id: 'fx-sp-5', amount: 2_000, createdAt: '2026-06-20T05:00:00Z', method: 'cash', voided: true },
         ]}
         totals={{ total: 27_480, paid: 17_112, remaining: 10_368, penalties: 1_500, services: 800 }}
+      />
+    );
+  }
+  if (view === 'splash') {
+    // Screenshot-only stand-in source (the sandbox cannot reach
+    // supabase.co). srcOverride exists solely for this harness.
+    const src = searchParams.get('src') ?? undefined;
+    return (
+      <PostLoginSplash
+        srcOverride={src}
+        onEnter={() => {
+          document.title = 'splash-exited';
+        }}
       />
     );
   }

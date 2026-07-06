@@ -252,15 +252,6 @@ To add a new screenshot for any Help section:
   Never reintroduce a gold hex outside src/theme/ and src/index.css.
 
   Remaining tracked debt (each row re-justified 2026-07-06, Phase 5):
-    - POST-LOGIN SPLASH (survives — blocked on Lovable): the branch's
-      implementation (a25b835) was REVERTED; the splash ships to main via
-      Lovable with an OAuth ?next guard. As of merge fbc9338 main does NOT
-      yet contain PostLoginSplash, so there is nothing to adopt. When
-      Lovable ships it: restyle to Deco Ledger tokens (no hex literals)
-      and re-add the three guard-test invariants from the reverted
-      src/test/post-login-splash-guard.test.tsx (session-restore no-splash
-      + redirect; fresh-sign-in splash survives the late SIGNED_IN event;
-      failed sign-in resets the guard).
     - .github/workflows/.github/workflows/firebase-hosting.yml — INERT
       nested duplicate workflow (survives — lives outside src/, needs its
       own cleanup commit; GitHub never executes nested paths). NOTE: the
@@ -287,6 +278,41 @@ To add a new screenshot for any Help section:
   Gold tokens --gold / --gold-light / --gold-dark remain defined in :root and
   .dark and now alias the Deco Ledger family (--gold = gold-500,
   --gold-light = gold-300).
+
+## POST-LOGIN SPLASH (added 2026-07-06)
+
+  Full-screen video splash after a SUCCESSFUL staff sign-in on the Hub
+  (src/components/auth/PostLoginSplash.tsx, wired in src/pages/Login.tsx).
+  The Lovable route for this feature was CANCELLED — this on-branch
+  implementation is canonical.
+
+  Triggers ONLY on a fresh staff sign-in with NO ?next param:
+    - ?next set (OAuth consent flows) → navigate(nextPath) exactly as
+      before; the splash NEVER shows. The relative-only open-redirect
+      validation on ?next is unchanged.
+    - Session restore (visiting /login with a live session) → redirect as
+      before, no splash. Enforced by freshLoginRef, set BEFORE the
+      signInWithPassword await so the async SIGNED_IN event cannot race
+      the gate; reset on failed sign-in.
+    - The pre-login AdminSplashScreen and the type=recovery hash guard
+      are independent and unchanged.
+
+  Failsafes (all mandatory, all timers cleaned up on unmount):
+    15s auto-navigate; video onError → proceed immediately; 5s canplay
+    watchdog → proceed; prefers-reduced-motion → no video, backdrop +
+    "Enter Dashboard" button immediately. Until canplay: surface-0
+    backdrop with the shimmer treatment — never a black flash (no poster
+    asset exists). Enter/ESC also proceed; all exits are idempotent.
+
+  Video URL constant (in PostLoginSplash.tsx): the DOUBLE SLASH in
+  .../brand-assets//AdminSpalshScreen.mp4 is part of the real storage
+  object key — NEVER "normalize" it; the single-slash URL is a different,
+  nonexistent object.
+
+  Guard invariants locked by src/test/post-login-splash-guard.test.tsx:
+  session-restore no-splash + redirect; fresh-sign-in splash survives the
+  late SIGNED_IN event; failed sign-in resets the guard; ?next sign-in
+  navigates to nextPath with no splash.
 
 ## total_amount DEFINITION — NON-NEGOTIABLE (updated 2026-04-12)
 
