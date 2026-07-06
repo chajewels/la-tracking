@@ -303,10 +303,26 @@ To add a new screenshot for any Help section:
     button immediately. These are BROKEN-VIDEO protection only — there is
     NO auto-navigate timer: the splash waits for the user (button / Enter
     / ESC). The former 15s auto-navigate was removed by owner decision
-    (2026-07-06). The video renders CONTAINED and centered (square aspect
-    preserved, max ~80vh/90vw) — never cropped by object-cover. Until
-    canplay: surface-0 backdrop with the shimmer treatment — never a
-    black flash (no poster asset exists). All exits are idempotent.
+    (2026-07-06). All exits are idempotent.
+
+  Presentation (blur-fill, 2026-07-06): TWO layers of the SAME video
+  source. Background: object-cover full viewport, blur(40px) + scale(1.1)
+  to hide blur edges, under a surface-0 ~45% dark overlay — the screen is
+  dressed edge to edge. Foreground: CONTAINED and centered (square aspect
+  preserved, max ~92vh/94vw) — the actual content is never cropped. Both
+  layers share the canplay-driven fade-in. Until canplay: surface-0
+  backdrop with the shimmer treatment — never a black flash (no poster
+  asset exists).
+
+  Sound (2026-07-06): the hosted MP4 carries an AAC track. The FOREGROUND
+  video attempts UNMUTED playback (valid — the splash mounts from the
+  sign-in click = user activation). If the browser rejects unmuted
+  autoplay (NotAllowedError), fall back: set muted, play again, and show
+  an unmute toggle (gold icon button, bottom-right, aria-label
+  "Unmute"/"Mute") that flips muted on tap; when playing WITH sound the
+  same toggle acts as the mute control. The BACKGROUND blur layer is
+  ALWAYS muted. Playback loops (audio loops with it — the toggle is the
+  user's control). Reduced-motion path unchanged: no video at all.
 
   Video URL constant (in PostLoginSplash.tsx): the DOUBLE SLASH in
   .../brand-assets//AdminSpalshScreen.mp4 is part of the real storage
