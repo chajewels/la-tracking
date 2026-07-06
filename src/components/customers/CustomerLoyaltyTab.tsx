@@ -47,6 +47,7 @@ interface TierRow {
   min_spend_jpy: number;
   points_multiplier: number;
   color_hex: string | null;
+  benefits: unknown; // jsonb — narrowed via Array.isArray at the merge site
 }
 
 interface TierLite {
@@ -146,7 +147,7 @@ function useCustomerLoyalty(customerId: string | undefined) {
           .maybeSingle(),
         supabase
           .from('loyalty_tiers')
-          .select('id, name, min_spend_jpy, points_multiplier, color_hex')
+          .select('id, name, min_spend_jpy, points_multiplier, color_hex, benefits')
           .order('min_spend_jpy', { ascending: true }),
         supabase
           .from('customers')
@@ -228,6 +229,14 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
       spendRequired: t.min_spend_jpy,
       multiplier: t.points_multiplier,
       ...TIER_STATIC[t.name as TierName],
+      // DB-first benefits/accent with static fallback — identical merge to the
+      // customer portal (LoyaltyPortal.tsx tiers memo), so staff and customers
+      // always see the same benefit lists after admin edits.
+      benefits:
+        Array.isArray(t.benefits) && (t.benefits as string[]).length > 0
+          ? (t.benefits as string[])
+          : TIER_STATIC[t.name as TierName].benefits,
+      accent: t.color_hex ?? TIER_STATIC[t.name as TierName].accent,
     }));
   }, [data?.tiers]);
 

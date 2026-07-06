@@ -21,7 +21,9 @@
   - Phase 8 Profile — screens/ProfileScreen.tsx + ProfileMemberCard.tsx.
   - All 6 screens imported + routed in src/pages/LoyaltyPortal.tsx (:24–29, tab-switched).
 
-### LOYALTY TIER BENEFITS — Schema Expansion (OPEN — added 2026-05-25)
+### LOYALTY TIER BENEFITS — Schema Expansion (RESOLVED 2026-07-06)
+  ✅ RESOLVED 2026-07-06 — customer portal has read DB benefits (fallback to TIER_STATIC when empty) since f72f13d 2026-06-27; the TierEditDialog warning was removed with it. Final gap closed today: CustomerLoyaltyTab (staff view) now applies the identical DB-first merge, so admin edits propagate to BOTH views. The 'do not edit tier-benefit fields' rule is LIFTED — admins may populate benefits via TierEditDialog; any tier with an empty benefits array falls back to the hardcoded copy.
+
   ⏳ The customer portal renders HARDCODED tier benefits from TIER_STATIC
      (src/components/loyalty/loyaltyData.ts). Admin edits in TierEditDialog save
      to the DB but do NOT propagate to the portal — admin and customer views drift.
