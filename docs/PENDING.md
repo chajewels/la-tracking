@@ -163,7 +163,9 @@
   default in many places; an incomplete audit will break list
   views silently. Park until a focused session.
 
-### REALTIME INVALIDATION DOES NOT COVER loyalty_members (OPEN — polish, found 2026-06-06)
+### REALTIME INVALIDATION DOES NOT COVER loyalty_members (RESOLVED 2026-07-05)
+  ✅ RESOLVED 2026-07-05 — loyalty_members + loyalty_transactions + staff_notifications published and added to SYNC_TABLES; LOYALTY_KEYS + NOTIFICATION_KEYS unioned into REALTIME_INVALIDATE_KEYS; the bell's 30s/60s polls retained as fallback only. Bonus: service_jobs/trade_ins publication gap repaired (their SYNC_TABLES subscriptions had been dead).
+
   Tier / remaining points / lifetime spend render stale on
   AccountDetail and CashOrderDetail until manual Refresh, while
   the account_notes trail updates live alongside via the existing

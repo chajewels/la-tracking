@@ -15,6 +15,9 @@ const SYNC_TABLES = [
   'account_services',
   'service_jobs',
   'trade_ins',
+  'loyalty_members',
+  'loyalty_transactions',
+  'staff_notifications',
 ] as const;
 
 const DEBOUNCE_MS = 250;

@@ -928,7 +928,11 @@ Consistent labels across the Finance dashboard. The underlying metrics are uncha
 
   supabase_realtime publication now contains: payments,
   payment_allocations, layaway_schedule, layaway_accounts, penalty_fees,
-  payment_submissions, account_services, financial_alerts.
+  payment_submissions, account_services, financial_alerts,
+  loyalty_members, loyalty_transactions, staff_notifications,
+  service_jobs, trade_ins (2026-07-05 — the last two were repairs of
+  SYNC_TABLES entries that had never been published, so their
+  subscriptions were dead).
 
   useRealtimeSync (src/hooks/useRealtimeSync.ts) is rendered once at the
   App root (inside AuthProvider/PermissionsProvider, sibling of Routes,
@@ -939,7 +943,8 @@ Consistent labels across the Finance dashboard. The underlying metrics are uncha
 
   On any postgres_changes event from the SYNC_TABLES it invalidates
   REALTIME_INVALIDATE_KEYS — the union of CORE_KEYS, PAYMENT_KEYS,
-  MONITORING_KEYS, SUBMISSION_KEYS, plus 'account' and 'customer-detail'
+  MONITORING_KEYS, SUBMISSION_KEYS, SERVICES_KEYS, LOYALTY_KEYS,
+  NOTIFICATION_KEYS, plus 'account' and 'customer-detail'
   — debounced 250ms so a burst of writes coalesces into one refetch
   round. Every actively-rendered internal dashboard card refetches live
   without a manual reload.
