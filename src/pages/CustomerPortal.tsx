@@ -544,7 +544,12 @@ export default function CustomerPortal() {
   }
 
   if (error || !data) {
-    const isExpired = error?.toLowerCase().includes('expired');
+    // Only a genuinely expired portal TOKEN shows the link-expired screen.
+    // The customer-portal edge function emits 'Token expired' for that case
+    // (Path 2 in _shared/portal-auth.ts). Session-class errors ('Session
+    // expired' / 'Invalid or expired session', Path 1) must fall through to
+    // the generic 'Invalid Portal Link' branch instead of mislabeling.
+    const isExpired = error?.toLowerCase().includes('token expired');
     return (
       <div style={{background:P.bg,minHeight:'100vh'}} className="flex items-center justify-center p-4">
         <div style={{background:P.s,border:`1px solid ${P.br}`,borderTop:`2px solid ${P.gp}`,borderRadius:'2px',maxWidth:'400px',width:'100%',padding:'2.5rem 2rem',textAlign:'center'}}>
