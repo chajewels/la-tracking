@@ -517,6 +517,11 @@ export default function AccountDetail() {
   const totalPaidAll = allActivePayments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0);
   const dpPaidAmount = taggedDpPaid > 0 ? taggedDpPaid : (downpaymentAmount > 0 && totalPaidAll >= downpaymentAmount ? downpaymentAmount : 0);
   const dpRemainingAmount = Math.max(0, downpaymentAmount - dpPaidAmount);
+  // Display-only: DP collected beyond downpayment_amount reduces the balance
+  // (INVARIANT 11: DP payments never allocate to schedule rows), so a completed
+  // account can carry residual pending/partial rows. Render them as settled.
+  const dpOverpaidAmount = Math.max(0, dpPaidAmount - downpaymentAmount);
+  const accountSettled = account?.status === 'completed' && Number(account?.remaining_balance ?? 0) <= 0;
 
   const confirmedActivePayments = getActivePayments(payments || []);
   const totalPaid = confirmedActivePayments.reduce((sum, p) => sum + Number(p.amount_paid), 0);
@@ -1440,7 +1445,7 @@ export default function AccountDetail() {
                         )}
                         <div className="text-right">
                         <p className={`text-xs font-semibold tabular-nums ${effPaid ? 'text-success' : partial ? 'text-warning' : 'text-card-foreground'}`}>
-                          {formatCurrency(effPaid ? paidAmt : displayRemaining, currency)}
+                          {!effPaid && accountSettled ? '—' : formatCurrency(effPaid ? paidAmt : displayRemaining, currency)}
                         </p>
                       </div>
                       </div>
@@ -1554,13 +1559,15 @@ export default function AccountDetail() {
                       {/* Remaining column */}
                       <div className="text-right">
                         <p className={`text-xs font-semibold tabular-nums ${effPaid ? 'text-muted-foreground' : partial ? 'text-warning' : 'text-card-foreground'}`}>
-                          {effPaid ? '—' : formatCurrency(displayRemaining, currency)}
+                          {effPaid || accountSettled ? '—' : formatCurrency(displayRemaining, currency)}
                         </p>
                       </div>
                       {/* Status */}
                       <div className="text-right">
                         {effPaid ? (
                           <Badge variant="outline" className="text-[9px] h-4 px-1 bg-success/10 text-success border-success/20">Paid</Badge>
+                        ) : accountSettled ? (
+                          <Badge variant="outline" title="Covered by downpayment credit — account fully paid" className="text-[9px] h-4 px-1 bg-success/10 text-success border-success/20">Settled</Badge>
                         ) : item.status === 'partially_paid' ? (
                           <Badge variant="outline" className="text-[9px] h-4 px-1 bg-amber-500/10 text-amber-500 border-amber-500/20">Partial</Badge>
                         ) : overCap ? (
@@ -1699,6 +1706,12 @@ export default function AccountDetail() {
                     <div className="flex justify-between text-xs text-muted-foreground px-1">
                       <span>Down Payment</span>
                       <span className="tabular-nums font-medium">{formatCurrency(downpaymentAmount, currency)}</span>
+                    </div>
+                  )}
+                  {dpOverpaidAmount > 0 && (
+                    <div className="flex justify-between text-xs text-muted-foreground px-1">
+                      <span>Downpayment Overage Credit</span>
+                      <span className="tabular-nums font-medium text-success">+{formatCurrency(dpOverpaidAmount, currency)}</span>
                     </div>
                   )}
                   <div className="flex justify-between text-xs text-muted-foreground px-1">
