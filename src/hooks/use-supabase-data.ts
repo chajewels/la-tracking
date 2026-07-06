@@ -21,7 +21,7 @@ const PAYMENT_KEYS = ['payments', 'schedule', 'collections-upcoming-schedule', '
 const MONITORING_KEYS = ['monitoring-schedules', 'csr-notifications', 'penalty-followup-alerts', 'csr-notifications-penalty'] as const;
 const SUBMISSION_KEYS = ['pending-submission-count', 'pending-submissions-summary', 'payment-submissions'] as const;
 const SERVICES_KEYS = ['services', 'service-jobs', 'service-jobs-by-invoice', 'trade-ins'] as const;
-const LOYALTY_KEYS = ['customer-loyalty', 'loyalty-admin-members', 'loyalty-admin-member-detail'] as const;
+const LOYALTY_KEYS = ['customer-loyalty', 'customer-loyalty-tier', 'loyalty-admin-members', 'loyalty-admin-member-detail'] as const;
 const NOTIFICATION_KEYS = ['staff-notifications', 'staff-notifications-panel', 'staff-notifications-types'] as const;
 
 // Union of all key groups — consumed by useRealtimeSync for global cross-user invalidation.

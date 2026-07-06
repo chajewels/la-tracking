@@ -43,7 +43,8 @@ export function useRealtimeSync() {
     if (!isInternalUser) return; // no channel for customers / unauthenticated
 
     let timer: ReturnType<typeof setTimeout> | null = null;
-    const invalidate = () => {
+    const invalidate = (payload: unknown) => {
+      console.debug('[realtime]', (payload as { table?: string }).table, (payload as { eventType?: string }).eventType);
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         for (const key of REALTIME_INVALIDATE_KEYS) {
@@ -61,7 +62,10 @@ export function useRealtimeSync() {
         invalidate,
       );
     }
-    channel.subscribe();
+    channel.subscribe((status, err) => {
+      if (status === 'SUBSCRIBED') console.debug('[realtime] global-sync subscribed');
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') console.error('[realtime] global-sync', status, err?.message ?? '');
+    });
 
     return () => {
       if (timer) clearTimeout(timer);
