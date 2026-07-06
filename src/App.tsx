@@ -95,6 +95,7 @@ const Services = lazy(() => import("./pages/Services"));
 const Sales = lazy(() => import("./pages/Sales"));
 const Waivers = lazy(() => import("./pages/Waivers"));
 const PolicyHub = lazy(() => import("./pages/PolicyHub"));
+const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
 
 // DEV-only fixture preview (Playwright verification harness). The DEV guard
 // is statically evaluated by Vite, so neither the route nor the chunk exists
@@ -166,6 +167,8 @@ const App = () => (
                 <Route path="/portal/setup" element={<PortalSetup />} />
                 <Route path="/loyalty" element={<LoyaltyPortal />} />
                 <Route path="/unsubscribe" element={<Unsubscribe />} />
+                <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
+                
                 
                 <Route path="/" element={<Protected><Dashboard /></Protected>} />
                 <Route path="/accounts" element={<Protected><AccountList /></Protected>} />

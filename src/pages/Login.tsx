@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
@@ -22,6 +22,7 @@ const UNSPLASH_HERO =
 
 export default function Login() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { session } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -33,11 +34,18 @@ export default function Login() {
   });
   const [splashFading, setSplashFading] = useState(false);
 
+  // Same-origin, relative-only `next` — consumed after a successful login
+  // so the OAuth consent flow returns the user to /.lovable/oauth/consent
+  // instead of the dashboard. Validated to prevent open-redirect.
+  const rawNext = searchParams.get('next');
+  const nextPath =
+    rawNext && rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : null;
+
   useEffect(() => {
     if (session && !window.location.hash.includes('type=recovery')) {
-      navigate(ROUTES.DASHBOARD, { replace: true });
+      navigate(nextPath ?? ROUTES.DASHBOARD, { replace: true });
     }
-  }, [session, navigate]);
+  }, [session, navigate, nextPath]);
 
   useEffect(() => {
     setMounted(true);
@@ -78,7 +86,7 @@ export default function Login() {
       return;
     }
     toast.success('Welcome to Cha Jewels');
-    navigate(ROUTES.DASHBOARD);
+    navigate(nextPath ?? ROUTES.DASHBOARD);
   };
 
   return (
