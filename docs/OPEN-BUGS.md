@@ -117,14 +117,31 @@
     the stage tooltip was both cross-currency-summed (mixing ₱ and ¥ into one
     number) and hardcoded "₱". Split the bucket into totalPenaltiesPHP /
     totalPenaltiesJPY and rendered with formatCurrency per currency present.
-  - Freshness: only the Executive Alert Bar is true realtime
-    (supabase.channel postgres_changes). The Executive "Live · 30s"
-    badge overstates this — its 16 numeric cards are 30s polling and the
-    cash cards run on a different cadence than the header timestamp.
-    STATIC cards lacking autoRefresh that arguably should refresh:
-    Dashboard OverdueAlerts/OperationsPanel/LiveCollectionTracker/
-    AgingBuckets; Monitoring Penalty Follow-Up + Audit sub-tabs; Finance
-    Analytics/Intelligence/Collections tabs. (See also D5.)
+  - Freshness (INVESTIGATED / RESOLVED 2026-07-06): the specific gaps
+    flagged here no longer hold.
+    • The six cards listed as "static, lacking autoRefresh" — Dashboard
+      OverdueAlerts (overdue-schedule), OperationsPanel
+      (operations-action-items), LiveCollectionTracker (weekly-collections),
+      AgingBuckets (aging-buckets), Monitoring Penalty Follow-Up
+      (penalty-followup-alerts) and Audit (monitoring-schedules) — are ALL
+      in REALTIME_INVALIDATE_KEYS (PAYMENT_KEYS / MONITORING_KEYS) and have
+      refetched live via useRealtimeSync since the realtime work; they are
+      not static.
+    • The Executive "Live · 30s" badge is defensible, not an overstatement:
+      useExecutiveDashboard genuinely polls its numeric cards every 30s
+      (three setInterval(fetch, 30_000) loops) AND the Alert Bar is true
+      postgres_changes realtime on financial_alerts. The label matches the
+      mechanism; no change made.
+    • The remaining uncovered Finance keys (monthly-sales,
+      collection-analytics, staff-performance, top-outstanding-customers,
+      cash-orders-monthly, trade-kpis) are DELIBERATELY left off realtime:
+      each is a heavy full-table aggregate RPC; wiring them to
+      REALTIME_INVALIDATE_KEYS would re-run all of them on every payment
+      write (the highest-frequency mutation), a performance regression on a
+      periodic-review surface for no operational benefit. Accepted as-is.
+    Conclusion: no code change warranted; freshness is correct where it
+    matters (live-ops cards) and appropriately periodic where it doesn't
+    (heavy Finance aggregates).
 
 ### Schedule cache staleness on non-paid rows (surfaced 2026-05-22, RESOLVED 2026-05-23)
 
