@@ -140,30 +140,54 @@
   would silently widen if a restricted/customer-facing role were ever
   added to user_roles.
 
-### PORTAL_TOKEN COLUMN REVOKE IS A NO-OP (OPEN — found 2026-06-06)
-  Security Batch 4's migration `20260605093651_…` ran
-  `REVOKE SELECT (portal_token) ON public.extension_requests FROM
-  authenticated, anon;` and the same for `payment_submissions`.
-  Postgres ACL rule: a column-level REVOKE cannot subtract from a
-  table-level grant. Both roles still hold table-level SELECT on
-  both tables, so `portal_token` remains fully client-readable via
-  `select('*')` or `select('portal_token')`. The Batch 4 entry in
-  SYSTEM-STATUS.md (fix #7) records the action but the action did
-  nothing.
+### PORTAL_TOKEN COLUMN REVOKE (RESOLVED 2026-07-06 — analyzed, accepted with rationale)
+  Security Batch 4's migration `20260605093651_…` ran a column-level
+  `REVOKE SELECT (portal_token)` on extension_requests and
+  payment_submissions. That REVOKE was indeed a no-op (a column-level
+  REVOKE cannot subtract from a table-level grant) — that part of the
+  original finding was correct.
 
-  Proper fix is a careful standalone pass:
-  1. Audit every `select('*')` consumer of both tables — both edge
-     functions and frontend components — and convert them to
-     explicit column lists.
-  2. REVOKE the table-level SELECT from authenticated / anon.
-  3. GRANT explicit column-list SELECT (omitting `portal_token`)
-     back to authenticated / anon.
-  4. Verify via `information_schema.column_privileges` that
-     `portal_token` no longer appears for either role.
+  RESOLVED 2026-07-06 after a full read-only investigation. Two facts
+  close this item without the grant surgery originally prescribed:
 
-  Scope is non-trivial because PostgREST `select=*` is the
-  default in many places; an incomplete audit will break list
-  views silently. Park until a focused session.
+  (a) The exposure is self-bounded. Both anon SELECT policies
+      ("Token customers can view own extension_requests" /
+      "Anon can view own submissions by token") require
+      portal_token = current_setting('request.headers')::json
+      ->> 'x-portal-token' AND an EXISTS check against
+      customer_portal_tokens (active, unexpired). There is no anon
+      SELECT/ALL policy WITHOUT this self-filter. An anon caller can
+      therefore read only rows whose portal_token equals the token
+      they already presented in their own request header — the sole
+      theoretical `select('portal_token')` returns the caller's own
+      already-held token, not any other row's. The frontend consumer
+      census confirms zero anon `select('*')` on either table; the
+      portal reads submissions via the customer-portal edge function
+      (service_role, explicit column list, portal_token omitted).
+
+  (b) The originally-prescribed fix is prohibited by a locked rule.
+      "REVOKE table SELECT + GRANT column-list minus portal_token"
+      is exactly the move that broke PostgREST in Bug #2302
+      (see docs/FIXED-BUGS.md): PostgREST generates explicit column
+      lists internally and errors on a revoked privilege; REVOKE +
+      NOTIFY pgrst reload also failed. Additionally, the anon SELECT
+      policies reference portal_token in their USING clause, so anon
+      must retain column visibility for RLS to evaluate at all. The
+      only proven-working confidentiality pattern (relocate the
+      column to a side table with no anon/authenticated SELECT
+      policy, per the customer_pins fix) does not fit: portal_token
+      is the per-row auth key those policies filter on, not a
+      relocatable standalone secret.
+
+  DECISION: accept the residual. The self-bounded read is not a
+  meaningful disclosure (caller reads only a token they already
+  hold), and no rule-compliant grant/relocation change improves it
+  without high-risk rewrites of live portal-auth RLS for no gain.
+  DO NOT attempt the column-level REVOKE / column-list regrant on
+  these tables — it will break PostgREST (Bug #2302) and disable the
+  token RLS policies. If a future confidentiality requirement ever
+  demands removing even the self-scoped read, the only rule-compliant
+  path is a full portal-auth RLS redesign, scoped as its own session.
 
 ### REALTIME INVALIDATION DOES NOT COVER loyalty_members (RESOLVED 2026-07-05)
   ✅ RESOLVED 2026-07-05 — loyalty_members + loyalty_transactions + staff_notifications published and added to SYNC_TABLES; LOYALTY_KEYS + NOTIFICATION_KEYS unioned into REALTIME_INVALIDATE_KEYS; the bell's 30s/60s polls retained as fallback only. Bonus: service_jobs/trade_ins publication gap repaired (their SYNC_TABLES subscriptions had been dead).
