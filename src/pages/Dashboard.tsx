@@ -405,8 +405,8 @@ export default function Dashboard() {
         </div>
         )}
 
-        {/* Section 9 — System Health + Needs Attention (supersedes
-            OverdueAlerts in this slot, same permission gate) */}
+        {/* Section 9 — System Health + Needs Attention (replaced the
+            former OverdueAlerts panel — deleted Phase 5 — same gate) */}
         {(can('view_overdue_alerts') || can('view_system_health')) && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {can('view_overdue_alerts') && (

@@ -442,8 +442,9 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
           </div>
         )}
 
-        {/* Filters (search + currency + test) */}
-        <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3">
+        {/* Filters (search + currency + test) — single scrollable row on
+            mobile so the toolbar doesn't stack half the viewport tall */}
+        <div className="flex flex-row flex-nowrap overflow-x-auto scrollbar-hide items-center gap-2 sm:gap-3 sm:flex-wrap pb-1 [&>*]:shrink-0">
           {!embedded && <AccountSearchBar onSearch={handleSearch} />}
           <div className="flex gap-1 rounded-lg border border-border p-1 bg-card">
             {(['all', 'PHP', 'JPY'] as const).map((c) => (

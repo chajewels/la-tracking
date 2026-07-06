@@ -7,7 +7,8 @@ import { Currency } from '@/lib/types';
 import type { AttentionCashRow, AttentionScheduleRow } from '@/hooks/useDashboardExtras';
 
 /**
- * "Needs Attention" — supersedes the OverdueAlerts slot (same
+ * "Needs Attention" — replaced the former OverdueAlerts component,
+ * deleted in Phase 5 (same
  * view_overdue_alerts gate). Two urgency-ordered groups:
  *   1. Overdue / due-soon layaway installments (schedule_with_actuals,
  *      due_date ascending = most-overdue first). Days-overdue is display

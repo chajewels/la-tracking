@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { palette } from '@/theme/tokens';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
 import { toast } from 'sonner';
@@ -11,7 +12,7 @@ const SPLASH_KEY = 'admin_splash_shown';
 
 const BG_LEFT = '#1A1410';
 const BG_RIGHT = '#110E0A';
-const GOLD = '#D4AF37';
+const GOLD = palette.gold500;
 const GOLD_HOVER = '#E8C547';
 const GOLD_BORDER = 'rgba(212,175,55,0.12)';
 const INPUT_BG = 'rgba(255,255,255,0.04)';

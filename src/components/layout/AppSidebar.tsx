@@ -404,7 +404,7 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
         }}
       >
         <div className="mb-3 flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#F7E7A1] via-primary to-[#8C6A00] text-xs font-bold text-black">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full gold-gradient text-xs font-bold text-black">
             {initials}
           </div>
 

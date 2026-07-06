@@ -75,7 +75,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 <StaffNotificationBell />
 
                 <div className="flex items-center gap-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#F7E7A1] via-primary to-[#8C6A00] text-black text-[10px] font-bold shadow-md">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full gold-gradient text-black text-[10px] font-bold shadow-md">
                     {initials}
                   </div>
 
@@ -93,6 +93,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                     size="icon"
                     onClick={signOut}
                     className="h-8 w-8 text-primary hover:text-red-400 hover:bg-white/10"
+                    aria-label="Sign out"
                   >
                     <LogOut className="h-4 w-4" />
                   </Button>

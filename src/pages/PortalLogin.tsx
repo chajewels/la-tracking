@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
+import { palette } from '@/theme/tokens';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import PageMeta from '@/components/seo/PageMeta';
 
-const GOLD = '#D4AF37';
+const GOLD = palette.gold500;
 const GOLD_HOVER = '#E8C547';
 const INPUT_BORDER = 'rgba(255,255,255,0.08)';
 

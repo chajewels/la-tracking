@@ -244,41 +244,40 @@ To add a new screenshot for any Help section:
   Check (brand-gold family only — a full any-hex sweep returns hundreds of
   legitimate chart/UI colors and is intentionally out of scope):
     grep -rnE "#D4AF37|#E7D7A2|#C9A227|#E5C860|#E8C84A" src --include="*.tsx" --include="*.ts" | grep -v "src/theme/"
-  Target: only the tracked-debt entries below until they migrate, then 0.
+  Target: 0 hits. The gold-literal migration COMPLETED 2026-07-06 (Phase 5)
+  — all former debt rows (Finance/Commissions/Timesheet/Inquiries charts,
+  ForgotPassword, Login, PortalLogin, AuthContext splash, AdminSplashScreen,
+  TierCelebrationModal confetti) now import from src/theme/tokens. The
+  avatar gradients (AppSidebar/AppLayout) use the gold-gradient class.
+  Never reintroduce a gold hex outside src/theme/ and src/index.css.
 
-  Tracked gold-literal migration debt (updated 2026-07-06 after the Phase 3
-  chart migration — Finance/Commissions/Timesheet/Inquiries now use
-  chartColors; migrate the rest in the phase listed, then remove the row):
-    | File                                       | Hits | Migrate via                | Phase |
-    | src/pages/ForgotPassword.tsx               | 5    | tokens (incl. #E8C84A)     | 5     |
-    | src/pages/Login.tsx (GOLD const)           | 1    | tokens                     | 5     |
-    | src/pages/PortalLogin.tsx (GOLD const)     | 1    | tokens (portal theme)      | 5     |
-    | src/contexts/AuthContext.tsx (splash)      | 2    | tokens                     | 5     |
-    | src/components/auth/AdminSplashScreen.tsx  | 1    | tokens                     | 5     |
-    | src/components/loyalty/TierCelebrationModal.tsx (confetti) | 1 | tokens        | 5     |
-  Related non-gold cleanup debt:
-    - AppSidebar.tsx + AppLayout.tsx avatar gradient
-      from-[#F7E7A1] via-primary to-[#8C6A00] → gold-gradient tokens (Phase 5)
-      (the sidebar header/content/footer inline surfaces are already
-      token-based as of Phases 2-3)
-    - src/components/dashboard/OverdueAlerts.tsx — UNUSED as of Phase 3
-      (NeedsAttentionPanel supersedes its Dashboard slot behind the same
-      view_overdue_alerts gate); delete in a dedicated cleanup commit
-    - POST-LOGIN SPLASH (Phase 5): the branch's implementation (a25b835)
-      was REVERTED — the splash ships to main separately via Lovable with
-      an OAuth ?next guard (main's Login.tsx changed under this branch).
-      On merging origin/main, ADOPT the main version, restyle it to Deco
-      Ledger tokens (no hex literals), and re-add the three guard-test
-      invariants from the reverted src/test/post-login-splash-guard.test.tsx
-      (session-restore no-splash + redirect; fresh-sign-in splash survives
-      the late SIGNED_IN event; failed sign-in resets the guard) against it.
-    - .github/workflows/.github/workflows/firebase-hosting.yml — INERT nested
-      duplicate workflow (GitHub never executes nested paths); delete in a
-      dedicated cleanup commit. NOTE: the REAL deploy workflow
-      .github/workflows/firebase-deploy.yml is LIVE — pushes to main deploy
-      the frontend to production hosting; feature branches deploy nothing.
-      docs/AUTO-DEPLOY.md describes a different, removed workflow (Supabase
-      edge functions) and does not apply to frontend hosting.
+  Remaining tracked debt (each row re-justified 2026-07-06, Phase 5):
+    - POST-LOGIN SPLASH (survives — blocked on Lovable): the branch's
+      implementation (a25b835) was REVERTED; the splash ships to main via
+      Lovable with an OAuth ?next guard. As of merge fbc9338 main does NOT
+      yet contain PostLoginSplash, so there is nothing to adopt. When
+      Lovable ships it: restyle to Deco Ledger tokens (no hex literals)
+      and re-add the three guard-test invariants from the reverted
+      src/test/post-login-splash-guard.test.tsx (session-restore no-splash
+      + redirect; fresh-sign-in splash survives the late SIGNED_IN event;
+      failed sign-in resets the guard).
+    - .github/workflows/.github/workflows/firebase-hosting.yml — INERT
+      nested duplicate workflow (survives — lives outside src/, needs its
+      own cleanup commit; GitHub never executes nested paths). NOTE: the
+      REAL deploy workflow .github/workflows/firebase-deploy.yml is LIVE —
+      pushes to main deploy the frontend to production hosting; feature
+      branches deploy nothing. docs/AUTO-DEPLOY.md describes a different,
+      removed workflow (Supabase edge functions) and does not apply.
+    - PACKAGE-LOCK PRIVATE-REGISTRY QUIRK (survives — main-side fix only):
+      as of fbc9338 (MCP integration), package-lock.json pins ~94 tarball
+      URLs to Lovable's private registry
+      (europe-west1-npm.pkg.dev/lovable-core-prod/sandbox-npm-cache).
+      `npm ci` and fresh installs OUTSIDE Lovable/CI fail with 403 on the
+      newer entries; plain `npm install` on the GitHub Actions runner
+      succeeds (evidence: firebase-deploy green on fbc9338 and every run
+      since). Do NOT edit the lockfile from a feature branch. REVISIT
+      TRIGGER: if a future deploy fails at npm install, regenerate the
+      lockfile against registry.npmjs.org as a main-side fix.
 
   Background photo: brand-assets/IMG_4761.jpeg (Supabase Storage, public)
   Used by: AppLayout.tsx (Hub interior, under bg-black/72 overlay)

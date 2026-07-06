@@ -1,7 +1,9 @@
 import { motion } from 'framer-motion';
 
 const BG = '#1A1410';
-const GOLD = '#D4AF37';
+import { palette } from '@/theme/tokens';
+
+const GOLD = palette.gold500;
 const LOGO_URL =
   'https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets/cha-jewels-logo.png';
 

@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, useRef, useCallback, ReactNode } from 'react';
+import { palette } from '@/theme/tokens';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -222,7 +223,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           <div
             style={{
               background: '#111',
-              border: '1px solid #D4AF37',
+              border: `1px solid ${palette.gold500}`,
               borderRadius: 12,
               padding: '32px 28px',
               maxWidth: 420,
@@ -230,7 +231,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               boxShadow: '0 0 32px rgba(212,175,55,0.18)',
             }}
           >
-            <p style={{ color: '#D4AF37', fontFamily: 'Georgia, serif', fontSize: 18, letterSpacing: '0.1em', marginBottom: 16 }}>
+            <p style={{ color: palette.gold500, fontFamily: 'Georgia, serif', fontSize: 18, letterSpacing: '0.1em', marginBottom: 16 }}>
               Session Timeout Warning
             </p>
             <p style={{ color: '#fff', fontSize: 14, lineHeight: 1.6, marginBottom: 12 }}>

@@ -199,8 +199,8 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
           </div>
         )}
 
-        {/* Filters */}
-        <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3">
+        {/* Filters — single scrollable row on mobile (toolbar compaction) */}
+        <div className="flex flex-row flex-nowrap overflow-x-auto scrollbar-hide items-center gap-2 sm:gap-3 sm:flex-wrap pb-1 [&>*]:shrink-0">
           {!embedded && (
             <div className="relative flex-1 min-w-[220px] max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
