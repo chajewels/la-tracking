@@ -21,7 +21,7 @@ import { formatCurrency } from '@/lib/calculations';
 import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
-const MAX_ITEMS = 13;
+const MAX_ITEMS = 100;
 
 interface AddressInput {
   name: string;

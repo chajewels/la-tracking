@@ -352,3 +352,17 @@
     generated_invoices; 18946-v2 at 1erhLngGJ3y6... is the
     canonical correct version (25,448 JPY).
 
+
+### Dynamic item rows (2026-07-06, Bug #247)
+
+  Invoices with more than 13 items no longer 400: generate-invoice
+  inserts the extra rows into the generated per-invoice copy (never
+  the master template) on BOTH tabs — insertDimension before the last
+  item row (so =SUM auto-expands, formatting inherited) plus a
+  copyPaste on the print tab to replicate its per-row formulas with
+  self-adjusting references. Discount/shipping footer writes shift
+  down by the inserted row count. Safety bound: 100 items
+  (SAFETY_MAX_ITEMS; frontend MAX_ITEMS raised to match). The print
+  tab title must remain exactly "InvoiceWithTax-Print this" — tab
+  resolution is by exact title and fails loudly listing the actual
+  tab names if it ever changes.

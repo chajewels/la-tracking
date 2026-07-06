@@ -13,12 +13,19 @@ const corsHeaders = {
 // ─────────────────────────────────────────────────
 const INVOICE_ROOT_FOLDER_ID = "1bMiQMq3-avl1sq5_EU3T9sIlmLOQmp7k";
 const TAX_RATE = 0.1;
-const MAX_ITEMS = 13;
+// The master template's physical item block is 13 rows (21-33). Orders with
+// more items get extra rows inserted into the per-invoice COPY (never the
+// master) on both tabs — see expandItemRows (Bug #247).
+const TEMPLATE_ITEM_ROWS = 13;
+const SAFETY_MAX_ITEMS = 100;
 
 // Sheet name + cell positions inside the master template.
 // CALIBRATE on first run if the master template uses different cells.
 // Adjust here, redeploy. No DB or schema impact.
 const SHEET_NAME = "Invoice-Use this";
+// CALIBRATE: exact tab title of the customer-facing print tab. resolveTabIds
+// fails loudly listing the actual tab titles if this ever stops matching.
+const PRINT_SHEET_NAME = "InvoiceWithTax-Print this";
 const CELLS = {
   invoice_number: `${SHEET_NAME}!F5`,
   invoice_date: `${SHEET_NAME}!H5`,
@@ -43,10 +50,10 @@ const CELLS = {
   items_unit_price_col: "G",
   items_amount_col: "H",
 
-  // Discount + shipping value cells. Subtotal (H34) and final TOTAL (H37)
-  // are formulas in the Invoice-Use this template — don't write them.
-  discount: `${SHEET_NAME}!H35`,
-  shipping: `${SHEET_NAME}!H36`,
+  // Discount (H35) + shipping (H36) value cells shift down by the number of
+  // inserted item rows — written dynamically in cellWrites as
+  // H${35 + extraRows} / H${36 + extraRows}. Subtotal (H34) and final TOTAL
+  // (H37) are formulas in the Invoice-Use this template — don't write them.
 };
 
 const MONTH_NAMES = [
@@ -177,6 +184,92 @@ async function populateSheet(
   );
   if (!updateRes.ok) {
     throw new Error(`Sheets batchUpdate failed (${updateRes.status}): ${await updateRes.text()}`);
+  }
+}
+
+// ─────────────────────────────────────────────────
+// SHEETS — dynamic item rows (Bug #247)
+// ─────────────────────────────────────────────────
+
+// Resolve the numeric sheetId (gid) of both invoice tabs by exact title.
+// Fails loudly with the list of actual tab titles so a renamed print tab is
+// diagnosed immediately instead of silently corrupting a structural insert.
+async function resolveTabIds(
+  accessToken: string,
+  spreadsheetId: string,
+): Promise<{ dataTabId: number; printTabId: number }> {
+  const metaRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!metaRes.ok) {
+    throw new Error(`Sheets metadata fetch failed (${metaRes.status}): ${await metaRes.text()}`);
+  }
+  const meta = await metaRes.json() as { sheets?: Array<{ properties?: { sheetId?: number; title?: string } }> };
+  const props = (meta.sheets || []).map((s) => s.properties || {});
+  const titles = props.map((p) => p.title ?? "").filter(Boolean);
+  const dataTab = props.find((p) => p.title === SHEET_NAME);
+  const printTab = props.find((p) => p.title === PRINT_SHEET_NAME);
+  if (!dataTab || typeof dataTab.sheetId !== "number" || !printTab || typeof printTab.sheetId !== "number") {
+    throw new Error(
+      `Invoice tabs not found by exact title. Expected "${SHEET_NAME}" and "${PRINT_SHEET_NAME}"; actual tabs: ${JSON.stringify(titles)}`,
+    );
+  }
+  return { dataTabId: dataTab.sheetId, printTabId: printTab.sheetId };
+}
+
+// Insert extraRows item rows into the per-invoice COPY on both tabs.
+// 0-based index 32 = visible row 33 — inserting BEFORE the last item row so
+// the template's =SUM(H21:H33) auto-expands and item-row formatting is
+// inherited (inheritFromBefore). The print tab additionally needs its per-row
+// formulas replicated: copyPaste of the full existing item row at visible row
+// 32 into the newly inserted rows; the relative cross-sheet references
+// (='Invoice-Use this'!F24 etc.) self-adjust so each new print row pulls its
+// matching data row.
+async function expandItemRows(
+  accessToken: string,
+  spreadsheetId: string,
+  dataTabId: number,
+  printTabId: number,
+  extraRows: number,
+): Promise<void> {
+  const requests = [
+    {
+      insertDimension: {
+        range: { sheetId: dataTabId, dimension: "ROWS", startIndex: 32, endIndex: 32 + extraRows },
+        inheritFromBefore: true,
+      },
+    },
+    {
+      insertDimension: {
+        range: { sheetId: printTabId, dimension: "ROWS", startIndex: 32, endIndex: 32 + extraRows },
+        inheritFromBefore: true,
+      },
+    },
+    {
+      copyPaste: {
+        source: { sheetId: printTabId, startRowIndex: 31, endRowIndex: 32 },
+        destination: { sheetId: printTabId, startRowIndex: 32, endRowIndex: 32 + extraRows },
+        pasteType: "PASTE_NORMAL",
+        pasteOrientation: "NORMAL",
+      },
+    },
+    // No copyPaste on the data tab — its item cells are written as literal
+    // values by the existing cellWrites loop.
+  ];
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ requests }),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`Item-row expansion failed (${res.status}): ${await res.text()}`);
   }
 }
 
@@ -312,8 +405,8 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    if (!Array.isArray(items) || items.length < 1 || items.length > MAX_ITEMS) {
-      return new Response(JSON.stringify({ error: `items must be an array of 1 to ${MAX_ITEMS} entries` }), {
+    if (!Array.isArray(items) || items.length < 1 || items.length > SAFETY_MAX_ITEMS) {
+      return new Response(JSON.stringify({ error: `items must be an array of 1 to ${SAFETY_MAX_ITEMS} entries` }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -435,6 +528,15 @@ Deno.serve(async (req) => {
     createdSheetId = sheetCreated.sheetId;
     createdSheetUrl = sheetCreated.sheetUrl;
 
+    // Bug #247: orders beyond the template's 13-row item block get extra rows
+    // inserted into this per-invoice copy (both tabs). ≤13 items → zero
+    // structural calls, exact pre-fix path.
+    const extraRows = Math.max(0, itemsComputed.length - TEMPLATE_ITEM_ROWS);
+    if (extraRows > 0) {
+      const { dataTabId, printTabId } = await resolveTabIds(accessToken, createdSheetId);
+      await expandItemRows(accessToken, createdSheetId, dataTabId, printTabId, extraRows);
+    }
+
     // Address layout per template: Line 1 = postal + city + country (header line);
     // Line 2 = street/building (address_line1).
     const buildAddrLine1 = (a: Address) => {
@@ -462,9 +564,10 @@ Deno.serve(async (req) => {
       { range: CELLS.bill_to_address_line1, value: buildAddrLine1(bill_to) },
       { range: CELLS.bill_to_address_line2, value: buildAddrLine2(bill_to) },
       { range: CELLS.bill_to_phone, value: bill_to.phone || "" },
-      // Discount + shipping value cells (subtotal H34 and final total H37 are template formulas — not written)
-      { range: CELLS.discount, value: discount_jpy },
-      { range: CELLS.shipping, value: shipping_fee_jpy },
+      // Discount + shipping value cells, shifted down by any inserted item rows
+      // (subtotal and final total are template formulas — not written)
+      { range: `${SHEET_NAME}!H${35 + extraRows}`, value: discount_jpy },
+      { range: `${SHEET_NAME}!H${36 + extraRows}`, value: shipping_fee_jpy },
     ];
 
     // Item rows: write tax-INCLUSIVE prices. Invoice-Use this is the data sheet;
