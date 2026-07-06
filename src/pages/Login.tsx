@@ -1,11 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import AdminSplashScreen from '@/components/auth/AdminSplashScreen';
-import PostLoginSplash from '@/components/auth/PostLoginSplash';
 import PageMeta from '@/components/seo/PageMeta';
 
 const SPLASH_KEY = 'admin_splash_shown';
@@ -33,15 +32,9 @@ export default function Login() {
     return sessionStorage.getItem(SPLASH_KEY) !== 'true';
   });
   const [splashFading, setSplashFading] = useState(false);
-  // Post-login splash gating. freshLoginRef flips BEFORE the sign-in await
-  // so the session effect below cannot race the auth event and yank the
-  // user off the splash. Session RESTORES (visiting /login with a live
-  // session, ref still false) redirect exactly as before — no splash.
-  const freshLoginRef = useRef(false);
-  const [postLoginSplash, setPostLoginSplash] = useState(false);
 
   useEffect(() => {
-    if (session && !freshLoginRef.current && !window.location.hash.includes('type=recovery')) {
+    if (session && !window.location.hash.includes('type=recovery')) {
       navigate(ROUTES.DASHBOARD, { replace: true });
     }
   }, [session, navigate]);
@@ -71,10 +64,6 @@ export default function Login() {
     return <AdminSplashScreen fadingOut={splashFading} />;
   }
 
-  if (postLoginSplash) {
-    return <PostLoginSplash onEnter={() => navigate(ROUTES.DASHBOARD, { replace: true })} />;
-  }
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
@@ -82,18 +71,14 @@ export default function Login() {
       return;
     }
     setLoading(true);
-    // Set BEFORE the await: the SIGNED_IN auth event can land while we're
-    // still awaiting, and the session effect must already be gated.
-    freshLoginRef.current = true;
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) {
-      freshLoginRef.current = false;
       toast.error(error.message);
       return;
     }
     toast.success('Welcome to Cha Jewels');
-    setPostLoginSplash(true);
+    navigate(ROUTES.DASHBOARD);
   };
 
   return (

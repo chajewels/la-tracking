@@ -264,6 +264,14 @@ To add a new screenshot for any Help section:
     - src/components/dashboard/OverdueAlerts.tsx — UNUSED as of Phase 3
       (NeedsAttentionPanel supersedes its Dashboard slot behind the same
       view_overdue_alerts gate); delete in a dedicated cleanup commit
+    - POST-LOGIN SPLASH (Phase 5): the branch's implementation (a25b835)
+      was REVERTED — the splash ships to main separately via Lovable with
+      an OAuth ?next guard (main's Login.tsx changed under this branch).
+      On merging origin/main, ADOPT the main version, restyle it to Deco
+      Ledger tokens (no hex literals), and re-add the three guard-test
+      invariants from the reverted src/test/post-login-splash-guard.test.tsx
+      (session-restore no-splash + redirect; fresh-sign-in splash survives
+      the late SIGNED_IN event; failed sign-in resets the guard) against it.
     - .github/workflows/.github/workflows/firebase-hosting.yml — INERT nested
       duplicate workflow (GitHub never executes nested paths); delete in a
       dedicated cleanup commit. NOTE: the REAL deploy workflow
