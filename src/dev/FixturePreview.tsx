@@ -7,6 +7,12 @@ import CashOrdersList from '@/components/customers/CashOrdersList';
 import KpiStrip from '@/components/dashboard/KpiStrip';
 import NeedsAttentionPanel from '@/components/dashboard/NeedsAttentionPanel';
 import PaymentTimeline, { CashOrderTimeline } from '@/components/accounts/PaymentTimeline';
+import FloatingField from '@/components/forms/FloatingField';
+import CurrencyInput from '@/components/forms/CurrencyInput';
+import TypedConfirmField from '@/components/forms/TypedConfirmField';
+import { EmptyState, ErrorState } from '@/components/shared/EmptyState';
+import { Button } from '@/components/ui/button';
+import { FileText } from 'lucide-react';
 import ProgressRing from '@/components/shared/ProgressRing';
 import TierCard from '@/components/customers/TierCard';
 import AccountStatement from '@/components/statements/AccountStatement';
@@ -148,6 +154,9 @@ export default function FixturePreview() {
       />
     );
   }
+  if (view === 'forms') {
+    return <FormsFixture />;
+  }
   if (view === 'kpi-loading') {
     return (
       <div className="space-y-6 p-6">
@@ -170,4 +179,44 @@ export default function FixturePreview() {
     );
   }
   return <AccountList />;
+}
+
+/** Phase 5 forms/states fixture — the shared UX primitives in every state. */
+function FormsFixture() {
+  const [invoice, setInvoice] = useState('');
+  const [touched, setTouched] = useState(false);
+  const [php, setPhp] = useState<number | ''>(83311.5);
+  const [jpy, setJpy] = useState<number | ''>(1250000);
+  const [armed, setArmed] = useState(false);
+  return (
+    <div className="max-w-xl p-6 space-y-6">
+      <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
+        <h3 className="text-sm font-semibold text-card-foreground pb-2 hairline-b">Forms polish</h3>
+        <FloatingField
+          label="Invoice Number *"
+          value={invoice}
+          onChange={e => setInvoice(e.target.value)}
+          onBlur={() => setTouched(true)}
+          error={touched && !invoice ? 'Invoice number is required.' : undefined}
+        />
+        <FloatingField label="Customer name" defaultValue="Maria Consolación Villanueva-Dela Cruz" />
+        <CurrencyInput currency="PHP" label="Total amount (PHP)" value={php} onValueChange={setPhp} hint="Auto-formats as you type" />
+        <CurrencyInput currency="JPY" label="Total amount (JPY)" value={jpy} onValueChange={setJpy} error="Below the 12-month plan minimum of ¥1,000,000 — shown on blur, enforced on submit." />
+      </div>
+      <div className="rounded-2xl border border-danger/25 bg-card p-5 space-y-4">
+        <h3 className="text-sm font-semibold text-card-foreground pb-2 hairline-b">Typed confirmation</h3>
+        <TypedConfirmField word="VOID" onArmedChange={setArmed} />
+        <Button variant="destructive" disabled={!armed} className="w-full">
+          {armed ? 'Void Payment (armed)' : 'Void Payment (type VOID to arm)'}
+        </Button>
+      </div>
+      <EmptyState
+        icon={FileText}
+        title="No accounts found"
+        description="Create the first layaway account to get started."
+        action={<Button size="sm" className="gold-gradient text-primary-foreground">New Account</Button>}
+      />
+      <ErrorState message="Couldn't load the collections trend. Your other dashboard data is unaffected." onRetry={() => {}} />
+    </div>
+  );
 }

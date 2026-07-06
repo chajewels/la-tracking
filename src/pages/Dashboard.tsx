@@ -55,7 +55,7 @@ export default function Dashboard() {
   const { data: accounts } = useAccountsLight();
   const { data: customers } = useCustomers();
   // Phase 3 extras — existing server surface only (see useDashboardExtras).
-  const { data: collectedRows, isLoading: collectedLoading } = useMonthlyCollected();
+  const { data: collectedRows, isLoading: collectedLoading, isError: collectedError, refetch: refetchCollected } = useMonthlyCollected();
   const { data: redemptions, isError: redemptionsUnavailable } = useRedemptionsKpi();
   const attention = useNeedsAttention();
   useAutoRefresh([
@@ -200,7 +200,7 @@ export default function Dashboard() {
 
         {/* Section 1c — Hero chart: Collected (cash by payment date) */}
         <Suspense fallback={<Skeleton className="h-72 rounded-xl" />}>
-          <CollectionsHeroChart rows={collectedRows} loading={collectedLoading} />
+          <CollectionsHeroChart rows={collectedRows} loading={collectedLoading} error={collectedError} onRetry={() => refetchCollected()} />
         </Suspense>
 
         {/* Section 2 — Key Metrics (counts only) */}

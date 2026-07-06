@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { ArrowLeft, UserPlus, Banknote, Loader2, AlertTriangle, X, Lock } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
+import CurrencyInput from '@/components/forms/CurrencyInput';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -446,19 +447,13 @@ export default function NewCashOrder() {
               {/* Total Amount */}
               <div className="space-y-2">
                 <Label className="text-card-foreground">Total Amount *</Label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground pointer-events-none">
-                    {currency === 'JPY' ? '¥' : '₱'}
-                  </span>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={totalAmount}
-                    onChange={(e) => { setTotalAmount(e.target.value); markDirty(); }}
-                    placeholder="0"
-                    className="bg-background border-border pl-8 tabular-nums"
-                  />
-                </div>
+                <CurrencyInput
+                  currency={currency as Currency}
+                  value={totalAmount === '' ? '' : Number(totalAmount)}
+                  onValueChange={(v) => { setTotalAmount(v === '' ? '' : String(v)); markDirty(); }}
+                  error={totalAmount !== '' && amount <= 0 ? ' ' : undefined}
+                  className="bg-background"
+                />
                 {totalAmount !== '' && amount <= 0 && (
                   <p className="text-xs text-destructive">Amount must be greater than zero</p>
                 )}

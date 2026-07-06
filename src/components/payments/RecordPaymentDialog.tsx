@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { AlertTriangle, CheckCircle2, Clock, Save, Upload, X, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import CurrencyInput from '@/components/forms/CurrencyInput';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -388,15 +389,13 @@ export default function RecordPaymentDialog({ accountId, currency, remainingBala
           ) : (
             <div className="space-y-2">
               <Label className="text-card-foreground">Amount ({currency}) *</Label>
-              <Input
-                type="number"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+              <CurrencyInput
+                currency={currency as Currency}
+                value={amount === '' ? '' : Number(amount)}
+                onValueChange={(v) => setAmount(v === '' ? '' : String(v))}
                 placeholder={`Max ${remainingBalance.toLocaleString()}`}
-                className="bg-background border-border"
-                min={0.01}
-                max={remainingBalance}
-                step="any"
+                error={parsedAmount > remainingBalance + 0.005 ? ' ' : undefined}
+                className="bg-background"
               />
               {parsedAmount > remainingBalance + 0.005 && (
                 <p className="text-xs text-destructive">Amount exceeds remaining balance</p>

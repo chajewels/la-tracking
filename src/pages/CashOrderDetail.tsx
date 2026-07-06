@@ -25,6 +25,7 @@ import { Currency } from '@/lib/types';
 import { formatCurrency } from '@/lib/calculations';
 import { CashOrderTimeline } from '@/components/accounts/PaymentTimeline';
 import ProgressRing from '@/components/shared/ProgressRing';
+import TypedConfirmField from '@/components/forms/TypedConfirmField';
 import AccountStatement from '@/components/statements/AccountStatement';
 import { supabase } from '@/integrations/supabase/client';
 import { getProofSignedUrl } from '@/lib/proof-url';
@@ -511,6 +512,9 @@ export default function CashOrderDetail() {
     }
   }, [order, cancelReason, qc, id]);
 
+  // Typed-confirmation gates (Phase 5) — arm existing buttons only.
+  const [cancelArmed, setCancelArmed] = useState(false);
+  const [voidArmed, setVoidArmed] = useState(false);
   // Void dialog
   const [voidOpen, setVoidOpen] = useState(false);
   const [voidPaymentId, setVoidPaymentId] = useState<string | null>(null);
@@ -1316,6 +1320,7 @@ export default function CashOrderDetail() {
               className="bg-background border-border"
             />
           </div>
+          <TypedConfirmField word="CANCEL" onArmedChange={setCancelArmed} />
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setCancelOpen(false)} disabled={cancelling}>
               Back
@@ -1323,7 +1328,7 @@ export default function CashOrderDetail() {
             <Button
               variant="destructive"
               onClick={confirmCancel}
-              disabled={cancelling || !cancelReason.trim()}
+              disabled={cancelling || !cancelReason.trim() || !cancelArmed}
             >
               {cancelling ? 'Cancelling…' : 'Confirm Cancel'}
             </Button>
@@ -1445,6 +1450,7 @@ export default function CashOrderDetail() {
               className="bg-background border-border"
             />
           </div>
+          <TypedConfirmField word="VOID" onArmedChange={setVoidArmed} />
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setVoidOpen(false)} disabled={voiding}>
               Back
@@ -1452,7 +1458,7 @@ export default function CashOrderDetail() {
             <Button
               variant="destructive"
               onClick={confirmVoid}
-              disabled={voiding || !voidReason.trim()}
+              disabled={voiding || !voidReason.trim() || !voidArmed}
             >
               {voiding ? 'Voiding…' : 'Confirm Void'}
             </Button>

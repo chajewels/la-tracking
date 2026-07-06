@@ -19,6 +19,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MUTATION_INVALIDATION_KEYS } from '@/lib/business-rules';
+import TypedConfirmField from '@/components/forms/TypedConfirmField';
 
 interface WaiverRow {
   id: string;
@@ -96,6 +97,7 @@ export default function Waivers({ embedded = false, search = '' }: { embedded?: 
   const qc = useQueryClient();
   const [filter, setFilter] = useState<FilterStatus>('pending');
   const [actionDialog, setActionDialog] = useState<{ group: WaiverGroup; action: 'approve' | 'reject' } | null>(null);
+  const [approveArmed, setApproveArmed] = useState(false);
   const [selectedWaiverIds, setSelectedWaiverIds] = useState<Set<string>>(new Set());
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -175,6 +177,7 @@ export default function Waivers({ embedded = false, search = '' }: { embedded?: 
     setSelectedWaiverIds(new Set(eligible.map(w => w.id)));
     setActionDialog({ group, action });
     setNotes('');
+    setApproveArmed(false);
   };
 
   const toggleWaiverSelection = (id: string) => {
@@ -494,13 +497,19 @@ export default function Waivers({ embedded = false, search = '' }: { embedded?: 
                   rows={2}
                 />
               </div>
+
+              {/* Waiving penalties changes account balances — typed gate
+                  around the EXISTING approve-waiver invocation only. */}
+              {actionDialog.action === 'approve' && (
+                <TypedConfirmField word="APPROVE" onArmedChange={setApproveArmed} />
+              )}
             </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => { setActionDialog(null); setSelectedWaiverIds(new Set()); }}>Cancel</Button>
             <Button
               onClick={handleAction}
-              disabled={submitting || selectedWaiverIds.size === 0}
+              disabled={submitting || selectedWaiverIds.size === 0 || (actionDialog?.action === 'approve' && !approveArmed)}
               className={actionDialog?.action === 'approve'
                 ? 'bg-success text-success-foreground hover:bg-success/90'
                 : 'bg-destructive text-destructive-foreground hover:bg-destructive/90'}

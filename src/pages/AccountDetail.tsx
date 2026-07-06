@@ -35,6 +35,7 @@ import { PAYMENT_METHODS, normalizeMethod } from '@/lib/payment-method-registry'
 import { toast } from 'sonner';
 import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useEditPaymentAmount, useRestorePayment, useDeleteAccount, useForfeitAccount, useAccountServices, usePenaltyCapOverride, useAccountNotes, useWaiverRequests } from '@/hooks/use-supabase-data';
 import PaymentTimeline, { type TimelineInstallment } from '@/components/accounts/PaymentTimeline';
+import TypedConfirmField from '@/components/forms/TypedConfirmField';
 import ProgressRing from '@/components/shared/ProgressRing';
 import AccountStatement from '@/components/statements/AccountStatement';
 import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
@@ -202,6 +203,10 @@ export default function AccountDetail() {
   const [restoreTarget, setRestoreTarget] = useState<{ id: string; amount: number; date: string } | null>(null);
   const [dpRestoreTarget, setDpRestoreTarget] = useState<{ id: string; amount: number; date: string } | null>(null);
   const [forfeitConfirmOpen, setForfeitConfirmOpen] = useState(false);
+  // Typed-confirmation gates (Phase 5) — arm the existing action buttons;
+  // payloads and permission gates unchanged.
+  const [voidArmed, setVoidArmed] = useState(false);
+  const [forfeitArmed, setForfeitArmed] = useState(false);
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [editScheduleAmount, setEditScheduleAmount] = useState('');
   const [editScheduleLoading, setEditScheduleLoading] = useState(false);
@@ -2408,11 +2413,14 @@ export default function AccountDetail() {
                 <label className="text-xs text-muted-foreground">Reason (optional)</label>
                 <Textarea value={voidReason} onChange={(e) => setVoidReason(e.target.value)} rows={2} placeholder="e.g. Recorded wrong amount" className="bg-background border-border text-sm resize-none" />
               </div>
+              <div className="mb-4">
+                <TypedConfirmField word="VOID" onArmedChange={setVoidArmed} />
+              </div>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setVoidTarget(null)}>Cancel</Button>
                 <Button
                   variant="destructive"
-                  disabled={voidPayment.isPending}
+                  disabled={voidPayment.isPending || !voidArmed}
                   onClick={async () => {
                     if (!voidTarget) return;
                     try {
@@ -2443,9 +2451,12 @@ export default function AccountDetail() {
               style={{ zIndex: 9999, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', color: 'var(--foreground)' }}
             >
               <h2 className="text-lg font-semibold mb-2">Forfeit Account?</h2>
-              <p className="text-sm text-muted-foreground mb-6">
+              <p className="text-sm text-muted-foreground mb-4">
                 This will mark INV #{account.invoice_number} as forfeited. The customer will be flagged as a high-risk payer. Payments can no longer be recorded on this account.
               </p>
+              <div className="mb-4">
+                <TypedConfirmField word={account.invoice_number} onArmedChange={setForfeitArmed} />
+              </div>
               <div className="flex justify-end gap-3">
                 <button
                   className="px-4 py-2 rounded-lg border border-border text-sm"
@@ -2454,7 +2465,7 @@ export default function AccountDetail() {
                 </button>
                 <button
                   className="px-4 py-2 rounded-lg bg-orange-600 text-white text-sm hover:bg-orange-700 disabled:opacity-50"
-                  disabled={forfeitAccount.isPending}
+                  disabled={forfeitAccount.isPending || !forfeitArmed}
                   onClick={async () => {
                     try {
                       await forfeitAccount.mutateAsync(account.id);

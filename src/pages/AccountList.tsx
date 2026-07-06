@@ -24,6 +24,7 @@ import BulkActionBar from '@/components/list-kit/BulkActionBar';
 import VirtualCardGrid from '@/components/list-kit/VirtualCardGrid';
 import { useListKeyboardNav } from '@/components/list-kit/useListKeyboardNav';
 import AccountQuickView, { type QuickViewAccount } from '@/components/accounts/AccountQuickView';
+import { EmptyState } from '@/components/shared/EmptyState';
 import { toast } from '@/components/ui/use-toast';
 
 const statusStyles: Record<string, string> = {
@@ -505,10 +506,18 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
             {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-40 rounded-xl" />)}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card p-12 text-center">
-            <FileText className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-40" />
-            <p className="text-sm text-muted-foreground">No accounts found</p>
-          </div>
+          <EmptyState
+            icon={FileText}
+            title="No accounts found"
+            description={searchRef.current || filterStatus !== 'all' ? 'Try clearing the search or filters.' : 'Create the first layaway account to get started.'}
+            action={!embedded ? (
+              <Link to={ROUTES.NEW_ACCOUNT}>
+                <Button size="sm" className="gold-gradient text-primary-foreground">
+                  <Plus className="h-4 w-4 mr-1.5" /> New Account
+                </Button>
+              </Link>
+            ) : undefined}
+          />
         ) : (
           <>
             {/* Expand / collapse all */}

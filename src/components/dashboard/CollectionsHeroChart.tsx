@@ -9,6 +9,7 @@ import {
   YAxis,
 } from 'recharts';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ErrorState } from '@/components/shared/EmptyState';
 import { chartColors, palette } from '@/theme/tokens';
 import type { MonthlyAnalyticsRow } from '@/hooks/useDashboardExtras';
 
@@ -48,9 +49,13 @@ const HeroTooltip = ({ active, payload, label }: { active?: boolean; payload?: A
 export default function CollectionsHeroChart({
   rows,
   loading,
+  error = false,
+  onRetry,
 }: {
   rows: MonthlyAnalyticsRow[] | undefined;
   loading: boolean;
+  error?: boolean;
+  onRetry?: () => void;
 }) {
   const data = useMemo(
     () =>
@@ -67,7 +72,9 @@ export default function CollectionsHeroChart({
         <h3 className="text-sm font-semibold text-card-foreground">Collected — last 12 months</h3>
         <span className="label-caps">¥ · by payment date</span>
       </div>
-      {loading ? (
+      {error ? (
+        <ErrorState compact message="Couldn't load the collections trend. Your other dashboard data is unaffected." onRetry={onRetry} />
+      ) : loading ? (
         <Skeleton className="h-56 w-full rounded-lg" />
       ) : data.length === 0 ? (
         <div className="h-56 flex items-center justify-center">

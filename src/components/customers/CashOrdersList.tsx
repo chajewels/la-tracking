@@ -18,6 +18,7 @@ import SortMenu, { sortRows, type SortState } from '@/components/list-kit/SortMe
 import DensityToggle, { useDensity } from '@/components/list-kit/DensityToggle';
 import HighlightText from '@/components/list-kit/HighlightText';
 import { useListKeyboardNav } from '@/components/list-kit/useListKeyboardNav';
+import { EmptyState } from '@/components/shared/EmptyState';
 
 // Folder-level sort options shared with the layaway list's conventions.
 const SORT_OPTIONS = [
@@ -264,10 +265,18 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
             {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-40 rounded-xl" />)}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card p-12 text-center">
-            <Banknote className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-40" />
-            <p className="text-sm text-muted-foreground">No cash orders found</p>
-          </div>
+          <EmptyState
+            icon={Banknote}
+            title="No cash orders found"
+            description="Try clearing the search or filters, or record the first cash order."
+            action={canCreate ? (
+              <Link to="/cash-orders/new">
+                <Button size="sm" className="gold-gradient text-primary-foreground">
+                  <Plus className="h-4 w-4 mr-1.5" /> New Cash Order
+                </Button>
+              </Link>
+            ) : undefined}
+          />
         ) : (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" ref={gridRef}>

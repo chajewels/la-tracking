@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import StaffNotificationBell from '@/components/notifications/StaffNotificationBell';
 import AICommandModal from '@/components/ai/AICommandModal';
 import RecordPaymentModal from '@/components/payments/RecordPaymentModal';
+import CommandPalette from '@/components/layout/CommandPalette';
 import PageTransition from '@/components/motion/PageTransition';
 
 export default function AppLayout({ children }: { children: ReactNode }) {
@@ -136,6 +137,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           <Sparkles className="h-5 w-5 text-primary-foreground" />
         </button>
 
+        {/* ⌘K palette — internal chrome only, never the customer portal */}
+        <CommandPalette />
         <AICommandModal open={aiOpen} onOpenChange={setAiOpen} />
         <RecordPaymentModal
           open={recordOpen}

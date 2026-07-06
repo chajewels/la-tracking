@@ -42,7 +42,7 @@ import {
   SidebarMenuSubItem,
 } from '@/components/ui/sidebar';
 
-type SubMenuItem = {
+export type SubMenuItem = {
   label: string;
   tab: string;
   // Optional override: when set, the sub-item navigates to this absolute path
@@ -53,7 +53,7 @@ type SubMenuItem = {
   permFilter?: (can: (key: string) => boolean) => boolean;
 };
 
-type MenuItem = {
+export type MenuItem = {
   label: string;
   icon: any;
   path?: string;
@@ -63,12 +63,12 @@ type MenuItem = {
   permPath?: string;
 };
 
-type CategoryHeader = {
+export type CategoryHeader = {
   type: 'category';
   label: string;
 };
 
-const sidebarItems: (CategoryHeader | MenuItem)[] = [
+export const sidebarItems: (CategoryHeader | MenuItem)[] = [
   { label: 'Dashboard', icon: LayoutDashboard, path: ROUTES.DASHBOARD },
   { label: 'Executive Dashboard', icon: BarChart3, path: ROUTES.EXECUTIVE_DASHBOARD, adminOnly: true },
 
@@ -164,7 +164,7 @@ const sidebarItems: (CategoryHeader | MenuItem)[] = [
   { label: 'Help', icon: HelpCircle, path: '/help' },
 ];
 
-function isCategory(item: CategoryHeader | MenuItem): item is CategoryHeader {
+export function isCategory(item: CategoryHeader | MenuItem): item is CategoryHeader {
   return (item as CategoryHeader).type === 'category';
 }
 

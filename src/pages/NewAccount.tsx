@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
 import { ArrowLeft, UserPlus, ChevronDown, ChevronUp, Banknote, Copy, Check, MessageCircle, Wand2, Save, AlertTriangle, Loader2, X } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
+import CurrencyInput from '@/components/forms/CurrencyInput';
+import FloatingField from '@/components/forms/FloatingField';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -70,6 +72,7 @@ export default function NewAccount() {
   const customerSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [currency, setCurrency] = useState<Currency>(initialCurrency);
   const [totalAmount, setTotalAmount] = useState(urlAmount ?? '');
+  const [invoiceTouched, setInvoiceTouched] = useState(false);
   const [orderDate, setOrderDate] = useState('');
   const [paymentPlan, setPaymentPlan] = useState<PaymentPlan>(initialPlanMonths);
   const [downpaymentInput, setDownpaymentInput] = useState('');
@@ -566,12 +569,15 @@ export default function NewAccount() {
           <div className="rounded-xl border border-border bg-card p-6 space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label className="text-card-foreground">Invoice Number *</Label>
-                <Input
+                {/* Floating label + blur hint mirroring the existing
+                    required-field submit rule (display only). */}
+                <FloatingField
+                  label="Invoice Number *"
                   value={invoiceNumber}
                   onChange={(e) => { setInvoiceNumber(e.target.value); markDirty(); }}
-                  placeholder="e.g. 19200"
-                  className="bg-background border-border"
+                  onBlur={() => setInvoiceTouched(true)}
+                  error={invoiceTouched && !invoiceNumber ? 'Invoice number is required.' : undefined}
+                  className="bg-background"
                 />
               </div>
               <div className="space-y-2">
@@ -748,12 +754,14 @@ export default function NewAccount() {
               </div>
               <div className="space-y-2">
                 <Label className="text-card-foreground">Total Amount *</Label>
-                <Input
-                  type="number"
-                  value={totalAmount}
-                  onChange={(e) => { setTotalAmount(e.target.value); markDirty(); }}
-                  placeholder="e.g. 83311"
-                  className="bg-background border-border"
+                {/* Auto-formatting display layer only — same string state,
+                    same parse sites, same plan-minimum enforcement below. */}
+                <CurrencyInput
+                  currency={currency as Currency}
+                  value={totalAmount === '' ? '' : Number(totalAmount)}
+                  onValueChange={(v) => { setTotalAmount(v === '' ? '' : String(v)); markDirty(); }}
+                  error={isBelowMinimum && planMinimum !== null ? ' ' : undefined}
+                  className="bg-background"
                 />
                 {isBelowMinimum && planMinimum !== null && (
                   <p className="text-red-500 text-sm mt-1">
