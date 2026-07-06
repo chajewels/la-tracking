@@ -12,7 +12,11 @@ const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableE
 Table.displayName = "Table";
 
 const TableHeader = React.forwardRef<HTMLTableSectionElement, React.HTMLAttributes<HTMLTableSectionElement>>(
-  ({ className, ...props }, ref) => <thead ref={ref} className={cn("[&_tr]:border-b", className)} {...props} />,
+  // The header row's bottom border is the Deco Ledger gold hairline
+  // (cosmetic only — no behavior change for any consumer).
+  ({ className, ...props }, ref) => (
+    <thead ref={ref} className={cn("[&_tr]:border-b [&_tr]:border-gold-500/40", className)} {...props} />
+  ),
 );
 TableHeader.displayName = "TableHeader";
 

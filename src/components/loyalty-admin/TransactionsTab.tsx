@@ -4,7 +4,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Filter,
-  Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,14 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import DataTable, { type DataTableColumn } from '@/components/data-table/DataTable';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Tooltip,
@@ -119,50 +111,6 @@ function fmtYen(n: number | null): string {
   return `¥${n.toLocaleString('en-US')}`;
 }
 
-function csvEscape(v: unknown): string {
-  const s = v == null ? '' : String(v);
-  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
-}
-
-function exportCsv(rows: LoyaltyTransactionRow[]) {
-  const header = [
-    'Date/Time',
-    'Type',
-    'Member',
-    'Points',
-    'Spend (JPY)',
-    'Tier',
-    'Invoice',
-    'Notes',
-  ];
-  const lines = rows.map((r) =>
-    [
-      r.created_at,
-      r.transaction_type,
-      `${r.customer_code ?? ''} ${r.customer_full_name ?? ''}`.trim(),
-      r.points_amount,
-      r.spend_amount_jpy ?? '',
-      r.tier_at_time ?? '',
-      r.invoice_number ?? '',
-      r.notes ?? '',
-    ]
-      .map(csvEscape)
-      .join(','),
-  );
-  const csv = [header.join(','), ...lines].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const d = new Date().toISOString().slice(0, 10);
-  a.href = url;
-  a.download = `loyalty-transactions-${d}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
 function TransactionsTableView({
   viewKind,
 }: {
@@ -206,6 +154,123 @@ function TransactionsTableView({
   function resetPage() {
     setPage(0);
   }
+
+  const columns = useMemo<DataTableColumn<LoyaltyTransactionRow>[]>(
+    () => [
+      {
+        key: 'datetime',
+        header: 'Date/Time',
+        cell: (r) => <span className="whitespace-nowrap">{fmtDateTime(r.created_at)}</span>,
+        sortValue: (r) => r.created_at,
+        csvValue: (r) => r.created_at,
+      },
+      {
+        key: 'type',
+        header: 'Type',
+        cell: (r) => (
+          <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-semibold ${badgeClass(r)}`}>
+            {r.transaction_type}
+          </span>
+        ),
+        sortValue: (r) => r.transaction_type,
+        csvValue: (r) => r.transaction_type,
+      },
+      {
+        key: 'member',
+        header: 'Member',
+        hideable: false,
+        cell: (r) => (
+          <span
+            className="text-primary hover:underline whitespace-nowrap cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedMemberId(r.member_id);
+            }}
+          >
+            {r.customer_code ?? '—'}
+            {r.customer_full_name ? ` · ${r.customer_full_name}` : ''}
+          </span>
+        ),
+        sortValue: (r) => `${r.customer_code ?? ''} ${r.customer_full_name ?? ''}`.trim(),
+        filterValue: (r) => `${r.customer_code ?? ''} ${r.customer_full_name ?? ''}`.trim(),
+      },
+      {
+        key: 'points',
+        header: 'Points',
+        align: 'right',
+        cell: (r) => (
+          <span className={`font-semibold ${r.points_amount >= 0 ? 'text-emerald-600' : 'text-destructive'}`}>
+            {fmtPoints(r.points_amount)}
+          </span>
+        ),
+        sortValue: (r) => r.points_amount,
+        csvValue: (r) => r.points_amount,
+      },
+      {
+        key: 'spend',
+        header: 'Spend (¥)',
+        align: 'right',
+        cell: (r) => fmtYen(r.spend_amount_jpy),
+        sortValue: (r) => r.spend_amount_jpy,
+        csvValue: (r) => r.spend_amount_jpy ?? '',
+      },
+      {
+        key: 'tier',
+        header: 'Tier',
+        cell: (r) => <span className="text-muted-foreground">{r.tier_at_time ?? '—'}</span>,
+        sortValue: (r) => r.tier_at_time,
+        csvValue: (r) => r.tier_at_time ?? '',
+      },
+      {
+        key: 'invoice',
+        header: 'Invoice',
+        cell: (r) =>
+          r.invoice_number && r.account_id ? (
+            <a
+              className="text-primary hover:underline"
+              href={`/accounts/${r.invoice_number}`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {r.invoice_number}
+            </a>
+          ) : r.invoice_number && r.cash_order_id ? (
+            <a
+              className="text-primary hover:underline"
+              href={`/cash-orders/${r.invoice_number}`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {r.invoice_number}
+            </a>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          ),
+        filterValue: (r) => r.invoice_number ?? '',
+        csvValue: (r) => r.invoice_number ?? '',
+      },
+      {
+        key: 'notes',
+        header: 'Notes',
+        cellClassName: 'text-muted-foreground max-w-[220px]',
+        cell: (r) =>
+          r.notes ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="block truncate">
+                  {r.notes.length > 40 ? `${r.notes.slice(0, 40)}…` : r.notes}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-sm">
+                <p className="text-xs whitespace-pre-wrap">{r.notes}</p>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            '—'
+          ),
+        csvValue: (r) => r.notes ?? '',
+      },
+    ],
+    [],
+  );
 
   return (
     <div className="space-y-4">
@@ -256,16 +321,6 @@ function TransactionsTableView({
           placeholder="Search by customer code or name..."
           className="w-[260px] h-9"
         />
-        <Button
-          variant="outline"
-          size="sm"
-          className="ml-auto"
-          onClick={() => exportCsv(data?.rows ?? [])}
-          disabled={isLoading || (data?.rows.length ?? 0) === 0}
-        >
-          <Download className="h-3.5 w-3.5 mr-1.5" />
-          Export CSV
-        </Button>
       </div>
 
       {/* Result count */}
@@ -277,142 +332,44 @@ function TransactionsTableView({
             }`}
       </div>
 
-      {/* Table */}
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
-        {isError ? (
-          <div className="p-6 text-center space-y-3">
-            <p className="text-sm text-destructive">
-              Failed to load transactions
-            </p>
-            <Button variant="outline" size="sm" onClick={() => refetch()}>
-              Retry
-            </Button>
-          </div>
-        ) : isLoading ? (
-          <div className="p-4 space-y-2">
-            {[...Array(8)].map((_, i) => (
-              <Skeleton key={i} className="h-10 rounded-md" />
-            ))}
-          </div>
-        ) : (data?.rows.length ?? 0) === 0 ? (
-          <div className="p-10 text-center">
-            <Receipt className="h-9 w-9 text-muted-foreground mx-auto mb-3 opacity-40" />
-            <p className="text-sm text-muted-foreground">
-              No transactions match these filters.
-            </p>
-          </div>
-        ) : (
-          <TooltipProvider>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date/Time</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Member</TableHead>
-                  <TableHead className="text-right">Points</TableHead>
-                  <TableHead className="text-right">Spend (¥)</TableHead>
-                  <TableHead>Tier</TableHead>
-                  <TableHead>Invoice</TableHead>
-                  <TableHead>Notes</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data!.rows.map((r) => {
-                  return (
-                    <TableRow
-                      key={r.id}
-                      className="cursor-pointer hover:bg-muted/40"
-                      onClick={() => setSelected(r)}
-                    >
-                      <TableCell className="text-xs whitespace-nowrap">
-                        {fmtDateTime(r.created_at)}
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        <span
-                          className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-semibold ${badgeClass(
-                            r,
-                          )}`}
-                        >
-                          {r.transaction_type}
-                        </span>
-                      </TableCell>
-                      <TableCell
-                        className="text-xs text-primary hover:underline whitespace-nowrap"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedMemberId(r.member_id);
-                        }}
-                      >
-                        {r.customer_code ?? '—'}
-                        {r.customer_full_name
-                          ? ` · ${r.customer_full_name}`
-                          : ''}
-                      </TableCell>
-                      <TableCell
-                        className={`text-xs text-right font-semibold tabular-nums ${
-                          r.points_amount >= 0
-                            ? 'text-emerald-600'
-                            : 'text-destructive'
-                        }`}
-                      >
-                        {fmtPoints(r.points_amount)}
-                      </TableCell>
-                      <TableCell className="text-xs text-right tabular-nums">
-                        {fmtYen(r.spend_amount_jpy)}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {r.tier_at_time ?? '—'}
-                      </TableCell>
-                      <TableCell
-                        className="text-xs"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {r.invoice_number && r.account_id ? (
-                          <a
-                            className="text-primary hover:underline"
-                            href={`/accounts/${r.invoice_number}`}
-                          >
-                            {r.invoice_number}
-                          </a>
-                        ) : r.invoice_number && r.cash_order_id ? (
-                          <a
-                            className="text-primary hover:underline"
-                            href={`/cash-orders/${r.invoice_number}`}
-                          >
-                            {r.invoice_number}
-                          </a>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground max-w-[220px]">
-                        {r.notes ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="block truncate">
-                                {r.notes.length > 40
-                                  ? `${r.notes.slice(0, 40)}…`
-                                  : r.notes}
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-sm">
-                              <p className="text-xs whitespace-pre-wrap">
-                                {r.notes}
-                              </p>
-                            </TooltipContent>
-                          </Tooltip>
-                        ) : (
-                          '—'
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </TooltipProvider>
-        )}
-      </div>
+      {/* Table — DataTable composite (reference adoption). Sorting, column
+          filters, and CSV export act on the loaded page only, because rows
+          are server-paginated by useLoyaltyTransactions. */}
+      {isError ? (
+        <div className="rounded-xl border border-border bg-card p-6 text-center space-y-3">
+          <p className="text-sm text-destructive">
+            Failed to load transactions
+          </p>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </div>
+      ) : isLoading ? (
+        <div className="rounded-xl border border-border bg-card p-4 space-y-2">
+          {[...Array(8)].map((_, i) => (
+            <Skeleton key={i} className="h-10 rounded-md" />
+          ))}
+        </div>
+      ) : (data?.rows.length ?? 0) === 0 ? (
+        <div className="rounded-xl border border-border bg-card p-10 text-center">
+          <Receipt className="h-9 w-9 text-muted-foreground mx-auto mb-3 opacity-40" />
+          <p className="text-sm text-muted-foreground">
+            No transactions match these filters.
+          </p>
+        </div>
+      ) : (
+        <TooltipProvider>
+          <DataTable
+            columns={columns}
+            rows={data!.rows}
+            rowKey={(r) => r.id}
+            onRowClick={setSelected}
+            csvName="loyalty-transactions"
+            densityKey="cj-loyalty-tx-density"
+            note="Sorting, column filters, and CSV export apply to the current page."
+          />
+        </TooltipProvider>
+      )}
 
       {/* Pagination */}
       {(data?.totalPages ?? 1) > 1 && (

@@ -1,6 +1,7 @@
 import { memo, useState, useMemo, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { motion } from 'framer-motion';
 import { Plus, Search, ChevronRight, ChevronLeft, Banknote } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -12,6 +13,20 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import StatusBadge from './StatusBadge';
+import { transition, rowDelay } from '@/theme/motion';
+import SortMenu, { sortRows, type SortState } from '@/components/list-kit/SortMenu';
+import DensityToggle, { useDensity } from '@/components/list-kit/DensityToggle';
+import HighlightText from '@/components/list-kit/HighlightText';
+import { useListKeyboardNav } from '@/components/list-kit/useListKeyboardNav';
+
+// Folder-level sort options shared with the layaway list's conventions.
+const SORT_OPTIONS = [
+  { key: 'balance', label: 'Balance' },
+  { key: 'total', label: 'Total amount' },
+  { key: 'customer', label: 'Customer' },
+  { key: 'invoice', label: 'Invoice #' },
+  { key: 'order_date', label: 'Order date' },
+];
 
 const EmbeddedWrapper = ({ children }: { children: ReactNode }) => <>{children}</>;
 
@@ -83,8 +98,21 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
   const [filterCurrency, setFilterCurrency] = useState<Currency | 'all'>('all');
   const [hideTest, setHideTest] = useState(true);
   const [page, setPage] = useState(0);
+  // List-kit state: sort, card density, keyboard navigation.
+  const [sort, setSort] = useState<SortState | null>(null);
+  const [density, setDensity] = useDensity('cj-cash-orders-density');
+  const gridRef = useRef<HTMLDivElement>(null);
+  useListKeyboardNav(gridRef);
 
   const { data: orders, isLoading } = useCashOrders();
+
+  const sortAccessors = useMemo(() => ({
+    balance: (o: CashOrderRow) => Number(o.remaining_balance),
+    total: (o: CashOrderRow) => Number(o.total_amount),
+    customer: (o: CashOrderRow) => o.customers?.full_name ?? '',
+    invoice: (o: CashOrderRow) => o.invoice_number ?? '',
+    order_date: (o: CashOrderRow) => o.order_date ?? o.created_at ?? '',
+  }), []);
 
   const filtered = useMemo(() => (orders || []).filter(o => {
     const search = searchRef.current.toLowerCase();
@@ -136,8 +164,11 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
     };
   }, [exportRef, handleExport]);
 
-  const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const sorted = useMemo(() => sortRows(filtered, sort, sortAccessors), [filtered, sort, sortAccessors]);
+  const paged = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
+  const searchQuery = searchRef.current;
+  const compact = density === 'compact';
 
   const Wrapper = embedded ? EmbeddedWrapper : AppLayout;
 
@@ -223,6 +254,8 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
               🧪 {hideTest ? 'Show Test' : 'Hide Test'}
             </button>
           )}
+          <SortMenu options={SORT_OPTIONS} value={sort} onChange={setSort} />
+          <DensityToggle value={density} onChange={setDensity} />
         </div>
 
         {/* Content */}
@@ -237,8 +270,8 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {paged.map((order) => {
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" ref={gridRef}>
+              {paged.map((order, cardIndex) => {
                 const currency = order.currency as Currency;
                 const totalAmount = Number(order.total_amount);
                 const totalPaid = Number(order.total_paid);
@@ -247,18 +280,34 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
                 const isTest = (order.invoice_number || '').startsWith('TEST-');
 
                 return (
-                  <div
+                  <motion.div
                     key={order.id}
-                    className="rounded-xl border border-border bg-card p-4 sm:p-5 card-hover cursor-pointer group"
-                    onClick={() => navigate(`/cash-orders/${order.id}`)}
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ ...transition.standard, delay: rowDelay(cardIndex) }}
                   >
-                    <div className="flex items-start justify-between mb-3">
+                  <div
+                    data-nav-card
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Cash order ${order.invoice_number}, ${order.customers?.full_name || 'Unknown'}`}
+                    className={`rounded-xl border border-border bg-card card-hover cursor-pointer group ${compact ? 'p-3' : 'p-4 sm:p-5'}`}
+                    onClick={() => navigate(`/cash-orders/${order.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        if ((e.target as HTMLElement).closest('button, a')) return;
+                        e.preventDefault();
+                        navigate(`/cash-orders/${order.id}`);
+                      }
+                    }}
+                  >
+                    <div className={`flex items-start justify-between ${compact ? 'mb-2' : 'mb-3'}`}>
                       <div>
                         <p className="text-sm font-bold text-card-foreground font-display">
-                          #{order.invoice_number}
+                          #<HighlightText text={order.invoice_number} query={searchQuery} />
                         </p>
                         <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[180px]">
-                          {order.customers?.full_name || 'Unknown'}
+                          <HighlightText text={order.customers?.full_name || 'Unknown'} query={searchQuery} />
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5">
@@ -272,7 +321,7 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
                     </div>
 
                     {order.status === 'pending' && (
-                      <div className="mb-3">
+                      <div className={compact ? 'mb-2' : 'mb-3'}>
                         <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
                           <span>{progress}% paid</span>
                           <span>Cash</span>
@@ -307,7 +356,7 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
+                    <div className={`flex items-center justify-between border-t border-border ${compact ? 'mt-2 pt-2' : 'mt-3 pt-3'}`}>
                       <span className="text-[10px] text-muted-foreground">
                         {order.order_date || Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(order.created_at))} · {currency}
                       </span>
@@ -320,6 +369,7 @@ const CashOrdersList = memo(function CashOrdersList({ embedded = false, searchVa
                       </div>
                     </div>
                   </div>
+                  </motion.div>
                 );
               })}
             </div>

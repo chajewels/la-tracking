@@ -224,22 +224,60 @@ To add a new screenshot for any Help section:
   2. Reference it in markdown using just the filename (no extension)
   3. No code change required for the image to render
 
-## BRAND STYLE STANDARD (added 2026-06-04)
+## BRAND STYLE STANDARD (updated 2026-07-06 — Deco Ledger)
 
-  Canonical brand gold: #D4AF37 = hsl(46 65% 52%)
-  Applied ONLY via theme tokens (--primary / --accent / --ring / --gold family
-  in src/index.css). Hardcoded [#D4AF37]-style Tailwind literals must never
-  be reintroduced.
-  Check: grep -rn "\[#D4AF37\]\|\[#E7D7A2\]" src → must return 0.
+  Canonical brand gold (Deco Ledger, confirmed by Cynthia 2026-07-06):
+    --gold-500: #C9A227 = hsl(46 68% 47%)   primary gold — active states,
+                                            key CTAs, tier badges, hairlines
+    --gold-300: #E5C860 = hsl(47 72% 64%)   hover/focus accents, focus ring
+  The former gold #D4AF37 is RETIRED. Gold is applied ONLY via theme tokens
+  (--primary / --accent / --ring / --gold family in src/index.css; TS mirror
+  incl. chartColors in src/theme/tokens.ts). Hardcoded gold hex literals are
+  allowed ONLY in src/theme/ and src/index.css — never in components/pages.
+
+  Semantic tokens --success / --warning / --danger / --info (plus
+  *-foreground) ARE defined as of 2026-07-06 (Phase 1 Deco Ledger commit) —
+  the matching Tailwind classes are safe to use. The signature structural
+  divider is the 1px gold hairline: .hairline-gold / .hairline-b /
+  .hairline-t (gold-500 at 40%).
+
+  Check (brand-gold family only — a full any-hex sweep returns hundreds of
+  legitimate chart/UI colors and is intentionally out of scope):
+    grep -rnE "#D4AF37|#E7D7A2|#C9A227|#E5C860|#E8C84A" src --include="*.tsx" --include="*.ts" | grep -v "src/theme/"
+  Target: only the tracked-debt entries below until they migrate, then 0.
+
+  Tracked gold-literal migration debt (verified 2026-07-06; migrate in the
+  phase listed, then remove the row):
+    | File                                       | Hits | Migrate via                | Phase |
+    | src/pages/Finance.tsx                      | 15   | chartColors (theme/tokens) | 3     |
+    | src/pages/Commissions.tsx                  | 2    | chartColors                | 3     |
+    | src/pages/Timesheet.tsx (CSR_BAR)          | 1    | chartColors                | 3     |
+    | src/pages/Inquiries.tsx (GOLD const)       | 1    | chartColors                | 3     |
+    | src/pages/ForgotPassword.tsx               | 5    | tokens (incl. #E8C84A)     | 5     |
+    | src/pages/Login.tsx (GOLD const)           | 1    | tokens                     | 5     |
+    | src/pages/PortalLogin.tsx (GOLD const)     | 1    | tokens (portal theme)      | 5     |
+    | src/contexts/AuthContext.tsx (splash)      | 2    | tokens                     | 5     |
+    | src/components/auth/AdminSplashScreen.tsx  | 1    | tokens                     | 5     |
+    | src/components/loyalty/TierCelebrationModal.tsx (confetti) | 1 | tokens        | 5     |
+  Related non-gold cleanup debt:
+    - AppSidebar.tsx + AppLayout.tsx avatar gradient
+      from-[#F7E7A1] via-primary to-[#8C6A00] → gold-gradient tokens (Phase 5)
+    - .github/workflows/.github/workflows/firebase-hosting.yml — INERT nested
+      duplicate workflow (GitHub never executes nested paths); delete in a
+      dedicated cleanup commit. NOTE: the REAL deploy workflow
+      .github/workflows/firebase-deploy.yml is LIVE — pushes to main deploy
+      the frontend to production hosting; feature branches deploy nothing.
+      docs/AUTO-DEPLOY.md describes a different, removed workflow (Supabase
+      edge functions) and does not apply to frontend hosting.
 
   Background photo: brand-assets/IMG_4761.jpeg (Supabase Storage, public)
   Used by: AppLayout.tsx (Hub interior, under bg-black/72 overlay)
            PortalLogin.tsx (PORTAL_HERO constant)
   Admin login (Login.tsx) intentionally keeps IMG_3197.jpeg.
 
-  Gold tokens --gold / --gold-light / --gold-dark defined in :root and .dark.
-  --success / --warning / --info are UNDEFINED in CSS — do not use those
-  Tailwind color classes until tokens are added (usage grep pending).
+  Gold tokens --gold / --gold-light / --gold-dark remain defined in :root and
+  .dark and now alias the Deco Ledger family (--gold = gold-500,
+  --gold-light = gold-300).
 
 ## total_amount DEFINITION — NON-NEGOTIABLE (updated 2026-04-12)
 

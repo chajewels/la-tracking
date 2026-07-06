@@ -96,6 +96,13 @@ const Sales = lazy(() => import("./pages/Sales"));
 const Waivers = lazy(() => import("./pages/Waivers"));
 const PolicyHub = lazy(() => import("./pages/PolicyHub"));
 
+// DEV-only fixture preview (Playwright verification harness). The DEV guard
+// is statically evaluated by Vite, so neither the route nor the chunk exists
+// in production builds.
+const FixturePreview = import.meta.env.DEV
+  ? lazy(() => import("./dev/FixturePreview"))
+  : null;
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -183,8 +190,9 @@ const App = () => (
                 <Route path="/loyalty/admin" element={<Protected><LoyaltyAdmin /></Protected>} />
                 <Route path="/loyalty/redemptions" element={<Navigate to="/loyalty/admin?tab=redemptions" replace />} />
                 <Route path="/executive-dashboard" element={<ExecutiveDashboard />} />
-                {/* Cash orders */}
-                <Route path="/cash-orders" element={<Navigate to="/customers?tab=cash" replace />} />
+                {/* Cash orders — the list lives in the Sales workspace
+                    (Customers never had a cash tab; the old target was stale) */}
+                <Route path="/cash-orders" element={<Navigate to="/sales?tab=cash" replace />} />
                 <Route path="/cash-orders/new" element={<Protected><NewCashOrder /></Protected>} />
                 <Route path="/cash-orders/:id" element={<Protected><CashOrderDetail /></Protected>} />
                 {/* Legacy routes — redirect to the combined hub */}
@@ -193,6 +201,7 @@ const App = () => (
                 <Route path="/admin/payment-vault" element={<Protected><PaymentVault /></Protected>} />
                 <Route path="/help" element={<Protected><Help /></Protected>} />
                 <Route path={ROUTES.POLICY_HUB} element={<Protected><PolicyHub /></Protected>} />
+                {FixturePreview && <Route path="/__fixtures" element={<FixturePreview />} />}
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>
