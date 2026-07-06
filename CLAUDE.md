@@ -1728,6 +1728,8 @@ Tax Account Drive folder from the same source upload — Overseas
 tab columns B/D/E, Japan tab columns B/D/G (Deposit date /
 Customer / Amount), non-blocking relative to the tracking output.
 
+2026-07-06: on success, fill-payment-tracking upserts its output sheet ID into system_settings.payment_tracking_sheet_id so append-payment-tracking always targets the newest generated sheet.
+
 ## SERVICES RULE (added 2026-04-12)
 
   account_services are included in total_amount at the time of service creation.

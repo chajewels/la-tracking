@@ -336,6 +336,20 @@ Deno.serve(async (req) => {
     const patchRes = await fetch(`https://www.googleapis.com/drive/v3/files/${outId}?addParents=${monthId}${removeParents}&fields=id`, { method: "PATCH", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ name: monthName }) });
     if (!patchRes.ok) throw new Error(`Drive move failed (${patchRes.status}): ${await patchRes.text()}`);
 
+    // Persist the new sheet ID so append-payment-tracking targets THIS sheet
+    // (Bug #245: appends kept writing to the previous month's sheet).
+    // Non-blocking — an upsert failure must never fail the generation.
+    let setting_updated = false;
+    try {
+      const { error: setErr } = await supabaseAuth
+        .from("system_settings")
+        .upsert({ key: "payment_tracking_sheet_id", value: outId }, { onConflict: "key" });
+      if (setErr) throw setErr;
+      setting_updated = true;
+    } catch (setErr) {
+      console.warn("[fill-payment-tracking] payment_tracking_sheet_id upsert failed (non-blocking):", setErr);
+    }
+
     // 9. Tax declaration output — non-blocking. Re-reads tempSrcId (still
     // present; cleanup runs after this block). Failure here must NEVER
     // affect the tracking response.
@@ -509,7 +523,7 @@ Deno.serve(async (req) => {
 
     await deleteFile(token, tempSrcId);
 
-    return new Response(JSON.stringify({ ok: true, invoices: invoices.length, cells: rawData.length + ueData.length, flagged, sheetId: outId, movedTo: monthId, tax_file_url, tax_error }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ ok: true, invoices: invoices.length, cells: rawData.length + ueData.length, flagged, sheetId: outId, movedTo: monthId, setting_updated, tax_file_url, tax_error }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err) {
     if (token && tempSrcId) await deleteFile(token, tempSrcId);
     console.error("[fill-payment-tracking] error:", err);
