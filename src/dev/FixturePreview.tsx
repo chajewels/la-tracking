@@ -6,6 +6,7 @@ import Dashboard from '@/pages/Dashboard';
 import CashOrdersList from '@/components/customers/CashOrdersList';
 import KpiStrip from '@/components/dashboard/KpiStrip';
 import NeedsAttentionPanel from '@/components/dashboard/NeedsAttentionPanel';
+import PostLoginSplash from '@/components/auth/PostLoginSplash';
 import { getPHTToday } from '@/lib/date-utils';
 import {
   buildAccountFixtures,
@@ -67,6 +68,19 @@ export default function FixturePreview() {
 
   if (view === 'cash') return <CashOrdersList />;
   if (view === 'dashboard') return <Dashboard />;
+  if (view === 'splash') {
+    // Screenshot-only stand-in source (the sandbox cannot reach
+    // supabase.co). srcOverride exists solely for this harness.
+    const src = searchParams.get('src') ?? undefined;
+    return (
+      <PostLoginSplash
+        srcOverride={src}
+        onEnter={() => {
+          document.title = 'splash-exited';
+        }}
+      />
+    );
+  }
   if (view === 'attention') {
     return (
       <div className="max-w-xl p-6">
