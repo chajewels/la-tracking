@@ -167,7 +167,14 @@ async function populateSheet(
   sheetId: string,
   values: Array<{ range: string; value: string | number }>,
 ): Promise<void> {
-  const data = values.map((v) => ({ range: v.range, values: [[v.value]] }));
+  // populateSheet never intentionally writes formulas (Subtotal/TOTAL are
+  // template-owned), so blanket-sanitizing formula-trigger prefixes is safe
+  // by construction — Bug #248. Under USER_ENTERED, strings starting with
+  // =, +, or - parse as formulas (e.g. "+81 90-…" phone numbers → #ERROR!);
+  // a leading apostrophe forces literal text and is not displayed by Sheets.
+  const sanitize = (v: string | number): string | number =>
+    typeof v === "string" && /^[=+\-']/.test(v) ? `'${v}` : v;
+  const data = values.map((v) => ({ range: v.range, values: [[sanitize(v.value)]] }));
   const updateRes = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values:batchUpdate`,
     {

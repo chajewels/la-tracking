@@ -366,3 +366,7 @@
   tab title must remain exactly "InvoiceWithTax-Print this" — tab
   resolution is by exact title and fails loudly listing the actual
   tab names if it ever changes.
+
+  Text sanitization (2026-07-06, Bug #248): populateSheet
+  apostrophe-prefixes strings starting with =, +, -, or ' so
+  international phone numbers and free text render literally.
