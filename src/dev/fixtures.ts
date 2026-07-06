@@ -165,6 +165,65 @@ export function buildAttentionCash(empty = false) {
   ];
 }
 
+/** Phase 4 — payment timeline fixture (schedule-shaped, display props). */
+export function buildTimelineFixture(empty = false) {
+  if (empty) {
+    return { downpayment: null, installments: [], completed: false };
+  }
+  return {
+    downpayment: { amount: 7_200, paid: 7_200 },
+    installments: [
+      {
+        id: 'fx-tl-1', installmentNumber: 1, dueDate: '2026-04-12', base: 3_956,
+        allocated: 3_956, remaining: 0, status: 'paid', penalties: [],
+      },
+      {
+        id: 'fx-tl-2', installmentNumber: 2, dueDate: '2026-05-12', base: 3_956,
+        allocated: 3_956, remaining: 0, status: 'paid',
+        penalties: [
+          { id: 'fx-tl-pen-1', amount: 500, status: 'paid', date: '2026-05-19', cycle: 1, stage: 'week1' },
+        ],
+      },
+      {
+        id: 'fx-tl-3', installmentNumber: 3, dueDate: '2026-06-12', base: 3_956,
+        allocated: 1_500, remaining: 2_956, status: 'partially_paid',
+        penalties: [
+          {
+            id: 'fx-tl-pen-2', amount: 500, status: 'waived', date: '2026-06-19', cycle: 1, stage: 'week1',
+            waiverReason: 'Customer hospitalized — documented, approved by finance',
+          },
+        ],
+      },
+      {
+        id: 'fx-tl-4', installmentNumber: 4, dueDate: '2026-07-12', base: 3_956,
+        allocated: 0, remaining: 3_956, status: 'overdue',
+        penalties: [
+          { id: 'fx-tl-pen-3', amount: 500, status: 'unpaid', date: '2026-07-19', cycle: 1, stage: 'week1' },
+          { id: 'fx-tl-pen-4', amount: 500, status: 'unpaid', date: '2026-07-26', cycle: 1, stage: 'week2' },
+        ],
+      },
+      {
+        id: 'fx-tl-5', installmentNumber: 5, dueDate: '2026-08-12', base: 3_956,
+        allocated: 0, remaining: 3_956, status: 'pending', penalties: [],
+      },
+    ],
+    completed: false,
+  };
+}
+
+/** Phase 4 — tier card fixture set (all four tiers). The colorHex values
+ *  stand in for loyalty_tiers.color_hex DB DATA; they deliberately avoid
+ *  the brand-gold hex family so the CLAUDE.md gold-literal grep stays
+ *  clean (these are arbitrary fixture data, not styling). */
+export function buildTierFixtures() {
+  return [
+    { tierName: 'Glimmer', colorHex: '#9B948A', remainingPoints: 800, totalEarned: 800, totalRedeemed: 0, totalExpired: 0, multiplier: 1, enrolledAt: '2026-01-15' },
+    { tierName: 'Radiant', colorHex: '#D9BC5A', remainingPoints: 3_400, totalEarned: 5_200, totalRedeemed: 1_800, totalExpired: 0, multiplier: 2, enrolledAt: '2025-11-02' },
+    { tierName: 'Elite', colorHex: '#B08D2F', remainingPoints: 9_150, totalEarned: 14_650, totalRedeemed: 5_000, totalExpired: 500, multiplier: 2, enrolledAt: '2025-06-20' },
+    { tierName: 'Crown VIP', colorHex: '#8C6D1F', remainingPoints: 26_300, totalEarned: 41_300, totalRedeemed: 14_000, totalExpired: 1_000, multiplier: 3, enrolledAt: '2024-12-01' },
+  ];
+}
+
 /** Customers list stub — Dashboard only reads .length. */
 export function buildCustomerFixtures(empty = false) {
   if (empty) return [];

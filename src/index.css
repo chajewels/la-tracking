@@ -346,6 +346,47 @@
   50% { opacity: 0.8; }
 }
 
+/* Customer statement print isolation — only .statement-print-area reaches
+   paper, forced onto white with dark ink regardless of the dark app theme. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .statement-print-area,
+  .statement-print-area * {
+    visibility: visible;
+  }
+  .statement-print-area {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    border: 0;
+    border-radius: 0;
+    background: #fff !important;
+    color: #111 !important;
+  }
+  .statement-print-area .text-muted-foreground,
+  .statement-print-area .label-caps {
+    color: #555 !important;
+  }
+  .statement-print-area .text-success {
+    color: #1a6b42 !important;
+  }
+  .statement-print-area .text-gold-500,
+  .statement-print-area .gold-text {
+    color: #8a6d13 !important;
+    background: none !important;
+    -webkit-text-fill-color: initial !important;
+  }
+  .statement-print-area .hairline-b,
+  .statement-print-area .hairline-t {
+    border-color: #bbb !important;
+  }
+  body {
+    background: #fff !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-fade-in { animation: none; }
   .card-hover { transition: none; }

@@ -6,6 +6,10 @@ import Dashboard from '@/pages/Dashboard';
 import CashOrdersList from '@/components/customers/CashOrdersList';
 import KpiStrip from '@/components/dashboard/KpiStrip';
 import NeedsAttentionPanel from '@/components/dashboard/NeedsAttentionPanel';
+import PaymentTimeline, { CashOrderTimeline } from '@/components/accounts/PaymentTimeline';
+import ProgressRing from '@/components/shared/ProgressRing';
+import TierCard from '@/components/customers/TierCard';
+import AccountStatement from '@/components/statements/AccountStatement';
 import { getPHTToday } from '@/lib/date-utils';
 import {
   buildAccountFixtures,
@@ -17,6 +21,8 @@ import {
   buildAttentionSchedule,
   buildAttentionCash,
   buildCustomerFixtures,
+  buildTimelineFixture,
+  buildTierFixtures,
 } from './fixtures';
 
 /**
@@ -76,6 +82,70 @@ export default function FixturePreview() {
           loading={false}
         />
       </div>
+    );
+  }
+  if (view === 'timeline') {
+    const tl = buildTimelineFixture(empty);
+    return (
+      <div className="max-w-xl p-6 space-y-6">
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <div className="flex items-center justify-between pb-3 hairline-b mb-4">
+            <h3 className="text-sm font-semibold text-card-foreground">Payment Timeline</h3>
+            <ProgressRing percent={empty ? 0 : 46} label="paid" />
+          </div>
+          <PaymentTimeline currency="PHP" downpayment={tl.downpayment} installments={tl.installments as never} completed={tl.completed} />
+        </div>
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <h3 className="text-sm font-semibold text-card-foreground pb-3 hairline-b mb-4">Cash Order Timeline</h3>
+          <CashOrderTimeline
+            currency="JPY"
+            orderDate={empty ? null : '2026-05-02'}
+            payments={empty ? [] : [
+              { id: 'fx-cp-1', amount: 40_000, createdAt: '2026-05-10T02:00:00Z', method: 'paypal', reference: 'PP-1204' },
+              { id: 'fx-cp-2', amount: 12_000, createdAt: '2026-05-20T02:00:00Z', method: 'cash', voided: true },
+              { id: 'fx-cp-3', amount: 28_000, createdAt: '2026-06-01T02:00:00Z', method: 'bdo', reference: 'BDO-7781' },
+            ]}
+            status={empty ? 'pending' : 'completed'}
+            terminalAt={empty ? null : '2026-06-01T02:05:00Z'}
+          />
+        </div>
+      </div>
+    );
+  }
+  if (view === 'tiers') {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-6 max-w-4xl">
+        {buildTierFixtures().map(t => <TierCard key={t.tierName} {...t} />)}
+        <TierCard tierName={null} />
+      </div>
+    );
+  }
+  if (view === 'statement') {
+    const tl = buildTimelineFixture(empty);
+    return (
+      <AccountStatement
+        open
+        onClose={() => { document.title = 'statement-closed'; }}
+        kind="layaway"
+        currency="PHP"
+        customerName="Maria Consolación Villanueva-Dela Cruz"
+        customerCode="CJ-2026-00808"
+        invoiceNumber="18042"
+        status="active"
+        planMonths={6}
+        orderDate="2026-03-12"
+        schedule={tl.installments as never}
+        waivers={empty ? [] : [{ id: 'fx-w-1', amount: 500, reason: 'Customer hospitalized — documented, approved by finance' }]}
+        services={empty ? [] : [{ id: 'fx-svc-1', label: 'Resize', amount: 800 }]}
+        payments={empty ? [] : [
+          { id: 'fx-sp-1', amount: 7_200, createdAt: '2026-03-14T03:00:00Z', method: 'gcash', reference: 'DP-2201' },
+          { id: 'fx-sp-2', amount: 3_956, createdAt: '2026-04-11T05:00:00Z', method: 'bdo', reference: 'BDO-4471' },
+          { id: 'fx-sp-3', amount: 4_456, createdAt: '2026-05-13T05:00:00Z', method: 'gcash', reference: 'GC-9903' },
+          { id: 'fx-sp-4', amount: 1_500, createdAt: '2026-06-14T05:00:00Z', method: 'maya', reference: 'MY-1189' },
+          { id: 'fx-sp-5', amount: 2_000, createdAt: '2026-06-20T05:00:00Z', method: 'cash', voided: true },
+        ]}
+        totals={{ total: 27_480, paid: 17_112, remaining: 10_368, penalties: 1_500, services: 800 }}
+      />
     );
   }
   if (view === 'kpi-loading') {
