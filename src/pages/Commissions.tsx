@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, Fragment } from 'react';
+import { chartColors } from '@/theme/tokens';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -774,7 +775,7 @@ function OverviewTab({
             <YAxis yAxisId="right" orientation="right" stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 11 }} />
             <Tooltip contentStyle={tooltipStyle} formatter={(v: number, name: string) => name === 'pool' ? formatPHP(v) : v.toLocaleString()} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Bar yAxisId="left" dataKey="pool" fill="#D4AF37" name="Pool ₱" radius={[3, 3, 0, 0]} />
+            <Bar yAxisId="left" dataKey="pool" fill={chartColors.primary} name="Pool ₱" radius={[3, 3, 0, 0]} />
             <Bar yAxisId="right" dataKey="eligible" fill="#1756A8" name="Eligible" radius={[3, 3, 0, 0]} />
           </BarChart>
         </ChartCard>
@@ -799,7 +800,7 @@ function OverviewTab({
             <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 11 }} />
             <YAxis stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 11 }} />
             <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => formatJPY(v)} />
-            <Line type="monotone" dataKey="sales" stroke="#D4AF37" strokeWidth={2} dot={{ r: 3 }} />
+            <Line type="monotone" dataKey="sales" stroke={chartColors.primary} strokeWidth={2} dot={{ r: 3 }} />
           </LineChart>
         </ChartCard>
 

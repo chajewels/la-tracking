@@ -399,8 +399,8 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
       <SidebarFooter
         className="p-4"
         style={{
-          background: '#1A1410',
-          borderTop: '1px solid rgba(212,175,55,0.1)',
+          background: 'hsl(var(--sidebar-background))',
+          borderTop: '1px solid hsl(var(--gold-500) / 0.1)',
         }}
       >
         <div className="mb-3 flex items-center gap-3">

@@ -246,13 +246,10 @@ To add a new screenshot for any Help section:
     grep -rnE "#D4AF37|#E7D7A2|#C9A227|#E5C860|#E8C84A" src --include="*.tsx" --include="*.ts" | grep -v "src/theme/"
   Target: only the tracked-debt entries below until they migrate, then 0.
 
-  Tracked gold-literal migration debt (verified 2026-07-06; migrate in the
-  phase listed, then remove the row):
+  Tracked gold-literal migration debt (updated 2026-07-06 after the Phase 3
+  chart migration — Finance/Commissions/Timesheet/Inquiries now use
+  chartColors; migrate the rest in the phase listed, then remove the row):
     | File                                       | Hits | Migrate via                | Phase |
-    | src/pages/Finance.tsx                      | 15   | chartColors (theme/tokens) | 3     |
-    | src/pages/Commissions.tsx                  | 2    | chartColors                | 3     |
-    | src/pages/Timesheet.tsx (CSR_BAR)          | 1    | chartColors                | 3     |
-    | src/pages/Inquiries.tsx (GOLD const)       | 1    | chartColors                | 3     |
     | src/pages/ForgotPassword.tsx               | 5    | tokens (incl. #E8C84A)     | 5     |
     | src/pages/Login.tsx (GOLD const)           | 1    | tokens                     | 5     |
     | src/pages/PortalLogin.tsx (GOLD const)     | 1    | tokens (portal theme)      | 5     |
@@ -262,6 +259,11 @@ To add a new screenshot for any Help section:
   Related non-gold cleanup debt:
     - AppSidebar.tsx + AppLayout.tsx avatar gradient
       from-[#F7E7A1] via-primary to-[#8C6A00] → gold-gradient tokens (Phase 5)
+      (the sidebar header/content/footer inline surfaces are already
+      token-based as of Phases 2-3)
+    - src/components/dashboard/OverdueAlerts.tsx — UNUSED as of Phase 3
+      (NeedsAttentionPanel supersedes its Dashboard slot behind the same
+      view_overdue_alerts gate); delete in a dedicated cleanup commit
     - .github/workflows/.github/workflows/firebase-hosting.yml — INERT nested
       duplicate workflow (GitHub never executes nested paths); delete in a
       dedicated cleanup commit. NOTE: the REAL deploy workflow

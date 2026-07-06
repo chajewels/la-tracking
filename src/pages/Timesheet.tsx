@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { chartColors } from '@/theme/tokens';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import type { Database } from '@/integrations/supabase/types';
@@ -1003,7 +1004,7 @@ function SummaryCard({ label, value, sub, highlight }: { label: string; value: s
 
 // ── Tab: Full Summary (admin) ───────────────────────────────────────────────
 
-const CSR_BAR = '#D4AF37';
+const CSR_BAR = chartColors.primary;
 const LIVE_ADMIN_BAR = '#1756A8';
 
 function FullSummaryTab({

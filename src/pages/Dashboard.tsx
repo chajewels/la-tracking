@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
 import { FileText, AlertTriangle, CheckCircle2, Users, ShieldAlert, Award, Flame, ShieldCheck, Loader2, Clock, CalendarCheck, Calendar } from 'lucide-react';
@@ -7,7 +7,13 @@ import NewAccountsTodayAlert from '@/components/dashboard/NewAccountsTodayAlert'
 import AppLayout from '@/components/layout/AppLayout';
 import StatCard from '@/components/dashboard/StatCard';
 import AgingBuckets from '@/components/dashboard/AgingBuckets';
-import OverdueAlerts from '@/components/dashboard/OverdueAlerts';
+import KpiStrip from '@/components/dashboard/KpiStrip';
+import NeedsAttentionPanel from '@/components/dashboard/NeedsAttentionPanel';
+import { useMonthlyCollected, useRedemptionsKpi, useNeedsAttention } from '@/hooks/useDashboardExtras';
+
+// Recharts stays out of the dashboard's initial chunk — the hero chart
+// lazy-loads the vendor-charts bundle behind a skeleton.
+const CollectionsHeroChart = lazy(() => import('@/components/dashboard/CollectionsHeroChart'));
 import { CurrencyFilter } from '@/components/dashboard/CurrencyToggle';
 import GeoBreakdown from '@/components/dashboard/GeoBreakdown';
 import OperationsPanel from '@/components/dashboard/OperationsPanel';
@@ -48,6 +54,10 @@ export default function Dashboard() {
   const needsGeo = can('view_geo_breakdown');
   const { data: accounts } = useAccountsLight();
   const { data: customers } = useCustomers();
+  // Phase 3 extras — existing server surface only (see useDashboardExtras).
+  const { data: collectedRows, isLoading: collectedLoading } = useMonthlyCollected();
+  const { data: redemptions, isError: redemptionsUnavailable } = useRedemptionsKpi();
+  const attention = useNeedsAttention();
   useAutoRefresh([
     ['accounts'],
     ['customers'],
@@ -170,6 +180,28 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+
+        {/* Section 1b — KPI Strip (Phase 3): headline figures with trends */}
+        <div>
+          <h2 className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">At a Glance</h2>
+          <KpiStrip
+            summaryLoading={summaryLoading}
+            activeLayaways={summary?.active_layaways}
+            collectionsThisMonth={summary?.collections_this_month}
+            overdueCount={summary?.overdue_accounts}
+            overdueAmount={summary?.overdue_amount}
+            displayCurrency={displayCurrency}
+            accounts={accounts}
+            collectedRows={collectedRows}
+            redemptions={redemptions}
+            redemptionsUnavailable={redemptionsUnavailable}
+          />
+        </div>
+
+        {/* Section 1c — Hero chart: Collected (cash by payment date) */}
+        <Suspense fallback={<Skeleton className="h-72 rounded-xl" />}>
+          <CollectionsHeroChart rows={collectedRows} loading={collectedLoading} />
+        </Suspense>
 
         {/* Section 2 — Key Metrics (counts only) */}
         <div>
@@ -373,10 +405,17 @@ export default function Dashboard() {
         </div>
         )}
 
-        {/* Section 9 — System Health + Overdue Alerts */}
+        {/* Section 9 — System Health + Needs Attention (supersedes
+            OverdueAlerts in this slot, same permission gate) */}
         {(can('view_overdue_alerts') || can('view_system_health')) && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {can('view_overdue_alerts') && <OverdueAlerts />}
+            {can('view_overdue_alerts') && (
+              <NeedsAttentionPanel
+                scheduleRows={attention.schedule.data}
+                cashRows={attention.cash.data}
+                loading={attention.schedule.isLoading || attention.cash.isLoading}
+              />
+            )}
             {can('view_system_health') && <SystemHealthPanel summary={summary} />}
           </div>
         )}

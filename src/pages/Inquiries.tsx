@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { chartColors } from '@/theme/tokens';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -60,7 +61,7 @@ const DROPDOWN_TYPES = ['category', 'source', 'action_needed', 'order_placed', '
 type DropdownType = typeof DROPDOWN_TYPES[number];
 
 const PAGE_SIZE = 50;
-const GOLD = '#D4AF37';
+const GOLD = chartColors.primary;
 
 // ── Badge color helpers ─────────────────────────────────────────────────────
 
