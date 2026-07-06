@@ -137,7 +137,7 @@ Broken since ~mid-May 2026. Previously misattributed to "secret issues."
 
 **Auth mechanism in use:** service-account JSON in GitHub secret FIREBASE_SERVICE_ACCOUNT, written to a file at deploy time with GOOGLE_APPLICATION_CREDENTIALS. firebase-tools pinned to @13.
 
-**TODO — remove the Node pin later:** firebase-tools has merged a fix (retry without keep-alive) but it is NOT yet on npm (latest is still the broken 15.22.2 as of 2026-06-26). Once a patched firebase-tools is published, the Node 24.16.0 pin can be removed and setup-node returned to a normal LTS version. Until then, leave the pin in place.
+**RESOLVED 2026-07-05 — Node pin removed:** firebase-tools v15.22.3 (2026-06-25) shipped the definitive keep-alive fix (#10716; 'Disable keep-alive in google-auth-library calls'); workflow now runs firebase-tools@15.22.4 on unpinned Node 24.x. If token-fetch 'Premature close' errors ever recur, re-pin node-version to '24.16.0' and see the ruled-out list below before debugging anything else.
 
 **Manual deploy fallback (always works, ~1 min):**
 Run as sales@chajewelsjp.com (owns project cha-jewels-la-tracking):
