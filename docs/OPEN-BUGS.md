@@ -4,7 +4,7 @@
   yet fixed. Each entry should describe the fix
   pattern so the next session can pick it up cleanly.
 
-### Portal token link shows "expired" when a stale signed-in session exists on the device (found 2026-06-06) — CLOSED 2026-06-06 (commit `694d43f`, awaiting Firebase Publish)
+### Portal token link shows "expired" when a stale signed-in session exists on the device (found 2026-06-06) — RESOLVED 2026-07-06
 
   **Symptom.** Customer reaches the portal via a fresh `?token=…` URL
   but lands on the link-expired screen. Token row is healthy
@@ -36,24 +36,26 @@
   (the session path then succeeded with fresh credentials, bypassing
   the precedence issue).
 
-  **Fix direction (not yet built).**
-  1. **Auth-mode precedence.** URL token should take precedence over
-     a session, OR (cleaner) the session-mode call should fall back
-     to the URL token automatically when the session call fails with
-     an auth-class error. Either pattern: when both auth modes are
-     available, the legitimate non-expired credential wins.
-  2. **Expired-link message scoping.** The L513 error-string check
-     must not be triggered by generic `'expired'` substrings —
-     scope it to a specific error code (`token_expired`,
-     `token_not_found`) or to error messages that explicitly came
-     from the token-auth code path. Session JWT expiry surfaces a
-     different code; that path should re-prompt for sign-in, not
-     show the token-expired screen.
-
-  Until both halves ship, any customer with a dead device session
-  will land on the wrong error screen and won't realize their token
-  link is fine. Operationally rare but high-confusion when it
-  happens.
+  **RESOLVED 2026-07-06 (investigation corrected the record).**
+  The prior header cited commit `694d43f` — that commit does not exist
+  in the repository; the "CLOSED, awaiting Publish" claim was false.
+  Investigation on origin/main established the true state:
+  1. **Auth-mode precedence — already shipped.** fetchPortal in
+     CustomerPortal.tsx (the `!res.ok` branch) self-heals: a session-mode
+     rejection while the URL carries a `?token=` signs out the dead local
+     session, clears accessToken, flips authMode to 'token', and the
+     useEffect refetches via the token (the explicit link wins). This
+     closes the originally-reported scenario (token-link holder with a
+     dead device session).
+  2. **Expired-message scoping — shipped 2026-07-06 (commit 4afb8d4).**
+     The error screen's isExpired check was a generic
+     `error.includes('expired')`, which would mislabel session-class
+     errors ('Session expired' / 'Invalid or expired session', emitted by
+     Path 1 of _shared/portal-auth.ts) as "Portal Link Expired". Narrowed
+     to match 'token expired' exactly — the message the edge function
+     emits ONLY for a genuinely expired portal token (Path 2). Session
+     errors now fall through to the generic "Invalid Portal Link" screen.
+  Net: both halves resolved; the item is closed.
 
 ### Dashboard wiring & realtime audit (surfaced 2026-05-22)
 
