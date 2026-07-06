@@ -1567,7 +1567,7 @@ export default function AccountDetail() {
                         {effPaid ? (
                           <Badge variant="outline" className="text-[9px] h-4 px-1 bg-success/10 text-success border-success/20">Paid</Badge>
                         ) : accountSettled ? (
-                          <Badge variant="outline" title="Covered by downpayment credit — account fully paid" className="text-[9px] h-4 px-1 bg-success/10 text-success border-success/20">Settled</Badge>
+                          <Badge variant="outline" title="Covered by downpayment credit — account fully paid" className="text-[9px] h-4 px-1 bg-success/10 text-success border-success/20">Paid</Badge>
                         ) : item.status === 'partially_paid' ? (
                           <Badge variant="outline" className="text-[9px] h-4 px-1 bg-amber-500/10 text-amber-500 border-amber-500/20">Partial</Badge>
                         ) : overCap ? (
