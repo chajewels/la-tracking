@@ -224,12 +224,29 @@ export function buildTierFixtures() {
   ];
 }
 
-/** Customers list stub — Dashboard only reads .length. */
+/**
+ * Customers list stub. Dashboard applies the is_test filter plus
+ * created_at month bucketing (New Customers card), so the cohorts here
+ * exercise both: 4 test rows (excluded → Total Customers shows 84, not
+ * 88), a March-2026 "import spike" cohort (excluded from the trend by
+ * NEW_CUSTOMER_TREND_CUTOFF = '2026-04'), then Apr 12 / May 9 / Jun 14 /
+ * Jul 9 — the expected sparkline is [12, 9, 14, 9] with figure 9.
+ */
 export function buildCustomerFixtures(empty = false) {
   if (empty) return [];
+  const monthOf = (i: number): string => {
+    if (i < 4) return '2026-07'; // test rows (is_test: true)
+    if (i < 44) return '2026-03'; // import-spike cohort (40)
+    if (i < 56) return '2026-04'; // 12
+    if (i < 65) return '2026-05'; // 9
+    if (i < 79) return '2026-06'; // 14
+    return '2026-07'; // 9 — current month
+  };
   return Array.from({ length: 88 }, (_, i) => ({
     id: `fixture-cust-${pad(i, 4)}`,
     full_name: customerName(i),
+    is_test: i < 4,
+    created_at: `${monthOf(i)}-${pad((i % 27) + 1, 2)}T03:00:00Z`,
   }));
 }
 

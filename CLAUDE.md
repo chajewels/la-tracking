@@ -1627,7 +1627,10 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
   - `created_at` is the row INSERT/import timestamp (bulk import =
     `2026-03-20`) — NEVER use `created_at` as an order/purchase
     date. Use `order_date` (`layaway_accounts` & `cash_orders`)
-    and `date_paid` (`payments`).
+    and `date_paid` (`payments`). `customers.created_at` has the same
+    March-2026 import contamination — see docs/SCHEMA-FACTS.md
+    ("customers.created_at import contamination"; the Dashboard New
+    Customers trend clips at NEW_CUSTOMER_TREND_CUTOFF = 2026-04).
 
   - 2026-05-20 backfill: corrected 30 migrated members' clocks to
     their real successful-order dates; reverted 4 forfeited-sourced

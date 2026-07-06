@@ -494,3 +494,27 @@ Consolidates the installment payment-allocation waterfall + all downstream write
 ### Loyalty lot invariant (2026-07-05)
 
 For every member, SUM(loyalty_point_lots.remaining_amount) over rows with revoked_at IS NULL AND expired_at IS NULL must equal loyalty_members.remaining_points. Expiry (loyalty-inactivity-check) now stamps open lots expired_at + remaining_amount=0 alongside the counter zeroing (best-effort; reconcile via the lot/counter census query). Portal lot display filters revoked_at, consumed_at, AND expired_at. Redemption is now lot-wired: approve_redemption_atomic calls consume_lots_fifo (whose FIFO lot-set exactly equals the invariant set per Bug #244) and void_redemption_atomic calls restore_lots_for_redemption with a synthetic admin_adjust top-up when the ledger restores less than points_redeemed (pre-wiring redemptions).
+
+### customers.created_at import contamination (evidence 2026-07-07)
+
+`customers.created_at` is an IMPORT timestamp for the March 2026 cohort — the
+same contamination class as `layaway_accounts.created_at` (which is why the
+dashboard accounts sparkline uses `order_date`). Owner-run SQL (2026-07-07,
+`is_test = false`, grouped by month of `created_at`):
+
+| month | new customers |
+|---|---|
+| 2026-03 | 470 (bulk-import spike) |
+| 2026-04 | 181 |
+| 2026-05 | 46 |
+| 2026-06 | 60 |
+| 2026-07 (partial) | 4 |
+| **total** | **761** |
+
+Customers have NO alternative date column (no order_date equivalent), so any
+customers-by-created_at trend metric must CLIP the import cohort rather than
+correct it. Canonical adopter: the Dashboard "New Customers" StatCard
+(`src/pages/Dashboard.tsx`, constant `NEW_CUSTOMER_TREND_CUTOFF = '2026-04'`)
+— its sparkline/delta start at the cutoff and exclude March entirely. Reuse
+the same cutoff constant semantics for any future customers-by-month surface;
+do NOT present March 2026 as an acquisition month.
