@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "sdk_version": "0.20.0",
+  "path": "/mcp",
+  "auth": {
+    "type": "oauth",
+    "issuer": "https://pfoicalpzdcmyxzvwyhz.supabase.co/auth/v1",
+    "accepted_audiences": [
+      "authenticated"
+    ]
+  },
+  "mcp": {
+    "server": {
+      "name": "cha-jewels-hub-mcp",
+      "version": "0.1.0",
+      "title": "Cha Jewels Hub MCP"
+    },
+    "tools": [
+      {
+        "name": "echo",
+        "title": "Echo",
+        "description": "Echo the input text back to the caller. Useful for verifying MCP connectivity.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Text to echo back."
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "search_customers",
+        "title": "Search customers",
+        "description": "Search Cha Jewels customers by full name, email, customer code, or mobile number. Returns up to 20 matches. Requires an authenticated internal user (RLS-enforced).",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "minLength": 2,
+              "description": "Partial name, email, customer code (CJ-YYYY-XXXXX), or mobile number."
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "get_account_by_invoice",
+        "title": "Get layaway account by invoice",
+        "description": "Look up a layaway account by its numeric invoice number. Returns account totals, status, customer, and current payment schedule. Requires an authenticated internal user (RLS-enforced).",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "invoice_number": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Invoice number (numeric string, e.g. '19115')."
+            }
+          },
+          "required": [
+            "invoice_number"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      }
+    ]
+  }
+}
