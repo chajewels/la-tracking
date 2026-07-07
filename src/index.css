@@ -235,6 +235,49 @@
     100% { background-position: -50% 0; }
   }
 
+  /* Ken Burns drift for brand imagery (Login left panel). Transform-only
+     (GPU-composited) — pair with overflow-hidden on the containing panel
+     so the scaled image never bleeds. */
+  .kenburns-slow {
+    animation: kenburns-slow 35s ease-in-out infinite alternate;
+    will-change: transform;
+  }
+  @keyframes kenburns-slow {
+    from { transform: scale(1) translate(0, 0); }
+    to { transform: scale(1.06) translate(1.5%, -1%); }
+  }
+
+  /* Restrained gold light-sweep across brand imagery — one soft pass
+     every ~12s (gold-300 token at low opacity, transform-only). */
+  .gold-sweep {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .gold-sweep::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 40%;
+    background: linear-gradient(
+      100deg,
+      transparent 0%,
+      hsl(var(--gold-300) / 0.06) 50%,
+      transparent 100%
+    );
+    transform: translateX(-130%) skewX(-8deg);
+    animation: gold-sweep-pass 12s ease-in-out infinite;
+    will-change: transform;
+  }
+  @keyframes gold-sweep-pass {
+    0% { transform: translateX(-130%) skewX(-8deg); }
+    22% { transform: translateX(360%) skewX(-8deg); }
+    100% { transform: translateX(360%) skewX(-8deg); }
+  }
+
   /* Glass luxury panels */
   .glass-panel {
     background: rgba(10, 10, 10, 0.42);
@@ -395,4 +438,7 @@
   .skeleton-shimmer::after { animation: none; opacity: 0; }
   .animate-shimmer { animation: none; }
   .overdue-pulse, .penalty-glow, .animate-golden-pulse, .animate-soft-glow { animation: none; }
+  /* Brand-image motion: static image exactly as before the animation. */
+  .kenburns-slow { animation: none; }
+  .gold-sweep::before { animation: none; opacity: 0; }
 }

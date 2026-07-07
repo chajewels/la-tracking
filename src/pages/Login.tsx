@@ -142,9 +142,11 @@ export default function Login() {
         <img
           src={UNSPLASH_HERO}
           alt=""
-          className="absolute inset-0 w-full h-full object-cover opacity-45"
+          className="kenburns-slow absolute inset-0 w-full h-full object-cover opacity-45"
           style={{ mixBlendMode: 'normal' }}
         />
+        {/* Soft gold pass over the hero every ~12s — decorative only. */}
+        <div className="gold-sweep z-[15]" aria-hidden="true" />
 
         {/* Centered brand block */}
         <div
