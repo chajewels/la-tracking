@@ -462,14 +462,14 @@ export function useWaiverRequests(accountId?: string) {
 // ──────────────────────────────────────────────
 // DASHBOARD SUMMARY (from edge function)
 // ──────────────────────────────────────────────
-export function useDashboardSummary(currencyMode: 'PHP' | 'JPY' | 'ALL', enabled = true) {
-  return useQuery({
-    queryKey: ['dashboard-summary', currencyMode],
-    enabled,
-    retry: false,
-    staleTime: 120_000,
-    placeholderData: keepPreviousData,
-    queryFn: async () => {
+// Exported so usePrefetchHeavyPages can warm the same cache key at app
+// idle; the hook below consumes it unchanged (invocation byte-identical).
+export const dashboardSummaryQueryOptions = (currencyMode: 'PHP' | 'JPY' | 'ALL') => ({
+  queryKey: ['dashboard-summary', currencyMode] as const,
+  retry: false,
+  staleTime: 120_000,
+  placeholderData: keepPreviousData,
+  queryFn: async () => {
       const { data, error } = await supabase.functions.invoke('dashboard-summary', {
         body: { currency_mode: currencyMode },
       });
@@ -524,6 +524,12 @@ export function useDashboardSummary(currencyMode: 'PHP' | 'JPY' | 'ALL', enabled
         cash_conversion_rate: { this_month: number; all_time: number };
       };
     },
+});
+
+export function useDashboardSummary(currencyMode: 'PHP' | 'JPY' | 'ALL', enabled = true) {
+  return useQuery({
+    ...dashboardSummaryQueryOptions(currencyMode),
+    enabled,
   });
 }
 

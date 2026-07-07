@@ -11,9 +11,11 @@ import AICommandModal from '@/components/ai/AICommandModal';
 import RecordPaymentModal from '@/components/payments/RecordPaymentModal';
 import CommandPalette from '@/components/layout/CommandPalette';
 import PageTransition from '@/components/motion/PageTransition';
+import { usePrefetchHeavyPages } from '@/hooks/usePrefetchHeavyPages';
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { profile, roles, signOut } = useAuth();
+  usePrefetchHeavyPages();
   const [aiOpen, setAiOpen] = useState(false);
   const [recordOpen, setRecordOpen] = useState(false);
   const [initialInvoice, setInitialInvoice] = useState<string | null>(null);

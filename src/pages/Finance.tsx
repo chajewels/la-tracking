@@ -31,6 +31,15 @@ import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import {
+  forecastScheduleQueryOptions,
+  forecastDrilldownQueryOptions,
+  dailyLayawayQueryOptions,
+  dailyLayawayLastMonthQueryOptions,
+  collectionAnalyticsQueryOptions,
+  staffPerformanceQueryOptions,
+  topOutstandingCustomersQueryOptions,
+} from '@/hooks/financeQueryOptions';
 import { supabase } from '@/integrations/supabase/client';
 import { Link, useSearchParams } from 'react-router-dom';
 import PaymentVault from './PaymentVault';
@@ -108,30 +117,13 @@ export default function Finance() {
   const [drillSearch, setDrillSearch] = useState('');
 
   const { data: forecastSchedule, isLoading: forecastLoading } = useQuery({
-    queryKey: ['collections-forecast-6m', format(new Date(), 'yyyy-MM-dd')],
-    staleTime: 120_000,
-    placeholderData: keepPreviousData,
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc('get_forecast_6m');
-      if (error) throw error;
-      return (data || []) as { month: string; currency: string; installments: number; remaining: number }[];
-    },
+    ...forecastScheduleQueryOptions(),
     enabled: !!session,
   });
 
   const { data: drilldownRaw, isLoading: drilldownLoading } = useQuery({
-    queryKey: ['forecast-drilldown', selectedCard?.key],
+    ...forecastDrilldownQueryOptions(selectedCard?.key),
     enabled: !!selectedCard,
-    staleTime: 120_000,
-    placeholderData: keepPreviousData,
-    queryFn: async () => {
-      if (!selectedCard) return [];
-      const { data, error } = await supabase.rpc('get_forecast_drilldown', {
-        p_month: selectedCard.key,
-      });
-      if (error) throw error;
-      return data || [];
-    },
   });
 
   const drilldownRows = useMemo(() => {
@@ -275,14 +267,7 @@ export default function Finance() {
   });
 
   const { data: dailyLayawaySales, isLoading: dailyLayawayLoading } = useQuery({
-    queryKey: ['daily-new-layaway', currencyFilter],
-    staleTime: 120_000,
-    placeholderData: keepPreviousData,
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc('get_daily_new_layaway_sales', { currency_mode: currencyFilter });
-      if (error) throw error;
-      return (Array.isArray(data) ? data : []) as Array<{ day: string; new_sales_count: number; total_sales_value: number }>;
-    },
+    ...dailyLayawayQueryOptions(currencyFilter),
     enabled: tab === 'overview' && !!session,
   });
 
@@ -295,14 +280,7 @@ export default function Finance() {
   }, [dailyLayawaySales]);
 
   const { data: dailyLayawayLastMonth, isLoading: dailyLayawayLastMonthLoading } = useQuery({
-    queryKey: ['daily-new-layaway-last-month', currencyFilter],
-    staleTime: 120_000,
-    placeholderData: keepPreviousData,
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc('get_daily_new_layaway_sales_last_month', { currency_mode: currencyFilter });
-      if (error) throw error;
-      return (Array.isArray(data) ? data : []) as Array<{ day: string; new_sales_count: number; total_sales_value: number }>;
-    },
+    ...dailyLayawayLastMonthQueryOptions(currencyFilter),
     enabled: tab === 'overview' && !!session,
   });
 
@@ -368,25 +346,7 @@ export default function Finance() {
 
   // ── Analytics tab queries ──
   const { data: collectionAnalytics, isLoading: analyticsLoading } = useQuery({
-    queryKey: ['collection-analytics', currencyFilter],
-    staleTime: 120_000,
-    placeholderData: keepPreviousData,
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc('get_collection_analytics', {
-        currency_mode: currencyFilter,
-        months_back: 12,
-      });
-      if (error) throw error;
-      return (Array.isArray(data) ? data : []) as Array<{
-        month: string;
-        collected: number;
-        collected_due: number;
-        expected: number;
-        collection_rate: number;
-        forfeited: number;
-        penalties_collected: number;
-      }>;
-    },
+    ...collectionAnalyticsQueryOptions(currencyFilter),
     enabled: tab === 'analytics' && !!session,
   });
 
@@ -413,37 +373,12 @@ export default function Finance() {
   }, [collectionAnalytics, monthlySalesData, cashMonthlyData, isAllMode]);
 
   const { data: staffPerformance, isLoading: staffLoading } = useQuery({
-    queryKey: ['staff-performance'],
-    staleTime: 120_000,
-    placeholderData: keepPreviousData,
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc('get_staff_performance', { months_back: 1 });
-      if (error) throw error;
-      return (Array.isArray(data) ? data : []) as Array<{
-        staff_email: string;
-        payments_confirmed: number;
-        avg_confirmation_hours: number | null;
-      }>;
-    },
+    ...staffPerformanceQueryOptions(),
     enabled: tab === 'analytics' && !!session,
   });
 
   const { data: topOutstandingCustomers, isLoading: topCustomersLoading } = useQuery({
-    queryKey: ['top-outstanding-customers'],
-    staleTime: 120_000,
-    placeholderData: keepPreviousData,
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc('get_top_outstanding_customers');
-      if (error) throw error;
-      return ((data?.[0] as { get_top_outstanding_customers?: unknown })?.get_top_outstanding_customers ?? data ?? []) as Array<{
-        full_name: string;
-        account_count: number;
-        total_paid_jpy: number;
-        early_payment_rate: number;
-        penalty_count: number;
-        score: number;
-      }>;
-    },
+    ...topOutstandingCustomersQueryOptions(),
     enabled: tab === 'analytics' && !!session,
   });
 

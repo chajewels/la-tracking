@@ -1991,6 +1991,10 @@ Customer / Amount), non-blocking relative to the tracking output.
    - Dashboard data hooks use React Query with staleTime +
      keepPreviousData — hand-rolled useEffect fetches and staleTime: 0
      on dashboards are defects.
+   - Heavy pages (Executive Dashboard, Finance) are cache-prefetched at
+     app idle via usePrefetchHeavyPages, role-gated to the sidebar's own
+     visibility rules; new heavy dashboards join the prefetcher
+     (standard 2026-07-07).
 
 ## Migrations baseline (2026-07-05)
 

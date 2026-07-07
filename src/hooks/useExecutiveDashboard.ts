@@ -57,18 +57,17 @@ const EMPTY_EXEC_DATA: Omit<ExecData, 'loading'> = {
   lastUpdated: new Date(),
 };
 
-export function useExecutiveDashboard(): ExecData {
-  // React Query conversion (2026-07-07): the former hand-rolled useEffect
-  // fetch had NO cache — every visit refetched all 12 RPCs behind one
-  // loading flag, so the slowest query gated every card. The Promise.all
-  // below is verbatim; only the cache policy around it changed. The 30s
-  // interval refresh is preserved via refetchInterval.
-  const { data, isLoading } = useQuery({
-    queryKey: ['executive-dashboard'],
-    staleTime: 120_000,
-    placeholderData: keepPreviousData,
-    refetchInterval: INTERVAL,
-    queryFn: async (): Promise<Omit<ExecData, 'loading'>> => {
+// Exported so usePrefetchHeavyPages can warm the same cache key at app
+// idle. The hook below consumes this object unchanged (plus its 30s
+// refetchInterval). React Query conversion (2026-07-07): the former
+// hand-rolled useEffect fetch had NO cache — every visit refetched all 12
+// RPCs behind one loading flag, so the slowest query gated every card.
+// The Promise.all is verbatim; only the cache policy around it changed.
+export const executiveDashboardQueryOptions = {
+  queryKey: ['executive-dashboard'] as const,
+  staleTime: 120_000,
+  placeholderData: keepPreviousData,
+  queryFn: async (): Promise<Omit<ExecData, 'loading'>> => {
       const [pv, gp, mi, ne, cr, ar, ard, pr, pd, pp, ct, ci] = await Promise.all([
         supabase.rpc('fc_portfolio_value' as any),
         supabase.rpc('fc_gross_profit' as any),
@@ -144,7 +143,13 @@ export function useExecutiveDashboard(): ExecData {
         cfoInsights: (ci.data ?? []) as CfoInsight[],
         lastUpdated: new Date(),
       };
-    },
+  },
+};
+
+export function useExecutiveDashboard(): ExecData {
+  const { data, isLoading } = useQuery({
+    ...executiveDashboardQueryOptions,
+    refetchInterval: INTERVAL,
   });
 
   return { ...(data ?? EMPTY_EXEC_DATA), loading: isLoading && !data };
