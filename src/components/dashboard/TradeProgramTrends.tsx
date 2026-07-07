@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useChartAnimation } from '@/hooks/useChartAnimation';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
@@ -59,6 +60,7 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
 }
 
 export default function TradeProgramTrends({ data }: { data: TradeMonthlyTrend[] }) {
+  const chartAnim = useChartAnimation();
   const chartData = useMemo(
     () => data.map(d => ({
       ...d,
@@ -118,7 +120,7 @@ export default function TradeProgramTrends({ data }: { data: TradeMonthlyTrend[]
               />
               <Tooltip content={<CustomTooltip />} />
               <Legend wrapperStyle={{ fontSize: 11, paddingBottom: 8 }} verticalAlign="top" />
-              <Area
+              <Area {...chartAnim}
                 yAxisId="left"
                 type="monotone"
                 dataKey="trade_count"
@@ -129,7 +131,7 @@ export default function TradeProgramTrends({ data }: { data: TradeMonthlyTrend[]
                 activeDot={{ r: 5 }}
                 fill="url(#tradeProgramGradient1)"
               />
-              <Area
+              <Area {...chartAnim}
                 yAxisId="right"
                 type="monotone"
                 dataKey="trade_value_jpy"

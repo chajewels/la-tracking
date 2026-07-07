@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useChartAnimation } from '@/hooks/useChartAnimation';
 import { chartColors } from '@/theme/tokens';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
@@ -1013,6 +1014,7 @@ function FullSummaryTab({
   profiles: TimesheetProfile[];
   allEntries: (TimesheetEntry & { user_id: string })[];
 }) {
+  const chartAnim = useChartAnimation();
   const summary = useMemo(
     () => computeAllMonthsSummary(profiles, allEntries),
     [profiles, allEntries],
@@ -1144,8 +1146,8 @@ function FullSummaryTab({
                     formatter={(value: number) => formatPHP(value)}
                   />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="csr" stackId="cost" fill={CSR_BAR} name="CSR" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="liveAdmin" stackId="cost" fill={LIVE_ADMIN_BAR} name="Live Admin" radius={[3, 3, 0, 0]} />
+                  <Bar {...chartAnim} dataKey="csr" stackId="cost" fill={CSR_BAR} name="CSR" radius={[0, 0, 0, 0]} />
+                  <Bar {...chartAnim} dataKey="liveAdmin" stackId="cost" fill={LIVE_ADMIN_BAR} name="Live Admin" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

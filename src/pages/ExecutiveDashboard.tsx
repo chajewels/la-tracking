@@ -1,4 +1,6 @@
 import { useState, type ReactNode } from 'react';
+import { useChartAnimation } from '@/hooks/useChartAnimation';
+import AnimatedNumber from '@/components/shared/AnimatedNumber';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell,
@@ -61,6 +63,7 @@ const ChartTooltip = ({ active, payload, label }: any) => {
 };
 
 export default function ExecutiveDashboard() {
+  const chartAnim = useChartAnimation();
   const d = useExecutiveDashboard();
   const inflowData = useMonthlyInflowByPlan();
   const donutData = useActiveByPlan();
@@ -131,13 +134,13 @@ export default function ExecutiveDashboard() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <KPI label="Portfolio Value" value={fmtM(d.portfolioValue)} sub="Active accounts only" />
-            <KPI label="Active Gross Profit" value={fmtM(d.grossProfit?.active_gross_profit ?? 0)} sub="15% on active portfolio" />
-            <KPI label="Lifetime Gross Profit" value={fmtM(d.grossProfit?.lifetime_gross_profit ?? 0)} sub="15% on all-time contracts" />
-            <KPI label="Monthly Inflow" value={fmtM(d.monthlyInflow?.total_inflow ?? 0)}
+            <KPI label="Portfolio Value" value={<AnimatedNumber value={d.portfolioValue} format={fmtM} />} sub="Active accounts only" />
+            <KPI label="Active Gross Profit" value={<AnimatedNumber value={d.grossProfit?.active_gross_profit ?? 0} format={fmtM} />} sub="15% on active portfolio" />
+            <KPI label="Lifetime Gross Profit" value={<AnimatedNumber value={d.grossProfit?.lifetime_gross_profit ?? 0} format={fmtM} />} sub="15% on all-time contracts" />
+            <KPI label="Monthly Inflow" value={<AnimatedNumber value={d.monthlyInflow?.total_inflow ?? 0} format={fmtM} />}
               sub={`Installments ${fmtM(d.monthlyInflow?.installment_inflow ?? 0)} · Penalties ${fmtM(d.monthlyInflow?.penalty_inflow ?? 0)}`} />
             <div className="lg:col-span-2">
-            <KPI label="Net Exposure Risk" value={fmtM(d.netExposure?.net_exposure ?? 0)} danger
+            <KPI label="Net Exposure Risk" value={<AnimatedNumber value={d.netExposure?.net_exposure ?? 0} format={fmtM} />} danger
               sub={`${fmtM(d.netExposure?.gross_exposure ?? 0)} gross · ${fmtM(recovered)} recovered`}
               extra={d.netExposure ? (
                 <div className="pl-2">
@@ -161,7 +164,7 @@ export default function ExecutiveDashboard() {
             </div>
             <div className={`relative overflow-hidden rounded-xl border bg-card p-4 sm:p-5 border-l-[3px] lg:col-span-2 ${coverageColor}`}>
               <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider pl-2">Cash Flow Coverage</p>
-              <p className="text-xl sm:text-2xl font-bold font-display tabular-nums pl-2 mt-1">{(d.coverageRatio?.coverage_ratio ?? 0).toFixed(2)}×</p>
+              <p className="text-xl sm:text-2xl font-bold font-display tabular-nums pl-2 mt-1"><AnimatedNumber value={d.coverageRatio?.coverage_ratio ?? 0} format={(n) => n.toFixed(2)} />×</p>
               <p className={`text-[10px] pl-2 font-semibold uppercase tracking-wider ${coverageLabelColor}`}>{d.coverageRatio?.status_label ?? '—'}</p>
               <div className="mt-2 pl-2 space-y-0.5 text-[10px] tabular-nums">
                 <div className="flex justify-between text-muted-foreground"><span>Cash In</span><span>{fmtM(d.coverageRatio?.cash_in ?? 0)}</span></div>
@@ -185,19 +188,19 @@ export default function ExecutiveDashboard() {
             {/* Cash Sales — always JPY, from dashboard-summary */}
             <KPI
               label="Cash Sales (This Month · JPY)"
-              value={fmtFull(cashSummary?.total_sales_booked_this_month?.cash_jpy ?? 0)}
+              value={<AnimatedNumber value={cashSummary?.total_sales_booked_this_month?.cash_jpy ?? 0} format={fmtFull} />}
               sub={`${fmtFull(cashSummary?.cash_revenue_total_jpy ?? 0)} all-time · ${cashSummary?.cash_orders_active ?? 0} pending`}
             />
             {/* At-Risk */}
             <div className="rounded-xl border border-border bg-card p-5 cursor-pointer hover:border-primary/30 transition-colors" onClick={() => setRiskOpen(!riskOpen)}>
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">At-Risk Accounts</p>
-              <p className="text-2xl font-bold font-display tabular-nums mt-1">{d.atRisk?.total_at_risk ?? 0} <span className="text-sm font-normal text-muted-foreground">accounts</span></p>
+              <p className="text-2xl font-bold font-display tabular-nums mt-1"><AnimatedNumber value={d.atRisk?.total_at_risk ?? 0} format={(n) => String(Math.round(n))} /> <span className="text-sm font-normal text-muted-foreground">accounts</span></p>
               <p className="text-xs text-muted-foreground">{(d.atRisk?.at_risk_pct ?? 0).toFixed(1)}% of active accounts</p>
               {(d.atRisk?.critical_count ?? 0) > 0 && <p className="text-xs text-destructive font-medium mt-0.5">{d.atRisk!.critical_count} critical</p>}
               <p className="text-[9px] text-muted-foreground mt-1">{riskOpen ? 'Click to collapse ▲' : 'Click to expand ▼'}</p>
             </div>
             {/* Penalty Revenue */}
-            <KPI label="Penalty Revenue (This Month)" value={fmtFull(d.penaltyRevenue?.current_month_jpy ?? 0)}
+            <KPI label="Penalty Revenue (This Month)" value={<AnimatedNumber value={d.penaltyRevenue?.current_month_jpy ?? 0} format={fmtFull} />}
               sub={`${fmtFull(d.penaltyRevenue?.cumulative_jpy ?? 0)} cumulative all-time`}
               extra={d.penaltyRevenue?.penalty_pct_of_inflow != null ? (
                 <p className={`text-[10px] pl-2 tabular-nums ${(d.penaltyRevenue.penalty_pct_of_inflow > 5) ? 'text-destructive' : (d.penaltyRevenue.penalty_pct_of_inflow > 2) ? 'text-amber-500' : 'text-muted-foreground'}`}>
@@ -207,7 +210,7 @@ export default function ExecutiveDashboard() {
             {/* Penalty-Driven Accounts */}
             <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4 sm:p-5 border-l-[3px] border-l-primary">
               <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider pl-2">Penalty-Driven Accounts</p>
-              <p className="text-xl sm:text-2xl font-bold font-display tabular-nums pl-2 mt-1">{d.penaltyDriven?.penalty_driven_count ?? 0} <span className="text-sm font-normal text-muted-foreground">accounts</span></p>
+              <p className="text-xl sm:text-2xl font-bold font-display tabular-nums pl-2 mt-1"><AnimatedNumber value={d.penaltyDriven?.penalty_driven_count ?? 0} format={(n) => String(Math.round(n))} /> <span className="text-sm font-normal text-muted-foreground">accounts</span></p>
               <p className="text-[10px] text-muted-foreground pl-2 mt-0.5">{(d.penaltyDriven?.pct_of_active ?? 0).toFixed(1)}% of active</p>
               <p className="text-[10px] text-muted-foreground pl-2">{(d.penaltyDriven?.penalty_revenue_contribution ?? 0).toFixed(1)}% of penalty revenue</p>
               <p className="text-[9px] text-muted-foreground/60 pl-2 mt-1.5">Accounts with ≥4 penalties and ≤14 days overdue</p>
@@ -289,7 +292,7 @@ export default function ExecutiveDashboard() {
                   <YAxis tickFormatter={fmtM} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} axisLine={false} tickLine={false} width={56} />
                   <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
                   {PLAN_KEYS.map((pm, i) => (
-                    <Bar key={pm} dataKey={`plan_${pm}`} stackId="inflow" fill={PLAN_COLORS[pm]}
+                    <Bar {...chartAnim} key={pm} dataKey={`plan_${pm}`} stackId="inflow" fill={PLAN_COLORS[pm]}
                       radius={i === PLAN_KEYS.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]} />
                   ))}
                 </BarChart>
@@ -305,7 +308,7 @@ export default function ExecutiveDashboard() {
               <>
                 <ResponsiveContainer width="100%" height={200}>
                   <PieChart>
-                    <Pie data={donutData} dataKey="count" nameKey="plan" cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={2}>
+                    <Pie {...chartAnim} data={donutData} dataKey="count" nameKey="plan" cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={2}>
                       {donutData.map((entry, i) => <Cell key={i} fill={PLAN_COLORS[entry.plan] || '#888'} />)}
                     </Pie>
                     <Tooltip formatter={(v: number, name: string) => [`${v} accounts`, `${name}M`]}
@@ -353,8 +356,8 @@ export default function ExecutiveDashboard() {
                       contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }}
                       cursor={{ fill: 'rgba(255,255,255,0.04)' }}
                     />
-                    <Bar dataKey="cash" stackId="rev" fill="#C9A84C" radius={[3, 0, 0, 3]} />
-                    <Bar dataKey="layaway" stackId="rev" fill="#378ADD" radius={[0, 3, 3, 0]} />
+                    <Bar {...chartAnim} dataKey="cash" stackId="rev" fill="#C9A84C" radius={[3, 0, 0, 3]} />
+                    <Bar {...chartAnim} dataKey="layaway" stackId="rev" fill="#378ADD" radius={[0, 3, 3, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 text-xs">
@@ -562,7 +565,7 @@ export default function ExecutiveDashboard() {
   );
 }
 
-function KPI({ label, value, sub, danger, extra }: { label: string; value: string; sub?: string; danger?: boolean; extra?: ReactNode }) {
+function KPI({ label, value, sub, danger, extra }: { label: string; value: ReactNode; sub?: string; danger?: boolean; extra?: ReactNode }) {
   return (
     <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4 sm:p-5 border-l-[3px] border-l-primary">
       <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider pl-2">{label}</p>

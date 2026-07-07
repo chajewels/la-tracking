@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import AnimatedNumber from '@/components/shared/AnimatedNumber';
 import { Search, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -76,7 +77,7 @@ function StatTile({
         {label}
       </p>
       <p className={`mt-1 text-2xl font-bold tabular-nums ${toneClass[tone]}`}>
-        {value.toLocaleString()}
+        <AnimatedNumber value={value} />
       </p>
     </div>
   );

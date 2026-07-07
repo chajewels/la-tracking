@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, Fragment } from 'react';
+import { useChartAnimation } from '@/hooks/useChartAnimation';
 import { chartColors } from '@/theme/tokens';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
@@ -696,6 +697,7 @@ function OverviewTab({
   agents: CommissionAgent[];
   selectedMonthKey: string | null;
 }) {
+  const chartAnim = useChartAnimation();
   const totals = useMemo(() => {
     let eligible = 0;
     let pool = 0;
@@ -775,8 +777,8 @@ function OverviewTab({
             <YAxis yAxisId="right" orientation="right" stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 11 }} />
             <Tooltip contentStyle={tooltipStyle} formatter={(v: number, name: string) => name === 'pool' ? formatPHP(v) : v.toLocaleString()} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Bar yAxisId="left" dataKey="pool" fill={chartColors.primary} name="Pool ₱" radius={[3, 3, 0, 0]} />
-            <Bar yAxisId="right" dataKey="eligible" fill="#1756A8" name="Eligible" radius={[3, 3, 0, 0]} />
+            <Bar {...chartAnim} yAxisId="left" dataKey="pool" fill={chartColors.primary} name="Pool ₱" radius={[3, 3, 0, 0]} />
+            <Bar {...chartAnim} yAxisId="right" dataKey="eligible" fill="#1756A8" name="Eligible" radius={[3, 3, 0, 0]} />
           </BarChart>
         </ChartCard>
 
@@ -786,7 +788,7 @@ function OverviewTab({
             <XAxis type="number" stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 11 }} />
             <YAxis type="category" dataKey="name" width={100} stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 11 }} />
             <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => formatPHP(v)} />
-            <Bar dataKey="total" radius={[0, 4, 4, 0]}>
+            <Bar {...chartAnim} dataKey="total" radius={[0, 4, 4, 0]}>
               {perAgentTotals.map((a) => (
                 <Cell key={a.name} fill={a.color} />
               ))}
@@ -800,13 +802,13 @@ function OverviewTab({
             <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 11 }} />
             <YAxis stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 11 }} />
             <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => formatJPY(v)} />
-            <Line type="monotone" dataKey="sales" stroke={chartColors.primary} strokeWidth={2} dot={{ r: 3 }} />
+            <Line {...chartAnim} type="monotone" dataKey="sales" stroke={chartColors.primary} strokeWidth={2} dot={{ r: 3 }} />
           </LineChart>
         </ChartCard>
 
         <ChartCard title="Status Distribution">
           <PieChart>
-            <Pie data={statusDist} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={2}>
+            <Pie {...chartAnim} data={statusDist} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={2}>
               {statusDist.map(s => <Cell key={s.name} fill={s.color} />)}
             </Pie>
             <Tooltip contentStyle={tooltipStyle} />

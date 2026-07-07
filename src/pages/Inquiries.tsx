@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useChartAnimation } from '@/hooks/useChartAnimation';
 import { chartColors } from '@/theme/tokens';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
@@ -604,6 +605,7 @@ function DemandMap({ allRows, loading, orderPlacedOptions }: {
   loading: boolean;
   orderPlacedOptions: string[];
 }) {
+  const chartAnim = useChartAnimation();
   // Order Placed filter (client-side; applies to ALL Demand Map content).
   // "— Blank —" means order_placed === null (post-2026-06-12 backfill,
   // 350 rows are legitimately NULL).
@@ -792,7 +794,7 @@ function DemandMap({ allRows, loading, orderPlacedOptions }: {
                 }}
                 labelFormatter={() => ''}
               />
-              <Bar dataKey="total_inquiries" fill={GOLD} radius={[0, 4, 4, 0]} />
+              <Bar {...chartAnim} dataKey="total_inquiries" fill={GOLD} radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -917,7 +919,7 @@ function DemandMap({ allRows, loading, orderPlacedOptions }: {
                   ]}
                   labelFormatter={() => ''}
                 />
-                <Bar dataKey="total_inquiries" fill="#C084FC" radius={[0, 4, 4, 0]} />
+                <Bar {...chartAnim} dataKey="total_inquiries" fill="#C084FC" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

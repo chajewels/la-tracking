@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useChartAnimation } from '@/hooks/useChartAnimation';
 import { useQuery } from '@tanstack/react-query';
 import { subMonths, startOfMonth, parseISO, isValid, format } from 'date-fns';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -30,6 +31,7 @@ const CashTooltip = ({ active, payload, label }: any) => {
 };
 
 export default function MonthlyCashOrdersChart() {
+  const chartAnim = useChartAnimation();
   const [range, setRange] = useState<Range>('1Y');
   const today = format(new Date(), 'yyyy-MM-dd');
 
@@ -99,7 +101,7 @@ export default function MonthlyCashOrdersChart() {
               <XAxis dataKey="label" tick={{ fill: '#a1a1aa', fontSize: 11 }} axisLine={false} tickLine={false} />
               <YAxis tickFormatter={fmtJpy} tick={{ fill: '#a1a1aa', fontSize: 11 }} axisLine={false} tickLine={false} width={56} />
               <Tooltip content={<CashTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.1)' }} />
-              <Area type="monotone" dataKey="cash" stroke="#22c55e" strokeWidth={2} fill="url(#cashOrdersGradient)" dot={{ r: 3, fill: '#22c55e' }} />
+              <Area {...chartAnim} type="monotone" dataKey="cash" stroke="#22c55e" strokeWidth={2} fill="url(#cashOrdersGradient)" dot={{ r: 3, fill: '#22c55e' }} />
             </AreaChart>
           </ResponsiveContainer>
           <p className="text-xs text-zinc-400 mt-3 text-center">

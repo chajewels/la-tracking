@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
 const INTERVAL = 30_000;
@@ -40,26 +41,34 @@ interface FinancialAlert {
   created_at: string;
 }
 
-export function useExecutiveDashboard(): ExecData {
-  const [data, setData] = useState<ExecData>({
-    portfolioValue: 0,
-    grossProfit: null,
-    monthlyInflow: null,
-    netExposure: null,
-    coverageRatio: null,
-    atRisk: null,
-    atRiskDetail: [],
-    penaltyRevenue: null,
-    penaltyDriven: null,
-    planPerformance: [],
-    cohortTimeline: [],
-    cfoInsights: [],
-    lastUpdated: new Date(),
-    loading: true,
-  });
+const EMPTY_EXEC_DATA: Omit<ExecData, 'loading'> = {
+  portfolioValue: 0,
+  grossProfit: null,
+  monthlyInflow: null,
+  netExposure: null,
+  coverageRatio: null,
+  atRisk: null,
+  atRiskDetail: [],
+  penaltyRevenue: null,
+  penaltyDriven: null,
+  planPerformance: [],
+  cohortTimeline: [],
+  cfoInsights: [],
+  lastUpdated: new Date(),
+};
 
-  const fetchAll = useCallback(async () => {
-    try {
+export function useExecutiveDashboard(): ExecData {
+  // React Query conversion (2026-07-07): the former hand-rolled useEffect
+  // fetch had NO cache — every visit refetched all 12 RPCs behind one
+  // loading flag, so the slowest query gated every card. The Promise.all
+  // below is verbatim; only the cache policy around it changed. The 30s
+  // interval refresh is preserved via refetchInterval.
+  const { data, isLoading } = useQuery({
+    queryKey: ['executive-dashboard'],
+    staleTime: 120_000,
+    placeholderData: keepPreviousData,
+    refetchInterval: INTERVAL,
+    queryFn: async (): Promise<Omit<ExecData, 'loading'>> => {
       const [pv, gp, mi, ne, cr, ar, ard, pr, pd, pp, ct, ci] = await Promise.all([
         supabase.rpc('fc_portfolio_value' as any),
         supabase.rpc('fc_gross_profit' as any),
@@ -75,7 +84,7 @@ export function useExecutiveDashboard(): ExecData {
         supabase.rpc('fc_cfo_insights' as any),
       ]);
 
-      setData({
+      return {
         portfolioValue: Number(pv.data ?? 0),
         grossProfit: {
           active_gross_profit: Number(gp.data?.[0]?.active_gross_profit ?? 0),
@@ -134,21 +143,11 @@ export function useExecutiveDashboard(): ExecData {
         cohortTimeline: ct.data ?? [],
         cfoInsights: (ci.data ?? []) as CfoInsight[],
         lastUpdated: new Date(),
-        loading: false,
-      });
-    } catch (err) {
-      console.error('[ExecDashboard] fetch error:', err);
-      setData(prev => ({ ...prev, loading: false }));
-    }
-  }, []);
+      };
+    },
+  });
 
-  useEffect(() => {
-    fetchAll();
-    const id = setInterval(fetchAll, INTERVAL);
-    return () => clearInterval(id);
-  }, [fetchAll]);
-
-  return data;
+  return { ...(data ?? EMPTY_EXEC_DATA), loading: isLoading && !data };
 }
 
 export function useMonthlyInflowByPlan() {

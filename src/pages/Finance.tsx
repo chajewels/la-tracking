@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, memo, type FC } from 'react';
+import { useChartAnimation } from '@/hooks/useChartAnimation';
 import { chartColors } from '@/theme/tokens';
 import { addMonths, endOfMonth, format, isValid, parseISO, startOfMonth } from 'date-fns';
 import { DollarSign, TrendingUp, BarChart3, Sparkles, CalendarClock, Trophy, Clock, AlertTriangle, ShieldAlert, Crown, UserCheck, Target, Users, Activity, Banknote, X, ShoppingBag, RefreshCw } from 'lucide-react';
@@ -29,7 +30,7 @@ import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Link, useSearchParams } from 'react-router-dom';
 import PaymentVault from './PaymentVault';
@@ -41,6 +42,7 @@ import {
 } from '@/lib/business-rules';
 
 export default function Finance() {
+  const chartAnim = useChartAnimation();
   const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>('ALL');
   type FinanceTabKey = 'overview' | 'analytics' | 'collections' | 'tracking' | 'vault';
   const FINANCE_TABS: FinanceTabKey[] = ['overview', 'analytics', 'collections', 'tracking', 'vault'];
@@ -107,7 +109,8 @@ export default function Finance() {
 
   const { data: forecastSchedule, isLoading: forecastLoading } = useQuery({
     queryKey: ['collections-forecast-6m', format(new Date(), 'yyyy-MM-dd')],
-    staleTime: 0,
+    staleTime: 120_000,
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const { data, error } = await supabase.rpc('get_forecast_6m');
       if (error) throw error;
@@ -119,6 +122,8 @@ export default function Finance() {
   const { data: drilldownRaw, isLoading: drilldownLoading } = useQuery({
     queryKey: ['forecast-drilldown', selectedCard?.key],
     enabled: !!selectedCard,
+    staleTime: 120_000,
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       if (!selectedCard) return [];
       const { data, error } = await supabase.rpc('get_forecast_drilldown', {
@@ -271,6 +276,8 @@ export default function Finance() {
 
   const { data: dailyLayawaySales, isLoading: dailyLayawayLoading } = useQuery({
     queryKey: ['daily-new-layaway', currencyFilter],
+    staleTime: 120_000,
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const { data, error } = await supabase.rpc('get_daily_new_layaway_sales', { currency_mode: currencyFilter });
       if (error) throw error;
@@ -289,6 +296,8 @@ export default function Finance() {
 
   const { data: dailyLayawayLastMonth, isLoading: dailyLayawayLastMonthLoading } = useQuery({
     queryKey: ['daily-new-layaway-last-month', currencyFilter],
+    staleTime: 120_000,
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const { data, error } = await supabase.rpc('get_daily_new_layaway_sales_last_month', { currency_mode: currencyFilter });
       if (error) throw error;
@@ -360,6 +369,8 @@ export default function Finance() {
   // ── Analytics tab queries ──
   const { data: collectionAnalytics, isLoading: analyticsLoading } = useQuery({
     queryKey: ['collection-analytics', currencyFilter],
+    staleTime: 120_000,
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const { data, error } = await supabase.rpc('get_collection_analytics', {
         currency_mode: currencyFilter,
@@ -403,6 +414,8 @@ export default function Finance() {
 
   const { data: staffPerformance, isLoading: staffLoading } = useQuery({
     queryKey: ['staff-performance'],
+    staleTime: 120_000,
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const { data, error } = await supabase.rpc('get_staff_performance', { months_back: 1 });
       if (error) throw error;
@@ -417,6 +430,8 @@ export default function Finance() {
 
   const { data: topOutstandingCustomers, isLoading: topCustomersLoading } = useQuery({
     queryKey: ['top-outstanding-customers'],
+    staleTime: 120_000,
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const { data, error } = await supabase.rpc('get_top_outstanding_customers');
       if (error) throw error;
@@ -628,12 +643,15 @@ export default function Finance() {
                 [...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
               ) : (
                 <>
-                  <StatCard title="Total Receivables" value={formatCurrency(summary?.total_receivables ?? 0, displayCurrency)} icon={DollarSign} variant="gold" />
-                  <StatCard title="Expected Next Month" value={formatCurrency(summary?.next_month_expected ?? 0, displayCurrency)} icon={Sparkles} variant="gold" />
-                  <StatCard title="Collections This Month" value={formatCurrency(summary?.collections_this_month ?? 0, displayCurrency)} icon={BarChart3} variant="success" />
+                  <StatCard title="Total Receivables" value={formatCurrency(summary?.total_receivables ?? 0, displayCurrency)} countUpValue={summary?.total_receivables ?? 0} formatValue={(n) => formatCurrency(Math.round(n), displayCurrency)} staggerIndex={0} icon={DollarSign} variant="gold" />
+                  <StatCard title="Expected Next Month" value={formatCurrency(summary?.next_month_expected ?? 0, displayCurrency)} countUpValue={summary?.next_month_expected ?? 0} formatValue={(n) => formatCurrency(Math.round(n), displayCurrency)} staggerIndex={1} icon={Sparkles} variant="gold" />
+                  <StatCard title="Collections This Month" value={formatCurrency(summary?.collections_this_month ?? 0, displayCurrency)} countUpValue={summary?.collections_this_month ?? 0} formatValue={(n) => formatCurrency(Math.round(n), displayCurrency)} staggerIndex={2} icon={BarChart3} variant="success" />
                   <StatCard
                     title="New Layaway Sales"
                     value={formatCurrency(thisMonthSales.total, displayCurrency)}
+                    countUpValue={thisMonthSales.total}
+                    formatValue={(n) => formatCurrency(Math.round(n), displayCurrency)}
+                    staggerIndex={3}
                     subtitle={`${thisMonthSales.count} new accounts · vs ${thisMonthSales.lastMonthCount} last month`}
                     icon={ShoppingBag}
                     variant="gold"
@@ -668,7 +686,7 @@ export default function Finance() {
                       <XAxis dataKey="day" fontSize={11} tickLine={false} stroke="hsl(var(--muted-foreground))" interval={Math.max(0, Math.ceil(dailyLayawaySeries.length / 8) - 1)} />
                       <YAxis hide />
                       <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} labelFormatter={(d) => `Day ${d}`} />
-                      <Area type="monotone" dataKey="value" stroke={chartColors.primary} strokeWidth={2} fill="url(#dailyLayawayGradient)" dot={{ r: 3, fill: chartColors.primary }} />
+                      <Area {...chartAnim} type="monotone" dataKey="value" stroke={chartColors.primary} strokeWidth={2} fill="url(#dailyLayawayGradient)" dot={{ r: 3, fill: chartColors.primary }} />
                     </AreaChart>
                   </ResponsiveContainer>
                 )}
@@ -691,7 +709,7 @@ export default function Finance() {
                       <XAxis dataKey="day" fontSize={11} tickLine={false} stroke="hsl(var(--muted-foreground))" interval={Math.max(0, Math.ceil(dailyLayawayLastMonthSeries.length / 8) - 1)} />
                       <YAxis hide />
                       <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} labelFormatter={(d) => `Day ${d}`} />
-                      <Area type="monotone" dataKey="value" stroke={chartColors.primary} strokeWidth={2} fill="url(#dailyLayawayLastGradient)" dot={{ r: 3, fill: chartColors.primary }} />
+                      <Area {...chartAnim} type="monotone" dataKey="value" stroke={chartColors.primary} strokeWidth={2} fill="url(#dailyLayawayLastGradient)" dot={{ r: 3, fill: chartColors.primary }} />
                     </AreaChart>
                   </ResponsiveContainer>
                 )}
@@ -708,12 +726,18 @@ export default function Finance() {
                   <StatCard
                     title="Cash Revenue Today (JPY)"
                     value={`¥ ${Math.round(summary?.cash_revenue_today_jpy ?? 0).toLocaleString()}`}
+                    countUpValue={summary?.cash_revenue_today_jpy ?? 0}
+                    formatValue={(n) => `¥ ${Math.round(n).toLocaleString()}`}
+                    staggerIndex={0}
                     icon={Banknote}
                     variant="success"
                   />
                   <StatCard
                     title="Total Cash Sales (JPY)"
                     value={formatCurrency(summary?.cash_revenue_total_jpy ?? 0, 'JPY')}
+                    countUpValue={summary?.cash_revenue_total_jpy ?? 0}
+                    formatValue={(n) => formatCurrency(Math.round(n), 'JPY')}
+                    staggerIndex={1}
                     subtitle={`${formatCurrency(summary?.cash_revenue_month_jpy ?? 0, 'JPY')} this month`}
                     icon={Banknote}
                     variant="gold"
@@ -721,6 +745,9 @@ export default function Finance() {
                   <StatCard
                     title="Cash Conversion Rate"
                     value={`${(summary?.cash_conversion_rate?.this_month ?? 0).toFixed(1)}%`}
+                    countUpValue={summary?.cash_conversion_rate?.this_month ?? 0}
+                    formatValue={(n) => `${n.toFixed(1)}%`}
+                    staggerIndex={2}
                     subtitle={`${(summary?.cash_conversion_rate?.all_time ?? 0).toFixed(1)}% all-time`}
                     icon={Activity}
                   />
@@ -751,6 +778,9 @@ export default function Finance() {
                   <StatCard
                     title="Trade Accounts"
                     value={tradeKpis.total_count.toString()}
+                    countUpValue={tradeKpis.total_count}
+                    formatValue={(n) => Math.round(n).toString()}
+                    staggerIndex={0}
                     subtitle={`${tradeKpis.active_count} active · ${tradeKpis.completed_count} completed`}
                     icon={RefreshCw}
                     variant="gold"
@@ -758,12 +788,18 @@ export default function Finance() {
                   <StatCard
                     title="Total Trade Value (JPY)"
                     value={`¥ ${Math.round(tradeKpis.total_value_jpy).toLocaleString()}`}
+                    countUpValue={tradeKpis.total_value_jpy}
+                    formatValue={(n) => `¥ ${Math.round(n).toLocaleString()}`}
+                    staggerIndex={1}
                     icon={Banknote}
                     variant="gold"
                   />
                   <StatCard
                     title="Trade Share"
                     value={`${tradeKpis.share_percent.toFixed(1)}%`}
+                    countUpValue={tradeKpis.share_percent}
+                    formatValue={(n) => `${n.toFixed(1)}%`}
+                    staggerIndex={2}
                     subtitle={`${tradeKpis.total_count} of ${tradeKpis.all_accounts_count} accounts`}
                     icon={Activity}
                   />
@@ -803,16 +839,19 @@ export default function Finance() {
               ) : (
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                    <StatCard title="Best Month" value={bestMonth ? `${bestMonth.collection_rate}%` : '—'} subtitle={bestMonth?.month} icon={Trophy} variant="gold" />
-                    <StatCard title="Average Rate" value={`${avgRate}%`} icon={TrendingUp} variant="success" />
+                    <StatCard title="Best Month" value={bestMonth ? `${bestMonth.collection_rate}%` : '—'} countUpValue={bestMonth ? bestMonth.collection_rate : undefined} formatValue={(n) => `${Math.round(n)}%`} staggerIndex={0} subtitle={bestMonth?.month} icon={Trophy} variant="gold" />
+                    <StatCard title="Average Rate" value={`${avgRate}%`} countUpValue={avgRate} formatValue={(n) => `${Math.round(n)}%`} staggerIndex={1} icon={TrendingUp} variant="success" />
                     <StatCard
                       title="Total Sales · This Month"
                       value={`¥ ${Math.round((summary?.total_sales_booked_this_month?.layaway_jpy ?? 0) + (summary?.total_sales_booked_this_month?.cash_jpy ?? 0)).toLocaleString()}`}
+                      countUpValue={(summary?.total_sales_booked_this_month?.layaway_jpy ?? 0) + (summary?.total_sales_booked_this_month?.cash_jpy ?? 0)}
+                      formatValue={(n) => `¥ ${Math.round(n).toLocaleString()}`}
+                      staggerIndex={2}
                       subtitle={`¥ ${Math.round(summary?.total_sales_booked_this_month?.layaway_jpy ?? 0).toLocaleString()} layaway · ¥ ${Math.round(summary?.total_sales_booked_this_month?.cash_jpy ?? 0).toLocaleString()} cash`}
                       icon={DollarSign}
                       variant="gold"
                     />
-                    <StatCard title="Recovered (Forfeited)" value={formatCurrency(totalForfeitedCollected, displayCurrency)} icon={ShieldAlert} />
+                    <StatCard title="Recovered (Forfeited)" value={formatCurrency(totalForfeitedCollected, displayCurrency)} countUpValue={totalForfeitedCollected} formatValue={(n) => formatCurrency(Math.round(n), displayCurrency)} staggerIndex={3} icon={ShieldAlert} />
                   </div>
                   {collectionAnalytics && collectionAnalytics.length > 0 && (
                     <div className="rounded-xl border border-border bg-card p-5">
@@ -834,8 +873,8 @@ export default function Finance() {
                           <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
                           <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} formatter={(val: number) => formatCurrency(Number(val), displayCurrency)} />
                           <Legend wrapperStyle={{ fontSize: 10 }} />
-                          <Area type="monotone" dataKey="collected_due" name="Paid" stroke={chartColors.primary} strokeWidth={2} fill="url(#paidVsDueGradient1)" />
-                          <Area type="monotone" dataKey="expected" name="Due" stroke="#3b82f6" strokeWidth={2} fill="url(#paidVsDueGradient2)" />
+                          <Area {...chartAnim} type="monotone" dataKey="collected_due" name="Paid" stroke={chartColors.primary} strokeWidth={2} fill="url(#paidVsDueGradient1)" />
+                          <Area {...chartAnim} type="monotone" dataKey="expected" name="Due" stroke="#3b82f6" strokeWidth={2} fill="url(#paidVsDueGradient2)" />
                           <Brush dataKey="month" height={30} stroke={chartColors.primary} travellerWidth={10} />
                         </AreaChart>
                       </ResponsiveContainer>
@@ -864,8 +903,8 @@ export default function Finance() {
                             formatter={(val: number) => formatCurrency(Number(val), displayCurrency)}
                           />
                           <Legend wrapperStyle={{ fontSize: 10 }} />
-                          <Area type="monotone" dataKey="collected" name="Collected" stroke={chartColors.primary} strokeWidth={2} dot={{ r: 3, fill: chartColors.primary }} fill="url(#collectedVsSalesGradient1)" />
-                          <Area type="monotone" dataKey="sales" name="Sales" stroke="#34d399" strokeWidth={2} dot={{ r: 3, fill: '#34d399' }} fill="url(#collectedVsSalesGradient2)" />
+                          <Area {...chartAnim} type="monotone" dataKey="collected" name="Collected" stroke={chartColors.primary} strokeWidth={2} dot={{ r: 3, fill: chartColors.primary }} fill="url(#collectedVsSalesGradient1)" />
+                          <Area {...chartAnim} type="monotone" dataKey="sales" name="Sales" stroke="#34d399" strokeWidth={2} dot={{ r: 3, fill: '#34d399' }} fill="url(#collectedVsSalesGradient2)" />
                           <Brush dataKey="month" height={30} stroke={chartColors.primary} travellerWidth={10} />
                         </AreaChart>
                       </ResponsiveContainer>
@@ -886,7 +925,7 @@ export default function Finance() {
                       <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
                       <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
                       <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} />
-                      <Line type="monotone" dataKey="collection_rate" name="Rate %" stroke={chartColors.primary} strokeWidth={2} dot={{ r: 4, fill: chartColors.primary }} />
+                      <Line {...chartAnim} type="monotone" dataKey="collection_rate" name="Rate %" stroke={chartColors.primary} strokeWidth={2} dot={{ r: 4, fill: chartColors.primary }} />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -901,7 +940,7 @@ export default function Finance() {
                         <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
                         <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
                         <Tooltip contentStyle={{ background: 'hsl(0,0%,16%)', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12, color: '#fff' }} />
-                        <Bar dataKey="forfeited" name="Forfeitures" fill="#dc2626" radius={[4, 4, 0, 0]} />
+                        <Bar {...chartAnim} dataKey="forfeited" name="Forfeitures" fill="#dc2626" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -1030,11 +1069,11 @@ export default function Finance() {
 
             {/* KPI row */}
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-              <StatCard title="Expected (30d)" value={formatCurrency(summary?.predicted_30d_raw ?? 0, displayCurrency)} icon={TrendingUp} variant="gold" />
-              <StatCard title="Expected (90d)" value={formatCurrency(summary?.predicted_90d_raw ?? 0, displayCurrency)} icon={TrendingUp} />
-              <StatCard title="Avg Completion" value={`${avgCompletion}%`} icon={Target} variant="success" />
-              <StatCard title="High Risk" value={highRisk.toString()} subtitle="accounts" icon={ShieldAlert} variant="danger" />
-              <StatCard title="Active Accounts" value={activeAccounts.length.toString()} icon={Users} />
+              <StatCard title="Expected (30d)" value={formatCurrency(summary?.predicted_30d_raw ?? 0, displayCurrency)} countUpValue={summary?.predicted_30d_raw ?? 0} formatValue={(n) => formatCurrency(Math.round(n), displayCurrency)} staggerIndex={0} icon={TrendingUp} variant="gold" />
+              <StatCard title="Expected (90d)" value={formatCurrency(summary?.predicted_90d_raw ?? 0, displayCurrency)} countUpValue={summary?.predicted_90d_raw ?? 0} formatValue={(n) => formatCurrency(Math.round(n), displayCurrency)} staggerIndex={1} icon={TrendingUp} />
+              <StatCard title="Avg Completion" value={`${avgCompletion}%`} countUpValue={avgCompletion} formatValue={(n) => `${Math.round(n)}%`} staggerIndex={2} icon={Target} variant="success" />
+              <StatCard title="High Risk" value={highRisk.toString()} countUpValue={highRisk} formatValue={(n) => Math.round(n).toString()} staggerIndex={3} subtitle="accounts" icon={ShieldAlert} variant="danger" />
+              <StatCard title="Active Accounts" value={activeAccounts.length.toString()} countUpValue={activeAccounts.length} formatValue={(n) => Math.round(n).toString()} staggerIndex={4} icon={Users} />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1175,11 +1214,11 @@ export default function Finance() {
           <TabsContent value="collections" className="mt-5 space-y-6" tabIndex={-1}>
           {showCollections ? (<>
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-              <StatCard title="Today" value={formatCurrency(collStats.todayTotal, displayCurrency)} icon={TrendingUp} variant="gold" />
-              <StatCard title="Yesterday" value={formatCurrency(collStats.yesterdayTotal, displayCurrency)} icon={TrendingUp} />
-              <StatCard title="This Week" value={formatCurrency(collStats.weekTotal, displayCurrency)} icon={TrendingUp} />
-              <StatCard title="This Month" value={formatCurrency(summary?.collections_this_month ?? 0, displayCurrency)} icon={TrendingUp} variant="success" />
-              <StatCard title="This Year" value={formatCurrency(collStats.yearTotal, displayCurrency)} icon={Banknote} />
+              <StatCard title="Today" value={formatCurrency(collStats.todayTotal, displayCurrency)} countUpValue={collStats.todayTotal} formatValue={(n) => formatCurrency(Math.round(n), displayCurrency)} staggerIndex={0} icon={TrendingUp} variant="gold" />
+              <StatCard title="Yesterday" value={formatCurrency(collStats.yesterdayTotal, displayCurrency)} countUpValue={collStats.yesterdayTotal} formatValue={(n) => formatCurrency(Math.round(n), displayCurrency)} staggerIndex={1} icon={TrendingUp} />
+              <StatCard title="This Week" value={formatCurrency(collStats.weekTotal, displayCurrency)} countUpValue={collStats.weekTotal} formatValue={(n) => formatCurrency(Math.round(n), displayCurrency)} staggerIndex={2} icon={TrendingUp} />
+              <StatCard title="This Month" value={formatCurrency(summary?.collections_this_month ?? 0, displayCurrency)} countUpValue={summary?.collections_this_month ?? 0} formatValue={(n) => formatCurrency(Math.round(n), displayCurrency)} staggerIndex={3} icon={TrendingUp} variant="success" />
+              <StatCard title="This Year" value={formatCurrency(collStats.yearTotal, displayCurrency)} countUpValue={collStats.yearTotal} formatValue={(n) => formatCurrency(Math.round(n), displayCurrency)} staggerIndex={4} icon={Banknote} />
             </div>
 
             {/* Upcoming Receivables */}

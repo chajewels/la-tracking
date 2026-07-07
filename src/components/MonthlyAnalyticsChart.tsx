@@ -1,4 +1,6 @@
 import { useState, useMemo } from 'react';
+import { useChartAnimation } from '@/hooks/useChartAnimation';
+import AnimatedNumber from '@/components/shared/AnimatedNumber';
 import { useQuery } from '@tanstack/react-query';
 import { subMonths, startOfMonth, format, parseISO, isValid } from 'date-fns';
 import {
@@ -44,7 +46,7 @@ function StatCard({
   return (
     <div className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900 p-4">
       <p className="text-xs text-zinc-400 mb-1">{label}</p>
-      <p className={`text-lg font-bold tabular-nums ${color}`}>{(formatValue || fmtFull)(value)}</p>
+      <p className={`text-lg font-bold tabular-nums ${color}`}><AnimatedNumber value={value} format={formatValue || fmtFull} /></p>
       {subtitle && <p className="text-[10px] text-zinc-500 mt-0.5">{subtitle}</p>}
     </div>
   );
@@ -136,6 +138,7 @@ const renderSalesLegend = (props: any) => {
 };
 
 export default function MonthlyAnalyticsChart({ monthlySalesData, show = 'both' }: { monthlySalesData?: MonthlySalesRow[]; show?: 'both' | 'performance' | 'sales' } = {}) {
+  const chartAnim = useChartAnimation();
   const [range, setRange] = useState<Range>('1Y');
   const today = format(new Date(), 'yyyy-MM-dd');
 
@@ -360,7 +363,7 @@ export default function MonthlyAnalyticsChart({ monthlySalesData, show = 'both' 
                   strokeDasharray="4 3"
                   label={{ value: 'Today', position: 'top', fill: '#a1a1aa', fontSize: 10 }}
                 />
-                <Bar dataKey="collected" name="collected" yAxisId="left" radius={[3, 3, 0, 0]} maxBarSize={32}>
+                <Bar {...chartAnim} dataKey="collected" name="collected" yAxisId="left" radius={[3, 3, 0, 0]} maxBarSize={32}>
                   {chartData.map((entry, i) => (
                     <Cell
                       key={i}
@@ -372,7 +375,7 @@ export default function MonthlyAnalyticsChart({ monthlySalesData, show = 'both' 
                     />
                   ))}
                 </Bar>
-                <Bar dataKey="forfeited" name="forfeited" yAxisId="left" radius={[3, 3, 0, 0]} maxBarSize={32}>
+                <Bar {...chartAnim} dataKey="forfeited" name="forfeited" yAxisId="left" radius={[3, 3, 0, 0]} maxBarSize={32}>
                   {chartData.map((entry, i) => (
                     <Cell
                       key={i}
@@ -384,7 +387,7 @@ export default function MonthlyAnalyticsChart({ monthlySalesData, show = 'both' 
                     />
                   ))}
                 </Bar>
-                <Bar dataKey="penalties" name="penalties" yAxisId="left" radius={[3, 3, 0, 0]} maxBarSize={32}>
+                <Bar {...chartAnim} dataKey="penalties" name="penalties" yAxisId="left" radius={[3, 3, 0, 0]} maxBarSize={32}>
                   {chartData.map((entry, i) => (
                     <Cell
                       key={i}
@@ -396,7 +399,7 @@ export default function MonthlyAnalyticsChart({ monthlySalesData, show = 'both' 
                     />
                   ))}
                 </Bar>
-                <Bar dataKey="newSales" name="newSales" yAxisId="right" radius={[3, 3, 0, 0]} maxBarSize={24}>
+                <Bar {...chartAnim} dataKey="newSales" name="newSales" yAxisId="right" radius={[3, 3, 0, 0]} maxBarSize={24}>
                   {chartData.map((entry, i) => (
                     <Cell
                       key={i}
@@ -474,8 +477,8 @@ export default function MonthlyAnalyticsChart({ monthlySalesData, show = 'both' 
                   />
                   <Tooltip content={<SalesTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
                   <Legend content={renderSalesLegend} />
-                  <Bar dataKey="salesValue" name="salesValue" yAxisId="left" fill="#f59e0b" radius={[3, 3, 0, 0]} maxBarSize={36} />
-                  <Bar dataKey="salesCount" name="salesCount" yAxisId="right" fill="#a855f7" radius={[3, 3, 0, 0]} maxBarSize={28} />
+                  <Bar {...chartAnim} dataKey="salesValue" name="salesValue" yAxisId="left" fill="#f59e0b" radius={[3, 3, 0, 0]} maxBarSize={36} />
+                  <Bar {...chartAnim} dataKey="salesCount" name="salesCount" yAxisId="right" fill="#a855f7" radius={[3, 3, 0, 0]} maxBarSize={28} />
                 </BarChart>
               </ResponsiveContainer>
               <p className="text-xs text-zinc-400 mt-3 text-center">

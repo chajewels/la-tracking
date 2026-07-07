@@ -3,6 +3,7 @@ import { useState, useMemo, useCallback, useRef, memo, type ReactNode } from 're
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import AppLayout from '@/components/layout/AppLayout';
+import AnimatedNumber from '@/components/shared/AnimatedNumber';
 
 const EmbeddedWrapper = ({ children }: { children: ReactNode }) => <>{children}</>;
 import { Input } from '@/components/ui/input';
@@ -269,22 +270,22 @@ function VaultDetail({
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatCard
               label="Vault Total Paid"
-              value={formatCurrency(vaultTotal, currency as Currency)}
+              value={<AnimatedNumber value={vaultTotal} format={(n) => formatCurrency(Math.round(n), currency as Currency)} />}
               sub="active payments"
             />
             <StatCard
               label="Total Payments"
-              value={String(entries.length)}
+              value={<AnimatedNumber value={entries.length} format={(n) => String(Math.round(n))} />}
               sub={`across ${invoiceNumbers.length} invoice${invoiceNumbers.length !== 1 ? 's' : ''}`}
             />
             <StatCard
               label="Active"
-              value={String(activeEntries.length)}
+              value={<AnimatedNumber value={activeEntries.length} format={(n) => String(Math.round(n))} />}
               sub="payments"
             />
             <StatCard
               label="Voided"
-              value={String(voidedEntries.length)}
+              value={<AnimatedNumber value={voidedEntries.length} format={(n) => String(Math.round(n))} />}
               sub={voidedEntries.length === 1 ? 'payment' : 'payments'}
               warn={voidedEntries.length > 0}
             />
@@ -365,7 +366,7 @@ function StatCard({
   warn,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   sub?: string;
   muted?: boolean;
   warn?: boolean;

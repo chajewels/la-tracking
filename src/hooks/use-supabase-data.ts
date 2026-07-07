@@ -467,7 +467,8 @@ export function useDashboardSummary(currencyMode: 'PHP' | 'JPY' | 'ALL', enabled
     queryKey: ['dashboard-summary', currencyMode],
     enabled,
     retry: false,
-    staleTime: 0,
+    staleTime: 120_000,
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const { data, error } = await supabase.functions.invoke('dashboard-summary', {
         body: { currency_mode: currencyMode },

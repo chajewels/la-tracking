@@ -1,4 +1,7 @@
 import { Link } from 'react-router-dom';
+import { useChartAnimation } from '@/hooks/useChartAnimation';
+import AnimatedNumber from '@/components/shared/AnimatedNumber';
+import { type ReactNode } from 'react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -29,7 +32,7 @@ function fmtDate(iso: string) {
 
 interface StatCardProps {
   label: string;
-  value: string | number;
+  value: string | number | ReactNode;
   hint?: string;
   Icon?: typeof Users;
   tone?: 'default' | 'amber' | 'emerald' | 'primary';
@@ -68,6 +71,7 @@ export default function DashboardTab({
   onJumpToRedemptions: () => void;
   onJumpToMember: (memberId: string) => void;
 }) {
+  const chartAnim = useChartAnimation();
   const { data, isLoading, isError } = useLoyaltyAdminStats();
 
   if (isError) {
@@ -103,20 +107,20 @@ export default function DashboardTab({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
           label="Total Members"
-          value={data.totalMembers.toLocaleString()}
+          value={<AnimatedNumber value={data.totalMembers} />}
           Icon={Users}
           tone="primary"
         />
         <StatCard
           label="Points Outstanding"
-          value={data.pointsOutstanding.toLocaleString()}
+          value={<AnimatedNumber value={data.pointsOutstanding} />}
           hint="Total unredeemed across all members"
           Icon={Coins}
           tone="amber"
         />
         <StatCard
           label="Points Redeemed"
-          value={data.pointsRedeemed.toLocaleString()}
+          value={<AnimatedNumber value={data.pointsRedeemed} />}
           hint="All-time redeemed total"
           Icon={Sparkles}
           tone="emerald"
@@ -128,7 +132,7 @@ export default function DashboardTab({
         >
           <StatCard
             label="Pending Redemptions"
-            value={data.pendingRedemptions}
+            value={<AnimatedNumber value={data.pendingRedemptions} format={(n) => String(Math.round(n))} />}
             hint="Click to review →"
             Icon={ArrowRight}
             tone={data.pendingRedemptions > 0 ? 'amber' : 'default'}
@@ -146,7 +150,7 @@ export default function DashboardTab({
             Total Cumulative Spend (loyalty-eligible)
           </p>
           <p className="text-2xl font-bold tabular-nums text-foreground mt-0.5">
-            ¥{data.totalCumulativeSpendJpy.toLocaleString()}
+            ¥<AnimatedNumber value={data.totalCumulativeSpendJpy} />
           </p>
           <p className="text-[11px] text-muted-foreground mt-0.5">
             Sum of all enrolled members' lifetime spend in JPY
@@ -214,7 +218,7 @@ export default function DashboardTab({
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie
+                  <Pie {...chartAnim}
                     data={tiersForChart}
                     dataKey="value"
                     nameKey="name"

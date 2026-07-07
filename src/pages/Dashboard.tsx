@@ -260,6 +260,8 @@ export default function Dashboard() {
                   title="Total Customers"
                   staggerIndex={0}
                   value={customerCount.toString()}
+                  countUpValue={customerCount}
+                  formatValue={(n) => Math.round(n).toString()}
                   subtitle={
                     currencyFilter === 'ALL'
                       ? 'All registered'
@@ -274,6 +276,8 @@ export default function Dashboard() {
                   title="New Customers"
                   staggerIndex={1}
                   value={newCustomers.thisMonth.toString()}
+                  countUpValue={newCustomers.thisMonth}
+                  formatValue={(n) => Math.round(n).toString()}
                   subtitle="new this month"
                   icon={UserPlus}
                   sparkline={
@@ -346,6 +350,8 @@ export default function Dashboard() {
                   title="Overdue"
                   staggerIndex={0}
                   value={(summary?.overdue_accounts ?? 0).toString()}
+                  countUpValue={summary?.overdue_accounts ?? 0}
+                  formatValue={(n) => Math.round(n).toString()}
                   icon={AlertTriangle}
                   variant="danger"
                   href={`${ROUTES.MONITORING}?filter=overdue`}
@@ -354,6 +360,8 @@ export default function Dashboard() {
                   title="Completed"
                   staggerIndex={1}
                   value={(summary?.completed_this_month ?? 0).toString()}
+                  countUpValue={summary?.completed_this_month ?? 0}
+                  formatValue={(n) => Math.round(n).toString()}
                   subtitle="This month"
                   icon={CheckCircle2}
                   variant="success"
@@ -363,6 +371,8 @@ export default function Dashboard() {
                   title="Forfeited"
                   staggerIndex={2}
                   value={(summary?.forfeited_accounts ?? 0).toString()}
+                  countUpValue={summary?.forfeited_accounts ?? 0}
+                  formatValue={(n) => Math.round(n).toString()}
                   icon={ShieldAlert}
                   variant="danger"
                   href={`${ROUTES.ACCOUNTS}?status=forfeited`}
@@ -371,6 +381,8 @@ export default function Dashboard() {
                   title="Forfeited Today"
                   staggerIndex={3}
                   value={(summary?.forfeited_today ?? 0).toString()}
+                  countUpValue={summary?.forfeited_today ?? 0}
+                  formatValue={(n) => Math.round(n).toString()}
                   icon={Flame}
                   variant="warning"
                   href={`${ROUTES.ACCOUNTS}?status=forfeited&period=today`}
@@ -379,6 +391,8 @@ export default function Dashboard() {
                   title="All Time Completed"
                   staggerIndex={4}
                   value={(summary?.completed_all_time ?? 0).toString()}
+                  countUpValue={summary?.completed_all_time ?? 0}
+                  formatValue={(n) => Math.round(n).toString()}
                   icon={Award}
                   variant="success"
                   href={`${ROUTES.ACCOUNTS}?status=completed`}
@@ -400,6 +414,8 @@ export default function Dashboard() {
                   title="Active Orders"
                   staggerIndex={0}
                   value={(summary?.cash_orders_active ?? 0).toString()}
+                  countUpValue={summary?.cash_orders_active ?? 0}
+                  formatValue={(n) => Math.round(n).toString()}
                   subtitle="Pending"
                   icon={FileText}
                 />
@@ -407,6 +423,8 @@ export default function Dashboard() {
                   title="Completed"
                   staggerIndex={1}
                   value={(summary?.cash_orders_completed_this_month ?? 0).toString()}
+                  countUpValue={summary?.cash_orders_completed_this_month ?? 0}
+                  formatValue={(n) => Math.round(n).toString()}
                   subtitle="This month"
                   icon={CheckCircle2}
                   variant="success"
@@ -440,6 +458,8 @@ export default function Dashboard() {
                   title="Due Today"
                   staggerIndex={0}
                   value={(summary?.due_today_count ?? 0).toString()}
+                  countUpValue={summary?.due_today_count ?? 0}
+                  formatValue={(n) => Math.round(n).toString()}
                   icon={Clock}
                   variant="warning"
                   href={`${ROUTES.MONITORING}?filter=due_today`}
@@ -448,12 +468,16 @@ export default function Dashboard() {
                   title="Due in 3 Days"
                   staggerIndex={1}
                   value={(summary?.due_3_days_count ?? 0).toString()}
+                  countUpValue={summary?.due_3_days_count ?? 0}
+                  formatValue={(n) => Math.round(n).toString()}
                   icon={CalendarCheck}
                 />
                 <StatCard
                   title="Due in 7 Days"
                   staggerIndex={2}
                   value={(summary?.due_7_days_count ?? 0).toString()}
+                  countUpValue={summary?.due_7_days_count ?? 0}
+                  formatValue={(n) => Math.round(n).toString()}
                   icon={Calendar}
                 />
               </>

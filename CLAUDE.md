@@ -1976,6 +1976,22 @@ Customer / Amount), non-blocking relative to the tracking output.
    TransactionsTab error that bare `tsc --noEmit` had passed all
    session long.
 
+6. KPI + CHART ANIMATION STANDARDS (set 2026-07-07):
+   - KPI cards rendered with the shared StatCard pass countUpValue +
+     formatValue + staggerIndex uniformly; bespoke KPI values use
+     <AnimatedNumber> (src/components/shared/AnimatedNumber.tsx). Both
+     draw from theme/motion — a numeric KPI display without them is a
+     defect.
+   - KPI value DEFINITION: the primary headline figure of a titled
+     card. Table cells, rows, badges, and in-panel counts never
+     animate.
+   - Charts take useChartAnimation() props (800ms ease-out,
+     reduced-motion aware) on every recharts series element — an
+     unconfigured series is a defect.
+   - Dashboard data hooks use React Query with staleTime +
+     keepPreviousData — hand-rolled useEffect fetches and staleTime: 0
+     on dashboards are defects.
+
 ## Migrations baseline (2026-07-05)
 
 `supabase/migrations/` now holds a single live-introspected baseline:

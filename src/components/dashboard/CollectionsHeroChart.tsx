@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useChartAnimation } from '@/hooks/useChartAnimation';
 import {
   Area,
   AreaChart,
@@ -57,6 +58,7 @@ export default function CollectionsHeroChart({
   error?: boolean;
   onRetry?: () => void;
 }) {
+  const chartAnim = useChartAnimation();
   const data = useMemo(
     () =>
       [...(rows ?? [])]
@@ -105,7 +107,7 @@ export default function CollectionsHeroChart({
                 width={52}
               />
               <Tooltip content={<HeroTooltip />} cursor={{ stroke: chartColors.grid, strokeWidth: 1 }} />
-              <Area
+              <Area {...chartAnim}
                 type="monotone"
                 dataKey="collected"
                 stroke={chartColors.primary}

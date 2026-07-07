@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback, useEffect } from 'react';
+import AnimatedNumber from '@/components/shared/AnimatedNumber';
 import { Bell, Send, Copy, Check, Loader2, Filter, MessageCircle, AlertTriangle, Clock, Calendar, CheckCircle, RefreshCw, Shield, ShieldCheck, Gavel } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
@@ -568,7 +569,7 @@ export default function Monitoring() {
                     : `${s.borderColor} hover:${s.borderColor}`
                 }`}
               >
-                <p className={`text-3xl font-bold font-display ${s.color}`}>{isLoading ? '—' : s.count}</p>
+                <p className={`text-3xl font-bold font-display ${s.color}`}>{isLoading ? '—' : <AnimatedNumber value={s.count} format={(n) => String(Math.round(n))} />}</p>
                 <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
                 {stat && stat.total > 0 && (
                   <div className="mt-2 flex items-center justify-center gap-1.5">
@@ -585,14 +586,14 @@ export default function Monitoring() {
             onClick={() => handleNotifCardClick('notified')}
             className={`rounded-xl border bg-card p-4 text-center transition-all hover:bg-muted/30 ${activeSummaryCard === 'notified' ? 'border-success ring-1 ring-success/40 bg-muted/20' : 'border-success/40'}`}
           >
-            <p className="text-3xl font-bold font-display text-success">{isLoading ? '—' : totalNotified}</p>
+            <p className="text-3xl font-bold font-display text-success">{isLoading ? '—' : <AnimatedNumber value={totalNotified} format={(n) => String(Math.round(n))} />}</p>
             <p className="text-xs text-muted-foreground mt-1">Notified</p>
           </button>
           <button
             onClick={() => handleNotifCardClick('not_notified')}
             className={`rounded-xl border bg-card p-4 text-center transition-all hover:bg-muted/30 ${activeSummaryCard === 'not_notified' ? 'border-warning ring-1 ring-warning/40 bg-muted/20' : 'border-warning/40'}`}
           >
-            <p className="text-3xl font-bold font-display text-warning">{isLoading ? '—' : totalPending}</p>
+            <p className="text-3xl font-bold font-display text-warning">{isLoading ? '—' : <AnimatedNumber value={totalPending} format={(n) => String(Math.round(n))} />}</p>
             <p className="text-xs text-muted-foreground mt-1">Pending</p>
           </button>
         </div>
@@ -683,19 +684,19 @@ export default function Monitoring() {
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div className="rounded-xl border border-destructive/20 bg-card p-4 text-center">
-                <p className="text-2xl font-bold text-destructive font-display">{remCategorized.overdue.length}</p>
+                <p className="text-2xl font-bold text-destructive font-display"><AnimatedNumber value={remCategorized.overdue.length} format={(n) => String(Math.round(n))} /></p>
                 <p className="text-xs text-muted-foreground mt-1">Overdue</p>
               </div>
               <div className="rounded-xl border border-warning/20 bg-card p-4 text-center">
-                <p className="text-2xl font-bold text-warning font-display">{remCategorized.dueToday.length}</p>
+                <p className="text-2xl font-bold text-warning font-display"><AnimatedNumber value={remCategorized.dueToday.length} format={(n) => String(Math.round(n))} /></p>
                 <p className="text-xs text-muted-foreground mt-1">Due Today</p>
               </div>
               <div className="rounded-xl border border-info/20 bg-card p-4 text-center">
-                <p className="text-2xl font-bold text-info font-display">{remCategorized.upcoming.length}</p>
+                <p className="text-2xl font-bold text-info font-display"><AnimatedNumber value={remCategorized.upcoming.length} format={(n) => String(Math.round(n))} /></p>
                 <p className="text-xs text-muted-foreground mt-1">Upcoming (7d)</p>
               </div>
               <div className="rounded-xl border border-success/20 bg-card p-4 text-center">
-                <p className="text-2xl font-bold text-success font-display">{remSentCount}</p>
+                <p className="text-2xl font-bold text-success font-display"><AnimatedNumber value={remSentCount} format={(n) => String(Math.round(n))} /></p>
                 <p className="text-xs text-muted-foreground mt-1">Sent (total)</p>
               </div>
             </div>
