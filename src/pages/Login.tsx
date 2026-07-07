@@ -28,7 +28,7 @@ const BRAND_HERO =
 // The DOUBLE SLASH before the filename is part of the real storage object
 // key — do NOT "normalize" it (same rule as the post-login splash asset).
 const HERO_VIDEO =
-  'https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets//hf_20260707_025901_81ba3d7f-6b7d-4d78-aba0-dc3785d3c252.mp4';
+  'https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets//SigninVideo.mp4';
 
 export default function Login() {
   const navigate = useNavigate();
