@@ -273,7 +273,12 @@ To add a new screenshot for any Help section:
   Background photo: brand-assets/IMG_4761.jpeg (Supabase Storage, public)
   Used by: AppLayout.tsx (Hub interior, under bg-black/72 overlay)
            PortalLogin.tsx (PORTAL_HERO constant)
-  Admin login (Login.tsx) intentionally keeps IMG_3197.jpeg.
+  Admin login (Login.tsx) intentionally keeps IMG_3197.jpeg — now as the
+  poster/fallback/reduced-motion image for the HERO_VIDEO constant
+  (brand-assets//hf_20260707_..._81ba3d7f....mp4, Seedance-generated
+  "necklaces one by one", plays once and freezes on its final frame = the
+  photo). The DOUBLE SLASH in that video's storage key is real — never
+  "normalize" it (same rule as the post-login splash asset).
 
   Gold tokens --gold / --gold-light / --gold-dark remain defined in :root and
   .dark and now alias the Deco Ledger family (--gold = gold-500,

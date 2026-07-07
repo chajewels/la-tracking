@@ -278,25 +278,10 @@
     100% { transform: translateX(360%) skewX(-8deg); }
   }
 
-  /* Staged "necklaces worn one by one" entrance (Login hero): each
-     soft-masked band of the photo drops into place exactly once (forwards
-     fill, top band first via per-layer animation-delay), with a slight
-     settle like a chain landing. Layers animate translate/opacity ONLY —
-     the wrapper's kenburns-slow drift composes without conflict. */
-  .necklace-layer {
-    opacity: 0;
-    animation: necklace-drop 0.85s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-    will-change: transform, opacity;
-  }
-  @keyframes necklace-drop {
-    0% { opacity: 0; transform: translateY(-44px); }
-    65% { opacity: 1; transform: translateY(4px); }
-    100% { opacity: 1; transform: translateY(0); }
-  }
-  /* First gold pass waits for the last band to settle (~2.8s); later
-     cycles run every 12s as usual. */
+  /* First gold pass waits for the Login hero video (8s) to freeze on its
+     final frame; later cycles run every 12s as usual. */
   .gold-sweep-after-entrance::before {
-    animation-delay: 2.8s;
+    animation-delay: 8.5s;
   }
 
   /* Glass luxury panels */
@@ -462,6 +447,4 @@
   /* Brand-image motion: static image exactly as before the animation. */
   .kenburns-slow { animation: none; }
   .gold-sweep::before { animation: none; opacity: 0; }
-  /* No entrance: all layers static at final position (= the plain photo). */
-  .necklace-layer { animation: none; opacity: 1; transform: none; }
 }
