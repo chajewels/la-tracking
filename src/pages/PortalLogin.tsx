@@ -1,16 +1,8 @@
 import { useState, useEffect } from 'react';
-import { palette } from '@/theme/tokens';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import PageMeta from '@/components/seo/PageMeta';
-
-const GOLD = palette.gold500;
-const GOLD_HOVER = '#E8C547';
-const INPUT_BORDER = 'rgba(255,255,255,0.08)';
-
-const PORTAL_HERO =
-  'https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets/IMG_4761.jpeg';
 
 export default function PortalLogin() {
   const navigate = useNavigate();
@@ -57,18 +49,8 @@ export default function PortalLogin() {
 
   if (checkingSession) {
     return (
-      <div className="min-h-screen relative flex items-center justify-center">
-        <img
-          src={PORTAL_HERO}
-          alt=""
-          aria-hidden="true"
-          className="absolute inset-0 w-full h-full object-cover lg:object-contain"
-        />
-        <div
-          className="absolute inset-0"
-          style={{ background: 'rgba(10,8,6,0.70)' }}
-        />
-        <p className="relative z-10 text-primary text-sm tracking-[0.2em] uppercase">Loading…</p>
+      <div className="maison-portal font-body min-h-screen flex items-center justify-center bg-background">
+        <p className="text-primary text-sm tracking-[0.2em] uppercase">Loading…</p>
       </div>
     );
   }
@@ -80,23 +62,10 @@ export default function PortalLogin() {
         description="Sign in to your Cha Jewels customer portal to view layaway accounts, payment schedules, statements, and submit proof of payment."
         path="/portal/login"
       />
-      <div className="min-h-screen relative flex items-center justify-center px-4">
-        {/* Full-screen background image with dark overlay */}
-        <img
-          src={PORTAL_HERO}
-          alt=""
-          aria-hidden="true"
-          className="absolute inset-0 w-full h-full object-cover lg:object-contain"
-        />
+      <div className="maison-portal font-body min-h-screen flex items-center justify-center bg-background px-4 py-10">
         <div
-          className="absolute inset-0"
-          style={{ background: 'rgba(10,8,6,0.70)' }}
-        />
-
-        {/* Centered card */}
-        <div
-          className={`glass-panel relative z-10 w-full max-w-sm rounded-2xl p-8 sm:p-10 transition-all duration-700 ${
-            mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
+          className={`w-full max-w-sm rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-8 sm:p-10 transition-all duration-500 ${
+            mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
           }`}
         >
           {/* Brand block */}
@@ -108,7 +77,7 @@ export default function PortalLogin() {
               Cha Jewels
             </p>
             <p
-              className="text-[10px] uppercase mt-2 text-foreground/50"
+              className="text-[10px] uppercase mt-2 text-muted-foreground"
               style={{ letterSpacing: '0.2em' }}
             >
               Customer Portal
@@ -140,15 +109,7 @@ export default function PortalLogin() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
                 autoComplete="email"
-                className="w-full h-11 px-4 rounded-lg text-sm text-white bg-white/[0.04] border border-white/[0.08] outline-none transition-all duration-300"
-                onFocus={(e) => {
-                  e.target.style.borderColor = GOLD;
-                  e.target.style.boxShadow = '0 0 0 1px rgba(212,175,55,0.2)';
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = INPUT_BORDER;
-                  e.target.style.boxShadow = 'none';
-                }}
+                className="w-full h-12 px-4 rounded-lg text-sm text-foreground bg-input border border-border outline-none transition-all duration-300 focus:border-primary focus:ring-2 focus:ring-primary/20"
               />
             </div>
 
@@ -168,15 +129,7 @@ export default function PortalLogin() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter your password"
                 autoComplete="current-password"
-                className="w-full h-11 px-4 rounded-lg text-sm text-white bg-white/[0.04] border border-white/[0.08] outline-none transition-all duration-300"
-                onFocus={(e) => {
-                  e.target.style.borderColor = GOLD;
-                  e.target.style.boxShadow = '0 0 0 1px rgba(212,175,55,0.2)';
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = INPUT_BORDER;
-                  e.target.style.boxShadow = 'none';
-                }}
+                className="w-full h-12 px-4 rounded-lg text-sm text-foreground bg-input border border-border outline-none transition-all duration-300 focus:border-primary focus:ring-2 focus:ring-primary/20"
               />
             </div>
 
@@ -184,20 +137,8 @@ export default function PortalLogin() {
               type="submit"
               disabled={loading}
               aria-busy={loading}
-              className="w-full h-11 rounded-lg bg-primary font-semibold text-sm uppercase transition-all duration-300 disabled:opacity-50"
-              style={{
-                color: '#0A0A0A',
-                letterSpacing: '0.15em',
-              }}
-              onMouseEnter={(e) => {
-                if (loading) return;
-                e.currentTarget.style.background = GOLD_HOVER;
-                e.currentTarget.style.boxShadow = '0 4px 20px rgba(212,175,55,0.25)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = '';
-                e.currentTarget.style.boxShadow = 'none';
-              }}
+              className="w-full h-12 rounded-lg bg-primary text-primary-foreground font-semibold text-sm uppercase transition-all duration-300 hover:opacity-90 disabled:opacity-50"
+              style={{ letterSpacing: '0.15em' }}
             >
               {loading ? 'Signing in…' : 'Sign In'}
             </button>
@@ -207,14 +148,14 @@ export default function PortalLogin() {
             <button
               type="button"
               onClick={() => navigate('/portal/forgot-password')}
-              className="text-[11px] tracking-wide text-white/50 hover:text-primary transition-colors"
+              className="text-[11px] tracking-wide text-muted-foreground hover:text-primary transition-colors"
             >
               Forgot password?
             </button>
             <button
               type="button"
               onClick={() => navigate('/portal/setup')}
-              className="text-[11px] tracking-wide text-white/50 hover:text-primary transition-colors"
+              className="text-[11px] tracking-wide text-muted-foreground hover:text-primary transition-colors"
             >
               First time? Set up
             </button>

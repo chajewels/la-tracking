@@ -46,67 +46,67 @@ export default function PortalForgotPassword() {
 
   if (checkingSession) {
     return (
-      <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <p style={{ color: '#C9A84C' }}>Loading…</p>
+      <div className="maison-portal font-body min-h-screen flex items-center justify-center bg-background">
+        <p className="text-primary text-sm">Loading…</p>
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: '#111', border: '1px solid #C9A84C', borderRadius: 12, padding: 40, width: 380, boxSizing: 'border-box' }}>
-        <p style={{ color: '#C9A84C', fontFamily: 'Georgia, serif', fontSize: 22, marginBottom: 4, textAlign: 'center' }}>Cha Jewels</p>
-        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, textAlign: 'center', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 28 }}>Customer Portal</p>
+    <div className="maison-portal font-body min-h-screen flex items-center justify-center bg-background px-4 py-10">
+      <div className="w-full max-w-sm rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-8 sm:p-10">
+        <p className="font-display text-primary text-2xl text-center mb-1" style={{ letterSpacing: '0.3em' }}>Cha Jewels</p>
+        <p className="text-[10px] uppercase text-center text-muted-foreground mb-7" style={{ letterSpacing: '0.2em' }}>Customer Portal</p>
 
         {sent ? (
           <>
-            <h1 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6, fontWeight: 400 }}>Check your inbox</h1>
-            <p style={{ color: '#888', fontSize: 13, marginBottom: 12 }}>
-              A password reset link has been sent to:
-            </p>
-            <p style={{ color: '#C9A84C', fontSize: 14, marginBottom: 20, wordBreak: 'break-all' }}>{sentEmail}</p>
-            <p style={{ color: '#666', fontSize: 12, marginBottom: 24, lineHeight: 1.6 }}>
+            <h1 className="font-display text-foreground text-lg mb-1.5">Check your inbox</h1>
+            <p className="text-muted-foreground text-sm mb-3">A password reset link has been sent to:</p>
+            <p className="text-primary text-sm mb-5 break-all">{sentEmail}</p>
+            <p className="text-muted-foreground text-xs leading-relaxed mb-6">
               Didn't receive it? Check your spam folder, or try again in a few minutes.
             </p>
             <button
               onClick={() => navigate('/portal/login')}
-              style={{ width: '100%', padding: 12, background: 'transparent', border: '1px solid #C9A84C', borderRadius: 8, color: '#C9A84C', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+              className="w-full h-12 rounded-lg border border-primary text-primary font-semibold text-sm transition-colors hover:bg-primary/5"
             >
               Back to Sign In
             </button>
           </>
         ) : (
           <>
-            <h1 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 6, fontWeight: 400 }}>Reset your portal password</h1>
-            <p style={{ color: '#888', fontSize: 13, marginBottom: 24 }}>Enter your email to receive a reset link</p>
+            <h1 className="font-display text-foreground text-lg mb-1.5">Reset your portal password</h1>
+            <p className="text-muted-foreground text-sm mb-6">Enter your email to receive a reset link</p>
 
-            <form onSubmit={handleSubmit}>
-              <label htmlFor="portal-forgot-email" style={{ color: '#999', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Email</label>
-              <input
-                id="portal-forgot-email"
-                name="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                autoComplete="email"
-                style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', marginBottom: 20, boxSizing: 'border-box', fontSize: 14 }}
-              />
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div className="space-y-1.5">
+                <label htmlFor="portal-forgot-email" className="text-[10px] uppercase block text-primary" style={{ letterSpacing: '0.2em' }}>Email</label>
+                <input
+                  id="portal-forgot-email"
+                  name="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  className="w-full h-12 px-4 rounded-lg text-sm text-foreground bg-input border border-border outline-none transition-all duration-300 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
 
               <button
                 type="submit"
                 disabled={loading}
                 aria-busy={loading}
-                style={{ width: '100%', padding: 12, background: '#C9A84C', border: 'none', borderRadius: 8, color: '#0a0a0a', fontWeight: 700, fontSize: 14, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1 }}
+                className="w-full h-12 rounded-lg bg-primary text-primary-foreground font-semibold text-sm transition-all duration-300 hover:opacity-90 disabled:opacity-50"
               >
                 {loading ? 'Sending…' : 'Send Reset Email'}
               </button>
             </form>
 
-            <div style={{ textAlign: 'center', marginTop: 20 }}>
+            <div className="text-center mt-5">
               <button
                 onClick={() => navigate('/portal/login')}
-                style={{ background: 'none', border: 'none', color: '#C9A84C', fontSize: 12, cursor: 'pointer', padding: 0 }}
+                className="text-primary text-xs hover:opacity-80 transition-opacity"
               >
                 ← Back to Sign In
               </button>
