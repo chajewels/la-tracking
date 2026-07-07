@@ -359,11 +359,14 @@ function TransactionsTableView({
         </div>
       ) : (
         <TooltipProvider>
+          {/* onRowClick is wrapped: passing setSelected directly lets its
+              SetStateAction union pollute DataTable's generic inference,
+              breaking rowKey's typing under strictNullChecks. */}
           <DataTable
             columns={columns}
             rows={data!.rows}
             rowKey={(r) => r.id}
-            onRowClick={setSelected}
+            onRowClick={(r) => setSelected(r)}
             csvName="loyalty-transactions"
             densityKey="cj-loyalty-tx-density"
             note="Sorting, column filters, and CSV export apply to the current page."

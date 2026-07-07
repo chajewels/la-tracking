@@ -54,7 +54,7 @@ Single config: `src/theme/motion.ts` — all animations import from it, no inlin
 1. Playwright screenshots of affected screens at **375px and 1440px**; inspect and fix defects BEFORE reporting done.
 2. Keyboard: visible 2px gold focus rings, sane tab order.
 3. `npx lighthouse` on key screens: Perf ≥ 90, A11y ≥ 95. Verify gold-on-background contrast AA.
-4. `npx tsc --noEmit` + test suite pass (CI runs typecheck on main push — don't merge red).
+4. `npx tsc -p tsconfig.app.json --noEmit` + test suite pass (CI runs this exact typecheck on main push — don't merge red). NEVER bare `npx tsc --noEmit`: the root tsconfig.json is solution-style with `"files": []` and checks ZERO files — always exits 0 (false green; deploy #1896 shipped a type error past it).
 5. Virtualize tables > 100 rows; lazy-load charts/images.
 6. Conventional commit per phase, push to the session feature branch, never to main. PR to main only on explicit owner instruction.
 ## Component sourcing order

@@ -1967,6 +1967,15 @@ Customer / Amount), non-blocking relative to the tracking output.
    desktop and mobile (~375px), and read the console for errors before
    saying it's done.
 
+5. TYPECHECK — the canonical command is:
+     npx tsc -p tsconfig.app.json --noEmit
+   This is the EXACT command CI runs on main pushes. NEVER use bare
+   `npx tsc --noEmit`: the root tsconfig.json is solution-style with
+   `"files": []` and checks ZERO files — it always exits 0, a false
+   green. Evidence: deploy #1896 (2026-07-07) failed at Typecheck on a
+   TransactionsTab error that bare `tsc --noEmit` had passed all
+   session long.
+
 ## Migrations baseline (2026-07-05)
 
 `supabase/migrations/` now holds a single live-introspected baseline:
