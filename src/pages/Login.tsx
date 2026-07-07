@@ -19,8 +19,35 @@ const GOLD_BORDER = 'rgba(212,175,55,0.12)';
 const INPUT_BG = 'rgba(255,255,255,0.04)';
 const INPUT_BORDER = 'rgba(255,255,255,0.08)';
 
-const UNSPLASH_HERO =
+const BRAND_HERO =
   'https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets/IMG_3197.jpeg';
+
+// "Necklaces worn one by one" entrance: the hero photo is one flat JPEG,
+// so the illusion is five absolutely-positioned copies, each soft-masked
+// to one chain's horizontal band (% of panel height, derived from the
+// production screenshot). Tunable.
+const CHAIN_BANDS: ReadonlyArray<readonly [number, number]> = [
+  [0, 40],
+  [28, 54],
+  [46, 66],
+  [58, 78],
+  [70, 100],
+];
+// Feather on interior band edges (% of panel height). 4 = half the
+// minimum band overlap, so adjacent layers' feather ramps never coincide:
+// at rest every scanline has at least one fully-opaque layer and the
+// stack composites pixel-identical to the single photo (a 6% feather
+// would leave three faint translucent seams where two half-faded ramps
+// cross).
+const BAND_FEATHER = 4;
+
+const bandMask = (top: number, bottom: number) => {
+  const topStops =
+    top <= 0 ? 'black 0%' : `transparent ${top}%, black ${top + BAND_FEATHER}%`;
+  const bottomStops =
+    bottom >= 100 ? 'black 100%' : `black ${bottom - BAND_FEATHER}%, transparent ${bottom}%`;
+  return `linear-gradient(to bottom, ${topStops}, ${bottomStops})`;
+};
 
 export default function Login() {
   const navigate = useNavigate();
@@ -139,14 +166,29 @@ export default function Login() {
               'linear-gradient(to bottom, #1A1410 8%, transparent 35%, transparent 75%, #1A1410 100%)',
           }}
         />
-        <img
-          src={UNSPLASH_HERO}
-          alt=""
-          className="kenburns-slow absolute inset-0 w-full h-full object-cover opacity-45"
-          style={{ mixBlendMode: 'normal' }}
-        />
-        {/* Soft gold pass over the hero every ~12s — decorative only. */}
-        <div className="gold-sweep z-[15]" aria-hidden="true" />
+        {/* Hero stack: five soft-masked copies of the same photo — the
+            staged "necklace" entrance. Opacity lives on the WRAPPER
+            (per-layer opacity would brighten band overlaps); the wrapper
+            also carries the ambient Ken Burns drift while layers animate
+            translate/opacity only. */}
+        <div className="kenburns-slow absolute inset-0 opacity-45" aria-hidden="true">
+          {CHAIN_BANDS.map(([top, bottom], i) => (
+            <img
+              key={`${top}-${bottom}`}
+              src={BRAND_HERO}
+              alt=""
+              className="necklace-layer absolute inset-0 w-full h-full object-cover"
+              style={{
+                WebkitMaskImage: bandMask(top, bottom),
+                maskImage: bandMask(top, bottom),
+                animationDelay: `${(i * 0.35).toFixed(2)}s`,
+              }}
+            />
+          ))}
+        </div>
+        {/* Soft gold pass over the hero every ~12s — first pass waits for
+            the entrance to finish. Decorative only. */}
+        <div className="gold-sweep gold-sweep-after-entrance z-[15]" aria-hidden="true" />
 
         {/* Centered brand block */}
         <div
@@ -199,7 +241,7 @@ export default function Login() {
         <div
           className="lg:hidden absolute inset-0 z-0"
           style={{
-            backgroundImage: `url(${UNSPLASH_HERO})`,
+            backgroundImage: `url(${BRAND_HERO})`,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
           }}
