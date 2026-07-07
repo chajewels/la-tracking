@@ -11,6 +11,7 @@ import PostLoginSplash from '@/components/auth/PostLoginSplash';
 import FloatingField from '@/components/forms/FloatingField';
 import CurrencyInput from '@/components/forms/CurrencyInput';
 import TypedConfirmField from '@/components/forms/TypedConfirmField';
+import GeoBreakdown from '@/components/dashboard/GeoBreakdown';
 import { EmptyState, ErrorState } from '@/components/shared/EmptyState';
 import { Button } from '@/components/ui/button';
 import { FileText } from 'lucide-react';
@@ -166,6 +167,20 @@ export default function FixturePreview() {
           document.title = 'splash-exited';
         }}
       />
+    );
+  }
+  if (view === 'geo') {
+    // Standalone (the real page perm-gates it): fixture accounts carry one
+    // is_test=true active row, so the expected active+overdue count is 78,
+    // not 79 — proving GeoBreakdown's canonical test exclusion.
+    return (
+      <div className="max-w-3xl p-6">
+        <GeoBreakdown
+          accounts={(empty ? [] : buildAccountFixtures()) as never}
+          customers={buildCustomerFixtures(empty) as never}
+          countOnly
+        />
+      </div>
     );
   }
   if (view === 'forms') {
