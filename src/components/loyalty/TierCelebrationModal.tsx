@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from 'react';
+import { palette } from '@/theme/tokens';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { TIER_STATIC, useLoyaltyData, type TierName } from './loyaltyData';
@@ -17,7 +18,7 @@ const P = {
 } as const;
 
 const CONFETTI_COUNT = 14;
-const CONFETTI_COLORS = ['#D4AF37', '#F4D78F', '#E8C96D', '#FFFFFF'];
+const CONFETTI_COLORS = [palette.gold500, palette.gold300, palette.champagne, '#FFFFFF'];
 
 export interface TierCelebrationModalProps {
   tierName: TierName;

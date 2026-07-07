@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { palette } from '@/theme/tokens';
 import { Link } from 'react-router-dom';
 import chaJewelsLogo from '@/assets/cha-jewels-logo.jpeg';
 import luxuryHero from '@/assets/luxury-jewelry-hero.jpg';
@@ -51,7 +52,7 @@ export default function ForgotPassword() {
             mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
           }`}
         >
-          <p className="text-xs tracking-[0.35em] uppercase font-medium mb-3" style={{ color: '#D4AF37' }}>
+          <p className="text-xs tracking-[0.35em] uppercase font-medium mb-3" style={{ color: palette.gold500 }}>
             Cha Jewels
           </p>
           <h2
@@ -60,7 +61,7 @@ export default function ForgotPassword() {
           >
             Everyday Layaway.
             <br />
-            <span style={{ color: '#D4AF37' }}>Cha Jewels</span> All the Way.
+            <span style={{ color: palette.gold500 }}>Cha Jewels</span> All the Way.
           </h2>
           <div className="mt-4 w-16 h-px" style={{ background: 'rgba(212,175,55,0.5)' }} />
         </div>
@@ -97,7 +98,7 @@ export default function ForgotPassword() {
               </div>
               <h1
                 className="text-lg tracking-[0.25em] font-semibold"
-                style={{ fontFamily: "'Montserrat', sans-serif", color: '#D4AF37' }}
+                style={{ fontFamily: "'Montserrat', sans-serif", color: palette.gold500 }}
               >
                 CHA JEWELS
               </h1>
@@ -115,7 +116,7 @@ export default function ForgotPassword() {
                   <p className="text-xs mt-3 tracking-wider leading-relaxed" style={{ color: 'rgba(255,255,255,0.6)' }}>
                     A password reset link has been sent to
                   </p>
-                  <p className="text-sm mt-2 font-medium" style={{ color: '#D4AF37' }}>
+                  <p className="text-sm mt-2 font-medium" style={{ color: palette.gold500 }}>
                     {sentEmail}
                   </p>
                   <p className="text-[11px] mt-4 tracking-wide" style={{ color: 'rgba(255,255,255,0.35)' }}>
@@ -183,7 +184,7 @@ export default function ForgotPassword() {
                     disabled={loading}
                     className="w-full h-11 rounded-lg font-semibold text-sm tracking-wider uppercase transition-all duration-300 disabled:opacity-50"
                     style={{
-                      background: 'linear-gradient(135deg, #C9A227 0%, #D4AF37 50%, #E8C84A 100%)',
+                      background: `linear-gradient(135deg, ${palette.gold500} 0%, ${palette.gold300} 100%)`,
                       color: '#0B0B0B',
                     }}
                     onMouseEnter={(e) => {

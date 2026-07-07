@@ -14,6 +14,8 @@ export default {
       fontFamily: {
         display: ["Montserrat", "sans-serif"],
         body: ["Inter", "sans-serif"],
+        // Deco Ledger display serif — page titles and KPI numbers only.
+        deco: ["Cormorant Garamond", "serif"],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -38,10 +40,26 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
-        gold: { DEFAULT: "hsl(var(--gold))", light: "hsl(var(--gold-light))", dark: "hsl(var(--gold-dark))" },
+        gold: {
+          DEFAULT: "hsl(var(--gold))",
+          light: "hsl(var(--gold-light))",
+          dark: "hsl(var(--gold-dark))",
+          // Deco Ledger scale aliases
+          "500": "hsl(var(--gold-500))",
+          "300": "hsl(var(--gold-300))",
+        },
         success: { DEFAULT: "hsl(var(--success))", foreground: "hsl(var(--success-foreground))" },
         warning: { DEFAULT: "hsl(var(--warning))", foreground: "hsl(var(--warning-foreground))" },
+        danger: { DEFAULT: "hsl(var(--danger))", foreground: "hsl(var(--danger-foreground))" },
         info: { DEFAULT: "hsl(var(--info))", foreground: "hsl(var(--info-foreground))" },
+        // Deco Ledger surfaces & inks
+        surface: {
+          "0": "hsl(var(--surface-0))",
+          "1": "hsl(var(--surface-1))",
+          "2": "hsl(var(--surface-2))",
+        },
+        champagne: "hsl(var(--champagne))",
+        "ink-muted": "hsl(var(--ink-muted))",
       },
       borderRadius: {
         lg: "var(--radius)",

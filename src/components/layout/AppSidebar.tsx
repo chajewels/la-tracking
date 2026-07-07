@@ -42,7 +42,7 @@ import {
   SidebarMenuSubItem,
 } from '@/components/ui/sidebar';
 
-type SubMenuItem = {
+export type SubMenuItem = {
   label: string;
   tab: string;
   // Optional override: when set, the sub-item navigates to this absolute path
@@ -53,7 +53,7 @@ type SubMenuItem = {
   permFilter?: (can: (key: string) => boolean) => boolean;
 };
 
-type MenuItem = {
+export type MenuItem = {
   label: string;
   icon: any;
   path?: string;
@@ -63,12 +63,12 @@ type MenuItem = {
   permPath?: string;
 };
 
-type CategoryHeader = {
+export type CategoryHeader = {
   type: 'category';
   label: string;
 };
 
-const sidebarItems: (CategoryHeader | MenuItem)[] = [
+export const sidebarItems: (CategoryHeader | MenuItem)[] = [
   { label: 'Dashboard', icon: LayoutDashboard, path: ROUTES.DASHBOARD },
   { label: 'Executive Dashboard', icon: BarChart3, path: ROUTES.EXECUTIVE_DASHBOARD, adminOnly: true },
 
@@ -164,7 +164,7 @@ const sidebarItems: (CategoryHeader | MenuItem)[] = [
   { label: 'Help', icon: HelpCircle, path: '/help' },
 ];
 
-function isCategory(item: CategoryHeader | MenuItem): item is CategoryHeader {
+export function isCategory(item: CategoryHeader | MenuItem): item is CategoryHeader {
   return (item as CategoryHeader).type === 'category';
 }
 
@@ -235,29 +235,26 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
     <Sidebar
       className="text-white"
       style={{
-        background: '#1A1410',
-        borderRight: '1px solid rgba(212,175,55,0.12)',
+        background: 'hsl(var(--sidebar-background))',
+        borderRight: '1px solid hsl(var(--gold-500) / 0.12)',
       }}
     >
       <SidebarHeader
         className="px-5 py-5"
         style={{
-          background: '#150F0B',
-          borderBottom: '1px solid rgba(212,175,55,0.1)',
+          background: 'hsl(var(--surface-0))',
+          borderBottom: '1px solid hsl(var(--gold-500) / 0.1)',
         }}
       >
         <div className="flex items-center gap-3">
           <img src="https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets/cha-jewels-logo.jpeg" alt="Cha Jewels" className="h-9 w-9 rounded-full object-contain shrink-0" />
-          <h1
-            className="font-display text-lg tracking-wide"
-            style={{ color: '#D4AF37' }}
-          >
+          <h1 className="font-display text-lg tracking-wide text-gold-500">
             Cha Jewels Hub
           </h1>
         </div>
       </SidebarHeader>
 
-      <SidebarContent className="px-3 py-4" style={{ background: '#1A1410' }}>
+      <SidebarContent className="px-3 py-4" style={{ background: 'hsl(var(--sidebar-background))' }}>
         <SidebarMenu>
           {visibleItems.map((item) => {
             // Category header — non-interactive label
@@ -402,12 +399,12 @@ export default function AppSidebar({ updateAvailable = false }: { updateAvailabl
       <SidebarFooter
         className="p-4"
         style={{
-          background: '#1A1410',
-          borderTop: '1px solid rgba(212,175,55,0.1)',
+          background: 'hsl(var(--sidebar-background))',
+          borderTop: '1px solid hsl(var(--gold-500) / 0.1)',
         }}
       >
         <div className="mb-3 flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#F7E7A1] via-primary to-[#8C6A00] text-xs font-bold text-black">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full gold-gradient text-xs font-bold text-black">
             {initials}
           </div>
 

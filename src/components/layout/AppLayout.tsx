@@ -9,6 +9,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import StaffNotificationBell from '@/components/notifications/StaffNotificationBell';
 import AICommandModal from '@/components/ai/AICommandModal';
 import RecordPaymentModal from '@/components/payments/RecordPaymentModal';
+import CommandPalette from '@/components/layout/CommandPalette';
+import PageTransition from '@/components/motion/PageTransition';
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { profile, roles, signOut } = useAuth();
@@ -66,14 +68,15 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
           <div className="flex min-h-screen flex-1 flex-col min-w-0">
             {/* Top Header */}
-            <header className="h-14 flex items-center justify-between border-b border-primary/25 px-4 shrink-0 bg-black/55 backdrop-blur-md sticky top-0 z-30">
+            {/* hairline-b: the Deco Ledger gold "ledger line" divider */}
+            <header className="h-14 flex items-center justify-between hairline-b px-4 shrink-0 bg-black/55 backdrop-blur-md sticky top-0 z-30">
               <SidebarTrigger className="text-primary hover:text-white" />
 
               <div className="flex items-center gap-3">
                 <StaffNotificationBell />
 
                 <div className="flex items-center gap-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#F7E7A1] via-primary to-[#8C6A00] text-black text-[10px] font-bold shadow-md">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full gold-gradient text-black text-[10px] font-bold shadow-md">
                     {initials}
                   </div>
 
@@ -91,6 +94,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                     size="icon"
                     onClick={signOut}
                     className="h-8 w-8 text-primary hover:text-red-400 hover:bg-white/10"
+                    aria-label="Sign out"
                   >
                     <LogOut className="h-4 w-4" />
                   </Button>
@@ -99,7 +103,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             </header>
 
             {/* Main Content */}
-            <main className="flex-1 p-4 md:p-6">
+            <main className="flex-1 flex flex-col p-4 md:p-6">
+              <PageTransition>
               {updateAvailable && !updateDismissed && (
                 <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-primary/40 bg-primary/10 px-4 py-2.5 backdrop-blur-sm">
                   <div className="flex items-center gap-2 text-sm text-white">
@@ -117,6 +122,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 </div>
               )}
               {children}
+              </PageTransition>
             </main>
           </div>
         </div>
@@ -131,6 +137,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           <Sparkles className="h-5 w-5 text-primary-foreground" />
         </button>
 
+        {/* ⌘K palette — internal chrome only, never the customer portal */}
+        <CommandPalette />
         <AICommandModal open={aiOpen} onOpenChange={setAiOpen} />
         <RecordPaymentModal
           open={recordOpen}

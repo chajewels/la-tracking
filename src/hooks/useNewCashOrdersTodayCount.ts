@@ -13,6 +13,7 @@ export function useNewCashOrdersTodayCount() {
       const { count, error } = await supabase
         .from('cash_orders')
         .select('id', { count: 'exact', head: true })
+        .eq('is_test', false)
         .gte('created_at', startOfTodayISO);
       if (error) throw error;
       return count ?? 0;

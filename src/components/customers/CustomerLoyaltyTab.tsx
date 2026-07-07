@@ -14,8 +14,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import AdjustPointsDialog from '@/components/AdjustPointsDialog';
+import TierCard from '@/components/customers/TierCard';
 
-import MemberCard from '@/components/loyalty/MemberCard';
 import PointsSnapshot from '@/components/loyalty/PointsSnapshot';
 import VipProgressSection from '@/components/loyalty/VipProgressSection';
 import RecentActivity from '@/components/loyalty/RecentActivity';
@@ -393,10 +393,19 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
         </div>
       </div>
 
-      {/* 2. Membership Card */}
-      <div className="flex justify-center">
-        <MemberCard />
-      </div>
+      {/* 2. Tier card — Deco Ledger metallic treatment (internal Hub
+          surface; the portal keeps its own MemberCard). Tier source is
+          loyalty_members.current_tier_id → loyalty_tiers join. */}
+      <TierCard
+        tierName={tierName}
+        colorHex={member.current_tier?.color_hex}
+        remainingPoints={member.remaining_points}
+        totalEarned={member.total_points_earned}
+        totalRedeemed={member.total_points_redeemed}
+        totalExpired={member.total_points_expired}
+        multiplier={member.current_tier?.points_multiplier}
+        enrolledAt={member.enrolled_at}
+      />
 
       {/* 3. Points Summary + admin extras */}
       <div className="space-y-3">
@@ -460,7 +469,10 @@ export default memo(function CustomerLoyaltyTab({ customerId }: { customerId: st
 
       {/* 6. Redemptions */}
       <div className="space-y-3">
-        <p className="text-sm font-semibold text-foreground">Redemptions</p>
+        <div>
+          <p className="text-sm font-semibold text-foreground">Redemptions</p>
+          <p className="text-[11px] text-muted-foreground">Tier discounts &amp; rewards applied per order</p>
+        </div>
         {redemptions.length === 0 ? (
           <div className="rounded-xl border border-border bg-card p-6 text-center text-xs text-muted-foreground">
             No redemption requests

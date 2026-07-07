@@ -33,7 +33,11 @@ import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import { PAYMENT_METHODS, normalizeMethod } from '@/lib/payment-method-registry';
 import { toast } from 'sonner';
-import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useEditPaymentAmount, useRestorePayment, useDeleteAccount, useForfeitAccount, useAccountServices, usePenaltyCapOverride, useAccountNotes } from '@/hooks/use-supabase-data';
+import { useAccount, useSchedule, usePayments, usePenalties, useVoidPayment, useEditPayment, useEditPaymentAmount, useRestorePayment, useDeleteAccount, useForfeitAccount, useAccountServices, usePenaltyCapOverride, useAccountNotes, useWaiverRequests } from '@/hooks/use-supabase-data';
+import PaymentTimeline, { type TimelineInstallment } from '@/components/accounts/PaymentTimeline';
+import TypedConfirmField from '@/components/forms/TypedConfirmField';
+import ProgressRing from '@/components/shared/ProgressRing';
+import AccountStatement from '@/components/statements/AccountStatement';
 import { useCustomerLoyaltyTier } from '@/hooks/useCustomerLoyaltyTier';
 import LoyaltyTierBadge from '@/components/loyalty/LoyaltyTierBadge';
 import { supabase } from '@/integrations/supabase/client';
@@ -63,6 +67,8 @@ export default function AccountDetail() {
   const { data: payments } = usePayments(id);
   const { data: penalties } = usePenalties(id);
   const { data: services } = useAccountServices(id);
+  const { data: waiverRequests } = useWaiverRequests(id);
+  const [statementOpen, setStatementOpen] = useState(false);
   const { data: penaltyCapOverride } = usePenaltyCapOverride(id);
   const { data: accountNotes } = useAccountNotes(id);
   const { data: loyaltyTier } = useCustomerLoyaltyTier(account?.customer_id);
@@ -197,6 +203,10 @@ export default function AccountDetail() {
   const [restoreTarget, setRestoreTarget] = useState<{ id: string; amount: number; date: string } | null>(null);
   const [dpRestoreTarget, setDpRestoreTarget] = useState<{ id: string; amount: number; date: string } | null>(null);
   const [forfeitConfirmOpen, setForfeitConfirmOpen] = useState(false);
+  // Typed-confirmation gates (Phase 5) — arm the existing action buttons;
+  // payloads and permission gates unchanged.
+  const [voidArmed, setVoidArmed] = useState(false);
+  const [forfeitArmed, setForfeitArmed] = useState(false);
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [editScheduleAmount, setEditScheduleAmount] = useState('');
   const [editScheduleLoading, setEditScheduleLoading] = useState(false);
@@ -555,6 +565,45 @@ export default function AccountDetail() {
   const progress = summary.progressPercent;
 
   const reconciliationValid = Math.abs(summary.totalLAAmount - totalPaid - summary.remainingBalance) < 1;
+
+  // Payment timeline + statement — display-only mappings of rows the page
+  // already loads (schedule_with_actuals aliases, penalty_fees rows,
+  // approved waiver reasons). No recomputation of money or penalty windows.
+  const approvedWaivers = useMemo(
+    () => ((waiverRequests || []) as any[]).filter(w => w.approved_at),
+    [waiverRequests],
+  );
+  const waiverReasonByPenaltyId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const w of approvedWaivers) m.set(w.penalty_fee_id, w.reason);
+    return m;
+  }, [approvedWaivers]);
+
+  const timelineInstallments: TimelineInstallment[] = useMemo(() =>
+    scheduleItems
+      .filter((item: any) => item.status !== 'cancelled')
+      .map((item: any) => ({
+        id: item.id,
+        installmentNumber: Number(item.installment_number),
+        dueDate: item.due_date,
+        base: Number(item.base_installment_amount),
+        allocated: getRowAllocated(item as any),
+        remaining: getRowRemaining(item as any),
+        status: String(item.status),
+        penalties: (penalties || [])
+          .filter((p: any) => p.schedule_id === item.id)
+          .map((p: any) => ({
+            id: p.id,
+            amount: Number(p.penalty_amount),
+            status: String(p.status),
+            date: p.penalty_date,
+            cycle: Number(p.penalty_cycle),
+            stage: String(p.penalty_stage),
+            waiverReason: p.status === 'waived' ? waiverReasonByPenaltyId.get(p.id) : undefined,
+          })),
+      })),
+    [scheduleItems, penalties, waiverReasonByPenaltyId],
+  );
 
   const unpaidSchedule = getUnpaidScheduleItems(scheduleItems);
   const activePayments = [...confirmedActivePayments]
@@ -1305,9 +1354,9 @@ export default function AccountDetail() {
           <div className="group relative overflow-hidden rounded-xl border border-border bg-card p-3 sm:p-4 card-hover">
             <div className="absolute top-0 left-4 right-4 h-[2px] rounded-b-full bg-gradient-to-r from-primary/40 via-primary to-primary/40" />
             <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider mb-1">Progress</p>
-            <p className="text-lg sm:text-xl font-bold text-primary font-display">{Math.round(progress)}%</p>
-            <div className="mt-2 h-2 rounded-full bg-muted overflow-hidden">
-              <div className="h-full rounded-full transition-all duration-500 ease-out" style={{ width: `${progress}%`, background: 'linear-gradient(90deg, hsl(43 74% 42%), hsl(43 74% 52%), hsl(43 74% 62%))' }} />
+            {/* % paid of total (incl. penalties + services) — summary.progressPercent, unchanged source */}
+            <div className="flex justify-center pt-1">
+              <ProgressRing percent={progress} label="paid" />
             </div>
           </div>
           {account.loyalty_jpy_amount && Number(account.loyalty_jpy_amount) >= 10000 && (
@@ -1320,6 +1369,62 @@ export default function AccountDetail() {
             </div>
           )}
         </div>
+
+        {/* Payment Timeline + Statement (Phase 4) — display-only */}
+        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+          <div className="flex items-center justify-between gap-2 pb-3 hairline-b mb-4">
+            <h3 className="text-sm font-semibold text-card-foreground">Payment Timeline</h3>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs"
+              onClick={() => setStatementOpen(true)}
+            >
+              Statement
+            </Button>
+          </div>
+          <PaymentTimeline
+            currency={currency as Currency}
+            downpayment={downpaymentAmount > 0 ? { amount: downpaymentAmount, paid: dpPaidAmount } : null}
+            installments={timelineInstallments}
+            completed={accountSettled}
+          />
+        </div>
+
+        <AccountStatement
+          open={statementOpen}
+          onClose={() => setStatementOpen(false)}
+          kind="layaway"
+          currency={currency as Currency}
+          customerName={account.customers?.full_name || 'Unknown'}
+          customerCode={(account.customers as any)?.customer_code}
+          invoiceNumber={account.invoice_number}
+          status={account.status}
+          planMonths={account.payment_plan_months}
+          orderDate={(account as any).order_date}
+          schedule={timelineInstallments}
+          waivers={approvedWaivers.map((w: any) => ({ id: w.id, amount: Number(w.penalty_amount), reason: w.reason }))}
+          services={accountServices.map(svc => ({
+            id: svc.id,
+            label: SERVICE_LABELS[(svc as any).service_type] || (svc as any).service_type || 'Service',
+            amount: Number(svc.amount),
+          }))}
+          payments={(payments || []).map((p: any) => ({
+            id: p.id,
+            amount: Number(p.amount_paid),
+            createdAt: p.created_at,
+            method: p.payment_method,
+            reference: p.reference_number,
+            voided: !!p.voided_at,
+          }))}
+          totals={{
+            total: summary.totalLAAmount,
+            paid: summary.totalPaid,
+            remaining: summary.remainingBalance,
+            penalties: summary.activePenalties,
+            services: summary.totalServices,
+          }}
+        />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Payment Schedule */}
@@ -2308,11 +2413,14 @@ export default function AccountDetail() {
                 <label className="text-xs text-muted-foreground">Reason (optional)</label>
                 <Textarea value={voidReason} onChange={(e) => setVoidReason(e.target.value)} rows={2} placeholder="e.g. Recorded wrong amount" className="bg-background border-border text-sm resize-none" />
               </div>
+              <div className="mb-4">
+                <TypedConfirmField word="VOID" onArmedChange={setVoidArmed} />
+              </div>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setVoidTarget(null)}>Cancel</Button>
                 <Button
                   variant="destructive"
-                  disabled={voidPayment.isPending}
+                  disabled={voidPayment.isPending || !voidArmed}
                   onClick={async () => {
                     if (!voidTarget) return;
                     try {
@@ -2343,9 +2451,12 @@ export default function AccountDetail() {
               style={{ zIndex: 9999, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', color: 'var(--foreground)' }}
             >
               <h2 className="text-lg font-semibold mb-2">Forfeit Account?</h2>
-              <p className="text-sm text-muted-foreground mb-6">
+              <p className="text-sm text-muted-foreground mb-4">
                 This will mark INV #{account.invoice_number} as forfeited. The customer will be flagged as a high-risk payer. Payments can no longer be recorded on this account.
               </p>
+              <div className="mb-4">
+                <TypedConfirmField word={account.invoice_number} onArmedChange={setForfeitArmed} />
+              </div>
               <div className="flex justify-end gap-3">
                 <button
                   className="px-4 py-2 rounded-lg border border-border text-sm"
@@ -2354,7 +2465,7 @@ export default function AccountDetail() {
                 </button>
                 <button
                   className="px-4 py-2 rounded-lg bg-orange-600 text-white text-sm hover:bg-orange-700 disabled:opacity-50"
-                  disabled={forfeitAccount.isPending}
+                  disabled={forfeitAccount.isPending || !forfeitArmed}
                   onClick={async () => {
                     try {
                       await forfeitAccount.mutateAsync(account.id);

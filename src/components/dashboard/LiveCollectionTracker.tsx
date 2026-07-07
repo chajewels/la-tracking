@@ -25,9 +25,12 @@ export default function LiveCollectionTracker({ currencyFilter, displayCurrency,
     queryFn: async () => {
       const startStr = Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(Date.now() - 6 * 86400000));
 
+      // payments.account_id is non-nullable (cash payments live in
+      // cash_payments), so the inner join drops nothing but test rows.
       const { data } = await supabase
         .from('payments')
-        .select('amount_paid, currency, date_paid')
+        .select('amount_paid, currency, date_paid, layaway_accounts!inner(is_test)')
+        .eq('layaway_accounts.is_test', false)
         .gte('date_paid', startStr)
         .is('voided_at', null);
 

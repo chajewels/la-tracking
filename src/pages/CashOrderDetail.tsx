@@ -23,6 +23,10 @@ import RecordCashPaymentDialog from '@/components/customers/RecordCashPaymentDia
 import InvoiceGeneratorSheet from '@/components/invoices/InvoiceGeneratorSheet';
 import { Currency } from '@/lib/types';
 import { formatCurrency } from '@/lib/calculations';
+import { CashOrderTimeline } from '@/components/accounts/PaymentTimeline';
+import ProgressRing from '@/components/shared/ProgressRing';
+import TypedConfirmField from '@/components/forms/TypedConfirmField';
+import AccountStatement from '@/components/statements/AccountStatement';
 import { supabase } from '@/integrations/supabase/client';
 import { getProofSignedUrl } from '@/lib/proof-url';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
@@ -273,6 +277,7 @@ export default function CashOrderDetail() {
 
   const { data: order, isLoading: orderLoading } = useCashOrderDetail(id);
   const { data: payments, isLoading: paymentsLoading } = useCashPayments(id);
+  const [statementOpen, setStatementOpen] = useState(false);
   const { data: submissions } = useCashSubmissions(id);
   const { data: submissionProofs } = useCashSubmissionProofs(id);
   const proofByDate = useMemo(() => {
@@ -507,6 +512,9 @@ export default function CashOrderDetail() {
     }
   }, [order, cancelReason, qc, id]);
 
+  // Typed-confirmation gates (Phase 5) — arm existing buttons only.
+  const [cancelArmed, setCancelArmed] = useState(false);
+  const [voidArmed, setVoidArmed] = useState(false);
   // Void dialog
   const [voidOpen, setVoidOpen] = useState(false);
   const [voidPaymentId, setVoidPaymentId] = useState<string | null>(null);
@@ -781,6 +789,66 @@ export default function CashOrderDetail() {
             );
           })()}
         </div>
+
+        {/* Order Timeline + Progress (Phase 4) — stored columns and
+            cash_payments rows only; % uses the CashOrdersList convention */}
+        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+          <div className="flex items-center justify-between gap-2 pb-3 hairline-b mb-4">
+            <h3 className="text-sm font-semibold text-card-foreground">Order Timeline</h3>
+            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setStatementOpen(true)}>
+              Statement
+            </Button>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-6">
+            <div className="flex justify-center sm:block shrink-0">
+              <ProgressRing
+                percent={Number(order.total_amount) > 0 ? Math.round((Number(order.total_paid) / Number(order.total_amount)) * 100) : 0}
+                label="paid"
+              />
+            </div>
+            <div className="flex-1 min-w-0">
+              <CashOrderTimeline
+                currency={currency as Currency}
+                orderDate={order.order_date}
+                payments={(payments || []).map(p => ({
+                  id: p.id,
+                  amount: Number(p.amount_paid),
+                  createdAt: p.created_at,
+                  method: p.payment_method,
+                  reference: p.reference_number,
+                  voided: !!p.voided_at,
+                }))}
+                status={order.status}
+                terminalAt={order.completed_at ?? order.cancelled_at ?? order.expired_at}
+              />
+            </div>
+          </div>
+        </div>
+
+        <AccountStatement
+          open={statementOpen}
+          onClose={() => setStatementOpen(false)}
+          kind="cash"
+          currency={currency as Currency}
+          customerName={order.customers?.full_name || 'Unknown'}
+          invoiceNumber={order.invoice_number}
+          status={order.status}
+          orderDate={order.order_date}
+          itemDescription={order.item_description}
+          payments={(payments || []).map(p => ({
+            id: p.id,
+            amount: Number(p.amount_paid),
+            createdAt: p.created_at,
+            method: p.payment_method,
+            reference: p.reference_number,
+            voided: !!p.voided_at,
+          }))}
+          totals={{
+            total: Number(order.total_amount),
+            paid: Number(order.total_paid),
+            remaining: Number(order.remaining_balance),
+          }}
+        />
 
         {/* Actions */}
         <div className="flex flex-wrap gap-2">
@@ -1252,6 +1320,7 @@ export default function CashOrderDetail() {
               className="bg-background border-border"
             />
           </div>
+          <TypedConfirmField word="CANCEL" onArmedChange={setCancelArmed} />
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setCancelOpen(false)} disabled={cancelling}>
               Back
@@ -1259,7 +1328,7 @@ export default function CashOrderDetail() {
             <Button
               variant="destructive"
               onClick={confirmCancel}
-              disabled={cancelling || !cancelReason.trim()}
+              disabled={cancelling || !cancelReason.trim() || !cancelArmed}
             >
               {cancelling ? 'Cancelling…' : 'Confirm Cancel'}
             </Button>
@@ -1381,6 +1450,7 @@ export default function CashOrderDetail() {
               className="bg-background border-border"
             />
           </div>
+          <TypedConfirmField word="VOID" onArmedChange={setVoidArmed} />
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setVoidOpen(false)} disabled={voiding}>
               Back
@@ -1388,7 +1458,7 @@ export default function CashOrderDetail() {
             <Button
               variant="destructive"
               onClick={confirmVoid}
-              disabled={voiding || !voidReason.trim()}
+              disabled={voiding || !voidReason.trim() || !voidArmed}
             >
               {voiding ? 'Voiding…' : 'Confirm Void'}
             </Button>

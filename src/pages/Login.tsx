@@ -1,24 +1,34 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { palette } from '@/theme/tokens';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import AdminSplashScreen from '@/components/auth/AdminSplashScreen';
+import PostLoginSplash from '@/components/auth/PostLoginSplash';
 import PageMeta from '@/components/seo/PageMeta';
 
 const SPLASH_KEY = 'admin_splash_shown';
 
 const BG_LEFT = '#1A1410';
 const BG_RIGHT = '#110E0A';
-const GOLD = '#D4AF37';
+const GOLD = palette.gold500;
 const GOLD_HOVER = '#E8C547';
 const GOLD_BORDER = 'rgba(212,175,55,0.12)';
 const INPUT_BG = 'rgba(255,255,255,0.04)';
 const INPUT_BORDER = 'rgba(255,255,255,0.08)';
 
-const UNSPLASH_HERO =
+const BRAND_HERO =
   'https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets/IMG_3197.jpeg';
+
+// "Necklaces worn one by one" hero animation — Seedance-generated from the
+// brand photo (its END frame IS the photo, so playback freezes seamlessly
+// into the static composition). Owner-uploaded to brand-assets 2026-07-07.
+// The DOUBLE SLASH before the filename is part of the real storage object
+// key — do NOT "normalize" it (same rule as the post-login splash asset).
+const HERO_VIDEO =
+  'https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets//SigninVideo.mp4';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -33,6 +43,19 @@ export default function Login() {
     return sessionStorage.getItem(SPLASH_KEY) !== 'true';
   });
   const [splashFading, setSplashFading] = useState(false);
+  // Post-login splash gating. freshLoginRef flips BEFORE the sign-in await
+  // so the session effect below cannot race the SIGNED_IN auth event and
+  // yank the user off the splash. Session RESTORES (visiting /login with a
+  // live session, ref false) redirect exactly as before — no splash. OAuth
+  // consent flows (?next set) never see the splash either.
+  const freshLoginRef = useRef(false);
+  const [showPostSplash, setShowPostSplash] = useState(false);
+  // Hero video: reduced-motion users get the static photo only (no video
+  // element at all); a load error swaps to the photo too.
+  const [prefersReducedMotion] = useState(
+    () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false,
+  );
+  const [heroVideoFailed, setHeroVideoFailed] = useState(false);
 
   // Same-origin, relative-only `next` — consumed after a successful login
   // so the OAuth consent flow returns the user to /.lovable/oauth/consent
@@ -42,10 +65,15 @@ export default function Login() {
     rawNext && rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : null;
 
   useEffect(() => {
-    if (session && !window.location.hash.includes('type=recovery')) {
+    if (
+      session &&
+      !freshLoginRef.current &&
+      !showPostSplash &&
+      !window.location.hash.includes('type=recovery')
+    ) {
       navigate(nextPath ?? ROUTES.DASHBOARD, { replace: true });
     }
-  }, [session, navigate, nextPath]);
+  }, [session, navigate, nextPath, showPostSplash]);
 
   useEffect(() => {
     setMounted(true);
@@ -72,6 +100,10 @@ export default function Login() {
     return <AdminSplashScreen fadingOut={splashFading} />;
   }
 
+  if (showPostSplash) {
+    return <PostLoginSplash onEnter={() => navigate(ROUTES.DASHBOARD, { replace: true })} />;
+  }
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
@@ -79,14 +111,24 @@ export default function Login() {
       return;
     }
     setLoading(true);
+    // Set BEFORE the await: the SIGNED_IN auth event can land while we're
+    // still awaiting, and the session effect must already be gated.
+    freshLoginRef.current = true;
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) {
+      freshLoginRef.current = false;
       toast.error(error.message);
       return;
     }
     toast.success('Welcome to Cha Jewels');
-    navigate(nextPath ?? ROUTES.DASHBOARD);
+    if (nextPath) {
+      // OAuth consent flows return to their ?next target and NEVER see
+      // the splash — identical to pre-splash behavior.
+      navigate(nextPath);
+    } else {
+      setShowPostSplash(true);
+    }
   };
 
   return (
@@ -111,12 +153,32 @@ export default function Login() {
               'linear-gradient(to bottom, #1A1410 8%, transparent 35%, transparent 75%, #1A1410 100%)',
           }}
         />
-        <img
-          src={UNSPLASH_HERO}
-          alt=""
-          className="absolute inset-0 w-full h-full object-cover opacity-45"
-          style={{ mixBlendMode: 'normal' }}
-        />
+        {/* Hero: the generated necklace video plays ONCE and freezes on
+            its last frame, which IS the brand photo — a seamless handoff.
+            Poster, load-error fallback, and reduced-motion all render the
+            static photo. The Ken Burns drift rides the element itself. */}
+        {prefersReducedMotion || heroVideoFailed ? (
+          <img
+            src={BRAND_HERO}
+            alt=""
+            className="kenburns-slow absolute inset-0 w-full h-full object-cover opacity-45"
+          />
+        ) : (
+          <video
+            src={HERO_VIDEO}
+            poster={BRAND_HERO}
+            muted
+            autoPlay
+            playsInline
+            preload="auto"
+            aria-hidden="true"
+            onError={() => setHeroVideoFailed(true)}
+            className="kenburns-slow absolute inset-0 w-full h-full object-cover opacity-45"
+          />
+        )}
+        {/* Soft gold pass over the hero every ~12s — first pass waits for
+            the video to finish. Decorative only. */}
+        <div className="gold-sweep gold-sweep-after-entrance z-[15]" aria-hidden="true" />
 
         {/* Centered brand block */}
         <div
@@ -169,7 +231,7 @@ export default function Login() {
         <div
           className="lg:hidden absolute inset-0 z-0"
           style={{
-            backgroundImage: `url(${UNSPLASH_HERO})`,
+            backgroundImage: `url(${BRAND_HERO})`,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
           }}

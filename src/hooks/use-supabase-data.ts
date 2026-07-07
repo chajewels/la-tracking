@@ -151,7 +151,7 @@ export function useAccountsLight() {
         const { data, error } = await supabase
           .from('layaway_accounts')
           .select(
-            'id, customer_id, status, currency, invoice_number, total_amount, total_paid, remaining_balance, payment_plan_months, created_at, updated_at, created_by_user_id, is_test',
+            'id, customer_id, status, currency, invoice_number, total_amount, total_paid, remaining_balance, payment_plan_months, order_date, created_at, updated_at, created_by_user_id, is_test',
           )
           .order('created_at', { ascending: false })
           .range(from, to);
@@ -396,9 +396,12 @@ export function useRecentPaymentsWithAccount() {
     queryKey: ['payments-with-accounts'],
     staleTime: STALE_SHORT,
     queryFn: async () => {
+      // Test exclusion via the account join — payments.account_id is
+      // non-nullable, so !inner drops nothing but test-account payments.
       const { data: payments, error: pErr } = await supabase
         .from('payments')
-        .select('*')
+        .select('*, layaway_accounts!inner(is_test)')
+        .eq('layaway_accounts.is_test', false)
         .is('voided_at', null)
         .order('date_paid', { ascending: false })
         .limit(10);

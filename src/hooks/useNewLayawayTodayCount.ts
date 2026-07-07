@@ -13,6 +13,7 @@ export function useNewLayawayTodayCount() {
       const { count, error } = await supabase
         .from('layaway_accounts')
         .select('id', { count: 'exact', head: true })
+        .eq('is_test', false)
         .gte('created_at', startOfTodayISO);
       if (error) throw error;
       return count ?? 0;

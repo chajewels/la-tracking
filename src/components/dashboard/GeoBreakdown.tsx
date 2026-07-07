@@ -18,6 +18,7 @@ interface GeoAccount {
   customer_id: string;
   currency: string;
   remaining_balance: number;
+  is_test?: boolean;
 }
 
 interface GeoBreakdownProps {
@@ -46,7 +47,11 @@ export default function GeoBreakdown({ accounts, customers, countOnly = false }:
 
   const continents = useMemo(() => {
     const customerMap = new Map(customers.map(c => [c.id, c]));
-    const active = accounts.filter(a => a.status === 'active' || a.status === 'overdue');
+    // Canonical test exclusion (is_test === false) — same as the KPI strip
+    // and Key Metrics.
+    const active = accounts.filter(
+      a => (a.status === 'active' || a.status === 'overdue') && a.is_test === false,
+    );
 
     const map: Record<string, Record<string, { count: number; amountPHP: number; amountJPY: number }>> = {};
 

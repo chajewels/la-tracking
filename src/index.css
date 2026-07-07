@@ -5,91 +5,134 @@
 @tailwind utilities;
 
 @layer base {
+  /*
+   * "Deco Ledger" palette — dark-luxe ERP.
+   * TS mirror + hex values: src/theme/tokens.ts (keep both in sync).
+   * Gold is an accent (active states, CTAs, tier badges, hairlines) —
+   * body text is champagne, secondary text is ink-muted.
+   */
   :root {
-    --background: 0 0% 6%;
-    --foreground: 48 100% 97%;
+    /* Deco Ledger surfaces & inks */
+    --surface-0: 40 11% 5.3%;    /* #0F0E0C app background — warm near-black */
+    --surface-1: 36 11% 9.2%;    /* #1A1815 cards, panels */
+    --surface-2: 30 9% 13.7%;    /* #262320 elevated rows, modals */
+    --gold-500: 46 68% 47%;      /* #C9A227 Art Deco gold — use sparingly */
+    --gold-300: 47 72% 64%;      /* #E5C860 hover/focus accents */
+    --champagne: 38 48% 91%;     /* #F3EBDD primary text on dark */
+    --ink-muted: 35 8% 57.5%;    /* #9B948A secondary text, labels */
 
-    --card: 0 0% 8%;
-    --card-foreground: 48 100% 97%;
+    /* Semantic */
+    --success: 150 39% 49%;      /* #4CAF7D */
+    --success-foreground: 40 11% 5.3%;
+    --warning: 39 67% 55%;       /* #D9A441 */
+    --warning-foreground: 40 11% 5.3%;
+    --danger: 2 48% 54%;         /* #C25450 */
+    --danger-foreground: 0 0% 98%;
+    --info: 211 33% 56%;         /* #6B8FB5 */
+    --info-foreground: 40 11% 5.3%;
 
-    --popover: 0 0% 8%;
-    --popover-foreground: 48 100% 97%;
+    --background: var(--surface-0);
+    --foreground: var(--champagne);
 
-    --primary: 46 65% 52%;
+    --card: var(--surface-1);
+    --card-foreground: var(--champagne);
+
+    --popover: var(--surface-2);
+    --popover-foreground: var(--champagne);
+
+    --primary: var(--gold-500);
     --primary-foreground: 0 0% 5%;
 
-    --secondary: 0 0% 12%;
-    --secondary-foreground: 48 100% 97%;
+    --secondary: var(--surface-2);
+    --secondary-foreground: var(--champagne);
 
-    --muted: 0 0% 10%;
-    --muted-foreground: 40 30% 75%;
+    --muted: 33 10% 11.5%;
+    --muted-foreground: var(--ink-muted);
 
-    --accent: 46 65% 52%;
+    --accent: var(--gold-500);
     --accent-foreground: 0 0% 5%;
 
-    --destructive: 0 72% 55%;
+    --destructive: var(--danger);
     --destructive-foreground: 0 0% 98%;
 
-    --border: 46 45% 28%;
-    --input: 0 0% 11%;
-    --ring: 46 65% 52%;
+    --border: 46 40% 26%;
+    --input: 33 10% 11%;
+    --ring: var(--gold-300);
 
-    --radius: 1rem;
+    --radius: 0.5rem; /* 8px cards, 6px inputs, 4px small */
 
-    --sidebar-background: 22 24% 8%;
-    --sidebar-foreground: 48 100% 96%;
-    --sidebar-primary: 46 65% 52%;
+    --sidebar-background: 36 11% 7%;
+    --sidebar-foreground: var(--champagne);
+    --sidebar-primary: var(--gold-500);
     --sidebar-primary-foreground: 0 0% 5%;
-    --sidebar-accent: 0 0% 10%;
-    --sidebar-accent-foreground: 48 100% 96%;
-    --sidebar-border: 46 45% 28%;
-    --sidebar-ring: 46 65% 52%;
+    --sidebar-accent: var(--surface-2);
+    --sidebar-accent-foreground: var(--champagne);
+    --sidebar-border: 46 40% 26%;
+    --sidebar-ring: var(--gold-300);
 
-    --gold: 46 65% 52%;
-    --gold-light: 46 59% 77%;
+    --gold: var(--gold-500);
+    --gold-light: var(--gold-300);
     --gold-dark: 45 100% 27%;
   }
 
+  /* Dark is the flagship — .dark mirrors :root exactly. */
   .dark {
-    --background: 0 0% 6%;
-    --foreground: 48 100% 97%;
+    --surface-0: 40 11% 5.3%;
+    --surface-1: 36 11% 9.2%;
+    --surface-2: 30 9% 13.7%;
+    --gold-500: 46 68% 47%;
+    --gold-300: 47 72% 64%;
+    --champagne: 38 48% 91%;
+    --ink-muted: 35 8% 57.5%;
 
-    --card: 0 0% 8%;
-    --card-foreground: 48 100% 97%;
+    --success: 150 39% 49%;
+    --success-foreground: 40 11% 5.3%;
+    --warning: 39 67% 55%;
+    --warning-foreground: 40 11% 5.3%;
+    --danger: 2 48% 54%;
+    --danger-foreground: 0 0% 98%;
+    --info: 211 33% 56%;
+    --info-foreground: 40 11% 5.3%;
 
-    --popover: 0 0% 8%;
-    --popover-foreground: 48 100% 97%;
+    --background: var(--surface-0);
+    --foreground: var(--champagne);
 
-    --primary: 46 65% 52%;
+    --card: var(--surface-1);
+    --card-foreground: var(--champagne);
+
+    --popover: var(--surface-2);
+    --popover-foreground: var(--champagne);
+
+    --primary: var(--gold-500);
     --primary-foreground: 0 0% 5%;
 
-    --secondary: 0 0% 12%;
-    --secondary-foreground: 48 100% 97%;
+    --secondary: var(--surface-2);
+    --secondary-foreground: var(--champagne);
 
-    --muted: 0 0% 10%;
-    --muted-foreground: 40 30% 75%;
+    --muted: 33 10% 11.5%;
+    --muted-foreground: var(--ink-muted);
 
-    --accent: 46 65% 52%;
+    --accent: var(--gold-500);
     --accent-foreground: 0 0% 5%;
 
-    --destructive: 0 72% 55%;
+    --destructive: var(--danger);
     --destructive-foreground: 0 0% 98%;
 
-    --border: 46 45% 28%;
-    --input: 0 0% 11%;
-    --ring: 46 65% 52%;
+    --border: 46 40% 26%;
+    --input: 33 10% 11%;
+    --ring: var(--gold-300);
 
-    --sidebar-background: 22 24% 8%;
-    --sidebar-foreground: 48 100% 96%;
-    --sidebar-primary: 46 65% 52%;
+    --sidebar-background: 36 11% 7%;
+    --sidebar-foreground: var(--champagne);
+    --sidebar-primary: var(--gold-500);
     --sidebar-primary-foreground: 0 0% 5%;
-    --sidebar-accent: 0 0% 10%;
-    --sidebar-accent-foreground: 48 100% 96%;
-    --sidebar-border: 46 45% 28%;
-    --sidebar-ring: 46 65% 52%;
+    --sidebar-accent: var(--surface-2);
+    --sidebar-accent-foreground: var(--champagne);
+    --sidebar-border: 46 40% 26%;
+    --sidebar-ring: var(--gold-300);
 
-    --gold: 46 65% 52%;
-    --gold-light: 46 59% 77%;
+    --gold: var(--gold-500);
+    --gold-light: var(--gold-300);
     --gold-dark: 45 100% 27%;
   }
 
@@ -107,7 +150,7 @@
 
     /* Luxury dark overlay base */
     background:
-      radial-gradient(1200px 600px at 50% -10%, hsl(46 65% 52% / 0.06), transparent 60%),
+      radial-gradient(1200px 600px at 50% -10%, hsl(var(--gold-500) / 0.06), transparent 60%),
       linear-gradient(rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0.78)),
       hsl(var(--background));
   }
@@ -116,9 +159,131 @@
     font-family: 'Montserrat', sans-serif;
     letter-spacing: -0.02em;
   }
+
+  /* Financial data floor: every table renders digits tabular. */
+  table {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Accessibility floor: visible gold focus ring on plain interactive
+     elements. shadcn components carry their own focus-visible ring
+     (now gold via --ring), so this targets only unstylled elements. */
+  :where(a, summary):focus-visible {
+    outline: 2px solid hsl(var(--gold-300));
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
 }
 
 @layer components {
+  /*
+   * Deco Ledger signature: the "ledger line" — a thin 1px gold hairline
+   * (gold-500 at 40%) used as the structural divider across cards,
+   * table headers, and section breaks.
+   */
+  .hairline-gold {
+    height: 1px;
+    border: 0;
+    background: hsl(var(--gold-500) / 0.4);
+  }
+  .hairline-b {
+    border-bottom: 1px solid hsl(var(--gold-500) / 0.4);
+  }
+  .hairline-t {
+    border-top: 1px solid hsl(var(--gold-500) / 0.4);
+  }
+
+  /* Labels: 12px uppercase, letter-spaced 0.08em, ink-muted. */
+  .label-caps {
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: hsl(var(--ink-muted));
+  }
+
+  /* Tabular numerals for monetary values outside <table> contexts. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Shimmer skeleton — warm sweep on surface-2, used by ui/skeleton. */
+  .skeleton-shimmer {
+    position: relative;
+    overflow: hidden;
+    background: hsl(var(--surface-2));
+  }
+  .skeleton-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      hsl(var(--gold-300) / 0.07) 40%,
+      hsl(var(--champagne) / 0.09) 50%,
+      hsl(var(--gold-300) / 0.07) 60%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-sweep 1.6s ease-in-out infinite;
+  }
+  @keyframes skeleton-sweep {
+    0% { background-position: 150% 0; }
+    100% { background-position: -50% 0; }
+  }
+
+  /* Ken Burns drift for brand imagery (Login left panel). Transform-only
+     (GPU-composited) — pair with overflow-hidden on the containing panel
+     so the scaled image never bleeds. */
+  .kenburns-slow {
+    animation: kenburns-slow 35s ease-in-out infinite alternate;
+    will-change: transform;
+  }
+  @keyframes kenburns-slow {
+    from { transform: scale(1) translate(0, 0); }
+    to { transform: scale(1.06) translate(1.5%, -1%); }
+  }
+
+  /* Restrained gold light-sweep across brand imagery — one soft pass
+     every ~12s (gold-300 token at low opacity, transform-only). */
+  .gold-sweep {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .gold-sweep::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 40%;
+    background: linear-gradient(
+      100deg,
+      transparent 0%,
+      hsl(var(--gold-300) / 0.06) 50%,
+      transparent 100%
+    );
+    transform: translateX(-130%) skewX(-8deg);
+    animation: gold-sweep-pass 12s ease-in-out infinite;
+    will-change: transform;
+  }
+  @keyframes gold-sweep-pass {
+    0% { transform: translateX(-130%) skewX(-8deg); }
+    22% { transform: translateX(360%) skewX(-8deg); }
+    100% { transform: translateX(360%) skewX(-8deg); }
+  }
+
+  /* First gold pass waits for the Login hero video (8s) to freeze on its
+     final frame; later cycles run every 12s as usual. */
+  .gold-sweep-after-entrance::before {
+    animation-delay: 8.5s;
+  }
+
   /* Glass luxury panels */
   .glass-panel {
     background: rgba(10, 10, 10, 0.42);
@@ -130,14 +295,14 @@
       inset 0 1px 0 rgba(255, 255, 255, 0.04);
   }
 
-  /* Gold gradient */
+  /* Gold gradient — Deco gold family (tokens.ts: gold300 → gold500 → dark) */
   .gold-gradient {
-    background: linear-gradient(135deg, #f7e7a1 0%, #d4af37 45%, #8c6a00 100%);
+    background: linear-gradient(135deg, #e5c860 0%, #c9a227 45%, #7a6210 100%);
   }
 
   /* Gold text shimmer */
   .gold-text {
-    background: linear-gradient(135deg, #f7e7a1 0%, #d4af37 50%, #8c6a00 100%);
+    background: linear-gradient(135deg, #e5c860 0%, #c9a227 50%, #7a6210 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -145,7 +310,7 @@
 
   /* Gold border accent */
   .gold-border {
-    border: 1px solid rgba(212, 175, 55, 0.3);
+    border: 1px solid hsl(var(--gold-500) / 0.3);
   }
 
   /* Luxury card override */
@@ -187,7 +352,7 @@
 
   /* Progress bar gold gradient */
   .progress-gold > div {
-    background: linear-gradient(90deg, hsl(46 65% 42%), hsl(46 65% 52%), hsl(46 65% 62%));
+    background: linear-gradient(90deg, hsl(var(--gold-dark)), hsl(var(--gold-500)), hsl(var(--gold-300)));
   }
 }
 
@@ -230,8 +395,56 @@
   50% { opacity: 0.8; }
 }
 
+/* Customer statement print isolation — only .statement-print-area reaches
+   paper, forced onto white with dark ink regardless of the dark app theme. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .statement-print-area,
+  .statement-print-area * {
+    visibility: visible;
+  }
+  .statement-print-area {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    border: 0;
+    border-radius: 0;
+    background: #fff !important;
+    color: #111 !important;
+  }
+  .statement-print-area .text-muted-foreground,
+  .statement-print-area .label-caps {
+    color: #555 !important;
+  }
+  .statement-print-area .text-success {
+    color: #1a6b42 !important;
+  }
+  .statement-print-area .text-gold-500,
+  .statement-print-area .gold-text {
+    color: #8a6d13 !important;
+    background: none !important;
+    -webkit-text-fill-color: initial !important;
+  }
+  .statement-print-area .hairline-b,
+  .statement-print-area .hairline-t {
+    border-color: #bbb !important;
+  }
+  body {
+    background: #fff !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-fade-in { animation: none; }
   .card-hover { transition: none; }
   .card-hover:hover { transform: none; }
+  /* Skeletons fall back to a static tinted block — no sweep. */
+  .skeleton-shimmer::after { animation: none; opacity: 0; }
+  .animate-shimmer { animation: none; }
+  .overdue-pulse, .penalty-glow, .animate-golden-pulse, .animate-soft-glow { animation: none; }
+  /* Brand-image motion: static image exactly as before the animation. */
+  .kenburns-slow { animation: none; }
+  .gold-sweep::before { animation: none; opacity: 0; }
 }

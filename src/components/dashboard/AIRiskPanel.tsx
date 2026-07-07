@@ -78,7 +78,16 @@ function useAIData() {
       return data;
     },
   });
-  return { accounts: accounts || [], customers: customers || [], schedules: schedules || [], isLoading: aL || cL || sL };
+  // Canonical test exclusion at the shared source so all three panels
+  // (risk / completion / CLV) count real accounts and customers only.
+  // Schedules join through the filtered accounts, so test-account rows
+  // become unreachable without filtering that query separately.
+  return {
+    accounts: (accounts || []).filter(a => (a as any).is_test === false),
+    customers: (customers || []).filter(c => (c as any).is_test === false),
+    schedules: schedules || [],
+    isLoading: aL || cL || sL,
+  };
 }
 
 export function LatePaymentRiskPanel() {

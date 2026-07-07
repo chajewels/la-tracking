@@ -224,22 +224,120 @@ To add a new screenshot for any Help section:
   2. Reference it in markdown using just the filename (no extension)
   3. No code change required for the image to render
 
-## BRAND STYLE STANDARD (added 2026-06-04)
+## BRAND STYLE STANDARD (updated 2026-07-06 — Deco Ledger)
 
-  Canonical brand gold: #D4AF37 = hsl(46 65% 52%)
-  Applied ONLY via theme tokens (--primary / --accent / --ring / --gold family
-  in src/index.css). Hardcoded [#D4AF37]-style Tailwind literals must never
-  be reintroduced.
-  Check: grep -rn "\[#D4AF37\]\|\[#E7D7A2\]" src → must return 0.
+  Canonical brand gold (Deco Ledger, confirmed by Cynthia 2026-07-06):
+    --gold-500: #C9A227 = hsl(46 68% 47%)   primary gold — active states,
+                                            key CTAs, tier badges, hairlines
+    --gold-300: #E5C860 = hsl(47 72% 64%)   hover/focus accents, focus ring
+  The former gold #D4AF37 is RETIRED. Gold is applied ONLY via theme tokens
+  (--primary / --accent / --ring / --gold family in src/index.css; TS mirror
+  incl. chartColors in src/theme/tokens.ts). Hardcoded gold hex literals are
+  allowed ONLY in src/theme/ and src/index.css — never in components/pages.
+
+  Semantic tokens --success / --warning / --danger / --info (plus
+  *-foreground) ARE defined as of 2026-07-06 (Phase 1 Deco Ledger commit) —
+  the matching Tailwind classes are safe to use. The signature structural
+  divider is the 1px gold hairline: .hairline-gold / .hairline-b /
+  .hairline-t (gold-500 at 40%).
+
+  Check (brand-gold family only — a full any-hex sweep returns hundreds of
+  legitimate chart/UI colors and is intentionally out of scope):
+    grep -rnE "#D4AF37|#E7D7A2|#C9A227|#E5C860|#E8C84A" src --include="*.tsx" --include="*.ts" | grep -v "src/theme/"
+  Target: 0 hits. The gold-literal migration COMPLETED 2026-07-06 (Phase 5)
+  — all former debt rows (Finance/Commissions/Timesheet/Inquiries charts,
+  ForgotPassword, Login, PortalLogin, AuthContext splash, AdminSplashScreen,
+  TierCelebrationModal confetti) now import from src/theme/tokens. The
+  avatar gradients (AppSidebar/AppLayout) use the gold-gradient class.
+  Never reintroduce a gold hex outside src/theme/ and src/index.css.
+
+  Remaining tracked debt (each row re-justified 2026-07-06, Phase 5):
+    - .github/workflows/.github/workflows/firebase-hosting.yml — INERT
+      nested duplicate workflow (survives — lives outside src/, needs its
+      own cleanup commit; GitHub never executes nested paths). NOTE: the
+      REAL deploy workflow .github/workflows/firebase-deploy.yml is LIVE —
+      pushes to main deploy the frontend to production hosting; feature
+      branches deploy nothing. docs/AUTO-DEPLOY.md describes a different,
+      removed workflow (Supabase edge functions) and does not apply.
+    - PACKAGE-LOCK PRIVATE-REGISTRY QUIRK (survives — main-side fix only):
+      as of fbc9338 (MCP integration), package-lock.json pins ~94 tarball
+      URLs to Lovable's private registry
+      (europe-west1-npm.pkg.dev/lovable-core-prod/sandbox-npm-cache).
+      `npm ci` and fresh installs OUTSIDE Lovable/CI fail with 403 on the
+      newer entries; plain `npm install` on the GitHub Actions runner
+      succeeds (evidence: firebase-deploy green on fbc9338 and every run
+      since). Do NOT edit the lockfile from a feature branch. REVISIT
+      TRIGGER: if a future deploy fails at npm install, regenerate the
+      lockfile against registry.npmjs.org as a main-side fix.
 
   Background photo: brand-assets/IMG_4761.jpeg (Supabase Storage, public)
   Used by: AppLayout.tsx (Hub interior, under bg-black/72 overlay)
            PortalLogin.tsx (PORTAL_HERO constant)
-  Admin login (Login.tsx) intentionally keeps IMG_3197.jpeg.
+  Admin login (Login.tsx) intentionally keeps IMG_3197.jpeg — now as the
+  poster/fallback/reduced-motion image for the HERO_VIDEO constant
+  (brand-assets//SigninVideo.mp4, Seedance-generated
+  "necklaces one by one", plays once and freezes on its final frame = the
+  photo). The DOUBLE SLASH in that video's storage key is real — never
+  "normalize" it (same rule as the post-login splash asset).
 
-  Gold tokens --gold / --gold-light / --gold-dark defined in :root and .dark.
-  --success / --warning / --info are UNDEFINED in CSS — do not use those
-  Tailwind color classes until tokens are added (usage grep pending).
+  Gold tokens --gold / --gold-light / --gold-dark remain defined in :root and
+  .dark and now alias the Deco Ledger family (--gold = gold-500,
+  --gold-light = gold-300).
+
+## POST-LOGIN SPLASH (added 2026-07-06)
+
+  Full-screen video splash after a SUCCESSFUL staff sign-in on the Hub
+  (src/components/auth/PostLoginSplash.tsx, wired in src/pages/Login.tsx).
+  The Lovable route for this feature was CANCELLED — this on-branch
+  implementation is canonical.
+
+  Triggers ONLY on a fresh staff sign-in with NO ?next param:
+    - ?next set (OAuth consent flows) → navigate(nextPath) exactly as
+      before; the splash NEVER shows. The relative-only open-redirect
+      validation on ?next is unchanged.
+    - Session restore (visiting /login with a live session) → redirect as
+      before, no splash. Enforced by freshLoginRef, set BEFORE the
+      signInWithPassword await so the async SIGNED_IN event cannot race
+      the gate; reset on failed sign-in.
+    - The pre-login AdminSplashScreen and the type=recovery hash guard
+      are independent and unchanged.
+
+  Failsafes (all mandatory, all timers cleaned up on unmount):
+    video onError → proceed immediately; 5s canplay watchdog → proceed;
+    prefers-reduced-motion → no video, backdrop + "Enter Dashboard"
+    button immediately. These are BROKEN-VIDEO protection only — there is
+    NO auto-navigate timer: the splash waits for the user (button / Enter
+    / ESC). The former 15s auto-navigate was removed by owner decision
+    (2026-07-06). All exits are idempotent.
+
+  Presentation (blur-fill, 2026-07-06): TWO layers of the SAME video
+  source. Background: object-cover full viewport, blur(40px) + scale(1.1)
+  to hide blur edges, under a surface-0 ~45% dark overlay — the screen is
+  dressed edge to edge. Foreground: CONTAINED and centered (square aspect
+  preserved, max ~92vh/94vw) — the actual content is never cropped. Both
+  layers share the canplay-driven fade-in. Until canplay: surface-0
+  backdrop with the shimmer treatment — never a black flash (no poster
+  asset exists).
+
+  Sound (2026-07-06): the hosted MP4 carries an AAC track. The FOREGROUND
+  video attempts UNMUTED playback (valid — the splash mounts from the
+  sign-in click = user activation). If the browser rejects unmuted
+  autoplay (NotAllowedError), fall back: set muted, play again, and show
+  an unmute toggle (gold icon button, bottom-right, aria-label
+  "Unmute"/"Mute") that flips muted on tap; when playing WITH sound the
+  same toggle acts as the mute control. The BACKGROUND blur layer is
+  ALWAYS muted. Playback loops (audio loops with it — the toggle is the
+  user's control). Reduced-motion path unchanged: no video at all.
+
+  Video URL constant (in PostLoginSplash.tsx): the DOUBLE SLASH in
+  .../brand-assets//AdminSpalshScreen.mp4 is part of the real storage
+  object key — NEVER "normalize" it; the single-slash URL is a different,
+  nonexistent object.
+
+  Guard invariants locked by src/test/post-login-splash-guard.test.tsx:
+  session-restore no-splash + redirect; fresh-sign-in splash survives the
+  late SIGNED_IN event; failed sign-in resets the guard; ?next sign-in
+  navigates to nextPath with no splash.
 
 ## total_amount DEFINITION — NON-NEGOTIABLE (updated 2026-04-12)
 
@@ -1534,7 +1632,10 @@ LoyaltyAdmin reads directly from searchParams each render (alternative pattern, 
   - `created_at` is the row INSERT/import timestamp (bulk import =
     `2026-03-20`) — NEVER use `created_at` as an order/purchase
     date. Use `order_date` (`layaway_accounts` & `cash_orders`)
-    and `date_paid` (`payments`).
+    and `date_paid` (`payments`). `customers.created_at` has the same
+    March-2026 import contamination — see docs/SCHEMA-FACTS.md
+    ("customers.created_at import contamination"; the Dashboard New
+    Customers trend clips at NEW_CUSTOMER_TREND_CUTOFF = 2026-04).
 
   - 2026-05-20 backfill: corrected 30 migrated members' clocks to
     their real successful-order dates; reverted 4 forfeited-sourced

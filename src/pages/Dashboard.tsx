@@ -1,13 +1,19 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
 import { ROUTES } from '@/constants/routes';
-import { FileText, AlertTriangle, CheckCircle2, Users, ShieldAlert, Award, Flame, ShieldCheck, Loader2, Clock, CalendarCheck, Calendar } from 'lucide-react';
+import { FileText, AlertTriangle, CheckCircle2, Users, UserPlus, ShieldAlert, Award, Flame, ShieldCheck, Loader2, Clock, CalendarCheck, Calendar } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import NewAccountsTodayAlert from '@/components/dashboard/NewAccountsTodayAlert';
 import AppLayout from '@/components/layout/AppLayout';
 import StatCard from '@/components/dashboard/StatCard';
 import AgingBuckets from '@/components/dashboard/AgingBuckets';
-import OverdueAlerts from '@/components/dashboard/OverdueAlerts';
+import KpiStrip from '@/components/dashboard/KpiStrip';
+import NeedsAttentionPanel from '@/components/dashboard/NeedsAttentionPanel';
+import { useMonthlyCollected, useRedemptionsKpi, useNeedsAttention } from '@/hooks/useDashboardExtras';
+
+// Recharts stays out of the dashboard's initial chunk — the hero chart
+// lazy-loads the vendor-charts bundle behind a skeleton.
+const CollectionsHeroChart = lazy(() => import('@/components/dashboard/CollectionsHeroChart'));
 import { CurrencyFilter } from '@/components/dashboard/CurrencyToggle';
 import GeoBreakdown from '@/components/dashboard/GeoBreakdown';
 import OperationsPanel from '@/components/dashboard/OperationsPanel';
@@ -17,10 +23,21 @@ import SystemHealthPanel from '@/components/dashboard/SystemHealthPanel';
 import { Currency } from '@/lib/types';
 import { getDisplayCurrencyForFilter } from '@/lib/currency-converter';
 import { useAccountsLight, useCustomers, useDashboardSummary } from '@/hooks/use-supabase-data';
+import { getPHTToday } from '@/lib/date-utils';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionsContext';
+
+// customers.created_at is usable for month bucketing ONLY from 2026-04
+// onward. Owner-run SQL (2026-07-07, is_test=false, by month of created_at):
+// 2026-03: 470 · 2026-04: 181 · 2026-05: 46 · 2026-06: 60 · 2026-07
+// (partial): 4 · total 761. March 2026 is the bulk-import cohort —
+// created_at is an import timestamp there (same contamination class as
+// layaway_accounts.created_at, which is why the accounts sparkline uses
+// order_date). Customers have no alternative date column, so the trend
+// starts at this cutoff. See docs/SCHEMA-FACTS.md.
+const NEW_CUSTOMER_TREND_CUTOFF = '2026-04';
 
 interface DriftFinding {
   delete_function: string;
@@ -48,6 +65,10 @@ export default function Dashboard() {
   const needsGeo = can('view_geo_breakdown');
   const { data: accounts } = useAccountsLight();
   const { data: customers } = useCustomers();
+  // Phase 3 extras — existing server surface only (see useDashboardExtras).
+  const { data: collectedRows, isLoading: collectedLoading, isError: collectedError, refetch: refetchCollected } = useMonthlyCollected();
+  const { data: redemptions, isError: redemptionsUnavailable } = useRedemptionsKpi();
+  const attention = useNeedsAttention();
   useAutoRefresh([
     ['accounts'],
     ['customers'],
@@ -56,7 +77,11 @@ export default function Dashboard() {
   // Note: accounts/customers are cached with staleTime so these calls are cheap when already loaded
 
   const customerCount = useMemo(() => {
-    if (currencyFilter === 'ALL') return customers?.length ?? 0;
+    // Test exclusion applies here too — customers.is_test = true rows are
+    // scaffolding (TEST-/CJ-2026-* invoice families), never a real count.
+    if (currencyFilter === 'ALL') {
+      return (customers ?? []).filter((c: any) => c.is_test === false).length;
+    }
     if (!accounts) return 0;
     // Distinct customers with at least one layaway account in the selected
     // currency, excluding TEST accounts (matches dashboard-summary edge
@@ -72,6 +97,36 @@ export default function Dashboard() {
     );
     return matchingCustomerIds.size;
   }, [customers, accounts, currencyFilter]);
+
+  // New customers per month from the already-fetched customers list —
+  // client-side only, is_test excluded, months clipped to
+  // NEW_CUSTOMER_TREND_CUTOFF (see the constant's comment: the March 2026
+  // bulk-import cohort would otherwise dwarf the trend).
+  const newCustomers = useMemo(() => {
+    const thisMonthKey = getPHTToday().slice(0, 7);
+    const byMonth = new Map<string, number>();
+    for (const c of customers ?? []) {
+      if ((c as any).is_test !== false) continue;
+      const key = String((c as any).created_at ?? '').slice(0, 7);
+      if (key < NEW_CUSTOMER_TREND_CUTOFF || key > thisMonthKey) continue;
+      byMonth.set(key, (byMonth.get(key) ?? 0) + 1);
+    }
+    const keys: string[] = [];
+    const [y, m] = NEW_CUSTOMER_TREND_CUTOFF.split('-').map(Number);
+    const d = new Date(y, m - 1, 1);
+    let key = NEW_CUSTOMER_TREND_CUTOFF;
+    while (key <= thisMonthKey) {
+      keys.push(key);
+      d.setMonth(d.getMonth() + 1);
+      key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    }
+    const series = keys.map(k => byMonth.get(k) ?? 0);
+    return {
+      series,
+      thisMonth: series[series.length - 1] ?? 0,
+      lastMonth: series[series.length - 2] ?? 0,
+    };
+  }, [customers]);
 
   // Plan tier counts derived from already-loaded accounts list.
   // Active-flow scope: 4 statuses, TEST excluded (mirrors get_aging_buckets).
@@ -171,6 +226,28 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Section 1b — KPI Strip (Phase 3): headline figures with trends */}
+        <div>
+          <h2 className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">At a Glance</h2>
+          <KpiStrip
+            summaryLoading={summaryLoading}
+            activeLayaways={summary?.active_layaways}
+            collectionsThisMonth={summary?.collections_this_month}
+            overdueCount={summary?.overdue_accounts}
+            overdueAmount={summary?.overdue_amount}
+            displayCurrency={displayCurrency}
+            accounts={accounts}
+            collectedRows={collectedRows}
+            redemptions={redemptions}
+            redemptionsUnavailable={redemptionsUnavailable}
+          />
+        </div>
+
+        {/* Section 1c — Hero chart: Collected (cash by payment date) */}
+        <Suspense fallback={<Skeleton className="h-72 rounded-xl" />}>
+          <CollectionsHeroChart rows={collectedRows} loading={collectedLoading} error={collectedError} onRetry={() => refetchCollected()} />
+        </Suspense>
+
         {/* Section 2 — Key Metrics (counts only) */}
         <div>
           <h2 className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-3">Key Metrics</h2>
@@ -190,12 +267,31 @@ export default function Dashboard() {
                   }
                   icon={Users}
                 />
+                {/* The former "Total Active Accounts" card duplicated the
+                    KPI strip's canonical "Total Active Layaways" — replaced
+                    with the new-customers metric (owner decision 2026-07-07). */}
                 <StatCard
-                  title="Total Active Accounts"
+                  title="New Customers"
                   staggerIndex={1}
-                  value={(summary?.active_layaways ?? 0).toString()}
-                  subtitle={currencyFilter === 'ALL' ? 'PHP & JPY' : `${currencyFilter} only`}
-                  icon={FileText}
+                  value={newCustomers.thisMonth.toString()}
+                  subtitle="new this month"
+                  icon={UserPlus}
+                  sparkline={
+                    newCustomers.series.length >= 2
+                      ? {
+                          points: newCustomers.series,
+                          label: `New customers per month since ${NEW_CUSTOMER_TREND_CUTOFF}`,
+                        }
+                      : undefined
+                  }
+                  trend={
+                    newCustomers.lastMonth > 0 || newCustomers.thisMonth > 0
+                      ? {
+                          value: `${Math.abs(newCustomers.thisMonth - newCustomers.lastMonth)} vs last mo`,
+                          positive: newCustomers.thisMonth >= newCustomers.lastMonth,
+                        }
+                      : undefined
+                  }
                 />
               </>
             )}
@@ -373,10 +469,17 @@ export default function Dashboard() {
         </div>
         )}
 
-        {/* Section 9 — System Health + Overdue Alerts */}
+        {/* Section 9 — System Health + Needs Attention (replaced the
+            former OverdueAlerts panel — deleted Phase 5 — same gate) */}
         {(can('view_overdue_alerts') || can('view_system_health')) && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {can('view_overdue_alerts') && <OverdueAlerts />}
+            {can('view_overdue_alerts') && (
+              <NeedsAttentionPanel
+                scheduleRows={attention.schedule.data}
+                cashRows={attention.cash.data}
+                loading={attention.schedule.isLoading || attention.cash.isLoading}
+              />
+            )}
             {can('view_system_health') && <SystemHealthPanel summary={summary} />}
           </div>
         )}
