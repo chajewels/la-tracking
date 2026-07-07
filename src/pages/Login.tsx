@@ -30,6 +30,12 @@ const BRAND_HERO =
 const HERO_VIDEO =
   'https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets//SigninVideo.mp4';
 
+// First frame of HERO_VIDEO — poster must match the video's opening so
+// landing → playback is seamless. BRAND_HERO stays the fallback for
+// reduced-motion and load errors, where the finished composition is correct.
+const HERO_POSTER =
+  'https://pfoicalpzdcmyxzvwyhz.supabase.co/storage/v1/object/public/brand-assets//SigninHeroPoster.jpg';
+
 export default function Login() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -166,7 +172,7 @@ export default function Login() {
         ) : (
           <video
             src={HERO_VIDEO}
-            poster={BRAND_HERO}
+            poster={HERO_POSTER}
             muted
             autoPlay
             playsInline
