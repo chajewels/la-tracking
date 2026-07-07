@@ -16,6 +16,8 @@ import { EmptyState, ErrorState } from '@/components/shared/EmptyState';
 import { Button } from '@/components/ui/button';
 import { FileText } from 'lucide-react';
 import ProgressRing from '@/components/shared/ProgressRing';
+import PortalBottomNav, { type PortalTab } from '@/components/portal/shared/PortalBottomNav';
+import AnimatedNumber from '@/components/portal/shared/AnimatedNumber';
 import TierCard from '@/components/customers/TierCard';
 import AccountStatement from '@/components/statements/AccountStatement';
 import { getPHTToday } from '@/lib/date-utils';
@@ -183,6 +185,11 @@ export default function FixturePreview() {
       </div>
     );
   }
+  if (view === 'portal-nav') {
+    // Maison mobile nav shell — standalone preview (Phase 1 has not wired
+    // this into CustomerPortal.tsx/LoyaltyPortal.tsx yet).
+    return <PortalNavFixture />;
+  }
   if (view === 'forms') {
     return <FormsFixture />;
   }
@@ -246,6 +253,32 @@ function FormsFixture() {
         action={<Button size="sm" className="gold-gradient text-primary-foreground">New Account</Button>}
       />
       <ErrorState message="Couldn't load the collections trend. Your other dashboard data is unaffected." onRetry={() => {}} />
+    </div>
+  );
+}
+
+/** Maison mobile nav shell + AnimatedNumber — standalone Phase 1 preview. */
+function PortalNavFixture() {
+  const [tab, setTab] = useState<PortalTab>('home');
+  return (
+    <div className="maison-portal font-body min-h-screen bg-background pb-24">
+      <div className="max-w-sm mx-auto p-6 space-y-6">
+        <p className="font-display text-2xl text-foreground">Maison Foundation</p>
+        <div className="rounded-xl bg-card p-5 shadow-[0_2px_12px_rgba(43,39,35,0.06)]">
+          <p className="text-[11px] uppercase text-muted-foreground mb-1" style={{ letterSpacing: '0.15em' }}>Points Balance</p>
+          <p className="font-display text-3xl text-foreground tabular-nums">
+            <AnimatedNumber value={12480} />
+          </p>
+        </div>
+        <div className="rounded-xl bg-card p-5 shadow-[0_2px_12px_rgba(43,39,35,0.06)]">
+          <p className="text-[11px] uppercase text-muted-foreground mb-1" style={{ letterSpacing: '0.15em' }}>Remaining Balance</p>
+          <p className="font-display text-3xl text-foreground tabular-nums">
+            <AnimatedNumber value={284500} format={(n) => `¥${Math.round(n).toLocaleString()}`} />
+          </p>
+        </div>
+        <p className="text-sm text-muted-foreground">Active tab: <span className="text-primary font-medium">{tab}</span></p>
+      </div>
+      <PortalBottomNav active={tab} onChange={setTab} />
     </div>
   );
 }

@@ -357,8 +357,57 @@
 }
 
 @layer utilities {
-  .loyalty-portal .font-display { font-family: 'Cormorant Garamond', serif; }
-  .loyalty-portal .font-body { font-family: 'Inter', sans-serif; }
+  .loyalty-portal .font-display, .maison-portal .font-display { font-family: 'Cormorant Garamond', serif; }
+  .loyalty-portal .font-body, .maison-portal .font-body { font-family: 'Inter', sans-serif; }
+
+  /*
+   * "Maison" palette — light-luxe Customer Portal.
+   * TS mirror + hex values: src/theme/portal-tokens.ts (keep both in sync).
+   * Scoped under .maison-portal exactly like the Hub's `.dark` scope re-
+   * declares the SAME shared shadcn variable names (--background,
+   * --primary, --card, etc.) — any component nested under .maison-portal
+   * (shadcn primitives included) renders Maison-light automatically; the
+   * Hub's global :root/.dark dark values are completely unaffected
+   * outside this scope. Separate --portal-* names below cover Maison
+   * concepts with no Hub equivalent (three-tier surface, ink vs
+   * ink-muted) — use Tailwind arbitrary-value syntax, e.g.
+   * bg-[hsl(var(--portal-surface-2))].
+   */
+  .maison-portal {
+    --portal-surface-0: 38 44% 96%;   /* #FAF7F2 app background — warm ivory */
+    --portal-surface-1: 0 0% 100%;    /* #FFFFFF cards */
+    --portal-surface-2: 38 36% 91%;   /* #F1EBE1 subtle wells, timeline track */
+    --portal-gold-600: 42 60% 41%;    /* #A8822A text/CTAs — AA on ivory */
+    --portal-gold-400: 46 67% 47%;    /* #C9A227 decorative only */
+    --portal-ink: 30 10% 15%;         /* #2B2723 primary text */
+    --portal-ink-muted: 34 8% 40%;    /* #6E675E secondary text, labels */
+    --portal-success: 148 34% 37%;
+    --portal-warning: 36 59% 42%;
+    --portal-danger: 2 45% 44%;
+    --portal-info: 209 30% 42%;
+
+    /* shadcn-compatible re-scope, mirroring the Hub's .dark technique */
+    --background: var(--portal-surface-0);
+    --foreground: var(--portal-ink);
+    --card: var(--portal-surface-1);
+    --card-foreground: var(--portal-ink);
+    --popover: var(--portal-surface-1);
+    --popover-foreground: var(--portal-ink);
+    --primary: var(--portal-gold-600);
+    --primary-foreground: var(--portal-ink);
+    --secondary: var(--portal-surface-2);
+    --secondary-foreground: var(--portal-ink);
+    --muted: var(--portal-surface-2);
+    --muted-foreground: var(--portal-ink-muted);
+    --accent: var(--portal-gold-400);
+    --accent-foreground: var(--portal-ink);
+    --destructive: 2 45% 44%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 36 20% 88%;
+    --input: 36 25% 97%;
+    --ring: var(--portal-gold-600);
+    --radius: 0.5rem; /* 8px — decoupled from the Hub's --radius */
+  }
   .gradient-gold { background: linear-gradient(135deg, hsl(36,50%,48%) 0%, hsl(42,60%,62%) 50%, hsl(36,50%,48%) 100%); }
   .gradient-hero { background: linear-gradient(160deg, hsl(30,15%,15%) 0%, hsl(34,20%,22%) 40%, hsl(36,30%,28%) 100%); }
   .shadow-elevated { box-shadow: 0px 12px 40px rgba(180,150,100,0.12); }
