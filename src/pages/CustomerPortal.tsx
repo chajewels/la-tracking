@@ -45,6 +45,7 @@ import { getPortalLinkForCustomer } from '@/lib/portal-link';
 import PageMeta from '@/components/seo/PageMeta';
 import OfflineBanner from '@/components/portal/shared/OfflineBanner';
 import { pt, serviceLabel } from '@/i18n/portal';
+import { palette, memberCard, hslTriplets } from '@/theme/portal-tokens';
 import { usePwaUpdate } from '@/hooks/usePwaUpdate';
 import { markFormDirty, markFormClean } from '@/lib/pwaUpdate';
 
@@ -245,13 +246,37 @@ const P = {
 } as const;
 const CG = "'Cormorant Garamond',Georgia,serif";
 
+// ─── Maison inline-style palette (light "boutique" theme) ───
+// Mirrors the P.* keys but for the ivory Maison surface. Sourced from
+// portal-tokens.ts (the single token source) so no gold hex is typed
+// here. Used for the inline styles that class-based .maison-portal
+// scoping can't reach. The dark P.* object is kept only for the deferred
+// AccountDetail Pay/Submissions tabs.
+const M = {
+  bg:      palette.surface0,                        // page background — warm ivory
+  s:       palette.surface1,                        // card surface — white
+  s2:      palette.surface2,                        // subtle wells / tracks
+  br:      `hsl(${hslTriplets.gold600} / 0.18)`,    // hairline border
+  gp:      palette.gold600,                         // gold for TEXT/CTAs (AA on ivory)
+  gl:      palette.gold400,                         // decorative gold
+  gd:      `hsl(${hslTriplets.gold600} / 0.35)`,    // gold hairline (dividers)
+  tp:      palette.ink,                             // primary text
+  ts:      palette.inkMuted,                        // secondary text
+  gr:      memberCard.gradient,                     // decorative gold gradient (progress, CTA)
+  onGold:  memberCard.ink,                          // dark ink for text/icons on the gold gradient
+  success: palette.success,
+  danger:  palette.danger,
+  warning: palette.warning,
+  info:    palette.info,
+} as const;
+
 const statusColor: Record<string, string> = {
   'Active':          'text-primary border-primary/50 bg-transparent',
-  'Fully Paid':      'text-[#5CB86A] border-[#5CB86A]/40 bg-transparent',
-  'Overdue':         'text-[#E74C3C] border-[#E74C3C]/50 bg-transparent',
-  'Final Settlement':'text-[#E8C96D] border-[#C9A84C]/40 bg-transparent',
-  'Forfeited':       'text-[#E74C3C] border-[#E74C3C]/50 bg-transparent',
-  'Cancelled':       'text-[#555] border-[#333] bg-transparent',
+  'Fully Paid':      'text-[hsl(var(--portal-success))] border-[hsl(var(--portal-success)/0.4)] bg-transparent',
+  'Overdue':         'text-destructive border-destructive/50 bg-transparent',
+  'Final Settlement':'text-[hsl(var(--portal-gold-600))] border-[hsl(var(--portal-gold-600)/0.4)] bg-transparent',
+  'Forfeited':       'text-destructive border-destructive/50 bg-transparent',
+  'Cancelled':       'text-muted-foreground border-border bg-transparent',
 };
 
 const submissionStatusConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -665,7 +690,7 @@ export default function CustomerPortal() {
         description="View your Cha Jewels layaway and cash order accounts, payment schedules, promotions, and submit proof of payment in one secure place."
         path="/portal"
       />
-    <div style={{background:P.bg,minHeight:'100vh'}}>
+    <div className="maison-portal font-body" style={{background:M.bg,minHeight:'100vh'}}>
       <OfflineBanner />
       <h1 className="sr-only">Cha Jewels Customer Portal — My Accounts</h1>
       {/* Header — Maison-scoped (ivory), shared across accounts/profile views */}
@@ -806,60 +831,20 @@ export default function CustomerPortal() {
               />
             </div>
 
-            {/* Action Buttons — retained verbatim: the only entry point to
-                Split Payment mode for customers with 2+ payable accounts
-                (the hero card's CTA only pays the single hero account). */}
-            {payableAccounts.length > 0 && (
-              <div className={`grid gap-3 ${payableAccounts.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                <button
-                  onClick={() => payableAccounts.length === 1 ? openAccountPay(firstPayable, 'single') : setAccountSelectModal('single')}
-                  style={{
-                    background: P.gr,
-                    border: hasOverdue ? `1px solid #E74C3C` : 'none',
-                    borderRadius:'2px',
-                    height:'52px',
-                    color: P.bg,
-                    fontFamily:"Inter,sans-serif",
-                    fontSize:'13px',
-                    fontWeight:600,
-                    letterSpacing:'0.15em',
-                    textTransform:'uppercase' as const,
-                    cursor:'pointer',
-                    position:'relative' as const,
-                  }}
-                >
-                  Pay Now
-                  {hasOverdue && (
-                    <span style={{
-                      position:'absolute' as const,top:0,right:0,
-                      background:'#E74C3C',color:'#fff',
-                      fontSize:'8px',fontWeight:700,
-                      letterSpacing:'0.15em',textTransform:'uppercase' as const,
-                      padding:'2px 8px',
-                    }}>Overdue</span>
-                  )}
-                </button>
-                {payableAccounts.length > 1 && (
-                  <button
-                    onClick={() => setAccountSelectModal('split')}
-                    style={{
-                      background:'transparent',
-                      border:`1px solid ${P.gp}`,
-                      borderRadius:'2px',
-                      height:'52px',
-                      color:P.gp,
-                      fontFamily:"Inter,sans-serif",
-                      fontSize:'13px',
-                      fontWeight:500,
-                      letterSpacing:'0.15em',
-                      textTransform:'uppercase' as const,
-                      cursor:'pointer',
-                    }}
-                  >
-                    Split Payment
-                  </button>
-                )}
-              </div>
+            {/* Split Payment — the ONLY entry point this block uniquely
+                serves. The single-account "Pay Now" that used to sit here was
+                a third redundant primary (header Pay Now + hero card CTA
+                already cover it), so it was removed in Phase 6. Split mode is
+                meaningful only with 2+ payable accounts; styled as a secondary
+                action (outline), matching the hero card's "View details". */}
+            {payableAccounts.length > 1 && (
+              <button
+                onClick={() => setAccountSelectModal('split')}
+                className="maison-portal font-body w-full h-12 rounded-lg border border-border text-foreground text-sm font-medium transition-colors hover:bg-secondary flex items-center justify-center gap-2"
+              >
+                <Wallet className="h-4 w-4 text-primary" />
+                {pt('home.splitPayment')}
+              </button>
             )}
 
             {/* Loyalty entry card — beta flag resolved server-side via customer-portal */}
@@ -872,40 +857,41 @@ export default function CustomerPortal() {
               token={token!}
             />
 
-            {/* Filters */}
+            {/* Filters — Maison: inherit the .maison-portal shadcn scope
+                (ivory input, gold ring); Radix portals the dropdown to
+                <body>, so SelectContent carries the scope class explicitly. */}
             <div className="flex flex-col sm:flex-row gap-2">
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={{color:P.ts}} />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search invoice number…"
+                  placeholder={pt('home.searchPlaceholder')}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9"
-                  style={{background:P.s,border:`1px solid ${P.br}`,borderRadius:'2px',color:P.tp}}
                 />
               </div>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-full sm:w-[140px]" style={{background:P.s,border:`1px solid ${P.br}`,borderRadius:'2px',color:P.tp}}>
-                  <Filter className="h-3.5 w-3.5 mr-1.5" style={{color:P.ts}} />
-                  <SelectValue placeholder="Status" />
+                <SelectTrigger className="w-full sm:w-[150px] text-foreground" aria-label={pt('home.statusLabel')}>
+                  <Filter className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+                  <SelectValue placeholder={pt('home.statusLabel')} />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="Active">Active</SelectItem>
-                  <SelectItem value="Overdue">Overdue</SelectItem>
-                  <SelectItem value="Fully Paid">Fully Paid</SelectItem>
-                  <SelectItem value="Final Settlement">Final Settlement</SelectItem>
+                <SelectContent className="maison-portal font-body">
+                  <SelectItem value="all">{pt('home.statusAll')}</SelectItem>
+                  <SelectItem value="Active">{pt('home.statusActive')}</SelectItem>
+                  <SelectItem value="Overdue">{pt('home.statusOverdue')}</SelectItem>
+                  <SelectItem value="Fully Paid">{pt('home.statusFullyPaid')}</SelectItem>
+                  <SelectItem value="Final Settlement">{pt('home.statusFinalSettlement')}</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={sortBy} onValueChange={setSortBy}>
-                <SelectTrigger className="w-full sm:w-[140px]" style={{background:P.s,border:`1px solid ${P.br}`,borderRadius:'2px',color:P.tp}}>
-                  <SelectValue placeholder="Sort" />
+                <SelectTrigger className="w-full sm:w-[150px] text-foreground" aria-label={pt('home.sortLabel')}>
+                  <SelectValue placeholder={pt('home.sortLabel')} />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="newest">Newest First</SelectItem>
-                  <SelectItem value="oldest">Oldest First</SelectItem>
-                  <SelectItem value="due_soon">Due Soon</SelectItem>
-                  <SelectItem value="balance">Highest Balance</SelectItem>
+                <SelectContent className="maison-portal font-body">
+                  <SelectItem value="newest">{pt('home.sortNewest')}</SelectItem>
+                  <SelectItem value="oldest">{pt('home.sortOldest')}</SelectItem>
+                  <SelectItem value="due_soon">{pt('home.sortDueSoon')}</SelectItem>
+                  <SelectItem value="balance">{pt('home.sortBalance')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -946,37 +932,33 @@ export default function CustomerPortal() {
 
             {/* Other Services — guard bucket for service jobs not nested under a card */}
             {data.other_services && data.other_services.length > 0 && (
-              <div style={{background:P.s,border:`1px solid ${P.br}`,borderRadius:'2px',padding:'16px'}}>
-                <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'12px'}}>Other Services</p>
+              <div style={{background:M.s,border:`1px solid ${M.br}`,borderRadius:'12px',padding:'16px'}}>
+                <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:M.ts,marginBottom:'12px'}}>Other Services</p>
                 <div>
                   {data.other_services.map((job) => {
-                    const SERVICE_LABELS: Record<string, string> = {
-                      resize: 'Resize', certificate: 'Certificate', polish: 'Polish',
-                      change_color: 'Change Color', engraving: 'Engraving', repair: 'Repair', other: 'Other',
-                    };
                     const SERVICE_BADGE: Record<string, { color: string; opacity?: number }> = {
-                      'Received': { color: P.ts },
-                      'In Progress': { color: P.gp },
-                      'On Hold': { color: '#C9881E' },
-                      'Cancelled': { color: P.ts, opacity: 0.6 },
-                      'Completed': { color: '#5CB86A' },
+                      'Received': { color: M.ts },
+                      'In Progress': { color: M.gp },
+                      'On Hold': { color: M.warning },
+                      'Cancelled': { color: M.ts, opacity: 0.6 },
+                      'Completed': { color: M.success },
                     };
-                    const badge = SERVICE_BADGE[job.status_label] ?? { color: P.ts };
+                    const badge = SERVICE_BADGE[job.status_label] ?? { color: M.ts };
                     const otherCurrency = (data.summary.primary_currency as 'JPY' | 'PHP');
                     const timeline = `Received ${fmtDate(job.date_received)}` +
                       (job.date_completed ? ` · Completed ${fmtDate(job.date_completed)}`
                         : job.estimated_completion ? ` · Est. ${fmtDate(job.estimated_completion)}` : '');
                     return (
-                      <div key={job.id} className="flex items-center justify-between py-3" style={{borderBottom:`1px solid ${P.s2}`}}>
+                      <div key={job.id} className="flex items-center justify-between py-3" style={{borderBottom:`1px solid ${M.s2}`}}>
                         <div>
-                          <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:P.tp,fontWeight:500}}>{SERVICE_LABELS[job.service_type] || job.service_type}</p>
-                          {job.service_description && <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,marginTop:'2px'}}>{job.service_description}</p>}
-                          {job.invoice_number && <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,marginTop:'2px'}}>Re: INV #{job.invoice_number}</p>}
-                          <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,marginTop:'2px'}}>{timeline}</p>
+                          <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:M.tp,fontWeight:500}}>{serviceLabel(job.service_type)}</p>
+                          {job.service_description && <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:M.ts,marginTop:'2px'}}>{job.service_description}</p>}
+                          {job.invoice_number && <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:M.ts,marginTop:'2px'}}>Re: INV #{job.invoice_number}</p>}
+                          <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:M.ts,marginTop:'2px'}}>{timeline}</p>
                         </div>
                         <div className="flex flex-col items-end gap-1">
-                          <span style={{fontFamily:"Inter,sans-serif",fontSize:'9px',textTransform:'uppercase' as const,letterSpacing:'0.1em',padding:'0 8px',borderRadius:'2px',border:`1px solid ${badge.color}`,color:badge.color,background:'transparent',opacity:badge.opacity ?? 1}}>{job.status_label}</span>
-                          <p style={{fontFamily:"Inter,sans-serif",fontSize:'14px',fontWeight:600,color:P.gp}}>{fmt(job.service_fee, otherCurrency)}</p>
+                          <span style={{fontFamily:"Inter,sans-serif",fontSize:'9px',textTransform:'uppercase' as const,letterSpacing:'0.1em',padding:'0 8px',borderRadius:'999px',border:`1px solid ${badge.color}`,color:badge.color,background:'transparent',opacity:badge.opacity ?? 1}}>{job.status_label}</span>
+                          <p style={{fontFamily:"Inter,sans-serif",fontSize:'14px',fontWeight:600,color:M.gp}}>{fmt(job.service_fee, otherCurrency)}</p>
                         </div>
                       </div>
                     );
@@ -989,31 +971,30 @@ export default function CustomerPortal() {
 
         {/* Footer */}
         <div className="text-center py-6 pb-20 sm:pb-6">
-          <div style={{height:'1px',background:P.gd,marginBottom:'1.5rem'}} />
-          <p style={{color:P.ts,fontSize:'11px',letterSpacing:'0.15em',fontFamily:"Inter,sans-serif"}}>
+          <div style={{height:'1px',background:M.gd,marginBottom:'1.5rem'}} />
+          <p style={{color:M.ts,fontSize:'11px',letterSpacing:'0.15em',fontFamily:"Inter,sans-serif"}}>
             © {new Date().getFullYear()} CHA JEWELS HUB · CUSTOMER PORTAL
           </p>
         </div>
       </div>
 
-      {/* Sticky Mobile Pay Now Bar */}
+      {/* Sticky Mobile Pay Now Bar — header Pay Now is hidden on mobile
+          (hidden sm:flex), so this is the mobile-primary persistent CTA. */}
       {firstPayable && portalView === 'accounts' && !selectedAccount && (
-        <div className="fixed bottom-0 left-0 right-0 sm:hidden z-40 px-4 py-3" style={{background:P.bg,borderTop:`1px solid ${P.gd}`}}>
+        <div className="maison-portal font-body fixed bottom-0 left-0 right-0 sm:hidden z-40 px-4 py-3 bg-background/95 backdrop-blur border-t border-border">
           <div className="flex gap-2 max-w-lg sm:max-w-2xl lg:max-w-5xl mx-auto">
             <button
-              className="flex-1 h-12 font-medium transition-opacity hover:opacity-90"
-              style={{background:P.gr,color:P.bg,borderRadius:'2px',fontSize:'12px',letterSpacing:'0.15em',textTransform:'uppercase' as const,cursor:'pointer',border:'none'}}
+              className="flex-1 h-12 rounded-lg bg-primary text-primary-foreground font-semibold text-sm transition-opacity hover:opacity-90"
               onClick={() => payableAccounts.length === 1 ? openAccountPay(firstPayable, 'single') : setAccountSelectModal('single')}
             >
-              Pay Now
+              {pt('common.payNow')}
             </button>
             {payableAccounts.length > 1 && (
               <button
-                className="h-12 px-4 transition-all"
-                style={{background:'transparent',border:`1px solid ${P.gp}`,color:P.gp,borderRadius:'2px',fontSize:'12px',letterSpacing:'0.1em',textTransform:'uppercase' as const,cursor:'pointer'}}
+                className="h-12 px-4 rounded-lg border border-border text-foreground text-sm font-medium transition-colors hover:bg-secondary"
                 onClick={() => setAccountSelectModal('split')}
               >
-                Split
+                {pt('common.split')}
               </button>
             )}
           </div>
@@ -1022,39 +1003,41 @@ export default function CustomerPortal() {
 
       {/* Account Selection Sheet — shown when top-level Pay Now / Split is clicked with 2+ accounts */}
       <Sheet open={!!accountSelectModal} onOpenChange={(open) => { if (!open) setAccountSelectModal(null); }}>
-        <SheetContent side="bottom" className="p-0 rounded-t-lg" style={{background:P.s,border:'none',borderTop:`2px solid ${P.gp}`}}>
-          <SheetHeader className="px-5 pt-5 pb-3" style={{borderBottom:`1px solid ${P.br}`}}>
-            <SheetTitle style={{color:P.gp,fontFamily:CG,fontSize:'15px',letterSpacing:'0.15em',textTransform:'uppercase' as const,fontWeight:600}}>
+        <SheetContent side="bottom" className="maison-portal font-body p-0 rounded-t-2xl" style={{background:M.s,border:'none',borderTop:`2px solid ${M.gp}`}}>
+          <SheetHeader className="px-5 pt-5 pb-3" style={{borderBottom:`1px solid ${M.br}`}}>
+            <SheetTitle style={{color:M.gp,fontFamily:CG,fontSize:'16px',letterSpacing:'0.12em',textTransform:'uppercase' as const,fontWeight:600}}>
               {accountSelectModal === 'split' ? 'Select Account — Split Payment' : 'Select Account to Pay'}
             </SheetTitle>
           </SheetHeader>
           <div className="px-4 py-3 space-y-2 pb-10">
-            {payableAccounts.map((account) => (
+            {payableAccounts.map((account) => {
+              const acctOverdue = account.status_label === 'Overdue';
+              return (
               <button
                 key={account.id}
                 onClick={() => { setAccountSelectModal(null); openAccountPay(account, accountSelectModal!); }}
-                className="w-full text-left transition-all hover:opacity-90"
+                className="w-full text-left transition-colors hover:bg-secondary"
                 style={{
-                  background: P.s2,
-                  border: `1px solid ${account.status_label === 'Overdue' ? '#E74C3C55' : P.br}`,
-                  borderRadius: '2px',
+                  background: M.s2,
+                  border: `1px solid ${acctOverdue ? `hsl(${hslTriplets.danger} / 0.4)` : M.br}`,
+                  borderRadius: '12px',
                   padding: '14px 16px',
                   cursor: 'pointer',
                 }}
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <div style={{color:P.tp,fontFamily:CG,fontSize:'18px',fontWeight:600,lineHeight:1.2}}>
+                    <div style={{color:M.tp,fontFamily:CG,fontSize:'18px',fontWeight:600,lineHeight:1.2}}>
                       #{account.invoice_number}
                     </div>
                     <div className="flex items-center gap-3 mt-1 flex-wrap">
                       {account.next_due_date && (
-                        <span style={{color:P.ts,fontSize:'12px'}}>
+                        <span style={{color:M.ts,fontSize:'12px'}}>
                           Due {fmtDate(account.next_due_date)}
                         </span>
                       )}
                       {account.next_due_amount != null && (
-                        <span style={{color:P.gp,fontSize:'13px',fontWeight:600}}>
+                        <span style={{color:M.gp,fontSize:'13px',fontWeight:600}}>
                           {fmt(account.next_due_amount, account.currency)}
                         </span>
                       )}
@@ -1065,18 +1048,19 @@ export default function CustomerPortal() {
                       fontSize: '10px',
                       letterSpacing: '0.1em',
                       textTransform: 'uppercase' as const,
-                      color: account.status_label === 'Overdue' ? '#E74C3C' : P.gp,
-                      border: `1px solid ${account.status_label === 'Overdue' ? '#E74C3C55' : P.gp + '55'}`,
-                      borderRadius: '2px',
+                      color: acctOverdue ? M.danger : M.gp,
+                      border: `1px solid ${acctOverdue ? `hsl(${hslTriplets.danger} / 0.4)` : `hsl(${hslTriplets.gold600} / 0.4)`}`,
+                      borderRadius: '999px',
                       padding: '2px 8px',
                     }}>
                       {account.status_label}
                     </span>
-                    <ChevronRight className="h-4 w-4" style={{color:P.gd}} />
+                    <ChevronRight className="h-4 w-4" style={{color:M.gp}} />
                   </div>
                 </div>
               </button>
-            ))}
+              );
+            })}
           </div>
         </SheetContent>
       </Sheet>
@@ -1137,8 +1121,8 @@ export default function CustomerPortal() {
             }}
           />
           <div
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md rounded-xl p-6 shadow-xl overflow-y-auto"
-            style={{ zIndex: 201, pointerEvents: 'auto', backgroundColor: 'hsl(0,0%,16%)', color: '#fff', position: 'fixed', maxHeight: '90vh' }}
+            className="maison-portal font-body fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md rounded-2xl p-6 shadow-xl overflow-y-auto"
+            style={{ zIndex: 201, pointerEvents: 'auto', backgroundColor: M.s, color: M.tp, position: 'fixed', maxHeight: '90vh', border: `1px solid ${M.br}` }}
           >
             <button
               onClick={() => {
@@ -1150,13 +1134,13 @@ export default function CustomerPortal() {
                 top: '12px',
                 right: '12px',
                 zIndex: 202,
-                background: 'rgba(255,255,255,0.15)',
-                border: 'none',
+                background: M.s2,
+                border: `1px solid ${M.br}`,
                 borderRadius: '50%',
                 width: '32px',
                 height: '32px',
                 cursor: 'pointer',
-                color: 'white',
+                color: M.ts,
                 fontSize: '18px',
                 display: 'flex',
                 alignItems: 'center',
@@ -1180,10 +1164,10 @@ export default function CustomerPortal() {
                 }}
               />
             )}
-            <h2 style={{ fontFamily: 'Inter, sans-serif', fontSize: '18px', fontWeight: 700, color: P.gp, marginBottom: 8 }}>
+            <h2 style={{ fontFamily: 'Inter, sans-serif', fontSize: '18px', fontWeight: 700, color: M.gp, marginBottom: 8 }}>
               {announcement.title}
             </h2>
-            <p style={{ fontFamily: 'Inter, sans-serif', fontSize: '13px', color: '#ccc', lineHeight: 1.6, marginBottom: 16, whiteSpace: 'pre-wrap' }}>
+            <p style={{ fontFamily: 'Inter, sans-serif', fontSize: '13px', color: M.ts, lineHeight: 1.6, marginBottom: 16, whiteSpace: 'pre-wrap' }}>
               {announcement.content}
             </p>
             {announcement.link_url && (
@@ -1192,8 +1176,8 @@ export default function CustomerPortal() {
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{
-                  display: 'inline-block', padding: '8px 20px', borderRadius: '4px',
-                  background: P.gr, color: P.bg, fontFamily: 'Inter, sans-serif',
+                  display: 'inline-block', padding: '8px 20px', borderRadius: '8px',
+                  background: M.gr, color: M.onGold, fontFamily: 'Inter, sans-serif',
                   fontSize: '12px', fontWeight: 700, letterSpacing: '0.1em',
                   textTransform: 'uppercase', textDecoration: 'none', marginBottom: 12,
                 }}
@@ -1206,7 +1190,7 @@ export default function CustomerPortal() {
                 href="https://agreement.chajewelsjp.com/"
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ fontFamily: 'Inter, sans-serif', fontSize: '11px', color: P.ts, textDecoration: 'underline' }}
+                style={{ fontFamily: 'Inter, sans-serif', fontSize: '11px', color: M.ts, textDecoration: 'underline' }}
               >
                 📄 View Layaway Agreement
               </a>
@@ -1217,8 +1201,8 @@ export default function CustomerPortal() {
                 setShowAnnouncement(false);
               }}
               style={{
-                width: '100%', padding: '10px', borderRadius: '4px',
-                background: P.s2, color: P.tp, border: 'none',
+                width: '100%', padding: '10px', borderRadius: '8px',
+                background: M.s2, color: M.tp, border: `1px solid ${M.br}`,
                 fontFamily: 'Inter, sans-serif', fontSize: '12px', fontWeight: 600,
                 cursor: 'pointer', letterSpacing: '0.1em', textTransform: 'uppercase',
               }}
@@ -1230,12 +1214,12 @@ export default function CustomerPortal() {
       )}
 
       {/* ── Portal footer with agreement link ── */}
-      <div style={{ textAlign: 'center', padding: '24px 16px 32px', background: P.bg }}>
+      <div style={{ textAlign: 'center', padding: '24px 16px 32px', background: M.bg }}>
         <a
           href="https://agreement.chajewelsjp.com/"
           target="_blank"
           rel="noopener noreferrer"
-          style={{ fontFamily: 'Inter, sans-serif', fontSize: '11px', color: P.ts, textDecoration: 'none' }}
+          style={{ fontFamily: 'Inter, sans-serif', fontSize: '11px', color: M.ts, textDecoration: 'none' }}
         >
           📄 Layaway Agreement
         </a>
@@ -1289,19 +1273,19 @@ function LoyaltyEntryCard({
   if (!hasAccess) {
     return (
       <div
-        className="flex items-center gap-3 rounded-md px-4 py-3"
-        style={{ background: P.s, border: `1px solid ${P.br}`, opacity: 0.7 }}
+        className="flex items-center gap-3 rounded-xl px-4 py-3"
+        style={{ background: M.s2, border: `1px solid ${M.br}` }}
       >
-        <span style={{ fontSize: '22px' }} aria-hidden>💎</span>
+        <span style={{ fontSize: '22px', opacity: 0.75 }} aria-hidden>💎</span>
         <div className="flex-1">
-          <div style={{ color: P.ts, fontFamily: CG, fontSize: '15px' }}>Loyalty Program</div>
-          <div className="text-xs" style={{ color: P.ts }}>
+          <div style={{ color: M.tp, fontFamily: CG, fontSize: '15px' }}>Loyalty Program</div>
+          <div className="text-xs" style={{ color: M.ts }}>
             Coming soon — exclusive rewards launching soon
           </div>
         </div>
         <span
-          className="rounded-md px-2 py-0.5 text-[10px]"
-          style={{ background: P.s2, color: P.ts, border: `1px solid ${P.br}` }}
+          className="rounded-full px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider"
+          style={{ background: M.s, color: M.ts, border: `1px solid ${M.br}` }}
         >
           Soon
         </span>
@@ -1314,22 +1298,21 @@ function LoyaltyEntryCard({
     return (
       <button
         onClick={goToLoyalty}
-        className="flex w-full items-center gap-3 rounded-md px-4 py-3 text-left transition-colors"
+        className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-shadow hover:shadow-[0_4px_20px_rgba(200,170,100,0.18)]"
         style={{
-          background: 'linear-gradient(135deg, #1A1500 0%, #2A2200 100%)',
-          border: `1px solid ${P.gp}`,
-          boxShadow: `0 2px 12px ${P.gp}33`,
+          background: `linear-gradient(135deg, hsl(${hslTriplets.gold400} / 0.12) 0%, hsl(${hslTriplets.gold600} / 0.07) 100%)`,
+          border: `1px solid hsl(${hslTriplets.gold600} / 0.35)`,
         }}
       >
         <span style={{ fontSize: '22px' }} aria-hidden>💎</span>
         <div className="flex-1">
-          <div style={{ color: P.tp, fontFamily: CG, fontSize: '16px' }}>My Loyalty</div>
-          <div className="text-xs" style={{ color: P.gl }}>
+          <div style={{ color: M.tp, fontFamily: CG, fontSize: '16px' }}>My Loyalty</div>
+          <div className="text-xs" style={{ color: M.gp }}>
             {member.current_tier?.name ?? 'Glimmer'} ·{' '}
             {member.remaining_points.toLocaleString()} points
           </div>
         </div>
-        <span style={{ color: P.gp }}>View →</span>
+        <span className="text-sm font-medium" style={{ color: M.gp }}>View →</span>
       </button>
     );
   }
@@ -1338,20 +1321,20 @@ function LoyaltyEntryCard({
   return (
     <button
       onClick={goToLoyalty}
-      className="flex w-full items-center gap-3 rounded-md px-4 py-3 text-left"
+      className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors hover:bg-secondary"
       style={{
-        background: P.s,
-        border: `1px solid ${P.gp}88`,
+        background: M.s,
+        border: `1px solid hsl(${hslTriplets.gold600} / 0.4)`,
       }}
     >
       <span style={{ fontSize: '22px' }} aria-hidden>💎</span>
       <div className="flex-1">
-        <div style={{ color: P.tp, fontFamily: CG, fontSize: '16px' }}>Cha Jewels Loyalty</div>
-        <div className="text-xs" style={{ color: P.ts }}>
+        <div style={{ color: M.tp, fontFamily: CG, fontSize: '16px' }}>Cha Jewels Loyalty</div>
+        <div className="text-xs" style={{ color: M.ts }}>
           Join now and earn rewards on every purchase
         </div>
       </div>
-      <span style={{ color: P.gp }}>Join →</span>
+      <span className="text-sm font-medium" style={{ color: M.gp }}>Join →</span>
     </button>
   );
 }
@@ -1369,32 +1352,33 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
   return (
     <div
       onClick={onViewDetails}
-      className="group cursor-pointer transition-all"
+      className="group cursor-pointer transition-shadow hover:shadow-[0_4px_20px_rgba(180,150,100,0.12)]"
       style={{
-        background: P.s,
-        border: `1px solid ${isOverdue ? '#6B1A1A' : P.br}`,
-        borderTop: `2px solid ${isOverdue ? '#E74C3C' : isCompleted ? '#5CB86A' : P.gp}`,
-        borderRadius: '2px',
+        background: M.s,
+        border: `1px solid ${isOverdue ? `hsl(${hslTriplets.danger} / 0.35)` : M.br}`,
+        borderTop: `2px solid ${isOverdue ? M.danger : isCompleted ? M.success : M.gp}`,
+        borderRadius: '12px',
         padding: '1.25rem 1.5rem',
+        boxShadow: '0 2px 12px rgba(43,39,35,0.06)',
       }}
     >
       {/* Header: Invoice + Status */}
       <div className="flex items-start justify-between gap-3 mb-4">
         <div className="min-w-0">
-          <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.25em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'4px'}}>Invoice</p>
-          <p style={{fontFamily:CG,fontSize:'22px',fontWeight:700,color:P.tp,letterSpacing:'0.03em',lineHeight:1}}>#{account.invoice_number}</p>
+          <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.25em',textTransform:'uppercase' as const,color:M.ts,marginBottom:'4px'}}>Invoice</p>
+          <p style={{fontFamily:CG,fontSize:'22px',fontWeight:700,color:M.tp,letterSpacing:'0.03em',lineHeight:1}}>#{account.invoice_number}</p>
         </div>
         <div className="flex flex-col items-end gap-1.5 shrink-0">
-          <Badge variant="outline" className={`text-[9px] font-medium ${colorClass}`} style={{borderRadius:'2px',letterSpacing:'0.12em',textTransform:'uppercase',padding:'2px 8px'}}>
+          <Badge variant="outline" className={`text-[9px] font-medium ${colorClass}`} style={{borderRadius:'999px',letterSpacing:'0.12em',textTransform:'uppercase',padding:'2px 8px'}}>
             {account.status_label}
           </Badge>
           {pendingSubs > 0 && (
-            <Badge variant="outline" className="text-[9px]" style={{borderRadius:'2px',color:'#7EA8C9',borderColor:'rgba(126,168,201,0.3)',background:'transparent'}}>
+            <Badge variant="outline" className="text-[9px]" style={{borderRadius:'999px',color:M.info,borderColor:`hsl(${hslTriplets.info} / 0.35)`,background:'transparent'}}>
               {pendingSubs} pending
             </Badge>
           )}
           {(account.outstanding_penalties ?? 0) > 0 && (
-            <Badge variant="outline" className="text-[9px]" style={{borderRadius:'2px',color:'#C9A84C',borderColor:'rgba(201,168,76,0.4)',background:'transparent'}}>
+            <Badge variant="outline" className="text-[9px]" style={{borderRadius:'999px',color:M.gp,borderColor:`hsl(${hslTriplets.gold600} / 0.4)`,background:'transparent'}}>
               +{fmt(account.outstanding_penalties, currency)} Penalty
             </Badge>
           )}
@@ -1404,31 +1388,31 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
       {/* Progress Bar */}
       <div className="mb-4">
         <div className="flex justify-between items-baseline mb-2">
-          <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts}}>{account.paid_installments} of {account.total_installments} installments</span>
-          <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts}}>{account.progress_percent}%</span>
+          <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:M.ts}}>{account.paid_installments} of {account.total_installments} installments</span>
+          <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:M.ts}}>{account.progress_percent}%</span>
         </div>
-        <div style={{height:'2px',background:P.s2,overflow:'hidden'}}>
+        <div style={{height:'3px',background:M.s2,borderRadius:'999px',overflow:'hidden'}}>
           <div style={{
             height:'100%',
             width:`${account.progress_percent}%`,
-            background: isCompleted ? '#5CB86A' : P.gr,
+            background: isCompleted ? M.success : M.gr,
             transition:'width 0.7s ease',
           }} />
         </div>
       </div>
 
       {/* Amounts Grid */}
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',borderTop:`1px solid ${P.br}`,borderBottom:`1px solid ${P.br}`,margin:'0 -1.5rem',padding:'0.75rem 1.5rem',gap:'0'}}>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',borderTop:`1px solid ${M.br}`,borderBottom:`1px solid ${M.br}`,margin:'0 -1.5rem',padding:'0.75rem 1.5rem',gap:'0'}}>
         {[
-          { lbl: 'Total', val: fmt(account.total_obligation, currency), col: P.gp },
-          { lbl: 'Paid',  val: fmt(account.total_paid, currency),   col: '#5CB86A' },
+          { lbl: 'Total', val: fmt(account.total_obligation, currency), col: M.gp },
+          { lbl: 'Paid',  val: fmt(account.total_paid, currency),   col: M.success },
           { lbl: 'Balance Due',
             val: fmt(account.remaining_balance, currency),
-            col: isOverdue ? '#E74C3C' : (account.outstanding_penalties ?? 0) > 0 ? P.gl : P.gp },
+            col: isOverdue ? M.danger : (account.outstanding_penalties ?? 0) > 0 ? M.gp : M.tp },
         ].map((col, i) => (
-          <div key={i} style={{borderRight: i < 2 ? `1px solid ${P.br}` : 'none', paddingRight: i < 2 ? '1rem' : 0, paddingLeft: i > 0 ? '1rem' : 0}}>
-            <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'4px'}}>{col.lbl}</p>
-            <p style={{fontFamily:"Inter,sans-serif",fontSize:'15px',fontWeight:600,color:col.col}}>{col.val}</p>
+          <div key={i} style={{borderRight: i < 2 ? `1px solid ${M.br}` : 'none', paddingRight: i < 2 ? '1rem' : 0, paddingLeft: i > 0 ? '1rem' : 0}}>
+            <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:M.ts,marginBottom:'4px'}}>{col.lbl}</p>
+            <p className="tabular-nums" style={{fontFamily:"Inter,sans-serif",fontSize:'15px',fontWeight:600,color:col.col}}>{col.val}</p>
           </div>
         ))}
       </div>
@@ -1436,37 +1420,37 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
       {/* Completed: compact summary + collapsible payment history */}
       {isCompleted ? (
         <>
-          <div style={{marginTop:'12px',borderTop:`1px solid ${P.s2}`,paddingTop:'12px'}}>
-            <p style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:'#5CB86A',display:'flex',alignItems:'center',gap:'6px'}}>
+          <div style={{marginTop:'12px',borderTop:`1px solid ${M.s2}`,paddingTop:'12px'}}>
+            <p style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:M.success,display:'flex',alignItems:'center',gap:'6px'}}>
               🎉 <span>Fully paid — Thank you!</span>
             </p>
           </div>
-          <div className="flex items-center justify-between mt-3 pt-3" style={{borderTop:`1px solid ${P.br}`}}>
-            <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:'#5CB86A',display:'flex',alignItems:'center',gap:'4px'}}>
+          <div className="flex items-center justify-between mt-3 pt-3" style={{borderTop:`1px solid ${M.br}`}}>
+            <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:M.success,display:'flex',alignItems:'center',gap:'4px'}}>
               <Check className="h-3 w-3" /> Fully paid
             </span>
             <button
               onClick={(e) => { e.stopPropagation(); setHistoryOpen(o => !o); }}
-              style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.gp,letterSpacing:'0.08em',display:'flex',alignItems:'center',gap:'4px',background:'none',border:'none',cursor:'pointer',padding:0}}
+              style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:M.gp,letterSpacing:'0.08em',display:'flex',alignItems:'center',gap:'4px',background:'none',border:'none',cursor:'pointer',padding:0}}
             >
               {historyOpen ? 'Hide history' : 'View history'} <ChevronRight className={`h-3.5 w-3.5 transition-transform ${historyOpen ? 'rotate-90' : ''}`} />
             </button>
           </div>
           {historyOpen && account.payments.length > 0 && (
-            <div style={{marginTop:'8px',borderTop:`1px solid ${P.s2}`,paddingTop:'8px'}} onClick={e => e.stopPropagation()}>
+            <div style={{marginTop:'8px',borderTop:`1px solid ${M.s2}`,paddingTop:'8px'}} onClick={e => e.stopPropagation()}>
               {account.payments
                 .slice()
                 .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
                 .map((pay, i) => (
-                  <div key={i} className="flex items-center gap-2 py-1.5" style={{borderBottom:`1px solid ${P.s2}`}}>
-                    <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:'#5CB86A',flexShrink:0,width:'90px'}}>
+                  <div key={i} className="flex items-center gap-2 py-1.5" style={{borderBottom:`1px solid ${M.s2}`}}>
+                    <span className="tabular-nums" style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:M.success,flexShrink:0,width:'90px'}}>
                       {fmt(pay.amount, currency)}
                     </span>
-                    <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,flex:1}}>
+                    <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:M.ts,flex:1}}>
                       {fmtDate(pay.date.split('T')[0])}
                     </span>
                     {pay.method && (
-                      <span style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.gd,flexShrink:0}}>{pay.method}</span>
+                      <span style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:M.gp,flexShrink:0}}>{pay.method}</span>
                     )}
                   </div>
                 ))
@@ -1490,8 +1474,8 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
           sorted.find(s => s.status !== 'cancelled' && s.status !== 'paid' && !isPartial(s));
 
         if (!nextItem) return (
-          <div style={{marginTop:'12px',borderTop:`1px solid ${P.s2}`,paddingTop:'12px'}}>
-            <p style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:'#5CB86A',display:'flex',alignItems:'center',gap:'6px'}}>
+          <div style={{marginTop:'12px',borderTop:`1px solid ${M.s2}`,paddingTop:'12px'}}>
+            <p style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:M.success,display:'flex',alignItems:'center',gap:'6px'}}>
               🎉 <span>Fully paid!</span>
             </p>
           </div>
@@ -1500,7 +1484,7 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
         const dueDate = new Date(nextItem.due_date + 'T00:00:00Z');
         const diffDays = Math.ceil((dueDate.getTime() - new Date(today + 'T00:00:00Z').getTime()) / 86400000);
         const isItemOverdue = diffDays < 0;
-        const urgencyColor = isItemOverdue ? '#E74C3C' : diffDays === 0 ? '#E8916A' : P.tp;
+        const urgencyColor = isItemOverdue ? M.danger : diffDays === 0 ? M.warning : M.tp;
         const dueLabel = isItemOverdue ? `${Math.abs(diffDays)}d overdue` : diffDays === 0 ? 'Due today' : `Due in ${diffDays}d`;
         // total_due is already the final amount owed — do not subtract paid_amount.
         const amount = nextItem.total_due > 0 ? nextItem.total_due : nextItem.base_amount;
@@ -1509,50 +1493,50 @@ function AccountCard({ account, onViewDetails, onPay }: { account: PortalAccount
         return (
           <div style={{marginTop:'12px'}}>
             <div className="py-3" style={{borderLeft:`3px solid ${urgencyColor}`,paddingLeft:'10px'}}>
-              <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'6px'}}>
+              <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:M.ts,marginBottom:'6px'}}>
                 {isItemOverdue ? '⚠️ Overdue Payment' : '⏰ Next Payment'}
               </p>
               <div className="flex items-baseline justify-between gap-2">
-                <span style={{fontFamily:"Inter,sans-serif",fontSize:'15px',fontWeight:600,color:urgencyColor}}>
+                <span className="tabular-nums" style={{fontFamily:"Inter,sans-serif",fontSize:'15px',fontWeight:600,color:urgencyColor}}>
                   {fmt(amount, currency)}
                 </span>
                 <span style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:urgencyColor}}>
                   {dateLabel}
                 </span>
               </div>
-              <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,marginTop:'3px'}}>{dueLabel}</p>
+              <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:M.ts,marginTop:'3px'}}>{dueLabel}</p>
             </div>
           </div>
         );
       })()}
 
       {/* Footer: view history (left) + view details (right) */}
-      <div className="flex items-center justify-between mt-3 pt-3" style={{borderTop:`1px solid ${P.br}`}}>
+      <div className="flex items-center justify-between mt-3 pt-3" style={{borderTop:`1px solid ${M.br}`}}>
         <button
           onClick={(e) => { e.stopPropagation(); setHistoryOpen(o => !o); }}
-          style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,display:'flex',alignItems:'center',gap:'3px',background:'none',border:'none',cursor:'pointer',padding:0}}
+          style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:M.ts,display:'flex',alignItems:'center',gap:'3px',background:'none',border:'none',cursor:'pointer',padding:0}}
         >
           {historyOpen ? 'Hide history' : 'View history'}
         </button>
-        <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.gp,letterSpacing:'0.08em',display:'flex',alignItems:'center',gap:'4px'}}>
+        <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:M.gp,letterSpacing:'0.08em',display:'flex',alignItems:'center',gap:'4px'}}>
           View <ChevronRight className="h-3.5 w-3.5" />
         </span>
       </div>
       {historyOpen && account.payments.length > 0 && (
-        <div style={{marginTop:'8px',borderTop:`1px solid ${P.s2}`,paddingTop:'8px'}} onClick={e => e.stopPropagation()}>
+        <div style={{marginTop:'8px',borderTop:`1px solid ${M.s2}`,paddingTop:'8px'}} onClick={e => e.stopPropagation()}>
           {account.payments
             .slice()
             .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
             .map((pay, i) => (
-              <div key={i} className="flex items-center gap-2 py-1.5" style={{borderBottom:`1px solid ${P.s2}`}}>
-                <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:'#5CB86A',flexShrink:0,width:'90px'}}>
+              <div key={i} className="flex items-center gap-2 py-1.5" style={{borderBottom:`1px solid ${M.s2}`}}>
+                <span className="tabular-nums" style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:M.success,flexShrink:0,width:'90px'}}>
                   {fmt(pay.amount, currency)}
                 </span>
-                <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,flex:1}}>
+                <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:M.ts,flex:1}}>
                   {fmtDate(pay.date.split('T')[0])}
                 </span>
                 {pay.method && (
-                  <span style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.gd,flexShrink:0}}>{pay.method}</span>
+                  <span style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:M.gp,flexShrink:0}}>{pay.method}</span>
                 )}
               </div>
             ))
