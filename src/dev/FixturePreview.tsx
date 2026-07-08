@@ -20,6 +20,9 @@ import PortalBottomNav, { type PortalTab } from '@/components/portal/shared/Port
 import AnimatedNumber from '@/components/portal/shared/AnimatedNumber';
 import HeroLayawayCard from '@/components/portal/home/HeroLayawayCard';
 import TierStrip from '@/components/portal/home/TierStrip';
+import PaymentJourneyTimeline, { buildJourneyEntries } from '@/components/portal/detail/PaymentJourneyTimeline';
+import ItemizedTotals from '@/components/portal/detail/ItemizedTotals';
+import CompletedPlanBanner from '@/components/portal/detail/CompletedPlanBanner';
 import TierCard from '@/components/customers/TierCard';
 import AccountStatement from '@/components/statements/AccountStatement';
 import { getPHTToday } from '@/lib/date-utils';
@@ -230,6 +233,12 @@ export default function FixturePreview() {
       </div>
     );
   }
+  if (view === 'portal-detail') {
+    // Phase 3 — payment journey timeline, itemized totals, completed-plan
+    // state — standalone preview (same rationale as portal-home: CustomerPortal.tsx
+    // isn't seedable via react-query cache).
+    return <PortalDetailFixture variant={(searchParams.get('variant') ?? 'active') as 'active' | 'penalty' | 'completed'} />;
+  }
   if (view === 'forms') {
     return <FormsFixture />;
   }
@@ -293,6 +302,171 @@ function FormsFixture() {
         action={<Button size="sm" className="gold-gradient text-primary-foreground">New Account</Button>}
       />
       <ErrorState message="Couldn't load the collections trend. Your other dashboard data is unaffected." onRetry={() => {}} />
+    </div>
+  );
+}
+
+/** Phase 3 — payment journey timeline, itemized totals, completed-plan state. */
+function PortalDetailFixture({ variant }: { variant: 'active' | 'penalty' | 'completed' }) {
+  const fixtures = {
+    active: {
+      currency: 'JPY',
+      downpaymentAmount: 90000,
+      payments: [
+        { amount: 90000, date: '2026-03-12', method: 'bank_transfer', reference: 'DP-2201', remarks: 'downpayment' },
+        { amount: 45000, date: '2026-04-12', method: 'paypal', reference: 'PP-1204', remarks: null },
+        { amount: 45000, date: '2026-05-12', method: 'gcash', reference: 'GC-9903', remarks: null },
+      ],
+      schedule: [
+        { installment_number: 1, due_date: '2026-04-12', base_amount: 45000, penalty_amount: 0, penalty_fee_status: null, total_due: 45000, paid_amount: 45000, status: 'paid' },
+        { installment_number: 2, due_date: '2026-05-12', base_amount: 45000, penalty_amount: 0, penalty_fee_status: null, total_due: 45000, paid_amount: 45000, status: 'paid' },
+        { installment_number: 3, due_date: (() => { const d = new Date(); d.setDate(d.getDate() + 3); return d.toISOString().slice(0, 10); })(), base_amount: 45000, penalty_amount: 0, penalty_fee_status: null, total_due: 45000, paid_amount: 0, status: 'pending' },
+        { installment_number: 4, due_date: '2026-08-12', base_amount: 45000, penalty_amount: 0, penalty_fee_status: null, total_due: 45000, paid_amount: 0, status: 'pending' },
+        { installment_number: 5, due_date: '2026-09-12', base_amount: 45000, penalty_amount: 0, penalty_fee_status: null, total_due: 45000, paid_amount: 0, status: 'pending' },
+        { installment_number: 6, due_date: '2026-10-12', base_amount: 45000, penalty_amount: 0, penalty_fee_status: null, total_due: 45000, paid_amount: 0, status: 'pending' },
+      ],
+      totals: { totalAmount: 315000, totalServices: 15000, outstandingPenalties: 0, totalPaid: 180000, remainingBalance: 135000 },
+    },
+    penalty: {
+      currency: 'PHP',
+      downpaymentAmount: 8400,
+      payments: [
+        { amount: 8400, date: '2026-02-01', method: 'bdo', reference: 'DP-1190', remarks: 'downpayment' },
+        { amount: 5000, date: '2026-03-05', method: 'cash', reference: null, remarks: null },
+      ],
+      schedule: [
+        { installment_number: 1, due_date: '2026-03-01', base_amount: 9450, penalty_amount: 500, penalty_fee_status: 'paid', total_due: 9950, paid_amount: 9450, status: 'paid' },
+        { installment_number: 2, due_date: '2026-04-01', base_amount: 9450, penalty_amount: 1000, penalty_fee_status: 'unpaid', total_due: 10450, paid_amount: 5000, status: 'partially_paid' },
+        { installment_number: 3, due_date: '2026-05-01', base_amount: 9450, penalty_amount: 0, penalty_fee_status: null, total_due: 9450, paid_amount: 0, status: 'overdue' },
+        { installment_number: 4, due_date: '2026-06-01', base_amount: 9450, penalty_amount: 0, penalty_fee_status: null, total_due: 9450, paid_amount: 0, status: 'pending' },
+      ],
+      totals: { totalAmount: 46200, totalServices: 0, outstandingPenalties: 1000, totalPaid: 13400, remainingBalance: 33800 },
+    },
+    completed: {
+      currency: 'JPY',
+      downpaymentAmount: 54000,
+      payments: [
+        { amount: 54000, date: '2026-01-10', method: 'bank_transfer', reference: 'DP-0904', remarks: 'downpayment' },
+        { amount: 42000, date: '2026-02-10', method: 'paypal', reference: 'PP-0201', remarks: null },
+        { amount: 42000, date: '2026-03-10', method: 'paypal', reference: 'PP-0347', remarks: null },
+        { amount: 42000, date: '2026-04-10', method: 'gcash', reference: 'GC-1102', remarks: null },
+      ],
+      schedule: [
+        { installment_number: 1, due_date: '2026-02-10', base_amount: 42000, penalty_amount: 0, penalty_fee_status: null, total_due: 42000, paid_amount: 42000, status: 'paid' },
+        { installment_number: 2, due_date: '2026-03-10', base_amount: 42000, penalty_amount: 0, penalty_fee_status: null, total_due: 42000, paid_amount: 42000, status: 'paid' },
+        { installment_number: 3, due_date: '2026-04-10', base_amount: 42000, penalty_amount: 0, penalty_fee_status: null, total_due: 42000, paid_amount: 42000, status: 'paid' },
+      ],
+      totals: { totalAmount: 180000, totalServices: 0, outstandingPenalties: 0, totalPaid: 180000, remainingBalance: 0 },
+    },
+  } as const;
+
+  const fx = fixtures[variant];
+  const entries = buildJourneyEntries({
+    downpaymentAmount: fx.downpaymentAmount,
+    currency: fx.currency,
+    payments: fx.payments as never,
+    schedule: fx.schedule as never,
+  });
+
+  return (
+    <div className="maison-portal font-body min-h-screen bg-background">
+      <DetailHeaderFixture
+        invoiceNumber={variant === 'completed' ? '17903' : variant === 'penalty' ? '18422' : '18734'}
+        statusLabel={variant === 'completed' ? 'Fully Paid' : variant === 'penalty' ? 'Overdue' : 'Active'}
+        totalAmount={fx.totals.totalAmount}
+        remainingBalance={fx.totals.remainingBalance}
+        outstandingPenalties={fx.totals.outstandingPenalties}
+        currency={fx.currency}
+        nextDueDate={variant === 'penalty' ? '2026-06-01' : variant === 'active' ? entries[3]?.dateLabel ?? null : null}
+        nextDueAmount={variant === 'completed' ? null : 45000}
+      />
+      <div className="max-w-lg mx-auto px-4 py-6 space-y-5">
+        {variant === 'completed' && (
+          <CompletedPlanBanner currency={fx.currency} totalPaid={fx.totals.totalPaid} totalObligation={fx.totals.totalAmount} />
+        )}
+        <ItemizedTotals
+          currency={fx.currency}
+          totalAmount={fx.totals.totalAmount}
+          totalServices={fx.totals.totalServices}
+          outstandingPenalties={fx.totals.outstandingPenalties}
+          totalPaid={fx.totals.totalPaid}
+          remainingBalance={fx.totals.remainingBalance}
+        />
+        <PaymentJourneyTimeline entries={entries} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Faithful mock of AccountDetail's Sheet header + tab bar (a private,
+ * non-exported function inside CustomerPortal.tsx — same reason this can't
+ * import the real thing as HeroLayawayCard/TierStrip do). Mirrors the exact
+ * JSX/classes shipped there so this screenshot verifies what customers see.
+ */
+function DetailHeaderFixture({ invoiceNumber, statusLabel, totalAmount, remainingBalance, outstandingPenalties, currency, nextDueDate, nextDueAmount }: {
+  invoiceNumber: string; statusLabel: string; totalAmount: number; remainingBalance: number;
+  outstandingPenalties: number; currency: string; nextDueDate: string | null; nextDueAmount: number | null;
+}) {
+  const [tab, setTab] = useState<'overview' | 'pay' | 'submissions'>('overview');
+  const isOverdue = statusLabel === 'Overdue';
+  const fmtMoney = (n: number) => currency === 'JPY' ? `¥${Math.round(n).toLocaleString('en-US')}` : `₱${n.toLocaleString('en-US')}`;
+  const fmtDateLong = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  return (
+    <div className="bg-background border-b border-border" style={{ padding: '1.25rem 1.25rem 0' }}>
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-[9px] uppercase text-muted-foreground mb-1" style={{ letterSpacing: '0.2em' }}>Invoice</p>
+          <p className="font-display text-2xl text-foreground" style={{ letterSpacing: '0.03em' }}>#{invoiceNumber}</p>
+        </div>
+        <span className={`text-[9px] uppercase rounded-[2px] px-2.5 py-1 border ${statusLabel === 'Fully Paid' ? 'text-[#3E7D5B] border-[#3E7D5B]/40' : statusLabel === 'Overdue' ? 'text-destructive border-destructive/50' : 'text-primary border-primary/50'}`} style={{ letterSpacing: '0.12em' }}>
+          {statusLabel}
+        </span>
+      </div>
+
+      {isOverdue && (
+        <div className="mt-3 flex items-start gap-2.5 p-3 rounded-lg bg-destructive/10 border-l-[3px] border-destructive">
+          <div>
+            <p className="text-xs font-semibold text-destructive">Payment Overdue</p>
+            <p className="text-[11px] text-destructive mt-0.5">Please submit your payment as soon as possible to avoid additional penalties.</p>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <div>
+          <p className="text-[9px] font-medium uppercase text-muted-foreground mb-0.5" style={{ letterSpacing: '0.18em' }}>Total Amount</p>
+          <p className="text-[13px] font-medium text-foreground">{fmtMoney(totalAmount)}</p>
+        </div>
+        <div>
+          <p className="text-[9px] font-medium uppercase text-muted-foreground mb-0.5" style={{ letterSpacing: '0.18em' }}>Balance Due</p>
+          <p className={`text-[13px] font-medium ${isOverdue ? 'text-destructive' : 'text-foreground'}`}>{fmtMoney(remainingBalance)}</p>
+        </div>
+        {outstandingPenalties > 0 && (
+          <p className="text-[11px] text-muted-foreground mt-0.5" style={{ gridColumn: '1 / -1' }}>includes {fmtMoney(outstandingPenalties)} in late penalties</p>
+        )}
+        <div>
+          <p className="text-[9px] font-medium uppercase text-muted-foreground mb-0.5" style={{ letterSpacing: '0.18em' }}>Next Due</p>
+          <p className="text-[13px] font-medium text-foreground">{nextDueDate ? fmtDateLong(nextDueDate) : '—'}</p>
+        </div>
+        <div>
+          <p className="text-[9px] font-medium uppercase text-muted-foreground mb-0.5" style={{ letterSpacing: '0.18em' }}>Next Amount</p>
+          <p className="text-[13px] font-medium text-foreground">{nextDueAmount ? fmtMoney(nextDueAmount) : '—'}</p>
+        </div>
+      </div>
+
+      <div className="mt-4 flex border-t border-border" style={{ marginLeft: '-1.25rem', marginRight: '-1.25rem' }}>
+        {(['overview', 'pay', 'submissions'] as const).map(t => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`flex-1 py-2.5 px-1 text-[11px] uppercase transition-colors ${tab === t ? 'font-semibold text-primary border-b-2 border-primary' : 'font-normal text-muted-foreground border-b-2 border-transparent'}`}
+            style={{ letterSpacing: '0.1em' }}
+          >
+            {t === 'overview' ? 'Schedule' : t === 'pay' ? 'Pay Now' : 'Submissions'}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

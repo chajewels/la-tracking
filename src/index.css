@@ -377,12 +377,19 @@
     --portal-surface-0: 38 44% 96%;   /* #FAF7F2 app background — warm ivory */
     --portal-surface-1: 0 0% 100%;    /* #FFFFFF cards */
     --portal-surface-2: 38 36% 91%;   /* #F1EBE1 subtle wells, timeline track */
-    --portal-gold-600: 42 60% 41%;    /* #A8822A text/CTAs — AA on ivory */
+    /* 2026-07-08: darkened 41%→30% — Phase 3 Lighthouse audit measured the
+     * original at 3.34:1 as text on surface0, short of WCAG AA's 4.5:1. A
+     * first pass to 34% still failed on tinted pill backgrounds (bg-primary/10
+     * etc — the tint lightens the effective background), measuring 4.03:1
+     * there. This shade measures 5.64:1 on plain surface0 and 4.93:1 even on
+     * a 10%-opacity self-tinted pill. See the matching comment in
+     * portal-tokens.ts (keep both in sync). */
+    --portal-gold-600: 42 60% 30%;    /* #7A5F1F text/CTAs — AA-verified on ivory, incl. tinted pills */
     --portal-gold-400: 46 67% 47%;    /* #C9A227 decorative only */
     --portal-ink: 30 10% 15%;         /* #2B2723 primary text */
     --portal-ink-muted: 34 8% 40%;    /* #6E675E secondary text, labels */
     --portal-success: 148 34% 37%;
-    --portal-warning: 36 59% 42%;
+    --portal-warning: 36 59% 32%;      /* 2026-07-08: darkened 42%→32% (see portal-tokens.ts) */
     --portal-danger: 2 45% 44%;
     --portal-info: 209 30% 42%;
 
@@ -394,7 +401,10 @@
     --popover: var(--portal-surface-1);
     --popover-foreground: var(--portal-ink);
     --primary: var(--portal-gold-600);
-    --primary-foreground: var(--portal-ink);
+    /* White, not --portal-ink: ink-on-gold600 only hit 4.16:1 even at the
+     * original (lighter) gold — darkening gold600 for text-on-ivory contrast
+     * would have made ink-on-gold worse. White-on-gold600(30%) is 6.03:1. */
+    --primary-foreground: 0 0% 100%;
     --secondary: var(--portal-surface-2);
     --secondary-foreground: var(--portal-ink);
     --muted: var(--portal-surface-2);

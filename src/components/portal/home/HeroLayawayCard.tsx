@@ -53,9 +53,13 @@ export default function HeroLayawayCard({ account, onPay, onViewDetails }: HeroL
     else if (days <= 3) dueBadge = { text: `Due in ${days} day${days === 1 ? '' : 's'}`, tone: 'warning' };
   }
 
+  // NOTE: warning uses the raw --portal-warning arbitrary value, never the
+  // `text-warning` Tailwind utility — that utility resolves to the Hub's
+  // --warning CSS var (only --destructive is re-scoped for Maison in
+  // .maison-portal), which would leak a Deco Ledger color into Maison.
   const badgeToneClass = {
     default: 'bg-secondary text-muted-foreground',
-    warning: 'bg-[hsl(var(--portal-warning)/0.12)] text-warning',
+    warning: 'bg-[hsl(var(--portal-warning)/0.12)] text-[hsl(var(--portal-warning))]',
     danger: 'bg-destructive/10 text-destructive',
   } as const;
 

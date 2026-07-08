@@ -26,6 +26,9 @@ import SplashScreen from '@/components/portal/SplashScreen';
 import CashOrdersSection from '@/components/portal/CashOrdersSection';
 import HeroLayawayCard, { type HeroAccount } from '@/components/portal/home/HeroLayawayCard';
 import TierStrip from '@/components/portal/home/TierStrip';
+import PaymentJourneyTimeline, { buildJourneyEntries } from '@/components/portal/detail/PaymentJourneyTimeline';
+import ItemizedTotals from '@/components/portal/detail/ItemizedTotals';
+import CompletedPlanBanner from '@/components/portal/detail/CompletedPlanBanner';
 import {
   CHA_PAYMENT_METHODS,
   type ChaPaymentMethod,
@@ -246,22 +249,6 @@ const statusColor: Record<string, string> = {
   'Final Settlement':'text-[#E8C96D] border-[#C9A84C]/40 bg-transparent',
   'Forfeited':       'text-[#E74C3C] border-[#E74C3C]/50 bg-transparent',
   'Cancelled':       'text-[#555] border-[#333] bg-transparent',
-};
-
-const installmentStatusColor: Record<string, string> = {
-  'paid':          'text-[#5CB86A] border-[#5CB86A]/30 bg-transparent',
-  'overdue':       'text-[#E74C3C] border-[#E74C3C]/30 bg-transparent',
-  'partially_paid':'text-[#E8C96D] border-[#C9A84C]/30 bg-transparent',
-  'pending':       'text-[#9A8F7E] border-[#2A2200] bg-transparent',
-  'cancelled':     'text-[#444] border-[#222] bg-transparent',
-};
-
-const installmentStatusLabel: Record<string, string> = {
-  'paid': 'Paid',
-  'overdue': 'Overdue',
-  'partially_paid': 'Partial',
-  'pending': 'Upcoming',
-  'cancelled': 'Cancelled',
 };
 
 const submissionStatusConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -1557,7 +1544,6 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
 }) {
   const currency = account.currency;
   const colorClass = statusColor[account.status_label] || statusColor['Active'];
-  const today = getPHTToday();
   const isOverdue = account.status_label === 'Overdue';
   const canPay = account.remaining_balance > 0 && !['completed', 'cancelled', 'forfeited', 'final_forfeited'].includes(account.status);
   const [activeTab, setActiveTab] = useState<'overview' | 'pay' | 'submissions'>(canPay ? initialTab : 'overview');
@@ -1644,13 +1630,13 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
 
   return (
     <div className="flex flex-col h-full" style={{background:P.bg}}>
-      {/* Header */}
-      <div style={{background:P.bg,borderBottom:`1px solid ${P.gd}`,padding:'1.25rem 1.25rem 0'}}>
+      {/* Header — Maison island; tab bodies below are unaffected (each owns its own background) */}
+      <div className="maison-portal font-body bg-background border-b border-border" style={{padding:'1.25rem 1.25rem 0'}}>
         <SheetHeader className="mb-0">
           <div className="flex items-start justify-between">
             <div>
-              <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'4px'}}>Invoice</p>
-              <SheetTitle style={{fontFamily:CG,fontSize:'24px',fontWeight:700,color:P.tp,letterSpacing:'0.03em'}}>#{account.invoice_number}</SheetTitle>
+              <p className="text-[9px] uppercase text-muted-foreground mb-1" style={{letterSpacing:'0.2em'}}>Invoice</p>
+              <SheetTitle className="font-display text-2xl text-foreground" style={{letterSpacing:'0.03em'}}>#{account.invoice_number}</SheetTitle>
             </div>
             <Badge variant="outline" className={`text-[9px] ${colorClass}`} style={{borderRadius:'2px',letterSpacing:'0.12em',textTransform:'uppercase',padding:'3px 10px'}}>
               {account.status_label}
@@ -1660,11 +1646,14 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
 
         {/* Overdue Warning */}
         {isOverdue && (
-          <div className="mt-3 flex items-start gap-2.5 p-3" style={{background:'rgba(231,76,60,0.07)',borderLeft:'3px solid #E74C3C'}}>
-            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" style={{color:'#E74C3C'}} />
+          <div className="mt-3 flex items-start gap-2.5 p-3 rounded-lg bg-destructive/10 border-l-[3px] border-destructive">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-destructive" />
             <div>
-              <p style={{fontSize:'12px',fontWeight:600,color:'#E74C3C'}}>Payment Overdue</p>
-              <p style={{fontSize:'11px',color:'rgba(231,76,60,0.75)',marginTop:'2px'}}>
+              <p className="text-xs font-semibold text-destructive">Payment Overdue</p>
+              {/* Full-strength text-destructive, not /75 — the opacity dropped
+                  contrast on this tinted bg-destructive/10 banner to 3.21:1
+                  (Lighthouse), short of WCAG AA's 4.5:1. */}
+              <p className="text-[11px] text-destructive mt-0.5">
                 Please submit your payment as soon as possible to avoid additional penalties.
               </p>
             </div>
@@ -1675,7 +1664,7 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
           <InfoBlock label="Total Amount" value={fmt(account.total_amount, currency)} />
           <InfoBlock label="Balance Due" value={fmt(account.remaining_balance, currency)} highlight={isOverdue} />
           {(account.outstanding_penalties ?? 0) > 0 && (
-            <p style={{ fontFamily: "Inter,sans-serif", fontSize: '11px', color: P.ts, marginTop: '2px', gridColumn: '1 / -1' }}>
+            <p className="text-[11px] text-muted-foreground mt-0.5" style={{ gridColumn: '1 / -1' }}>
               includes {fmt(account.outstanding_penalties, currency)} in late penalties
             </p>
           )}
@@ -1684,26 +1673,13 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
         </div>
 
         {/* Tabs */}
-        <div className="mt-4 flex" style={{borderTop:`1px solid ${P.br}`,marginLeft:'-1.25rem',marginRight:'-1.25rem'}}>
+        <div className="mt-4 flex border-t border-border" style={{marginLeft:'-1.25rem',marginRight:'-1.25rem'}}>
           {(['overview', 'pay', 'submissions'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              style={{
-                flex:1,
-                padding:'10px 4px',
-                fontFamily:"Inter,sans-serif",
-                fontSize:'11px',
-                fontWeight: activeTab === tab ? 600 : 400,
-                letterSpacing:'0.1em',
-                textTransform:'uppercase' as const,
-                color: activeTab === tab ? P.gp : P.ts,
-                background: 'transparent',
-                border:'none',
-                borderBottom: activeTab === tab ? `2px solid ${P.gp}` : '2px solid transparent',
-                cursor:'pointer',
-                transition:'all 0.15s',
-              }}
+              className={`flex-1 py-2.5 px-1 text-[11px] uppercase transition-colors ${activeTab === tab ? 'font-semibold text-primary border-b-2 border-primary' : 'font-normal text-muted-foreground border-b-2 border-transparent'}`}
+              style={{ letterSpacing: '0.1em' }}
             >
               {tab === 'overview' ? 'Schedule' : tab === 'pay' ? 'Pay Now' : `Submissions${account.submissions?.length ? ` (${account.submissions.length})` : ''}`}
             </button>
@@ -1765,7 +1741,7 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
           </div>
         )}
         {activeTab === 'overview' && (
-          <OverviewTab account={account} today={today} />
+          <OverviewTab account={account} />
         )}
         {activeTab === 'pay' && canPay && (
           <PayNowTab
@@ -1835,163 +1811,87 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
   );
 }
 
-/* ─── Overview Tab ─── */
-function OverviewTab({ account, today }: {
-  account: PortalAccount; today: string;
+/* ─── Overview Tab (Maison — payment journey timeline, itemized totals, completed-plan state) ─── */
+const DETAIL_SERVICE_LABELS: Record<string, string> = {
+  resize: 'Resize', certificate: 'Certificate', polish: 'Polish',
+  change_color: 'Change Color', engraving: 'Engraving', repair: 'Repair', other: 'Other',
+};
+
+const serviceJobToneClass: Record<string, string> = {
+  'Received': 'bg-secondary text-muted-foreground',
+  'In Progress': 'bg-primary/10 text-primary',
+  'On Hold': 'bg-[hsl(var(--portal-warning)/0.12)] text-[hsl(var(--portal-warning))]',
+  'Cancelled': 'bg-secondary text-muted-foreground opacity-60',
+  'Completed': 'bg-primary/10 text-primary',
+};
+
+function OverviewTab({ account }: {
+  account: PortalAccount;
 }) {
   const currency = account.currency;
+  const isCompleted = account.status_label === 'Fully Paid';
+  const journeyEntries = buildJourneyEntries({
+    downpaymentAmount: account.downpayment_amount,
+    currency,
+    payments: account.payments,
+    schedule: account.schedule,
+  });
+
   return (
-    <>
-      {/* Progress */}
-      <div>
-        <div className="flex justify-between mb-1.5">
-          <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts}}>{account.paid_installments}/{account.total_installments} installments</span>
-          <span style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts}}>{fmt(account.remaining_balance, currency)} remaining</span>
-        </div>
-        <div style={{height:'2px',background:P.s2}}>
-          <div style={{height:'100%',width:`${account.progress_percent}%`,background:account.status_label==='Fully Paid'?'#5CB86A':P.gr}} />
-        </div>
-      </div>
+    <div className="maison-portal font-body space-y-5">
+      {isCompleted && (
+        <CompletedPlanBanner currency={currency} totalPaid={account.total_paid} totalObligation={account.total_obligation} />
+      )}
 
-      {/* Payment Schedule */}
-      <div>
-        <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'12px'}}>Payment Schedule</p>
-        <div>
-          {account.downpayment_amount > 0 && (() => {
-            const taggedDpPaid2 = account.payments
-              .filter(p => (p.reference && String(p.reference).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment'))
-              .reduce((s, p) => s + p.amount, 0);
-            const totalPaidAll2 = account.payments.reduce((s, p) => s + p.amount, 0);
-            const dpPaid = taggedDpPaid2 > 0 ? taggedDpPaid2 : (account.downpayment_amount > 0 && totalPaidAll2 >= account.downpayment_amount ? account.downpayment_amount : 0);
-            const dpFull = dpPaid >= account.downpayment_amount;
-            const dpPartial = dpPaid > 0 && !dpFull;
-            return (
-              <div className="flex items-center gap-3 py-3" style={{borderBottom:`1px solid ${P.s2}`}}>
-                <div style={{width:'28px',height:'28px',display:'flex',alignItems:'center',justifyContent:'center',background:dpFull?'rgba(92,184,106,0.15)':'rgba(201,168,76,0.1)',color:dpFull?'#5CB86A':P.gp,fontSize:'9px',fontWeight:700,flexShrink:0}}>
-                  {dpFull ? <Check className="h-3.5 w-3.5" /> : 'DP'}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:P.tp,fontWeight:500}}>Downpayment</p>
-                  <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts}}>
-                    {dpFull ? 'Paid' : dpPartial ? `Partial — ${fmt(dpPaid, currency)} paid` : 'Due on order'}
-                  </p>
-                </div>
-                <div className="text-right shrink-0">
-                  <p style={{fontFamily:"Inter,sans-serif",fontSize:'14px',fontWeight:600,color:dpFull?'#5CB86A':P.gp}}>{fmt(account.downpayment_amount, currency)}</p>
-                  {dpPartial && <p style={{fontSize:'10px',color:P.gl}}>Rem: {fmt(account.downpayment_amount - dpPaid, currency)}</p>}
-                </div>
-              </div>
-            );
-          })()}
-          {account.schedule.map((item) => {
-            const isPaid = item.status === 'paid';
-            const isOvd = !isPaid && item.due_date < today && item.status !== 'cancelled';
-            const effectiveStatus = isOvd ? 'overdue' : item.status;
-            const sColor = installmentStatusColor[effectiveStatus] || installmentStatusColor['pending'];
-            const sLabel = isOvd ? 'Overdue' : (installmentStatusLabel[item.status] || item.status);
-            const dueDate = new Date(item.due_date + 'T00:00:00Z');
-            const todayDate = new Date(today + 'T00:00:00Z');
-            const diffDays = Math.ceil((dueDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
-            const isDueSoon = !isPaid && !isOvd && diffDays >= 0 && diffDays <= 7 && item.status !== 'cancelled';
-            const rowColor = isPaid ? '#5CB86A' : isOvd ? '#E74C3C' : isDueSoon ? P.gl : P.ts;
+      <ItemizedTotals
+        currency={currency}
+        totalAmount={account.total_amount}
+        totalServices={account.total_services}
+        outstandingPenalties={account.outstanding_penalties}
+        totalPaid={account.total_paid}
+        remainingBalance={account.remaining_balance}
+      />
 
-            return (
-              <div key={item.installment_number}
-                className="flex items-center gap-3 py-3"
-                style={{borderBottom:`1px solid ${P.s2}`}}
-              >
-                <div style={{width:'28px',height:'28px',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,
-                  background: isPaid?'rgba(92,184,106,0.12)' : isOvd?'rgba(231,76,60,0.1)' : isDueSoon?'rgba(232,201,109,0.1)' : P.s2,
-                  color: rowColor, fontSize:'11px', fontWeight:700}}>
-                  {isPaid ? <Check className="h-3.5 w-3.5" /> : item.installment_number}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:P.tp,fontWeight:500}}>Month {item.installment_number}</p>
-                    <Badge variant="outline" className={`text-[9px] py-0 h-4 ${sColor}`} style={{borderRadius:'2px',letterSpacing:'0.08em'}}>
-                      {isDueSoon ? `Due in ${diffDays}d` : sLabel}
-                    </Badge>
-                  </div>
-                  <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts}}>{fmtDate(item.due_date)}</p>
-                  {item.penalty_amount > 0 && item.penalty_fee_status !== 'waived' && (
-                    item.penalty_fee_status === 'paid' ? (
-                      <Badge variant="outline" className="text-[9px] py-0 h-4 mt-0.5" style={{borderRadius:'2px',color:'#5CB86A',borderColor:'#5CB86A50',background:'transparent'}}>
-                        +{fmt(item.penalty_amount, currency)} penalty (paid)
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-[9px] py-0 h-4 mt-0.5" style={{borderRadius:'2px',color:P.gl,borderColor:`${P.gp}50`,background:'transparent'}}>
-                        +{fmt(item.penalty_amount, currency)} penalty
-                      </Badge>
-                    )
-                  )}
-                </div>
-                <div className="text-right shrink-0">
-                  <p style={{fontFamily:"Inter,sans-serif",fontSize:'14px',fontWeight:600,color:rowColor}}>{fmt(item.base_amount, currency)}</p>
-                  {!isPaid && item.paid_amount > 0 && (
-                    <p style={{fontSize:'10px',color:P.gl}}>Paid: {fmt(item.paid_amount, currency)}</p>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <PaymentJourneyTimeline entries={journeyEntries} />
 
       {/* Additional Services */}
       {account.services && account.services.length > 0 && (
-        <div>
-          <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'12px'}}>Additional Services</p>
-          <div>
-            {account.services.map((svc, idx) => {
-              const SERVICE_LABELS: Record<string, string> = {
-                resize: 'Resize', certificate: 'Certificate', polish: 'Polish',
-                change_color: 'Change Color', engraving: 'Engraving', repair: 'Repair', other: 'Other',
-              };
-              return (
-                <div key={idx} className="flex items-center justify-between py-3" style={{borderBottom:`1px solid ${P.s2}`}}>
-                  <div>
-                    <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:P.tp,fontWeight:500}}>{SERVICE_LABELS[svc.service_type] || svc.service_type}</p>
-                    {svc.description && <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,marginTop:'2px'}}>{svc.description}</p>}
-                  </div>
-                  <p style={{fontFamily:"Inter,sans-serif",fontSize:'14px',fontWeight:600,color:P.gp}}>{fmt(svc.amount, currency)}</p>
+        <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6">
+          <p className="text-[10px] uppercase text-muted-foreground mb-2" style={{ letterSpacing: '0.2em' }}>Additional Services</p>
+          <div className="divide-y divide-border">
+            {account.services.map((svc, idx) => (
+              <div key={idx} className="flex items-center justify-between py-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">{DETAIL_SERVICE_LABELS[svc.service_type] || svc.service_type}</p>
+                  {svc.description && <p className="text-xs text-muted-foreground mt-0.5">{svc.description}</p>}
                 </div>
-              );
-            })}
+                <p className="text-sm font-semibold text-primary tabular-nums">{fmt(svc.amount, currency)}</p>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
       {/* Service Status */}
       {account.service_jobs && account.service_jobs.length > 0 && (
-        <div>
-          <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'12px'}}>Service Status</p>
-          <div>
+        <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6">
+          <p className="text-[10px] uppercase text-muted-foreground mb-2" style={{ letterSpacing: '0.2em' }}>Service Status</p>
+          <div className="divide-y divide-border">
             {account.service_jobs.map((job) => {
-              const SERVICE_LABELS: Record<string, string> = {
-                resize: 'Resize', certificate: 'Certificate', polish: 'Polish',
-                change_color: 'Change Color', engraving: 'Engraving', repair: 'Repair', other: 'Other',
-              };
-              const SERVICE_BADGE: Record<string, { color: string; opacity?: number }> = {
-                'Received': { color: P.ts },
-                'In Progress': { color: P.gp },
-                'On Hold': { color: '#C9881E' },
-                'Cancelled': { color: P.ts, opacity: 0.6 },
-                'Completed': { color: '#5CB86A' },
-              };
-              const badge = SERVICE_BADGE[job.status_label] ?? { color: P.ts };
+              const toneClass = serviceJobToneClass[job.status_label] ?? 'bg-secondary text-muted-foreground';
               const timeline = `Received ${fmtDate(job.date_received)}` +
                 (job.date_completed ? ` · Completed ${fmtDate(job.date_completed)}`
                   : job.estimated_completion ? ` · Est. ${fmtDate(job.estimated_completion)}` : '');
               return (
-                <div key={job.id} className="flex items-center justify-between py-3" style={{borderBottom:`1px solid ${P.s2}`}}>
+                <div key={job.id} className="flex items-center justify-between py-3">
                   <div>
-                    <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:P.tp,fontWeight:500}}>{SERVICE_LABELS[job.service_type] || job.service_type}</p>
-                    {job.service_description && <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,marginTop:'2px'}}>{job.service_description}</p>}
-                    <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,marginTop:'2px'}}>{timeline}</p>
+                    <p className="text-sm font-medium text-foreground">{DETAIL_SERVICE_LABELS[job.service_type] || job.service_type}</p>
+                    {job.service_description && <p className="text-xs text-muted-foreground mt-0.5">{job.service_description}</p>}
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{timeline}</p>
                   </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <span style={{fontFamily:"Inter,sans-serif",fontSize:'9px',textTransform:'uppercase' as const,letterSpacing:'0.1em',padding:'0 8px',borderRadius:'2px',border:`1px solid ${badge.color}`,color:badge.color,background:'transparent',opacity:badge.opacity ?? 1}}>{job.status_label}</span>
-                    <p style={{fontFamily:"Inter,sans-serif",fontSize:'14px',fontWeight:600,color:P.gp}}>{fmt(job.service_fee, currency)}</p>
+                  <div className="flex flex-col items-end gap-1.5">
+                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${toneClass}`}>{job.status_label}</span>
+                    <p className="text-sm font-semibold text-primary tabular-nums">{fmt(job.service_fee, currency)}</p>
                   </div>
                 </div>
               );
@@ -2002,31 +1902,31 @@ function OverviewTab({ account, today }: {
 
       {/* Payment History */}
       {account.payments.length > 0 && (
-        <div>
-          <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'12px'}}>Payment History</p>
-          <div>
+        <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6">
+          <p className="text-[10px] uppercase text-muted-foreground mb-2" style={{ letterSpacing: '0.2em' }}>Payment History</p>
+          <div className="divide-y divide-border">
             {account.payments.map((p, idx) => {
               const isDp = (p.reference && String(p.reference).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment');
               return (
-                <div key={idx} className="flex items-center justify-between py-3" style={{borderBottom:`1px solid ${P.s2}`}}>
+                <div key={idx} className="flex items-center justify-between py-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:P.tp}}>{fmtDate(p.date)}</p>
-                      {isDp && <Badge variant="outline" className="text-[9px] py-0 h-4" style={{borderRadius:'2px',color:P.gp,borderColor:`${P.gp}50`,background:'transparent'}}>Downpayment</Badge>}
+                      <p className="text-sm text-foreground">{fmtDate(p.date)}</p>
+                      {isDp && <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary whitespace-nowrap">Downpayment</span>}
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      {p.method && <span style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,textTransform:'capitalize' as const}}>{p.method}</span>}
-                      {p.reference && !isDp && <span style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts}}>Ref: {p.reference}</span>}
+                      {p.method && <span className="text-[11px] text-muted-foreground capitalize">{p.method}</span>}
+                      {p.reference && !isDp && <span className="text-[11px] text-muted-foreground">Ref: {p.reference}</span>}
                     </div>
                   </div>
-                  <p style={{fontFamily:"Inter,sans-serif",fontSize:'14px',fontWeight:600,color:'#5CB86A'}}>{fmt(p.amount, account.currency)}</p>
+                  <p className="text-sm font-semibold tabular-nums" style={{ color: 'hsl(var(--portal-success))' }}>{fmt(p.amount, account.currency)}</p>
                 </div>
               );
             })}
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -3108,8 +3008,8 @@ function SubmissionsTab({ submissions, accountId, currency, portalToken, onRefre
 function InfoBlock({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div>
-      <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.18em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'3px'}}>{label}</p>
-      <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',fontWeight:500,color:highlight?'#E74C3C':P.tp}}>{value}</p>
+      <p className="text-[9px] font-medium uppercase text-muted-foreground mb-0.5" style={{letterSpacing:'0.18em'}}>{label}</p>
+      <p className={`text-[13px] font-medium ${highlight ? 'text-destructive' : 'text-foreground'}`}>{value}</p>
     </div>
   );
 }

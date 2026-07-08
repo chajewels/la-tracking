@@ -26,8 +26,18 @@ export const palette = {
   surface1: '#FFFFFF',
   /** Subtle wells, timeline tracks */
   surface2: '#F1EBE1',
-  /** Primary brand / CTAs — deeper gold for AA contrast on light backgrounds */
-  gold600: '#A8822A',
+  /**
+   * Primary brand / CTAs. Darkened from the original #A8822A on 2026-07-08
+   * after the Phase 3 Lighthouse audit measured it at only 3.34:1 as text on
+   * surface0 — short of WCAG AA's 4.5:1 for normal text. First pass (#8B6C23,
+   * L 41%→34%) still failed on tinted pill backgrounds (bg-primary/10 etc,
+   * which lighten the effective background) — measured 4.03:1 there. #7A5F1F
+   * (same 42°/60% hue/saturation, L 41%→30%) measures 5.64:1 on plain
+   * surface0 and 4.93:1 even on a 10%-opacity self-tinted pill. Paired with a
+   * white --primary-foreground (was --portal-ink, which only hit 4.16:1 on
+   * the original shade) — see index.css.
+   */
+  gold600: '#7A5F1F',
   /**
    * Decorative accents, icons, the hairline signature. NOTE: this hex is
    * intentionally identical to the Hub's gold500 (#C9A227) — the shared
@@ -40,9 +50,12 @@ export const palette = {
   ink: '#2B2723',
   /** Secondary text, labels */
   inkMuted: '#6E675E',
-  // Semantic — tuned for light backgrounds, AA-verified against white text
+  // Semantic — tuned for light backgrounds, AA-verified as text on surface0/1/2
   success: '#3E7D5B',
-  warning: '#A9762B',
+  /** Darkened from #A9762B on 2026-07-08 (Lighthouse: 3.70:1 on surface0; the
+   * first pass, #926726, still failed on a 12%-tint pill at 4.05:1). #825B21
+   * measures 4.81:1 even on a 12%-tint pill. */
+  warning: '#825B21',
   danger: '#A4423E',
   info: '#4A6B8A',
 } as const;
@@ -55,12 +68,12 @@ export const hslTriplets = {
   surface0: '38 44% 96%',
   surface1: '0 0% 100%',
   surface2: '38 36% 91%',
-  gold600: '42 60% 41%',
+  gold600: '42 60% 30%',
   gold400: '46 67% 47%',
   ink: '30 10% 15%',
   inkMuted: '34 8% 40%',
   success: '148 34% 37%',
-  warning: '36 59% 42%',
+  warning: '36 59% 32%',
   danger: '2 45% 44%',
   info: '209 30% 42%',
 } as const;
