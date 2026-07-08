@@ -24,6 +24,8 @@ import CountrySelect from '@/components/customers/CountrySelect';
 import PromoBanner from '@/components/customers/PromoBanner';
 import SplashScreen from '@/components/portal/SplashScreen';
 import CashOrdersSection from '@/components/portal/CashOrdersSection';
+import HeroLayawayCard, { type HeroAccount } from '@/components/portal/home/HeroLayawayCard';
+import TierStrip from '@/components/portal/home/TierStrip';
 import {
   CHA_PAYMENT_METHODS,
   type ChaPaymentMethod,
@@ -286,6 +288,7 @@ export default function CustomerPortal() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedAccount, setSelectedAccount] = useState<PortalAccount | null>(null);
+  const accountsGridRef = useRef<HTMLDivElement>(null);
   const [initialDetailTab, setInitialDetailTab] = useState<'overview' | 'pay' | 'submissions'>('overview');
   const [showSplash, setShowSplash] = useState(true);
 
@@ -407,6 +410,11 @@ export default function CustomerPortal() {
   const [portalView, setPortalView] = useState<'accounts' | 'profile'>('accounts');
   const [accountSelectModal, setAccountSelectModal] = useState<'single' | 'split' | null>(null);
   const { updateReady, applyUpdate, hasDirtyForm } = usePwaUpdate();
+  // Same access gate LoyaltyEntryCard computes internally (loyalty-access
+  // is react-query-cached under ['loyalty-access', customerId], so this is
+  // a cache read, not a second network call once either call has loaded).
+  const homeLoyaltyAccess = useLoyaltyAccess(data?.customer_id ?? '');
+  const homeHasLoyaltyAccess = (data?.loyalty_enabled ?? homeLoyaltyAccess.isFeatureEnabled) || !!data?.is_loyalty_beta;
 
   const openAccountPay = (account: PortalAccount, mode: 'single' | 'split' = 'single') => {
     setInitialDetailTab('pay');
@@ -425,6 +433,28 @@ export default function CustomerPortal() {
     return a.next_due_date === today;
   });
   const firstPayable = payableAccounts[0];
+
+  // Home hero account: the invoice the server already identified as next
+  // due (summary.next_due_invoice), else the first payable account, else
+  // the most recent account (fully-paid "keepsake" hero). No selection
+  // logic invents data — every branch resolves to an existing account
+  // object from data.accounts, and next_due_invoice is a server pointer.
+  const heroSourceAccount =
+    data?.accounts.find(a => a.invoice_number === data.summary.next_due_invoice)
+    ?? firstPayable
+    ?? data?.accounts[0]
+    ?? null;
+  const heroAccount: HeroAccount | null = heroSourceAccount ? {
+    invoiceNumber: heroSourceAccount.invoice_number,
+    planMonths: heroSourceAccount.payment_plan_months,
+    statusLabel: heroSourceAccount.status_label,
+    progressPercent: heroSourceAccount.progress_percent,
+    currency: heroSourceAccount.currency,
+    nextDueAmount: heroSourceAccount.next_due_amount,
+    nextDueDate: heroSourceAccount.next_due_date,
+    totalPaid: heroSourceAccount.total_paid,
+    totalObligation: heroSourceAccount.total_obligation,
+  } : null;
 
   const fetchPortal = async () => {
     if (bootstrapping) return; // Wait until auth mode is determined
@@ -640,37 +670,40 @@ export default function CustomerPortal() {
       />
     <div style={{background:P.bg,minHeight:'100vh'}}>
       <h1 className="sr-only">Cha Jewels Customer Portal — My Accounts</h1>
-      {/* Header */}
-      <div style={{background:P.bg,borderBottom:`1px solid ${P.gd}`}}>
+      {/* Header — Maison-scoped (ivory), shared across accounts/profile views */}
+      <div className="maison-portal font-body bg-background border-b border-border">
         <div className="max-w-lg sm:max-w-2xl lg:max-w-5xl mx-auto px-4 py-5">
           <div className="flex items-center justify-between">
             <div>
-              <div style={{color:P.gp,fontFamily:CG,fontSize:'24px',fontWeight:600,letterSpacing:'0.15em',textTransform:'uppercase' as const,lineHeight:1.1}}>
+              <div className="font-display text-primary text-xl" style={{ letterSpacing: '0.15em', textTransform: 'uppercase', lineHeight: 1.1 }}>
                 Cha Jewels
               </div>
-              <div style={{height:'1px',background:P.gd,margin:'5px 0 6px'}} />
-              <p style={{color:P.ts,fontFamily:CG,fontSize:'15px',fontStyle:'italic' as const}}>
-                {(() => {
-                  const h = new Date().getHours();
-                  if (h < 12) return 'Good Morning';
-                  if (h < 18) return 'Good Afternoon';
-                  return 'Good Evening';
-                })()},{' '}
-                <span style={{color:P.tp,fontStyle:'normal' as const,fontWeight:500}}>{data.customer_name}</span>
-              </p>
+              <div className="flex items-center gap-2 mt-1.5">
+                <p className="font-display text-foreground text-[15px]">
+                  {(() => {
+                    const h = new Date().getHours();
+                    if (h < 12) return 'Good Morning';
+                    if (h < 18) return 'Good Afternoon';
+                    return 'Good Evening';
+                  })()}, {data.customer_name.split(' ')[0]}
+                </p>
+                {data.loyalty_member?.current_tier?.name && (
+                  <span className="text-[9px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                    {data.loyalty_member.current_tier.name}
+                  </span>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-2">
               {firstPayable && (
                 <button
-                  className="hidden sm:flex items-center px-4 h-9 text-xs font-medium transition-all"
+                  className="hidden sm:flex items-center px-4 h-9 text-xs font-medium rounded-lg transition-all"
                   style={{
-                    background: hasOverdue ? 'none' : P.gr,
-                    border:`1px solid ${P.gp}`,
-                    color: hasOverdue ? P.gp : P.bg,
-                    borderRadius:'2px',
-                    letterSpacing:'0.1em',
-                    textTransform:'uppercase' as const,
-                    cursor:'pointer',
+                    background: hasOverdue ? 'transparent' : 'hsl(var(--primary))',
+                    border: '1px solid hsl(var(--primary))',
+                    color: hasOverdue ? 'hsl(var(--primary))' : 'hsl(var(--primary-foreground))',
+                    letterSpacing: '0.1em',
+                    textTransform: 'uppercase',
                   }}
                   onClick={() => payableAccounts.length === 1 ? openAccountPay(firstPayable, 'single') : setAccountSelectModal('single')}
                 >
@@ -678,15 +711,13 @@ export default function CustomerPortal() {
                 </button>
               )}
               <button
-                className="flex items-center gap-1.5 px-3 h-9 text-xs transition-all"
+                className="flex items-center gap-1.5 px-3 h-9 text-xs rounded-lg transition-all"
                 style={{
-                  background: portalView === 'profile' ? P.gr : 'transparent',
-                  border:`1px solid ${P.gp}`,
-                  color: portalView === 'profile' ? P.bg : P.gp,
-                  borderRadius:'2px',
-                  letterSpacing:'0.1em',
-                  textTransform:'uppercase' as const,
-                  cursor:'pointer',
+                  background: portalView === 'profile' ? 'hsl(var(--primary))' : 'transparent',
+                  border: '1px solid hsl(var(--primary))',
+                  color: portalView === 'profile' ? 'hsl(var(--primary-foreground))' : 'hsl(var(--primary))',
+                  letterSpacing: '0.1em',
+                  textTransform: 'uppercase',
                 }}
                 onClick={() => setPortalView(portalView === 'profile' ? 'accounts' : 'profile')}
               >
@@ -695,15 +726,13 @@ export default function CustomerPortal() {
               </button>
               {authMode === 'session' && (
                 <button
-                  className="flex items-center gap-1.5 px-3 h-9 text-xs transition-all"
+                  className="flex items-center gap-1.5 px-3 h-9 text-xs rounded-lg transition-all"
                   style={{
                     background: 'transparent',
-                    border:`1px solid ${P.gp}`,
-                    color: P.gp,
-                    borderRadius:'2px',
-                    letterSpacing:'0.1em',
-                    textTransform:'uppercase' as const,
-                    cursor:'pointer',
+                    border: '1px solid hsl(var(--primary))',
+                    color: 'hsl(var(--primary))',
+                    letterSpacing: '0.1em',
+                    textTransform: 'uppercase',
                   }}
                   onClick={handleSignOut}
                 >
@@ -740,41 +769,47 @@ export default function CustomerPortal() {
           />
         ) : (
           <>
-            {/* Promotional banner — hidden when no active promos */}
-            <PromoBanner
-              customerId={data.customer_id}
-              invoiceNumber={data.accounts[0]?.invoice_number ?? ''}
-            />
+            {/* Maison hero zone: Phase 2 scope (hero layaway card, tier
+                strip). Everything from the Action Buttons row downward
+                stays in the existing dark theme — later phases. */}
+            <div className="maison-portal font-body space-y-6">
+              {/* Promotional banner — hidden when no active promos */}
+              <PromoBanner
+                customerId={data.customer_id}
+                invoiceNumber={data.accounts[0]?.invoice_number ?? ''}
+              />
 
-            {/* Summary Stats — luxury panel */}
-            <div>
-              <div style={{height:'1px',background:P.gd}} />
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-0">
-                <SummaryTile
-                  label="Accounts"
-                  value={String(data.summary.total_active)}
-                  sub={overdueCount > 0 ? `${overdueCount} overdue` : 'All on track'}
-                  danger={overdueCount > 0}
+              {heroAccount && (
+                <HeroLayawayCard
+                  account={heroAccount}
+                  onPay={() => {
+                    if (!heroSourceAccount) return;
+                    payableAccounts.length === 1
+                      ? openAccountPay(heroSourceAccount, 'single')
+                      : setAccountSelectModal('single');
+                  }}
+                  onViewDetails={() => {
+                    if (!heroSourceAccount) return;
+                    setInitialDetailTab('overview');
+                    setSelectedAccount(heroSourceAccount);
+                  }}
                 />
-                <SummaryTile label="Outstanding" value={fmt(data.summary.total_outstanding, currency)} financial />
-                <SummaryTile label="Amount Spent" value={fmt(data.summary.accumulated_amount_spent || 0, currency)} financial success />
-                <SummaryTile label="Completed" value={String(data.summary.total_completed)} />
-                <SummaryTile
-                  label="Next Due"
-                  value={data.summary.next_due_date ? fmtDate(data.summary.next_due_date) : '—'}
-                  sub={data.summary.next_due_invoice ? `#${data.summary.next_due_invoice}` : undefined}
-                />
-                {(() => {
-                  const spent = data.summary.accumulated_amount_spent || 0;
-                  const total = spent + data.summary.total_outstanding;
-                  const pct = total > 0 ? Math.round(spent / total * 100) : 0;
-                  return <SummaryTile label="Progress" value={`${pct}%`} />;
-                })()}
-              </div>
-              <div style={{height:'1px',background:P.gd}} />
+              )}
+
+              <TierStrip
+                points={homeHasLoyaltyAccess && data.loyalty_member ? data.loyalty_member.remaining_points : null}
+                activePlans={data.summary.total_active}
+                onPointsClick={() => {
+                  if (authMode === 'session') navigate('/loyalty');
+                  else navigate(`/loyalty?token=${encodeURIComponent(token!)}`);
+                }}
+                onPlansClick={() => accountsGridRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              />
             </div>
 
-            {/* Action Buttons */}
+            {/* Action Buttons — retained verbatim: the only entry point to
+                Split Payment mode for customers with 2+ payable accounts
+                (the hero card's CTA only pays the single hero account). */}
             {payableAccounts.length > 0 && (
               <div className={`grid gap-3 ${payableAccounts.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
                 <button
@@ -877,6 +912,7 @@ export default function CustomerPortal() {
             </div>
 
             {/* Account Cards */}
+            <div ref={accountsGridRef} />
             {filtered.length === 0 ? (
               <div style={{background:P.s,border:`1px solid ${P.br}`,borderRadius:'2px',padding:'4rem 2rem',textAlign:'center'}}>
                 <Diamond className="h-10 w-10 mx-auto mb-4" style={{color:P.gd}} />
@@ -1186,23 +1222,6 @@ export default function CustomerPortal() {
   );
 }
 
-/* ─── Summary Tile ─── */
-function SummaryTile({ label, value, financial, danger, success, sub }: {
-  label: string; value: string; financial?: boolean; danger?: boolean; success?: boolean; sub?: string;
-}) {
-  const valueColor = danger ? '#E74C3C' : success ? '#5CB86A' : financial ? P.gp : P.tp;
-  return (
-    <div style={{padding:'1.25rem 1rem',borderRight:`1px solid ${P.br}`,borderBottom:`1px solid ${P.br}`}}>
-      <p style={{fontFamily:"Inter,sans-serif",fontSize:'9px',fontWeight:500,letterSpacing:'0.2em',textTransform:'uppercase' as const,color:P.ts,marginBottom:'6px'}}>
-        {label}
-      </p>
-      <p style={{fontFamily:CG,fontSize:'20px',fontWeight:600,color:valueColor,lineHeight:1.1,fontVariantNumeric:'tabular-nums'}} title={value}>
-        {value}
-      </p>
-      {sub && <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,marginTop:'3px'}}>{sub}</p>}
-    </div>
-  );
-}
 
 /* ─── Loyalty Entry Card ─── */
 function LoyaltyEntryCard({

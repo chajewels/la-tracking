@@ -18,6 +18,8 @@ import { FileText } from 'lucide-react';
 import ProgressRing from '@/components/shared/ProgressRing';
 import PortalBottomNav, { type PortalTab } from '@/components/portal/shared/PortalBottomNav';
 import AnimatedNumber from '@/components/portal/shared/AnimatedNumber';
+import HeroLayawayCard from '@/components/portal/home/HeroLayawayCard';
+import TierStrip from '@/components/portal/home/TierStrip';
 import TierCard from '@/components/customers/TierCard';
 import AccountStatement from '@/components/statements/AccountStatement';
 import { getPHTToday } from '@/lib/date-utils';
@@ -189,6 +191,44 @@ export default function FixturePreview() {
     // Maison mobile nav shell — standalone preview (Phase 1 has not wired
     // this into CustomerPortal.tsx/LoyaltyPortal.tsx yet).
     return <PortalNavFixture />;
+  }
+  if (view === 'portal-home') {
+    // Phase 2 hero card + tier strip — standalone preview. CustomerPortal.tsx
+    // fetches via plain fetch() + supabase.auth.getSession() (not react-query),
+    // so it can't be seeded through the cache like the Hub fixtures; this
+    // renders the extracted components directly with realistic props instead.
+    const variant = searchParams.get('variant') ?? 'due-soon';
+    const heroByVariant: Record<string, Parameters<typeof HeroLayawayCard>[0]['account']> = {
+      'due-soon': { invoiceNumber: '18734', planMonths: 6, statusLabel: 'Active', progressPercent: 62, currency: 'JPY', nextDueAmount: 45000, nextDueDate: (() => { const d = new Date(); d.setDate(d.getDate() + 2); return d.toISOString().slice(0, 10); })(), totalPaid: 279000, totalObligation: 450000 },
+      'overdue': { invoiceNumber: '18422', planMonths: 8, statusLabel: 'Overdue', progressPercent: 38, currency: 'PHP', nextDueAmount: 12500.5, nextDueDate: '2026-06-20', totalPaid: 47500, totalObligation: 125000 },
+      'completed': { invoiceNumber: '17903', planMonths: 3, statusLabel: 'Fully Paid', progressPercent: 100, currency: 'JPY', nextDueAmount: null, nextDueDate: null, totalPaid: 180000, totalObligation: 180000 },
+    };
+    return (
+      <div className="maison-portal font-body min-h-screen bg-background">
+        <div className="border-b border-border">
+          <div className="max-w-lg mx-auto px-4 py-5">
+            <div className="font-display text-primary text-xl" style={{ letterSpacing: '0.15em', textTransform: 'uppercase' }}>Cha Jewels</div>
+            <div className="flex items-center gap-2 mt-1.5">
+              <p className="font-display text-foreground text-[15px]">Good Afternoon, Maria</p>
+              <span className="text-[9px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full bg-primary/10 text-primary">Crown VIP</span>
+            </div>
+          </div>
+        </div>
+        <div className="max-w-lg mx-auto px-4 py-6 space-y-6">
+          <HeroLayawayCard
+            account={heroByVariant[variant]}
+            onPay={() => { document.title = 'hero-pay-clicked'; }}
+            onViewDetails={() => { document.title = 'hero-details-clicked'; }}
+          />
+          <TierStrip
+            points={empty ? null : 12480}
+            activePlans={3}
+            onPointsClick={() => { document.title = 'points-clicked'; }}
+            onPlansClick={() => { document.title = 'plans-clicked'; }}
+          />
+        </div>
+      </div>
+    );
   }
   if (view === 'forms') {
     return <FormsFixture />;
