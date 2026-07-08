@@ -63,7 +63,7 @@ export default defineConfig(({ mode }) => ({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,jpg,jpeg,webp,svg,woff2}'],
         cleanupOutdatedCaches: true,
         // navigateFallback removed: it served SPA navigations from the
         // precached index.html, which lagged behind deploys (the precache

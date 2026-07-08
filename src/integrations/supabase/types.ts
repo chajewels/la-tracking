@@ -3184,6 +3184,69 @@ export type Database = {
         }
         Relationships: []
       }
+      products: {
+        Row: {
+          barcode: string | null
+          collection_titles: string[] | null
+          created_at: string
+          description: string | null
+          handle: string | null
+          id: string
+          image_url: string | null
+          inventory_quantity: number | null
+          price_jpy: number | null
+          product_type: string | null
+          shopify_product_id: string
+          shopify_updated_at: string | null
+          sku: string | null
+          status: string
+          synced_at: string
+          tags: string[] | null
+          title: string
+          vendor: string | null
+        }
+        Insert: {
+          barcode?: string | null
+          collection_titles?: string[] | null
+          created_at?: string
+          description?: string | null
+          handle?: string | null
+          id?: string
+          image_url?: string | null
+          inventory_quantity?: number | null
+          price_jpy?: number | null
+          product_type?: string | null
+          shopify_product_id: string
+          shopify_updated_at?: string | null
+          sku?: string | null
+          status: string
+          synced_at?: string
+          tags?: string[] | null
+          title: string
+          vendor?: string | null
+        }
+        Update: {
+          barcode?: string | null
+          collection_titles?: string[] | null
+          created_at?: string
+          description?: string | null
+          handle?: string | null
+          id?: string
+          image_url?: string | null
+          inventory_quantity?: number | null
+          price_jpy?: number | null
+          product_type?: string | null
+          shopify_product_id?: string
+          shopify_updated_at?: string | null
+          sku?: string | null
+          status?: string
+          synced_at?: string
+          tags?: string[] | null
+          title?: string
+          vendor?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string

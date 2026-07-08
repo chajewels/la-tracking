@@ -36,6 +36,7 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/AUTO-DEPLOY.md — STALE/ARCHIVED: describes the removed GitHub Actions deploy workflow, which never functioned; deploys are via Lovable IDE only
 - docs/PORTAL-PIN-AUTH.md — VERIFY: may be stale (portal migrated to email/password)
 - docs/RECENT-UPDATES.md — older changelog (archived)
+- docs/SHOPIFY-INTEGRATION.md — Shopify↔Hub integration architecture & roadmap (design locked, Phase 0 done)
 
 ## CURRENCY CONVERSION STANDARD — NON-NEGOTIABLE
 
