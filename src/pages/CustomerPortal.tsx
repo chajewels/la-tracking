@@ -43,6 +43,7 @@ import { getPHTToday } from '@/lib/date-utils';
 import { getPortalAuthHeaders } from '@/lib/portal-auth';
 import { getPortalLinkForCustomer } from '@/lib/portal-link';
 import PageMeta from '@/components/seo/PageMeta';
+import OfflineBanner from '@/components/portal/shared/OfflineBanner';
 import { usePwaUpdate } from '@/hooks/usePwaUpdate';
 import { markFormDirty, markFormClean } from '@/lib/pwaUpdate';
 
@@ -526,9 +527,10 @@ export default function CustomerPortal() {
 
   if (loading) {
     return (
-      <div style={{background:P.bg,minHeight:'100vh'}} className="flex flex-col items-center justify-center">
-        <Diamond style={{color:P.gp}} className="h-8 w-8 animate-pulse mb-4" />
-        <p style={{color:P.ts,fontFamily:CG,fontStyle:'italic',fontSize:'15px'}}>Loading your accounts…</p>
+      <div className="maison-portal font-body min-h-screen bg-background flex flex-col items-center justify-center">
+        <OfflineBanner />
+        <Diamond className="h-8 w-8 animate-pulse mb-4 text-primary" />
+        <p className="font-display italic text-muted-foreground" style={{ fontSize: '15px' }}>Loading your accounts…</p>
       </div>
     );
   }
@@ -537,23 +539,26 @@ export default function CustomerPortal() {
   // Show friendly Sign In CTA instead of the hostile 'Invalid Portal Link'
   if (authMode === null && !bootstrapping && !error) {
     return (
-      <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-        <div style={{ background: '#111', border: '1px solid #C9A84C', borderRadius: 12, padding: 40, width: 380, boxSizing: 'border-box', textAlign: 'center' }}>
-          <p style={{ color: '#C9A84C', fontFamily: 'Georgia, serif', fontSize: 22, marginBottom: 4 }}>Cha Jewels</p>
-          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 28 }}>Customer Portal</p>
-          <h1 style={{ color: '#fff', fontFamily: 'Georgia, serif', fontSize: 18, marginBottom: 12, fontWeight: 400 }}>Sign in to your Cha Jewels Portal</h1>
-          <p style={{ color: '#888', fontSize: 13, marginBottom: 24, lineHeight: 1.6 }}>
+      <div className="maison-portal font-body min-h-screen bg-background flex items-center justify-center px-4 py-10">
+        <OfflineBanner />
+        <div className="w-full max-w-sm rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-8 sm:p-10 text-center">
+          <p className="font-display text-primary" style={{ fontSize: 22, marginBottom: 4 }}>Cha Jewels</p>
+          <p className="text-muted-foreground" style={{ fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 28 }}>Customer Portal</p>
+          <h1 className="font-display text-foreground" style={{ fontSize: 18, marginBottom: 12, fontWeight: 400 }}>Sign in to your Cha Jewels Portal</h1>
+          <p className="text-muted-foreground" style={{ fontSize: 13, marginBottom: 24, lineHeight: 1.6 }}>
             Use your email and password to access your accounts.
           </p>
           <button
             onClick={() => navigate('/portal/login')}
-            style={{ width: '100%', padding: 12, background: '#C9A84C', border: 'none', borderRadius: 8, color: '#0a0a0a', fontWeight: 700, fontSize: 14, cursor: 'pointer', marginBottom: 12 }}
+            className="w-full rounded-lg bg-primary text-primary-foreground font-bold mb-3"
+            style={{ padding: 12, fontSize: 14 }}
           >
             Sign In
           </button>
           <button
             onClick={() => navigate('/portal/setup')}
-            style={{ width: '100%', padding: 12, background: 'transparent', border: '1px solid #C9A84C', borderRadius: 8, color: '#C9A84C', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+            className="w-full rounded-lg border border-primary text-primary font-semibold"
+            style={{ padding: 12, fontSize: 13 }}
           >
             First time? Set up your account
           </button>
@@ -570,15 +575,16 @@ export default function CustomerPortal() {
     // the generic 'Invalid Portal Link' branch instead of mislabeling.
     const isExpired = error?.toLowerCase().includes('token expired');
     return (
-      <div style={{background:P.bg,minHeight:'100vh'}} className="flex items-center justify-center p-4">
-        <div style={{background:P.s,border:`1px solid ${P.br}`,borderTop:`2px solid ${P.gp}`,borderRadius:'2px',maxWidth:'400px',width:'100%',padding:'2.5rem 2rem',textAlign:'center'}}>
-          <div style={{color:P.gp,fontFamily:CG,fontSize:'26px',fontWeight:600,letterSpacing:'0.15em',textTransform:'uppercase' as const,marginBottom:'4px'}}>Cha Jewels</div>
-          <div style={{color:P.ts,fontSize:'11px',letterSpacing:'0.2em',textTransform:'uppercase' as const,marginBottom:'2rem',fontFamily:"Inter,sans-serif"}}>Customer Portal</div>
-          <AlertTriangle style={{color:'#E74C3C'}} className="h-10 w-10 mx-auto mb-4" />
-          <h2 style={{color:P.tp,fontFamily:CG,fontSize:'20px',marginBottom:'8px'}}>
+      <div className="maison-portal font-body min-h-screen bg-background flex items-center justify-center p-4">
+        <OfflineBanner />
+        <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] max-w-[400px] w-full text-center" style={{ padding: '2.5rem 2rem' }}>
+          <div className="font-display text-primary" style={{ fontSize: '26px', fontWeight: 600, letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: '4px' }}>Cha Jewels</div>
+          <div className="text-muted-foreground" style={{ fontSize: '11px', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: '2rem' }}>Customer Portal</div>
+          <AlertTriangle className="h-10 w-10 mx-auto mb-4 text-destructive" />
+          <h2 className="font-display text-foreground" style={{ fontSize: '20px', marginBottom: '8px' }}>
             {isExpired ? 'Portal Link Expired' : 'Invalid Portal Link'}
           </h2>
-          <p style={{color:P.ts,fontSize:'13px',lineHeight:'1.6'}}>
+          <p className="text-muted-foreground" style={{ fontSize: '13px', lineHeight: '1.6' }}>
             {isExpired
               ? 'This portal link has expired. Please request a new link from Cha Jewels.'
               : 'This link is invalid or no longer active. Please contact Cha Jewels for a new portal link.'}
@@ -591,10 +597,11 @@ export default function CustomerPortal() {
   // ── PIN gate (skipped for session-auth users) ──
   if (authMode === 'token' && !pinVerified) {
     return (
-      <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-        <div style={{ background: '#111', border: '1px solid #C9A84C', borderRadius: 12, padding: 40, width: 340, textAlign: 'center' }}>
-          <p style={{ color: '#C9A84C', fontFamily: 'Georgia, serif', fontSize: 20, marginBottom: 8 }}>Cha Jewels</p>
-          <p style={{ color: '#fff', fontSize: 14, marginBottom: 24 }}>Enter your 4-digit portal PIN</p>
+      <div className="maison-portal font-body min-h-screen bg-background flex items-center justify-center px-4">
+        <OfflineBanner />
+        <div className="w-full max-w-[340px] rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-10 text-center">
+          <p className="font-display text-primary" style={{ fontSize: 20, marginBottom: 8 }}>Cha Jewels</p>
+          <p className="text-foreground" style={{ fontSize: 14, marginBottom: 24 }}>Enter your 4-digit portal PIN</p>
           <input
             type="password"
             maxLength={4}
@@ -604,19 +611,21 @@ export default function CustomerPortal() {
             value={pin}
             onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
             onKeyDown={e => { if (e.key === 'Enter' && pin.length === 4 && !pinLoading) handlePinSubmit(); }}
-            style={{ width: '100%', padding: '14px', fontSize: 28, textAlign: 'center', letterSpacing: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', boxSizing: 'border-box', marginBottom: 16 }}
+            className="w-full rounded-lg bg-secondary border border-border text-foreground box-border"
+            style={{ padding: '14px', fontSize: 28, textAlign: 'center', letterSpacing: 12, marginBottom: 16 }}
             placeholder="••••"
           />
-          {pinError && <p style={{ color: '#EF4444', fontSize: 12, marginBottom: 12 }}>{pinError}</p>}
+          {pinError && <p className="text-destructive" style={{ fontSize: 12, marginBottom: 12 }}>{pinError}</p>}
           <button
             onClick={handlePinSubmit}
             disabled={pin.length !== 4 || pinLoading}
-            style={{ width: '100%', padding: 12, background: '#C9A84C', border: 'none', borderRadius: 8, color: '#0a0a0a', fontWeight: 700, fontSize: 14, cursor: pin.length !== 4 || pinLoading ? 'not-allowed' : 'pointer', opacity: pin.length !== 4 || pinLoading ? 0.6 : 1 }}
+            className={`w-full rounded-lg bg-primary text-primary-foreground font-bold ${pin.length !== 4 || pinLoading ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+            style={{ padding: 12, fontSize: 14 }}
           >
             {pinLoading ? 'Verifying...' : 'Access My Account'}
           </button>
-          <p style={{ color: '#666', fontSize: 11, marginTop: 16 }}>Forgot your PIN? Contact your staff.</p>
-          <p style={{ color: '#555', fontSize: 10, marginTop: 4 }}>Default PIN: last 4 digits of your registered mobile number</p>
+          <p className="text-muted-foreground" style={{ fontSize: 11, marginTop: 16 }}>Forgot your PIN? Contact your staff.</p>
+          <p className="text-muted-foreground" style={{ fontSize: 10, marginTop: 4 }}>Default PIN: last 4 digits of your registered mobile number</p>
         </div>
       </div>
     );
@@ -658,6 +667,7 @@ export default function CustomerPortal() {
         path="/portal"
       />
     <div style={{background:P.bg,minHeight:'100vh'}}>
+      <OfflineBanner />
       <h1 className="sr-only">Cha Jewels Customer Portal — My Accounts</h1>
       {/* Header — Maison-scoped (ivory), shared across accounts/profile views */}
       <div className="maison-portal font-body bg-background border-b border-border">
@@ -736,15 +746,15 @@ export default function CustomerPortal() {
 
       <div className="max-w-lg sm:max-w-2xl lg:max-w-5xl mx-auto px-4 py-6 space-y-6">
         {updateReady && (
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'12px',background:P.s,border:`1px solid ${P.br}`,borderRadius:'2px',padding:'12px 16px'}}>
+          <div className="maison-portal font-body flex items-center justify-between gap-3 rounded-lg bg-card border border-border px-4 py-3">
             <div className="flex items-center gap-2">
-              <Diamond className="h-4 w-4 shrink-0" style={{color:P.gp}} />
-              <span style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:P.tp}}>A new version is available. Reload to load the latest update.</span>
+              <Diamond className="h-4 w-4 shrink-0 text-primary" />
+              <span className="text-[13px] text-foreground">A new version is available. Reload to load the latest update.</span>
             </div>
             <button
               onClick={() => applyUpdate()}
-              className="shrink-0"
-              style={{background:P.gr,border:'none',borderRadius:'2px',color:P.bg,padding:'6px 14px',fontFamily:"Inter,sans-serif",fontSize:'11px',fontWeight:600,letterSpacing:'0.1em',textTransform:'uppercase' as const,cursor:'pointer'}}
+              className="shrink-0 rounded-lg bg-primary text-primary-foreground px-3.5 py-1.5 text-[11px] font-semibold uppercase"
+              style={{ letterSpacing: '0.1em' }}
             >
               Reload
             </button>
@@ -904,12 +914,12 @@ export default function CustomerPortal() {
             {/* Account Cards */}
             <div ref={accountsGridRef} />
             {filtered.length === 0 ? (
-              <div style={{background:P.s,border:`1px solid ${P.br}`,borderRadius:'2px',padding:'4rem 2rem',textAlign:'center'}}>
-                <Diamond className="h-10 w-10 mx-auto mb-4" style={{color:P.gd}} />
-                <p style={{color:P.tp,fontFamily:CG,fontSize:'18px',marginBottom:'8px'}}>
+              <div className="maison-portal font-body rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] text-center" style={{ padding: '4rem 2rem' }}>
+                <Diamond className="h-10 w-10 mx-auto mb-4 text-primary" />
+                <p className="font-display text-foreground" style={{ fontSize: '18px', marginBottom: '8px' }}>
                   {data.accounts.length === 0 ? "No layaway accounts yet." : 'No accounts match your search.'}
                 </p>
-                <p style={{color:P.ts,fontSize:'13px'}}>
+                <p className="text-muted-foreground" style={{ fontSize: '13px' }}>
                   {data.accounts.length === 0 ? 'Visit Cha Jewels to start your first layaway plan.' : 'Try adjusting your filters.'}
                 </p>
               </div>
@@ -3130,30 +3140,31 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
 
   const locationLabel = locationType === 'japan' ? 'Japan' : locationType === 'philippines' ? 'Philippines' : country || 'International';
 
-  const inputStyle = {background:P.s,border:`1px solid ${P.br}`,borderRadius:'2px',color:P.tp};
+  const fieldClass = "bg-secondary text-foreground border-border";
+  const fieldLabelClass = "text-[10px] uppercase text-muted-foreground";
 
   return (
-    <div className="space-y-5">
+    <div className="maison-portal font-body space-y-5">
       <div className="flex items-center justify-between">
-        <p style={{fontFamily:CG,fontSize:'22px',fontWeight:600,color:P.tp}}>My Profile</p>
+        <p className="font-display text-foreground" style={{ fontSize: '22px', fontWeight: 600 }}>My Profile</p>
         {!editing && (
           <button onClick={() => { resetForm(); setEditing(true); setSuccessMsg(false); }}
-            className="flex items-center gap-1.5 px-3 h-8 transition-opacity hover:opacity-80"
-            style={{background:'transparent',border:`1px solid ${P.gp}`,borderRadius:'2px',color:P.gp,fontFamily:"Inter,sans-serif",fontSize:'11px',letterSpacing:'0.1em',textTransform:'uppercase' as const,cursor:'pointer'}}>
+            className="flex items-center gap-1.5 px-3 h-8 rounded-lg border border-primary text-primary text-[11px] uppercase transition-opacity hover:opacity-80"
+            style={{ letterSpacing: '0.1em' }}>
             <Pencil className="h-3.5 w-3.5" /> Edit
           </button>
         )}
       </div>
 
       {successMsg && (
-        <div className="flex items-center gap-2 p-3" style={{background:'rgba(92,184,106,0.07)',borderLeft:'3px solid #5CB86A'}}>
-          <CheckCircle className="h-4 w-4 shrink-0" style={{color:'#5CB86A'}} />
-          <p style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:'#5CB86A'}}>Your profile has been updated successfully.</p>
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/10 border-l-[3px] border-primary">
+          <CheckCircle className="h-4 w-4 shrink-0 text-primary" />
+          <p className="text-xs text-primary">Your profile has been updated successfully.</p>
         </div>
       )}
 
       {!editing ? (
-        <div style={{background:P.s,border:`1px solid ${P.br}`,borderTop:`2px solid ${P.gp}`,borderRadius:'2px',padding:'1.25rem'}}>
+        <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6">
           {[
             ['Full Name', profile.full_name],
             ['Location', locationLabel],
@@ -3163,24 +3174,24 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
             ['Email', profile.email],
             ['Notes', profile.notes],
           ].map(([lbl, val]) => (
-            <div key={lbl} className="py-2.5 flex gap-4" style={{borderBottom:`1px solid ${P.s2}`}}>
-              <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',fontWeight:500,letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts,width:'100px',flexShrink:0,paddingTop:'1px'}}>{lbl}</p>
-              <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:val?P.tp:P.ts,fontStyle:val?'normal':'italic' as const}}>{val || 'Not set'}</p>
+            <div key={lbl} className="py-2.5 flex gap-4 border-b border-border last:border-b-0">
+              <p className="text-[10px] font-medium uppercase text-muted-foreground pt-px" style={{ letterSpacing: '0.12em', width: '100px', flexShrink: 0 }}>{lbl}</p>
+              <p className={`text-[13px] ${val ? 'text-foreground' : 'text-muted-foreground italic'}`}>{val || 'Not set'}</p>
             </div>
           ))}
         </div>
       ) : (
-        <div style={{background:P.s,border:`1px solid ${P.br}`,borderTop:`2px solid ${P.gp}`,borderRadius:'2px',padding:'1.25rem'}} className="space-y-4">
+        <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6 space-y-4">
           <div className="space-y-1.5">
-            <Label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts}}>Full Name <span style={{color:'#E74C3C'}}>*</span></Label>
-            <Input value={fullName} onChange={(e) => setFullName(e.target.value)} style={inputStyle} />
+            <Label className={fieldLabelClass}>Full Name <span className="text-destructive">*</span></Label>
+            <Input value={fullName} onChange={(e) => setFullName(e.target.value)} className={fieldClass} />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts}}>Location</Label>
+              <Label className={fieldLabelClass}>Location</Label>
               <Select value={locationType} onValueChange={handleLocationChange}>
-                <SelectTrigger style={inputStyle}><SelectValue /></SelectTrigger>
+                <SelectTrigger className={fieldClass}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="japan">Japan</SelectItem>
                   <SelectItem value="philippines">Philippines</SelectItem>
@@ -3190,7 +3201,7 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
             </div>
             {locationType === 'international' && (
               <div className="space-y-1.5">
-                <Label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts}}>Country <span style={{color:'#E74C3C'}}>*</span></Label>
+                <Label className={fieldLabelClass}>Country <span className="text-destructive">*</span></Label>
                 <CountrySelect value={country} onValueChange={setCountry} />
               </div>
             )}
@@ -3198,61 +3209,52 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts}}>Facebook Name</Label>
-              <Input value={facebookName} onChange={(e) => setFacebookName(e.target.value)} style={inputStyle} />
+              <Label className={fieldLabelClass}>Facebook Name</Label>
+              <Input value={facebookName} onChange={(e) => setFacebookName(e.target.value)} className={fieldClass} />
             </div>
             <div className="space-y-1.5">
-              <Label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts}}>Messenger Link</Label>
-              <Input value={messengerLink} onChange={(e) => setMessengerLink(e.target.value)} placeholder="m.me/username" style={inputStyle} />
+              <Label className={fieldLabelClass}>Messenger Link</Label>
+              <Input value={messengerLink} onChange={(e) => setMessengerLink(e.target.value)} placeholder="m.me/username" className={fieldClass} />
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts}}>Mobile Number</Label>
-              <Input value={mobileNumber} onChange={(e) => setMobileNumber(e.target.value)} placeholder="+63 or +81" style={inputStyle} />
+              <Label className={fieldLabelClass}>Mobile Number</Label>
+              <Input value={mobileNumber} onChange={(e) => setMobileNumber(e.target.value)} placeholder="+63 or +81" className={fieldClass} />
             </div>
             <div className="space-y-1.5">
-              <Label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts}}>Email</Label>
-              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} />
+              <Label className={fieldLabelClass}>Email</Label>
+              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={fieldClass} />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',letterSpacing:'0.12em',textTransform:'uppercase' as const,color:P.ts}}>Notes</Label>
+            <Label className={fieldLabelClass}>Notes</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Any notes for Cha Jewels…"
-              style={{...inputStyle, resize:'none' as const}} />
+              className={`${fieldClass} resize-none`} />
           </div>
 
           {formError && (
-            <div className="p-3" style={{background:'rgba(231,76,60,0.07)',borderLeft:'3px solid #E74C3C'}}>
-              <p style={{fontFamily:"Inter,sans-serif",fontSize:'12px',color:'#E74C3C'}}>{formError}</p>
+            <div className="p-3 rounded-lg bg-destructive/10 border-l-[3px] border-destructive">
+              <p className="text-xs text-destructive">{formError}</p>
             </div>
           )}
 
           <div className="flex justify-end gap-3 pt-2">
             <button onClick={() => setEditing(false)} disabled={saving}
-              style={{padding:'8px 16px',background:'transparent',border:`1px solid ${P.br}`,borderRadius:'2px',color:P.ts,fontFamily:"Inter,sans-serif",fontSize:'12px',cursor:'pointer'}}>
+              className="px-4 py-2 rounded-lg border border-border text-muted-foreground text-xs hover:bg-secondary transition-colors">
               Cancel
             </button>
             <button onClick={handleSave} disabled={saving}
-              className="flex items-center gap-1.5"
-              style={{padding:'8px 16px',background:saving?P.s2:P.gr,border:'none',borderRadius:'2px',color:saving?P.ts:P.bg,fontFamily:"Inter,sans-serif",fontSize:'12px',fontWeight:600,letterSpacing:'0.1em',cursor:saving?'not-allowed':'pointer'}}>
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold uppercase ${saving ? 'bg-secondary text-muted-foreground cursor-not-allowed' : 'bg-primary text-primary-foreground cursor-pointer'}`}
+              style={{ letterSpacing: '0.1em' }}>
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
               {saving ? 'Saving…' : 'Save Changes'}
             </button>
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function ProfileField({ label, value }: { label: string; value: string | null | undefined }) {
-  return (
-    <div className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-4">
-      <p style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,width:'120px',flexShrink:0}}>{label}</p>
-      <p style={{fontFamily:"Inter,sans-serif",fontSize:'13px',color:value?P.tp:P.ts,fontStyle:value?'normal':'italic' as const}}>{value || 'Not set'}</p>
     </div>
   );
 }

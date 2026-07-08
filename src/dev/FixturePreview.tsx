@@ -14,7 +14,7 @@ import TypedConfirmField from '@/components/forms/TypedConfirmField';
 import GeoBreakdown from '@/components/dashboard/GeoBreakdown';
 import { EmptyState, ErrorState } from '@/components/shared/EmptyState';
 import { Button } from '@/components/ui/button';
-import { FileText } from 'lucide-react';
+import { FileText, AlertTriangle } from 'lucide-react';
 import ProgressRing from '@/components/shared/ProgressRing';
 import PortalBottomNav, { type PortalTab } from '@/components/portal/shared/PortalBottomNav';
 import AnimatedNumber from '@/components/portal/shared/AnimatedNumber';
@@ -24,6 +24,8 @@ import PaymentJourneyTimeline, { buildJourneyEntries } from '@/components/portal
 import ItemizedTotals from '@/components/portal/detail/ItemizedTotals';
 import CompletedPlanBanner from '@/components/portal/detail/CompletedPlanBanner';
 import AccountStatementSheet from '@/components/portal/statements/AccountStatementSheet';
+import OfflineBanner from '@/components/portal/shared/OfflineBanner';
+import RecentActivity from '@/components/loyalty/RecentActivity';
 import HomeScreen from '@/components/loyalty/screens/HomeScreen';
 import LoyaltyBottomNav, { type LoyaltyTab } from '@/components/loyalty/LoyaltyBottomNav';
 import { LoyaltyComingSoon } from '@/components/loyalty/LoyaltyComingSoon';
@@ -285,6 +287,150 @@ export default function FixturePreview() {
             { service_type: 'resize', description: 'Ring resize to size 7', amount: 15000, currency: 'JPY' },
           ]}
         />
+      </div>
+    );
+  }
+  if (view === 'portal-empty-states') {
+    // Phase 5 — empty-state previews. RecentActivity is the real, exported
+    // component (seeded via setLoyaltyData with an empty transactions
+    // array); the layaway-accounts empty card is a private block inside
+    // CustomerPortal.tsx, replicated here verbatim (same rationale as the
+    // Phase 3 DetailHeaderFixture — it isn't exported/mockable directly).
+    setLoyaltyData(
+      { id: 'fx-m', customer_id: 'fx-c', customer_name: 'Maria', member_id: 'CJ-2026-00808', current_tier: 'Glimmer', is_downgraded: false, available_points: 0, lifetime_points_earned: 0, redeemed_points: 0, lifetime_spend_yen: 0, current_multiplier: 1, amount_needed_for_next_tier: 200000, activity_status: 'Active', email: null, join_date: 'Jul 1, 2026', last_purchase_date: null },
+      [], [], null, [],
+    );
+    return (
+      <div className="maison-portal font-body min-h-screen bg-background p-6 space-y-8 max-w-md mx-auto">
+        <div>
+          <p className="text-xs uppercase text-muted-foreground mb-2" style={{ letterSpacing: '0.15em' }}>Loyalty — Recent Activity (empty)</p>
+          <RecentActivity onViewAll={() => {}} />
+        </div>
+        <div>
+          <p className="text-xs uppercase text-muted-foreground mb-2" style={{ letterSpacing: '0.15em' }}>Home — No Layaway Accounts</p>
+          <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] text-center" style={{ padding: '4rem 2rem' }}>
+            <p className="font-display text-foreground" style={{ fontSize: '18px', marginBottom: '8px' }}>No layaway accounts yet.</p>
+            <p className="text-muted-foreground" style={{ fontSize: '13px' }}>Visit Cha Jewels to start your first layaway plan.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (view === 'portal-fullscreen-states') {
+    // Phase 5 — CustomerPortal.tsx's loading/no-auth/error/PIN-gate states,
+    // replicated verbatim (private inline JSX, not exported — same
+    // rationale as portal-detail's header fixture).
+    const variant = (searchParams.get('variant') ?? 'error-expired') as 'error-expired' | 'error-invalid' | 'pin-gate' | 'no-auth';
+    if (variant === 'no-auth') {
+      return (
+        <div className="maison-portal font-body min-h-screen bg-background flex items-center justify-center px-4 py-10">
+          <div className="w-full max-w-sm rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-8 sm:p-10 text-center">
+            <p className="font-display text-primary" style={{ fontSize: 22, marginBottom: 4 }}>Cha Jewels</p>
+            <p className="text-muted-foreground" style={{ fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 28 }}>Customer Portal</p>
+            <h1 className="font-display text-foreground" style={{ fontSize: 18, marginBottom: 12, fontWeight: 400 }}>Sign in to your Cha Jewels Portal</h1>
+            <p className="text-muted-foreground" style={{ fontSize: 13, marginBottom: 24, lineHeight: 1.6 }}>Use your email and password to access your accounts.</p>
+            <button className="w-full rounded-lg bg-primary text-primary-foreground font-bold mb-3" style={{ padding: 12, fontSize: 14 }}>Sign In</button>
+            <button className="w-full rounded-lg border border-primary text-primary font-semibold" style={{ padding: 12, fontSize: 13 }}>First time? Set up your account</button>
+          </div>
+        </div>
+      );
+    }
+    if (variant === 'pin-gate') {
+      return (
+        <div className="maison-portal font-body min-h-screen bg-background flex items-center justify-center px-4">
+          <div className="w-full max-w-[340px] rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-10 text-center">
+            <p className="font-display text-primary" style={{ fontSize: 20, marginBottom: 8 }}>Cha Jewels</p>
+            <p className="text-foreground" style={{ fontSize: 14, marginBottom: 24 }}>Enter your 4-digit portal PIN</p>
+            <input className="w-full rounded-lg bg-secondary border border-border text-foreground box-border" style={{ padding: '14px', fontSize: 28, textAlign: 'center', letterSpacing: 12, marginBottom: 16 }} placeholder="••••" readOnly value="12" />
+            <button className="w-full rounded-lg bg-primary text-primary-foreground font-bold" style={{ padding: 12, fontSize: 14 }}>Access My Account</button>
+            <p className="text-muted-foreground" style={{ fontSize: 11, marginTop: 16 }}>Forgot your PIN? Contact your staff.</p>
+            <p className="text-muted-foreground" style={{ fontSize: 10, marginTop: 4 }}>Default PIN: last 4 digits of your registered mobile number</p>
+          </div>
+        </div>
+      );
+    }
+    const isExpired = variant === 'error-expired';
+    return (
+      <div className="maison-portal font-body min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] max-w-[400px] w-full text-center" style={{ padding: '2.5rem 2rem' }}>
+          <div className="font-display text-primary" style={{ fontSize: '26px', fontWeight: 600, letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: '4px' }}>Cha Jewels</div>
+          <div className="text-muted-foreground" style={{ fontSize: '11px', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: '2rem' }}>Customer Portal</div>
+          <AlertTriangle className="h-10 w-10 mx-auto mb-4 text-destructive" />
+          <h2 className="font-display text-foreground" style={{ fontSize: '20px', marginBottom: '8px' }}>{isExpired ? 'Portal Link Expired' : 'Invalid Portal Link'}</h2>
+          <p className="text-muted-foreground" style={{ fontSize: '13px', lineHeight: '1.6' }}>
+            {isExpired ? 'This portal link has expired. Please request a new link from Cha Jewels.' : 'This link is invalid or no longer active. Please contact Cha Jewels for a new portal link.'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+  if (view === 'portal-profile') {
+    // Phase 5 — ProfileEditor preview. Private component in
+    // CustomerPortal.tsx (not exported) — replicated verbatim, same
+    // rationale as the other private-function fixtures this phase.
+    const variant = (searchParams.get('variant') ?? 'view') as 'view' | 'edit';
+    const rows: Array<[string, string]> = [
+      ['Full Name', 'Maria Consolación Villanueva-Dela Cruz'],
+      ['Location', 'Philippines'],
+      ['Facebook Name', 'Maria Villanueva'],
+      ['Messenger Link', 'm.me/maria.villanueva'],
+      ['Mobile Number', '+63 917 000 0000'],
+      ['Email', 'maria@example.com'],
+      ['Notes', ''],
+    ];
+    return (
+      <div className="maison-portal font-body min-h-screen bg-background p-6 max-w-md mx-auto">
+        <div className="flex items-center justify-between mb-4">
+          <p className="font-display text-foreground" style={{ fontSize: 22, fontWeight: 600 }}>My Profile</p>
+          {variant === 'view' && (
+            <button className="flex items-center gap-1.5 px-3 h-8 rounded-lg border border-primary text-primary text-[11px] uppercase" style={{ letterSpacing: '0.1em' }}>
+              Edit
+            </button>
+          )}
+        </div>
+        {variant === 'view' ? (
+          <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6">
+            {rows.map(([lbl, val]) => (
+              <div key={lbl} className="py-2.5 flex gap-4 border-b border-border last:border-b-0">
+                <p className="text-[10px] font-medium uppercase text-muted-foreground pt-px" style={{ letterSpacing: '0.12em', width: '100px', flexShrink: 0 }}>{lbl}</p>
+                <p className={`text-[13px] ${val ? 'text-foreground' : 'text-muted-foreground italic'}`}>{val || 'Not set'}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6 space-y-4">
+            <div className="space-y-1.5">
+              <p className="text-[10px] uppercase text-muted-foreground">Full Name <span className="text-destructive">*</span></p>
+              <input className="w-full h-10 rounded-md px-3 bg-secondary text-foreground border border-border" defaultValue={rows[0][1]} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <p className="text-[10px] uppercase text-muted-foreground">Mobile Number</p>
+                <input className="w-full h-10 rounded-md px-3 bg-secondary text-foreground border border-border" defaultValue={rows[4][1]} />
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-[10px] uppercase text-muted-foreground">Email</p>
+                <input className="w-full h-10 rounded-md px-3 bg-secondary text-foreground border border-border" defaultValue={rows[5][1]} />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button className="px-4 py-2 rounded-lg border border-border text-muted-foreground text-xs">Cancel</button>
+              <button className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold uppercase" style={{ letterSpacing: '0.1em' }}>Save Changes</button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (view === 'portal-offline-banner') {
+    // Phase 5 — OfflineBanner, real exported component. navigator.onLine
+    // can't be forced true→false from inside the page; the Playwright
+    // verification script uses browserContext.setOffline(true) instead
+    // of a fixture variant here.
+    return (
+      <div className="maison-portal font-body min-h-screen bg-background p-6">
+        <p className="text-sm text-muted-foreground mb-4">Set the browser context offline to see the banner render at the top of the viewport.</p>
+        <OfflineBanner />
       </div>
     );
   }

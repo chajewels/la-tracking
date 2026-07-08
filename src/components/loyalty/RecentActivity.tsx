@@ -16,13 +16,22 @@ const RecentActivity = ({ onViewAll }: RecentActivityProps) => {
         <h3 className="font-display text-lg font-semibold text-foreground">
           Recent Activity
         </h3>
-        <button
-          onClick={onViewAll}
-          className="text-[13px] text-primary font-body font-semibold tracking-wide"
-        >
-          View All
-        </button>
+        {transactions.length > 0 && (
+          <button
+            onClick={onViewAll}
+            className="text-[13px] text-primary font-body font-semibold tracking-wide"
+          >
+            View All
+          </button>
+        )}
       </div>
+      {transactions.length === 0 ? (
+        <div className="bg-card rounded-xl p-5 shadow-card border-gold-accent text-center">
+          <p className="text-[13px] text-muted-foreground font-body">
+            No activity yet — points show up here after your first order.
+          </p>
+        </div>
+      ) : (
       <div className="space-y-2">
         {transactions.slice(0, 3).map((tx, i) => (
           <motion.div
@@ -61,7 +70,7 @@ const RecentActivity = ({ onViewAll }: RecentActivityProps) => {
             </div>
             <span
               className={`text-sm font-body font-semibold ${
-                tx.points > 0 ? "text-primary" : "text-destructive/70"
+                tx.points > 0 ? "text-primary" : "text-destructive"
               }`}
             >
               {tx.points > 0 ? "+" : ""}
@@ -70,6 +79,7 @@ const RecentActivity = ({ onViewAll }: RecentActivityProps) => {
           </motion.div>
         ))}
       </div>
+      )}
     </div>
   );
 };

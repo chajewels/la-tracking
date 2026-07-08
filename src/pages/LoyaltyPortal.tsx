@@ -28,6 +28,7 @@ import NotificationsScreen from '@/components/loyalty/screens/NotificationsScree
 import ProfileScreen from '@/components/loyalty/screens/ProfileScreen';
 import TiersScreen from '@/components/loyalty/screens/TiersScreen';
 import PageMeta from '@/components/seo/PageMeta';
+import OfflineBanner from '@/components/portal/shared/OfflineBanner';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -160,6 +161,7 @@ function FullScreenWrap({ children }: { children: React.ReactNode }) {
         paddingRight: 'env(safe-area-inset-right)',
       }}
     >
+      <OfflineBanner />
       {children}
     </div>
   );
