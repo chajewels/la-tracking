@@ -4,18 +4,6 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
-const P = {
-  s: '#111111',
-  s2: '#1A1A1A',
-  br: '#2A2200',
-  gp: '#C9A84C',
-  gl: '#E8C96D',
-  tp: '#F5F0E8',
-  ts: '#9A8F7E',
-  gr: 'linear-gradient(135deg,#C9A84C 0%,#E8C96D 50%,#C9A84C 100%)',
-} as const;
-const CG = "'Cormorant Garamond',Georgia,serif";
-
 const BENEFITS = [
   'Earn points on every purchase',
   '4 tiers up to 3× points multiplier',
@@ -60,31 +48,21 @@ export function LoyaltyJoinPrompt({ portalToken, customerId, onJoined }: Loyalty
   }
 
   return (
-    <div
-      className="mx-auto w-full max-w-md rounded-2xl p-6 sm:p-8"
-      style={{
-        background: P.s,
-        border: `2px solid ${P.gp}`,
-        boxShadow: `0 4px 32px ${P.gp}33`,
-      }}
-    >
-      <div
-        className="mb-2 text-center text-2xl sm:text-3xl"
-        style={{ fontFamily: CG, color: P.tp, letterSpacing: '0.02em' }}
-      >
-        <span style={{ background: P.gr, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+    <div className="loyalty-portal font-body mx-auto w-full max-w-md rounded-2xl p-6 sm:p-8 bg-card border-2 border-primary shadow-gold">
+      <div className="mb-2 text-center text-2xl sm:text-3xl font-display" style={{ letterSpacing: '0.02em' }}>
+        <span className="bg-clip-text text-transparent" style={{ backgroundImage: 'linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 50%, hsl(var(--primary)) 100%)' }}>
           Join Cha Jewels Loyalty
         </span>
       </div>
 
-      <p className="mb-5 text-center text-sm" style={{ color: P.ts }}>
+      <p className="mb-5 text-center text-sm text-muted-foreground">
         Earn rewards on every order — opt in once, redeem anytime.
       </p>
 
-      <ul className="mb-6 space-y-2 text-sm" style={{ color: P.tp }}>
+      <ul className="mb-6 space-y-2 text-sm text-foreground">
         {BENEFITS.map((b) => (
           <li key={b} className="flex items-start gap-2">
-            <span style={{ color: P.gl }}>◆</span>
+            <span className="text-primary">◆</span>
             <span>{b}</span>
           </li>
         ))}
@@ -93,13 +71,7 @@ export function LoyaltyJoinPrompt({ portalToken, customerId, onJoined }: Loyalty
       <Button
         onClick={handleJoin}
         disabled={joining}
-        className="w-full"
-        style={{
-          background: P.gr,
-          color: '#1A1500',
-          fontWeight: 600,
-          border: 'none',
-        }}
+        className="w-full font-semibold bg-primary text-primary-foreground border-none"
       >
         {joining ? 'Joining…' : 'Join Now'}
       </Button>

@@ -29,6 +29,7 @@ import TierStrip from '@/components/portal/home/TierStrip';
 import PaymentJourneyTimeline, { buildJourneyEntries } from '@/components/portal/detail/PaymentJourneyTimeline';
 import ItemizedTotals from '@/components/portal/detail/ItemizedTotals';
 import CompletedPlanBanner from '@/components/portal/detail/CompletedPlanBanner';
+import AccountStatementSheet from '@/components/portal/statements/AccountStatementSheet';
 import {
   CHA_PAYMENT_METHODS,
   type ChaPaymentMethod,
@@ -275,6 +276,7 @@ export default function CustomerPortal() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedAccount, setSelectedAccount] = useState<PortalAccount | null>(null);
+  const [statementOpen, setStatementOpen] = useState(false);
   const accountsGridRef = useRef<HTMLDivElement>(null);
   const [initialDetailTab, setInitialDetailTab] = useState<'overview' | 'pay' | 'submissions'>('overview');
   const [showSplash, setShowSplash] = useState(true);
@@ -791,6 +793,7 @@ export default function CustomerPortal() {
                   else navigate(`/loyalty?token=${encodeURIComponent(token!)}`);
                 }}
                 onPlansClick={() => accountsGridRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                onStatementClick={heroSourceAccount ? () => setStatementOpen(true) : undefined}
               />
             </div>
 
@@ -1088,6 +1091,30 @@ export default function CustomerPortal() {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* Latest Statement Sheet — same resolved account as the Home hero card */}
+      {heroSourceAccount && (
+        <AccountStatementSheet
+          open={statementOpen}
+          onClose={() => setStatementOpen(false)}
+          invoiceNumber={heroSourceAccount.invoice_number}
+          currency={heroSourceAccount.currency}
+          customerName={data.customer_name}
+          customerCode={data.customer_code}
+          statusLabel={heroSourceAccount.status_label}
+          planMonths={heroSourceAccount.payment_plan_months}
+          orderDate={heroSourceAccount.order_date}
+          downpaymentAmount={heroSourceAccount.downpayment_amount}
+          totalAmount={heroSourceAccount.total_amount}
+          totalServices={heroSourceAccount.total_services}
+          outstandingPenalties={heroSourceAccount.outstanding_penalties}
+          totalPaid={heroSourceAccount.total_paid}
+          remainingBalance={heroSourceAccount.remaining_balance}
+          schedule={heroSourceAccount.schedule}
+          payments={heroSourceAccount.payments}
+          services={heroSourceAccount.services}
+        />
+      )}
 
       {/* ── Announcement pop-up modal ── */}
       {showAnnouncement && announcement && (

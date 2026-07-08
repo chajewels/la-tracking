@@ -4,18 +4,6 @@ import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
-const P = {
-  s: '#111111',
-  s2: '#1A1A1A',
-  br: '#2A2200',
-  gp: '#C9A84C',
-  gl: '#E8C96D',
-  tp: '#F5F0E8',
-  ts: '#9A8F7E',
-  gr: 'linear-gradient(135deg,#C9A84C 0%,#E8C96D 50%,#C9A84C 100%)',
-} as const;
-const CG = "'Cormorant Garamond',Georgia,serif";
-
 export interface LoyaltyComingSoonProps {
   customerEmail?: string | null;
   customerId?: string | null;
@@ -55,36 +43,25 @@ export function LoyaltyComingSoon({
   }
 
   return (
-    <div
-      className="relative mx-auto w-full max-w-md rounded-2xl p-6 sm:p-8"
-      style={{
-        background: P.s,
-        border: `1px solid ${P.br}`,
-        boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
-      }}
-    >
+    <div className="loyalty-portal font-body relative mx-auto w-full max-w-md rounded-2xl p-6 sm:p-8 bg-card shadow-elevated">
       {onDismiss && (
         <button
           aria-label="Dismiss"
           onClick={onDismiss}
-          className="absolute right-3 top-3 text-lg leading-none"
-          style={{ color: P.ts }}
+          className="absolute right-3 top-3 text-lg leading-none text-muted-foreground"
         >
           ×
         </button>
       )}
 
       <div className="text-center">
-        <div
-          className="mb-3 text-3xl sm:text-4xl"
-          style={{ fontFamily: CG, color: P.tp, letterSpacing: '0.02em' }}
-        >
-          <span style={{ background: P.gr, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+        <div className="mb-3 text-3xl sm:text-4xl font-display" style={{ letterSpacing: '0.02em' }}>
+          <span className="bg-clip-text text-transparent" style={{ backgroundImage: 'linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 50%, hsl(var(--primary)) 100%)' }}>
             💎 Cha Jewels Loyalty Program
           </span>
         </div>
 
-        <p className="mb-5 text-sm sm:text-base" style={{ color: P.ts, lineHeight: 1.6 }}>
+        <p className="mb-5 text-sm sm:text-base text-muted-foreground" style={{ lineHeight: 1.6 }}>
           Coming soon! Our loyalty program is launching soon — stay tuned for
           exclusive rewards, tier benefits, and points on every purchase.
         </p>
@@ -97,32 +74,18 @@ export function LoyaltyComingSoon({
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={submitting}
-              className="text-sm"
-              style={{
-                background: P.s2,
-                color: P.tp,
-                borderColor: P.br,
-              }}
+              className="text-sm bg-secondary text-foreground border-border"
             />
             <Button
               onClick={handleNotify}
               disabled={submitting}
-              className="shrink-0"
-              style={{
-                background: P.gr,
-                color: '#1A1500',
-                fontWeight: 600,
-                border: 'none',
-              }}
+              className="shrink-0 font-semibold bg-primary text-primary-foreground border-none"
             >
               {submitting ? 'Saving…' : 'Notify Me'}
             </Button>
           </div>
         ) : (
-          <div
-            className="rounded-md px-3 py-2 text-sm"
-            style={{ background: P.s2, color: P.gl, border: `1px solid ${P.br}` }}
-          >
+          <div className="rounded-md px-3 py-2 text-sm bg-secondary text-primary border border-border">
             ✓ You're on the list
           </div>
         )}

@@ -363,17 +363,24 @@
   /*
    * "Maison" palette — light-luxe Customer Portal.
    * TS mirror + hex values: src/theme/portal-tokens.ts (keep both in sync).
-   * Scoped under .maison-portal exactly like the Hub's `.dark` scope re-
-   * declares the SAME shared shadcn variable names (--background,
-   * --primary, --card, etc.) — any component nested under .maison-portal
-   * (shadcn primitives included) renders Maison-light automatically; the
-   * Hub's global :root/.dark dark values are completely unaffected
-   * outside this scope. Separate --portal-* names below cover Maison
-   * concepts with no Hub equivalent (three-tier surface, ink vs
+   * Scoped under .maison-portal AND .loyalty-portal exactly like the Hub's
+   * `.dark` scope re-declares the SAME shared shadcn variable names
+   * (--background, --primary, --card, etc.) — any component nested under
+   * either class (shadcn primitives included) renders Maison-light
+   * automatically; the Hub's global :root/.dark dark values are completely
+   * unaffected outside these scopes. Separate --portal-* names below cover
+   * Maison concepts with no Hub equivalent (three-tier surface, ink vs
    * ink-muted) — use Tailwind arbitrary-value syntax, e.g.
    * bg-[hsl(var(--portal-surface-2))].
+   *
+   * .loyalty-portal was added here 2026-07-08 (Phase 4) — it previously
+   * only carried the two font-family rules above, so every shadcn-token
+   * component in src/components/loyalty/** (built Maison-ready from the
+   * start: bg-card, text-foreground, text-primary, etc.) was silently
+   * inheriting the Hub's dark :root values instead. Single declaration
+   * block, both selectors — do not fork a second copy for .loyalty-portal.
    */
-  .maison-portal {
+  .maison-portal, .loyalty-portal {
     --portal-surface-0: 38 44% 96%;   /* #FAF7F2 app background — warm ivory */
     --portal-surface-1: 0 0% 100%;    /* #FFFFFF cards */
     --portal-surface-2: 38 36% 91%;   /* #F1EBE1 subtle wells, timeline track */

@@ -65,7 +65,7 @@ const VipProgressSection = ({ onExploreTiers }: VipProgressSectionProps = {}) =>
         more to unlock{' '}
         <span className="font-semibold text-foreground">{nextTier.name}</span>.
       </p>
-      <p className="text-[12px] text-muted-foreground/70 font-body italic">
+      <p className="text-[12px] text-muted-foreground font-body italic">
         {isClose
           ? `You're almost there! Just ¥${remaining.toLocaleString()} away from unlocking ${nextTier.name} benefits.`
           : `You are getting closer to ${nextTier.name} rewards.`}

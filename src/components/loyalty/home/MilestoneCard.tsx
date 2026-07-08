@@ -41,7 +41,7 @@ export default function MilestoneCard({ setTab }: MilestoneCardProps) {
             more to unlock <span className="font-semibold text-primary">{nextTier.name}</span> and enjoy{' '}
             <span className="font-semibold text-foreground">{nextTier.multiplier}x points</span> on every purchase.
           </p>
-          <p className="text-[11px] text-muted-foreground/70 font-body mt-1.5 italic">
+          <p className="text-[11px] text-muted-foreground font-body mt-1.5 italic">
             Unlock: {previewBenefits}
           </p>
           <button

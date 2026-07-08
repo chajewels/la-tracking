@@ -23,6 +23,21 @@ import TierStrip from '@/components/portal/home/TierStrip';
 import PaymentJourneyTimeline, { buildJourneyEntries } from '@/components/portal/detail/PaymentJourneyTimeline';
 import ItemizedTotals from '@/components/portal/detail/ItemizedTotals';
 import CompletedPlanBanner from '@/components/portal/detail/CompletedPlanBanner';
+import AccountStatementSheet from '@/components/portal/statements/AccountStatementSheet';
+import HomeScreen from '@/components/loyalty/screens/HomeScreen';
+import LoyaltyBottomNav, { type LoyaltyTab } from '@/components/loyalty/LoyaltyBottomNav';
+import { LoyaltyComingSoon } from '@/components/loyalty/LoyaltyComingSoon';
+import { LoyaltyJoinPrompt } from '@/components/loyalty/LoyaltyJoinPrompt';
+import RedemptionForm from '@/components/loyalty/RedemptionForm';
+import TierCelebrationModal from '@/components/loyalty/TierCelebrationModal';
+import {
+  setLoyaltyData,
+  TIER_STATIC,
+  type TierName,
+  type LoyaltyMemberData,
+  type LoyaltyTierData,
+  type LoyaltyTransactionData,
+} from '@/components/loyalty/loyaltyData';
 import TierCard from '@/components/customers/TierCard';
 import AccountStatement from '@/components/statements/AccountStatement';
 import { getPHTToday } from '@/lib/date-utils';
@@ -232,6 +247,57 @@ export default function FixturePreview() {
         </div>
       </div>
     );
+  }
+  if (view === 'portal-statement') {
+    // Phase 4 — AccountStatementSheet standalone preview.
+    return (
+      <div className="maison-portal font-body min-h-screen bg-background">
+        <AccountStatementSheet
+          open
+          onClose={() => { document.title = 'statement-closed'; }}
+          invoiceNumber="18734"
+          currency="JPY"
+          customerName="Maria Consolación Villanueva-Dela Cruz"
+          customerCode="CJ-2026-00808"
+          statusLabel="Active"
+          planMonths={6}
+          orderDate="2026-03-12"
+          downpaymentAmount={90000}
+          totalAmount={315000}
+          totalServices={15000}
+          outstandingPenalties={0}
+          totalPaid={180000}
+          remainingBalance={135000}
+          schedule={[
+            { installment_number: 1, due_date: '2026-04-12', base_amount: 45000, penalty_amount: 0, penalty_fee_status: null, total_due: 45000, paid_amount: 45000, status: 'paid' },
+            { installment_number: 2, due_date: '2026-05-12', base_amount: 45000, penalty_amount: 0, penalty_fee_status: null, total_due: 45000, paid_amount: 45000, status: 'paid' },
+            { installment_number: 3, due_date: '2026-07-12', base_amount: 45000, penalty_amount: 0, penalty_fee_status: null, total_due: 45000, paid_amount: 0, status: 'pending' },
+            { installment_number: 4, due_date: '2026-08-12', base_amount: 45000, penalty_amount: 0, penalty_fee_status: null, total_due: 45000, paid_amount: 0, status: 'pending' },
+            { installment_number: 5, due_date: '2026-09-12', base_amount: 45000, penalty_amount: 0, penalty_fee_status: null, total_due: 45000, paid_amount: 0, status: 'pending' },
+            { installment_number: 6, due_date: '2026-10-12', base_amount: 45000, penalty_amount: 0, penalty_fee_status: null, total_due: 45000, paid_amount: 0, status: 'pending' },
+          ]}
+          payments={[
+            { amount: 90000, date: '2026-03-12', method: 'bank_transfer', reference: 'DP-2201', remarks: 'downpayment' },
+            { amount: 45000, date: '2026-04-12', method: 'paypal', reference: 'PP-1204', remarks: null },
+            { amount: 45000, date: '2026-05-12', method: 'gcash', reference: 'GC-9903', remarks: null },
+          ]}
+          services={[
+            { service_type: 'resize', description: 'Ring resize to size 7', amount: 15000, currency: 'JPY' },
+          ]}
+        />
+      </div>
+    );
+  }
+  if (view === 'portal-loyalty') {
+    // Phase 4 — .loyalty-portal retheme, standalone preview. LoyaltyPortal.tsx
+    // fetches via react-query keyed on a bootstrapped auth session (not
+    // reachable from this sandbox), so — same rationale as portal-home/
+    // portal-detail — this renders the real screens/dialogs directly with
+    // loyaltyData.ts seeded via setLoyaltyData(), the same external store
+    // MemberView itself writes to.
+    const variant = (searchParams.get('variant') ?? 'home') as
+      | 'home' | 'redemption' | 'celebration' | 'coming-soon' | 'join-prompt';
+    return <PortalLoyaltyFixture variant={variant} />;
   }
   if (view === 'portal-detail') {
     // Phase 3 — payment journey timeline, itemized totals, completed-plan
@@ -467,6 +533,94 @@ function DetailHeaderFixture({ invoiceNumber, statusLabel, totalAmount, remainin
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** Phase 4 — .loyalty-portal retheme preview: real screens/dialogs, mock loyaltyData.ts store. */
+function PortalLoyaltyFixture({ variant }: { variant: 'home' | 'redemption' | 'celebration' | 'coming-soon' | 'join-prompt' }) {
+  const [tab, setTab] = useState<LoyaltyTab>('home');
+
+  useState(() => {
+    const tiers: LoyaltyTierData[] = (Object.keys(TIER_STATIC) as TierName[]).map((name, i) => ({
+      name,
+      spendRequired: [0, 200_000, 600_000, 1_500_000][i],
+      multiplier: [1, 2, 2, 3][i],
+      ...TIER_STATIC[name],
+    }));
+    const member: LoyaltyMemberData = {
+      id: 'fx-member-1',
+      customer_id: 'fx-customer-1',
+      customer_name: 'Maria Consolación Villanueva-Dela Cruz',
+      member_id: 'CJ-2026-00808',
+      current_tier: 'Elite',
+      is_downgraded: false,
+      available_points: 9_150,
+      lifetime_points_earned: 14_650,
+      redeemed_points: 5_000,
+      lifetime_spend_yen: 620_000,
+      current_multiplier: 2,
+      amount_needed_for_next_tier: 1_500_000 - 620_000,
+      activity_status: 'Active',
+      email: 'maria@example.com',
+      join_date: 'Jun 20, 2025',
+      last_purchase_date: 'Jul 1, 2026',
+    };
+    const transactions: LoyaltyTransactionData[] = [
+      { id: 'fx-tx-1', date: 'Jul 1, 2026', type: 'earned', points: 1_240, description: 'Invoice #18734', source: 'purchase', invoice_number: '18734', spend_amount_jpy: 45_000, tier_multiplier: 2 },
+      { id: 'fx-tx-2', date: 'Jun 10, 2026', type: 'redeemed', points: 2_000, description: 'Shipping fee', source: 'redemption', invoice_number: null, spend_amount_jpy: null, tier_multiplier: null },
+      { id: 'fx-tx-3', date: 'May 12, 2026', type: 'earned', points: 900, description: 'Invoice #18422', source: 'purchase', invoice_number: '18422', spend_amount_jpy: 45_000, tier_multiplier: 2 },
+    ];
+    setLoyaltyData(member, tiers, transactions, null, [
+      { id: 'fx-lot-1', original_amount: 5_000, remaining_amount: 3_150, earned_at: '2026-05-01', expires_at: '2026-08-01' },
+    ]);
+    return null;
+  });
+
+  if (variant === 'coming-soon') {
+    return (
+      <div className="loyalty-portal font-body min-h-screen bg-background flex items-center justify-center p-6">
+        <LoyaltyComingSoon customerEmail="maria@example.com" customerId="fx-customer-1" />
+      </div>
+    );
+  }
+  if (variant === 'join-prompt') {
+    return (
+      <div className="loyalty-portal font-body min-h-screen bg-background flex items-center justify-center p-6">
+        <LoyaltyJoinPrompt portalToken="fx-token" customerId="fx-customer-1" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="loyalty-portal font-body min-h-screen bg-background pb-24">
+      {tab === 'home' && (
+        <HomeScreen
+          canRedeem
+          onRedeemClick={() => { document.title = 'redeem-clicked'; }}
+          setTab={setTab}
+          unreadCount={2}
+          latestUnread={{ title: 'Tier upgrade!', body: "You've reached Elite status." }}
+          birthdayReward={null}
+          portalToken="fx-token"
+          onClaimed={() => {}}
+        />
+      )}
+      <LoyaltyBottomNav active={tab} unreadCount={2} onChange={setTab} />
+      <RedemptionForm
+        isOpen={variant === 'redemption'}
+        onClose={() => { document.title = 'redemption-closed'; }}
+        remainingPoints={9_150}
+        customerId="fx-customer-1"
+        memberId="fx-member-1"
+        portalToken="fx-token"
+      />
+      <TierCelebrationModal
+        tierName="Elite"
+        isOpen={variant === 'celebration'}
+        onClose={() => { document.title = 'celebration-closed'; }}
+        direction="upgrade"
+      />
     </div>
   );
 }

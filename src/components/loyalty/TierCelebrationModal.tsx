@@ -1,24 +1,11 @@
 import { useEffect, useMemo } from 'react';
-import { palette } from '@/theme/tokens';
+import { palette } from '@/theme/portal-tokens';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { TIER_STATIC, useLoyaltyData, type TierName } from './loyaltyData';
 
-const CG = "'Cormorant Garamond',Georgia,serif";
-
-const P = {
-  s: '#111111',
-  s2: '#1A1A1A',
-  br: '#2A2200',
-  gp: '#C9A84C',
-  gl: '#E8C96D',
-  tp: '#F5F0E8',
-  ts: '#9A8F7E',
-  gr: 'linear-gradient(135deg,#C9A84C 0%,#E8C96D 50%,#C9A84C 100%)',
-} as const;
-
 const CONFETTI_COUNT = 14;
-const CONFETTI_COLORS = [palette.gold500, palette.gold300, palette.champagne, '#FFFFFF'];
+const CONFETTI_COLORS = [palette.gold600, palette.gold400, palette.surface2, '#FFFFFF'];
 
 export interface TierCelebrationModalProps {
   tierName: TierName;
@@ -119,32 +106,21 @@ export function TierCelebrationModal({
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
             onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-md rounded-2xl p-7 sm:p-8"
-            style={{
-              background: P.s,
-              border: `1px solid ${P.gp}`,
-              boxShadow: `0 12px 48px ${P.gp}55, 0 4px 16px rgba(0,0,0,0.5)`,
-            }}
+            className="loyalty-portal font-body relative w-full max-w-md rounded-2xl p-7 sm:p-8 bg-card border border-primary"
+            style={{ boxShadow: `0 12px 48px hsl(var(--primary) / 0.33), 0 4px 16px rgba(0,0,0,0.25)` }}
           >
-            <div
-              className="text-center text-xs"
-              style={{ color: P.gl, letterSpacing: '0.28em', textTransform: 'uppercase' }}
-            >
+            <div className="text-center text-xs text-primary" style={{ letterSpacing: '0.28em', textTransform: 'uppercase' }}>
               {isUpgrade ? '🎉 Congratulations!' : 'Tier Update'}
             </div>
 
-            <div
-              className="mt-3 text-center text-sm italic"
-              style={{ color: P.ts, fontFamily: CG }}
-            >
+            <div className="mt-3 text-center text-sm italic font-display text-muted-foreground">
               {isUpgrade ? "You've reached" : 'Your tier has been adjusted to'}
             </div>
 
             <h2
               id="tier-celebration-title"
-              className="mt-1 text-center"
+              className="mt-1 text-center font-display"
               style={{
-                fontFamily: CG,
                 fontSize: 'clamp(36px, 9vw, 52px)',
                 lineHeight: 1.05,
                 letterSpacing: '0.04em',
@@ -157,7 +133,7 @@ export function TierCelebrationModal({
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.4, delay: 0.15 + i * 0.06 }}
                   style={{
-                    background: tierStatic?.textGradient ?? P.gr,
+                    background: tierStatic?.textGradient ?? 'linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 50%, hsl(var(--primary)) 100%)',
                     WebkitBackgroundClip: 'text',
                     WebkitTextFillColor: 'transparent',
                     display: 'inline-block',
@@ -174,12 +150,11 @@ export function TierCelebrationModal({
                 initial={reduce ? false : { opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.7, duration: 0.4 }}
-                className="mx-auto mt-5 max-w-xs space-y-1.5 text-sm"
-                style={{ color: P.tp }}
+                className="mx-auto mt-5 max-w-xs space-y-1.5 text-sm text-foreground"
               >
                 {benefits.map((b) => (
                   <li key={b} className="flex items-start gap-2">
-                    <span style={{ color: P.gl }}>◆</span>
+                    <span className="text-primary">◆</span>
                     <span>{b}</span>
                   </li>
                 ))}
@@ -189,13 +164,7 @@ export function TierCelebrationModal({
             <div className="mt-6 flex justify-center">
               <Button
                 onClick={onClose}
-                className="px-8"
-                style={{
-                  background: P.gr,
-                  color: '#1A1500',
-                  fontWeight: 600,
-                  border: 'none',
-                }}
+                className="px-8 font-semibold bg-primary text-primary-foreground border-none"
               >
                 Continue
               </Button>

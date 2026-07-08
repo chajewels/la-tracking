@@ -137,7 +137,7 @@ export default function ProfileScreen({ setTab, portalToken, birthday, birthdayL
                   : 'Set your birthday to unlock birthday rewards'}
               </p>
               {locked && formattedBirthday && (
-                <p className="text-[11px] text-muted-foreground/60 font-body mt-1">
+                <p className="text-[11px] text-muted-foreground font-body mt-1">
                   🔒 Your birthday is set and can't be changed.
                 </p>
               )}
@@ -180,7 +180,7 @@ export default function ProfileScreen({ setTab, portalToken, birthday, birthdayL
                 ))}
               </select>
             </div>
-            <p className="text-[11px] text-muted-foreground/60 font-body mt-2 italic">
+            <p className="text-[11px] text-muted-foreground font-body mt-2 italic">
               Earn birthday bonus points during your birthday month — the amount scales with your tier.
             </p>
             <div className="mt-3 flex justify-end gap-2">
@@ -240,7 +240,7 @@ export default function ProfileScreen({ setTab, portalToken, birthday, birthdayL
               <item.icon size={16} className="text-primary/60" />
               <span className="text-[13px] font-body font-medium text-foreground">{item.label}</span>
             </div>
-            <ChevronRight size={14} className="text-muted-foreground/40" />
+            <ChevronRight size={14} className="text-muted-foreground" />
           </button>
         ))}
       </div>
@@ -290,7 +290,7 @@ export default function ProfileScreen({ setTab, portalToken, birthday, birthdayL
           alt="Cha Jewels"
           className="w-10 h-10 object-contain opacity-40 mix-blend-multiply dark:mix-blend-screen"
         />
-        <p className="text-[11px] text-muted-foreground/40 font-body italic">
+        <p className="text-[11px] text-muted-foreground font-body italic">
           Cha Jewels Loyalty V1.0
         </p>
       </div>
@@ -335,7 +335,7 @@ export default function ProfileScreen({ setTab, portalToken, birthday, birthdayL
                 Continued participation in the program constitutes acceptance of
                 the latest version.
               </p>
-              <p className="text-[12px] font-body text-muted-foreground/70 italic leading-relaxed">
+              <p className="text-[12px] font-body text-muted-foreground italic leading-relaxed">
                 For questions, contact us via the Contact Support option in your
                 Profile.
               </p>

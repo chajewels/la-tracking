@@ -258,7 +258,7 @@ export default function NotificationsScreen({
                   <p className="text-[12px] text-muted-foreground font-body mt-1 leading-relaxed">
                     {notif.body}
                   </p>
-                  <p className="text-[11px] text-muted-foreground/60 font-body mt-2">
+                  <p className="text-[11px] text-muted-foreground font-body mt-2">
                     {dateLabel(notif.created_at, todayPht, yesterdayPht)}
                   </p>
                 </div>
