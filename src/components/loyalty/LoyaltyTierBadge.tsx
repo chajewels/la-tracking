@@ -1,4 +1,5 @@
 import { TIER_STATIC, TierName } from '@/components/loyalty/loyaltyData';
+import { memberCard } from '@/theme/portal-tokens';
 
 interface LoyaltyTierBadgeProps {
   tierName: string | null | undefined;
@@ -11,7 +12,7 @@ interface LoyaltyTierBadgeProps {
 export default function LoyaltyTierBadge({ tierName, className }: LoyaltyTierBadgeProps) {
   if (!tierName) return null;
   const tier = TIER_STATIC[tierName as TierName];
-  const accent = tier?.accent ?? '#9A8F7E';
+  const accent = tier?.accent ?? memberCard.mutedAccent;
   const icon = tier?.icon ?? '✦';
 
   return (

@@ -742,7 +742,7 @@ function PortalLoyaltyFixture({ variant }: { variant: 'home' | 'redemption' | 'c
     <div className="loyalty-portal font-body min-h-screen bg-background pb-24">
       {tab === 'home' && (
         <HomeScreen
-          canRedeem
+          canRedeem={new URLSearchParams(window.location.search).get('canredeem') !== '0'}
           onRedeemClick={() => { document.title = 'redeem-clicked'; }}
           setTab={setTab}
           unreadCount={2}

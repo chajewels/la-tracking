@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { TrendingUp, Activity, Sparkles } from "lucide-react";
 import { useLoyaltyData } from "@/components/loyalty/loyaltyData";
+import { memberCard } from "@/theme/portal-tokens";
 
 // Scoped keyframes + overlay layers for the diagonal gold-foil shine
 // sweeping across the card surface, plus the damask metallic texture.
@@ -107,10 +108,7 @@ const MemberCard = () => {
     >
       <div
         className="relative"
-        style={{
-          background:
-            'linear-gradient(135deg, #C9A84C 0%, #E8C96D 50%, #C9A84C 100%)',
-        }}
+        style={{ background: memberCard.gradient }}
       >
         <style>{STYLE_BLOCK}</style>
         <div className="member-card-damask" />

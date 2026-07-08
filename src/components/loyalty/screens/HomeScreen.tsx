@@ -12,6 +12,7 @@ import MilestoneCard from '@/components/loyalty/home/MilestoneCard';
 import CommunityCard from '@/components/loyalty/home/CommunityCard';
 import { Button } from '@/components/ui/button';
 import type { LoyaltyTab } from '@/components/loyalty/LoyaltyBottomNav';
+import { memberCard, disabledButton } from '@/theme/portal-tokens';
 
 interface HomeScreenProps {
   canRedeem: boolean;
@@ -59,10 +60,8 @@ export default function HomeScreen({
         disabled={!canRedeem}
         className="w-full max-w-md mx-auto block"
         style={{
-          background: canRedeem
-            ? 'linear-gradient(135deg,#C9A84C 0%,#E8C96D 50%,#C9A84C 100%)'
-            : '#1A1A1A',
-          color: canRedeem ? '#1A1500' : '#9A8F7E',
+          background: canRedeem ? memberCard.gradient : disabledButton.background,
+          color: canRedeem ? memberCard.ink : disabledButton.color,
           fontWeight: 600,
           border: 'none',
         }}

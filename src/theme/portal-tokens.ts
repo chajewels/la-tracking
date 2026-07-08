@@ -105,3 +105,33 @@ export const chartColors = {
   negative: palette.danger,
   neutral: palette.info,
 } as const;
+
+/**
+ * Loyalty member-card gold — a brighter, decorative 3-stop gradient, distinct
+ * from the gold400/gold600 TEXT tokens above (which are darkened for AA on
+ * ivory; this is a large decorative fill, so brightness is intentional). This
+ * is the SINGLE SOURCE for the gradient/accent that was previously duplicated
+ * inline in MemberCard.tsx, ProfileMemberCard.tsx, LoyaltyTierBadge.tsx, and
+ * the HomeScreen "Redeem Points" CTA. Hex literals live here (src/theme/) per
+ * the brand-token rule — call sites import these instead of re-typing them.
+ */
+export const memberCard = {
+  /** The gold gradient used as the member-card surface + the primary CTA fill. */
+  gradient: 'linear-gradient(135deg, #C9A84C 0%, #E8C96D 50%, #C9A84C 100%)',
+  /** Near-black foreground for text/icons sitting on the gold gradient. */
+  ink: '#1A1500',
+  /** Muted tan fallback accent for tier badges (matches TIER_STATIC.Glimmer). */
+  mutedAccent: '#9A8F7E',
+} as const;
+
+/**
+ * Disabled/muted button pairing that reads on the ivory Maison surface — a
+ * light well + muted ink. Replaces the near-black `#1A1A1A` / `#9A8F7E`
+ * dark-theme leftover on the HomeScreen "Redeem Points" button's zero-points
+ * state (a highly visible regression, since that is the default for most
+ * customers).
+ */
+export const disabledButton = {
+  background: `hsl(${hslTriplets.surface2})`,
+  color: `hsl(${hslTriplets.inkMuted})`,
+} as const;

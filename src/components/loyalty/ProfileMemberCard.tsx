@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { useLoyaltyData } from "@/components/loyalty/loyaltyData";
+import { memberCard } from "@/theme/portal-tokens";
 
 const ProfileMemberCard = () => {
   const { member, tiers, transactions } = useLoyaltyData();
@@ -39,8 +40,7 @@ const ProfileMemberCard = () => {
       }}
       className="relative overflow-hidden rounded-2xl shadow-elevated cursor-pointer"
       style={{
-        background:
-          "linear-gradient(135deg, #C9A84C 0%, #E8C96D 50%, #C9A84C 100%)",
+        background: memberCard.gradient,
         boxShadow: "0 8px 32px rgba(201,168,76,0.35)",
       }}
     >
