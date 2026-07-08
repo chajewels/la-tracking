@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { Star, Gem } from "lucide-react";
 import { useLoyaltyData } from "@/components/loyalty/loyaltyData";
+import { pt } from "@/i18n/portal";
 
 interface RecentActivityProps {
   onViewAll?: () => void;
@@ -14,21 +15,21 @@ const RecentActivity = ({ onViewAll }: RecentActivityProps) => {
     <div>
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-display text-lg font-semibold text-foreground">
-          Recent Activity
+          {pt('loyalty.recentActivity')}
         </h3>
         {transactions.length > 0 && (
           <button
             onClick={onViewAll}
             className="text-[13px] text-primary font-body font-semibold tracking-wide"
           >
-            View All
+            {pt('loyalty.viewAll')}
           </button>
         )}
       </div>
       {transactions.length === 0 ? (
         <div className="bg-card rounded-xl p-5 shadow-card border-gold-accent text-center">
           <p className="text-[13px] text-muted-foreground font-body">
-            No activity yet — points show up here after your first order.
+            {pt('loyalty.noActivity')}
           </p>
         </div>
       ) : (

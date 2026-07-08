@@ -1,5 +1,6 @@
 import { ChevronRight, FileText } from 'lucide-react';
 import AnimatedNumber from '@/components/portal/shared/AnimatedNumber';
+import { pt } from '@/i18n/portal';
 
 /**
  * Home screen secondary strip — loyalty points balance and active plans
@@ -27,7 +28,7 @@ export default function TierStrip({ points, activePlans, onPointsClick, onPlansC
           className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-4 text-left transition-transform hover:-translate-y-0.5"
         >
           <div className="flex items-center justify-between">
-            <p className="text-[10px] uppercase text-muted-foreground" style={{ letterSpacing: '0.15em' }}>Points Balance</p>
+            <p className="text-[10px] uppercase text-muted-foreground" style={{ letterSpacing: '0.15em' }}>{pt('home.pointsBalance')}</p>
             <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
           </div>
           <p className="font-display text-2xl text-foreground tabular-nums mt-1">
@@ -40,7 +41,7 @@ export default function TierStrip({ points, activePlans, onPointsClick, onPlansC
           className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-4 text-left transition-transform hover:-translate-y-0.5"
         >
           <div className="flex items-center justify-between">
-            <p className="text-[10px] uppercase text-muted-foreground" style={{ letterSpacing: '0.15em' }}>Active Plans</p>
+            <p className="text-[10px] uppercase text-muted-foreground" style={{ letterSpacing: '0.15em' }}>{pt('home.activePlans')}</p>
             <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
           </div>
           <p className="font-display text-2xl text-foreground tabular-nums mt-1">
@@ -56,7 +57,7 @@ export default function TierStrip({ points, activePlans, onPointsClick, onPlansC
         >
           <span className="flex items-center gap-2">
             <FileText className="h-4 w-4 text-primary" />
-            <span className="text-sm font-medium text-foreground">Latest Statement</span>
+            <span className="text-sm font-medium text-foreground">{pt('home.latestStatement')}</span>
           </span>
           <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
         </button>

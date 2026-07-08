@@ -1,6 +1,7 @@
 import { Check } from 'lucide-react';
 import { differenceInCalendarDays } from 'date-fns';
 import { getPHTToday } from '@/lib/date-utils';
+import { pt } from '@/i18n/portal';
 
 /**
  * Layaway detail — payment journey timeline. The Maison signature: a
@@ -65,12 +66,12 @@ export function buildJourneyEntries(args: {
     const dpPartial = dpPaid > 0 && !dpFull;
     entries.push({
       key: 'downpayment',
-      label: 'Downpayment',
-      dateLabel: dpFull ? 'Paid' : dpPartial ? `Partial — ${dpPaid.toLocaleString('en-US')} paid` : 'Due on order',
+      label: pt('common.downpayment'),
+      dateLabel: dpFull ? pt('detail.dpPaidStatus') : dpPartial ? pt('detail.dpPartial', { amount: dpPaid.toLocaleString('en-US') }) : pt('detail.dpDueOnOrder'),
       amount: downpaymentAmount,
       currency,
       state: dpFull ? 'paid' : dpPartial ? 'partial' : 'pending',
-      stateLabel: dpFull ? 'Paid' : dpPartial ? 'Partial' : 'Due on order',
+      stateLabel: dpFull ? pt('detail.statusPaid') : dpPartial ? pt('detail.statusPartial') : pt('detail.dpDueOnOrder'),
       paidAmount: dpPaid > 0 ? dpPaid : undefined,
     });
   }
@@ -83,16 +84,16 @@ export function buildJourneyEntries(args: {
     const isDueSoon = !isPaid && !isOverdue && !isPartial && days >= 0 && days <= 7 && item.status !== 'cancelled';
 
     let state: JourneyEntryState = 'pending';
-    let stateLabel = 'Upcoming';
-    if (item.status === 'cancelled') { state = 'cancelled'; stateLabel = 'Cancelled'; }
-    else if (isPaid) { state = 'paid'; stateLabel = 'Paid'; }
-    else if (isOverdue) { state = 'overdue'; stateLabel = 'Overdue'; }
-    else if (isPartial) { state = 'partial'; stateLabel = 'Partial'; }
-    else if (isDueSoon) { state = 'dueSoon'; stateLabel = days === 0 ? 'Due today' : `Due in ${days}d`; }
+    let stateLabel = pt('detail.statusUpcoming');
+    if (item.status === 'cancelled') { state = 'cancelled'; stateLabel = pt('detail.statusCancelled'); }
+    else if (isPaid) { state = 'paid'; stateLabel = pt('detail.statusPaid'); }
+    else if (isOverdue) { state = 'overdue'; stateLabel = pt('detail.statusOverdue'); }
+    else if (isPartial) { state = 'partial'; stateLabel = pt('detail.statusPartial'); }
+    else if (isDueSoon) { state = 'dueSoon'; stateLabel = days === 0 ? pt('detail.statusDueToday') : pt('detail.statusDueInDays', { days }); }
 
     entries.push({
       key: `installment-${item.installment_number}`,
-      label: `Month ${item.installment_number}`,
+      label: pt('detail.monthN', { n: item.installment_number }),
       dateLabel: item.due_date,
       amount: item.base_amount,
       currency,
@@ -143,7 +144,7 @@ const badgeToneClass: Record<JourneyEntryState, string> = {
 export default function PaymentJourneyTimeline({ entries }: { entries: JourneyEntry[] }) {
   return (
     <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6">
-      <p className="text-[10px] uppercase text-muted-foreground mb-4" style={{ letterSpacing: '0.2em' }}>Payment Journey</p>
+      <p className="text-[10px] uppercase text-muted-foreground mb-4" style={{ letterSpacing: '0.2em' }}>{pt('detail.paymentJourney')}</p>
       <div>
         {entries.map((entry, idx) => {
           const isLast = idx === entries.length - 1;
@@ -152,7 +153,11 @@ export default function PaymentJourneyTimeline({ entries }: { entries: JourneyEn
             <div key={entry.key} className="flex gap-3.5">
               <div className="flex flex-col items-center">
                 <div className={`h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-semibold shrink-0 ${nodeToneClass[entry.state]}`}>
-                  {entry.state === 'paid' ? <Check className="h-3.5 w-3.5" /> : entry.key === 'downpayment' ? 'DP' : entry.label.replace('Month ', '')}
+                  {/* Node glyph derives the installment number from the key
+                      (installment-N), not by string-replacing the English
+                      word "Month" — locale-independent now that the label is
+                      translated. */}
+                  {entry.state === 'paid' ? <Check className="h-3.5 w-3.5" /> : entry.key === 'downpayment' ? pt('detail.dpNode') : entry.key.replace('installment-', '')}
                 </div>
                 {!isLast && (
                   <div className={`w-0.5 flex-1 min-h-[24px] ${lineFilled ? 'bg-primary' : 'bg-border'}`} />
@@ -172,14 +177,14 @@ export default function PaymentJourneyTimeline({ entries }: { entries: JourneyEn
                     </p>
                     {entry.penalty && (
                       <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full mt-1 ${entry.penalty.status === 'paid' ? 'bg-primary/10 text-primary' : 'bg-destructive/10 text-destructive'}`}>
-                        +{fmt(entry.penalty.amount, entry.currency)} penalty{entry.penalty.status === 'paid' ? ' (paid)' : ''}
+                        {pt(entry.penalty.status === 'paid' ? 'detail.penaltyPaid' : 'detail.penalty', { amount: fmt(entry.penalty.amount, entry.currency) })}
                       </span>
                     )}
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-sm font-semibold text-foreground tabular-nums">{fmt(entry.amount, entry.currency)}</p>
                     {entry.paidAmount != null && (
-                      <p className="text-[10px] text-muted-foreground tabular-nums mt-0.5">Paid: {fmt(entry.paidAmount, entry.currency)}</p>
+                      <p className="text-[10px] text-muted-foreground tabular-nums mt-0.5">{pt('detail.paidAmount', { amount: fmt(entry.paidAmount, entry.currency) })}</p>
                     )}
                   </div>
                 </div>

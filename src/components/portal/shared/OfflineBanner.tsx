@@ -1,5 +1,6 @@
 import { WifiOff } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { pt } from '@/i18n/portal';
 
 /**
  * Fixed top banner shown while the browser reports no network connection.
@@ -18,7 +19,7 @@ export default function OfflineBanner() {
       style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.5rem)' }}
     >
       <WifiOff className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-      <span>You're offline — some information may be out of date.</span>
+      <span>{pt('offline.message')}</span>
     </div>
   );
 }

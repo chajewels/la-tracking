@@ -29,6 +29,7 @@ import ProfileScreen from '@/components/loyalty/screens/ProfileScreen';
 import TiersScreen from '@/components/loyalty/screens/TiersScreen';
 import PageMeta from '@/components/seo/PageMeta';
 import OfflineBanner from '@/components/portal/shared/OfflineBanner';
+import { pt } from '@/i18n/portal';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -185,11 +186,11 @@ function TopBar({ authMode, token }: {
         className="flex items-center gap-1 text-sm text-primary"
       >
         <ArrowLeft className="h-4 w-4" />
-        Back to Portal
+        {pt('nav.backToPortal')}
       </button>
       <div className="flex items-center gap-1.5 font-display text-foreground" style={{ fontSize: '15px', letterSpacing: '0.05em' }}>
         <Diamond className="h-4 w-4 text-primary" />
-        Cha Jewels
+        {pt('common.chaJewels')}
       </div>
       <div className="w-16" />
     </div>
@@ -562,7 +563,7 @@ export default function LoyaltyPortal() {
       return;
     }
     if (portalQuery.isError) {
-      const msg = (portalQuery.error as Error)?.message || 'Unable to load your loyalty status';
+      const msg = (portalQuery.error as Error)?.message || pt('states.errLoadLoyalty');
       toast.error(msg);
       navigate('/portal/login', { replace: true });
     }
@@ -586,14 +587,14 @@ export default function LoyaltyPortal() {
   }
 
   if (portalQuery.isLoading) {
-    return <LoadingState message="Validating your access…" />;
+    return <LoadingState message={pt('states.loyaltyValidating')} />;
   }
   if (!portalQuery.data) {
     // Error already toasted + redirected; render placeholder while route unwinds.
     return <FullScreenWrap><div /></FullScreenWrap>;
   }
   if (access.isLoading) {
-    return <LoadingState message="Loading your loyalty status…" />;
+    return <LoadingState message={pt('states.loyaltyLoading')} />;
   }
 
   const data = portalQuery.data;
@@ -647,7 +648,7 @@ export default function LoyaltyPortal() {
         path="/loyalty"
       />
       <FullScreenWrap>
-        <h1 className="sr-only">Cha Jewels Loyalty Rewards</h1>
+        <h1 className="sr-only">{pt('states.loyaltySrHeading')}</h1>
         <TopBar authMode={authMode} token={token} />
         <MemberView data={data} member={member} portalToken={token} onSignOut={handleSignOut} />
       </FullScreenWrap>

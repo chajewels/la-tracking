@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import PageMeta from '@/components/seo/PageMeta';
+import { pt } from '@/i18n/portal';
 
 export default function PortalLogin() {
   const navigate = useNavigate();
@@ -33,7 +34,7 @@ export default function PortalLogin() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
-      toast.error('Please enter your email and password');
+      toast.error(pt('auth.errEnterEmailPassword'));
       return;
     }
     setLoading(true);
@@ -43,14 +44,14 @@ export default function PortalLogin() {
       toast.error(error.message);
       return;
     }
-    toast.success('Welcome back to Cha Jewels');
+    toast.success(pt('auth.welcomeBack'));
     navigate('/portal', { replace: true });
   };
 
   if (checkingSession) {
     return (
       <div className="maison-portal font-body min-h-screen flex items-center justify-center bg-background">
-        <p className="text-primary text-sm tracking-[0.2em] uppercase">Loading…</p>
+        <p className="text-primary text-sm tracking-[0.2em] uppercase">{pt('common.loading')}</p>
       </div>
     );
   }
@@ -74,22 +75,22 @@ export default function PortalLogin() {
               className="font-display text-primary text-2xl"
               style={{ letterSpacing: '0.3em' }}
             >
-              Cha Jewels
+              {pt('common.chaJewels')}
             </p>
             <p
               className="text-[10px] uppercase mt-2 text-muted-foreground"
               style={{ letterSpacing: '0.2em' }}
             >
-              Customer Portal
+              {pt('common.customerPortal')}
             </p>
           </div>
 
           {/* Heading */}
           <h1 className="font-display text-foreground text-lg mb-1">
-            Welcome back to your Cha Jewels Portal
+            {pt('auth.loginHeading')}
           </h1>
           <p className="text-muted-foreground text-sm mb-6">
-            Sign in to access your accounts
+            {pt('auth.loginSubtitle')}
           </p>
 
           <form onSubmit={handleLogin} className="space-y-5">
@@ -99,7 +100,7 @@ export default function PortalLogin() {
                 className="text-[10px] uppercase block text-primary"
                 style={{ letterSpacing: '0.2em' }}
               >
-                Email
+                {pt('auth.email')}
               </label>
               <input
                 id="portal-login-email"
@@ -107,7 +108,7 @@ export default function PortalLogin() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
+                placeholder={pt('auth.emailPlaceholder')}
                 autoComplete="email"
                 className="w-full h-12 px-4 rounded-lg text-sm text-foreground bg-input border border-border outline-none transition-all duration-300 focus:border-primary focus:ring-2 focus:ring-primary/20"
               />
@@ -119,7 +120,7 @@ export default function PortalLogin() {
                 className="text-[10px] uppercase block text-primary"
                 style={{ letterSpacing: '0.2em' }}
               >
-                Password
+                {pt('auth.password')}
               </label>
               <input
                 id="portal-login-password"
@@ -127,7 +128,7 @@ export default function PortalLogin() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your password"
+                placeholder={pt('auth.passwordPlaceholder')}
                 autoComplete="current-password"
                 className="w-full h-12 px-4 rounded-lg text-sm text-foreground bg-input border border-border outline-none transition-all duration-300 focus:border-primary focus:ring-2 focus:ring-primary/20"
               />
@@ -140,7 +141,7 @@ export default function PortalLogin() {
               className="w-full h-12 rounded-lg bg-primary text-primary-foreground font-semibold text-sm uppercase transition-all duration-300 hover:opacity-90 disabled:opacity-50"
               style={{ letterSpacing: '0.15em' }}
             >
-              {loading ? 'Signing in…' : 'Sign In'}
+              {loading ? pt('auth.signingIn') : pt('auth.signIn')}
             </button>
           </form>
 
@@ -150,14 +151,14 @@ export default function PortalLogin() {
               onClick={() => navigate('/portal/forgot-password')}
               className="text-[11px] tracking-wide text-muted-foreground hover:text-primary transition-colors"
             >
-              Forgot password?
+              {pt('auth.forgotPassword')}
             </button>
             <button
               type="button"
               onClick={() => navigate('/portal/setup')}
               className="text-[11px] tracking-wide text-muted-foreground hover:text-primary transition-colors"
             >
-              First time? Set up
+              {pt('auth.firstTimeSetup')}
             </button>
           </div>
         </div>

@@ -44,6 +44,7 @@ import { getPortalAuthHeaders } from '@/lib/portal-auth';
 import { getPortalLinkForCustomer } from '@/lib/portal-link';
 import PageMeta from '@/components/seo/PageMeta';
 import OfflineBanner from '@/components/portal/shared/OfflineBanner';
+import { pt, serviceLabel } from '@/i18n/portal';
 import { usePwaUpdate } from '@/hooks/usePwaUpdate';
 import { markFormDirty, markFormClean } from '@/lib/pwaUpdate';
 
@@ -500,7 +501,7 @@ export default function CustomerPortal() {
         }),
       };
       setData(normalizedJson);
-    } catch { setError('Unable to load your accounts. Please try again.'); }
+    } catch { setError(pt('states.errLoadAccounts')); }
     finally { setLoading(false); }
   };
 
@@ -530,7 +531,7 @@ export default function CustomerPortal() {
       <div className="maison-portal font-body min-h-screen bg-background flex flex-col items-center justify-center">
         <OfflineBanner />
         <Diamond className="h-8 w-8 animate-pulse mb-4 text-primary" />
-        <p className="font-display italic text-muted-foreground" style={{ fontSize: '15px' }}>Loading your accounts…</p>
+        <p className="font-display italic text-muted-foreground" style={{ fontSize: '15px' }}>{pt('states.loadingAccounts')}</p>
       </div>
     );
   }
@@ -542,25 +543,25 @@ export default function CustomerPortal() {
       <div className="maison-portal font-body min-h-screen bg-background flex items-center justify-center px-4 py-10">
         <OfflineBanner />
         <div className="w-full max-w-sm rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-8 sm:p-10 text-center">
-          <p className="font-display text-primary" style={{ fontSize: 22, marginBottom: 4 }}>Cha Jewels</p>
-          <p className="text-muted-foreground" style={{ fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 28 }}>Customer Portal</p>
-          <h1 className="font-display text-foreground" style={{ fontSize: 18, marginBottom: 12, fontWeight: 400 }}>Sign in to your Cha Jewels Portal</h1>
+          <p className="font-display text-primary" style={{ fontSize: 22, marginBottom: 4 }}>{pt('common.chaJewels')}</p>
+          <p className="text-muted-foreground" style={{ fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 28 }}>{pt('common.customerPortal')}</p>
+          <h1 className="font-display text-foreground" style={{ fontSize: 18, marginBottom: 12, fontWeight: 400 }}>{pt('states.signInTitle')}</h1>
           <p className="text-muted-foreground" style={{ fontSize: 13, marginBottom: 24, lineHeight: 1.6 }}>
-            Use your email and password to access your accounts.
+            {pt('states.signInBody')}
           </p>
           <button
             onClick={() => navigate('/portal/login')}
             className="w-full rounded-lg bg-primary text-primary-foreground font-bold mb-3"
             style={{ padding: 12, fontSize: 14 }}
           >
-            Sign In
+            {pt('states.signIn')}
           </button>
           <button
             onClick={() => navigate('/portal/setup')}
             className="w-full rounded-lg border border-primary text-primary font-semibold"
             style={{ padding: 12, fontSize: 13 }}
           >
-            First time? Set up your account
+            {pt('states.firstTimeSetup')}
           </button>
         </div>
       </div>
@@ -578,16 +579,14 @@ export default function CustomerPortal() {
       <div className="maison-portal font-body min-h-screen bg-background flex items-center justify-center p-4">
         <OfflineBanner />
         <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] max-w-[400px] w-full text-center" style={{ padding: '2.5rem 2rem' }}>
-          <div className="font-display text-primary" style={{ fontSize: '26px', fontWeight: 600, letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: '4px' }}>Cha Jewels</div>
-          <div className="text-muted-foreground" style={{ fontSize: '11px', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: '2rem' }}>Customer Portal</div>
+          <div className="font-display text-primary" style={{ fontSize: '26px', fontWeight: 600, letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: '4px' }}>{pt('common.chaJewels')}</div>
+          <div className="text-muted-foreground" style={{ fontSize: '11px', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: '2rem' }}>{pt('common.customerPortal')}</div>
           <AlertTriangle className="h-10 w-10 mx-auto mb-4 text-destructive" />
           <h2 className="font-display text-foreground" style={{ fontSize: '20px', marginBottom: '8px' }}>
-            {isExpired ? 'Portal Link Expired' : 'Invalid Portal Link'}
+            {isExpired ? pt('states.linkExpiredTitle') : pt('states.linkInvalidTitle')}
           </h2>
           <p className="text-muted-foreground" style={{ fontSize: '13px', lineHeight: '1.6' }}>
-            {isExpired
-              ? 'This portal link has expired. Please request a new link from Cha Jewels.'
-              : 'This link is invalid or no longer active. Please contact Cha Jewels for a new portal link.'}
+            {isExpired ? pt('states.linkExpiredBody') : pt('states.linkInvalidBody')}
           </p>
         </div>
       </div>
@@ -600,8 +599,8 @@ export default function CustomerPortal() {
       <div className="maison-portal font-body min-h-screen bg-background flex items-center justify-center px-4">
         <OfflineBanner />
         <div className="w-full max-w-[340px] rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-10 text-center">
-          <p className="font-display text-primary" style={{ fontSize: 20, marginBottom: 8 }}>Cha Jewels</p>
-          <p className="text-foreground" style={{ fontSize: 14, marginBottom: 24 }}>Enter your 4-digit portal PIN</p>
+          <p className="font-display text-primary" style={{ fontSize: 20, marginBottom: 8 }}>{pt('common.chaJewels')}</p>
+          <p className="text-foreground" style={{ fontSize: 14, marginBottom: 24 }}>{pt('states.pinPrompt')}</p>
           <input
             type="password"
             maxLength={4}
@@ -622,10 +621,10 @@ export default function CustomerPortal() {
             className={`w-full rounded-lg bg-primary text-primary-foreground font-bold ${pin.length !== 4 || pinLoading ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
             style={{ padding: 12, fontSize: 14 }}
           >
-            {pinLoading ? 'Verifying...' : 'Access My Account'}
+            {pinLoading ? pt('states.pinVerifying') : pt('states.pinAccess')}
           </button>
-          <p className="text-muted-foreground" style={{ fontSize: 11, marginTop: 16 }}>Forgot your PIN? Contact your staff.</p>
-          <p className="text-muted-foreground" style={{ fontSize: 10, marginTop: 4 }}>Default PIN: last 4 digits of your registered mobile number</p>
+          <p className="text-muted-foreground" style={{ fontSize: 11, marginTop: 16 }}>{pt('states.pinForgot')}</p>
+          <p className="text-muted-foreground" style={{ fontSize: 10, marginTop: 4 }}>{pt('states.pinDefault')}</p>
         </div>
       </div>
     );
@@ -675,15 +674,15 @@ export default function CustomerPortal() {
           <div className="flex items-center justify-between">
             <div>
               <div className="font-display text-primary text-xl" style={{ letterSpacing: '0.15em', textTransform: 'uppercase', lineHeight: 1.1 }}>
-                Cha Jewels
+                {pt('common.chaJewels')}
               </div>
               <div className="flex items-center gap-2 mt-1.5">
                 <p className="font-display text-foreground text-[15px]">
                   {(() => {
                     const h = new Date().getHours();
-                    if (h < 12) return 'Good Morning';
-                    if (h < 18) return 'Good Afternoon';
-                    return 'Good Evening';
+                    if (h < 12) return pt('home.goodMorning');
+                    if (h < 18) return pt('home.goodAfternoon');
+                    return pt('home.goodEvening');
                   })()}, {data.customer_name.split(' ')[0]}
                 </p>
                 {data.loyalty_member?.current_tier?.name && (
@@ -706,7 +705,7 @@ export default function CustomerPortal() {
                   }}
                   onClick={() => payableAccounts.length === 1 ? openAccountPay(firstPayable, 'single') : setAccountSelectModal('single')}
                 >
-                  Pay Now
+                  {pt('common.payNow')}
                 </button>
               )}
               <button
@@ -721,7 +720,7 @@ export default function CustomerPortal() {
                 onClick={() => setPortalView(portalView === 'profile' ? 'accounts' : 'profile')}
               >
                 <User className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">{portalView === 'profile' ? 'Accounts' : 'Profile'}</span>
+                <span className="hidden sm:inline">{portalView === 'profile' ? pt('nav.accounts') : pt('nav.profile')}</span>
               </button>
               {authMode === 'session' && (
                 <button
@@ -736,7 +735,7 @@ export default function CustomerPortal() {
                   onClick={handleSignOut}
                 >
                   <LogOut className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Sign Out</span>
+                  <span className="hidden sm:inline">{pt('nav.signOut')}</span>
                 </button>
               )}
             </div>
@@ -749,14 +748,14 @@ export default function CustomerPortal() {
           <div className="maison-portal font-body flex items-center justify-between gap-3 rounded-lg bg-card border border-border px-4 py-3">
             <div className="flex items-center gap-2">
               <Diamond className="h-4 w-4 shrink-0 text-primary" />
-              <span className="text-[13px] text-foreground">A new version is available. Reload to load the latest update.</span>
+              <span className="text-[13px] text-foreground">{pt('home.updateAvailable')}</span>
             </div>
             <button
               onClick={() => applyUpdate()}
               className="shrink-0 rounded-lg bg-primary text-primary-foreground px-3.5 py-1.5 text-[11px] font-semibold uppercase"
               style={{ letterSpacing: '0.1em' }}
             >
-              Reload
+              {pt('home.reload')}
             </button>
           </div>
         )}
@@ -917,10 +916,10 @@ export default function CustomerPortal() {
               <div className="maison-portal font-body rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] text-center" style={{ padding: '4rem 2rem' }}>
                 <Diamond className="h-10 w-10 mx-auto mb-4 text-primary" />
                 <p className="font-display text-foreground" style={{ fontSize: '18px', marginBottom: '8px' }}>
-                  {data.accounts.length === 0 ? "No layaway accounts yet." : 'No accounts match your search.'}
+                  {data.accounts.length === 0 ? pt('home.noAccountsTitle') : pt('home.noMatchTitle')}
                 </p>
                 <p className="text-muted-foreground" style={{ fontSize: '13px' }}>
-                  {data.accounts.length === 0 ? 'Visit Cha Jewels to start your first layaway plan.' : 'Try adjusting your filters.'}
+                  {data.accounts.length === 0 ? pt('home.noAccountsBody') : pt('home.noMatchBody')}
                 </p>
               </div>
             ) : (
@@ -1672,7 +1671,7 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
         <SheetHeader className="mb-0">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-[9px] uppercase text-muted-foreground mb-1" style={{letterSpacing:'0.2em'}}>Invoice</p>
+              <p className="text-[9px] uppercase text-muted-foreground mb-1" style={{letterSpacing:'0.2em'}}>{pt('detail.invoice')}</p>
               <SheetTitle className="font-display text-2xl text-foreground" style={{letterSpacing:'0.03em'}}>#{account.invoice_number}</SheetTitle>
             </div>
             <Badge variant="outline" className={`text-[9px] ${colorClass}`} style={{borderRadius:'2px',letterSpacing:'0.12em',textTransform:'uppercase',padding:'3px 10px'}}>
@@ -1686,27 +1685,27 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
           <div className="mt-3 flex items-start gap-2.5 p-3 rounded-lg bg-destructive/10 border-l-[3px] border-destructive">
             <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-destructive" />
             <div>
-              <p className="text-xs font-semibold text-destructive">Payment Overdue</p>
+              <p className="text-xs font-semibold text-destructive">{pt('detail.overdueTitle')}</p>
               {/* Full-strength text-destructive, not /75 — the opacity dropped
                   contrast on this tinted bg-destructive/10 banner to 3.21:1
                   (Lighthouse), short of WCAG AA's 4.5:1. */}
               <p className="text-[11px] text-destructive mt-0.5">
-                Please submit your payment as soon as possible to avoid additional penalties.
+                {pt('detail.overdueBody')}
               </p>
             </div>
           </div>
         )}
 
         <div className="mt-4 grid grid-cols-2 gap-3">
-          <InfoBlock label="Total Amount" value={fmt(account.total_amount, currency)} />
-          <InfoBlock label="Balance Due" value={fmt(account.remaining_balance, currency)} highlight={isOverdue} />
+          <InfoBlock label={pt('detail.totalAmount')} value={fmt(account.total_amount, currency)} />
+          <InfoBlock label={pt('detail.balanceDue')} value={fmt(account.remaining_balance, currency)} highlight={isOverdue} />
           {(account.outstanding_penalties ?? 0) > 0 && (
             <p className="text-[11px] text-muted-foreground mt-0.5" style={{ gridColumn: '1 / -1' }}>
-              includes {fmt(account.outstanding_penalties, currency)} in late penalties
+              {pt('detail.includesPenalties', { amount: fmt(account.outstanding_penalties, currency) })}
             </p>
           )}
-          <InfoBlock label="Next Due" value={account.next_due_date ? fmtDateLong(account.next_due_date) : '—'} />
-          <InfoBlock label="Next Amount" value={account.next_due_amount ? fmt(account.next_due_amount, currency) : '—'} />
+          <InfoBlock label={pt('detail.nextDue')} value={account.next_due_date ? fmtDateLong(account.next_due_date) : pt('common.emDash')} />
+          <InfoBlock label={pt('detail.nextAmount')} value={account.next_due_amount ? fmt(account.next_due_amount, currency) : pt('common.emDash')} />
         </div>
 
         {/* Tabs */}
@@ -1718,7 +1717,7 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
               className={`flex-1 py-2.5 px-1 text-[11px] uppercase transition-colors ${activeTab === tab ? 'font-semibold text-primary border-b-2 border-primary' : 'font-normal text-muted-foreground border-b-2 border-transparent'}`}
               style={{ letterSpacing: '0.1em' }}
             >
-              {tab === 'overview' ? 'Schedule' : tab === 'pay' ? 'Pay Now' : `Submissions${account.submissions?.length ? ` (${account.submissions.length})` : ''}`}
+              {tab === 'overview' ? pt('detail.tabSchedule') : tab === 'pay' ? pt('detail.tabPay') : `${pt('detail.tabSubmissions')}${account.submissions?.length ? ` (${account.submissions.length})` : ''}`}
             </button>
           ))}
         </div>
@@ -1849,11 +1848,6 @@ function AccountDetail({ account, allAccounts, paymentMethods, portalToken, cust
 }
 
 /* ─── Overview Tab (Maison — payment journey timeline, itemized totals, completed-plan state) ─── */
-const DETAIL_SERVICE_LABELS: Record<string, string> = {
-  resize: 'Resize', certificate: 'Certificate', polish: 'Polish',
-  change_color: 'Change Color', engraving: 'Engraving', repair: 'Repair', other: 'Other',
-};
-
 const serviceJobToneClass: Record<string, string> = {
   'Received': 'bg-secondary text-muted-foreground',
   'In Progress': 'bg-primary/10 text-primary',
@@ -1894,12 +1888,12 @@ function OverviewTab({ account }: {
       {/* Additional Services */}
       {account.services && account.services.length > 0 && (
         <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6">
-          <p className="text-[10px] uppercase text-muted-foreground mb-2" style={{ letterSpacing: '0.2em' }}>Additional Services</p>
+          <p className="text-[10px] uppercase text-muted-foreground mb-2" style={{ letterSpacing: '0.2em' }}>{pt('common.additionalServices')}</p>
           <div className="divide-y divide-border">
             {account.services.map((svc, idx) => (
               <div key={idx} className="flex items-center justify-between py-3">
                 <div>
-                  <p className="text-sm font-medium text-foreground">{DETAIL_SERVICE_LABELS[svc.service_type] || svc.service_type}</p>
+                  <p className="text-sm font-medium text-foreground">{serviceLabel(svc.service_type)}</p>
                   {svc.description && <p className="text-xs text-muted-foreground mt-0.5">{svc.description}</p>}
                 </div>
                 <p className="text-sm font-semibold text-primary tabular-nums">{fmt(svc.amount, currency)}</p>
@@ -1912,17 +1906,17 @@ function OverviewTab({ account }: {
       {/* Service Status */}
       {account.service_jobs && account.service_jobs.length > 0 && (
         <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6">
-          <p className="text-[10px] uppercase text-muted-foreground mb-2" style={{ letterSpacing: '0.2em' }}>Service Status</p>
+          <p className="text-[10px] uppercase text-muted-foreground mb-2" style={{ letterSpacing: '0.2em' }}>{pt('detail.serviceStatus')}</p>
           <div className="divide-y divide-border">
             {account.service_jobs.map((job) => {
               const toneClass = serviceJobToneClass[job.status_label] ?? 'bg-secondary text-muted-foreground';
-              const timeline = `Received ${fmtDate(job.date_received)}` +
-                (job.date_completed ? ` · Completed ${fmtDate(job.date_completed)}`
-                  : job.estimated_completion ? ` · Est. ${fmtDate(job.estimated_completion)}` : '');
+              const timeline = pt('detail.svcReceived', { date: fmtDate(job.date_received) }) +
+                (job.date_completed ? pt('detail.svcCompleted', { date: fmtDate(job.date_completed) })
+                  : job.estimated_completion ? pt('detail.svcEst', { date: fmtDate(job.estimated_completion) }) : '');
               return (
                 <div key={job.id} className="flex items-center justify-between py-3">
                   <div>
-                    <p className="text-sm font-medium text-foreground">{DETAIL_SERVICE_LABELS[job.service_type] || job.service_type}</p>
+                    <p className="text-sm font-medium text-foreground">{serviceLabel(job.service_type)}</p>
                     {job.service_description && <p className="text-xs text-muted-foreground mt-0.5">{job.service_description}</p>}
                     <p className="text-[11px] text-muted-foreground mt-0.5">{timeline}</p>
                   </div>
@@ -1940,7 +1934,7 @@ function OverviewTab({ account }: {
       {/* Payment History */}
       {account.payments.length > 0 && (
         <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6">
-          <p className="text-[10px] uppercase text-muted-foreground mb-2" style={{ letterSpacing: '0.2em' }}>Payment History</p>
+          <p className="text-[10px] uppercase text-muted-foreground mb-2" style={{ letterSpacing: '0.2em' }}>{pt('common.paymentHistory')}</p>
           <div className="divide-y divide-border">
             {account.payments.map((p, idx) => {
               const isDp = (p.reference && String(p.reference).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment');
@@ -1949,11 +1943,11 @@ function OverviewTab({ account }: {
                   <div>
                     <div className="flex items-center gap-2">
                       <p className="text-sm text-foreground">{fmtDate(p.date)}</p>
-                      {isDp && <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary whitespace-nowrap">Downpayment</span>}
+                      {isDp && <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary whitespace-nowrap">{pt('common.downpayment')}</span>}
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
                       {p.method && <span className="text-[11px] text-muted-foreground capitalize">{p.method}</span>}
-                      {p.reference && !isDp && <span className="text-[11px] text-muted-foreground">Ref: {p.reference}</span>}
+                      {p.reference && !isDp && <span className="text-[11px] text-muted-foreground">{pt('common.reference', { ref: p.reference })}</span>}
                     </div>
                   </div>
                   <p className="text-sm font-semibold tabular-nums" style={{ color: 'hsl(var(--portal-success))' }}>{fmt(p.amount, account.currency)}</p>
@@ -3100,9 +3094,9 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
 
   const handleSave = async () => {
     setFormError(null);
-    if (!fullName.trim()) { setFormError('Full Name is required.'); return; }
-    if (locationType === 'international' && !country.trim()) { setFormError('Please select a country.'); return; }
-    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setFormError('Please enter a valid email address.'); return; }
+    if (!fullName.trim()) { setFormError(pt('profile.errFullNameRequired')); return; }
+    if (locationType === 'international' && !country.trim()) { setFormError(pt('profile.errCountryRequired')); return; }
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setFormError(pt('profile.errInvalidEmail')); return; }
 
     setSaving(true);
     try {
@@ -3126,19 +3120,19 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
         }),
       });
       const json = await res.json();
-      if (!res.ok) { setFormError(json.error || 'Failed to update profile.'); return; }
+      if (!res.ok) { setFormError(json.error || pt('profile.errUpdateFailed')); return; }
       onSaved(json.profile);
       setEditing(false);
       setSuccessMsg(true);
       setTimeout(() => setSuccessMsg(false), 4000);
     } catch {
-      setFormError('Something went wrong. Please try again.');
+      setFormError(pt('profile.errGeneric'));
     } finally {
       setSaving(false);
     }
   };
 
-  const locationLabel = locationType === 'japan' ? 'Japan' : locationType === 'philippines' ? 'Philippines' : country || 'International';
+  const locationLabel = locationType === 'japan' ? pt('profile.locJapan') : locationType === 'philippines' ? pt('profile.locPhilippines') : country || pt('profile.locInternational');
 
   const fieldClass = "bg-secondary text-foreground border-border";
   const fieldLabelClass = "text-[10px] uppercase text-muted-foreground";
@@ -3146,12 +3140,12 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
   return (
     <div className="maison-portal font-body space-y-5">
       <div className="flex items-center justify-between">
-        <p className="font-display text-foreground" style={{ fontSize: '22px', fontWeight: 600 }}>My Profile</p>
+        <p className="font-display text-foreground" style={{ fontSize: '22px', fontWeight: 600 }}>{pt('profile.title')}</p>
         {!editing && (
           <button onClick={() => { resetForm(); setEditing(true); setSuccessMsg(false); }}
             className="flex items-center gap-1.5 px-3 h-8 rounded-lg border border-primary text-primary text-[11px] uppercase transition-opacity hover:opacity-80"
             style={{ letterSpacing: '0.1em' }}>
-            <Pencil className="h-3.5 w-3.5" /> Edit
+            <Pencil className="h-3.5 w-3.5" /> {pt('profile.edit')}
           </button>
         )}
       </div>
@@ -3159,49 +3153,49 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
       {successMsg && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/10 border-l-[3px] border-primary">
           <CheckCircle className="h-4 w-4 shrink-0 text-primary" />
-          <p className="text-xs text-primary">Your profile has been updated successfully.</p>
+          <p className="text-xs text-primary">{pt('profile.updated')}</p>
         </div>
       )}
 
       {!editing ? (
         <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6">
           {[
-            ['Full Name', profile.full_name],
-            ['Location', locationLabel],
-            ['Facebook Name', profile.facebook_name],
-            ['Messenger Link', profile.messenger_link],
-            ['Mobile Number', profile.mobile_number],
-            ['Email', profile.email],
-            ['Notes', profile.notes],
+            [pt('profile.fullName'), profile.full_name],
+            [pt('profile.location'), locationLabel],
+            [pt('profile.facebookName'), profile.facebook_name],
+            [pt('profile.messengerLink'), profile.messenger_link],
+            [pt('profile.mobileNumber'), profile.mobile_number],
+            [pt('profile.email'), profile.email],
+            [pt('profile.notes'), profile.notes],
           ].map(([lbl, val]) => (
             <div key={lbl} className="py-2.5 flex gap-4 border-b border-border last:border-b-0">
               <p className="text-[10px] font-medium uppercase text-muted-foreground pt-px" style={{ letterSpacing: '0.12em', width: '100px', flexShrink: 0 }}>{lbl}</p>
-              <p className={`text-[13px] ${val ? 'text-foreground' : 'text-muted-foreground italic'}`}>{val || 'Not set'}</p>
+              <p className={`text-[13px] ${val ? 'text-foreground' : 'text-muted-foreground italic'}`}>{val || pt('common.notSet')}</p>
             </div>
           ))}
         </div>
       ) : (
         <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6 space-y-4">
           <div className="space-y-1.5">
-            <Label className={fieldLabelClass}>Full Name <span className="text-destructive">*</span></Label>
+            <Label className={fieldLabelClass}>{pt('profile.fullName')} <span className="text-destructive">*</span></Label>
             <Input value={fullName} onChange={(e) => setFullName(e.target.value)} className={fieldClass} />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label className={fieldLabelClass}>Location</Label>
+              <Label className={fieldLabelClass}>{pt('profile.location')}</Label>
               <Select value={locationType} onValueChange={handleLocationChange}>
                 <SelectTrigger className={fieldClass}><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="japan">Japan</SelectItem>
-                  <SelectItem value="philippines">Philippines</SelectItem>
-                  <SelectItem value="international">International</SelectItem>
+                  <SelectItem value="japan">{pt('profile.locJapan')}</SelectItem>
+                  <SelectItem value="philippines">{pt('profile.locPhilippines')}</SelectItem>
+                  <SelectItem value="international">{pt('profile.locInternational')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             {locationType === 'international' && (
               <div className="space-y-1.5">
-                <Label className={fieldLabelClass}>Country <span className="text-destructive">*</span></Label>
+                <Label className={fieldLabelClass}>{pt('profile.country')} <span className="text-destructive">*</span></Label>
                 <CountrySelect value={country} onValueChange={setCountry} />
               </div>
             )}
@@ -3209,29 +3203,29 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label className={fieldLabelClass}>Facebook Name</Label>
+              <Label className={fieldLabelClass}>{pt('profile.facebookName')}</Label>
               <Input value={facebookName} onChange={(e) => setFacebookName(e.target.value)} className={fieldClass} />
             </div>
             <div className="space-y-1.5">
-              <Label className={fieldLabelClass}>Messenger Link</Label>
-              <Input value={messengerLink} onChange={(e) => setMessengerLink(e.target.value)} placeholder="m.me/username" className={fieldClass} />
+              <Label className={fieldLabelClass}>{pt('profile.messengerLink')}</Label>
+              <Input value={messengerLink} onChange={(e) => setMessengerLink(e.target.value)} placeholder={pt('profile.messengerPlaceholder')} className={fieldClass} />
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label className={fieldLabelClass}>Mobile Number</Label>
-              <Input value={mobileNumber} onChange={(e) => setMobileNumber(e.target.value)} placeholder="+63 or +81" className={fieldClass} />
+              <Label className={fieldLabelClass}>{pt('profile.mobileNumber')}</Label>
+              <Input value={mobileNumber} onChange={(e) => setMobileNumber(e.target.value)} placeholder={pt('profile.mobilePlaceholder')} className={fieldClass} />
             </div>
             <div className="space-y-1.5">
-              <Label className={fieldLabelClass}>Email</Label>
+              <Label className={fieldLabelClass}>{pt('profile.email')}</Label>
               <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={fieldClass} />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label className={fieldLabelClass}>Notes</Label>
-            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Any notes for Cha Jewels…"
+            <Label className={fieldLabelClass}>{pt('profile.notes')}</Label>
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder={pt('profile.notesPlaceholder')}
               className={`${fieldClass} resize-none`} />
           </div>
 
@@ -3244,13 +3238,13 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
           <div className="flex justify-end gap-3 pt-2">
             <button onClick={() => setEditing(false)} disabled={saving}
               className="px-4 py-2 rounded-lg border border-border text-muted-foreground text-xs hover:bg-secondary transition-colors">
-              Cancel
+              {pt('common.cancel')}
             </button>
             <button onClick={handleSave} disabled={saving}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold uppercase ${saving ? 'bg-secondary text-muted-foreground cursor-not-allowed' : 'bg-primary text-primary-foreground cursor-pointer'}`}
               style={{ letterSpacing: '0.1em' }}>
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-              {saving ? 'Saving…' : 'Save Changes'}
+              {saving ? pt('common.saving') : pt('common.saveChanges')}
             </button>
           </div>
         </div>

@@ -3,6 +3,7 @@ import { ChevronRight } from 'lucide-react';
 import ProgressRing from '@/components/portal/shared/ProgressRing';
 import AnimatedNumber from '@/components/portal/shared/AnimatedNumber';
 import { getPHTToday } from '@/lib/date-utils';
+import { pt } from '@/i18n/portal';
 
 /**
  * Home screen hero — the customer's most relevant layaway account (the
@@ -46,11 +47,11 @@ export default function HeroLayawayCard({ account, onPay, onViewDetails }: HeroL
 
   let dueBadge: { text: string; tone: 'default' | 'warning' | 'danger' } | null = null;
   if (isOverdue) {
-    dueBadge = { text: 'Overdue', tone: 'danger' };
+    dueBadge = { text: pt('home.overdue'), tone: 'danger' };
   } else if (account.nextDueDate) {
     const days = differenceInCalendarDays(new Date(`${account.nextDueDate}T00:00:00Z`), new Date(`${getPHTToday()}T00:00:00Z`));
-    if (days <= 0) dueBadge = { text: 'Due today', tone: 'warning' };
-    else if (days <= 3) dueBadge = { text: `Due in ${days} day${days === 1 ? '' : 's'}`, tone: 'warning' };
+    if (days <= 0) dueBadge = { text: pt('home.dueToday'), tone: 'warning' };
+    else if (days <= 3) dueBadge = { text: pt(days === 1 ? 'home.dueInDays_one' : 'home.dueInDays_other', { days }), tone: 'warning' };
   }
 
   // NOTE: warning uses the raw --portal-warning arbitrary value, never the
@@ -68,25 +69,25 @@ export default function HeroLayawayCard({ account, onPay, onViewDetails }: HeroL
       <div className="flex items-start justify-between gap-3 mb-5">
         <div>
           <p className="text-[10px] uppercase text-muted-foreground mb-1" style={{ letterSpacing: '0.2em' }}>
-            {isCompleted ? 'Fully Paid' : 'Active Layaway'}
+            {isCompleted ? pt('home.eyebrowPaid') : pt('home.eyebrowActive')}
           </p>
-          <p className="font-display text-2xl text-foreground">Invoice #{account.invoiceNumber}</p>
-          <p className="text-xs text-muted-foreground mt-0.5">{account.planMonths}-Month Layaway Plan</p>
+          <p className="font-display text-2xl text-foreground">{pt('common.invoiceHash', { number: account.invoiceNumber })}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{pt('home.planSubtitle', { months: account.planMonths })}</p>
         </div>
-        <ProgressRing percent={account.progressPercent} size={72} strokeWidth={6} label="paid" />
+        <ProgressRing percent={account.progressPercent} size={72} strokeWidth={6} label={pt('home.ringLabel')} />
       </div>
 
       {isCompleted ? (
         <div className="rounded-lg bg-secondary px-4 py-3 mb-5">
-          <p className="text-sm text-foreground">🎉 Fully paid — Thank you!</p>
+          <p className="text-sm text-foreground">{pt('home.fullyPaidThanks')}</p>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {fmt(account.totalPaid, account.currency)} of {fmt(account.totalObligation, account.currency)} paid in full.
+            {pt('home.paidOfTotal', { paid: fmt(account.totalPaid, account.currency), total: fmt(account.totalObligation, account.currency) })}
           </p>
         </div>
       ) : isPayable ? (
         <div className="mb-5">
           <div className="flex items-center gap-2 mb-1">
-            <p className="text-[10px] uppercase text-muted-foreground" style={{ letterSpacing: '0.2em' }}>Next Payment</p>
+            <p className="text-[10px] uppercase text-muted-foreground" style={{ letterSpacing: '0.2em' }}>{pt('home.nextPayment')}</p>
             {dueBadge && (
               <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${badgeToneClass[dueBadge.tone]}`}>
                 {dueBadge.text}
@@ -99,7 +100,7 @@ export default function HeroLayawayCard({ account, onPay, onViewDetails }: HeroL
               format={(n) => fmt(n, account.currency)}
             />
           </p>
-          <p className="text-xs text-muted-foreground mt-0.5">Due {fmtDate(account.nextDueDate!)}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{pt('home.dueDate', { date: fmtDate(account.nextDueDate!) })}</p>
         </div>
       ) : null}
 
@@ -110,7 +111,7 @@ export default function HeroLayawayCard({ account, onPay, onViewDetails }: HeroL
             onClick={onPay}
             className="flex-1 h-12 rounded-lg bg-primary text-primary-foreground font-semibold text-sm transition-all duration-300 hover:opacity-90"
           >
-            Pay Now
+            {pt('common.payNow')}
           </button>
         )}
         <button
@@ -118,7 +119,7 @@ export default function HeroLayawayCard({ account, onPay, onViewDetails }: HeroL
           onClick={onViewDetails}
           className={`h-12 rounded-lg border border-border text-foreground text-sm font-medium transition-colors hover:bg-secondary flex items-center justify-center gap-1 ${isPayable ? 'px-5' : 'flex-1'}`}
         >
-          View Details <ChevronRight className="h-3.5 w-3.5" />
+          {pt('common.viewDetails')} <ChevronRight className="h-3.5 w-3.5" />
         </button>
       </div>
     </div>

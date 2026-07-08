@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import PageMeta from '@/components/seo/PageMeta';
+import { pt } from '@/i18n/portal';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -21,7 +22,7 @@ function Field({
     <div className="space-y-1.5">
       <label htmlFor={id} className="text-[10px] uppercase block text-primary" style={{ letterSpacing: '0.15em' }}>
         {label} {required && <span className="text-primary">*</span>}
-        {optional && <span className="normal-case tracking-normal text-muted-foreground/70"> (optional)</span>}
+        {optional && <span className="normal-case tracking-normal text-muted-foreground/70">{pt('auth.optional')}</span>}
       </label>
       <input
         id={id}
@@ -63,7 +64,7 @@ export default function PortalSetup() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
-        setErrorMessage('Authentication session lost. Please sign in again.');
+        setErrorMessage(pt('auth.errSessionLost'));
         setState('error-conflict');
         return;
       }
@@ -85,27 +86,27 @@ export default function PortalSetup() {
       const result = await res.json();
 
       if (res.ok && result.success) {
-        toast.success('Account linked successfully');
+        toast.success(pt('auth.accountLinked'));
         navigate('/portal', { replace: true });
         return;
       }
 
       // Handle specific error states
       if (res.status === 404) {
-        setErrorMessage('We couldn’t find a customer record for this email. Please contact Cha Jewels for help.');
+        setErrorMessage(pt('auth.errNoCustomer'));
         setState('error-no-customer');
       } else if (res.status === 409) {
-        setErrorMessage('This email is already registered for portal access. Please contact support to set up your account.');
+        setErrorMessage(pt('auth.errConflictRegistered'));
         setState('error-conflict');
       } else {
-        setErrorMessage(result.error || 'Failed to link your account. Please try again or contact support.');
+        setErrorMessage(result.error || pt('auth.errLinkFailed'));
         setState('error-conflict');
       }
     } catch (err: any) {
       if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
-        setErrorMessage('Account linking timed out. Please try again — if this keeps happening, contact Cha Jewels for help.');
+        setErrorMessage(pt('auth.errLinkTimeout'));
       } else {
-        setErrorMessage('Network error. Please check your connection and try again.');
+        setErrorMessage(pt('auth.errNetwork'));
       }
       setState('error-conflict');
     } finally {
@@ -145,31 +146,31 @@ export default function PortalSetup() {
     e.preventDefault();
 
     if (!email.trim()) {
-      toast.error('Please enter your email address');
+      toast.error(pt('auth.errEnterEmail'));
       return;
     }
     if (!/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(email.trim())) {
-      toast.error('Please enter a valid email address');
+      toast.error(pt('auth.errInvalidEmail'));
       return;
     }
     if (!fullName.trim()) {
-      toast.error('Please enter your full name');
+      toast.error(pt('auth.errEnterFullName'));
       return;
     }
     if (!facebookName.trim()) {
-      toast.error('Please enter your Facebook name');
+      toast.error(pt('auth.errEnterFacebook'));
       return;
     }
     if (!country.trim()) {
-      toast.error('Please enter your country');
+      toast.error(pt('auth.errEnterCountry'));
       return;
     }
     if (password.length < 8) {
-      toast.error('Password must be at least 8 characters');
+      toast.error(pt('auth.errPasswordMin'));
       return;
     }
     if (password !== confirm) {
-      toast.error('Passwords do not match');
+      toast.error(pt('auth.errPasswordMismatch'));
       return;
     }
 
@@ -203,9 +204,7 @@ export default function PortalSetup() {
         msg.includes('user already exists') ||
         error.status === 422
       ) {
-        toast.error(
-          'This email is already registered. Please contact support if you need help accessing your portal account.',
-        );
+        toast.error(pt('auth.errAlreadyRegistered'));
       } else {
         toast.error(error.message);
       }
@@ -239,7 +238,7 @@ export default function PortalSetup() {
   if (bootstrapping) {
     return (
       <div className="maison-portal font-body min-h-screen flex items-center justify-center bg-background">
-        <p className="text-primary text-sm">Loading…</p>
+        <p className="text-primary text-sm">{pt('common.loading')}</p>
       </div>
     );
   }
@@ -253,24 +252,24 @@ export default function PortalSetup() {
       />
       <div className="maison-portal font-body min-h-screen flex items-center justify-center bg-background px-4 py-10">
         <div className="w-full max-w-sm rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-8 sm:p-10">
-          <p className="font-display text-primary text-2xl text-center mb-1" style={{ letterSpacing: '0.3em' }}>Cha Jewels</p>
-          <p className="text-[10px] uppercase text-center text-muted-foreground mb-7" style={{ letterSpacing: '0.2em' }}>Customer Portal</p>
+          <p className="font-display text-primary text-2xl text-center mb-1" style={{ letterSpacing: '0.3em' }}>{pt('common.chaJewels')}</p>
+          <p className="text-[10px] uppercase text-center text-muted-foreground mb-7" style={{ letterSpacing: '0.2em' }}>{pt('common.customerPortal')}</p>
 
           {state === 'form' && (
             <>
-              <h1 className="font-display text-foreground text-lg mb-1.5">Set up your Cha Jewels Portal account</h1>
-              <p className="text-muted-foreground text-sm mb-6">Use the email Cha Jewels has on file for you.</p>
+              <h1 className="font-display text-foreground text-lg mb-1.5">{pt('auth.setupHeading')}</h1>
+              <p className="text-muted-foreground text-sm mb-6">{pt('auth.setupSubtitle')}</p>
 
               <form onSubmit={handleSignup} className="space-y-4">
-                <Field id="portal-setup-email" name="email" label="Email" required type="email" value={email} onChange={setEmail} placeholder="you@example.com" autoComplete="email" />
-                <Field id="portal-setup-fullname" name="full_name" label="Full Name" required value={fullName} onChange={setFullName} placeholder="Your full name" autoComplete="name" />
-                <Field id="portal-setup-mobile" name="mobile_number" label="Mobile Number" optional type="tel" value={mobileNumber} onChange={setMobileNumber} placeholder="e.g. 09XX XXX XXXX" autoComplete="tel" />
-                <Field id="portal-setup-facebook" name="facebook_name" label="Facebook Name" required value={facebookName} onChange={setFacebookName} placeholder="Name on Facebook" />
-                <Field id="portal-setup-messenger" name="messenger_link" label="Messenger Link" optional value={messengerLink} onChange={setMessengerLink} placeholder="m.me/yourprofile" />
-                <Field id="portal-setup-location" name="location" label="Location" optional value={location} onChange={setLocation} placeholder="City / area" />
-                <Field id="portal-setup-country" name="country" label="Country" required value={country} onChange={setCountry} placeholder="Country" autoComplete="country-name" />
-                <Field id="portal-setup-password" name="password" label="Password" type="password" value={password} onChange={setPassword} placeholder="At least 8 characters" autoComplete="new-password" />
-                <Field id="portal-setup-confirm" name="confirm" label="Confirm Password" type="password" value={confirm} onChange={setConfirm} placeholder="Confirm your password" autoComplete="new-password" />
+                <Field id="portal-setup-email" name="email" label={pt('auth.email')} required type="email" value={email} onChange={setEmail} placeholder={pt('auth.emailPlaceholder')} autoComplete="email" />
+                <Field id="portal-setup-fullname" name="full_name" label={pt('auth.fullName')} required value={fullName} onChange={setFullName} placeholder={pt('auth.fullNamePlaceholder')} autoComplete="name" />
+                <Field id="portal-setup-mobile" name="mobile_number" label={pt('auth.mobileNumber')} optional type="tel" value={mobileNumber} onChange={setMobileNumber} placeholder={pt('auth.mobilePlaceholder')} autoComplete="tel" />
+                <Field id="portal-setup-facebook" name="facebook_name" label={pt('auth.facebookName')} required value={facebookName} onChange={setFacebookName} placeholder={pt('auth.facebookPlaceholder')} />
+                <Field id="portal-setup-messenger" name="messenger_link" label={pt('auth.messengerLink')} optional value={messengerLink} onChange={setMessengerLink} placeholder={pt('auth.messengerPlaceholder')} />
+                <Field id="portal-setup-location" name="location" label={pt('auth.location')} optional value={location} onChange={setLocation} placeholder={pt('auth.locationPlaceholder')} />
+                <Field id="portal-setup-country" name="country" label={pt('auth.country')} required value={country} onChange={setCountry} placeholder={pt('auth.countryPlaceholder')} autoComplete="country-name" />
+                <Field id="portal-setup-password" name="password" label={pt('auth.password')} type="password" value={password} onChange={setPassword} placeholder={pt('auth.setupPasswordPlaceholder')} autoComplete="new-password" />
+                <Field id="portal-setup-confirm" name="confirm" label={pt('auth.confirmPassword')} type="password" value={confirm} onChange={setConfirm} placeholder={pt('auth.confirmPasswordPlaceholder')} autoComplete="new-password" />
 
                 <button
                   type="submit"
@@ -278,7 +277,7 @@ export default function PortalSetup() {
                   aria-busy={loading}
                   className="w-full h-12 rounded-lg bg-primary text-primary-foreground font-semibold text-sm transition-all duration-300 hover:opacity-90 disabled:opacity-50"
                 >
-                  {loading ? 'Creating account…' : 'Create Account'}
+                  {loading ? pt('auth.creatingAccount') : pt('auth.createAccount')}
                 </button>
               </form>
 
@@ -287,7 +286,7 @@ export default function PortalSetup() {
                   onClick={() => navigate('/portal/login')}
                   className="text-primary text-xs hover:opacity-80 transition-opacity"
                 >
-                  Already have an account? Sign in
+                  {pt('auth.alreadyHaveAccount')}
                 </button>
               </div>
             </>
@@ -295,63 +294,63 @@ export default function PortalSetup() {
 
           {state === 'check-email' && (
             <>
-              <h1 className="font-display text-foreground text-lg mb-1.5">Check your email</h1>
-              <p className="text-muted-foreground text-sm mb-3">We sent a verification link to:</p>
+              <h1 className="font-display text-foreground text-lg mb-1.5">{pt('auth.checkEmailTitle')}</h1>
+              <p className="text-muted-foreground text-sm mb-3">{pt('auth.verificationSentTo')}</p>
               <p className="text-primary text-sm mb-5 break-all">{submittedEmail}</p>
               <p className="text-muted-foreground text-xs leading-relaxed mb-6">
-                Click the link in the email to verify your account. Once verified, you'll be linked to your Cha Jewels customer profile automatically.
+                {pt('auth.verifyInstructions')}
               </p>
               <p className="text-muted-foreground text-xs leading-relaxed mb-6">
-                Didn't receive it? Check your spam folder, or try again in a few minutes.
+                {pt('auth.didntReceive')}
               </p>
               <button
                 onClick={() => navigate('/portal/login')}
                 className="w-full h-12 rounded-lg border border-primary text-primary font-semibold text-sm transition-colors hover:bg-primary/5"
               >
-                Back to Sign In
+                {pt('auth.backToSignIn')}
               </button>
             </>
           )}
 
           {state === 'linking' && (
             <>
-              <h1 className="font-display text-foreground text-lg mb-1.5">Linking your account</h1>
-              <p className="text-muted-foreground text-sm mb-6">Just a moment…</p>
-              <p className="text-primary text-sm text-center py-5">Please wait</p>
+              <h1 className="font-display text-foreground text-lg mb-1.5">{pt('auth.linkingTitle')}</h1>
+              <p className="text-muted-foreground text-sm mb-6">{pt('auth.justAMoment')}</p>
+              <p className="text-primary text-sm text-center py-5">{pt('auth.pleaseWait')}</p>
             </>
           )}
 
           {state === 'error-no-customer' && (
             <>
-              <h1 className="font-display text-foreground text-lg mb-1.5">Account not found</h1>
+              <h1 className="font-display text-foreground text-lg mb-1.5">{pt('auth.accountNotFoundTitle')}</h1>
               <p role="alert" className="text-destructive text-sm leading-relaxed mb-5">{errorMessage}</p>
               <button
                 onClick={handleSignOutAndRetry}
                 className="w-full h-12 rounded-lg bg-primary text-primary-foreground font-semibold text-sm transition-all duration-300 hover:opacity-90 mb-3"
               >
-                Try Different Email
+                {pt('auth.tryDifferentEmail')}
               </button>
               <p className="text-muted-foreground text-[11px] text-center mt-2">
-                Need help? Contact Cha Jewels via Messenger.
+                {pt('auth.needHelpMessenger')}
               </p>
             </>
           )}
 
           {state === 'error-conflict' && (
             <>
-              <h1 className="font-display text-foreground text-lg mb-1.5">Setup error</h1>
+              <h1 className="font-display text-foreground text-lg mb-1.5">{pt('auth.setupErrorTitle')}</h1>
               <p role="alert" className="text-destructive text-sm leading-relaxed mb-5">{errorMessage}</p>
               <button
                 onClick={handleSignOutAndRetry}
                 className="w-full h-12 rounded-lg bg-primary text-primary-foreground font-semibold text-sm transition-all duration-300 hover:opacity-90 mb-3"
               >
-                Try Again
+                {pt('auth.tryAgain')}
               </button>
               <button
                 onClick={() => navigate('/portal/login')}
                 className="w-full h-12 rounded-lg border border-primary text-primary font-semibold text-sm transition-colors hover:bg-primary/5"
               >
-                Back to Sign In
+                {pt('auth.backToSignIn')}
               </button>
             </>
           )}

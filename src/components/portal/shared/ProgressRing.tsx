@@ -2,6 +2,7 @@ import { useId } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { countUpTransition } from '@/theme/portal-motion';
 import { palette } from '@/theme/portal-tokens';
+import { pt } from '@/i18n/portal';
 
 /**
  * Circular progress ring — % paid of an account. DISPLAY-ONLY: the
@@ -31,7 +32,7 @@ export default function ProgressRing({ percent, size = 96, strokeWidth = 8, labe
   const targetOffset = circumference * (1 - clamped / 100);
 
   return (
-    <div className="relative inline-flex items-center justify-center" role="img" aria-label={`${Math.round(clamped)} percent ${label ?? 'paid'}`}>
+    <div className="relative inline-flex items-center justify-center" role="img" aria-label={pt('common.percentAria', { percent: Math.round(clamped), label: label ?? pt('home.ringLabel') })}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">

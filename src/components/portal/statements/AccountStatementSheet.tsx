@@ -2,6 +2,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Printer } from 'lucide-react';
 import PaymentJourneyTimeline, { buildJourneyEntries } from '@/components/portal/detail/PaymentJourneyTimeline';
 import ItemizedTotals from '@/components/portal/detail/ItemizedTotals';
+import { pt, serviceLabel } from '@/i18n/portal';
 
 /**
  * Layaway account statement — printable, customer-facing. DISPLAY-ONLY:
@@ -62,11 +63,6 @@ export interface AccountStatementSheetProps {
   services: StatementService[];
 }
 
-const SERVICE_LABELS: Record<string, string> = {
-  resize: 'Resize', certificate: 'Certificate', polish: 'Polish',
-  change_color: 'Change Color', engraving: 'Engraving', repair: 'Repair', other: 'Other',
-};
-
 function fmt(amount: number, currency: string): string {
   return currency === 'JPY'
     ? `¥${Math.round(amount).toLocaleString('en-US')}`
@@ -94,9 +90,9 @@ export default function AccountStatementSheet(props: AccountStatementSheetProps)
           {/* No custom close button here — SheetContent already renders shadcn's
               built-in one; a second button in the same corner duplicated it. */}
           <SheetHeader className="px-5 pt-5 pb-0">
-            <p className="font-display text-xl text-primary" style={{ letterSpacing: '0.1em' }}>Cha Jewels</p>
-            <SheetTitle className="font-display text-lg text-foreground mt-1">Account Statement</SheetTitle>
-            <p className="text-xs text-muted-foreground mt-0.5">Issued {statementDate}</p>
+            <p className="font-display text-xl text-primary" style={{ letterSpacing: '0.1em' }}>{pt('common.chaJewels')}</p>
+            <SheetTitle className="font-display text-lg text-foreground mt-1">{pt('statements.title')}</SheetTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">{pt('statements.issued', { date: statementDate })}</p>
           </SheetHeader>
 
           <div className="px-5 py-5 space-y-5">
@@ -104,21 +100,21 @@ export default function AccountStatementSheet(props: AccountStatementSheetProps)
             <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-[9px] uppercase text-muted-foreground mb-0.5" style={{ letterSpacing: '0.18em' }}>Customer</p>
+                  <p className="text-[9px] uppercase text-muted-foreground mb-0.5" style={{ letterSpacing: '0.18em' }}>{pt('statements.customer')}</p>
                   <p className="text-[13px] font-medium text-foreground">{customerName}</p>
                   <p className="text-[11px] text-muted-foreground">{customerCode}</p>
                 </div>
                 <div>
-                  <p className="text-[9px] uppercase text-muted-foreground mb-0.5" style={{ letterSpacing: '0.18em' }}>Invoice</p>
+                  <p className="text-[9px] uppercase text-muted-foreground mb-0.5" style={{ letterSpacing: '0.18em' }}>{pt('statements.invoice')}</p>
                   <p className="text-[13px] font-medium text-foreground">#{invoiceNumber}</p>
                   <p className="text-[11px] text-muted-foreground">{statusLabel}</p>
                 </div>
                 <div>
-                  <p className="text-[9px] uppercase text-muted-foreground mb-0.5" style={{ letterSpacing: '0.18em' }}>Plan</p>
-                  <p className="text-[13px] font-medium text-foreground">{planMonths}-Month Layaway</p>
+                  <p className="text-[9px] uppercase text-muted-foreground mb-0.5" style={{ letterSpacing: '0.18em' }}>{pt('statements.plan')}</p>
+                  <p className="text-[13px] font-medium text-foreground">{pt('statements.planValue', { months: planMonths })}</p>
                 </div>
                 <div>
-                  <p className="text-[9px] uppercase text-muted-foreground mb-0.5" style={{ letterSpacing: '0.18em' }}>Order Date</p>
+                  <p className="text-[9px] uppercase text-muted-foreground mb-0.5" style={{ letterSpacing: '0.18em' }}>{pt('statements.orderDate')}</p>
                   <p className="text-[13px] font-medium text-foreground">{orderDate ? fmtDate(orderDate) : '—'}</p>
                 </div>
               </div>
@@ -137,12 +133,12 @@ export default function AccountStatementSheet(props: AccountStatementSheetProps)
 
             {services.length > 0 && (
               <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6">
-                <p className="text-[10px] uppercase text-muted-foreground mb-2" style={{ letterSpacing: '0.2em' }}>Additional Services</p>
+                <p className="text-[10px] uppercase text-muted-foreground mb-2" style={{ letterSpacing: '0.2em' }}>{pt('common.additionalServices')}</p>
                 <div className="divide-y divide-border">
                   {services.map((svc, idx) => (
                     <div key={idx} className="flex items-center justify-between py-3">
                       <div>
-                        <p className="text-sm font-medium text-foreground">{SERVICE_LABELS[svc.service_type] || svc.service_type}</p>
+                        <p className="text-sm font-medium text-foreground">{serviceLabel(svc.service_type)}</p>
                         {svc.description && <p className="text-xs text-muted-foreground mt-0.5">{svc.description}</p>}
                       </div>
                       <p className="text-sm font-semibold text-primary tabular-nums">{fmt(svc.amount, currency)}</p>
@@ -154,7 +150,7 @@ export default function AccountStatementSheet(props: AccountStatementSheetProps)
 
             {payments.length > 0 && (
               <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6">
-                <p className="text-[10px] uppercase text-muted-foreground mb-2" style={{ letterSpacing: '0.2em' }}>Payment History</p>
+                <p className="text-[10px] uppercase text-muted-foreground mb-2" style={{ letterSpacing: '0.2em' }}>{pt('common.paymentHistory')}</p>
                 <div className="divide-y divide-border">
                   {payments.map((p, idx) => {
                     const isDp = (p.reference && String(p.reference).startsWith('DP-')) || (p.remarks && String(p.remarks).toLowerCase() === 'downpayment');
@@ -163,11 +159,11 @@ export default function AccountStatementSheet(props: AccountStatementSheetProps)
                         <div>
                           <div className="flex items-center gap-2">
                             <p className="text-sm text-foreground">{fmtDate(p.date)}</p>
-                            {isDp && <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary whitespace-nowrap">Downpayment</span>}
+                            {isDp && <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary whitespace-nowrap">{pt('common.downpayment')}</span>}
                           </div>
                           <div className="flex items-center gap-2 mt-0.5">
                             {p.method && <span className="text-[11px] text-muted-foreground capitalize">{p.method}</span>}
-                            {p.reference && !isDp && <span className="text-[11px] text-muted-foreground">Ref: {p.reference}</span>}
+                            {p.reference && !isDp && <span className="text-[11px] text-muted-foreground">{pt('common.reference', { ref: p.reference })}</span>}
                           </div>
                         </div>
                         <p className="text-sm font-semibold tabular-nums" style={{ color: 'hsl(var(--portal-success))' }}>{fmt(p.amount, currency)}</p>
@@ -184,7 +180,7 @@ export default function AccountStatementSheet(props: AccountStatementSheetProps)
               className="print:hidden w-full h-12 rounded-lg bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 transition-opacity hover:opacity-90"
             >
               <Printer className="h-4 w-4" />
-              Print / Save as PDF
+              {pt('statements.print')}
             </button>
           </div>
         </div>

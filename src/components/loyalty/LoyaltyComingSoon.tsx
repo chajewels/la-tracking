@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { pt } from '@/i18n/portal';
 
 export interface LoyaltyComingSoonProps {
   customerEmail?: string | null;
@@ -22,7 +23,7 @@ export function LoyaltyComingSoon({
   async function handleNotify() {
     const trimmed = email.trim();
     if (!trimmed) {
-      toast.error('Enter an email to be notified');
+      toast.error(pt('loyalty.errEnterEmailNotify'));
       return;
     }
     setSubmitting(true);
@@ -34,9 +35,9 @@ export function LoyaltyComingSoon({
         throw error;
       }
       setSubmitted(true);
-      toast.success("You're on the list — we'll email you at launch");
+      toast.success(pt('loyalty.notifySuccess'));
     } catch (err: any) {
-      toast.error(err?.message || 'Could not save your email');
+      toast.error(err?.message || pt('loyalty.errSaveEmail'));
     } finally {
       setSubmitting(false);
     }
@@ -57,20 +58,19 @@ export function LoyaltyComingSoon({
       <div className="text-center">
         <div className="mb-3 text-3xl sm:text-4xl font-display" style={{ letterSpacing: '0.02em' }}>
           <span className="bg-clip-text text-transparent" style={{ backgroundImage: 'linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 50%, hsl(var(--primary)) 100%)' }}>
-            💎 Cha Jewels Loyalty Program
+            {pt('loyalty.comingSoonTitle')}
           </span>
         </div>
 
         <p className="mb-5 text-sm sm:text-base text-muted-foreground" style={{ lineHeight: 1.6 }}>
-          Coming soon! Our loyalty program is launching soon — stay tuned for
-          exclusive rewards, tier benefits, and points on every purchase.
+          {pt('loyalty.comingSoonBody')}
         </p>
 
         {!submitted ? (
           <div className="flex flex-col gap-2 sm:flex-row">
             <Input
               type="email"
-              placeholder="your@email.com"
+              placeholder={pt('loyalty.emailPlaceholder')}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={submitting}
@@ -81,12 +81,12 @@ export function LoyaltyComingSoon({
               disabled={submitting}
               className="shrink-0 font-semibold bg-primary text-primary-foreground border-none"
             >
-              {submitting ? 'Saving…' : 'Notify Me'}
+              {submitting ? pt('loyalty.savingEmail') : pt('loyalty.notifyMe')}
             </Button>
           </div>
         ) : (
           <div className="rounded-md px-3 py-2 text-sm bg-secondary text-primary border border-border">
-            ✓ You're on the list
+            {pt('loyalty.onTheList')}
           </div>
         )}
       </div>

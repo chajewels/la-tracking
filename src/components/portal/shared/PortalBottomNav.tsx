@@ -1,4 +1,5 @@
 import { Home, Wallet, Sparkles, User } from 'lucide-react';
+import { pt } from '@/i18n/portal';
 
 /**
  * Maison mobile navigation shell — the bottom tab bar spec'd for the
@@ -23,15 +24,15 @@ export type PortalTab = 'home' | 'layaway' | 'loyalty' | 'profile';
 
 interface NavTab {
   key: PortalTab;
-  label: string;
+  labelKey: string;
   icon: typeof Home;
 }
 
 const TABS: NavTab[] = [
-  { key: 'home', label: 'Home', icon: Home },
-  { key: 'layaway', label: 'Layaway', icon: Wallet },
-  { key: 'loyalty', label: 'Loyalty', icon: Sparkles },
-  { key: 'profile', label: 'Profile', icon: User },
+  { key: 'home', labelKey: 'nav.home', icon: Home },
+  { key: 'layaway', labelKey: 'nav.layaway', icon: Wallet },
+  { key: 'loyalty', labelKey: 'nav.loyalty', icon: Sparkles },
+  { key: 'profile', labelKey: 'nav.profile', icon: User },
 ];
 
 interface PortalBottomNavProps {
@@ -42,7 +43,7 @@ interface PortalBottomNavProps {
 export default function PortalBottomNav({ active, onChange }: PortalBottomNavProps) {
   return (
     <nav
-      aria-label="Portal navigation"
+      aria-label={pt('nav.label')}
       className="maison-portal font-body lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-card/97 backdrop-blur-xl border-t border-border"
     >
       <div className="max-w-lg mx-auto flex items-stretch justify-around px-1">
@@ -70,7 +71,7 @@ export default function PortalBottomNav({ active, onChange }: PortalBottomNavPro
                   isActive ? 'text-primary' : 'text-muted-foreground'
                 }`}
               >
-                {tab.label}
+                {pt(tab.labelKey)}
               </span>
             </button>
           );

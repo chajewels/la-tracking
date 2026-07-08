@@ -3,6 +3,7 @@ import { palette } from '@/theme/portal-tokens';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { TIER_STATIC, useLoyaltyData, type TierName } from './loyaltyData';
+import { pt } from '@/i18n/portal';
 
 const CONFETTI_COUNT = 14;
 const CONFETTI_COLORS = [palette.gold600, palette.gold400, palette.surface2, '#FFFFFF'];
@@ -110,11 +111,11 @@ export function TierCelebrationModal({
             style={{ boxShadow: `0 12px 48px hsl(var(--primary) / 0.33), 0 4px 16px rgba(0,0,0,0.25)` }}
           >
             <div className="text-center text-xs text-primary" style={{ letterSpacing: '0.28em', textTransform: 'uppercase' }}>
-              {isUpgrade ? '🎉 Congratulations!' : 'Tier Update'}
+              {isUpgrade ? pt('loyalty.congrats') : pt('loyalty.tierUpdate')}
             </div>
 
             <div className="mt-3 text-center text-sm italic font-display text-muted-foreground">
-              {isUpgrade ? "You've reached" : 'Your tier has been adjusted to'}
+              {isUpgrade ? pt('loyalty.youveReached') : pt('loyalty.tierAdjusted')}
             </div>
 
             <h2
@@ -166,7 +167,7 @@ export function TierCelebrationModal({
                 onClick={onClose}
                 className="px-8 font-semibold bg-primary text-primary-foreground border-none"
               >
-                Continue
+                {pt('loyalty.continue')}
               </Button>
             </div>
           </motion.div>

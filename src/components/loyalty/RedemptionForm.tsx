@@ -14,6 +14,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { supabase } from '@/integrations/supabase/client';
 import { getPortalAuthHeaders } from '@/lib/portal-auth';
 import { toast } from 'sonner';
+import { pt } from '@/i18n/portal';
 
 type RedemptionType = 'new_order_discount' | 'shipping_fee' | 'service_fee';
 
@@ -31,26 +32,26 @@ interface OrderOption {
 const TYPE_OPTIONS: Array<{
   value: RedemptionType;
   icon: string;
-  title: string;
-  description: string;
+  titleKey: string;
+  descKey: string;
 }> = [
   {
     value: 'new_order_discount',
     icon: '🏷️',
-    title: 'New Order Discount',
-    description: 'Apply as discount on a new order',
+    titleKey: 'loyalty.typeNewOrderTitle',
+    descKey: 'loyalty.typeNewOrderDesc',
   },
   {
     value: 'shipping_fee',
     icon: '📦',
-    title: 'Shipping Fee',
-    description: 'Pay shipping cost on any of your orders',
+    titleKey: 'loyalty.typeShippingTitle',
+    descKey: 'loyalty.typeShippingDesc',
   },
   {
     value: 'service_fee',
     icon: '🛠️',
-    title: 'Service Fee',
-    description: 'Pay service charges on any of your orders',
+    titleKey: 'loyalty.typeServiceTitle',
+    descKey: 'loyalty.typeServiceDesc',
   },
 ];
 
@@ -206,8 +207,8 @@ export function RedemptionForm({
 
   const pointsError = pointsInput && !pointsValid
     ? pointsNum <= 0
-      ? 'Enter a positive number'
-      : `Cannot exceed your ${remainingPoints.toLocaleString()} available points`
+      ? pt('loyalty.errPositive')
+      : pt('loyalty.errExceedsPoints', { points: remainingPoints.toLocaleString() })
     : null;
 
   async function handleSubmit() {
@@ -258,7 +259,7 @@ export function RedemptionForm({
       if (errFromBody) throw new Error(errFromBody);
 
       setSubmitted(true);
-      toast.success('Redemption request submitted');
+      toast.success(pt('loyalty.submittedToast'));
       window.setTimeout(() => {
         onSuccess?.();
         onClose();
@@ -304,14 +305,10 @@ export function RedemptionForm({
             <div className="px-6 pt-6 pb-4 shrink-0 border-b border-border">
               <DialogHeader>
                 <DialogTitle className="font-display text-primary" style={{ fontSize: '24px', letterSpacing: '0.02em' }}>
-                  Redeem Your Points
+                  {pt('loyalty.redeemTitle')}
                 </DialogTitle>
                 <DialogDescription className="text-muted-foreground">
-                  You have{' '}
-                  <span className="text-primary font-semibold">
-                    {remainingPoints.toLocaleString()}
-                  </span>{' '}
-                  points available. 1 point = ¥1 value.
+                  {pt('loyalty.redeemSubtitle', { points: remainingPoints.toLocaleString() })}
                 </DialogDescription>
               </DialogHeader>
             </div>
@@ -328,7 +325,7 @@ export function RedemptionForm({
               <InfoPanel redemptionType={redemptionType} />
               {/* Redemption Type */}
               <div>
-                <Label className="text-foreground">Redemption Type</Label>
+                <Label className="text-foreground">{pt('loyalty.redemptionType')}</Label>
                 <RadioGroup
                   value={redemptionType}
                   onValueChange={(v) => setRedemptionType(v as RedemptionType)}
@@ -344,10 +341,10 @@ export function RedemptionForm({
                       <div className="flex-1">
                         <div className="flex items-center gap-2 text-sm font-display text-foreground" style={{ fontSize: '15px' }}>
                           <span aria-hidden="true">{opt.icon}</span>
-                          {opt.title}
+                          {pt(opt.titleKey)}
                         </div>
                         <div className="mt-0.5 text-xs text-muted-foreground">
-                          {opt.description}
+                          {pt(opt.descKey)}
                         </div>
                       </div>
                     </label>
@@ -359,39 +356,30 @@ export function RedemptionForm({
               {redemptionType === 'new_order_discount' && (
                 <div>
                   <Label htmlFor="invoice" className="text-foreground">
-                    Invoice Number{' '}
+                    {pt('loyalty.invoiceNumber')}{' '}
                     <span className="text-destructive">*</span>
                   </Label>
                   <Input
                     id="invoice"
                     value={invoiceInput}
                     onChange={(e) => setInvoiceInput(e.target.value)}
-                    placeholder="e.g. 19012"
+                    placeholder={pt('loyalty.invoicePlaceholder')}
                     className="mt-2 bg-secondary text-foreground border-border"
                   />
                   <div className="mt-1 text-xs text-muted-foreground">
-                    Enter the invoice number your team gave you for the new order.
+                    {pt('loyalty.invoiceHint')}
                   </div>
                   {invoiceInput.trim() && !matchedOrder && (
                     <div className="mt-1 text-xs text-destructive">
-                      Invoice not found among your brand-new orders.
+                      {pt('loyalty.invoiceNotFound')}
                     </div>
                   )}
                   {matchedOrder && (
                     <div className="mt-1 text-xs text-primary">
-                      ✓ Found:{' '}
-                      {matchedOrder.kind === 'layaway'
-                        ? 'Layaway'
-                        : 'Cash Order'}
-                      {' — '}
-                      {matchedOrder.currency === 'PHP' ? '₱' : '¥'}
-                      {Number(matchedOrder.total_amount).toLocaleString(
-                        undefined,
-                        {
-                          maximumFractionDigits:
-                            matchedOrder.currency === 'JPY' ? 0 : 2,
-                        },
-                      )}
+                      {pt('loyalty.foundOrder', {
+                        kind: matchedOrder.kind === 'layaway' ? pt('loyalty.kindLayaway') : pt('loyalty.kindCash'),
+                        amount: `${matchedOrder.currency === 'PHP' ? '₱' : '¥'}${Number(matchedOrder.total_amount).toLocaleString(undefined, { maximumFractionDigits: matchedOrder.currency === 'JPY' ? 0 : 2 })}`,
+                      })}
                     </div>
                   )}
                 </div>
@@ -402,9 +390,9 @@ export function RedemptionForm({
                 redemptionType === 'service_fee') && (
                 <div>
                   <Label htmlFor="pts-notes" className="text-foreground">
-                    Notes{' '}
+                    {pt('loyalty.notes')}{' '}
                     <span className="text-destructive">
-                      (required for tracking &amp; notification)
+                      {pt('loyalty.notesRequiredHint')}
                     </span>
                   </Label>
                   <Textarea
@@ -413,16 +401,16 @@ export function RedemptionForm({
                     onChange={(e) => setNotes(e.target.value)}
                     rows={4}
                     maxLength={500}
-                    placeholder="Describe what this shipping fee / service fee redemption is for. The admin will see this on review."
+                    placeholder={pt('loyalty.notesPlaceholder')}
                     className="mt-2 bg-secondary text-foreground border-border"
                   />
                   <div className="mt-1 flex justify-between text-xs text-muted-foreground">
                     <span>
                       {notes.trim().length === 0
-                        ? 'Required — cannot submit without notes'
-                        : 'These points-only redemptions never touch an order.'}
+                        ? pt('loyalty.notesRequiredEmpty')
+                        : pt('loyalty.notesPointsOnly')}
                     </span>
-                    <span>{notes.length}/500</span>
+                    <span>{pt('loyalty.charCount', { count: notes.length })}</span>
                   </div>
                 </div>
               )}
@@ -430,7 +418,7 @@ export function RedemptionForm({
               {/* Points to Redeem */}
               <div>
                 <Label htmlFor="points" className="text-foreground">
-                  Points to Redeem
+                  {pt('loyalty.pointsToRedeem')}
                 </Label>
                 <Input
                   id="points"
@@ -441,7 +429,7 @@ export function RedemptionForm({
                   step={1}
                   value={pointsInput}
                   onChange={(e) => setPointsInput(e.target.value)}
-                  placeholder="0"
+                  placeholder={pt('loyalty.pointsPlaceholder')}
                   className="mt-2 bg-secondary text-foreground border-border"
                 />
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -466,11 +454,11 @@ export function RedemptionForm({
                     onClick={() => setPointsInput(String(remainingPoints))}
                     className="bg-transparent text-primary border-primary"
                   >
-                    All
+                    {pt('loyalty.quickAll')}
                   </Button>
                 </div>
                 <div className={`mt-2 text-xs ${pointsValid ? 'text-primary' : 'text-muted-foreground'}`}>
-                  = ¥{pointsNum.toLocaleString()} value
+                  {pt('loyalty.pointsValue', { amount: pointsNum.toLocaleString() })}
                 </div>
                 {pointsError && (
                   <div className="mt-1 text-xs text-destructive">
@@ -484,13 +472,13 @@ export function RedemptionForm({
               {redemptionType === 'new_order_discount' && (
                 <div>
                   <Label htmlFor="notes" className="text-foreground">
-                    Notes <span className="text-muted-foreground">(optional)</span>
+                    {pt('loyalty.notes')} <span className="text-muted-foreground">{pt('loyalty.notesOptionalHint')}</span>
                   </Label>
                   <Textarea
                     id="notes"
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Any details for our team to know"
+                    placeholder={pt('loyalty.notesOptionalPlaceholder')}
                     rows={3}
                     className="mt-2 bg-secondary text-foreground border-border"
                   />
@@ -513,14 +501,14 @@ export function RedemptionForm({
                   disabled={submitting}
                   className="text-muted-foreground"
                 >
-                  Cancel
+                  {pt('common.cancel')}
                 </Button>
                 <Button
                   type="submit"
                   disabled={!formValid || submitting}
                   className="font-semibold bg-primary text-primary-foreground disabled:bg-secondary disabled:text-muted-foreground border-none"
                 >
-                  {submitting ? 'Submitting…' : 'Submit Redemption Request'}
+                  {submitting ? pt('loyalty.submitting') : pt('loyalty.submitRedemption')}
                 </Button>
               </div>
             </form>
@@ -534,20 +522,20 @@ export function RedemptionForm({
 function InfoPanel({ redemptionType }: { redemptionType: RedemptionType | '' }) {
   const applyLine =
     redemptionType === 'new_order_discount'
-      ? 'The discount will be applied to the order matching your invoice number'
+      ? pt('loyalty.applyNewOrder')
       : redemptionType === 'shipping_fee'
-        ? 'Your shipping fee will be covered using these points'
+        ? pt('loyalty.applyShipping')
         : redemptionType === 'service_fee'
-          ? 'Your service fee will be covered using these points'
-          : 'The points will be applied to your order';
+          ? pt('loyalty.applyService')
+          : pt('loyalty.applyDefault');
   return (
     <div className="rounded-md p-3 text-xs bg-secondary border border-border text-foreground">
-      <div className="text-primary font-semibold">💡 How it works</div>
+      <div className="text-primary font-semibold">{pt('loyalty.howItWorks')}</div>
       <ol className="mt-1 space-y-0.5 pl-4 text-muted-foreground" style={{ listStyle: 'decimal' }}>
-        <li>Submit your request below</li>
-        <li>Our team will review and approve</li>
+        <li>{pt('loyalty.step1')}</li>
+        <li>{pt('loyalty.step2')}</li>
         <li>{applyLine}</li>
-        <li>You'll receive a confirmation email</li>
+        <li>{pt('loyalty.step4')}</li>
       </ol>
     </div>
   );
@@ -560,10 +548,10 @@ function SuccessView() {
         ✓
       </div>
       <DialogTitle className="mt-4 font-display text-foreground" style={{ fontSize: '20px', letterSpacing: '0.02em' }}>
-        Redemption request submitted!
+        {pt('loyalty.successTitle')}
       </DialogTitle>
       <p className="mt-2 text-sm text-muted-foreground">
-        We'll notify you once approved.
+        {pt('loyalty.successBody')}
       </p>
     </div>
   );

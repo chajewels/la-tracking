@@ -1,4 +1,5 @@
 import AnimatedNumber from '@/components/portal/shared/AnimatedNumber';
+import { pt } from '@/i18n/portal';
 
 /**
  * Layaway detail — itemized totals card. Full money transparency: every
@@ -39,17 +40,17 @@ function Row({ label, amount, currency, tone = 'default', note }: { label: strin
 export default function ItemizedTotals({ currency, totalAmount, totalServices, outstandingPenalties, totalPaid, remainingBalance }: ItemizedTotalsProps) {
   return (
     <div className="rounded-xl bg-card shadow-[0_2px_12px_rgba(43,39,35,0.06)] p-5 sm:p-6">
-      <p className="text-[10px] uppercase text-muted-foreground mb-2" style={{ letterSpacing: '0.2em' }}>Itemized Totals</p>
+      <p className="text-[10px] uppercase text-muted-foreground mb-2" style={{ letterSpacing: '0.2em' }}>{pt('detail.itemizedTotals')}</p>
       <div className="divide-y divide-border">
-        <Row label="Layaway Amount" amount={totalAmount} currency={currency} note={totalServices > 0 ? 'Includes added services' : undefined} />
+        <Row label={pt('detail.layawayAmount')} amount={totalAmount} currency={currency} note={totalServices > 0 ? pt('detail.includesAddedServices') : undefined} />
         {totalServices > 0 && (
-          <Row label="Additional Services" amount={totalServices} currency={currency} note="Already included above" />
+          <Row label={pt('common.additionalServices')} amount={totalServices} currency={currency} note={pt('detail.alreadyIncluded')} />
         )}
         {outstandingPenalties > 0 && (
-          <Row label="Outstanding Penalties" amount={outstandingPenalties} currency={currency} tone="danger" />
+          <Row label={pt('detail.outstandingPenalties')} amount={outstandingPenalties} currency={currency} tone="danger" />
         )}
-        <Row label="Total Paid to Date" amount={totalPaid} currency={currency} tone="primary" />
-        <Row label="Remaining Balance" amount={remainingBalance} currency={currency} tone={remainingBalance > 0 ? 'primary' : 'default'} />
+        <Row label={pt('detail.totalPaidToDate')} amount={totalPaid} currency={currency} tone="primary" />
+        <Row label={pt('detail.remainingBalance')} amount={remainingBalance} currency={currency} tone={remainingBalance > 0 ? 'primary' : 'default'} />
       </div>
     </div>
   );

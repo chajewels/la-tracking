@@ -3,12 +3,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { pt } from '@/i18n/portal';
 
-const BENEFITS = [
-  'Earn points on every purchase',
-  '4 tiers up to 3× points multiplier',
-  'Free international shipping',
-  'Mystery gifts for VIPs',
+const BENEFIT_KEYS = [
+  'loyalty.benefitPoints',
+  'loyalty.benefitTiers',
+  'loyalty.benefitShipping',
+  'loyalty.benefitGifts',
 ];
 
 export interface LoyaltyJoinPromptProps {
@@ -31,17 +32,17 @@ export function LoyaltyJoinPrompt({ portalToken, customerId, onJoined }: Loyalty
 
       const memberId = (data as any)?.member_id;
       if ((data as any)?.already_enrolled) {
-        toast.success("You're already a member — welcome back");
+        toast.success(pt('loyalty.alreadyMember'));
       } else if ((data as any)?.enrolled) {
-        toast.success('Welcome to Cha Jewels Loyalty');
+        toast.success(pt('loyalty.welcomeJoin'));
       } else {
-        toast.success('Joined the loyalty program');
+        toast.success(pt('loyalty.joinedGeneric'));
       }
 
       await queryClient.invalidateQueries({ queryKey: ['loyalty-access', customerId] });
       onJoined?.(memberId);
     } catch (err: any) {
-      toast.error(err?.message || 'Could not join right now — please try again');
+      toast.error(err?.message || pt('loyalty.errJoin'));
     } finally {
       setJoining(false);
     }
@@ -51,19 +52,19 @@ export function LoyaltyJoinPrompt({ portalToken, customerId, onJoined }: Loyalty
     <div className="loyalty-portal font-body mx-auto w-full max-w-md rounded-2xl p-6 sm:p-8 bg-card border-2 border-primary shadow-gold">
       <div className="mb-2 text-center text-2xl sm:text-3xl font-display" style={{ letterSpacing: '0.02em' }}>
         <span className="bg-clip-text text-transparent" style={{ backgroundImage: 'linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 50%, hsl(var(--primary)) 100%)' }}>
-          Join Cha Jewels Loyalty
+          {pt('loyalty.joinTitle')}
         </span>
       </div>
 
       <p className="mb-5 text-center text-sm text-muted-foreground">
-        Earn rewards on every order — opt in once, redeem anytime.
+        {pt('loyalty.joinSubtitle')}
       </p>
 
       <ul className="mb-6 space-y-2 text-sm text-foreground">
-        {BENEFITS.map((b) => (
-          <li key={b} className="flex items-start gap-2">
+        {BENEFIT_KEYS.map((key) => (
+          <li key={key} className="flex items-start gap-2">
             <span className="text-primary">◆</span>
-            <span>{b}</span>
+            <span>{pt(key)}</span>
           </li>
         ))}
       </ul>
@@ -73,7 +74,7 @@ export function LoyaltyJoinPrompt({ portalToken, customerId, onJoined }: Loyalty
         disabled={joining}
         className="w-full font-semibold bg-primary text-primary-foreground border-none"
       >
-        {joining ? 'Joining…' : 'Join Now'}
+        {joining ? pt('loyalty.joining') : pt('loyalty.joinNow')}
       </Button>
     </div>
   );
