@@ -538,3 +538,27 @@ run, never stored — no shpat_ secret). Cursor = system_settings key
 'shopify_products_last_synced_at'; missing → full backfill, present → delta
 (products query updated_at:>cursor); cursor advances only on full success.
 GraphQL Admin API version 2026-07.
+
+### cash_order_items + cash_orders.source_channel (added 2026-07-08, Phase 2)
+Line-item child of cash_orders. total_amount stays AUTHORITATIVE — items are
+descriptive detail that should sum to it, never override it. Values are
+SNAPSHOTTED at order time (title, sku, unit_price_jpy) so historical orders
+keep what was charged even if Shopify prices change later.
+cash_order_items columns: id uuid PK; cash_order_id uuid NOT NULL FK ->
+cash_orders ON DELETE CASCADE; product_id uuid FK -> products (nullable,
+catalog link); shopify_line_item_id text (nullable, UNIQUE where not null —
+Path-B webhook idempotency); title text NOT NULL (snapshot); sku text
+(snapshot); quantity integer NOT NULL DEFAULT 1; unit_price_jpy numeric(12,2)
+NOT NULL (snapshot); line_total_jpy numeric(12,2) NOT NULL; created_at.
+Indexes: btree(cash_order_id), btree(product_id), partial-unique
+(shopify_line_item_id) WHERE NOT NULL. RLS mirrors cash_payments:
+admin_all (ALL), staff_admin_insert (INSERT staff+admin), staff_finance_read
+(SELECT staff+finance) via has_role(auth.uid(),...). NOTE: read excludes CSR
+by design (parity with cash_payments) — add a CSR read policy at Phase 3 if
+the order-detail view needs CSR to see line items.
+cash_orders.source_channel: text NOT NULL DEFAULT 'hub_manual', CHECK IN
+('hub_manual','shopify_direct','social_manual'). Existing rows + all
+Hub-native orders = 'hub_manual'; social/live manual orders = 'social_manual';
+Shopify storefront = 'shopify_direct'. text+CHECK (not enum) for extensibility.
+Does not touch the trg_test_invoice_prefix_cash trigger (fires only on
+invoice_number/customer_id).

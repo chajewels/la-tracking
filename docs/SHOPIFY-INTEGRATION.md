@@ -1,6 +1,6 @@
 # Shopify Integration — Architecture & Roadmap
 
-Status: Phase 1 complete (2026-07-08) — product catalog sync live & verified. Design locked.
+Status: Phase 2 complete (2026-07-08) — line-item schema in place. Catalog sync live. Design locked.
 Owner: Cynthia. Single source of truth for the Shopify↔Hub integration.
 CLAUDE.md points here; do not duplicate this content there.
 
@@ -82,7 +82,15 @@ remaining_balance tracked, -> 'completed'. No change to total_amount (locked).
             system_settings cursor. Verified: 173 products backfilled (2 pages),
             four-status mapping, collections array, inventory, upsert-on-
             shopify_product_id all proven against live data.
-  Phase 2 — Line-item schema: cash_order_items + cash_orders.source_channel.
+  Phase 2 (DONE 2026-07-08) — Line-item schema in place. cash_order_items
+            child table (snapshot title/sku/unit_price; product_id FK to
+            products; shopify_line_item_id unique for Path-B idempotency;
+            ON DELETE CASCADE) + cash_orders.source_channel text NOT NULL
+            DEFAULT 'hub_manual' CHECK IN (hub_manual|shopify_direct|
+            social_manual). All 97 existing cash orders backfilled to
+            hub_manual (zero migration). RLS mirrors cash_payments
+            (admin_all / staff_admin_insert / staff_finance_read). Schema
+            only — no writer yet (Phase 3 picker + Phase 4 webhook write here).
   Phase 3 — Path A: product-picker in NewCashOrder sourcing the synced catalog
             (incl. draft & unlisted).
   Phase 4 — Path B: storefront webhook receiver (HMAC -> idempotency -> map ->
