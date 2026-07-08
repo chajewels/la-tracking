@@ -518,3 +518,23 @@ correct it. Canonical adopter: the Dashboard "New Customers" StatCard
 — its sparkline/delta start at the cutoff and exclude March entirely. Reuse
 the same cutoff constant semantics for any future customers-by-month surface;
 do NOT present March 2026 as an acquisition month.
+
+### products (Shopify catalog mirror, added 2026-07-08, Phase 1)
+Read-only mirror of the Shopify product catalog, product-grain (single-variant
+assumption — stores first variant's sku/price/inventory/barcode). Written ONLY
+by the shopify-sync-products edge function via service role; RLS allows
+authenticated SELECT only (no authenticated write — machine-synced).
+Columns: id uuid PK; shopify_product_id text UNIQUE (gid, upsert key); title
+text (carries product code, e.g. "A4724…"); sku text (nullable — codes are in
+title, not sku); price_jpy numeric(12,2); inventory_quantity integer; barcode
+text; status text (active|draft|unlisted|archived); vendor; handle;
+product_type; tags text[]; collection_titles text[]; image_url; description;
+shopify_updated_at timestamptz (delta cursor source); synced_at; created_at.
+Indexes: unique(shopify_product_id), btree(status), btree(sku),
+gin(collection_titles).
+Sync: shopify-sync-products edge function. Auth = client-credentials grant
+(POST /admin/oauth/access_token, x-www-form-urlencoded; token 24h, fetched per
+run, never stored — no shpat_ secret). Cursor = system_settings key
+'shopify_products_last_synced_at'; missing → full backfill, present → delta
+(products query updated_at:>cursor); cursor advances only on full success.
+GraphQL Admin API version 2026-07.

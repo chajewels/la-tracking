@@ -1,6 +1,6 @@
 # Shopify Integration — Architecture & Roadmap
 
-Status: Phase 0 complete (2026-07-08). Design locked. No code shipped yet.
+Status: Phase 1 complete (2026-07-08) — product catalog sync live & verified. Design locked.
 Owner: Cynthia. Single source of truth for the Shopify↔Hub integration.
 CLAUDE.md points here; do not duplicate this content there.
 
@@ -76,8 +76,12 @@ remaining_balance tracked, -> 'completed'. No change to total_amount (locked).
 ## 9. Roadmap
   Phase 0 (DONE) — store, custom app, scopes (read_all_orders, read_customers,
               read_products, read_orders), install, credentials, schema verified.
-  Phase 1 — Product catalog sync: products table + all-status sync + products/*
-            webhooks (handle draft/unlisted quirks).
+  Phase 1 (DONE 2026-07-08) — Product catalog sync LIVE. products table +
+            shopify-sync-products edge function (deployed). Client-credentials
+            token grant, GraphQL Admin API 2026-07, full+delta modes,
+            system_settings cursor. Verified: 173 products backfilled (2 pages),
+            four-status mapping, collections array, inventory, upsert-on-
+            shopify_product_id all proven against live data.
   Phase 2 — Line-item schema: cash_order_items + cash_orders.source_channel.
   Phase 3 — Path A: product-picker in NewCashOrder sourcing the synced catalog
             (incl. draft & unlisted).
@@ -90,3 +94,20 @@ remaining_balance tracked, -> 'completed'. No change to total_amount (locked).
     the existing JPY formula (JPY-only store = no conversion). Confirm at Phase 4.
   - Whether A4724-style codes are set as true Shopify SKU fields vs. only in the
     title — sync must check per product (Phase 1).
+
+## 11. Phase 1 findings (live data, 2026-07-08)
+  - 173 products in catalog; ALL currently status='active' (none draft/
+    unlisted/archived at sync time).
+  - Product codes (e.g. "A4724") live in the TITLE, not the Shopify sku field
+    — sku synced as NULL. Picker matches/displays by title. (Resolves the
+    §10 open item.)
+  - inventory_quantity IS trackable and syncs correctly: setting the A4724
+    anklet to 1pc in Shopify flowed through to inventory_quantity=1. At sync
+    time 172/173 were inventory 0 (stock not yet entered pre-launch).
+  - OPEN for Phase 3 (picker): availability signal choice — status is too
+    coarse (all active), inventory is truthful only if stock is maintained in
+    Shopify; may need a Hub-side sold-flag. Decide at picker build.
+  - OPEN for Phase 3: inventory freshness — full backfill catches inventory
+    edits; whether pure inventory edits are caught by DELTA mode (vs periodic
+    full) is unproven. At 173 products a periodic full sync is cheap and may
+    suffice; inventory_levels/update webhook is the alternative if delta misses.
